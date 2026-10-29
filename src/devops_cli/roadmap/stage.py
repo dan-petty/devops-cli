@@ -9,12 +9,13 @@ Status. The staged branch and the draft are the record.
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`. The values of one family are alternatives, and the
 families all apply. With no filter the job takes the Ready P0 and P1 bugs. It leaves out an item
-that is Blocked, In Progress or In Review, an item with the label `needs-split`, an item whose
-author has no write access (the model reads the body), an item whose "Dependencies" section names
-an open issue, a held item (`worktree_add.issue_holder`), an item whose title gives no branch name,
-an item whose text looks like a secret, and an item whose record holds `stage.needs_split`. A run
-takes at most `--limit` items, highest priority first. `--item` takes the one item it names when
-that item is open and Ready.
+that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
+It also leaves out an item with the label `needs-split`, an item whose author has no write access
+(the model reads the body), an item whose "Dependencies" section names an open issue, a held item
+(`worktree_add.issue_holder`), an item whose title gives no branch name, an item whose text looks
+like a secret, and an item whose record holds `stage.needs_split`. A run takes at most `--limit`
+items, highest priority first. `--item` takes the one item it names when that item is open and
+Ready.
 
 **Plan.** For each item the job asks the model for one `StageProposal` (`ai.for_task("analysis")`,
 prompt `roadmap_stage_change.md`), measures each task group (`stage_change.measure_groups`) and
@@ -54,9 +55,6 @@ from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
     CONST_GIT_CLI,
     CONST_ROADMAP_PRIORITY_VALUES,
-    CONST_ROADMAP_STATUS_BLOCKED,
-    CONST_ROADMAP_STATUS_IN_PROGRESS,
-    CONST_ROADMAP_STATUS_IN_REVIEW,
     CONST_ROADMAP_STATUS_READY,
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
@@ -110,10 +108,6 @@ _DEFAULT_FILTERS: Final[tuple[str, ...]] = (
     "type=bug",
 )
 _NEEDS_SPLIT_LABEL: Final[str] = "needs-split"
-# The Status values of an item that someone started or that waits on another item.
-_STARTED_STATUSES: Final[frozenset[str]] = frozenset(
-    {CONST_ROADMAP_STATUS_IN_PROGRESS, CONST_ROADMAP_STATUS_IN_REVIEW, CONST_ROADMAP_STATUS_BLOCKED}
-)
 # The words of a title's summary that make the slug of the branch.
 _SLUG_WORDS: Final[int] = 6
 
@@ -224,7 +218,7 @@ class _Judge:
         """Why the job leaves `item` out, or None when it may stage it. A person who names the
         item (`--item`) overrules the record of an earlier split."""
         checks = [
-            self._started,
+            self._not_ready,
             self._needs_split,
             self._author,
             self._title,
@@ -236,10 +230,11 @@ class _Judge:
             checks.append(self._recorded_split)
         return next((why for check in checks if (why := check(item)) is not None), None)
 
-    def _started(self, item: Item) -> str | None:
-        if item.status in _STARTED_STATUSES:
-            return MESSAGES.roadmap.stage_left_started.format(status=item.status)
-        return None
+    def _not_ready(self, item: Item) -> str | None:
+        if item.status == CONST_ROADMAP_STATUS_READY:
+            return None
+        texts = MESSAGES.roadmap
+        return texts.stage_left_not_ready.format(status=item.status or texts.stage_status_none)
 
     def _needs_split(self, item: Item) -> str | None:
         return (
@@ -304,8 +299,6 @@ def _named_item(judge: _Judge, store: RoadmapStore, number: int) -> StageSelecti
         why = texts.stage_left_not_item
     elif item.state is not GitHubState.OPEN:
         why = texts.stage_left_closed
-    elif item.status != CONST_ROADMAP_STATUS_READY:
-        why = texts.stage_left_not_ready.format(status=item.status or texts.stage_status_none)
     else:
         why = judge.reason(item, named=True)
     if item is not None and why is None:

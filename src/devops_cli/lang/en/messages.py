@@ -1934,10 +1934,7 @@ class RoadmapMessages:
     )
     stage_filter_form: str = "'{option}' is not in the form family=value."
     stage_status_none: str = "none"
-    stage_left_started: str = (
-        "Status {status}: the stage job takes only items that no one has started."
-    )
-    stage_left_not_ready: str = "Status {status}: --item stages only an open Ready item."
+    stage_left_not_ready: str = "Status {status}: the stage job takes only Ready items."
     stage_left_needs_split: str = (
         "The item has the label needs-split. Refine proposed a split, and a person makes it first."
     )

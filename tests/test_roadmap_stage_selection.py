@@ -98,6 +98,25 @@ def test_values_of_one_family_are_alternatives_and_families_all_apply(
     assert _numbers(selection) == [p2, p3]
 
 
+def test_a_filter_with_no_status_family_still_takes_only_ready_items(
+    store: InMemoryRoadmapStore,
+) -> None:
+    ready = _seed(store)
+    fresh = _seed(store, status="New")
+    unset = store.seed_issue(
+        "fix(roadmap): the job drops a label",
+        labels=BUG,
+        fields={ItemField.PRIORITY: "P1-High"},
+    )
+
+    selection = _select(store, "type=bug")
+
+    assert _numbers(selection) == [ready]
+    reasons = _reasons(selection)
+    assert "Status New" in reasons[fresh]
+    assert "Status none" in reasons[unset]
+
+
 def test_a_filter_family_that_is_not_listed_is_refused() -> None:
     with pytest.raises(ValidationError) as refused:
         parse_filters(["color=red"])

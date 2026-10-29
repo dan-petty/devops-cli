@@ -1294,7 +1294,7 @@ class RoadmapCommandHelp:
         "the pull request ready. One comment on the issue names the branch, the pull request and "
         "the task groups with their measures. The default filter is status=ready, "
         "priority=p0-critical, priority=p1-high and type=bug. The job leaves out an item that is "
-        "Blocked or started, an item with the label needs-split, an item that an account without "
+        "not Ready, an item with the label needs-split, an item that an account without "
         "write access opened, an item that depends on an open issue, an item that a pushed branch "
         "or a worktree holds, and an item whose text looks like a secret; the plan says why. A "
         "task group over the budget goes back to the model once, and a group still over it stops "
