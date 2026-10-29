@@ -526,6 +526,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("k8s", "configure-urls"),
             ("k8s", "contexts"),
             ("k8s", "gpu-matrix"),
+            ("k8s", "image-pins"),
             ("k8s", "port-forward"),
             ("k8s", "port-forward-status"),
             ("k8s", "port-forward-stop"),

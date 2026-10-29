@@ -1,0 +1,89 @@
+{
+  "buildx": "v0.38.1",
+  "runs": [
+    {
+      "image": "cloudflare/cloudflared:2026.10.4",
+      "argv": [
+        "buildx",
+        "imagetools",
+        "inspect",
+        "cloudflare/cloudflared:2026.10.4",
+        "--format",
+        "{{json .Manifest}}"
+      ],
+      "returncode": 0,
+      "stdout": "{\n  \"schemaVersion\": 2,\n  \"mediaType\": \"application/vnd.docker.distribution.manifest.list.v2+json\",\n  \"digest\": \"sha256:c6c7ae1d5dfdcb094ad344ed68ccffc26635c9c6be80965664c33baf064b0515\",\n  \"size\": 743,\n  \"manifests\": [\n    {\n      \"mediaType\": \"application/vnd.docker.distribution.manifest.v2+json\",\n      \"digest\": \"sha256:4c72c1af2984a66a255efd20fc4ec73fe0f7267384b55315ad953b354b3361b4\",\n      \"size\": 3829,\n      \"platform\": {\n        \"architecture\": \"amd64\",\n        \"os\": \"linux\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.docker.distribution.manifest.v2+json\",\n      \"digest\": \"sha256:8882c4b9cdbbd555533ff77bd16df0c14fbe8898dae311bf76a95177d0cea1ea\",\n      \"size\": 3829,\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      }\n    }\n  ]\n}",
+      "stderr": ""
+    },
+    {
+      "image": "ghcr.io/berriai/litellm:v1.103.0",
+      "argv": [
+        "buildx",
+        "imagetools",
+        "inspect",
+        "ghcr.io/berriai/litellm:v1.103.0",
+        "--format",
+        "{{json .Manifest}}"
+      ],
+      "returncode": 0,
+      "stdout": "{\n  \"schemaVersion\": 2,\n  \"mediaType\": \"application/vnd.oci.image.index.v1+json\",\n  \"digest\": \"sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7\",\n  \"size\": 1609,\n  \"manifests\": [\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:ea8629772a54f9a97a8011437ff0f160e0caee80617ab3f6aee27b0459a392d4\",\n      \"size\": 4675,\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:fa3e629495482b97b050a173755ab028549fb16a1aff8aa713c67c29dd05c634\",\n      \"size\": 838,\n      \"annotations\": {\n        \"vnd.docker.reference.digest\": \"sha256:ea8629772a54f9a97a8011437ff0f160e0caee80617ab3f6aee27b0459a392d4\",\n        \"vnd.docker.reference.type\": \"attestation-manifest\"\n      },\n      \"platform\": {\n        \"architecture\": \"unknown\",\n        \"os\": \"unknown\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:5e1c40a4f91cb13ae5161b30d09a9874a64d2556283ae766e86ec1edddb9af3e\",\n      \"size\": 4674,\n      \"platform\": {\n        \"architecture\": \"amd64\",\n        \"os\": \"linux\"\n      }\n    },\n    {\n      \"mediaType\": \"application/vnd.oci.image.manifest.v1+json\",\n      \"digest\": \"sha256:f3699b985e4be259f5409fc665469372ff8ed68d75f69eac57d7356335dd15ae\",\n      \"size\": 838,\n      \"annotations\": {\n        \"vnd.docker.reference.digest\": \"sha256:5e1c40a4f91cb13ae5161b30d09a9874a64d2556283ae766e86ec1edddb9af3e\",\n        \"vnd.docker.reference.type\": \"attestation-manifest\"\n      },\n      \"platform\": {\n        \"architecture\": \"unknown\",\n        \"os\": \"unknown\"\n      }\n    }\n  ]\n}",
+      "stderr": ""
+    },
+    {
+      "image": "ollama/ollama:0.0.0-does-not-exist",
+      "argv": [
+        "buildx",
+        "imagetools",
+        "inspect",
+        "ollama/ollama:0.0.0-does-not-exist",
+        "--format",
+        "{{json .Manifest}}"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "ERROR: docker.io/ollama/ollama:0.0.0-does-not-exist: not found\n"
+    },
+    {
+      "image": "quay.io/argoproj/argocd:v0.0.0-missing",
+      "argv": [
+        "buildx",
+        "imagetools",
+        "inspect",
+        "quay.io/argoproj/argocd:v0.0.0-missing",
+        "--format",
+        "{{json .Manifest}}"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "ERROR: quay.io/argoproj/argocd:v0.0.0-missing: not found\n"
+    },
+    {
+      "image": "dan-petty/no-such-repository-1994:1.0",
+      "argv": [
+        "buildx",
+        "imagetools",
+        "inspect",
+        "dan-petty/no-such-repository-1994:1.0",
+        "--format",
+        "{{json .Manifest}}"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed\n"
+    },
+    {
+      "image": "ghcr.io/dan-petty/no-such-image-1994:1.0",
+      "argv": [
+        "buildx",
+        "imagetools",
+        "inspect",
+        "ghcr.io/dan-petty/no-such-image-1994:1.0",
+        "--format",
+        "{{json .Manifest}}"
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "ERROR: failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Adan-petty%2Fno-such-image-1994%3Apull&service=ghcr.io: 403 Forbidden\n"
+    }
+  ]
+}

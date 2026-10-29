@@ -2661,6 +2661,14 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "docs-site",
             "Verify Built Site Pages and Links",
         ): "Path-filtered verification of index.html, no raw markdown, and links with lychee (#2070)",
+        (
+            "image-pins",
+            "Install Helm",
+        ): "Installs the pinned helm that renders the chart Applications, with the lock's installer",
+        (
+            "image-pins",
+            "Resolve the Image Pins",
+        ): "Path-filtered resolve of each image an Argo CD Application pins when k8s/ changes (#1994)",
     }
 
     all_specs = get_check_specs()

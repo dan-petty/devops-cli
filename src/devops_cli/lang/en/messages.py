@@ -554,6 +554,18 @@ class K8sMessages:
         "Popeye cluster audit {status}: {reason}. Popeye did not run, so the check did not pass."
     )
     pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."
+    image_pins_resolved: str = (
+        "Each of the {count} image(s) that the Argo CD Applications pin resolves in its registry."
+    )
+    image_pins_failed: str = (
+        "{count} image(s) that the Argo CD Applications pin do not resolve: {detail}"
+    )
+    image_pins_failure: str = "{image} (Application {applications}, registry {registry}): {error}"
+    image_pins_managed: str = (
+        "Image Updater moves these repositories, so they are not pins: {repositories}"
+    )
+    image_pins_local: str = "Only the cluster or this host reaches the registry of these images, so they are not resolved: {images}"
+    image_pins_dry_run: str = "Each image that the renders name is then resolved with: {command}"
     rbac_audit_passed: str = (
         "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
         "in {bindings} binding(s)."
@@ -643,6 +655,7 @@ class K8sMessages:
     table_title_kube_linter: str = "Kube-Linter Manifest Security Checks"
     table_title_popeye: str = "Popeye Cluster Health Sanitizer Audit"
     table_title_pluto: str = "Pluto Deprecated Kubernetes API Version Audit"
+    table_title_image_pins: str = "Image Pins of the Argo CD Applications"
     table_title_kubeconform: str = "Kubeconform Strict Schema Validation"
     table_title_nodes: str = "Nodes"
     node_ready: str = "Ready"

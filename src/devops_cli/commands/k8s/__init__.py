@@ -49,6 +49,7 @@ from devops_cli.commands.k8s.diagnostics import (
     stream_logs_cmd,
 )
 from devops_cli.commands.k8s.gpu_matrix import gpu_matrix_cmd
+from devops_cli.commands.k8s.image_pins import k8s_image_pins
 from devops_cli.commands.k8s.networking import (
     _detect_service_url,
     _extract_first_node_ip,
@@ -121,6 +122,7 @@ app.command("rbac-audit")(rbac_audit)
 app.command("lint")(k8s_lint)
 app.command("audit")(k8s_audit)
 app.command("check-deprecated")(k8s_check_deprecated)
+app.command("image-pins")(k8s_image_pins)
 app.command("create-tls-secret")(create_tls_secret)
 app.command("enable-tls")(enable_tls_stack)
 app.command("validate")(k8s_validate)

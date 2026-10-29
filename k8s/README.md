@@ -888,6 +888,10 @@ devops k8s deploy-stack --stack devops
 > [!NOTE]
 > `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.
 
+### Image Pins
+
+`devops k8s image-pins` renders each Argo CD Application as Argo CD does, and resolves each image that the rendered objects name in its registry, as an anonymous client, without pulling it. A path source renders with `kubectl kustomize`, and a chart source with the pinned `helm` and the value files of this repository, so a tag that a value file sets is checked too. It does not resolve the images that an `ImageUpdater` object names, because Image Updater moves them ([Service Image Updates](#service-image-updates)), or the images of a registry that only the cluster or the host reaches. The CI job `image-pins` runs it on each pull request that changes `k8s/`, so a wrong tag fails the pull request and not the sync. Docker Hub counts each read of a Docker Hub image as an anonymous pull of the network's public address. On the home network the cluster's nodes share that allowance, so let the CI job run the check.
+
 ### Service Image Updates
 
 Application `argocd-image-updater` runs [Argo CD Image Updater](https://argocd-image-updater.readthedocs.io/en/stable/) in namespace `argocd`, from the argo-helm chart pinned to a version like the other chart Applications. Its one ImageUpdater, `devops` in `k8s/argocd/image-updater-values.yaml`, keeps the `devops` Application on the digest `ghcr.io/dan-petty/devops-cli/service:latest` points at:
