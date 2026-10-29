@@ -20,5 +20,5 @@
 
 ## Workflow follow-up
 
-- The resolver moves to a HEAD request (`crane digest`), which Docker Hub does not count, in the follow-up issue filed with this change.
+- #2610: the resolver moves to a HEAD request (`crane digest`), which Docker Hub does not count.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

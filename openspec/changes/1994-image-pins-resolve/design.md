@@ -24,7 +24,7 @@ The Applications render eight at a time, each in a directory of its own, because
 
 - **Path sources only (the refine block's answer).** It misses the five tags that value files set (`argo-workflows`, `gitea`, `open-webui`, `dcgm-exporter`, the Argo CD Valkey). Rendering the charts costs about 15 s in the job.
 - **PyYAML or ruamel.yaml on helm's output.** Both refuse the `prometheus` chart's tab after a value, and would drop the Alertmanager StatefulSet's two images.
-- **`crane digest` (HEAD, not counted by Docker Hub).** Better for the Docker Hub allowance; needs a new pin and a recording that this session could not make. Filed as a follow-up with the measurements.
+- **`crane digest` (HEAD, not counted by Docker Hub).** Better for the Docker Hub allowance; needs a new pin and a recording that this session could not make. Filed as #2610 with the measurements.
 - **A row of `devops ci`.** The gate has no path field (`CheckSpec`), so every local gate and the pre-push hook would read the registries, and spend the Docker Hub allowance of the developer's network.
 - **The Docker SDK for the reference split.** It ships no type information, and `src` is at its `type: ignore` ceiling; the ten-line split follows the grammar and a test holds it to the SDK.
 - **Pass on a rate limit.** A check that passes when it could not read the registry is an escape; the job is not a required check, so a person re-runs it after the hour.
