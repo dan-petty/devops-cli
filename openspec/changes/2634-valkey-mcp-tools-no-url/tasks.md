@@ -9,7 +9,14 @@
 - [x] Regenerate the tool documentation
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 2. Archive
+## 2. The accepted case is recorded
+
+- [x] Add a test that pins the case: `devops valkey ping --url` sends the password to the host that a person types
+  - Verification: `uv run devops ci test tests/test_valkey.py`
+- [x] Add a paragraph under principle 11 of `SECURITY.md` and a note in the docstring of `_resolve_client`
+  - Verification: `uv run devops docs check`
+
+## 3. Archive
 
 - [ ] Archive the change
   - Verification: `uv run devops openspec archive 2634-valkey-mcp-tools-no-url`

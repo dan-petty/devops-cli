@@ -38,7 +38,11 @@ _UrlOption = Annotated[
 
 
 def _resolve_client(url: str | None = None, settings: Settings | None = None) -> ValkeyClient:
-    """The client for the Valkey at `url`, or at `valkey.url` when `url` is None."""
+    """The client for the Valkey at `url`, or at `valkey.url` when `url` is None.
+
+    The password goes to the host of `url`. A person types `--url`, and no MCP tool publishes it
+    (SECURITY.md, principle 11).
+    """
     cfg_settings = settings or load_settings()
     cfg = cfg_settings.valkey
     endpoint = cfg.endpoint if url is None else parse_valkey_url(url, setting=_URL_OPTION)

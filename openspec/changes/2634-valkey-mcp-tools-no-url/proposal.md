@@ -10,7 +10,7 @@ A model could make devops-cli send the Valkey password to any host that it names
 
 - The six MCP tools publish no `url` option. Each tool dials the endpoint of `valkey.url` and sends the password only to it. A call that gives `url` fails at the argument contract. It opens no connection.
 - The tools keep their other options: `section` for `valkey_info`, `key` for `valkey_get`, `key`, `value`, `ex` and `dry_run` for `valkey_set`, and `all_databases` and `dry_run` for `valkey_flush`.
-- The nine `devops valkey` commands keep `--url` for a person at the command line.
+- The nine `devops valkey` commands keep `--url` for a person at the command line. The password goes to the host that the person types. `SECURITY.md` records this accepted case under principle 11, and a test pins it.
 - The shared fake `serving_valkey` returns at once when no client connects. A test of a refused call needs this. Before, the fake waited 30 seconds for a client that never came.
 - A consumer sees the tool schemas and the connections, so the change carries a spec delta. It adds one requirement to the capability `valkey-endpoint`.
 - This change fits one pull request.
@@ -30,7 +30,7 @@ None.
 - `src/devops_cli/ai/mcp/generator.py`.
 - `tests/test_valkey.py` and `tests/support/fakes/valkey.py`.
 - `docs/MCP_TOOLS.md` (generated).
-- `SECURITY.md` needs no change. Principle 11 already says that a tool publishes no option for a URL from a model. It holds no list of open exceptions.
+- `SECURITY.md` (one paragraph under principle 11) and `src/devops_cli/commands/valkey.py` (the docstring of `_resolve_client`).
 
 ## Feasibility
 

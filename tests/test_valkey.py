@@ -1066,3 +1066,16 @@ class TestValkeyToolsTakeNoUrlFromTheModel:
             failed, _reply = await _call_valkey_tool(tool, arguments)
 
         assert (failed, received) == (False, [["AUTH", _PASSWORD], *commands])
+
+    def test_the_url_option_of_a_command_sends_the_password_to_the_host_that_a_person_types(
+        self, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+    ) -> None:
+        """A person types `--url`, and no model gives it, so the password goes to that host."""
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PASSWORD", _PASSWORD)
+        with serving_valkey(_VALKEY_REPLIES) as (port, received):
+            result = cli("valkey", "ping", "--url", f"valkey://127.0.0.1:{port}/3")
+
+        assert (result.exit_code, received) == (
+            0,
+            [["AUTH", _PASSWORD], ["SELECT", "3"], ["PING"]],
+        )
