@@ -1,7 +1,9 @@
 name: PR Title
 
 # release-please reads each squash title as a Conventional Commit and drops a title it cannot
-# parse without a warning, so the title of every pull request into main is checked.
+# parse without a warning, so the title of every pull request into main is checked. The title is
+# also the squash subject and the changelog line, so its summary has at most 60 characters
+# (CONTRIBUTING.md section 4). The action matches subjectPattern against the summary only.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
@@ -23,3 +25,8 @@ jobs:
         uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          subjectPattern: ^.{1,60}$
+          subjectPatternError: >-
+            The summary after "<type>(<scope>): " has more than 60 characters. Shorten it to 60
+            characters or fewer (CONTRIBUTING.md section 4).

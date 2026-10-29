@@ -225,6 +225,29 @@ def test_every_pull_request_title_into_main_is_a_conventional_commit() -> None:
     )
 
 
+def _title_summary_accepted(pattern: str, summary: str) -> bool:
+    """The action's own rule: the first match of `subjectPattern` must cover the whole summary."""
+    match = re.search(pattern, summary)
+    return match is not None and len(match.group(0)) == len(summary)
+
+
+def test_a_pull_request_title_summary_has_at_most_60_characters() -> None:
+    """The squash subject and the changelog line are the pull request title, so its summary, the
+    text after `<type>(<scope>): `, has at most 60 characters (#1803, CONTRIBUTING.md section 4).
+    The error names the limit and the document that sets it."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "pr-title.yml")
+    inputs = workflow["jobs"]["semantic-title"]["steps"][0]["with"]
+    pattern = inputs["subjectPattern"]
+
+    assert (
+        _title_summary_accepted(pattern, "a" * 60),
+        _title_summary_accepted(pattern, "a" * 61),
+        _title_summary_accepted(pattern, "devops gh issues close records a close reason"),
+        "60 characters" in inputs["subjectPatternError"],
+        "CONTRIBUTING.md" in inputs["subjectPatternError"],
+    ) == (True, False, True, True, True)
+
+
 def test_release_workflow_attest_build_provenance_contract() -> None:
     """Validate that release.yml specifies subject-name when using actions/attest-build-provenance."""
     workflow = _load_workflow(RELEASE_PATH)
