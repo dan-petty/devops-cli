@@ -2010,6 +2010,9 @@ class RoadmapMessages:
     implement_left_all_ticked: str = (
         "Every task of its change `{folder}` is ticked, so no group is left to run."
     )
+    implement_left_no_tasks: str = (
+        "Its change `{folder}` has no readable tasks.md on {branch}: {reason}"
+    )
     implement_left_stopped: str = (
         "A step stopped it at {stopped}. A person fixes the cause and comments `implement: retry`."
     )
@@ -2301,7 +2304,9 @@ class RoadmapMessages:
     implement_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "comments": "the item holds a stop",
-            "planned": "the item is Planned: its plan is on the default branch and its branch is gone",
+            "planned": (
+                "the item is Planned: its plan is on the default branch and its branch is gone"
+            ),
             "staged": "the item is Staged: its branch is on origin",
             "clear_stop": "a retry comment clears the stop",
             "docs_commit": "the documentation changes",

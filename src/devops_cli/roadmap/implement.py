@@ -21,7 +21,8 @@ is not Ready, it is neither Staged nor Planned, a step stopped it and no person 
 its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
 a commit by anyone but the App, a worktree holds the issue, its pull request is not an open
 draft, or, for a Planned item, a branch of `origin` holds the issue, its change is archived, it
-has no branch name, or every task of its change is ticked. A run takes at most `--limit` items,
+has no branch name, its change has no `tasks.md` on the default branch, or every task of its
+change is ticked. A run takes at most `--limit` items,
 the highest priority first. `--item` takes the one item it names and does not apply the filter or
 the limit.
 
@@ -45,7 +46,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions import GitHubNotFoundError
+from devops_cli.exceptions import GitHubNotFoundError, GitOperationError
 from devops_cli.git.branch_form import BranchParts, branch_name, parse_branch
 from devops_cli.git.worktree_add import (
     issue_holder,
@@ -249,7 +250,12 @@ class _Judge:
         held = issue_holder(self._source, item.number, self._heads)
         if held is not None:
             return held
-        tasks = tasks_on_default(self._source, self._planned, folder, operation=GIT_OPERATION)
+        try:
+            tasks = tasks_on_default(self._source, self._planned, folder, operation=GIT_OPERATION)
+        except GitOperationError as error:
+            return texts.implement_left_no_tasks.format(
+                folder=folder, branch=self._planned.default, reason=error
+            )
         if all(task.ticked for group in parse_task_groups(tasks) for task in group.tasks):
             return texts.implement_left_all_ticked.format(folder=folder)
         return ImplementTarget(item, branch, None, retry)
