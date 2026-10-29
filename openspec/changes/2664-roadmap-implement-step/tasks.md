@@ -13,9 +13,9 @@
 
 ## 2. The groups, the inputs and the measure of a step
 
-- [ ] Add failing tests: the groups of a `tasks.md`, the verification commands and the files of a group, the first request of a step, a refused window, a dirty checkout and a missing change
+- [x] Add failing tests: the groups of a `tasks.md`, the verification commands and the files of a group, the first request of a step, a refused window, a dirty checkout and a missing change
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Add `parse_task_groups`, `build_step_inputs` and the refusals in `roadmap/implement_step.py`, the prompt `roadmap_implement_step.md` and `RoadmapImplementError`
+- [x] Add `parse_task_groups`, `build_step_inputs` and the refusals in `roadmap/implement_step.py`, the prompt `roadmap_implement_step.md` and `RoadmapImplementError`
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
 
 ## 3. The run, the exit checks and the commit

@@ -2912,6 +2912,14 @@ CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000
 # output a stopped step reports.
 CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
 CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
+# The headings, in lower case, of the two sections of an issue that a step gives the model: the
+# problem, as the issue form and refine's proposal word it, and the acceptance criteria.
+CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS: Final[frozenset[str]] = frozenset(
+    {"problem or motivation", "problem statement"}
+)
+CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS: Final[frozenset[str]] = frozenset(
+    {"acceptance criteria"}
+)
 # The text that starts a second command in a shell command line. The shell tool refuses a command
 # that holds one, because its allowlist reads only the first word. `&` alone is not here, since
 # `2>&1` holds it.
