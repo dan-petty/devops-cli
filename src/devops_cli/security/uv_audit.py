@@ -21,7 +21,6 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_UV, build_uv_audit_cmd
 from devops_cli.config.constants import CONST_UV_LOCK_FILENAME
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.lang import MESSAGES
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
@@ -134,9 +133,7 @@ class UvAuditScanner(BaseSecurityScanner):
         return parse_uv_audit_json(data)
 
 
-def run_uv_audit_scan(
-    target: Path = DEFAULT_CURRENT_PATH, *, tool_executor: ToolExecutor | None = None
-) -> ScanOutcome:
+def run_uv_audit_scan(target: Path, *, tool_executor: ToolExecutor | None = None) -> ScanOutcome:
     """Audit the `uv.lock` of the project of the directory `target`, as it is, and return the
     outcome. uv audit starts in `target` through `tool_executor`."""
     return UvAuditScanner(tool_executor).scan(target)

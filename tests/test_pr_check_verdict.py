@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -18,6 +19,7 @@ from devops_cli.github.check_verdict import (
     fetch_pr_check_verdicts,
 )
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 # The REST fallback reads check runs through the GitHub session (#983).
 _NO_RUNS = {"total_count": 0, "check_runs": []}
@@ -658,3 +660,32 @@ def test_commit_status_read_raising_propagates_and_never_passes(
 
     with pytest.raises(type(error)):
         fetch_pr_check_verdicts(1350, repo="owner/repo", runner=runner)
+
+
+def test_with_no_repo_the_fallback_reads_the_origin_of_the_checkout_it_gets(
+    github_api: GitHubApiFake, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """With no `repo`, the REST fallback reads the checks in the repository of the origin of the
+    checkout that the caller gives, not of the directory that the process runs in (#2127)."""
+    (tmp_path / ".git").mkdir()
+    process_fake.answer(
+        "git remote get-url origin", ProcessAnswer(stdout="https://github.com/owner/repo.git\n")
+    )
+    github_api.route("GET", _check_runs("sha2127"), github_json(_ONE_PASSING_BUILD))
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI error"),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps({"state": "success", "total_count": 0, "statuses": []}),
+                stderr="",
+            ),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(
+        2127, head_sha="sha2127", runner=mock_runner, checkout=tmp_path
+    )
+    assert (verdict.is_passing, [call.cwd for call in process_fake.calls]) == (
+        True,
+        [tmp_path.resolve()],
+    )

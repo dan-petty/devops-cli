@@ -24,7 +24,7 @@ import typer
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
 from devops_cli.core.cli import new_typer
-from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.lang import HELP, MESSAGES
@@ -64,7 +64,7 @@ def _exit_on_failure(action: str) -> Iterator[None]:
 
 def _target(repo: str | None) -> str:
     """The repository: `--repo`, or the checkout's origin, which reads no network."""
-    target = repo or get_repo_origin_name()
+    target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
     if not target or "/" not in target:
         print_error("Cannot resolve the repository; pass --repo owner/name.")
         raise typer.Exit(1)

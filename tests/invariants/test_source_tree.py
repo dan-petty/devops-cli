@@ -17,6 +17,11 @@ _SCHEMA_REFLECTION_CALLS = frozenset(
 )
 
 
+# The origin lookup, which takes the root of its repository from the caller (#2127). The ast-grep
+# rule `review-cwd-read` holds the scanner entry points, but `core/repo.py` is outside it.
+_ORIGIN_LOOKUP = ("devops_cli/core/repo.py", "get_repo_origin_name")
+
+
 # The module that declares the settings, and the package that may read a setting's default (#2447).
 _SETTINGS_MODULE = "devops_cli/config/settings.py"
 _CONFIG_PACKAGE = "devops_cli/config/"
@@ -71,6 +76,22 @@ def _setting_default_reads_outside_config(trees: ParsedTreeMap) -> list[str]:
             elif isinstance(node, ast.Attribute) and node.attr in names:
                 reads.append(f"{rel}:{node.lineno} {node.attr}")
     return sorted(reads)
+
+
+def _origin_lookup_root_default(trees: ParsedTreeMap) -> str:
+    """The default of the root parameter of the origin lookup, `missing` if the lookup is gone,
+    or an empty string."""
+    rel, name = _ORIGIN_LOOKUP
+    tree = trees[(REPO_ROOT / "src").resolve() / rel]
+    function = next(
+        (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name), None
+    )
+    if function is None:
+        return "missing"
+    positional = [*function.args.posonlyargs, *function.args.args]
+    if positional and len(function.args.defaults) == len(positional):
+        return ast.unparse(function.args.defaults[0])
+    return ""
 
 
 def _called_name(node: ast.Call) -> str | None:
@@ -152,3 +173,12 @@ def test_one_path_validates_a_structured_reply_and_reflects_its_errors(
     """`chat_structured` is the one path that validates a model reply against a schema, sends the
     model the errors and asks again (#1003): no other module builds a schema reflection."""
     assert _schema_reflection_calls_outside(parsed_source_trees, _STRUCTURED_OUTPUT_MODULES) == []
+
+
+def test_the_origin_lookup_takes_its_repository_root_from_the_caller(
+    parsed_source_trees: ParsedTreeMap,
+) -> None:
+    """`get_repo_origin_name` takes the root of its repository from the caller, with no default
+    (#2127). A default of no root made a call that gave none read the working directory of the
+    process."""
+    assert _origin_lookup_root_default(parsed_source_trees) == ""

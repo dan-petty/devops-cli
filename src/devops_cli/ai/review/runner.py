@@ -1062,12 +1062,16 @@ def _prepare_branch_content(
 def _prepare_pr_content(
     number: int,
     repo_arg: str | None = None,
+    *,
+    checkout: Path | None = None,
     **kwargs: Any,
 ) -> tuple[list[str], str, PullRequest, str, BaseRevision | None]:
     """Fetch PR details, diff blocks, and title for PR review target.
 
-    With `head_dir`, the PR head's changed files are written under it, and the base revision
-    they are compared with is returned; without it, there is none.
+    The repository is `repo_arg`, or with none, the origin of the repository at `checkout`,
+    which the command gives (#2127). With `head_dir`, the PR head's changed files are written
+    under it, and the base revision they are compared with is returned; without it, there is
+    none.
     """
     import typer
 
@@ -1078,7 +1082,7 @@ def _prepare_pr_content(
     if repo is None:
         from devops_cli.core.repo import get_repo_origin_name
 
-        repo = get_repo_origin_name()
+        repo = get_repo_origin_name(checkout) if checkout is not None else None
         if not repo:
             parse_err = MESSAGES.review.github_repo_parse_failed.format(raw="")
             print_error(parse_err, prefix=False)

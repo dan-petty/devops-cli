@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Annotated, Any, cast
 
 import typer
@@ -125,6 +126,22 @@ def _render_pr_table(prs: list[dict[str, Any]], state: str) -> None:
     )
 
 
+def _checkout() -> Path:
+    """The root of the repository that holds the working directory, which the command reads here
+    and nowhere else (#2127)."""
+    from devops_cli.core.repo import find_repo_root
+
+    return find_repo_root(Path.cwd())
+
+
+def _target_repo(repo: str | None) -> str | None:
+    """The repository: `--repo`, or the origin of the repository that holds the working
+    directory."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    return repo or get_repo_origin_name(_checkout())
+
+
 def _filter_fallback_prs(raw_prs: Any, state: str, limit: int) -> list[dict[str, Any]] | None:
     """Filter and slice pull requests from REST API response."""
     if not isinstance(raw_prs, list):
@@ -137,9 +154,7 @@ def _filter_fallback_prs(raw_prs: Any, state: str, limit: int) -> list[dict[str,
 
 def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) -> bool:
     """Fallback to REST API GET /pulls when gh pr list fails (e.g. GraphQL rate limits)."""
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target = repo or get_repo_origin_name()
+    target = _target_repo(repo)
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
@@ -218,9 +233,7 @@ def list_prs(
 
 def _split_target_repo(repo: str | None) -> tuple[str, str]:
     """The owner and name of `repo`, or of the checkout's origin; empty when neither names one."""
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target = repo or get_repo_origin_name()
+    target = _target_repo(repo)
     if not target or "/" not in target:
         return "", ""
     owner, repo_name = target.split("/", 1)
@@ -330,7 +343,7 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
     """Render check runs via REST API when gh pr checks fails or hits rate limits."""
     from devops_cli.github.check_verdict import fetch_pr_check_verdicts
 
-    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh)
+    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh, checkout=_checkout())
     _render_check_verdict_table(number, verdict)
     return True
 
@@ -381,7 +394,7 @@ def pr_checks(
     _require_gh_cli()
     from devops_cli.github.check_verdict import fetch_pr_check_verdicts
 
-    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh)
+    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh, checkout=_checkout())
     _render_check_verdict_table(number, verdict)
     if verdict.exit_code != 0:
         raise typer.Exit(verdict.exit_code)
@@ -599,10 +612,9 @@ def monitor_pr_command(
     be read; 2: another blocker; 3: the timeout passed first.
     """
     _require_gh_cli()
-    from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.github.pr_monitor import monitor_pr
 
-    target_repo = repo or get_repo_origin_name()
+    target_repo = _target_repo(repo)
     owner, repo_name = _validate_monitor_args(output_format, interval, timeout, target_repo)
     pr_number = _resolve_monitor_pr_number(number, owner, repo_name)
 
@@ -663,9 +675,7 @@ def _fallback_patch_pr(
     milestone: str | None = None,
 ) -> bool:
     """Fallback to REST API PATCH when gh pr edit fails (e.g. rate limit)."""
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target = repo or get_repo_origin_name()
+    target = _target_repo(repo)
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
@@ -837,9 +847,7 @@ def _fallback_create_pr(
 ) -> bool:
     """Open the draft through REST `POST /pulls` when gh pr create fails (e.g. GraphQL rate
     limits), into `base` or else the repository's default branch."""
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target = repo or get_repo_origin_name()
+    target = _target_repo(repo)
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
@@ -1144,10 +1152,9 @@ def _render_threads_table(threads: list[Any]) -> None:
 
 def _resolve_readiness_target(repo: str | None, number: int | None) -> tuple[str, str, int]:
     """Resolve repository owner, name and target PR number."""
-    from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.github.pr_monitor import resolve_branch_pr_number
 
-    target_repo = repo or get_repo_origin_name()
+    target_repo = _target_repo(repo)
     if not target_repo or "/" not in target_repo:
         print_error("Target repository must be in OWNER/REPO format.")
         raise typer.Exit(1)
@@ -1521,9 +1528,7 @@ def _update_single_pr(
 ) -> tuple[bool, str]:
     """Update a specific pull request branch from its base branch."""
     _require_gh_cli()
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target_repo = repo or get_repo_origin_name()
+    target_repo = _target_repo(repo)
     if not target_repo or "/" not in target_repo:
         print_error("Target repository must be in OWNER/REPO format.", prefix=False)
         return False, "Target repository could not be determined."
@@ -1626,9 +1631,7 @@ def _update_all_prs(
     Only the account's own pull requests are updated, so a pull request that a bot or another
     person owns, such as the one release-please writes, is never merged into.
     """
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target_repo = repo or get_repo_origin_name()
+    target_repo = _target_repo(repo)
     if dry_run or is_dry_run():
         plan = _plan_update_all_prs(
             target_repo=target_repo,
@@ -1967,10 +1970,9 @@ def list_threads(
     ] = "table",
 ) -> None:
     """List PR review discussion threads, file locations, and comments."""
-    from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.github.pr_threads import list_pr_review_threads
 
-    target_repo = repo or get_repo_origin_name()
+    target_repo = _target_repo(repo)
     if not target_repo or "/" not in target_repo:
         print_error("Target repository must be in OWNER/REPO format.")
         raise typer.Exit(1)
@@ -2083,10 +2085,9 @@ def resolve_all_threads_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
 ) -> None:
     """Resolve all or replied review discussion threads for a pull request."""
-    from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.github.pr_threads import resolve_all_pr_review_threads
 
-    target_repo = repo or get_repo_origin_name()
+    target_repo = _target_repo(repo)
     if not target_repo or "/" not in target_repo:
         print_error("Target repository must be in OWNER/REPO format.")
         raise typer.Exit(1)

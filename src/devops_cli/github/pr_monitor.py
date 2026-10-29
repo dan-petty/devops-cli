@@ -157,16 +157,11 @@ def _resolve_pr_via_gh_view(target_repo: str | None, target_branch: str) -> int:
         raise GitHubOperationError(f"Unexpected PR number output: {proc.stdout.strip()}") from exc
 
 
-def resolve_branch_pr_number(
-    branch_name: str | None = None,
-    owner: str | None = None,
-    repo: str | None = None,
-) -> int:
-    """Resolve pull request number associated with current or specified branch."""
+def resolve_branch_pr_number(branch_name: str | None = None, *, owner: str, repo: str) -> int:
+    """Resolve the number of the open pull request of the current or the specified branch in
+    `owner`/`repo`, which the command gives (#2127)."""
     target_branch = _resolve_current_git_branch(branch_name)
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target_repo = f"{owner}/{repo}" if owner and repo else get_repo_origin_name()
+    target_repo = f"{owner}/{repo}"
     rest_num = _try_resolve_pr_via_rest(target_repo, target_branch)
     if rest_num is not None:
         return rest_num

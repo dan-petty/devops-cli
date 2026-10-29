@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Final
 
 from pydantic import BaseModel, Field
@@ -401,11 +402,12 @@ def read_commit_checks(
     return CheckVerdictSummary(items=items)
 
 
-def _resolve_target_owner_repo(repo: str | None) -> tuple[str, str] | None:
-    """Resolve owner and repo_name from repo string or git origin."""
+def _resolve_target_owner_repo(repo: str | None, checkout: Path | None) -> tuple[str, str] | None:
+    """Resolve owner and repo_name from `repo`, or from the origin of the repository at
+    `checkout`."""
     from devops_cli.core.repo import get_repo_origin_name
 
-    target = repo or get_repo_origin_name()
+    target = repo or (get_repo_origin_name(checkout) if checkout is not None else None)
     if not target or "/" not in target:
         return None
     owner, repo_name = target.split("/", 1)
@@ -441,11 +443,15 @@ def fetch_pr_check_verdicts(
     repo: str | None = None,
     head_sha: str | None = None,
     runner: Any = None,
+    *,
+    checkout: Path | None = None,
 ) -> CheckVerdictSummary:
     """Fetch PR check runs and return structured fail-closed verdict summary.
 
     First attempts to read checks via 'gh pr checks --json name,state,bucket,workflow,link'.
     If that fails, returns invalid JSON, or fails closed, falls back to REST check-runs API.
+    The fallback reads the checks of `repo`, or with no `repo`, of the origin of the repository
+    at `checkout`, which the command gives (#2127).
     """
     gh_runner = runner if runner is not None else run_gh
     cmd = pr_checks_args(number, repo)
@@ -464,7 +470,7 @@ def fetch_pr_check_verdicts(
                 ]
             return CheckVerdictSummary(items=parsed)
 
-    owner_repo = _resolve_target_owner_repo(repo)
+    owner_repo = _resolve_target_owner_repo(repo, checkout)
     if not owner_repo:
         err_msg = res.stderr.strip() or f"exit code {res.returncode}"
         return CheckVerdictSummary(

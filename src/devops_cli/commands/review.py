@@ -38,6 +38,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.repo import find_repo_root
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
 from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan, set_dry_run
 from devops_cli.exceptions import ConfigurationError
@@ -727,14 +728,16 @@ def _run_pr_review_workflow(
     full: bool,
     session_id: str,
     repo_arg: str | None = None,
+    *,
+    checkout: Path,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
-    """Execute PR review workflow, using detached worktree if available, else partial context."""
+    """Execute PR review workflow, using detached worktree if available, else partial context.
+
+    `checkout` is the local checkout of the PR's repository, which the command gives."""
     from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.git.worktree import fetch_pr_head, review_worktrees_context
 
     base_sha = pull.base.sha
-    # The one read of the working directory: the local checkout of the PR's repository (#2098).
-    checkout = Path.cwd()
     local_repo = get_repo_origin_name(checkout)
     if repo_arg is not None and local_repo is not None and repo_arg != local_repo:
         pr_commit = None
@@ -903,10 +906,13 @@ def pr(
         raise typer.Exit(1) from exc
     # The review reads the PR head's files, not the local checkout's version of them.
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    # The one read of the working directory: the root of the local checkout of the PR's
+    # repository (#2098, #2127).
+    checkout = find_repo_root(Path.cwd())
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent)
         pages, title, pull, repo_name, base_revision = _prepare_pr_content(
-            number, repo, head_dir=head_dir
+            number, repo, checkout=checkout, head_dir=head_dir
         )
         reviews = _run_pr_review_workflow(
             pages,
@@ -923,6 +929,7 @@ def pr(
             full,
             session_id,
             repo_arg=repo,
+            checkout=checkout,
         )
 
     if post_comment and reviews:

@@ -11,7 +11,6 @@ from devops_cli.config.commands import BIN_BANDIT
 from devops_cli.config.constants import CONST_BANDIT_INI_NAME, CONST_REVIEW_SCAN_BANDIT_INI
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
-    DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
 from devops_cli.security.base import (
@@ -199,7 +198,7 @@ class BanditScanner(BaseSecurityScanner):
 
 
 def run_bandit_scan(
-    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
+    target: Path | list[Path],
     severity_level: str = DEFAULT_BANDIT_SEVERITY,
     *,
     isolated: bool = False,

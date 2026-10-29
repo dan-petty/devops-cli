@@ -46,7 +46,7 @@ class TestResolveBranchPrNumber:
     def test_resolve_success(self) -> None:
         mock_proc = MagicMock(returncode=0, stdout="168\n", stderr="")
         with patch("devops_cli.github.pr_monitor.run_gh", return_value=mock_proc):
-            num = resolve_branch_pr_number("feat/test")
+            num = resolve_branch_pr_number("feat/test", owner="example-org", repo="app")
             assert num == 168
 
     def test_resolve_failure_no_branch(self) -> None:
@@ -55,13 +55,13 @@ class TestResolveBranchPrNumber:
             with pytest.raises(
                 GitHubOperationError, match="Unable to determine current git branch"
             ):
-                resolve_branch_pr_number()
+                resolve_branch_pr_number(owner="example-org", repo="app")
 
     def test_resolve_failure_no_pr(self) -> None:
         mock_proc = MagicMock(returncode=1, stdout="", stderr="no pull requests found")
         with patch("devops_cli.github.pr_monitor.run_gh", return_value=mock_proc):
             with pytest.raises(GitHubOperationError, match="No open pull request found"):
-                resolve_branch_pr_number("feat/untracked")
+                resolve_branch_pr_number("feat/untracked", owner="example-org", repo="app")
 
 
 class TestCopilotAndReviewState:

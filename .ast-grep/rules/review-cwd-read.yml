@@ -9,6 +9,7 @@ message: A review or scanner module reads the working directory of the process. 
 note: |
   The command layer reads the working directory one time and gives it down (ARCHITECTURE.md, section 7.4).
   A review of a path then does not change with the directory that the command starts in, and a test gives a temporary workspace.
+  `DEFAULT_CURRENT_PATH` and a parameter default of `Path(".")` are the working directory as a relative path, so a call that gives no directory scans the directory that the process runs in (#2127).
 rule:
   any:
     - kind: attribute
@@ -20,3 +21,11 @@ rule:
         field: function
         kind: identifier
         regex: '^getcwdb?$'
+    - kind: identifier
+      regex: '^DEFAULT_CURRENT_PATH$'
+    - any:
+        - kind: default_parameter
+        - kind: typed_default_parameter
+      has:
+        field: value
+        pattern: Path(".")

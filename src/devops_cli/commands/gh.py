@@ -28,7 +28,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
@@ -134,7 +134,7 @@ app.add_typer(pr_app, name="pr")
 
 def _resolve_repo(repo: str | None = None) -> str:
     """Resolve target repository string or discover from git origin."""
-    target = repo or get_repo_origin_name()
+    target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
     return target or "unknown/repo"
 
 
