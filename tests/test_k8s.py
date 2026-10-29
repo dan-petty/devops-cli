@@ -24,6 +24,7 @@ from devops_cli.prometheus.promql import selectors, validate_promql
 from devops_cli.security.base import ScanOutcome
 from tests.k8s_manifests import applied_documents
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.k8s_tree import pinned_charts
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 runner = CliRunner()
@@ -413,6 +414,21 @@ def test_build_helm_upgrade_cmd_carries_take_ownership() -> None:
     )
     assert "--take-ownership" in cmd_v4
     assert "--force-conflicts" in cmd_v4
+
+
+def test_deploy_stack_installs_each_chart_at_the_version_that_its_application_pins() -> None:
+    """`deploy-stack` installs on a cluster without Argo CD the charts that the Applications
+    install with Argo CD. Renovate's `argocd` manager moves only the Application pins (#1659), so
+    a chart update moves the version here too, or the two paths run different releases."""
+    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+
+    installed = {
+        (release["chart"].rsplit("/", 1)[-1], release["version"])
+        for releases in _HELM_RELEASES_BY_STACK.values()
+        for release in releases
+    }
+
+    assert (bool(installed), sorted(installed - pinned_charts())) == (True, [])
 
 
 def _renders_service_monitor(values: object) -> bool:

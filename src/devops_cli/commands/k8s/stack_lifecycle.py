@@ -183,7 +183,7 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "traefik/traefik",
             "namespace": "kube-system",
             "values": str(DEFAULT_K8S_DIR / "ingress" / "traefik-values.yaml"),
-            "version": "41.6.0",
+            "version": "42.1.3",
         },
     ],
     "llm": [
