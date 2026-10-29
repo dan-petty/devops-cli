@@ -1,0 +1,26 @@
+# Design
+
+## Decisions
+
+- **One module, one function that matters.** `run_step` in `roadmap/implement_step.py` takes the store, the item and group numbers, the checkout, the model and the window. The command builds the model with `get_task_model("implement")` and the window from `ai.tasks.implement.context_window`. A test passes a `FunctionModel`. The job of #2665 calls the same function.
+- **A group is a numbered `##` section of `tasks.md`.** The rules of OpenSpec already give this shape: `## <n>. <Group title>`, a checkbox for each task, and a nested `Verification:` line with code spans. The step reads it with `markdown-it-py`, as the roadmap store does for issue bodies. A section with another heading, such as `## Workflow follow-up`, is no group.
+- **The verification commands of a group are the code spans of its `Verification:` lines.** Each runs through the process runner in the checkout, after the agent returns. Each must start with a program of the allowlist, so the step runs nothing that the agent may not run.
+- **Files of a group.** The files that the step packs are the code spans of the group's tasks that name an existing file inside the checkout. A span that names a file that does not exist yet, such as a new test, is skipped. `.py` files go through `ContextPacker` with signatures only, so the agent sees the interface of a file and reads the body with its tool when it edits it. Other files are cut to a token cap.
+- **The measure comes before the first request.** The step counts the tokens of the instructions and the user message with `count_tokens`. The limit is the window of the task minus `CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS`. A step over the limit raises `RoadmapImplementError`, which names both numbers. Nothing runs and nothing changes.
+- **A checkout with uncommitted changes is refused.** A failed step resets the checkout. The reset must not destroy the work of a person. The check is one `git status --porcelain`.
+- **`Coder` is tuned, not rebuilt.** `Coder` is a combined capability. `visit_and_replace` swaps three of its leaves: `Shell` for one with an allowlist and denied operators, `ClearToolResults` and `WarnNearLimits` for copies with the task's window, and the output band for a smaller cap. `sub_agents=False` removes `delegate_task`, so the request and tool call limits hold for the whole step. The tune is one function, tested through a run.
+- **Limits.** `UsageLimits(request_limit, tool_calls_limit)` caps the run. `UsageLimitExceeded` and `UnexpectedModelBehavior` end the step as stopped, with the class name as the reason. Any other model error, such as a refused key, raises the client error that refine raises, after the reset.
+- **The exit is judged by the step, not by the model.** The order is: the tasks, then the verification commands, then the static checks. The first failure is the reason. The tasks check is the cheapest and runs first. The static checks run on the files of `git diff --cached --name-only --diff-filter=ACMR` after `git add -A`.
+- **One commit, or none.** On success, `git commit -m "<group title> (#N)"` runs with the hooks of the repository. On a stop, `git reset --hard HEAD` and `git clean -fd` restore the checkout. A failed commit is a stop with the git error as the reason.
+- **Spend.** One record for the run, as refine's investigation writes it. The two helpers move to `roadmap/agent_run.py` so both users share them. When #2489 lands, the construction point replaces the record.
+- **The report is `StepOutcome`.** The command prints a table, or JSON with `--format json`. A stopped step exits 1. A dry run returns the same type with `dry_run` set and the requests it would make, and exits 0.
+- **No GitHub write.** The step reads the item once. It holds no call that writes.
+
+## Rejected alternatives
+
+- **`max_input_tokens` on the `devops-coder` route.** The issue proposes it. The gateway config says LiteLLM applies a deployment's `model_info` to every deployment of the same backend model, and `test_a_review_model_has_a_group_of_its_review_deployments_alone` fails on a window for `qwen3-coder:30b`. The window would also bind `devops-review`. The measure in the step does the same work earlier.
+- **Build the agent from the parts of `Coder`.** This copies the list of parts of one release. Each release of the harness can change that list, and the copy would drift. `visit_and_replace` keeps `Coder` as the source and changes three leaves.
+- **Keep `delegate_task`.** A delegate is a fresh run of the same agent. Its requests would not count against the limits of the parent in a way the step can state. One run per step keeps the budget simple.
+- **Ask the model whether the group is done.** The issue says the job judges the exit. The tasks, the commands and the static checks are facts that the step can read.
+- **A regular expression for the group headings and the file names.** The project rule is to use a parser. `markdown-it-py` gives the headings, the list items and the code spans as tokens.
+- **Retry a stopped step.** The issue leaves the retry policy to the job.
