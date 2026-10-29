@@ -26,12 +26,18 @@ from devops_cli.models.library import (
     ModuleContract,
     ParameterSignature,
 )
+from devops_cli.valkey.cache import ValkeyCacheTier
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
+
+
+def _tier(client: Any) -> ValkeyCacheTier:
+    """The Valkey cache tier over `client`, the symbol cache a test gives the store."""
+    return ValkeyCacheTier(client)
 
 
 def _create_sample_contract() -> LibraryContract:
@@ -101,7 +107,7 @@ def test_ensure_collection_created() -> None:
     mock_qdrant = MagicMock()
     mock_qdrant.get_collection_info.return_value = None  # Collection does not exist
 
-    store = LibraryVectorStore(qdrant_client=mock_qdrant, valkey_client=None)
+    store = LibraryVectorStore(qdrant_client=mock_qdrant)
     created = store.ensure_collection_exists()
 
     assert created is True
@@ -116,7 +122,7 @@ def test_ensure_collection_created_fallback_create_collection() -> None:
     mock_qdrant = MagicMock(spec=["get_collection_info", "create_collection"])
     mock_qdrant.get_collection_info.return_value = None
 
-    store = LibraryVectorStore(qdrant_client=mock_qdrant, valkey_client=None)
+    store = LibraryVectorStore(qdrant_client=mock_qdrant)
     created = store.ensure_collection_exists()
 
     assert created is True
@@ -131,7 +137,7 @@ def test_ensure_collection_already_exists() -> None:
     mock_qdrant = MagicMock()
     mock_qdrant.get_collection_info.return_value = {"status": "green"}
 
-    store = LibraryVectorStore(qdrant_client=mock_qdrant, valkey_client=None)
+    store = LibraryVectorStore(qdrant_client=mock_qdrant)
     created = store.ensure_collection_exists()
 
     assert created is True
@@ -151,7 +157,7 @@ def test_index_contract_caches_each_symbol_in_valkey_for_the_symbol_lifetime(
 
     store = LibraryVectorStore(
         qdrant_client=mock_qdrant,
-        valkey_client=valkey_client,
+        symbol_cache=_tier(valkey_client),
         embedder=mock_embedder,
     )
 
@@ -194,7 +200,7 @@ def test_lookup_symbol_valkey_hit() -> None:
     mock_valkey = MagicMock()
     mock_valkey.get.return_value = fn_sig.model_dump_json()
 
-    store = LibraryVectorStore(qdrant_client=MagicMock(), valkey_client=mock_valkey)
+    store = LibraryVectorStore(qdrant_client=MagicMock(), symbol_cache=_tier(mock_valkey))
     res = store.lookup_symbol("demo_pkg.api.get_data")
 
     assert res is not None
@@ -212,7 +218,7 @@ def test_lookup_symbol_fallback_to_local_file(tmp_path: Path) -> None:
 
     store = LibraryVectorStore(
         qdrant_client=MagicMock(),
-        valkey_client=mock_valkey,
+        symbol_cache=_tier(mock_valkey),
         local_contracts_dir=tmp_path,
     )
     res = store.lookup_symbol("demo_pkg.api.get_data")
@@ -246,7 +252,7 @@ def test_a_valkey_outage_turns_the_symbol_cache_off_for_a_cooldown(
         name="get_data", qualname="demo_pkg.api.get_data", parameters=[], return_annotation="cached"
     )
     valkey_client.set("symbol:demo_pkg.api.get_data", cached.model_dump_json())
-    store = LibraryVectorStore(valkey_client=valkey_client, local_contracts_dir=tmp_path)
+    store = LibraryVectorStore(symbol_cache=_tier(valkey_client), local_contracts_dir=tmp_path)
 
     valkey_server.connected = False
     in_the_outage = store.lookup_symbol("demo_pkg.api.get_data")
@@ -281,7 +287,6 @@ def test_search_library_semantic() -> None:
 
     store = LibraryVectorStore(
         qdrant_client=mock_qdrant,
-        valkey_client=None,
         embedder=mock_embedder,
     )
 
@@ -300,7 +305,6 @@ def test_index_doc_chunks() -> None:
 
     store = LibraryVectorStore(
         qdrant_client=mock_qdrant,
-        valkey_client=None,
         embedder=mock_embedder,
     )
 
@@ -386,7 +390,7 @@ def test_index_contract_indexes_methods() -> None:
 
     store = LibraryVectorStore(
         qdrant_client=mock_qdrant,
-        valkey_client=mock_valkey,
+        symbol_cache=_tier(mock_valkey),
     )
 
     contract = _create_sample_contract()
@@ -432,16 +436,17 @@ def test_build_runtime_vector_store_dry_run(tmp_path: Path) -> None:
     assert store.embedder is None
 
 
+@pytest.mark.usefixtures("keyring_store")
 def test_build_runtime_vector_store_with_mocked_clients(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The live store holds the Valkey tier of the process, beside Qdrant and the embedder."""
     from devops_cli.commands import ai_ingest
+    from devops_cli.valkey.cache import shared_cache_tier
 
-    mock_valkey = MagicMock()
     mock_qdrant = MagicMock()
     mock_embedder = MagicMock()
 
-    monkeypatch.setattr(ai_ingest, "_resolve_runtime_valkey_client", lambda: mock_valkey)
     monkeypatch.setattr(
         ai_ingest,
         "_resolve_runtime_qdrant_and_embedder",
@@ -449,10 +454,12 @@ def test_build_runtime_vector_store_with_mocked_clients(
     )
 
     store = ai_ingest._build_runtime_vector_store(tmp_path, semantic_needed=True, dry_run=False)
-    assert store.symbol_cache is not None
-    assert store.symbol_cache.client is mock_valkey
-    assert store.qdrant_client is mock_qdrant
-    assert store.embedder is mock_embedder
+    assert (
+        store.symbol_cache is not None,
+        store.symbol_cache is shared_cache_tier(),
+        store.qdrant_client is mock_qdrant,
+        store.embedder is mock_embedder,
+    ) == (True, True, True, True)
 
 
 def test_cli_ai_ingest_index_libraries_live(
@@ -600,7 +607,7 @@ def test_index_doc_chunks_namespaced_point_ids() -> None:
 def test_valkey_symbol_cache_namespacing() -> None:
     mock_valkey = MagicMock()
     mock_valkey.get.return_value = None
-    store = LibraryVectorStore(valkey_client=mock_valkey)
+    store = LibraryVectorStore(symbol_cache=_tier(mock_valkey))
     store.lookup_symbol("fetch_data", package="my_lib")
     first_call_key = mock_valkey.get.call_args_list[0][0][0]
     assert first_call_key == "symbol:my_lib:fetch_data"

@@ -98,7 +98,7 @@ Valkey caching endpoint, authentication, TLS, and service addressing settings.
 |---|---|---|---|---|
 | `url` | `Union` | `valkey://localhost:6379/0` | `DEVOPS_CLI_VALKEY_URL` | The Valkey endpoint, such as `valkeys://example.com:6380/0`: the scheme, the host, the port and the database. The scheme `valkeys` connects over TLS and checks the certificate against the host. The scheme `valkey` connects in plaintext. The URL holds no password: `valkey.password` is in the OS keyring |
 | `password` | `Union` | - | `DEVOPS_CLI_VALKEY_PASSWORD` | - |
-| `timeout` | `float` | `2.0` | `DEVOPS_CLI_VALKEY_TIMEOUT` | Valkey network socket connection/read timeout in seconds (default: 2.0) |
+| `timeout` | `float` | `2.0` | `DEVOPS_CLI_VALKEY_TIMEOUT` | Valkey network socket connection/read timeout in seconds; the shared cache of embeddings, threat intel and library symbols waits at most 0.25 s for a connection (default: 2.0) |
 | `threat_intel_ttl` | `int` | `86400` | - | - |
 
 ## Shared Run Index (`runs`)

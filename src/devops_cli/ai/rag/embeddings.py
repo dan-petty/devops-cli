@@ -77,7 +77,7 @@ from devops_cli.telemetry.instruments import (
     RAG_EMBEDDING_BATCH_SIZE,
     emit,
 )
-from devops_cli.valkey.cache import ValkeyCacheTier, configured_cache_tier
+from devops_cli.valkey.cache import ValkeyCacheTier, shared_cache_tier
 
 logger = logging.getLogger(__name__)
 # Retry jitter, drawn from the operating system's source: it guards nothing, and no seed is shared
@@ -496,7 +496,7 @@ class EmbeddingsEngine:
         )
 
     def _init_cache_tier(self, valkey_client: Any) -> ValkeyCacheTier | None:
-        """The Valkey tier of the cache: over `valkey_client`, or else over the configured Valkey.
+        """The Valkey tier of the cache: over `valkey_client`, or else the tier of the process.
 
         The tier opens no connection here. When Valkey does not answer, the first read or write
         opens the circuit breaker of the tier, and the tier tries again after the cooldown.
@@ -505,12 +505,7 @@ class EmbeddingsEngine:
             return None
         if valkey_client is not _DEFAULT_VALKEY:
             return ValkeyCacheTier(valkey_client)
-        try:
-            from devops_cli.config.settings import load_settings
-
-            return configured_cache_tier(load_settings())
-        except Exception:
-            return None
+        return shared_cache_tier()
 
     def _apply_aimd_decrease(self, sent_size: int) -> None:
         """Halve the batch size after a slow or timed-out batch of `sent_size` texts (AIMD).

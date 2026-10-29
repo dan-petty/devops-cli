@@ -190,28 +190,23 @@ def _collect_class_item(
     return meta, text, cache
 
 
-def _symbol_cache_tier(valkey_client: Any) -> ValkeyCacheTier | None:
-    """The Valkey tier of the symbol cache over `valkey_client`; None with no client."""
-    if valkey_client is None:
-        return None
-    from devops_cli.valkey.cache import ValkeyCacheTier
-
-    return ValkeyCacheTier(valkey_client)
-
-
 class LibraryVectorStore:
-    """Segregated vector index and in-memory symbol cache for library contracts."""
+    """Segregated vector index and in-memory symbol cache for library contracts.
+
+    `symbol_cache` is the Valkey tier of the symbol cache, such as the tier of the process
+    (`shared_cache_tier`); with None, lookups read the local contracts only.
+    """
 
     def __init__(
         self,
         qdrant_client: Any = None,
-        valkey_client: Any = None,
+        symbol_cache: ValkeyCacheTier | None = None,
         embedder: Any = None,
         collection_name: str = DEFAULT_RAG_LIBRARIES_COLLECTION,
         local_contracts_dir: Path | None = None,
     ) -> None:
         self.qdrant_client = qdrant_client
-        self.symbol_cache = _symbol_cache_tier(valkey_client)
+        self.symbol_cache = symbol_cache
         self.embedder = embedder
         self.collection_name = collection_name
         self.local_contracts_dir = local_contracts_dir or library_contracts_dir()

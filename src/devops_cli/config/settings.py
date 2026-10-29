@@ -95,6 +95,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_ROTATION_DAYS,
     DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
+    DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
@@ -310,7 +311,7 @@ class ValkeyConfig(BaseModel):
     )
     password: str | None = None
     timeout: Annotated[float, Variable()] = Field(
-        description=f"Valkey network socket connection/read timeout in seconds (default: {DEFAULT_VALKEY_TIMEOUT_SECONDS})",
+        description=f"Valkey network socket connection/read timeout in seconds; the shared cache of embeddings, threat intel and library symbols waits at most {DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS} s for a connection (default: {DEFAULT_VALKEY_TIMEOUT_SECONDS})",
         default=DEFAULT_VALKEY_TIMEOUT_SECONDS,
         gt=0,
         allow_inf_nan=False,

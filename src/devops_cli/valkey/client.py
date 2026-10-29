@@ -117,8 +117,10 @@ class ValkeyClient:
     endpoint. A `valkeys://` endpoint connects over TLS, which sends the endpoint's host name as
     the server name and checks the certificate against it with the platform CA store. Failures
     raise the `ValkeyError` family. `execute` returns replies as the server sent them, decoded to
-    text; the named commands return what valkey-py parses. `connection_pool` replaces the pool the
-    client builds from the endpoint, which is how a test connects it to an in-memory server.
+    text; the named commands return what valkey-py parses. `timeout` bounds each command and
+    `connect_timeout`, which is `timeout` when not given, bounds each connection (valkey-py's
+    `socket_timeout` and `socket_connect_timeout`). `connection_pool` replaces the pool the client
+    builds from the endpoint, which is how a test connects it to an in-memory server.
     """
 
     def __init__(
@@ -127,6 +129,7 @@ class ValkeyClient:
         *,
         password: str | None = None,
         timeout: float | None = None,
+        connect_timeout: float | None = None,
         connection_pool: valkey.ConnectionPool | None = None,
     ) -> None:
         if timeout is None:
@@ -136,6 +139,7 @@ class ValkeyClient:
             timeout = load_settings().valkey.timeout
         self.host, self.port, self.db = endpoint.host, endpoint.port, endpoint.db
         self.timeout = timeout
+        self.connect_timeout = timeout if connect_timeout is None else connect_timeout
         connection: dict[str, Any] = (
             {"connection_class": _VettedSSLConnection, "ssl_check_hostname": True}
             if endpoint.tls
@@ -147,7 +151,7 @@ class ValkeyClient:
             db=self.db,
             password=password,
             socket_timeout=timeout,
-            socket_connect_timeout=timeout,
+            socket_connect_timeout=self.connect_timeout,
             decode_responses=True,
             encoding_errors="replace",
             **connection,
