@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0](https://github.com/dan-petty/devops-cli/compare/v0.14.0...v0.15.0) (2026-10-29)
+
+
+### Features
+
+* **k8s:** derived push entries, Secret types, one stack list ([#2618](https://github.com/dan-petty/devops-cli/issues/2618)) ([3634c6f](https://github.com/dan-petty/devops-cli/commit/3634c6f2d287b99e332ca47fe34c0a92a79f36a6)), closes [#2008](https://github.com/dan-petty/devops-cli/issues/2008)
+* **k8s:** image-pins refuses an image on the latest tag ([#2617](https://github.com/dan-petty/devops-cli/issues/2617)) ([548b3ba](https://github.com/dan-petty/devops-cli/commit/548b3bae52956be619d3dd9e0dfe708edef10539)), closes [#2093](https://github.com/dan-petty/devops-cli/issues/2093)
+* **monitoring:** alert when a noeviction Valkey nears its bound ([#2615](https://github.com/dan-petty/devops-cli/issues/2615)) ([f452644](https://github.com/dan-petty/devops-cli/commit/f4526446a370af2886b6719f915967e9cd1a645c)), closes [#2094](https://github.com/dan-petty/devops-cli/issues/2094)
+* **review:** golangci-lint runs offline in the review sandbox ([#2622](https://github.com/dan-petty/devops-cli/issues/2622)) ([20915ce](https://github.com/dan-petty/devops-cli/commit/20915cee074f3c787ad1a86a9fc3046891241d5d)), closes [#2129](https://github.com/dan-petty/devops-cli/issues/2129)
+* **review:** the SARIF export writes how each tool run ended ([#2620](https://github.com/dan-petty/devops-cli/issues/2620)) ([8f8ef44](https://github.com/dan-petty/devops-cli/commit/8f8ef449db711324bb597cb267ecbddd335f6e73)), closes [#2100](https://github.com/dan-petty/devops-cli/issues/2100)
+
+
+### Bug Fixes
+
+* **release:** parse release pull request number safely in urgent merge ([#2621](https://github.com/dan-petty/devops-cli/issues/2621)) ([262244d](https://github.com/dan-petty/devops-cli/commit/262244d91c9c414770dc0374a724691366c50daf))
+
 ## [0.14.0](https://github.com/dan-petty/devops-cli/compare/v0.13.2...v0.14.0) (2026-10-29)
 
 
