@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -21,7 +24,17 @@ from devops_cli.models.benchmark import (
     TaskResponse,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from tests.web_fakes import StubWeb
+
 runner = CliRunner()
+
+# A server URL that holds userinfo is valid configuration: the client sends it as Basic
+# authentication. The secret must reach the server and nothing that the benchmark writes (#2481).
+_SERVER_SECRET = "FAKE-2481-value"
+_SERVER_WITH_USERINFO = f"http://bench-user:{_SERVER_SECRET}@example.com:11434"
 
 
 def test_benchmark_tasks_structure() -> None:
@@ -767,19 +780,223 @@ def test_an_unknown_benchmark_type_is_refused(benchmark_type: str) -> None:
     assert (res.exit_code != 0, tasks.called, embedding.called) == (True, False, False)
 
 
-def test_a_server_url_that_is_not_http_is_refused_before_the_run() -> None:
+@pytest.mark.parametrize(
+    ("entry", "shown"),
+    [
+        ("ftp://example.com:2121", "example.com:2121"),
+        (f"ftp://bench-user:{_SERVER_SECRET}@example.com:2121", "example.com:2121"),
+        (f"ftp://{_SERVER_SECRET}@example.com:2121", "example.com:2121"),
+        (f"bench-user:{_SERVER_SECRET}@example.com:11434", "unknown"),
+        (f"{_SERVER_SECRET}@example.com:11434", "unknown"),
+    ],
+    ids=["no-userinfo", "password", "user-name-only", "schemeless-password", "schemeless-user"],
+)
+def test_a_server_url_that_is_not_http_is_refused_before_the_run(entry: str, shown: str) -> None:
     """Verify `--servers` takes only http and https URLs, checked as `ai.ollama_urls` checks one.
 
     The check reads the URL only: the client of each benchmark call checks the address at the
     connect (#2422). Before, the settings copy did not validate the URLs, so this check is the
-    only early error for the option. The command stops at the check, so no benchmark starts.
+    only early error for the option. The command stops at the check, so no benchmark starts. The
+    error names the entry by its position and its `host[:port]`, never by its userinfo (#2481).
     """
-    res = runner.invoke(
-        ai_app, ["benchmark", "--servers", "http://example.com:11434,ftp://example.com:21"]
-    )
+    res = runner.invoke(ai_app, ["benchmark", "--servers", f"http://example.com:11434,{entry}"])
 
     assert (
         res.exit_code,
-        "--servers holds 'ftp://example.com:21', which is not an http or https URL." in res.output,
+        f"--servers entry 2 ({shown}) is not an http or https URL." in res.output,
+        _SERVER_SECRET in res.output,
         "Starting AI Model Benchmark" in res.output,
-    ) == (1, True, False)
+    ) == (1, True, False, False)
+
+
+def test_a_dry_run_benchmark_names_each_server_by_host_and_port(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify the output and the report name a server by `host[:port]`, never by the URL that
+    holds its userinfo: the `Workers:` line, the progress lines, the `server` of each response,
+    peer grade and server summary, and the JSON of the report (#2481)."""
+    report = BenchmarkRunner(
+        models=["m"],
+        tasks=[BENCHMARK_TASKS[0]],
+        is_dry_run=True,
+        servers=[_SERVER_WITH_USERINFO, "http://example.com:11435"],
+    ).execute()
+    shown = capsys.readouterr()
+
+    assert (
+        {response.server for response in report.responses},
+        {grade.server for grade in report.peer_grades},
+        sorted(summary.server for summary in report.server_benchmarks),
+        "Workers: 2 (example.com:11434, example.com:11435)" in shown.out,
+        "backend=example.com:11434" in shown.out,
+        _SERVER_SECRET in shown.out + shown.err + report.model_dump_json(),
+    ) == (
+        {"example.com:11434", "example.com:11435"},
+        {"example.com:11434", "example.com:11435"},
+        ["example.com:11434", "example.com:11435"],
+        True,
+        True,
+        False,
+    )
+
+
+def test_a_benchmark_server_with_no_origin_is_named_unknown(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify a server URL that httpx2 reads no origin from shows as `unknown`, never as its
+    own text (#2481)."""
+    report = BenchmarkRunner(
+        models=["m"], tasks=[BENCHMARK_TASKS[0]], is_dry_run=True, servers=["not-a-url"]
+    ).execute()
+    shown = capsys.readouterr()
+
+    assert (
+        {response.server for response in report.responses},
+        [summary.server for summary in report.server_benchmarks],
+        "Workers: 1 (unknown)" in shown.out,
+        "not-a-url" in shown.out + shown.err + report.model_dump_json(),
+    ) == ({"unknown"}, ["unknown"], True, False)
+
+
+def _answer_chat_with_a_grade(stub_web: StubWeb) -> None:
+    """Make every Ollama chat call of the stub answer with a valid peer grade."""
+    grade = {
+        "accuracy_score": 9.0,
+        "security_score": 9.5,
+        "completeness_score": 8.0,
+        "clarity_score": 9.5,
+        "total_score": 36.0,
+        "percentage": 90.0,
+        "strengths": ["Strong defense"],
+        "weaknesses": [],
+        "feedback": "Great job",
+    }
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != "/api/chat":
+            return None
+        return httpx2.Response(200, json={"message": {"content": json.dumps(grade)}})
+
+    stub_web.serve(answer)
+
+
+def _basic_authorization(user: str) -> str:
+    """The `Authorization` header value that httpx2 sends for the userinfo `user:<secret>`."""
+    return "Basic " + base64.b64encode(f"{user}:{_SERVER_SECRET}".encode()).decode()
+
+
+def _kept_benchmark_text() -> str:
+    """The text of every file that a benchmark leaves: its saved reports and its kept runs."""
+    from devops_cli.ai.run_store import runs_dir
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    folders = [resolve_data_path(load_settings().data.benchmarks_dir), runs_dir()]
+    return "".join(
+        path.read_text(encoding="utf-8")
+        for folder in folders
+        for path in sorted(folder.rglob("*.json"))
+    )
+
+
+@pytest.mark.usefixtures("keyring_store")
+def test_a_benchmark_sends_the_server_userinfo_and_records_only_its_host_and_port(
+    stub_web: StubWeb, cli: Callable[..., Any]
+) -> None:
+    """Verify a benchmark against a server URL with userinfo sends the userinfo as Basic
+    authentication, and writes it nowhere: not the terminal, not the saved report, not the run
+    that the command keeps (#2481)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+
+    _answer_chat_with_a_grade(stub_web)
+
+    result = cli(
+        "ai",
+        "benchmark",
+        "--models",
+        "m",
+        "--tasks",
+        "sec-ssrf-remediation",
+        "--servers",
+        _SERVER_WITH_USERINFO,
+    )
+
+    (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
+    assert (
+        result.exit_code,
+        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        recorded.setup["servers"],
+        {response["server"] for response in recorded.results["responses"]},
+        _SERVER_SECRET in result.output + _kept_benchmark_text(),
+    ) == (
+        0,
+        {_basic_authorization("bench-user")},
+        ["example.com:11434"],
+        {"example.com:11434"},
+        False,
+    )
+
+
+def test_a_dry_run_benchmark_names_a_model_endpoint_by_its_host_and_port(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify a `model@endpoint` entry whose endpoint holds userinfo is named `model@host[:port]`
+    in the output and in every report field that holds the model: the evaluated models, each
+    response and peer grade, the leaderboard and the server summary latencies (#2481)."""
+    report = BenchmarkRunner(
+        models=[f"m@{_SERVER_WITH_USERINFO}", "plain"],
+        tasks=[BENCHMARK_TASKS[0]],
+        is_dry_run=True,
+        servers=["http://example.com:11435"],
+    ).execute()
+    shown = capsys.readouterr()
+
+    names = {"m@example.com:11434", "plain"}
+    assert (
+        report.models_evaluated,
+        {response.model for response in report.responses},
+        {grade.candidate_model for grade in report.peer_grades},
+        {grade.evaluator_model for grade in report.peer_grades},
+        {row.model for row in report.leaderboard},
+        {name for summary in report.server_benchmarks for name in summary.model_latencies},
+        "model=m@example.com:11434" in shown.out,
+        _SERVER_SECRET in shown.out + shown.err + report.model_dump_json(),
+    ) == (["m@example.com:11434", "plain"], names, names, names, names, names, True, False)
+
+
+@pytest.mark.usefixtures("keyring_store")
+def test_a_benchmark_sends_the_model_endpoint_userinfo_and_records_only_its_host_and_port(
+    stub_web: StubWeb, cli: Callable[..., Any]
+) -> None:
+    """Verify a `--models` entry with a password in its endpoint reaches the server as Basic
+    authentication, and the password is in no field of the terminal output, the saved report or
+    the run that the command keeps (#2481)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+
+    _answer_chat_with_a_grade(stub_web)
+
+    result = cli(
+        "ai",
+        "benchmark",
+        "--models",
+        f"m@{_SERVER_WITH_USERINFO}",
+        "--tasks",
+        "sec-ssrf-remediation",
+    )
+
+    (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
+    assert (
+        result.exit_code,
+        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        recorded.setup["models"],
+        {response["model"] for response in recorded.results["responses"]},
+        recorded.results["models_evaluated"],
+        _SERVER_SECRET in result.output + _kept_benchmark_text(),
+    ) == (
+        0,
+        {_basic_authorization("bench-user")},
+        ["m@example.com:11434"],
+        {"m@example.com:11434"},
+        ["m@example.com:11434"],
+        False,
+    )

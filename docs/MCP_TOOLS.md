@@ -197,8 +197,8 @@ Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `models` | `string` | No | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). A model@url runs on that server, which gets the AI key only when it is the configured api_base_url, gateway_url or provider API. |
-| `servers` | `string` | No | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
+| `models` | `string` | No | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). A model@url runs on that server, which gets the AI key only when it is the configured api_base_url, gateway_url or provider API. The output and the reports name it model@host[:port]. |
+| `servers` | `string` | No | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). The output and the reports name each server by host[:port]. The userinfo of a URL goes only to that server. |
 | `provider` | `string` | No | - | AI or cloud provider. |
 | `benchmark_type` | `string` | No | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
 | `tasks_filter` | `string` | No | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |

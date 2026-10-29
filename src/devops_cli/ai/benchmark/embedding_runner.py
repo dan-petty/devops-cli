@@ -19,6 +19,7 @@ from devops_cli.ai.benchmark.document_chunker import (
 from devops_cli.ai.benchmark.embedding_tasks import (
     EmbeddingEvalPair,
 )
+from devops_cli.ai.benchmark.labels import server_label
 from devops_cli.ai.benchmark.model_spec import parse_model_spec
 from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir, _key_for_endpoint
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
@@ -94,6 +95,15 @@ def _latency_percentiles(latencies_ms: list[float]) -> tuple[float | None, float
         return None, None
     ordered = sorted(latencies_ms)
     return ordered[len(ordered) // 2], ordered[int(len(ordered) * 0.95)]
+
+
+_NO_SERVER = "default"
+"""The server of a run when no server is configured."""
+
+
+def _server_name(server_url: str) -> str:
+    """The `server` of a result: the label of its server URL, or `default` for no server."""
+    return server_url if server_url == _NO_SERVER else server_label(server_url)
 
 
 def _failure_reason(exc: Exception) -> str:
@@ -291,8 +301,9 @@ class EmbeddingBenchmarkRunner:
                 resolved_provider = "gateway"
             elif self.provider == "gateway":
                 raise ValidationError(
-                    f"Embedding benchmark endpoint '{endpoint}' does not match configured gateway_url "
-                    f"'{self.settings.ai.gateway_url}'. Specify --provider to benchmark an explicit endpoint under another provider."
+                    f"Embedding benchmark endpoint '{server_label(endpoint)}' does not match "
+                    f"configured gateway_url '{server_label(self.settings.ai.gateway_url or '')}'. "
+                    "Specify --provider to benchmark an explicit endpoint under another provider."
                 )
 
         allow_priv = self.settings.ai.allow_private_network
@@ -314,7 +325,8 @@ class EmbeddingBenchmarkRunner:
         except PydanticValidationError as exc:
             reason = exc.errors()[0]["msg"]
             raise ValidationError(
-                f"Embedding benchmark endpoint '{endpoint}' cannot be used: {reason}",
+                f"Embedding benchmark endpoint '{server_label(endpoint or '')}' "
+                f"cannot be used: {reason}",
                 field="endpoint",
             ) from exc
         return EmbeddingsEngine(cfg, api_key=_key_for_endpoint(self.settings, cfg))
@@ -332,7 +344,7 @@ class EmbeddingBenchmarkRunner:
         if explicit_endpoint:
             endpoint = explicit_endpoint
         if not endpoint:
-            endpoint = self.servers[0] if self.servers else "default"
+            endpoint = self.servers[0] if self.servers else _NO_SERVER
         return self.evaluate_model_on_server(model_name, endpoint, pairs, corpus)
 
     def evaluate_model_on_server(  # noqa: C901
@@ -344,11 +356,11 @@ class EmbeddingBenchmarkRunner:
     ) -> EmbeddingBenchmarkResult:
         """Execute full benchmark evaluation for a single model on a specific server."""
         clean_model, _ = parse_model_spec(model_name)
+        server = _server_name(server_url)
 
         with self._print_lock:
             print_info(
-                f"[bold cyan]⏳ Benchmarking:[/bold cyan] {clean_model} "
-                f"[dim]on {server_url}[/dim]...",
+                f"[bold cyan]⏳ Benchmarking:[/bold cyan] {clean_model} [dim]on {server}[/dim]...",
                 prefix=False,
             )
 
@@ -356,7 +368,7 @@ class EmbeddingBenchmarkRunner:
             dim = DEFAULT_DRY_RUN_EMBEDDING_DIMENSION
             return EmbeddingBenchmarkResult(
                 model=clean_model,
-                server=server_url,
+                server=server,
                 dimension=dim,
                 recall_at_1=DEFAULT_DRY_RUN_EMBEDDING_RECALL,
                 recall_at_3=DEFAULT_DRY_RUN_EMBEDDING_RECALL,
@@ -507,7 +519,7 @@ class EmbeddingBenchmarkRunner:
 
         with self._print_lock:
             print_info(
-                f"  [bold green]✓[/bold green] {clean_model} on {server_url} | "
+                f"  [bold green]✓[/bold green] {clean_model} on {server} | "
                 f"dim={dimension} | R@1={recall_1:.0f}% | MRR={mrr:.2f} | "
                 f"p50={_format_latency(p50_lat)} | {items_per_sec:.1f} items/s → "
                 f"[bold]{overall:.1f}%[/bold]",
@@ -516,7 +528,7 @@ class EmbeddingBenchmarkRunner:
 
         return EmbeddingBenchmarkResult(
             model=clean_model,
-            server=server_url,
+            server=server,
             dimension=dimension,
             recall_at_1=round(recall_1, 2),
             recall_at_3=round(recall_3, 2),
@@ -540,16 +552,17 @@ class EmbeddingBenchmarkRunner:
     ) -> EmbeddingBenchmarkResult:
         """A run whose embeddings failed: the reason, the latencies measured before it, no scores."""
         reason = _failure_reason(exc)
-        logger.warning("Embedding benchmark of %s on %s failed: %s", model, server_url, reason)
+        server = _server_name(server_url)
+        logger.warning("Embedding benchmark of %s on %s failed: %s", model, server, reason)
         with self._print_lock:
             print_info(
-                f"  [bold red]✗[/bold red] {model} on {server_url} | {escape_text(reason)}",
+                f"  [bold red]✗[/bold red] {model} on {server} | {escape_text(reason)}",
                 prefix=False,
             )
         p50_lat, p95_lat = _latency_percentiles(query_latencies)
         return EmbeddingBenchmarkResult(
             model=model,
-            server=server_url,
+            server=server,
             failed=True,
             error=reason,
             latency_ms_p50=round(p50_lat, 2) if p50_lat is not None else None,
@@ -596,7 +609,7 @@ class EmbeddingBenchmarkRunner:
                 for srv in self.servers:
                     target_runs.append((m, srv))
             else:
-                srv = self.servers[0] if self.servers else "default"
+                srv = self.servers[0] if self.servers else _NO_SERVER
                 target_runs.append((m, srv))
 
         print_info("\n[bold]⚡ DevOps CLI Embedding Model Benchmark Suite[/bold]", prefix=False)

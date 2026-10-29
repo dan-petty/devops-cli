@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 from devops_cli.ai.client.network import gateway_caller_headers
 from devops_cli.config.constants import (
+    CONST_AI_BACKEND_HOST_UNKNOWN,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_PROVIDERS,
     CONST_AIMD_ADDITIVE_INCREASE_STEP,
@@ -193,6 +194,16 @@ def _ollama_embed_endpoint(base_url: str) -> str:
     return f"{base_url.rstrip('/')}/api/embed"
 
 
+def _endpoint_text(url: str) -> str:
+    """The URL as an error or a log line names it, without the userinfo that the client sends as
+    Basic authentication: neither a password nor a user name alone, such as a token. A URL that
+    httpx2 cannot read shows as `unknown`."""
+    try:
+        return str(httpx2.URL(url).copy_with(username=None, password=None))
+    except ValueError, httpx2.InvalidURL:
+        return CONST_AI_BACKEND_HOST_UNKNOWN
+
+
 def _openai_reply_vectors(body: Any) -> Any:
     """The vectors of an OpenAI-compatible `/embeddings` reply, in input order."""
     items = sorted(body["data"], key=lambda item: item.get("index", 0))
@@ -269,19 +280,23 @@ def _reply_vectors(
         is_transient = res.status_code in (408, 429) or res.status_code >= 500
         raise EmbeddingsError(
             ERRORS.rag.embedding_endpoint_status.format(
-                endpoint=endpoint, status=res.status_code, body=body
+                endpoint=_endpoint_text(endpoint), status=res.status_code, body=body
             ),
             is_transient=is_transient,
-            details={"endpoint": endpoint, "status": res.status_code},
+            details={"endpoint": _endpoint_text(endpoint), "status": res.status_code},
         )
     vectors = _parsed_vectors(res, parse)
     if len(vectors) != expected or not all(vectors):
         raise EmbeddingsError(
             ERRORS.rag.embedding_endpoint_malformed.format(
-                endpoint=endpoint, received=len(vectors), expected=expected
+                endpoint=_endpoint_text(endpoint), received=len(vectors), expected=expected
             ),
             is_transient=False,
-            details={"endpoint": endpoint, "received": len(vectors), "expected": expected},
+            details={
+                "endpoint": _endpoint_text(endpoint),
+                "received": len(vectors),
+                "expected": expected,
+            },
         )
     return vectors
 
@@ -291,7 +306,9 @@ def _endpoint_failure(endpoint: str, exc: Exception) -> str:
     if isinstance(exc, EmbeddingsError):
         return exc.message
     error = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
-    return ERRORS.rag.embedding_endpoint_error.format(endpoint=endpoint, error=error)
+    return ERRORS.rag.embedding_endpoint_error.format(
+        endpoint=_endpoint_text(endpoint), error=error
+    )
 
 
 def _is_transient_embedding_error(exc: Exception) -> bool:
@@ -687,7 +704,7 @@ class EmbeddingsEngine:
             with self._new_http_client(timeout) as client:
                 return self._parse_ollama_node_metadata(client, base_url)
         except Exception as exc:
-            logger.debug("Probing Ollama node %s failed: %s", base_url, exc)
+            logger.debug("Probing Ollama node %s failed: %s", _endpoint_text(base_url), exc)
             return None
 
     def _parse_ollama_node_metadata(self, client: httpx2.Client, base_url: str) -> int | None:
@@ -930,7 +947,9 @@ class EmbeddingsEngine:
         except (httpx2.TimeoutException, TimeoutError) as exc:
             self._apply_aimd_decrease(len(batch_texts))
             delay = _calculate_backoff_delay(attempt)
-            logger.debug("Ollama timeout on %s, backoff %.2fs: %s", base_url, delay, exc)
+            logger.debug(
+                "Ollama timeout on %s, backoff %.2fs: %s", _endpoint_text(base_url), delay, exc
+            )
             time.sleep(delay)
             raise
 
@@ -944,7 +963,7 @@ class EmbeddingsEngine:
             try:
                 return self._try_single_candidate(base_url, batch_texts, attempt)
             except Exception as exc:
-                logger.debug("Ollama embedding on %s failed: %s", base_url, exc)
+                logger.debug("Ollama embedding on %s failed: %s", _endpoint_text(base_url), exc)
                 failures.append(_endpoint_failure(_ollama_embed_endpoint(base_url), exc))
                 is_transient_flags.append(_is_transient_embedding_error(exc))
         all_transient = bool(is_transient_flags and all(is_transient_flags))
@@ -1050,7 +1069,7 @@ class EmbeddingsEngine:
                     logger.warning(
                         "Transient HTTP %d from %s (attempt %d/%d). Retrying in %.2fs...",
                         res.status_code,
-                        endpoint,
+                        _endpoint_text(endpoint),
                         attempt,
                         max_retries,
                         delay,
@@ -1069,7 +1088,7 @@ class EmbeddingsEngine:
                 delay = _compute_retry_delay(attempt)
                 logger.warning(
                     "Transient network error in embedding %s (attempt %d/%d): %s. Retrying in %.2fs...",
-                    endpoint,
+                    _endpoint_text(endpoint),
                     attempt,
                     max_retries,
                     exc,
@@ -1079,7 +1098,7 @@ class EmbeddingsEngine:
 
         if last_exc:
             raise last_exc
-        raise EmbeddingsError(f"Failed to post embedding request to {endpoint}")
+        raise EmbeddingsError(f"Failed to post embedding request to {_endpoint_text(endpoint)}")
 
     def _embed_single_openai_batch(
         self, endpoint: str, headers: dict[str, str], model: str, batch: list[str]

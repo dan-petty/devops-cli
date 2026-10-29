@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.benchmark.labels import model_label, server_label
 from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
@@ -89,6 +90,11 @@ def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
     if endpoint and get_url_origin(endpoint) in trusted:
         return get_ai_api_key(settings) or ""
     return ""
+
+
+def _server_name(server_url: str | None) -> str:
+    """The `server` of a response or a grade: the label of its server URL, or '' for none."""
+    return server_label(server_url) if server_url else ""
 
 
 def _format_model_peer_feedback(m: Any, peer_grades: list[Any]) -> list[str]:
@@ -183,18 +189,29 @@ class BenchmarkRunner:
         """Initialize the AI benchmark runner.
 
         Args:
-            models: Candidate models to evaluate. With none, the runner evaluates the configured
-                `ai.model`, as `devops ai benchmark` does when `--models` names none.
+            models: Candidate models to evaluate, each `model` or `model@endpoint`. With none,
+                the runner evaluates the configured `ai.model`, as `devops ai benchmark` does
+                when `--models` names none. An endpoint can hold userinfo, which the client sends.
+                The output and the report name the model `model@host[:port]`.
             tasks: Benchmark evaluation tasks to execute across candidate models.
             settings: Runtime CLI configuration settings.
             provider: LLM provider name (e.g. 'ollama', 'openai', 'claude').
             is_dry_run: Override for dry-run simulation mode.
             concurrency: Number of parallel server workers to run simultaneously.
             servers: List of Ollama backend server endpoints for distributed worker execution.
+                A URL can hold userinfo, which the client sends. The output and the report name
+                each server by the `host[:port]` label of its URL.
         """
         self.tasks = tasks
         self.settings = settings or load_settings()
-        self.models = models or [self.settings.ai.model]
+        # The report names a model by its label. The entry, which holds the endpoint URL with its
+        # userinfo, stays here for the requests. Entries with one label share the first entry.
+        self.models: list[str] = []
+        self._model_entries: dict[str, str] = {}
+        for entry in models or [self.settings.ai.model]:
+            label = model_label(entry)
+            self.models.append(label)
+            self._model_entries.setdefault(label, entry)
         self.provider = provider or self.settings.ai.provider
         self.session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._is_dry_run_override = is_dry_run
@@ -211,7 +228,9 @@ class BenchmarkRunner:
         from devops_cli.ai.benchmark.model_spec import parse_model_spec
 
         endpoint = server_url
-        clean_model, explicit_endpoint = parse_model_spec(model_name)
+        clean_model, explicit_endpoint = parse_model_spec(
+            self._model_entries.get(model_name, model_name)
+        )
         if explicit_endpoint:
             endpoint = explicit_endpoint
 
@@ -241,7 +260,7 @@ class BenchmarkRunner:
             task_id=task.id,
             model=model,
             provider=self.provider,
-            server=server_url or "",
+            server=_server_name(server_url),
             response=(
                 f"[Simulated Response from {model} for {task.id}]\n\n"
                 f"Reference Solution Summary:\n{task.expected_solution}"
@@ -270,7 +289,7 @@ class BenchmarkRunner:
             task_id=task.id,
             candidate_model=candidate_model,
             evaluator_model=evaluator_model,
-            server=server_url or "",
+            server=_server_name(server_url),
             accuracy_score=acc,
             security_score=sec,
             completeness_score=comp,
@@ -332,7 +351,7 @@ class BenchmarkRunner:
                 task_id=task.id,
                 model=model_name,
                 provider=self.provider,
-                server=server_url or "",
+                server=_server_name(server_url),
                 response=res_text,
                 duration_seconds=round(duration, 2),
             )
@@ -351,7 +370,7 @@ class BenchmarkRunner:
                 task_id=task.id,
                 model=model_name,
                 provider=self.provider,
-                server=server_url or "",
+                server=_server_name(server_url),
                 response=f"Error generating response: {exc}",
                 duration_seconds=round(duration, 2),
             )
@@ -365,7 +384,7 @@ class BenchmarkRunner:
         """Execute benchmark tasks on a candidate model sequentially on its assigned server."""
         results: list[TaskResponse] = []
         client = self._client_for_model(model_name, server_url=server_url) if not dry_run else None
-        backend = client.backend_info if client else (server_url or self.provider)
+        backend = client.backend_info if client else (_server_name(server_url) or self.provider)
 
         with self._print_lock:
             print_info(
@@ -449,7 +468,7 @@ class BenchmarkRunner:
             )
         start_time = time.monotonic()
         grade = self._evaluate_response(task, c_resp, evaluator_model, client=client)
-        grade.server = server_url or ""
+        grade.server = _server_name(server_url)
         grade_dur = time.monotonic() - start_time
         with self._print_lock:
             print_info(
@@ -474,7 +493,7 @@ class BenchmarkRunner:
         client = (
             self._client_for_model(evaluator_model, server_url=server_url) if not dry_run else None
         )
-        backend = client.backend_info if client else (server_url or self.provider)
+        backend = client.backend_info if client else (_server_name(server_url) or self.provider)
 
         with self._print_lock:
             print_info(
@@ -535,7 +554,7 @@ class BenchmarkRunner:
             f"(Session {self.session_id}) ===[/bold blue]",
             prefix=False,
         )
-        server_labels = ", ".join(self.servers) if self.servers else "default"
+        server_labels = ", ".join(map(server_label, self.servers)) if self.servers else "default"
         print_info(
             f"[dim]Models: {len(self.models)} | Tasks: {len(self.tasks)} | "
             f"Workers: {num_workers} ({server_labels})[/dim]\n",
@@ -962,7 +981,7 @@ class BenchmarkRunner:
                 server_keys.add(g.server)
 
         if not server_keys and self.servers:
-            server_keys.update(self.servers)
+            server_keys.update(map(server_label, self.servers))
         if not server_keys:
             server_keys.add("default")
 

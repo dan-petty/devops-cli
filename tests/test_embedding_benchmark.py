@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -35,6 +37,11 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
+
+# A server URL that holds userinfo is valid configuration: the client sends it as Basic
+# authentication. The secret must reach the server and nothing that the benchmark writes (#2481).
+_SERVER_SECRET = "FAKE-2481-value"
+_SERVER_WITH_USERINFO = f"http://bench-user:{_SERVER_SECRET}@example.com:11434"
 
 
 def test_cosine_similarity() -> None:
@@ -1056,6 +1063,207 @@ def test_an_endpoint_that_ollama_urls_cannot_hold_fails_the_run_of_that_model() 
 
     assert (
         result.failed,
-        "Embedding benchmark endpoint 'ftp://example.com:21' cannot be used"
-        in (result.error or ""),
+        "Embedding benchmark endpoint 'example.com' cannot be used" in (result.error or ""),
     ) == (True, True)
+
+
+def _saved_benchmark_text() -> str:
+    """The text of every file that a benchmark leaves: its saved reports and its kept runs."""
+    from devops_cli.ai.run_store import runs_dir
+    from devops_cli.core.repo import resolve_data_path
+
+    folders = [resolve_data_path(load_settings().data.benchmarks_dir), runs_dir()]
+    return "".join(
+        path.read_text(encoding="utf-8")
+        for folder in folders
+        for path in sorted(folder.rglob("*.json"))
+    )
+
+
+def test_a_dry_run_embedding_benchmark_names_each_server_by_host_and_port(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify the output, the report and the saved report name a server by `host[:port]`, never
+    by the URL that holds its userinfo: for a configured server and for a `model@endpoint`
+    (#2481)."""
+    bench = EmbeddingBenchmarkRunner(
+        models=["nomic-embed-text:latest", f"qwen3-embedding:0.6b@{_SERVER_WITH_USERINFO}"],
+        servers=[_SERVER_WITH_USERINFO, "http://example.com:11435"],
+        is_dry_run=True,
+    )
+
+    report = bench.run()
+    bench.print_report(report)
+    bench.print_report(report, format_type="markdown")
+    bench.print_report(report, format_type="json")
+    shown = capsys.readouterr()
+
+    assert (
+        sorted((result.model, result.server) for result in report.models),
+        sorted(summary.server for summary in report.server_benchmarks),
+        "on example.com:11434" in shown.out,
+        _SERVER_SECRET
+        in shown.out
+        + shown.err
+        + report.model_dump_json()
+        + bench.generate_markdown(report)
+        + _saved_benchmark_text(),
+    ) == (
+        [
+            ("nomic-embed-text:latest", "example.com:11434"),
+            ("nomic-embed-text:latest", "example.com:11435"),
+            ("qwen3-embedding:0.6b", "example.com:11434"),
+        ],
+        ["example.com:11434", "example.com:11435"],
+        True,
+        False,
+    )
+
+
+def test_an_embedding_server_with_no_origin_is_named_unknown() -> None:
+    """Verify a server URL that httpx2 reads no origin from shows as `unknown` in the result,
+    never as its own text (#2481)."""
+    report = EmbeddingBenchmarkRunner(
+        models=["nomic-embed-text:latest"], servers=["not-a-url"], is_dry_run=True
+    ).run()
+
+    assert (
+        [result.server for result in report.models],
+        "not-a-url" in report.model_dump_json(),
+    ) == (
+        ["unknown"],
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("userinfo", "credentials"),
+    [
+        ("bench-user:" + _SERVER_SECRET, "bench-user:" + _SERVER_SECRET),
+        (_SERVER_SECRET, _SERVER_SECRET + ":"),
+    ],
+    ids=["password", "user-name-only"],
+)
+def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_host_and_port(
+    tmp_path: Path,
+    stub_web: StubWeb,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    userinfo: str,
+    credentials: str,
+) -> None:
+    """Verify a run that the server answers with an error sends the userinfo as Basic
+    authentication, and names the server by `host[:port]` in the result, its error, the output,
+    the log and the saved report. A user name alone, such as a token, is userinfo too (#2481)."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != "/api/embed":
+            return None
+        return httpx2.Response(500, json={"error": "model failed"})
+
+    stub_web.serve(answer)
+    bench = EmbeddingBenchmarkRunner(
+        models=["m"],
+        servers=[f"http://{userinfo}@example.com:11434"],
+        is_dry_run=False,
+        code_path=_source_tree(tmp_path),
+        concurrency=1,
+    )
+
+    report = bench.run()
+    shown = capsys.readouterr()
+
+    basic = "Basic " + base64.b64encode(credentials.encode()).decode()
+    assert (
+        [(result.server, result.failed) for result in report.models],
+        report.models[0].error,
+        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        "m on example.com:11434" in shown.out,
+        _SERVER_SECRET
+        in shown.out + shown.err + caplog.text + report.model_dump_json() + _saved_benchmark_text(),
+    ) == (
+        [("example.com:11434", True)],
+        "Embedding model m produced no embeddings: "
+        'http://example.com:11434/api/embed answered HTTP 500: {"error":"model failed"}',
+        {basic},
+        True,
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    "userinfo", ["bench-user:" + _SERVER_SECRET, _SERVER_SECRET], ids=["password", "user-name-only"]
+)
+def test_an_embedding_endpoint_error_names_the_endpoint_by_host_and_port(userinfo: str) -> None:
+    """Verify the errors that the benchmark writes for an endpoint it refuses, a `model@endpoint`
+    that ollama_urls cannot hold or one that is not the gateway, name each URL by `host[:port]`
+    and never by its userinfo (#2481)."""
+    settings = load_settings()
+    settings.ai.gateway_url = f"https://{userinfo}@example.com:4000/v1"
+    ollama = EmbeddingBenchmarkRunner(
+        models=["m"], settings=settings, provider="ollama", is_dry_run=False
+    )
+    gateway = EmbeddingBenchmarkRunner(
+        models=["m"], settings=settings, provider="gateway", is_dry_run=False
+    )
+
+    other_scheme = ollama.evaluate_model(f"m@ftp://{userinfo}@example.com:2121", [], ["probe"])
+    other_server = gateway.evaluate_model(f"m@http://{userinfo}@example.com:11434", [], ["probe"])
+
+    assert (
+        other_scheme.error,
+        (other_server.error or "").split(". Specify")[0],
+        _SERVER_SECRET in (other_scheme.error or "") + (other_server.error or ""),
+    ) == (
+        "Embedding benchmark endpoint 'example.com:2121' cannot be used: "
+        "URL scheme should be 'http' or 'https'",
+        "Embedding benchmark endpoint 'example.com:11434' does not match configured gateway_url "
+        "'example.com:4000'",
+        False,
+    )
+
+
+@pytest.mark.parametrize("flag", ["--servers", "--models"])
+def test_an_embedding_benchmark_sends_the_userinfo_and_records_only_the_host_and_port(
+    tmp_path: Path, stub_web: StubWeb, cli: Callable[..., Any], flag: str
+) -> None:
+    """Verify a benchmark run keeps no password of a server URL, whether the URL comes from
+    `--servers` or from the endpoint of a `--models` entry: the server gets it as Basic
+    authentication, and the terminal output, the saved report and the kept run hold the
+    `host[:port]` only (#2481)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != "/api/embed":
+            return None
+        texts = json.loads(request.content)["input"]
+        return httpx2.Response(200, json={"embeddings": [[1.0, 0.0, 0.5] for _ in texts]})
+
+    stub_web.serve(answer)
+    options = (
+        ["--models", "nomic-embed-text", "--servers", _SERVER_WITH_USERINFO]
+        if flag == "--servers"
+        else ["--models", f"nomic-embed-text@{_SERVER_WITH_USERINFO}"]
+    )
+
+    result = cli(
+        "ai", "benchmark", "--type", "embedding", *options, "--code", _source_tree(tmp_path)
+    )
+
+    (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
+    basic = "Basic " + base64.b64encode(f"bench-user:{_SERVER_SECRET}".encode()).decode()
+    assert (
+        result.exit_code,
+        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        recorded.setup["servers"] + recorded.setup["models"],
+        {(model["model"], model["server"]) for model in recorded.results["models"]},
+        _SERVER_SECRET in result.output + _saved_benchmark_text(),
+    ) == (
+        0,
+        {basic},
+        ["example.com:11434", "nomic-embed-text"]
+        if flag == "--servers"
+        else ["nomic-embed-text@example.com:11434"],
+        {("nomic-embed-text", "example.com:11434")},
+        False,
+    )

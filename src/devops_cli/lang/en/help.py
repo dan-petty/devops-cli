@@ -1601,11 +1601,13 @@ class BenchmarkCommandHelp:
     models: str = (
         "Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). "
         "A model@url runs on that server, which gets the AI key only when it is the configured "
-        "api_base_url, gateway_url or provider API."
+        "api_base_url, gateway_url or provider API. The output and the reports name it "
+        "model@host[:port]."
     )
     ollama_urls: str = (
         "Comma-separated Ollama server URLs for concurrent execution "
-        "(e.g. 'http://node1:11434,http://node2:11434')."
+        "(e.g. 'http://node1:11434,http://node2:11434'). The output and the reports name each "
+        "server by host[:port]. The userinfo of a URL goes only to that server."
     )
     tasks: str = "Filter specific task categories or IDs (e.g. 'security,kubernetes')."
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
