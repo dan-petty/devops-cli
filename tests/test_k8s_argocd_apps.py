@@ -766,7 +766,15 @@ def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_la
                                             "updateStrategy": "digest",
                                             "forceUpdate": True,
                                         },
-                                    }
+                                    },
+                                    {
+                                        "alias": "runner",
+                                        "imageName": "ghcr.io/dan-petty/devops-cli/runner:latest",
+                                        "commonUpdateSettings": {
+                                            "updateStrategy": "digest",
+                                            "forceUpdate": True,
+                                        },
+                                    },
                                 ],
                             }
                         ]

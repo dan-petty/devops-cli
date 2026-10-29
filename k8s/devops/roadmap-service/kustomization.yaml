@@ -5,5 +5,8 @@ resources:
 - ingress.yaml
 - middleware.yaml
 - networkpolicy.yaml
+- networkpolicy-egress.yaml
 - pvc.yaml
+- role.yaml
 - service.yaml
+- serviceaccount.yaml

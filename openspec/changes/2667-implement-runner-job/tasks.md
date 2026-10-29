@@ -16,9 +16,9 @@
 
 ## 3. The manifests
 
-- [ ] Add failing tests: CronJob `devops-cli-runner`, the ServiceAccount, the Role, the RoleBinding, the projected token, the egress policy, and the second image of ImageUpdater
+- [x] Add failing tests: CronJob `devops-cli-runner`, the ServiceAccount, the Role, the RoleBinding, the projected token, the egress policy, and the second image of ImageUpdater
   - Verification: `uv run devops ci test tests/test_k8s_devops_runtime.py tests/test_k8s_roadmap_service.py tests/test_k8s_runner.py`
-- [ ] Add the manifests to `k8s/devops/` and to the kustomization, and the second image to `k8s/argocd/image-updater-values.yaml`
+- [x] Add the manifests to `k8s/devops/` and to the kustomization, and the second image to `k8s/argocd/image-updater-values.yaml`
   - Verification: `uv run devops ci test tests/test_k8s_devops_runtime.py tests/test_k8s_roadmap_service.py tests/test_k8s_runner.py tests/test_k8s_argocd_apps.py`
 
 ## 4. The token of one repository and the process of the job

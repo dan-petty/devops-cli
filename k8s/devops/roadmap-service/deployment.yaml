@@ -35,7 +35,9 @@ spec:
               - matchExpressions:
                   - key: node-role.kubernetes.io/control-plane
                     operator: DoesNotExist
-      serviceAccountName: devops-cli
+      # The account of the Service, with a Role for the implement Job (#2667). The token comes
+      # from the projected volume `kube-api-access` below, which expires in an hour.
+      serviceAccountName: roadmap-service
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -90,6 +92,9 @@ spec:
             - name: config
               mountPath: /config
               readOnly: true
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /healthz
@@ -118,3 +123,17 @@ spec:
         - name: config
           configMap:
             name: devops-cli-config
+        # A token for the Kubernetes API, which the kubelet renews, and the cluster CA. The
+        # client reads the token file again each minute.
+        - name: kube-api-access
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt

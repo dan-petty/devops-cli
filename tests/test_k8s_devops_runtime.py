@@ -312,7 +312,9 @@ def test_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_
             else workload["spec"]
         )["template"]["spec"]["containers"]
     }
+    # The runner has no entry here: Image Updater writes its own entry (#2667).
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
+        ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),
         ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),
     }

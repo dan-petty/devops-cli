@@ -1,0 +1,93 @@
+# The template of the runner Job, the pod in which the implement job runs its steps (#2667). It
+# never runs on a schedule: `devops k8s run-job --template runner -- ARGS` and the roadmap
+# Service create a Job from it with only the container's args, the name and some labels and
+# environment values changed. The shell of a step is no security boundary, so this pod is the
+# sandbox: a read-only root, no Linux capability, no Kubernetes token, and the egress of
+# `devops-default-perimeter` (DNS, the gateway, the cache, the OTLP collector and public HTTPS).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: devops-cli-runner
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: devops-cli-runner
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      # A job that changed GitHub never runs twice.
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: devops-cli-runner
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          serviceAccountName: devops-cli
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: runner
+              image: ghcr.io/dan-petty/devops-cli/runner
+              imagePullPolicy: IfNotPresent
+              args: ["--version"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              envFrom:
+                - secretRef:
+                    name: devops-cli
+              env:
+                - name: DEVOPS_CLI_CONFIG
+                  value: /config/devops-cli.yaml
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+                # Only the pod of a runner Job sets this. `devops roadmap implement --confirm`
+                # runs a step only when it is true.
+                - name: DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER
+                  value: "true"
+                # The telemetry of a runner Job reports under the `job` of the other cluster
+                # jobs.
+                - name: OTEL_SERVICE_NAME
+                  value: devops-cli-job
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                # The clone, the worktree, its venv and the uv cache, which fit in 4 GiB
+                # (measured: 1.1 GB for the venv and the cache).
+                - name: home
+                  mountPath: /home/devops
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 4Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: home
+              emptyDir:
+                sizeLimit: 4Gi
+            - name: config
+              configMap:
+                name: devops-cli-config

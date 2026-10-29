@@ -1124,15 +1124,19 @@ k8s/
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
 │   ├── configmap.example.yaml # devops-cli config template: deploy-stack renders ConfigMap devops-cli-config from it and config.yaml
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
+│   ├── cronjob-runner.yaml   # Suspended CronJob devops-cli-runner, the template of the implement job's runner Job
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
-│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicy, PVC
+│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicies, PVC, ServiceAccount and Role
 │       ├── kustomization.yaml
 │       ├── deployment.yaml
 │       ├── ingress.yaml
 │       ├── middleware.yaml
+│       ├── networkpolicy-egress.yaml
 │       ├── networkpolicy.yaml
 │       ├── pvc.yaml
-│       └── service.yaml
+│       ├── role.yaml
+│       ├── service.yaml
+│       └── serviceaccount.yaml
 ├── ingress/
 │   ├── kustomization.yaml    # Kustomize overlay for cluster ingress routes
 │   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type

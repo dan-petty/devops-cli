@@ -9,7 +9,8 @@
 # credential is needed. Image Updater updates only the images that a pod in the Application's
 # tree runs, unless `forceUpdate` is true. No such pod runs the service image: CronJob
 # `devops-cli` is a suspended template, `roadmap-service` can be at 0 replicas, and the Jobs
-# that `devops k8s run-job` starts are outside the tree. So `forceUpdate` is true. When the
+# that `devops k8s run-job` starts are outside the tree. So `forceUpdate` is true. The same
+# holds for the runner image of CronJob `devops-cli-runner`. When the
 # Application already names the digest, Image Updater writes nothing.
 extraObjects:
   - apiVersion: argocd-image-updater.argoproj.io/v1alpha1
@@ -23,6 +24,13 @@ extraObjects:
           images:
             - alias: service
               imageName: ghcr.io/dan-petty/devops-cli/service:latest
+              commonUpdateSettings:
+                updateStrategy: digest
+                forceUpdate: true
+            # The image of CronJob devops-cli-runner, the template of the implement Job
+            # (#2667). It is a suspended template too, so it needs `forceUpdate` as well.
+            - alias: runner
+              imageName: ghcr.io/dan-petty/devops-cli/runner:latest
               commonUpdateSettings:
                 updateStrategy: digest
                 forceUpdate: true
