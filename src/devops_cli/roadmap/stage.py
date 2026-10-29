@@ -862,20 +862,12 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
 
 
 def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
-    """Tell a person that a group is still over the budget, and record it: the job leaves the
-    item alone until a person decides."""
+    """Tell a person that a group is still over the budget, then record it: the job leaves the
+    item alone until a person decides. The comment goes first, so a failed write never leaves a
+    record that no one was told about."""
     worst = stopped.worst
     texts = MESSAGES.roadmap
     number = stopped.target.item.number
-    store.set_marks(
-        stopped.target.item,
-        {
-            StageRecordKey.NEEDS_SPLIT: texts.stage_split_record.format(
-                title=worst.group.title, tokens=worst.tokens
-            ),
-            StageRecordKey.GROUPS: _groups_recorded(stopped.groups),
-        },
-    )
     store.comment(
         number,
         texts.stage_comment_over_budget.format(
@@ -886,6 +878,15 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
             number=number,
             groups=_groups_listed(stopped.groups),
         ),
+    )
+    store.set_marks(
+        stopped.target.item,
+        {
+            StageRecordKey.NEEDS_SPLIT: texts.stage_split_record.format(
+                title=worst.group.title, tokens=worst.tokens
+            ),
+            StageRecordKey.GROUPS: _groups_recorded(stopped.groups),
+        },
     )
 
 
@@ -904,43 +905,47 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     store.set_marks(removal.item, {key: None for key in StageRecordKey})
 
 
+def _write_each(
+    writes: Iterable[tuple[Item, Callable[[], None]]], done: list[int], failed: list[StageFailure]
+) -> None:
+    """Run each write. A write that fails adds a `StageFailure` and the next write still runs;
+    rejected GitHub credentials stop the run."""
+    for item, write in writes:
+        try:
+            write()
+        except GitHubUnauthenticatedError:
+            raise
+        except DevOpsCLIError as exc:
+            failed.append(_write_failure(item, exc))
+        else:
+            done.append(item.number)
+
+
 def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> StageApplied:
     """Writes the plan: removes the staged branches of closed items, stages each ready change,
     and stops each item whose group is over the budget. A write that fails stops its item, and
     the others go on; rejected GitHub credentials stop the run."""
     checkout = Path(source)
-    staged: list[int] = []
     removed: list[int] = []
+    staged: list[int] = []
+    stopped: list[int] = []
     failed: list[StageFailure] = []
-    for removal in plan.removals:
-        try:
-            _remove_staged(store, plan.repo, checkout, removal)
-        except GitHubUnauthenticatedError:
-            raise
-        except DevOpsCLIError as exc:
-            failed.append(_write_failure(removal.item, exc))
-        else:
-            removed.append(removal.number)
-    for change in plan.ready:
-        item = change.target.item
-        try:
-            _stage_one(store, plan.repo, checkout, change)
-        except GitHubUnauthenticatedError:
-            raise
-        except DevOpsCLIError as exc:
-            failed.append(
-                StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)))
-            )
-        else:
-            staged.append(item.number)
-    for stopped in plan.over_budget:
-        _stop_on_budget(store, stopped)
-    return StageApplied(
-        tuple(staged),
-        tuple(s.target.item.number for s in plan.over_budget),
-        tuple(failed),
-        tuple(removed),
+    _write_each(
+        [(r.item, partial(_remove_staged, store, plan.repo, checkout, r)) for r in plan.removals],
+        removed,
+        failed,
     )
+    _write_each(
+        [(c.target.item, partial(_stage_one, store, plan.repo, checkout, c)) for c in plan.ready],
+        staged,
+        failed,
+    )
+    _write_each(
+        [(o.target.item, partial(_stop_on_budget, store, o)) for o in plan.over_budget],
+        stopped,
+        failed,
+    )
+    return StageApplied(tuple(staged), tuple(stopped), tuple(failed), tuple(removed))
 
 
 # ── The report ────────────────────────────────────────────────────────────────
