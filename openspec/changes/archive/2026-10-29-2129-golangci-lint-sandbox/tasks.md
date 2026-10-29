@@ -8,7 +8,7 @@
 ## 2. A Go module whose modules are not in the module cache is a coverage gap
 
 - [x] 2.1 Write `test_a_module_whose_modules_are_not_in_the_cache_is_a_coverage_gap` in `tests/test_golangci_lint_scanner.py`. Verify that `uv run devops ci test tests/test_golangci_lint_scanner.py` fails on the base: the scan fails
-- [x] 2.2 Add the hook `coverage_gap` of `BaseSecurityScanner`, which `_run_scanner_command` reads before the output of the tool, and `GolangciLintScanner.coverage_gap`. Verify that `uv run devops ci test tests/test_golangci_lint_scanner.py tests/test_scanner_tool_executor.py tests/test_scanner_contract.py` passes
+- [x] 2.2 Add the hook `coverage_gap` of `BaseSecurityScanner`, which `_outcome_of` reads before the output of the tool, and `GolangciLintScanner.coverage_gap`. A coverage gap settles its run as a success (#2100). Verify that `uv run devops ci test tests/test_golangci_lint_scanner.py tests/test_scanner_tool_executor.py tests/test_scanner_contract.py` passes
 
 ## 3. Documents
 
