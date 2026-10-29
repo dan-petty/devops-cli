@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.benchmark.server_label import server_label
+from devops_cli.ai.benchmark.labels import model_label, server_label
 from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
@@ -189,8 +189,10 @@ class BenchmarkRunner:
         """Initialize the AI benchmark runner.
 
         Args:
-            models: Candidate models to evaluate. With none, the runner evaluates the configured
-                `ai.model`, as `devops ai benchmark` does when `--models` names none.
+            models: Candidate models to evaluate, each `model` or `model@endpoint`. With none,
+                the runner evaluates the configured `ai.model`, as `devops ai benchmark` does
+                when `--models` names none. An endpoint can hold userinfo, which the client sends.
+                The output and the report name the model `model@host[:port]`.
             tasks: Benchmark evaluation tasks to execute across candidate models.
             settings: Runtime CLI configuration settings.
             provider: LLM provider name (e.g. 'ollama', 'openai', 'claude').
@@ -202,7 +204,14 @@ class BenchmarkRunner:
         """
         self.tasks = tasks
         self.settings = settings or load_settings()
-        self.models = models or [self.settings.ai.model]
+        # The report names a model by its label. The entry, which holds the endpoint URL with its
+        # userinfo, stays here for the requests. Entries with one label share the first entry.
+        self.models: list[str] = []
+        self._model_entries: dict[str, str] = {}
+        for entry in models or [self.settings.ai.model]:
+            label = model_label(entry)
+            self.models.append(label)
+            self._model_entries.setdefault(label, entry)
         self.provider = provider or self.settings.ai.provider
         self.session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._is_dry_run_override = is_dry_run
@@ -219,7 +228,9 @@ class BenchmarkRunner:
         from devops_cli.ai.benchmark.model_spec import parse_model_spec
 
         endpoint = server_url
-        clean_model, explicit_endpoint = parse_model_spec(model_name)
+        clean_model, explicit_endpoint = parse_model_spec(
+            self._model_entries.get(model_name, model_name)
+        )
         if explicit_endpoint:
             endpoint = explicit_endpoint
 

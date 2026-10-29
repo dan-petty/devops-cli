@@ -19,9 +19,9 @@ from devops_cli.ai.benchmark.document_chunker import (
 from devops_cli.ai.benchmark.embedding_tasks import (
     EmbeddingEvalPair,
 )
+from devops_cli.ai.benchmark.labels import server_label
 from devops_cli.ai.benchmark.model_spec import parse_model_spec
 from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir, _key_for_endpoint
-from devops_cli.ai.benchmark.server_label import server_label
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.config.constants import (

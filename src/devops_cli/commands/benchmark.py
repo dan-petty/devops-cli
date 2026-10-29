@@ -119,12 +119,13 @@ def _benchmark_setup(
 ) -> dict[str, Any]:
     """What a benchmark's results depend on besides its subject.
 
-    A server is named by its `host[:port]`, never by its URL, which can hold userinfo.
+    A server and the endpoint of a model are named by their `host[:port]`, never by their URL,
+    which can hold userinfo.
     """
-    from devops_cli.ai.benchmark.server_label import server_label
+    from devops_cli.ai.benchmark.labels import model_label, server_label
 
     return {
-        "models": sorted(model_list),
+        "models": sorted(model_label(entry) for entry in model_list),
         "provider": provider or settings.ai.provider,
         "servers": sorted(server_label(url) for url in server_list or []),
         "concurrency": safe_concurrency,

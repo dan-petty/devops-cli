@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -1068,11 +1069,16 @@ def test_an_endpoint_that_ollama_urls_cannot_hold_fails_the_run_of_that_model() 
 
 
 def _saved_benchmark_text() -> str:
-    """The text of every report file that a benchmark run saved in the benchmarks directory."""
+    """The text of every file that a benchmark leaves: its saved reports and its kept runs."""
+    from devops_cli.ai.run_store import runs_dir
     from devops_cli.core.repo import resolve_data_path
 
-    base = resolve_data_path(load_settings().data.benchmarks_dir)
-    return "".join(path.read_text(encoding="utf-8") for path in sorted(base.rglob("*.json")))
+    folders = [resolve_data_path(load_settings().data.benchmarks_dir), runs_dir()]
+    return "".join(
+        path.read_text(encoding="utf-8")
+        for folder in folders
+        for path in sorted(folder.rglob("*.json"))
+    )
 
 
 def test_a_dry_run_embedding_benchmark_names_each_server_by_host_and_port(
@@ -1166,3 +1172,49 @@ def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_hos
         _SERVER_SECRET
         in shown.out + shown.err + caplog.text + report.model_dump_json() + _saved_benchmark_text(),
     ) == ([("example.com:11434", True)], {basic}, True, False)
+
+
+@pytest.mark.parametrize("flag", ["--servers", "--models"])
+def test_an_embedding_benchmark_sends_the_userinfo_and_records_only_the_host_and_port(
+    tmp_path: Path, stub_web: StubWeb, cli: Callable[..., Any], flag: str
+) -> None:
+    """Verify a benchmark run keeps no password of a server URL, whether the URL comes from
+    `--servers` or from the endpoint of a `--models` entry: the server gets it as Basic
+    authentication, and the terminal output, the saved report and the kept run hold the
+    `host[:port]` only (#2481)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != "/api/embed":
+            return None
+        texts = json.loads(request.content)["input"]
+        return httpx2.Response(200, json={"embeddings": [[1.0, 0.0, 0.5] for _ in texts]})
+
+    stub_web.serve(answer)
+    options = (
+        ["--models", "nomic-embed-text", "--servers", _SERVER_WITH_USERINFO]
+        if flag == "--servers"
+        else ["--models", f"nomic-embed-text@{_SERVER_WITH_USERINFO}"]
+    )
+
+    result = cli(
+        "ai", "benchmark", "--type", "embedding", *options, "--code", _source_tree(tmp_path)
+    )
+
+    (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
+    basic = "Basic " + base64.b64encode(f"bench-user:{_SERVER_SECRET}".encode()).decode()
+    assert (
+        result.exit_code,
+        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        recorded.setup["servers"] + recorded.setup["models"],
+        {(model["model"], model["server"]) for model in recorded.results["models"]},
+        _SERVER_SECRET in result.output + _saved_benchmark_text(),
+    ) == (
+        0,
+        {basic},
+        ["example.com:11434", "nomic-embed-text"]
+        if flag == "--servers"
+        else ["nomic-embed-text@example.com:11434"],
+        {("nomic-embed-text", "example.com:11434")},
+        False,
+    )
