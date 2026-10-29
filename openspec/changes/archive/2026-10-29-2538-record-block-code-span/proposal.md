@@ -14,7 +14,7 @@ The next write of the record then deletes the text that a person wrote.
 - A quote in a code span, a fenced code block or an indented code block stays in the body. A record comment that more text follows is not the record.
 - The removal of the record block takes out that block only. The regular-expression substitution that removed every match is deleted.
 - Tests in `tests/test_roadmap_store_contract.py` cover both store adapters.
-- The requirement "The issue body holds the job record" of `roadmap-item-labels` states the rule.
+- A new requirement of `roadmap-item-labels` states the rule.
 
 ## Capabilities
 
