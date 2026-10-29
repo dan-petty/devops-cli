@@ -47,6 +47,7 @@ from devops_cli.config.settings import (
     load_settings,
 )
 from devops_cli.exceptions import ConfigurationError, RoadmapRunError
+from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
 from devops_cli.server.routes.webhooks import (
@@ -77,9 +78,6 @@ PauseReader = Callable[[Exception], datetime | None]
 IdentityReader = Callable[[Exception], bool]
 """Reads whether a failed round's error says GitHub refused the Service's identity."""
 
-RequestCounter = Callable[[], int]
-"""Reads how many GitHub requests the process has sent since it started."""
-
 LaneJob = Callable[[TriggerBatch], None]
 """What one lane of a repository runs for each batch of its triggers."""
 
@@ -106,16 +104,11 @@ def no_identity_refusal(_exc: Exception) -> bool:
     return False
 
 
-def process_request_count() -> int:
-    """The requests the process's GitHub rate limiter has counted."""
-    from devops_cli.github.rate_limiter import get_github_rate_limiter
+_RequestsSent = TypeAdapter(list[tuple[datetime, int]])
+"""A budget record: the time of each request in the window and the requests it counts."""
 
-    return get_github_rate_limiter().get_global_request_count()
-
-
-_RoundsSent = TypeAdapter(list[tuple[datetime, int]])
-"""A budget record: the end of each round in the window and the requests sent since the round
-before it."""
+_BUDGET_WAIT_SLICE_SECONDS = 1.0
+"""The longest a request waits before it reads the window again."""
 
 
 def read_state_record[T](record: Path, adapter: TypeAdapter[T], empty: T) -> T:
@@ -154,38 +147,37 @@ def _report_spent(spent: int) -> None:
 
 class RequestBudget:
     """The GitHub requests the Service may send in any one hour, all repositories and lanes
-    together (#2161).
+    together (#2161, #2547).
 
-    The budget reads the count of requests at the end of each round and keeps, for an hour, the
-    end of the round and the requests sent since the round before. The requests of the last hour
-    are the sum of those that ended in it. A round that sent requests past the budget ends first,
-    so the budget can be passed by the cost of one round per worker. The cost of a round sets the
-    poll cadence: the Service polls no faster than the budget pays for. With a `record`, the
-    rounds of the window are kept in that file, and a restart reads them back (#2474).
+    The budget is hard: each request asks `admit` for its place as the GitHub rate limiter lets
+    it go, so no hour holds more than the limit, whatever a round costs. A request the window
+    has no room for waits until the oldest request of the window leaves it. `admit` keeps the
+    request in the window at once, and with a `record`, in that file, so a pod that stops in
+    the middle of a round loses none, and a restart reads them back (#2474). Once `close` is
+    called, a request that would wait ends with an error instead, so a stop does not wait for
+    the window.
 
-    The Service's /metrics shows the limit, the requests of the window as of the last round or
-    check, and a count of each hold when it begins (#2475).
+    The cost of a round sets the poll cadence: the Service polls no faster than the budget pays
+    for. The Service's /metrics shows the limit, the requests of the window as of the last
+    request or check, and a count of each hold when it begins (#2475).
     """
 
     def __init__(
         self,
         clock: Callable[[], datetime],
         limit: int,
-        counter: RequestCounter = process_request_count,
         window_seconds: int = CONST_SERVICE_BUDGET_WINDOW_SECONDS,
         record: Path | None = None,
     ) -> None:
         self._clock = clock
         self._limit = limit
-        self._counter = counter
         self._window = timedelta(seconds=window_seconds)
         self._record = record
         self._lock = threading.Lock()
-        start = counter()
-        self._first = start
-        self._latest = start
+        self._closed = threading.Event()
+        self._admitted = 0
         self._rounds = 0
-        kept = [] if record is None else read_state_record(record, _RoundsSent, [])
+        kept = [] if record is None else read_state_record(record, _RequestsSent, [])
         self._sent: deque[tuple[datetime, int]] = deque(kept)
         self._holding = False
         GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_BUDGET_LIMIT, float(limit))
@@ -196,19 +188,39 @@ class RequestBudget:
         """The most requests the Service sends in an hour."""
         return self._limit
 
-    def record_round(self) -> None:
-        """Take the count of requests at the end of a round, and keep the window's rounds in the
-        record."""
-        count = self._counter()
+    def admit(self) -> None:
+        """Give one request its place in the window, and keep it in the record. Waits while the
+        window is full; once the budget is closed, raises instead of waiting."""
+        while True:
+            with self._lock:
+                spent = self._spent_locked()
+                if spent < self._limit:
+                    self._sent.append((self._clock(), 1))
+                    self._admitted += 1
+                    spent += 1
+                    if self._record is not None:
+                        kept = _RequestsSent.dump_python(list(self._sent), mode="json")
+                        keep_state_record(self._record, kept)
+                    break
+                wait = (self._sent[0][0] + self._window - self._clock()).total_seconds()
+            _report_spent(spent)
+            if self._closed.is_set():
+                raise RoadmapRunError(
+                    MESSAGES.serve.budget_closed.format(spent=spent, limit=self._limit),
+                    details={"limit": self._limit},
+                )
+            self._closed.wait(min(max(wait, 0.0), _BUDGET_WAIT_SLICE_SECONDS))
+        _report_spent(spent)
+
+    def close(self) -> None:
+        """End the waits of the requests that the window has no room for, and refuse the
+        ones that come after."""
+        self._closed.set()
+
+    def count_round(self) -> None:
+        """Count a round that ended, for the cost of a round."""
         with self._lock:
             self._rounds += 1
-            self._sent.append((self._clock(), count - self._latest))
-            self._latest = count
-            spent = self._spent_locked()
-            if self._record is not None:
-                kept = _RoundsSent.dump_python(list(self._sent), mode="json")
-                keep_state_record(self._record, kept)
-        _report_spent(spent)
 
     def _spent_locked(self) -> int:
         cutoff = self._clock() - self._window
@@ -217,7 +229,7 @@ class RequestBudget:
         return sum(sent for _, sent in self._sent)
 
     def spent(self) -> int:
-        """The requests the Service sent in the last hour, as of its last round."""
+        """The requests the Service sent in the last hour."""
         with self._lock:
             return self._spent_locked()
 
@@ -241,7 +253,7 @@ class RequestBudget:
         with self._lock:
             if self._rounds == 0:
                 return configured
-            cost = (self._latest - self._first) / self._rounds
+            cost = self._admitted / self._rounds
         needed = self._window.total_seconds() * rounds_per_poll * cost / self._limit
         return max(configured, float(math.ceil(needed)))
 
@@ -291,9 +303,9 @@ class RoundPause:
             )
 
     def round_ended(self) -> None:
-        """Count the requests a round sent against the budget."""
+        """Count a round that ended, for the cost of a round."""
         if self._budget is not None:
-            self._budget.record_round()
+            self._budget.count_round()
 
     def halted(self) -> bool:
         """Whether GitHub refused the identity, so no round starts again."""
@@ -576,7 +588,6 @@ class ServiceManager:
         sleep_func: Callable[[float], Coroutine[Any, Any, None]],
         pause_until: PauseReader = no_round_pause,
         identity_refused: IdentityReader = no_identity_refusal,
-        request_counter: RequestCounter = process_request_count,
         state_dir: Path | None = None,
     ) -> None:
         self.config = config
@@ -591,7 +602,6 @@ class ServiceManager:
         self.budget = RequestBudget(
             clock,
             config.github_requests_per_hour,
-            request_counter,
             record=None if state_dir is None else state_dir / CONST_SERVICE_BUDGET_FILENAME,
         )
         self.pause = RoundPause(
@@ -614,6 +624,7 @@ class ServiceManager:
 
     async def start(self) -> None:
         """Start worker threads and background polling loop."""
+        set_request_gate(self.budget.admit)
         for worker in self.workers.values():
             worker.start()
         self._tick_task = asyncio.create_task(self._tick_loop(), name="service-poll-tick")
@@ -678,6 +689,7 @@ class ServiceManager:
         stopped before the timeout."""
         self._draining = True
         self._stop_event.set()
+        self.budget.close()
         if self._tick_task is not None and not self._tick_task.done():
             self._tick_task.cancel()
             try:
@@ -694,6 +706,7 @@ class ServiceManager:
             worker.stop()
             joined = worker.join(max(0.0, deadline - time.perf_counter()))
             cleanly_stopped = cleanly_stopped and drained and joined
+        set_request_gate(None)
         return cleanly_stopped
 
 

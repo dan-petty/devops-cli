@@ -1632,6 +1632,11 @@ class ServeMessages:
         "The Service sent {spent} GitHub requests in the last hour, and its budget is {limit}: "
         "no round starts until the window has room."
     )
+    # Raised when a request needs a place in the full window and the Service is stopping (#2547).
+    budget_closed: str = (
+        "The Service sent {spent} GitHub requests in the last hour, and its budget is {limit}: "
+        "the request does not wait for the window, because the Service is stopping."
+    )
     # Logged once, when a roadmap job reaches its limit of failed rounds (#2161).
     job_suspended: str = (
         "The roadmap job {job} of {repo} failed {rounds} rounds in a row, so it does not run "

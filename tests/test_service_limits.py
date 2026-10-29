@@ -14,6 +14,7 @@ ETags (`tests/test_github_session.py`).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -88,14 +89,10 @@ class _Clock:
         return self.now
 
 
-class _Requests:
-    """The count of requests the process sent, set by the test."""
-
-    def __init__(self) -> None:
-        self.count = 0
-
-    def __call__(self) -> int:
-        return self.count
+def _send(budget: RequestBudget, count: int) -> None:
+    """Send `count` requests through the budget, as the rate limiter does for each one."""
+    for _ in range(count):
+        budget.admit()
 
 
 def _suspended() -> GitHubUnauthenticatedError:
@@ -106,7 +103,6 @@ def _manager(
     jobs: Mapping[str, Callable[[TriggerBatch], None]],
     *,
     clock: _Clock,
-    requests: _Requests | None = None,
     per_hour: int = 500,
     poll_interval: int = 300,
     volume: Path | None = None,
@@ -125,7 +121,6 @@ def _manager(
         clock=clock,
         sleep_func=asyncio.sleep,
         identity_refused=identity_refused,
-        request_counter=requests or _Requests(),
         state_dir=volume,
     )
     for worker in manager.workers.values():
@@ -321,75 +316,117 @@ def test_a_suspended_installation_halts_the_service(
 def test_the_budget_holds_the_rounds_when_the_last_hour_spent_it_and_frees_them_as_it_slides() -> (
     None
 ):
-    clock, requests = _Clock(), _Requests()
-    budget = RequestBudget(clock, 100, requests)
-    requests.count = 60
+    clock = _Clock()
+    budget = RequestBudget(clock, 100)
+    _send(budget, 60)
     clock.now += timedelta(minutes=10)
-    budget.record_round()
+    _send(budget, 30)
     assert not budget.holds()
 
-    requests.count = 130
-    clock.now += timedelta(minutes=10)
-    budget.record_round()
-    assert budget.spent() == 130
+    _send(budget, 10)
+    assert budget.spent() == 100
     assert budget.holds()
 
-    clock.now = START + timedelta(seconds=CONST_SERVICE_BUDGET_WINDOW_SECONDS + 15 * 60)
-    assert budget.spent() == 70
+    clock.now = START + timedelta(seconds=CONST_SERVICE_BUDGET_WINDOW_SECONDS + 5 * 60)
+    assert budget.spent() == 40
     assert not budget.holds()
 
 
-def test_a_round_stays_under_the_hourly_budget() -> None:
-    clock, requests = _Clock(), _Requests()
+def test_a_round_that_would_pass_the_hourly_budget_waits_for_the_window() -> None:
+    """The budget is checked for each request, where the request goes, so a round that starts
+    under it waits when it would pass it, and goes on when the window has room (#2547)."""
+    clock = _Clock()
     started: list[str] = []
+    finished: list[str] = []
 
     def job(batch: TriggerBatch) -> None:
         started.append(batch.repo)
-        requests.count += 40
+        _send(manager.budget, 60)
+        finished.append(batch.repo)
 
-    manager = _manager({"lane": job}, clock=clock, requests=requests, per_hour=100)
+    manager = _manager({"lane": job}, clock=clock, per_hour=100)
     try:
-        for expected in (1, 2, 3):
-            manager.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
-            assert wait_until(lambda expected=expected: len(started) == expected)
-            assert wait_until(lambda: not manager.workers[(REPO_A, "lane")].is_active())
-        # Three rounds sent 120 requests: the budget of 100 is spent, so nothing more starts.
-        assert manager.pause.holds()
         manager.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
+        assert wait_until(lambda: len(finished) == 1)
         manager.enqueue_trigger(REPO_B, "webhook", "issues", "labeled")
-        assert not wait_until(lambda: len(started) > 3, _QUIET_SECONDS)
+        assert wait_until(lambda: manager.budget.spent() == 100)
+        # The round of REPO_B sent 40 requests, and its 41st waits.
+        assert not wait_until(lambda: len(finished) == 2, _QUIET_SECONDS)
+        assert (started, manager.budget.spent(), manager.pause.holds()) == (
+            [REPO_A, REPO_B],
+            100,
+            True,
+        )
 
-        # An hour on, the window has room and the held triggers run, one round per repository.
         clock.now += timedelta(seconds=CONST_SERVICE_BUDGET_WINDOW_SECONDS + 1)
-        assert wait_until(lambda: len(started) == 5)
+        assert wait_until(lambda: len(finished) == 2)
     finally:
         _stop(manager)
 
-    assert sorted(started[3:]) == [REPO_A, REPO_B]
+    assert manager.budget.spent() == 20
+
+
+def test_each_request_is_in_the_record_when_it_is_sent(tmp_path: Path) -> None:
+    """A pod that stops in the middle of a round loses none of its requests (#2547)."""
+    record = tmp_path / CONST_SERVICE_BUDGET_FILENAME
+    budget = RequestBudget(_Clock(), 100, record=record)
+    kept: list[int] = []
+
+    for _ in range(3):
+        budget.admit()
+        kept.append(sum(count for _, count in json.loads(record.read_text(encoding="utf-8"))))
+
+    assert kept == [1, 2, 3]
+    assert RequestBudget(_Clock(), 100, record=record).spent() == 3
+
+
+def test_a_request_the_budget_has_no_room_for_ends_when_the_budget_is_closed() -> None:
+    budget = RequestBudget(_Clock(), 2)
+    _send(budget, 2)
+    budget.close()
+
+    with pytest.raises(RoadmapRunError) as raised:
+        budget.admit()
+
+    assert (raised.value.details, budget.spent()) == ({"limit": 2}, 2)
+
+
+def test_the_requests_of_a_session_are_admitted_by_the_service_budget(
+    github_api: GitHubApiFake,
+) -> None:
+    """The rate limiter asks the budget for each request it lets go, so a request is counted
+    where it is sent, and not at the end of a round (#2547)."""
+    from devops_cli.github.rate_limiter import set_request_gate
+
+    github_api.route("GET", f"/repos/{REPO_A}/issues", github_json([]))
+    budget = RequestBudget(_Clock(), 100)
+    set_request_gate(budget.admit)
+    try:
+        get_github_session().rest("GET", f"/repos/{REPO_A}/issues")
+    finally:
+        set_request_gate(None)
+
+    assert budget.spent() == 1
 
 
 def test_the_poll_cadence_is_the_one_the_budget_pays_for() -> None:
-    clock, requests = _Clock(), _Requests()
-    budget = RequestBudget(clock, 360, requests)
+    clock = _Clock()
+    budget = RequestBudget(clock, 360)
     assert budget.poll_interval(300.0, rounds_per_poll=4) == 300.0
 
-    requests.count = 40
-    clock.now += timedelta(minutes=1)
-    budget.record_round()
+    _send(budget, 40)
+    budget.count_round()
     # A round costs 40 requests, a poll runs 4 rounds, and 360 requests an hour pay for 2.25 polls.
     assert budget.poll_interval(300.0, rounds_per_poll=4) == 1600.0
     assert budget.poll_interval(3000.0, rounds_per_poll=4) == 3000.0
 
 
 def test_the_manager_polls_at_the_derived_interval() -> None:
-    clock, requests = _Clock(), _Requests()
-    manager = _manager(
-        {"lane": lambda batch: None}, clock=clock, requests=requests, per_hour=360, poll_interval=60
-    )
+    manager = _manager({"lane": lambda batch: None}, clock=_Clock(), per_hour=360, poll_interval=60)
     try:
         assert manager.poll_interval() == 60.0
-        requests.count = 90
-        manager.budget.record_round()
+        _send(manager.budget, 90)
+        manager.budget.count_round()
         assert manager.poll_interval() == 3600 * 2 * 90 / 360
     finally:
         _stop(manager)
@@ -568,14 +605,14 @@ def test_a_restart_keeps_the_halt_the_budget_window_and_the_failure_ledger(
     from zero, and it still holds the halt, the 60 requests of the window and the suspended job
     (#2474). It counts the kept refusal once, so the alert on the counter holds through the
     restart."""
-    clock, requests = _Clock(), _Requests()
+    clock = _Clock()
     volume = service_state_dir(tmp_path)
 
     def refused(batch: TriggerBatch) -> None:
-        requests.count += 60
+        _send(first.budget, 60)
         raise _suspended()
 
-    first = _manager({"lane": refused}, clock=clock, requests=requests, volume=volume)
+    first = _manager({"lane": refused}, clock=clock, volume=volume)
     try:
         first.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
         assert first.workers[(REPO_A, "lane")].wait_active(THREAD_HANDOFF_BOUND_SECONDS)
@@ -599,7 +636,7 @@ def test_a_restart_keeps_the_halt_the_budget_window_and_the_failure_ledger(
 
     # The new process's metrics start empty.
     GLOBAL_METRICS.reset()
-    restarted = _manager({"lane": refused}, clock=clock, requests=_Requests(), volume=volume)
+    restarted = _manager({"lane": refused}, clock=clock, volume=volume)
     _stop(restarted)
     run_due_jobs(
         REPO_A,
@@ -669,13 +706,12 @@ def _budget_report() -> tuple[float, float, float]:
 def test_the_budget_reports_its_limit_the_requests_of_the_window_and_each_hold_once() -> None:
     """The gauges follow the window as it slides, and a hold counts once when it begins, so a
     held Service shows on /metrics and not only in its log."""
-    clock, requests = _Clock(), _Requests()
-    budget = RequestBudget(clock, 100, requests)
+    clock = _Clock()
+    budget = RequestBudget(clock, 100)
     reports = [_budget_report()]
 
-    requests.count = 130
+    _send(budget, 100)
     clock.now += timedelta(minutes=10)
-    budget.record_round()
     budget.holds()
     budget.holds()
     reports.append(_budget_report())
@@ -684,13 +720,12 @@ def test_the_budget_reports_its_limit_the_requests_of_the_window_and_each_hold_o
     budget.holds()
     reports.append(_budget_report())
 
-    requests.count = 260
+    _send(budget, 100)
     clock.now += timedelta(minutes=1)
-    budget.record_round()
     budget.holds()
     reports.append(_budget_report())
 
-    assert reports == [(100, 0, 0), (100, 130, 1), (100, 0, 1), (100, 130, 2)]
+    assert reports == [(100, 0, 0), (100, 100, 1), (100, 0, 1), (100, 100, 2)]
 
 
 def test_a_job_reports_its_suspension_until_new_input_or_a_success_ends_it() -> None:
