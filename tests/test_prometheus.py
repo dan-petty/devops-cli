@@ -216,7 +216,7 @@ def test_a_refused_prometheus_address_ends_the_query_with_the_refusal(
 
     The command exits with the status of `SSRFBlockedError` (`SSRF_BLOCKED`, docs/ERRORS.md).
     """
-    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
     recorder = record_connects(monkeypatch, [])
 
     result = cli(

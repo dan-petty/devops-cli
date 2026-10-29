@@ -124,10 +124,10 @@ def _is_documentation_address(ip: _IPAddress) -> bool:
 def _is_public_address(ip: _IPAddress) -> bool:
     """Whether an address is globally reachable: global, and neither reserved nor multicast.
 
-    `is_global` alone admits reserved space such as `64:ff9b::a00:1`, the NAT64 form of 10.0.0.1,
-    and multicast such as 224.0.0.1, so both are excluded, as is the space the stdlib still
-    reads as global against IANA (`CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL`: 6to4 relay
-    anycast and deprecated site-local fec0::/10).
+    `is_global` alone admits reserved space such as `64:ff9b::c000:201`, the NAT64 form of
+    192.0.2.1, and multicast such as 224.0.0.1, so both are excluded, as is the space the stdlib
+    still reads as global against IANA (`CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL`: 6to4
+    relay anycast and deprecated site-local fec0::/10).
     """
     return (
         ip.is_global

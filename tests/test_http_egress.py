@@ -1025,7 +1025,7 @@ def test_each_caller_dials_at_its_level(
 ) -> None:
     """Every caller dials what the level the table gives it admits, with and without the flag.
 
-    The caller runs twice, its host answering 127.0.0.1 and then 10.0.0.1: a public-level client
+    The caller runs twice, its host answering 127.0.0.1 and then 192.0.2.10: a public-level client
     dials neither, a loopback-level one only the first, a private-level one both. Only the URLs
     that come from configuration follow the flag; the tool downloads, the documentation crawler,
     the default pricing registry and the clients of fixed public APIs (OSV, Shodan InternetDB,
@@ -1038,7 +1038,7 @@ def test_each_caller_dials_at_its_level(
     call = _caller_calls(flag, tmp_path)[caller]
     dials: list[bool] = []
     named: list[str] = []
-    for address in ("127.0.0.1", "10.0.0.1"):
+    for address in ("127.0.0.1", "192.0.2.10"):
         scripted_resolver(monkeypatch, {host: [[address]] for host in _CALLER_HOSTS})
         recorder = record_connects(monkeypatch, [])
         _call_ignoring_errors(call)
