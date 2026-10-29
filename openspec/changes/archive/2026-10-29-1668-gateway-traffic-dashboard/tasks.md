@@ -25,7 +25,7 @@
 
 ## 4. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1668-gateway-traffic-dashboard`
 - Pending a person: under Open WebUI's Admin Panel > Settings > Connections, turn off the Ollama API. Open WebUI keeps the setting in its database, so the new values change only a fresh install.
 - Pending a person: after Argo CD redeploys the gateway and a workstation runs a model call, `sum by (end_user) (increase(litellm_input_tokens_metric_total[1h]))` shows `devops-cli`, and the Gateway Traffic from Every Caller row shows data in Grafana.
