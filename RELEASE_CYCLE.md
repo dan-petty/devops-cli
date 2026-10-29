@@ -1,6 +1,6 @@
 # Release Cycle — devops-cli
 
-This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`, and a person merges its pull request. release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([`AGENTS.md`](AGENTS.md)).
+This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`, and a person merges its pull request. For an urgent fix, GitHub merges the release pull request when its checks pass ([Urgent Fixes](#urgent-fixes)). release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([`AGENTS.md`](AGENTS.md)).
 
 ## How the Release Pull Request Is Made
 
@@ -11,12 +11,24 @@ This page is for the person who releases `devops-cli`. [release-please](https://
 
 ## Merge the Release Pull Request
 
-A person decides when to release. There is no schedule.
+A person decides when to release, except for an urgent fix ([Urgent Fixes](#urgent-fixes)). There is no schedule.
 
 1. Open the release pull request. Its title names the version.
 2. Read the version and the new changelog section. Make sure that they agree with what merged.
 3. Make sure that all required checks pass.
 4. Squash-merge the pull request in the GitHub web UI.
+
+## Urgent Fixes
+
+An urgent fix releases without a wait for a person. After `Run release-please` updates the release pull request, the step `Merge the Release Pull Request on an Urgent Fix` of `release.yml` reads the pull request of the pushed commit and the issues that it closes. The fix is urgent when one of these is true:
+
+- The pull request has the label `release-now`. A person sets this label.
+- An issue that it closes has the label `priority/p0-critical`.
+- An issue that it closes has the labels `type/security` and `priority/p1-high`.
+
+For an urgent fix, the step turns on auto-merge of the release pull request with the release App token. GitHub merges it when the required checks and the rules of the `main` ruleset pass. If they already passed, the step merges it at once. The App token does it, because a merge that `GITHUB_TOKEN` makes starts no workflow, and then no run creates the release. For any other pull request, the step does nothing, and a person merges the release pull request.
+
+To stop an automatic release, turn off auto-merge in the release pull request (**Disable auto-merge** in the GitHub web UI) before its checks pass.
 
 ## What the Merge Publishes
 

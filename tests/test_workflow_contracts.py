@@ -137,6 +137,47 @@ def test_release_please_makes_every_release_on_a_push_to_main() -> None:
     assert [name for name in jobs if name != "release-please" and not _gated(jobs, name)] == []
 
 
+_URGENT_MERGE_STEP = "Merge the Release Pull Request on an Urgent Fix"
+_URGENT_LABELS = ("release-now", "priority/p0-critical", "type/security", "priority/p1-high")
+
+
+def test_an_urgent_fix_turns_on_auto_merge_of_the_release_pull_request() -> None:
+    """After release-please updates the release pull request, the release App turns on its
+    auto-merge when the pushed commit's pull request carries `release-now`, or closes an issue
+    labeled `priority/p0-critical`, or `type/security` with `priority/p1-high` (#1966, ADR 0013).
+    The App token does it, because a merge that GITHUB_TOKEN makes starts no Release run, and the
+    run of a release merge does nothing. RELEASE_CYCLE.md states the rule, and the label exists."""
+    steps = _load_workflow(RELEASE_PATH)["jobs"]["release-please"]["steps"]
+    names = [step["name"] for step in steps]
+    step = steps[names.index(_URGENT_MERGE_STEP)]
+    script = step["run"]
+    labels = yaml.safe_load(Path(".github/labels.yml").read_text(encoding="utf-8"))
+    cycle = Path("RELEASE_CYCLE.md").read_text(encoding="utf-8")
+
+    assert (
+        names.index(_URGENT_MERGE_STEP) > names.index("Run release-please"),
+        step["if"],
+        step["env"],
+        'gh pr merge "$RELEASE_PR" --repo "$REPOSITORY" --auto --squash' in script,
+        [label for label in _URGENT_LABELS if label not in script],
+        "release-now" in {label["name"] for label in labels},
+        [label for label in _URGENT_LABELS if f"`{label}`" not in cycle],
+    ) == (
+        True,
+        "steps.release.outputs.releases_created != 'true' && steps.release.outputs.pr != ''",
+        {
+            "GH_TOKEN": "${{ steps.app.outputs.token }}",
+            "REPOSITORY": "${{ github.repository }}",
+            "PUSHED_SHA": "${{ github.sha }}",
+            "RELEASE_PR": "${{ fromJSON(steps.release.outputs.pr).number }}",
+        },
+        True,
+        [],
+        True,
+        [],
+    )
+
+
 def test_every_publish_job_checks_out_the_commit_release_please_tagged() -> None:
     """A run that a later push starts can create the release of an earlier merge, so each job
     that checks out the repository builds the commit that the release tags, not the commit of

@@ -91,6 +91,10 @@
   color: "EDEDED"
   description: "A release pull request whose release release-please created"
 
+- name: "release-now"
+  color: "B60205"
+  description: "A person sets it on a fix pull request: its merge turns on auto-merge of the release pull request"
+
 # ── Roadmap Item Fields (ADR 0016) ──────────────────────────────────────────
 # One label of each family holds a field of a roadmap item. A roadmap job that
 # sets a field replaces each label of the family with the label of the value.
