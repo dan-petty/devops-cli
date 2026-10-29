@@ -31,7 +31,7 @@ import pytest
 from fakeredis import FakeServer, FakeValkey
 
 from devops_cli.valkey.client import ValkeyClient
-from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
     from devops_cli.valkey.endpoint import ValkeyEndpoint
@@ -100,8 +100,9 @@ def serving_valkey(
 
     `replies` maps an upper-case command name to its RESP reply; any other command is answered
     +OK. The yielded record is complete once the block exits, which waits for the client to close
-    its connection. valkey-py announces its name and version with `CLIENT SETINFO` after it
-    connects; the record leaves those out.
+    its connection. A block in which no client connected exits at once, and the record is empty.
+    valkey-py announces its name and version with `CLIENT SETINFO` after it connects; the record
+    leaves those out.
 
     With `tls`, the server does the TLS handshake with that context before it reads a command. When
     the client refuses the handshake, the server closes the connection and records no command.
@@ -112,8 +113,19 @@ def serving_valkey(
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
 
+        ended = threading.Event()
+
         def serve() -> None:
-            connection, _ = listener.accept()
+            listener.settimeout(POLL_INTERVAL_SECONDS)
+            while True:
+                try:
+                    connection, _ = listener.accept()
+                    break
+                except TimeoutError:
+                    # A client that dialled before the block ended waits in the backlog, so the
+                    # accept after the end finds it; only an empty backlog stops the server.
+                    if ended.is_set():
+                        return
             if tls is not None:
                 try:
                     connection = tls.wrap_socket(connection, server_side=True)
@@ -132,5 +144,8 @@ def serving_valkey(
 
         server = threading.Thread(target=serve, daemon=True)
         server.start()
-        yield listener.getsockname()[1], received
-        server.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+        try:
+            yield listener.getsockname()[1], received
+        finally:
+            ended.set()
+            server.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
