@@ -45,7 +45,7 @@
 
 ## 6. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2664-roadmap-implement-step`
 
 ## Workflow follow-up
