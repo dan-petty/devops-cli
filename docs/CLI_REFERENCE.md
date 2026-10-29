@@ -1179,6 +1179,30 @@ devops k8s check-deprecated [OPTIONS] <target>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops k8s image-pins`
+
+**Render each Argo CD Application of the repository and resolve each image it pins in its
+registry, as an anonymous client, without pulling it. Exits 1 when a registry does not hold an
+image or refuses the read. Docker Hub counts each read of a Docker Hub image as an anonymous
+pull, from the allowance of the network's public address, which the cluster's nodes may share;
+the CI job `image-pins` runs the check on a pull request that changes k8s/.**
+
+```bash
+devops k8s image-pins [OPTIONS] <root>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<root>` | `path` | No | Repository root whose Argo CD Applications in k8s/argocd/ are rendered. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops k8s create-tls-secret`
 
 **Create or update a kubernetes.io/tls secret from certificate and private key files.**

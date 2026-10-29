@@ -561,3 +561,54 @@ jobs:
             --exclude '/src/' \
             --exclude '/lang/en' \
             "/site/devops-cli/**/*.html"
+
+  # Resolves each image that an Argo CD Application pins when a pull request changes the
+  # manifests, the command or this workflow, so a wrong tag fails the pull request and not the
+  # sync (#1994). `devops k8s image-pins` renders each Application as Argo CD does: a path source
+  # with the runner's kubectl, as the Argo CD gate of the test row does, and a chart source with
+  # the pinned helm and the repository's value files. It resolves each image once with
+  # `docker buildx imagetools inspect`, an anonymous manifest read that Docker Hub counts as a
+  # pull. A pull request that changes none of the paths skips the check, and the job reports
+  # success.
+  image-pins:
+    name: Image Pins
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter reads the changed files from the REST API
+
+    steps:
+      - name: Detect Image Pin Changes
+        id: changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            pins:
+              - 'k8s/**'
+              - 'src/devops_cli/**/image_pins.py'
+              - '.github/workflows/ci.yml'
+
+      - name: Check out repository
+        if: steps.changes.outputs.pins == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv toolchain
+        if: steps.changes.outputs.pins == 'true'
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: image-pins
+          save-uv-cache: "false"
+
+      - name: Install Helm
+        if: steps.changes.outputs.pins == 'true'
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv run devops install-tools --tool helm --only-missing
+
+      - name: Resolve the Image Pins
+        if: steps.changes.outputs.pins == 'true'
+        run: uv run devops k8s image-pins

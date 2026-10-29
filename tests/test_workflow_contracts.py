@@ -1195,3 +1195,61 @@ def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder()
             },
         ],
     )
+
+
+def test_a_pull_request_that_changes_an_image_pin_resolves_each_pinned_image() -> None:
+    """A wrong image tag under `k8s/` fails only when Argo CD syncs, so the `image-pins` job runs
+    `devops k8s image-pins` on the pull request first. It runs for every pull request and checks
+    only when the manifests, the command's two modules or `ci.yml` changed, so on any other pull
+    request it reports success. No job needs it, and it holds no write scope. It installs the
+    pinned helm, which renders the chart Applications, with the lock's installer (#1994)."""
+    jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
+    job = jobs["image-pins"]
+    changed = "steps.changes.outputs.pins == 'true'"
+
+    assert (
+        job["if"],
+        job["permissions"],
+        job["timeout-minutes"],
+        [name for name, other in jobs.items() if "image-pins" in _needs(other)],
+        job["steps"],
+    ) == (
+        "github.event_name == 'pull_request'",
+        {"contents": "read", "pull-requests": "read"},
+        10,
+        [],
+        [
+            {
+                "name": "Detect Image Pin Changes",
+                "id": "changes",
+                "uses": PATHS_FILTER,
+                "with": {
+                    "filters": "pins:\n  - 'k8s/**'\n  - 'src/devops_cli/**/image_pins.py'\n"
+                    "  - '.github/workflows/ci.yml'\n"
+                },
+            },
+            {
+                "name": "Check out repository",
+                "if": changed,
+                "uses": CHECKOUT,
+                "with": {"persist-credentials": False},
+            },
+            {
+                "name": "Set up uv toolchain",
+                "if": changed,
+                "uses": "./.github/actions/setup-toolchain",
+                "with": {"cache-suffix": "image-pins", "save-uv-cache": "false"},
+            },
+            {
+                "name": "Install Helm",
+                "if": changed,
+                "run": 'echo "$HOME/.local/bin" >> "$GITHUB_PATH"\n'
+                "uv run devops install-tools --tool helm --only-missing\n",
+            },
+            {
+                "name": "Resolve the Image Pins",
+                "if": changed,
+                "run": "uv run devops k8s image-pins",
+            },
+        ],
+    )

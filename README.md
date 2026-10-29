@@ -220,6 +220,11 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 |  | `devops k8s lint [OPTIONS] <target>` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
 |  | `devops k8s audit [OPTIONS]` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 |  | `devops k8s check-deprecated [OPTIONS] <target>` | Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto. |
+|  | `devops k8s image-pins [OPTIONS] <root>` | Render each Argo CD Application of the repository and resolve each image it pins in its
+registry, as an anonymous client, without pulling it. Exits 1 when a registry does not hold an
+image or refuses the read. Docker Hub counts each read of a Docker Hub image as an anonymous
+pull, from the allowance of the network's public address, which the cluster's nodes may share;
+the CI job `image-pins` runs the check on a pull request that changes k8s/. |
 |  | `devops k8s create-tls-secret [OPTIONS] <secret_name>` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 |  | `devops k8s enable-tls [OPTIONS]` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
 |  | `devops k8s validate [OPTIONS] <manifest_path>` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |

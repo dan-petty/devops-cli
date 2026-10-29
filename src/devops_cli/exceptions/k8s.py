@@ -40,6 +40,13 @@ class KubernetesTunnelError(KubernetesError):
     error_code = "K8S_TUNNEL_ERROR"
 
 
+class ImagePinError(KubernetesError):
+    """Raised when an image that an Argo CD Application pins does not resolve in its registry, or an
+    Application does not render (#1994)."""
+
+    error_code = "K8S_IMAGE_PIN_ERROR"
+
+
 class ArgoCDGateError(KubernetesError):
     """Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343)."""
 
