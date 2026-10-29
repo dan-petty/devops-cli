@@ -430,17 +430,9 @@ class KubernetesConfig(BaseModel):
 
 class CloudflareAccessConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    enabled: bool = Field(
-        default=False,
-        description="Whether Cloudflare Zero Trust Access protection is enabled",
-    )
     allowed_emails: Annotated[list[str], Variable()] = Field(
         default_factory=list,
         description="List of email addresses permitted to authenticate through Cloudflare Access",
-    )
-    idp: str = Field(
-        default="google",
-        description="Identity provider name (e.g. google, one_time_pin)",
     )
     bypass_ips: Annotated[list[str], Variable()] = Field(
         default_factory=list,

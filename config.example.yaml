@@ -185,8 +185,6 @@ cloudflare:
   public_ip_bypass: null
   # Cloudflare Zero Trust Access configuration.
   access:
-    enabled: false
-    idp: google
     allowed_emails: []
     # Public IP addresses or CIDR blocks permitted to bypass Cloudflare Access.
     bypass_ips: []
