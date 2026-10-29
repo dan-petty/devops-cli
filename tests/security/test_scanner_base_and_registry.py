@@ -16,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_SCANNER_STDOUT_EXCERPT_CHARS,
 )
+from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.base import BaseSecurityScanner, materialize_targets
 from devops_cli.security.dive import DiveAnalysisResult
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
@@ -303,17 +304,15 @@ def _sample_target(scanner_name: str, tmp_path: Path) -> Path:
 
 def test_all_11_scanners_dry_run_simulation(tmp_path: Path) -> None:
     """Verify all 11 scanners handle dry-run execution by returning simulated findings."""
-    with patch("devops_cli.dry_run.state.is_dry_run", return_value=True):
-        for name in ALL_EXPECTED_SCANNER_NAMES:
-            scanner = global_scanner_registry.get(name)
-            assert scanner is not None
-            test_file = _sample_target(name, tmp_path)
-            findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
-            assert isinstance(findings, list)
-            assert len(findings) >= 1
-            assert any(
-                "DRY-RUN" in f.title.upper() or "SIMULATED" in f.title.upper() for f in findings
-            )
+    set_dry_run(True)
+    for name in ALL_EXPECTED_SCANNER_NAMES:
+        scanner = global_scanner_registry.get(name)
+        assert scanner is not None
+        test_file = _sample_target(name, tmp_path)
+        findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
+        assert isinstance(findings, list)
+        assert len(findings) >= 1
+        assert any("DRY-RUN" in f.title.upper() or "SIMULATED" in f.title.upper() for f in findings)
 
 
 def test_scanner_fallback_when_binary_unavailable(

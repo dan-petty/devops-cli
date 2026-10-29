@@ -19,6 +19,7 @@ import pytest
 import typer
 
 from devops_cli.exceptions import SecurityError, ValidationError
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 # 1. Ground truth verification for Finding 1
@@ -72,7 +73,9 @@ def test_generate_ed25519_key_rejects_symlinks(tmp_path: Path) -> None:
 
 
 # 5. Git reference validation and stderr sanitization in difftastic (Findings 5 & 18)
-def test_difftastic_validates_git_references_and_sanitizes_stderr(tmp_path: Path) -> None:
+def test_difftastic_validates_git_references_and_sanitizes_stderr(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """Verify get_structural_diff rejects unsafe git reference syntax and sanitizes stderr."""
     from devops_cli.ai.diff.difftastic import get_structural_diff
 
@@ -81,16 +84,13 @@ def test_difftastic_validates_git_references_and_sanitizes_stderr(tmp_path: Path
     assert "Invalid git reference" in res or "Error" in res
 
     # Stderr sanitization when subprocess fails
-    with patch("devops_cli.ai.diff.difftastic.run_subprocess") as mock_sub:
-        mock_proc = MagicMock()
-        mock_proc.returncode = 128
-        mock_proc.stdout = ""
-        mock_proc.stderr = "fatal: token=ghp_super_secret_token_12345 in repo"
-        mock_sub.return_value = mock_proc
-
-        diff_res = get_structural_diff(path_a=tmp_path, branch="feature", base="main")
-        assert "ghp_super_secret_token_12345" not in diff_res
-        assert "[REDACTED_SECRET]" in diff_res or "<masked" in diff_res.lower()
+    process_fake.answer(
+        lambda _call: True,
+        ProcessAnswer(returncode=128, stderr="fatal: token=ghp_super_secret_token_12345 in repo"),
+    )
+    diff_res = get_structural_diff(path_a=tmp_path, branch="feature", base="main")
+    assert "ghp_super_secret_token_12345" not in diff_res
+    assert "[REDACTED_SECRET]" in diff_res or "<masked" in diff_res.lower()
 
 
 # 6. Secret sanitization in AgentMemory auto_summarize (Finding 6)
@@ -230,27 +230,30 @@ def test_dive_analysis_refuses_symlink_binary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify run_dive_analysis refuses to execute if dive executable in PATH is a symlink."""
+    from devops_cli.core.process import reset_process_runner, set_process_runner
     from devops_cli.security.dive import run_dive_analysis
 
     real_bin = tmp_path / "real_bin.sh"
     real_bin.write_text("#!/bin/sh\necho dive", encoding="utf-8")
     real_bin.chmod(0o755)
     sym_bin = tmp_path / "dive"
+    sym_bin.symlink_to(real_bin)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    # The runner seam takes every run, and `shutil.which` stays real, so PATH finds the symlink.
+    runner = ProcessFake()
+    set_process_runner(runner)
     try:
-        sym_bin.symlink_to(real_bin)
-        monkeypatch.setenv("PATH", str(tmp_path))
+        res = run_dive_analysis(image_name="test-image:latest")
+    finally:
+        reset_process_runner()
 
-        with patch("devops_cli.security.dive.run_subprocess") as never_run:
-            res = run_dive_analysis(image_name="test-image:latest")
-        # Refused without running it, and reported as such rather than as an analysis
-        assert (res.status, res.layers, "symlink" in res.reason, never_run.called) == (
-            "unavailable",
-            [],
-            True,
-            False,
-        )
-    except OSError:
-        pass
+    # Refused without running it, and reported as such rather than as an analysis
+    assert (res.status, res.layers, "symlink" in res.reason, runner.calls) == (
+        "unavailable",
+        [],
+        True,
+        [],
+    )
 
 
 # 14. Provider base_url validation (Finding 12)
@@ -279,24 +282,21 @@ def test_create_pydantic_ai_provider_never_reads_a_file_base_url() -> None:
 
 
 # 15. Helm diff secret masking (Finding 13)
-def test_diff_helm_release_masks_secrets(tmp_path: Path) -> None:
+def test_diff_helm_release_masks_secrets(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Verify diff_helm_release masks secrets in helm diff output."""
     from devops_cli.k8s.diff import diff_helm_release
 
     chart_dir = tmp_path / "chart"
     chart_dir.mkdir()
+    process_fake.answer(
+        "helm", ProcessAnswer(stdout="+ api_key: ghp_confidential_helm_key_777\n- replicas: 1")
+    )
 
-    with patch("devops_cli.k8s.diff.run_subprocess") as mock_sub:
-        mock_res = MagicMock()
-        mock_res.returncode = 0
-        mock_res.stdout = "+ api_key: ghp_confidential_helm_key_777\n- replicas: 1"
-        mock_res.stderr = ""
-        mock_sub.return_value = mock_res
+    code, output = diff_helm_release("test-release", chart_dir)
 
-        code, output = diff_helm_release("test-release", chart_dir)
-        assert code == 0
-        assert "ghp_confidential_helm_key_777" not in output
-        assert "<masked" in output.lower() or "[REDACTED" in output
+    assert code == 0
+    assert "ghp_confidential_helm_key_777" not in output
+    assert "<masked" in output.lower() or "[REDACTED" in output
 
 
 # 16. Complexity scanner skips external symlinks (Finding 14)

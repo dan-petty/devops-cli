@@ -53,9 +53,16 @@ _ONLY_BANDIT = {
 
 
 @pytest.fixture
-def only_bandit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A host where Bandit is the only analyzer installed, as in the reported review."""
-    monkeypatch.setattr(pipeline, "check_binary", lambda binary: binary == "bandit")
+def only_bandit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake) -> None:
+    """A host where Bandit is the only analyzer installed, as in the reported review: PATH holds
+    one directory, with only `bandit` in it. It comes after `scanner_fake`, which puts every
+    recorded scanner on PATH; the scanner fake still answers each run."""
+    bin_dir = tmp_path / "only-bandit-bin"
+    bin_dir.mkdir()
+    bandit = bin_dir / "bandit"
+    bandit.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    bandit.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
 
 
 @pytest.mark.usefixtures("only_bandit")

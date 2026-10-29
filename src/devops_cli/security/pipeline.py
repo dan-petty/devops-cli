@@ -193,9 +193,54 @@ def severity_choices() -> tuple[str, ...]:
     return CONST_SEVERITY_ORDER
 
 
+# The outcomes of a scanner that ran: with its binary, or with its built-in patterns.
+_RAN_STATUSES = ("ran", "built-in patterns")
+
+
+@dataclass(frozen=True)
+class GateVerdict:
+    """Why a report fails the `--fail-on` gate, in the order the gate checks: the scanners that
+    failed, then the named scanners that did not run, then a finding at or above the threshold."""
+
+    failed_scanners: tuple[str, ...] = ()
+    scanners_not_run: tuple[str, ...] = ()
+    exceeds_threshold: bool = False
+
+    @property
+    def passed(self) -> bool:
+        """Whether the report passes the gate."""
+        return not (self.failed_scanners or self.scanners_not_run or self.exceeds_threshold)
+
+
+def gate_report(
+    report: ScanReport,
+    *,
+    fail_on: str | None,
+    explicit_scanners: list[str] | None = None,
+) -> GateVerdict:
+    """The `--fail-on` gate of a report. With no threshold every report passes. With one, a
+    scanner that failed, a named scanner that did not run, and a gating finding at or above the
+    threshold each fail it."""
+    if not fail_on:
+        return GateVerdict()
+    failed = sorted(name for name, outcome in report.outcomes.items() if outcome.status == "failed")
+    not_run = sorted(
+        name
+        for name in explicit_scanners or []
+        if name not in report.outcomes or report.outcomes[name].status not in _RAN_STATUSES
+    )
+    return GateVerdict(
+        failed_scanners=tuple(failed),
+        scanners_not_run=tuple(not_run),
+        exceeds_threshold=report.exceeds(fail_on),
+    )
+
+
 __all__ = [
+    "GateVerdict",
     "ScanReport",
     "build_report",
+    "gate_report",
     "report_from_findings",
     "severity_choices",
 ]

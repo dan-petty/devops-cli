@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from devops_cli.config.constants import CONST_GITHUB_KNOWN_HOSTS_LINES
 from devops_cli.exceptions import GitOperationError
 from devops_cli.git.operations import _ensure_known_host, clone_repo
+from tests.support.fakes.process import ProcessFake
 
 # Published fingerprints from https://api.github.com/meta (.ssh_key_fingerprints)
 # and https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
@@ -60,14 +61,17 @@ def test_github_known_hosts_lines_fingerprints() -> None:
 # =============================================================================
 
 
-def test_ensure_known_host_writes_file_and_dir_modes(tmp_path: Path) -> None:
-    """Verify lines are written with file mode 0600 and directory mode 0700."""
+def test_ensure_known_host_writes_file_and_dir_modes(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """Verify lines are written with file mode 0600 and directory mode 0700, from the pinned
+    lines and with no `ssh-keyscan`: the process seam gets no run, and the test floor refuses any
+    program started beneath it."""
     _ensure_known_host.cache_clear()
     known_hosts = tmp_path / ".ssh" / "known_hosts"
 
-    with patch("subprocess.run") as mock_subproc, patch("subprocess.Popen") as mock_popen:
-        _ensure_known_host(known_hosts)
-        assert (mock_subproc.called, mock_popen.called) == (False, False)
+    _ensure_known_host(known_hosts)
+    assert process_fake.calls == []
 
     content = known_hosts.read_text(encoding="utf-8")
     for line in CONST_GITHUB_KNOWN_HOSTS_LINES:
@@ -212,7 +216,6 @@ def test_devops_repos_clone_cli_exits_nonzero_with_no_traceback(
     with (
         patch("devops_cli.git.operations._ensure_known_host"),
         patch("devops_cli.git.operations.gitlib.Repo.clone_from", side_effect=fake_cmd_err),
-        patch("devops_cli.commands.repos.load_settings"),
     ):
         dest = tmp_path / "clone_target"
         res = cli(["repos", "clone", "git@github.com:org/repo.git", str(dest)])

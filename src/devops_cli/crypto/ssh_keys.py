@@ -298,3 +298,24 @@ def list_managed_keys_info(key_dir: Path, prefix: str | None = None) -> list[Man
         age = (today - key_date).days if key_date is not None else None
         result.append(ManagedSSHKey(path=path, key_date=key_date, age_days=age))
     return result
+
+
+def configure_git_signing(key_path: Path, repo_dir: Path | None = None) -> None:
+    """Point git's SSH commit signing at `key_path`: in the global git config, and in the local
+    config of `repo_dir` (the working directory when none is given) when it is a repository."""
+    from devops_cli.core.process import run_subprocess
+
+    settings = (
+        ("gpg.format", "ssh"),
+        ("user.signingkey", str(key_path)),
+        ("commit.gpgsign", "true"),
+    )
+    for key, value in settings:
+        run_subprocess(["git", "config", "--global", key, value], quiet=True)
+
+    target_repo = (repo_dir or Path.cwd()).resolve()
+    if (target_repo / ".git").exists():
+        for key, value in settings:
+            run_subprocess(
+                ["git", "-C", str(target_repo), "config", "--local", key, value], quiet=True
+            )
