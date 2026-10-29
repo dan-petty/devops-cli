@@ -19,6 +19,7 @@ from devops_cli.k8s.image_pins import (
     image_reference,
     image_values,
     is_local_registry,
+    names_latest,
     resolve_image,
 )
 from tests.support.fakes.imagetools import ImagetoolsFake
@@ -89,15 +90,23 @@ def _tree(root: Path, *images: str) -> Path:
     return root
 
 
-def _chart_answers(process_fake: ProcessFake, *, returncode: int = 0, stderr: str = "") -> None:
+def _chart_answers(
+    process_fake: ProcessFake,
+    *,
+    returncode: int = 0,
+    stderr: str = "",
+    alertmanager: str = _ALERTMANAGER,
+) -> None:
     """`helm template` writes the canned chart, with two things that the real charts write and that
     PyYAML refuses, which the committed fixture cannot hold (the repository's hooks read it with
     PyYAML): the tab after a value of the `prometheus` chart's Alertmanager StatefulSet, and the
-    lone `=` of a CRD schema of `prometheus-operator-crds`."""
+    lone `=` of a CRD schema of `prometheus-operator-crds`. `alertmanager` is the image that the
+    value files give the StatefulSet."""
     rendered = (
         _CHART_RENDER.read_text(encoding="utf-8")
         .replace("- apiVersion: v1\n", "- apiVersion: v1\t\n", 1)
         .replace('- "="\n', "- =\n", 1)
+        .replace(_ALERTMANAGER, alertmanager)
     )
     stdout = rendered if returncode == 0 else ""
     process_fake.answer(
@@ -205,22 +214,46 @@ def test_a_registry_that_only_the_cluster_or_this_host_reaches_is_local(
     assert is_local_registry(registry) is local
 
 
+@pytest.mark.parametrize(
+    ("image", "latest"),
+    [
+        ("example/app:latest", True),
+        ("example/app", True),
+        ("traefik", True),
+        ("registry.example.com:5000/team/app", True),
+        ("localhost:5000/team/app:latest", True),
+        ("example/app:1.0", False),
+        ("example/app:latest-alpine", False),
+        ("registry.example.com:5000/team/app:1.0", False),
+        ("example/app@sha256:" + "d" * 64, False),
+        ("example/app:latest@sha256:" + "d" * 64, False),
+    ],
+)
+def test_an_image_with_no_digest_and_the_latest_tag_or_no_tag_names_latest(
+    image: str, latest: bool
+) -> None:
+    """The reference grammar gives a reference with no tag the tag `latest`; a digest pins the
+    image whatever its tag, and a registry's port is not a tag."""
+    assert names_latest(image) is latest
+
+
 def test_the_pins_are_the_rendered_images_less_the_managed_and_the_local_ones(
     tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
 ) -> None:
     """A path source renders with kustomize and a chart source with `helm template` and the value
-    files of the repository. The image that the chart's ImageUpdater names and the image of a
-    cluster-only registry are not pins."""
+    files of the repository, less its test manifests, which Argo CD does not apply. The image that
+    the chart's ImageUpdater names and the image of a cluster-only registry are not pins."""
     root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4", _SERVICE, _LOCAL)
     _chart_answers(process_fake)
 
     pins = collect_image_pins(root)
 
     helm = [call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "template")]
-    assert (pins.pinned, pins.managed, pins.local, helm) == (
+    assert (pins.pinned, pins.managed, pins.local, pins.latest, helm) == (
         {"cloudflare/cloudflared:2026.10.4": ("web",), _ALERTMANAGER: ("monitoring",)},
         (_SERVICE,),
         {_LOCAL: ("web",)},
+        {},
         [
             (
                 "helm",
@@ -233,10 +266,45 @@ def test_the_pins_are_the_rendered_images_less_the_managed_and_the_local_ones(
                 "1.2.3",
                 "--namespace",
                 "monitoring",
+                "--skip-tests",
                 "--values",
                 str(root / "k8s" / "example" / "values.yaml"),
             )
         ],
+    )
+
+
+def test_an_image_on_the_latest_tag_is_not_a_pin(
+    tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
+) -> None:
+    """A `latest` tag, no tag, and a `latest` tag of a cluster-only registry name `latest`. The
+    untagged image that the chart's ImageUpdater names does not: Image Updater sets its tag."""
+    local_latest = "registry.example.svc:5000/team/tool:latest"
+    root = _tree(tmp_path, "example/app:latest", "example/plain", _SERVICE, local_latest)
+    _chart_answers(process_fake)
+
+    pins = collect_image_pins(root)
+
+    assert (pins.latest, pins.pinned, pins.local) == (
+        {"example/app:latest": ("web",), "example/plain": ("web",), local_latest: ("web",)},
+        {_ALERTMANAGER: ("monitoring",)},
+        {},
+    )
+
+
+def test_a_value_file_that_sets_the_latest_tag_names_a_latest_image(
+    tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
+) -> None:
+    """A tag that a chart's value file sets is in the render, which a check of the raw files does
+    not see."""
+    root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4")
+    _chart_answers(process_fake, alertmanager="quay.io/example/alertmanager:latest")
+
+    pins = collect_image_pins(root)
+
+    assert (pins.latest, pins.pinned) == (
+        {"quay.io/example/alertmanager:latest": ("monitoring",)},
+        {"cloudflare/cloudflared:2026.10.4": ("web",)},
     )
 
 
@@ -388,6 +456,28 @@ def test_the_command_fails_on_an_image_that_its_registry_does_not_hold(
         "docker.io/ollama/ollama:0.0.0-does-not-exist: not found"
         in " ".join(result.output.split()),
     ) == (1, True)
+
+
+def test_the_command_refuses_an_image_on_the_latest_tag_and_resolves_nothing(
+    tmp_path: Path,
+    imagetools: ImagetoolsFake,
+    process_fake: ProcessFake,
+    cli: Callable[..., Any],
+) -> None:
+    """The error names each `latest` image and its Applications. No image is resolved, so the
+    refused check spends no Docker Hub pull."""
+    root = _tree(tmp_path, "example/app:latest", "cloudflare/cloudflared:2026.10.4")
+    _chart_answers(process_fake)
+
+    result = cli("k8s", "image-pins", str(root))
+
+    assert (
+        result.exit_code,
+        imagetools.calls,
+        "1 image(s) that the Argo CD Applications name use the latest tag and no digest, so each "
+        "pull can get a different image. Set a version tag or a digest: "
+        "example/app:latest (Application web)" in " ".join(result.output.split()),
+    ) == (1, [], True)
 
 
 def test_a_dry_run_renders_and_resolves_nothing(

@@ -561,6 +561,8 @@ class K8sMessages:
         "{count} image(s) that the Argo CD Applications pin do not resolve: {detail}"
     )
     image_pins_failure: str = "{image} (Application {applications}, registry {registry}): {error}"
+    image_pins_latest: str = "{count} image(s) that the Argo CD Applications name use the latest tag and no digest, so each pull can get a different image. Set a version tag or a digest: {detail}"
+    image_pins_latest_image: str = "{image} (Application {applications})"
     image_pins_managed: str = (
         "Image Updater moves these repositories, so they are not pins: {repositories}"
     )
