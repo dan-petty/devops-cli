@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,7 @@ from devops_cli.commands.ai import _render_prewarm_results, _resolve_prewarm_url
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
 from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL
+from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 runner = CliRunner()
 
@@ -397,3 +399,155 @@ class TestFastMCPPrewarmTool:
 
         with pytest.raises(ValidationError):
             ai_prewarm(keep_alive="--bad-duration")
+
+
+PREWARM_TOOL_PARAMETERS = [
+    "model",
+    "keep_alive",
+    "all_nodes",
+    "evict",
+    "output_format",
+    "json_output",
+]
+"""The parameters that the MCP tool of `devops ai prewarm` publishes: no URL."""
+
+_PREWARM_REQUEST_LINE = b"POST /api/generate HTTP/1.1"
+
+
+async def _call_prewarm_tool(arguments: dict[str, object]) -> tuple[bool, str]:
+    """Call the tool the way an MCP client does: whether the call failed, and its reply."""
+    from fastmcp import Client
+
+    from devops_cli.ai.mcp.server import mcp
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("ai_prewarm", arguments, raise_on_error=False)
+    return bool(result.is_error), "\n".join(getattr(block, "text", "") for block in result.content)
+
+
+@pytest.mark.usefixtures("keyring_store")
+class TestPrewarmToolTakesNoUrlFromTheModel:
+    """The MCP tool `ai_prewarm` posts to the servers of `ai.ollama_urls`, never to a URL that the
+    calling model gives (#2637)."""
+
+    async def test_the_tool_publishes_no_url_parameter(self) -> None:
+        """The schema of the tool holds its own options and no URL."""
+        from fastmcp import Client
+
+        from devops_cli.ai.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+
+        assert {
+            tool.name: list(tool.input_schema["properties"])
+            for tool in tools
+            if tool.name == "ai_prewarm"
+        } == {"ai_prewarm": PREWARM_TOOL_PARAMETERS}
+
+    async def test_a_url_argument_is_refused_and_reaches_no_socket(
+        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+    ) -> None:
+        """A call that gives a URL fails and sends no request.
+
+        On `origin/main` the client dialled `127.0.0.1:8200` with no flag and wrote
+        `POST /v1/sys/seal-status?x=/api/generate`, and the tool replied "confirmed HTTP 200".
+        """
+        monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+        config(ai={"provider": "ollama", "ollama_urls": ["http://example.com:11434"]})
+        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+
+        failed, reply = await _call_prewarm_tool(
+            {"url": "http://127.0.0.1:8200/v1/sys/seal-status?x="}
+        )
+
+        assert (
+            failed,
+            "1. Parameter: `url`\n   Kind: HALLUCINATED_PARAM\n" in reply,
+            recorder.dialled,
+            recorder.written,
+        ) == (True, True, [], [])
+
+    async def test_the_tool_prewarms_each_configured_server(
+        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+    ) -> None:
+        """With no URL, the tool posts the model and the keep-alive value to every configured server."""
+        config(
+            ai={
+                "provider": "ollama",
+                "model": "gemma4:26b",
+                "ollama_urls": ["http://example.com:11434", "http://example.org:11434"],
+            }
+        )
+        scripted_resolver(
+            monkeypatch,
+            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
+        )
+        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+
+        failed, reply = await _call_prewarm_tool({"keep_alive": "24h"})
+
+        assert (
+            failed,
+            sorted(recorder.requested_hosts),
+            [bytes(written).split(b"\r\n")[0] for written in recorder.written],
+            [json.loads(bytes(written).partition(b"\r\n\r\n")[2]) for written in recorder.written],
+            reply.count("confirmed HTTP 200 (keep_alive=24h)"),
+        ) == (
+            False,
+            ["example.com:11434", "example.org:11434"],
+            [_PREWARM_REQUEST_LINE] * 2,
+            [{"model": "gemma4:26b", "prompt": "", "keep_alive": "24h"}] * 2,
+            2,
+        )
+
+    @pytest.mark.parametrize(
+        ("address", "flag", "dialled"),
+        [
+            ("127.0.0.1", False, True),
+            ("192.0.2.10", False, False),
+            ("192.0.2.10", True, True),
+        ],
+        ids=["loopback without the flag", "private without the flag", "private with the flag"],
+    )
+    async def test_the_tool_dials_the_configured_server_at_the_configured_level(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        config: Callable[..., Any],
+        address: str,
+        flag: bool,
+        dialled: bool,
+    ) -> None:
+        """Loopback, and private addresses with `ai.allow_private_network`, as for the CLI.
+
+        The floor sets the flag with its environment variable, which outranks the config file, so
+        the test sets the variable.
+        """
+        monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
+        config(ai={"provider": "ollama", "ollama_urls": [f"http://{address}:11434"]})
+        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+
+        await _call_prewarm_tool({})
+
+        assert [dial for dial in recorder.dialled if dial[0] == address] == (
+            [(address, 11434)] if dialled else []
+        )
+
+    def test_the_url_option_of_the_command_prewarms_the_host_that_a_person_types(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        config: Callable[..., Any],
+        cli: Callable[..., Any],
+    ) -> None:
+        """A person types `--url`, and no model gives it, so the command posts to that host."""
+        config(ai={"provider": "ollama", "ollama_urls": ["http://example.org:11434"]})
+        scripted_resolver(
+            monkeypatch,
+            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
+        )
+        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+
+        result = cli("ai", "prewarm", "--url", "http://example.com:11434")
+
+        assert (result.exit_code, recorder.requested_hosts) == (0, ["example.com:11434"])

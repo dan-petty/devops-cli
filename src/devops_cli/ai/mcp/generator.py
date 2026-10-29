@@ -43,6 +43,12 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         "allowed": frozenset({"all_databases", "dry_run"}),
         "required": frozenset(),
     },
+    ("ai", "prewarm"): {
+        "allowed": frozenset(
+            {"model", "keep_alive", "all_nodes", "evict", "output_format", "json_output"}
+        ),
+        "required": frozenset(),
+    },
     ("ai", "gateway", "status"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "routes"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "probe-backend"): {

@@ -429,7 +429,6 @@ Prewarm local models into GPU VRAM or evict idle models across cluster nodes.
 | `keep_alive` | `string` | No | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
 | `all_nodes` | `boolean` | No | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `evict` | `boolean` | No | `False` | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
-| `url` | `string` | No | - | Specific Ollama node URL to target instead of all candidate nodes. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output results as structured JSON. |
 
