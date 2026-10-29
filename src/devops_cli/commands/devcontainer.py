@@ -28,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
     CONST_GH_LOGIN_ENV_VARS,
     CONST_GH_TOKEN_ENV_VARS,
+    CONST_GIT_GLOBAL_CONFIG_ENV,
     CONST_K8S_MINIKUBE_CONTEXT,
     CONST_KEYRING_PACKAGES,
     CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
@@ -1062,11 +1063,13 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             ["git", "config", "--global", "push.autoSetupRemote", "true"],
             check=False,
             quiet=True,
+            extra_allowed_env=CONST_GIT_GLOBAL_CONFIG_ENV,
         )
         run_subprocess(
             ["git", "config", "--global", "init.defaultBranch", "main"],
             check=False,
             quiet=True,
+            extra_allowed_env=CONST_GIT_GLOBAL_CONFIG_ENV,
         )
     actions.append("Configured git push.autoSetupRemote=true and init.defaultBranch=main")
 
