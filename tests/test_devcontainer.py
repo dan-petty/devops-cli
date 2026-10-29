@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.devcontainer import app
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.paths import REPO_ROOT
+from tests.support.tools import link_every_tool_at_pin
 
 if TYPE_CHECKING:
     pass
@@ -28,7 +29,6 @@ def runner() -> CliRunner:
 def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate devcontainer tests from spawning real background system daemons."""
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-    monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
 
 
 @pytest.fixture
@@ -168,7 +168,7 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "post-create setup ready" in result.output
         assert (fake_home / ".bash_history").exists()
@@ -602,7 +602,7 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Installed standalone pre-commit tool" in result.output
         assert any(c == ["uv", "tool", "install", "pre-commit"] for c in calls)
@@ -629,7 +629,7 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone pre-commit tool" in result.output
 
@@ -655,7 +655,7 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert (
             result.exit_code,
             "Installed standalone claude CLI" in result.output,
@@ -683,7 +683,7 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert (
             result.exit_code,
             "Warning: Failed to install standalone claude CLI" in result.output,
@@ -709,7 +709,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("pre-commit", "claude") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone uv binary" in result.output
         assert "Installed standalone uv binary" not in result.output
@@ -734,7 +734,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone claude CLI" in result.output
         assert "Installed standalone claude CLI" not in result.output
@@ -759,7 +759,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("pre-commit", "claude") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Installed standalone uv binary into $HOME/.local/bin" in result.output
         assert "Warning: Failed to install standalone uv binary" not in result.output
@@ -784,7 +784,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Installed standalone claude CLI into $HOME/.local/bin" in result.output
         assert "Warning: Failed to install standalone claude CLI" not in result.output
@@ -803,7 +803,6 @@ class TestDevcontainerCli:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.delenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP")
         monkeypatch.setattr(
             "shutil.which",
             lambda prog: (
@@ -863,6 +862,9 @@ class TestDevcontainerCli:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
+        # run-lifecycle has no --skip-tools: every locked tool is at its pin, so the
+        # bootstrap finds nothing to install.
+        link_every_tool_at_pin(fake_home / ".local" / "bin")
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
 
         result = runner.invoke(app, ["run-lifecycle", "--all", "--workspace", str(tmp_path)])
@@ -1190,7 +1192,9 @@ class TestDevcontainerCli:
         assert "Configured volume mount permissions" in msg
 
         # Test post-create includes volume mount configuration
-        res_create = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        res_create = runner.invoke(
+            app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"]
+        )
         assert res_create.exit_code == 0
         assert "Configured volume mount permissions" in res_create.output
 
@@ -1295,6 +1299,9 @@ class TestDevcontainerCli:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
+        # run-lifecycle has no --skip-tools: every locked tool is at its pin, so the
+        # bootstrap finds nothing to install.
+        link_every_tool_at_pin(fake_home / ".local" / "bin")
 
         # 1. Corrupted devcontainer.json in _extract_mount_targets
         dc_dir = tmp_path / ".devcontainer"
@@ -1371,7 +1378,7 @@ class TestDevcontainerCli:
 
         # 7. Post-create warning with non-existent DEVOPS_CLI_CONFIG
         monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "missing-config.yaml"))
-        actions_pc = _run_post_create_lifecycle(tmp_path, dry_run=False)
+        actions_pc = _run_post_create_lifecycle(tmp_path, dry_run=False, skip_tools=True)
         assert any("Specified DEVOPS_CLI_CONFIG file does not exist" in a for a in actions_pc)
 
         # 8. _run_k8s_bootstrap_worker missing minikube binary
@@ -2228,8 +2235,8 @@ def test_post_create_adds_the_unlock_hook_to_each_shell_once(
         "devops_cli.commands.devcontainer._install_keyring_packages", lambda **k: []
     )
 
-    _run_post_create_lifecycle(tmp_path)
-    _run_post_create_lifecycle(tmp_path)
+    _run_post_create_lifecycle(tmp_path, skip_tools=True)
+    _run_post_create_lifecycle(tmp_path, skip_tools=True)
 
     for rc in (".bashrc", ".zshrc"):
         content = (fake_home / rc).read_text(encoding="utf-8")
@@ -2334,11 +2341,6 @@ def test_bootstrap_managed_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         _bootstrap_managed_tools(tmp_path, dry_run=True),
         _bootstrap_managed_tools(tmp_path, skip=True),
     ) == ([], [])
-
-    # DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP returns empty list
-    monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
-    assert _bootstrap_managed_tools(tmp_path) == []
-    monkeypatch.delenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP")
 
     # Successful delegation to install_managed_tools
     with patch(
