@@ -4,13 +4,16 @@ Each Application under `k8s/argocd/` is rendered as Argo CD renders it: a path s
 builder of the Argo CD gate (`kubectl kustomize`), a chart source with `helm template` and the
 value files of the repository. Helm's output then passes through `kubectl kustomize` too, which
 reads YAML as Kubernetes does: a chart can write YAML that PyYAML refuses, such as a tab after a
-value (the Alertmanager StatefulSet of the `prometheus` chart).
+value (the Alertmanager StatefulSet of the `prometheus` chart). The chart render leaves out the
+chart's test manifests (`--skip-tests`): Argo CD does not apply a Helm test hook, so the image of a
+test pod is never pulled.
 
-Each `image` value of a rendered object is a pin, with two exceptions. Image Updater moves the
-images that an `ImageUpdater` object names, so they are not pins. An image of a registry that only
-the cluster or this host reaches cannot be resolved from a runner: its registry host is an IP
-address, `localhost`, a name with no dot (a cluster Service), or a name under `.svc`,
-`.cluster.local` or `.local`.
+Each `image` value of a rendered object is a pin, with three exceptions. Image Updater moves the
+images that an `ImageUpdater` object names, so they are not pins. An image with no digest and the
+`latest` tag, or no tag, is not a pin either: each pull can get a different image, so the check
+refuses it (#2093). An image of a registry that only the cluster or this host reaches cannot be
+resolved from a runner: its registry host is an IP address, `localhost`, a name with no dot (a
+cluster Service), or a name under `.svc`, `.cluster.local` or `.local`.
 
 `docker buildx imagetools inspect` resolves each pinned image once, as an anonymous client, as the
 cluster pulls: it runs with an empty Docker configuration, so a stored registry credential neither
@@ -44,6 +47,8 @@ from devops_cli.k8s.template import build_manifest_path
 # The registry of a name whose first component names none, and Docker Hub's other name.
 _DEFAULT_REGISTRY = "docker.io"
 _DEFAULT_REGISTRY_ALIAS = "index.docker.io"
+# The tag of a reference that names none.
+_DEFAULT_TAG = "latest"
 # The domains of the registries that only the cluster or this host reaches: Kubernetes Services and
 # multicast DNS names.
 _LOCAL_REGISTRY_DOMAINS = tuple(
@@ -60,14 +65,15 @@ class ImagePins:
     """The images that the rendered Applications name.
 
     `pinned` maps each image to resolve to the Applications that name it. `managed` holds the
-    repositories that an `ImageUpdater` object names, and `local` the images of a registry that only
-    the cluster or this host reaches, each with its Applications. `planned` holds the render
-    commands of a dry run, which renders nothing.
+    repositories that an `ImageUpdater` object names. `local` holds the images of a registry that
+    only the cluster or this host reaches, and `latest` the images on the `latest` tag, each with
+    its Applications. `planned` holds the render commands of a dry run, which renders nothing.
     """
 
     pinned: dict[str, tuple[str, ...]]
     managed: tuple[str, ...]
     local: dict[str, tuple[str, ...]]
+    latest: dict[str, tuple[str, ...]]
     planned: tuple[tuple[str, ...], ...] = ()
 
 
@@ -108,6 +114,14 @@ def image_reference(image: str) -> tuple[str, str]:
     if rest and ("." in first or ":" in first or first == "localhost"):
         return (_DEFAULT_REGISTRY if first == _DEFAULT_REGISTRY_ALIAS else first), rest
     return _DEFAULT_REGISTRY, name
+
+
+def names_latest(image: str) -> bool:
+    """Whether `image` names no digest, and the `latest` tag or no tag, which the reference grammar
+    reads as `latest`. A tag is in the last path component, so a registry's port is not one."""
+    name, _, digest = image.partition("@")
+    _, colon, tag = name.rsplit("/", 1)[-1].rpartition(":")
+    return not digest and (not colon or tag == _DEFAULT_TAG)
 
 
 def is_local_registry(registry: str) -> bool:
@@ -189,6 +203,8 @@ def _chart_command(root: Path, name: str, source: dict[str, Any], namespace: str
         str(source["targetRevision"]),
         "--namespace",
         namespace,
+        # Argo CD does not apply a Helm test hook, so a test pod's image is never pulled.
+        "--skip-tests",
     ]
     for value_file in helm.get("valueFiles") or []:
         command += ["--values", str(_value_file(root, str(value_file)))]
@@ -273,13 +289,17 @@ def collect_image_pins(root: Path) -> ImagePins:
         planned.extend(render.planned)
     pinned: dict[str, tuple[str, ...]] = {}
     local: dict[str, tuple[str, ...]] = {}
+    latest: dict[str, tuple[str, ...]] = {}
     for image, applications in sorted(named.items()):
         registry, repository = image_reference(image)
         if f"{registry}/{repository}" in managed:
             continue
-        target = local if is_local_registry(registry) else pinned
+        if names_latest(image):
+            target = latest
+        else:
+            target = local if is_local_registry(registry) else pinned
         target[image] = tuple(sorted(applications))
-    return ImagePins(pinned, tuple(sorted(managed)), local, tuple(planned))
+    return ImagePins(pinned, tuple(sorted(managed)), local, latest, tuple(planned))
 
 
 def _error_line(stderr: str) -> str:

@@ -1182,10 +1182,12 @@ devops k8s check-deprecated [OPTIONS] <target>
 ### `devops k8s image-pins`
 
 **Render each Argo CD Application of the repository and resolve each image it pins in its
-registry, as an anonymous client, without pulling it. Exits 1 when a registry does not hold an
-image or refuses the read. Docker Hub counts each read of a Docker Hub image as an anonymous
-pull, from the allowance of the network's public address, which the cluster's nodes may share;
-the CI job `image-pins` runs the check on a pull request that changes k8s/.**
+registry, as an anonymous client, without pulling it. Exits 1, before it resolves an image, when
+an image has no digest and the latest tag or no tag, unless Image Updater moves it. Exits 1 when
+a registry does not hold an image or refuses the read. Docker Hub counts each read of a Docker
+Hub image as an anonymous pull, from the allowance of the network's public address, which the
+cluster's nodes may share; the CI job `image-pins` runs the check on a pull request that changes
+k8s/.**
 
 ```bash
 devops k8s image-pins [OPTIONS] <root>
