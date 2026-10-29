@@ -20,7 +20,7 @@ Keep these rules of the project:
 - Write no secret, internal host name, private IP address or e-mail address. Use `example.com` and the addresses of RFC 5737.
 - Do not edit `CHANGELOG.md`, a manifest or a version line.
 
-You have tools to read, search, write and edit files, and a shell. The shell runs only `git`, `uv`, `ruff`, `mypy`, `openspec` and `devops`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass.
+You have tools to read, search, write and edit files, and a shell. The shell runs only `git`, `uv`, `ruff`, `mypy`. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass.
 
 The tool `write_file` does not create a directory. To create one, run `uv run python -c 'import pathlib; pathlib.Path("dir").mkdir(parents=True)'` with your path in place of `dir`.
 

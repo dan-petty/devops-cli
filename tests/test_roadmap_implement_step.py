@@ -17,11 +17,14 @@ from typing import Any
 
 import pytest
 from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai_harness.shell import Shell
 
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
+from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+    CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
@@ -29,9 +32,11 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.roadmap.implement_step import (
     StepOutcome,
     StepStatus,
+    build_agent,
     build_step_inputs,
     parse_task_groups,
     run_step,
+    shell_environment,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -465,6 +470,121 @@ def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes
     )
 
 
+def test_the_shell_tool_refuses_the_devops_cli_and_openspec(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The shell reaches no command that writes to GitHub: `devops gh` is not on its list."""
+    script = ModelScript(
+        tool_call("shell", command="devops gh api -X POST repos/example/roadmap/issues"),
+        tool_call("shell", command="openspec archive 1-sample-change"),
+        say("Done."),
+    )
+
+    _step(store, checkout, script)
+
+    assert script.tool_answers() == [
+        "Command 'devops' is not in the allowed list.",
+        "Command 'openspec' is not in the allowed list.",
+    ]
+
+
+def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No git configuration, helper or key of the user's home reaches a shell command."""
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+
+    env = shell_environment(tmp_path / "home")
+
+    assert env == {
+        "HOME": str(tmp_path / "home"),
+        "XDG_CONFIG_HOME": str(tmp_path / "home" / ".config"),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+        "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+    }
+
+
+def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
+    tmp_path: Path, checkout: Path
+) -> None:
+    agent = build_agent(ModelScript(say("x")).model(), checkout, "go", WINDOW, tmp_path / "home")
+
+    leaves: list[Any] = []
+
+    def collect(leaf: Any) -> Any:
+        leaves.append(leaf)
+        return leaf
+
+    agent.root_capability.visit_and_replace(collect)
+
+    shells = [leaf for leaf in leaves if isinstance(leaf, Shell)]
+    assert [shell.env for shell in shells] == [shell_environment(tmp_path / "home")]
+    assert [shell.allowed_commands for shell in shells] == [list(IMPLEMENT_SHELL_PROGRAMS)]
+
+
+def test_a_commit_that_the_agent_makes_stops_the_step_and_the_checkout_returns_to_its_start(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The shell allowlist admits git, so the agent can commit. Its effect is scripted here."""
+    head = git(checkout, "rev-parse", "HEAD")
+    moved: list[str] = []
+
+    def agent_commits() -> None:
+        git(checkout, "add", "-A")
+        git(checkout, "commit", "-q", "-m", "own commit")
+        moved.append(git(checkout, "rev-parse", "HEAD"))
+
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        f"The agent moved HEAD from {head} to {moved[0]}. A step makes the only commit.",
+        "",
+        True,
+    )
+
+
+def test_a_tasks_file_that_the_agent_removes_stops_the_step_and_resets_the_checkout(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(
+        tool_calls(*the_whole_group()),
+        say("Done."),
+        effects={2: (checkout / TASKS_PATH).unlink},
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "The tasks of group 1 changed. A step may only tick them.",
+        True,
+    )
+
+
+def test_a_tasks_file_with_bytes_that_are_not_text_stops_the_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+
+    def garble() -> None:
+        (checkout / TASKS_PATH).write_bytes(b"\xff\xfe not utf-8")
+
+    script = ModelScript(say("Done."), effects={1: garble})
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "The tasks of group 1 changed. A step may only tick them.",
+        True,
+    )
+
+
 def test_the_agent_has_the_file_tools_and_the_shell_and_no_delegate(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -518,6 +638,25 @@ def test_a_run_that_never_ends_stops_at_the_request_limit_and_resets_the_checkou
         CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
         True,
     )
+
+
+def test_a_run_that_calls_too_many_tools_stops_at_the_tool_call_limit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """Four calls in each reply, so that the tool call limit comes before the request limit."""
+    head = git(checkout, "rev-parse", "HEAD")
+    batch = 4
+    script = ModelScript(tool_calls(*[("read_file", {"path": "docs/SAMPLE.md"})] * batch))
+
+    outcome = _step(store, checkout, script)
+
+    assert CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS // batch < CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "UsageLimitExceeded",
+        True,
+    )
+    assert outcome.requests < CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
 
 
 def test_a_tool_result_is_cut_to_the_cap_of_a_step(

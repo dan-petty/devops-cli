@@ -36,7 +36,14 @@
 - [x] Regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 5. Archive
+## 5. Review fixes
+
+- [x] Add failing tests: the tool call limit, a commit by the agent, a missing and a non-text `tasks.md`, the `devops` and `openspec` refusals of the shell, and the scratch environment of the shell
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
+- [x] Reset to the commit where the step started and stop when `HEAD` moved, stop on an unreadable `tasks.md`, narrow the shell list, and give the shell a scratch `HOME`
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_roadmap_implement_command.py`
+
+## 6. Archive
 
 - [ ] Archive the change
   - Verification: `uv run devops openspec archive 2664-roadmap-implement-step`

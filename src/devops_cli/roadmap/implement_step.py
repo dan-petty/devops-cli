@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import tempfile
 import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
@@ -28,6 +29,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
+from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, capture_run_messages
 from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
@@ -47,6 +49,7 @@ from devops_cli.config.commands import (
     BIN_RUFF,
     BIN_UV,
     IMPLEMENT_ALLOWED_PROGRAMS,
+    IMPLEMENT_SHELL_PROGRAMS,
 )
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
@@ -353,17 +356,34 @@ class StepOutcome(BaseModel):
 # ── The agent ─────────────────────────────────────────────────────────────────────────────
 
 
-def _tune(capability: AbstractCapability[None], window: int) -> AbstractCapability[None]:
-    """One part of `Coder`, changed for a step: the shell takes the allowlist and refuses the
-    operators that start a second command, the tool results get the cap of a step, and the
-    context controls get the window of the task, in place of the registry's."""
+def shell_environment(home: Path) -> dict[str, str]:
+    """The variables a shell command gets on top of the workspace's own: a scratch `home` in place
+    of the user's, so that no git configuration, credential helper or key of the user reaches the
+    agent, no system git configuration, no prompt for a password, and the cache of `uv` where the
+    user keeps it, so that `uv run` finds its packages."""
+    return {
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+        "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"),
+    }
+
+
+def _tune(
+    capability: AbstractCapability[None], window: int, home: Path
+) -> AbstractCapability[None]:
+    """One part of `Coder`, changed for a step: the shell takes the allowlist, the scratch home
+    and the refusal of the operators that start a second command, the tool results get the cap of
+    a step, and the context controls get the window of the task, in place of the registry's."""
     if isinstance(capability, Shell):
         return replace(
             capability,
-            allowed_commands=list(IMPLEMENT_ALLOWED_PROGRAMS),
+            allowed_commands=list(IMPLEMENT_SHELL_PROGRAMS),
             denied_commands=[],
             denied_operators=list(CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS),
             allow_interactive=False,
+            env=shell_environment(home),
         )
     if isinstance(capability, ClearToolResults | WarnNearLimits):
         return replace(capability, context_window=window)
@@ -373,16 +393,19 @@ def _tune(capability: AbstractCapability[None], window: int) -> AbstractCapabili
     return capability
 
 
-def build_agent(model: Any, source: Path, instructions: str, window: int) -> Agent[None, str]:
-    """The agent of a step: `Coder` on a local workspace at `source`. It has no `delegate_task`
-    tool, so the limits of a run cover the whole step, and it loads no instruction file of the
-    checkout, so its context is the inputs of the step."""
+def build_agent(
+    model: Any, source: Path, instructions: str, window: int, home: Path
+) -> Agent[None, str]:
+    """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
+    scratch `home`. It has no `delegate_task` tool, so the limits of a run cover the whole step,
+    and it loads no instruction file of the checkout, so its context is the inputs of the step.
+    The shell is no security boundary: the runner of the step is the sandbox."""
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
     # The visitor replaces leaves and removes none, so the tree is never empty.
     tuned = cast(
-        AbstractCapability[None], coder.visit_and_replace(lambda leaf: _tune(leaf, window))
+        AbstractCapability[None], coder.visit_and_replace(lambda leaf: _tune(leaf, window, home))
     )
     return Agent(
         model,
@@ -487,9 +510,14 @@ def _require_clean(source: Path) -> None:
         raise RoadmapImplementError(MESSAGES.roadmap.implement_dirty.format(path=source))
 
 
-def _reset(source: Path) -> None:
-    """Restore the checkout to its last commit."""
-    _git_output(source, "reset", "--hard", "HEAD")
+def _head(source: Path) -> str:
+    """The commit that the checkout is at."""
+    return _git_output(source, "rev-parse", "HEAD").strip()
+
+
+def _reset(source: Path, start: str) -> None:
+    """Restore the checkout to the commit `start`, also after the agent made commits."""
+    _git_output(source, "reset", "--hard", start)
     _git_output(source, "clean", "-fd")
 
 
@@ -511,7 +539,10 @@ def _tasks_failure(inputs: StepInputs) -> str | None:
     a task of the group is not ticked, or another group changed."""
     texts = MESSAGES.roadmap
     number = inputs.group.number
-    tasks_md = (inputs.change / "tasks.md").read_text(encoding="utf-8")
+    try:
+        tasks_md = (inputs.change / "tasks.md").read_text(encoding="utf-8")
+    except OSError, UnicodeDecodeError:
+        return texts.implement_stop_tasks_edited.format(group=number)
     after = {g.number: g for g in parse_task_groups(tasks_md)}
     mine = after.get(number)
     if mine is None or _shape(mine) != _shape(inputs.group):
@@ -590,8 +621,12 @@ def _stage(source: Path) -> list[str]:
     return sorted(name for name in names.split("\0") if name)
 
 
-def _exit_failure(source: Path, inputs: StepInputs) -> str | None:
-    """The first exit check that fails, or None when every one passes."""
+def _exit_failure(source: Path, inputs: StepInputs, start: str) -> str | None:
+    """The first exit check that fails, or None when every one passes. The step makes the only
+    commit, so a checkout that left `start` fails the first check."""
+    head = _head(source)
+    if head != start:
+        return MESSAGES.roadmap.implement_stop_head_moved.format(start=start, head=head)
     failure = _tasks_failure(inputs)
     if failure is not None:
         return failure
@@ -613,10 +648,13 @@ def _commit(source: Path, message: str) -> tuple[str, str]:
 # ── The step ──────────────────────────────────────────────────────────────────────────────
 
 
-def _attempt(source: Path, model: Any, window: int, inputs: StepInputs, item: int) -> StepOutcome:
+def _attempt(
+    source: Path, model: Any, window: int, inputs: StepInputs, item: int, start: str
+) -> StepOutcome:
     """Run the agent, then judge the exit and commit."""
-    agent = build_agent(model, source, inputs.instructions, window)
-    run = _run_agent(agent, model, inputs.message)
+    with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
+        agent = build_agent(model, source, inputs.instructions, window, Path(home))
+        run = _run_agent(agent, model, inputs.message)
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,
@@ -627,7 +665,7 @@ def _attempt(source: Path, model: Any, window: int, inputs: StepInputs, item: in
         input_tokens=run.input_tokens,
         output_tokens=run.output_tokens,
     )
-    reason = run.reason or _exit_failure(source, inputs)
+    reason = run.reason or _exit_failure(source, inputs, start)
     commit = ""
     if not reason:
         commit, reason = _commit(source, f"{inputs.group.title} (#{item})")
@@ -642,20 +680,21 @@ def run_step(
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
     The step commits the group as `<group title> (#<item>)` when every exit check passes, and
-    otherwise resets the checkout to its last commit, also when the run raises. It reads the
+    otherwise resets the checkout to the commit it started at, also when the agent made commits or the run raises. It reads the
     item once and writes nothing to GitHub. Raises `RoadmapImplementError` for a step it
     refuses to start, and the client error of a failed model call.
     """
     inputs = build_step_inputs(store, item=item, group=group, source=source, window=window)
     _require_clean(source)
+    start = _head(source)
     done = False
     try:
-        outcome = _attempt(source, model, window, inputs, item)
+        outcome = _attempt(source, model, window, inputs, item, start)
         done = outcome.status is StepStatus.DONE
         return outcome
     finally:
         if not done:
-            _reset(source)
+            _reset(source, start)
 
 
 # ── The report and the dry run ────────────────────────────────────────────────────────────

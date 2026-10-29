@@ -14,7 +14,7 @@ What `devops roadmap implement` reads, runs, checks, commits and reports when it
 - **THEN** the step reports done, the checkout holds one new commit titled `The first group (#7)`, that commit holds the three files, and the tasks of group 1 are ticked in the commit
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: every task of the group is ticked and no other group changed, each verification command of the group passes, and `ruff check`, `ruff format --check` and `mypy --strict` pass on the changed Python files. The step SHALL stop at the first check that fails, SHALL name it as the reason, SHALL make no commit, and SHALL reset the checkout to its last commit.
+The exit checks SHALL run in this order: every task of the group is ticked and no other group changed, each verification command of the group passes, and `ruff check`, `ruff format --check` and `mypy --strict` pass on the changed Python files. The step SHALL stop at the first check that fails, SHALL name it as the reason, SHALL make no commit, and SHALL reset the checkout to the commit where the step started.
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -36,12 +36,23 @@ The exit checks SHALL run in this order: every task of the group is ticked and n
 - **WHEN** the model removes a task of group 1 from the `tasks.md` and ticks the others
 - **THEN** the step reports stopped with the reason that the tasks of group 1 changed, and the checkout is reset
 
+#### Scenario: A tasks file that is gone
+- **WHEN** the model removes the `tasks.md` of the change
+- **THEN** the step reports stopped with the reason that the tasks of group 1 changed, and the checkout is reset
+
 #### Scenario: A verification command outside the allowlist
 - **WHEN** a Verification line of the group names `curl http://example.com`
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
 
+### Requirement: A step makes the only commit
+The first exit check SHALL be that `HEAD` is still the commit where the step started. A `tasks.md` that is missing or is not UTF-8 text SHALL count as a change to the tasks of the group.
+
+#### Scenario: A commit by the agent
+- **WHEN** the agent commits its work with `git`, and ticks the tasks
+- **THEN** the step reports stopped with the reason that `HEAD` moved, makes no commit, and the checkout is back at the commit where the step started
+
 ### Requirement: The verification commands of a group are the code spans of its Verification lines
-The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks, each one once, in the order of the file. The step SHALL run each one in the checkout, and SHALL refuse to run one whose first word is not a program of the shell allowlist.
+The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks, each one once, in the order of the file. The step SHALL run each one in the checkout, and SHALL refuse to run one whose first word is not a program of the verification list: the shell allowlist, `openspec` and `devops`.
 
 #### Scenario: Two lines name one command
 - **WHEN** two tasks of the group name `uv run devops ci test tests/test_sample.py` and the second names `uv run devops docs check` as well
@@ -73,11 +84,15 @@ The user message of the model SHALL hold the title, the problem statement and th
 - **THEN** the step raises `RoadmapImplementError` that names the pattern
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff`, `mypy`, `openspec` or `devops`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on.
+The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The shell SHALL run with `HOME` set to a temporary directory of the step, so that the configuration and credentials of the user's home do not reach it. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
 - **THEN** the call returns the refusal that `curl` is not in the allowed list, no process starts, and the run ends with the last message of the model
+
+#### Scenario: The devops command
+- **WHEN** the model calls the shell tool with `devops gh api -X POST repos/example/roadmap/issues`
+- **THEN** the call returns the refusal that `devops` is not in the allowed list, and no process starts
 
 #### Scenario: A second command
 - **WHEN** the model calls the shell tool with `git status; curl http://example.com`
@@ -89,6 +104,10 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 #### Scenario: A model that never ends
 - **WHEN** the model calls a tool in every reply
 - **THEN** the step reports stopped with the reason `UsageLimitExceeded`, the model got `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests at most, and the checkout is reset
+
+#### Scenario: A model that calls too many tools
+- **WHEN** the model calls more tools than `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` before it reaches the request limit
+- **THEN** the step reports stopped with the reason `UsageLimitExceeded`, and the checkout is reset
 
 #### Scenario: The tools of the agent
 - **WHEN** the step makes its first request

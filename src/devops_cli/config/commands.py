@@ -52,16 +52,12 @@ BIN_UV: str = "uv"
 BIN_ZIZMOR: str = "zizmor"
 
 
-# The programs that the shell tool of a `devops roadmap implement` step may start (#2664): the
-# project's own tools. A step runs its verification commands under the same list.
-IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (
-    BIN_GIT,
-    BIN_UV,
-    BIN_RUFF,
-    BIN_MYPY,
-    BIN_OPENSPEC,
-    BIN_DEVOPS,
-)
+# The programs that a `devops roadmap implement` step (#2664) may start. The shell tool of the
+# agent takes the first list: the project's own build tools, and not `devops` or `openspec`,
+# which can write to GitHub or to the change. The step runs the verification commands of a group
+# under the second list, which adds those two.
+IMPLEMENT_SHELL_PROGRAMS: tuple[str, ...] = (BIN_GIT, BIN_UV, BIN_RUFF, BIN_MYPY)
+IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (*IMPLEMENT_SHELL_PROGRAMS, BIN_OPENSPEC, BIN_DEVOPS)
 
 
 # ── Command Argument List Builders ───────────────────────────────────────────

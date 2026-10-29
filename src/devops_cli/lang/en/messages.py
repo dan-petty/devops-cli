@@ -1959,6 +1959,9 @@ class RoadmapMessages:
     implement_stop_command_failed: str = "{command} exited with status {status}.\n{output}"
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_stop_no_change: str = "The agent changed no file."
+    implement_stop_head_moved: str = (
+        "The agent moved HEAD from {start} to {head}. A step makes the only commit."
+    )
     implement_stop_commit_failed: str = "The commit failed.\n{output}"
     implement_title: str = "Implement step: item #{item}, group {group} ({title})"
     implement_labels: dict[str, str] = field(

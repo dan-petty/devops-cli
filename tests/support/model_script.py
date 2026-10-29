@@ -8,7 +8,7 @@ messages of each request and the names of the function tools each request offere
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
 from pydantic_ai.messages import (
@@ -40,13 +40,23 @@ def say(text: str) -> ModelResponse:
 class ModelScript:
     """The scripted replies of a model, and what the model was asked."""
 
-    def __init__(self, *replies: ModelResponse | Exception) -> None:
+    def __init__(
+        self,
+        *replies: ModelResponse | Exception,
+        effects: Mapping[int, Callable[[], None]] | None = None,
+    ) -> None:
+        """`effects` maps the number of a request to what the agent's shell would have done by
+        then, such as a commit. It runs before that request is answered."""
         self.replies = replies
+        self.effects = dict(effects or {})
         self.seen: list[list[ModelMessage]] = []
         self.tools_offered: list[list[str]] = []
 
     def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         self.seen.append(list(messages))
+        effect = self.effects.get(len(self.seen))
+        if effect is not None:
+            effect()
         self.tools_offered.append(sorted(tool.name for tool in info.function_tools))
         reply = self.replies[min(len(self.seen), len(self.replies)) - 1]
         if isinstance(reply, Exception):
