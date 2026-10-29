@@ -1093,7 +1093,7 @@ def test_gauges_are_recorded_as_instantaneous_values(otlp: FakeCollector) -> Non
 
 
 def test_cluster_jobs_export_created_timestamps_and_prometheus_ingests_zeroes() -> None:
-    """The collector exports _created timestamps and Prometheus ingests zero samples at start time (#2039)."""
+    """The collector transmits created timestamps via remote write 2.0 and Prometheus ingests zero samples at start time (#2039, #2506)."""
     otel_values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
     )
@@ -1104,10 +1104,9 @@ def test_cluster_jobs_export_created_timestamps_and_prometheus_ingests_zeroes() 
     )
     extra_args = prom_values["server"]["extraArgs"]
 
-    assert (
-        prom_remote_write.get("export_created_metric"),
-        extra_args.get("enable-feature"),
-    ) == (True, "created-timestamp-zero-ingestion")
+    assert "export_created_metric" not in prom_remote_write
+    assert prom_remote_write.get("remote_write_version") == 2
+    assert extra_args.get("enable-feature") == "created-timestamp-zero-ingestion"
 
 
 def test_two_job_runs_add_up_in_the_increase_query_the_dashboards_use() -> None:

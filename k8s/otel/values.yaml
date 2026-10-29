@@ -94,9 +94,9 @@ config:
       # suffixes turned `devops_cli_command_total` into `devops_cli_command_total_ratio`,
       # which no dashboard queries.
       translation_strategy: UnderscoreEscapingWithoutSuffixes
-      # Send created timestamps for cumulative counters. This allows Prometheus to record
+      # Transmit created timestamps via remote write 2.0 (#2506). This allows Prometheus to record
       # zero values at series start times, so single-export cluster jobs count in increase() (#2039).
-      export_created_metric: true
+      remote_write_version: 2
 
   service:
     pipelines:
