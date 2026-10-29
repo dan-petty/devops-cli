@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.7](https://github.com/dan-petty/devops-cli/compare/v0.16.6...v0.16.7) (2026-10-29)
+
+
+### Bug Fixes
+
+* **security:** the guard refuses the ssh keys and SHELL ([#2678](https://github.com/dan-petty/devops-cli/issues/2678)) ([7f85930](https://github.com/dan-petty/devops-cli/commit/7f85930f29cc7a44fe74a3bf04a825939bd1a123)), closes [#2633](https://github.com/dan-petty/devops-cli/issues/2633)
+
 ## [0.16.6](https://github.com/dan-petty/devops-cli/compare/v0.16.5...v0.16.6) (2026-10-29)
 
 
