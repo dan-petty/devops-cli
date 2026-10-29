@@ -128,6 +128,39 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
     }
 
 
+def test_no_ingress_routes_to_loki_in_the_logging_namespace() -> None:
+    """loki-ingress sent host loki.<domain> on the Traefik web entry point to Loki in namespace
+    logging, but the logging-default-perimeter policy admits port 3100 only from logging, from
+    Grafana and the Alloy collectors in monitoring, and from the OpenTelemetry Collector in otel.
+    It has no peer for Traefik, so each request failed. #1632 decided to keep the policy closed,
+    for a Traefik peer would open the Loki API, with auth_enabled false, to each client that
+    reaches Traefik, and delete the Ingress (#2439)."""
+    names = {
+        document["metadata"]["name"]
+        for document in yaml.safe_load_all(
+            (REPO_ROOT / "k8s/ingress/ingress-routes.yaml").read_text(encoding="utf-8")
+        )
+        if document and document.get("kind") == "Ingress"
+    }
+
+    assert "loki-ingress" not in names
+
+
+def test_no_ingress_is_in_the_logging_namespace() -> None:
+    """The logging-default-perimeter policy has no peer for Traefik, so an Ingress that routes to
+    a Service in namespace logging would open the Loki API, with auth_enabled false, to each
+    client that reaches Traefik (#1632). No Ingress under k8s/ is in namespace logging, so none
+    routes to it (#2439)."""
+    assert (
+        sorted(
+            f"{relative}:{document['metadata']['name']}"
+            for relative, document in manifests()
+            if document["kind"] == "Ingress" and document["metadata"].get("namespace") == "logging"
+        )
+        == []
+    )
+
+
 # ── Service account tokens (#1652) ───────────────────────────────────────────
 #
 # Kubernetes mounts a token of the pod's ServiceAccount into each pod, unless the pod spec, or the
