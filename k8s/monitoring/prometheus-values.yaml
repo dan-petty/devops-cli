@@ -789,13 +789,16 @@ serverFiles:
       - name: roadmap-service-activity
         rules:
           # GraphQL sends a read and a mutation alike as a POST, and the roadmap jobs write only
-          # through REST, so the rule counts the REST requests that are not a GET.
+          # through REST, so the rule counts the REST requests with a write method. It names each
+          # write method of the request classifier: PromQL reads an absent label as the empty
+          # string, so a matcher such as method!="GET" counts each request of a series with no
+          # method label, such as one of an older image, as a write (#2574).
           - alert: RoadmapServiceGitHubWritesHigh
             expr: >-
               sum(
-              (last_over_time(devops_cli_github_requests_total{job="roadmap-service", method!="GET", resource!="graphql"}[1h])
-              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service", method!="GET", resource!="graphql"}[1h] offset 1h))
-              or increase(devops_cli_github_requests_total{job="roadmap-service", method!="GET", resource!="graphql"}[1h])
+              (last_over_time(devops_cli_github_requests_total{job="roadmap-service", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h])
+              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h] offset 1h))
+              or increase(devops_cli_github_requests_total{job="roadmap-service", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h])
               ) > 300
             for: 0m
             labels:
