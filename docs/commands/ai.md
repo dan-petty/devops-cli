@@ -1599,7 +1599,7 @@ devops ai gateway routes [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. Only the configured gateway gets the AI API key. |
 | `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 

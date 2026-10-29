@@ -27,6 +27,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import CapabilityDegradationError
 from tests.support.config_writes import written_keys
+from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
 
@@ -608,6 +609,107 @@ class TestFastMCPGatewayTools:
         )
 
 
+GATEWAY_TOOL_PARAMETERS = {
+    "ai_gateway_status": ["provider"],
+    "ai_gateway_routes": ["provider"],
+    "ai_gateway_probe_backend": ["backend"],
+}
+"""The parameters that the MCP tools of the gateway read-only commands publish: no URL."""
+
+
+async def _call_gateway_tool(tool: str, arguments: dict[str, object]) -> bool:
+    """Call a tool the way an MCP client does, and say whether the call failed."""
+    from fastmcp import Client
+
+    from devops_cli.ai.mcp.server import mcp
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(tool, arguments, raise_on_error=False)
+    return bool(result.is_error)
+
+
+class TestGatewayToolsTakeNoUrlFromTheModel:
+    """The read-only MCP gateway tools query the configured gateway and backend, never a URL that
+    the calling model gives (#2480)."""
+
+    async def test_the_tools_publish_no_url_parameter(self) -> None:
+        """The schema of each tool holds the provider or the backend and no gateway or backend URL."""
+        from fastmcp import Client
+
+        from devops_cli.ai.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+
+        assert {
+            tool.name: list(tool.input_schema["properties"])
+            for tool in tools
+            if tool.name in GATEWAY_TOOL_PARAMETERS
+        } == GATEWAY_TOOL_PARAMETERS
+
+    @pytest.mark.parametrize(
+        ("tool", "arguments"),
+        [
+            (
+                "ai_gateway_probe_backend",
+                {"backend": "ollama", "backend_url": "http://127.0.0.1:8200/v1/sys/seal-status?x="},
+            ),
+            ("ai_gateway_routes", {"gateway_url": "https://attacker.example.org/v1"}),
+            ("ai_gateway_status", {"gateway_url": "https://attacker.example.org/v1"}),
+        ],
+        ids=["backend on loopback", "routes on a public host", "status on a public host"],
+    )
+    async def test_a_url_argument_is_refused_and_reaches_no_socket(
+        self, monkeypatch: pytest.MonkeyPatch, tool: str, arguments: dict[str, object]
+    ) -> None:
+        """A call that gives a URL fails, no request is sent, and the AI API key is not on the wire.
+
+        On `origin/main` the loopback call dialled `127.0.0.1:8200` with no flag, and the routes
+        call sent `Authorization: Bearer <key>` to the public host.
+        """
+        monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-secret")
+        scripted_resolver(monkeypatch, {"attacker.example.org": [[PUBLIC_ADDRESS]]})
+        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 4)
+
+        failed = await _call_gateway_tool(tool, arguments)
+
+        reached = {(PUBLIC_ADDRESS, 443), ("127.0.0.1", 8200)}
+        assert (
+            failed,
+            [dial for dial in recorder.dialled if dial in reached],
+            b"sk-secret" in b"".join(recorder.written),
+        ) == (True, [], False)
+
+    @pytest.mark.parametrize(
+        ("answer", "flag", "dialled"),
+        [
+            ("127.0.0.1", "false", [("127.0.0.1", 80)]),
+            ("192.0.2.10", "false", []),
+            ("192.0.2.10", "true", [("192.0.2.10", 80)]),
+        ],
+        ids=["loopback without the flag", "private without the flag", "private with the flag"],
+    )
+    async def test_the_status_tool_dials_the_configured_gateway_at_the_configured_level(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        answer: str,
+        flag: str,
+        dialled: list[tuple[str, int]],
+    ) -> None:
+        """Loopback, and private addresses with `ai.allow_private_network`, as for the CLI."""
+        monkeypatch.setenv("DEVOPS_CLI_AI_GATEWAY_URL", "http://gateway.example.com/v1")
+        monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", flag)
+        scripted_resolver(monkeypatch, {"gateway.example.com": [[answer]]})
+        recorder = record_connects(monkeypatch, [http_response(200, "{}")])
+
+        failed = await _call_gateway_tool("ai_gateway_status", {})
+
+        assert (failed, [dial for dial in recorder.dialled if dial[0] == answer]) == (
+            not dialled,
+            dialled,
+        )
+
+
 class TestRouterAndClientGatewayIntegration:
     """Test suite for LLMClient gateway provider dispatch."""
 
@@ -711,7 +813,9 @@ class TestGatewayRouteDiscovery:
         """Verify /model/info is read with the key and a wildcard's expansions become one route."""
         requests, fake_get = _model_info()
         monkeypatch.setattr(httpx2.Client, "get", fake_get)
-        router = GatewayRouter(AIConfig(allow_private_network=True), api_key="sk-gateway")
+        router = GatewayRouter(
+            AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True), api_key="sk-gateway"
+        )
 
         routes = router.list_routes(GATEWAY_URL)
 
@@ -737,7 +841,9 @@ class TestGatewayRouteDiscovery:
         """Verify a 401 raises a credentials error rather than falling back to default routes."""
         requests, fake_get = _model_info(status=401)
         monkeypatch.setattr(httpx2.Client, "get", fake_get)
-        router = GatewayRouter(AIConfig(allow_private_network=True), api_key=api_key)
+        router = GatewayRouter(
+            AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True), api_key=api_key
+        )
 
         with pytest.raises(AICredentialsError) as exc_info:
             router.list_routes(GATEWAY_URL)
@@ -790,7 +896,9 @@ class TestGatewayRouteDiscovery:
         """Verify a 401 with DEVOPS_CLI_AGENT_GRANT set names the grant ID, cuts long IDs, and omits the generic key hint."""
         _requests, fake_get = _model_info(status=401)
         monkeypatch.setattr(httpx2.Client, "get", fake_get)
-        router = GatewayRouter(AIConfig(allow_private_network=True), api_key="stale-key")
+        router = GatewayRouter(
+            AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True), api_key="stale-key"
+        )
 
         # Standard grant ID
         monkeypatch.setenv("DEVOPS_CLI_AGENT_GRANT", "g-123")
@@ -842,3 +950,92 @@ class TestGatewayRouteDiscovery:
         assert res.exit_code == 0
         assert probed_urls == ["http://[2001:db8::1]:30400"]
         assert written_keys(isolate_data_dir) == [["ai.allow_private_network", "ai.gateway_url"]]
+
+
+class TestTheKeyGoesOnlyToTheConfiguredGateway:
+    """A URL override is input from a caller. `routes` sends the AI API key only to the origin of
+    the configured gateway (#2480)."""
+
+    @staticmethod
+    def _requests_of_discovery(
+        monkeypatch: pytest.MonkeyPatch, ai_config: AIConfig, url: str
+    ) -> list[bytes]:
+        """List the routes at `url`; return the request bytes that each connection received."""
+        scripted_resolver(
+            monkeypatch,
+            {
+                "gateway.example.com": [[PUBLIC_ADDRESS]],
+                "attacker.example.com": [[PUBLIC_ADDRESS]],
+            },
+        )
+        recorder = record_connects(monkeypatch, [http_response(200, '{"data": []}')] * 2)
+        GatewayRouter(ai_config, api_key="sk-gateway").list_routes(url)
+        return [bytes(written) for written in recorder.written]
+
+    @pytest.mark.parametrize(
+        ("url", "gets_key"),
+        [
+            ("http://gateway.example.com:4000/v1", True),
+            ("http://gateway.example.com:4000/another/path", True),
+            ("HTTP://Gateway.Example.com:4000/v1", True),
+            ("http://attacker.example.com:4000/v1", False),
+            ("http://gateway.example.com:4001/v1", False),
+            ("https://gateway.example.com:4000/v1", False),
+            ("http://gateway.example.com:4000@attacker.example.com:4000/v1", False),
+        ],
+        ids=[
+            "the configured URL",
+            "another path",
+            "another spelling of the origin",
+            "another host",
+            "another port",
+            "another scheme",
+            "the configured origin as user information",
+        ],
+    )
+    def test_a_request_carries_the_key_only_for_the_configured_origin(
+        self, monkeypatch: pytest.MonkeyPatch, url: str, gets_key: bool
+    ) -> None:
+        written = self._requests_of_discovery(monkeypatch, AIConfig(gateway_url=GATEWAY_URL), url)
+
+        assert [b"Bearer sk-gateway" in request for request in written] == [gets_key]
+
+    def test_no_override_gets_the_key_when_no_gateway_is_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        written = self._requests_of_discovery(monkeypatch, AIConfig(), GATEWAY_URL)
+
+        assert [b"Bearer sk-gateway" in request for request in written] == [False]
+
+    def test_the_routes_command_sends_no_key_to_another_gateway(
+        self, monkeypatch: pytest.MonkeyPatch, cli: Any
+    ) -> None:
+        monkeypatch.setenv("DEVOPS_CLI_AI_GATEWAY_URL", GATEWAY_URL)
+        monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-gateway")
+        scripted_resolver(monkeypatch, {"attacker.example.com": [[PUBLIC_ADDRESS]]})
+        recorder = record_connects(monkeypatch, [http_response(200, '{"data": []}')] * 2)
+
+        result = cli("ai", "gateway", "routes", "--gateway-url", "http://attacker.example.com/v1")
+
+        assert (
+            result.exit_code,
+            recorder.requested_hosts,
+            b"sk-gateway" in b"".join(recorder.written),
+        ) == (0, ["attacker.example.com"], False)
+
+    def test_a_refusal_by_another_gateway_says_that_it_got_no_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The AI API key is set, so a message that asks for a key would mislead."""
+        scripted_resolver(monkeypatch, {"attacker.example.com": [[PUBLIC_ADDRESS]]})
+        record_connects(monkeypatch, [http_response(401, "{}")])
+        router = GatewayRouter(AIConfig(gateway_url=GATEWAY_URL), api_key="sk-gateway")
+
+        with pytest.raises(AICredentialsError) as refused:
+            router.list_routes("http://attacker.example.com:4000/v1")
+
+        assert str(refused.value) == (
+            "The LLM gateway at attacker.example.com:4000 requires an API key. "
+            "The AI API key goes only to the configured gateway, so this gateway got none. "
+            "To use the key with this gateway, make it the configured gateway."
+        )

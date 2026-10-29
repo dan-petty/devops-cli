@@ -18,7 +18,7 @@ import httpx2
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.capability import validate_failover_capability
-from devops_cli.ai.client.models import credentials_error
+from devops_cli.ai.client.models import AICredentialsError, credentials_error, origin_label
 from devops_cli.config.constants import (
     CONST_AI_BACKENDS,
     CONST_AI_GATEWAY_DEFAULT_ROUTE,
@@ -34,6 +34,7 @@ from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.exceptions import ConfigurationError, ValidationError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel, configured_level
+from devops_cli.http.urls import get_url_origin
 from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import (
     AI_GATEWAY_FAILOVERS_TOTAL,
@@ -426,6 +427,16 @@ def _probe_gateway_http(
         return (False, 0, str(exc)[:256])
 
 
+def _withheld_key_refusal(url: str) -> AICredentialsError:
+    """The refusal of a gateway that is not the configured one, and so got no AI API key."""
+    origin = get_url_origin(url)
+    return AICredentialsError(
+        f"The LLM gateway at {origin_label(origin) if origin else 'that URL'} requires an API key. "
+        "The AI API key goes only to the configured gateway, so this gateway got none. "
+        "To use the key with this gateway, make it the configured gateway."
+    )
+
+
 class GatewayRouter:
     """Manages OpenAI-compatible AI Gateway routing, health probing, and failovers."""
 
@@ -461,12 +472,33 @@ class GatewayRouter:
             )
         return self.config.gateway_url
 
+    def _key_for(self, url: str) -> str | None:
+        """The AI API key when `url` has the origin of the configured gateway, else None.
+
+        A URL that a caller gives is input, not configuration. The key goes only to the gateway
+        that the configuration names, whatever the URL says (#2480).
+        """
+        try:
+            configured = get_url_origin(self.gateway_url)
+        except ConfigurationError:
+            return None
+        if configured is None or get_url_origin(url) != configured:
+            return None
+        return self._api_key
+
     def list_routes(self, gateway_url: str | None = None) -> list[GatewayRoute]:
-        """Return configured or live queried virtual model routes."""
+        """Return configured or live queried virtual model routes.
+
+        A `gateway_url` other than the configured gateway gets no AI API key.
+        """
         if gateway_url:
-            remote = _fetch_remote_routes(
-                gateway_url, self.config.allow_private_network, self._api_key
-            )
+            key = self._key_for(gateway_url)
+            try:
+                remote = _fetch_remote_routes(gateway_url, self.config.allow_private_network, key)
+            except AICredentialsError as exc:
+                if self._api_key and key is None:
+                    raise _withheld_key_refusal(gateway_url) from exc
+                raise
             if remote is not None:
                 return remote
         return list(self._active_routes)

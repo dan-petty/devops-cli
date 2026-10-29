@@ -127,7 +127,11 @@ def status_cmd(
 def routes_cmd(
     gateway_url: Annotated[
         str | None,
-        typer.Option("--gateway-url", "-u", help="Optional gateway base URL override."),
+        typer.Option(
+            "--gateway-url",
+            "-u",
+            help="Optional gateway base URL override. Only the configured gateway gets the AI API key.",
+        ),
     ] = None,
     provider: Annotated[
         str | None,
