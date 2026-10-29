@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.4](https://github.com/dan-petty/devops-cli/compare/v0.16.3...v0.16.4) (2026-10-29)
+
+
+### Bug Fixes
+
+* **valkey:** the MCP Valkey tools take no URL from the model ([#2655](https://github.com/dan-petty/devops-cli/issues/2655)) ([5bb1ed0](https://github.com/dan-petty/devops-cli/commit/5bb1ed0fe197f14b749aee13df33e0956b0e9c0c)), closes [#2634](https://github.com/dan-petty/devops-cli/issues/2634)
+
 ## [0.16.3](https://github.com/dan-petty/devops-cli/compare/v0.16.2...v0.16.3) (2026-10-29)
 
 
