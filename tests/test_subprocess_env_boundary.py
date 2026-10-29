@@ -389,9 +389,9 @@ def test_a_key_that_ssh_reads_but_that_runs_no_program_reaches_the_child(
     isolate_env: bool, tmp_path: Path
 ) -> None:
     """The keys that choose a display, a cookie file, a temporary directory or a locale reach the
-    child, as does a key that starts with `SSH` and has no underscore after it, and a key that
-    only contains a refused ssh name. `ssh` takes its configuration from the home directory of
-    the account, so `HOME` reaches the child too (#2633)."""
+    child. So do a key that starts with `SSH` and has no underscore after it, and a key that only
+    contains a refused ssh name. `ssh` reads its configuration from the home directory of the
+    account, so `HOME` reaches the child too (#2633)."""
     override = {
         "DISPLAY": ":99",
         "WAYLAND_DISPLAY": "wayland-99",
