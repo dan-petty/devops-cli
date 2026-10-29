@@ -58,7 +58,7 @@ For `unavailable` and `failed`, the reply of `security_intel_network` for an add
 
 ## Not in this change
 
-`PackageLookupResult.status` has the default `ok` too, and `NetworkIntelResult` and `PackageIntelResult` default to "Safe" and "Clean". Every constructor of `PackageLookupResult` names its status today, and the two intel models have no user in `src/`. Both are filed as separate items.
+`PackageLookupResult.status` has the default `ok` too, `NetworkReference.security_status` defaults to "✓ Safe", and `NetworkIntelResult` and `PackageIntelResult` default to "Safe" and "Clean". The review replaces the status of each reference, every constructor of `PackageLookupResult` names its status today, and the two intel models have no user in `src/`. So none of them gives a wrong result today. #2636 holds them.
 
 ## Tests
 

@@ -154,7 +154,7 @@ def _payload() -> FileReviewPayload:
                 target="https://malware.example-corp.com/x",
                 security_status="⚠️ Malicious",
                 reputation=NetworkReputationRecord(
-                    target="malware.example-corp.com", is_malicious=True
+                    target="malware.example-corp.com", is_malicious=True, outcome="ok"
                 ),
             ),
             NetworkReference(target="http://localhost:8080", is_local=True, scope="local"),

@@ -788,6 +788,7 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
             ip="198.51.100.1",
             is_malicious=True,
             reputation_summary="C2 Server",
+            outcome="ok",
         )
     }
 

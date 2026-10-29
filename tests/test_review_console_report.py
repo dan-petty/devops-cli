@@ -290,7 +290,10 @@ def test_flagged_network_references_are_listed_alone(tmp_path: Path, terminal: C
         source_file="src/app.py",
         line_number=7,
         reputation=NetworkReputationRecord(
-            target="example-corp.com", is_malicious=True, reputation_summary="Malware"
+            target="example-corp.com",
+            is_malicious=True,
+            reputation_summary="Malware",
+            outcome="ok",
         ),
         security_status="⚠️ Flagged (Malware)",
     )

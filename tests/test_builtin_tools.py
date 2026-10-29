@@ -239,6 +239,7 @@ def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
         threat_level="CLEAN",
         ports=[53, 443],
         reputation_summary="Safe / Clean IP",
+        outcome="ok",
     )
     with patch(
         "devops_cli.security.vulnerability_lookup.ShodanInternetDBClient.check_ip",
@@ -334,7 +335,9 @@ def test_check_threat_intel_asks_shodan_about_the_address_the_target_names(targe
     to Cloudflare Radar's domain lookup (#1174)."""
     from devops_cli.models.vulnerability import NetworkReputationRecord
 
-    record = NetworkReputationRecord(target="8.8.8.8", ip="8.8.8.8", reputation_summary="Clean")
+    record = NetworkReputationRecord(
+        target="8.8.8.8", ip="8.8.8.8", reputation_summary="Clean", outcome="ok"
+    )
     with patch(
         "devops_cli.security.vulnerability_lookup.ShodanInternetDBClient.check_ip",
         return_value=record,

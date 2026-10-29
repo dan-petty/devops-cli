@@ -45,7 +45,9 @@ def test_threat_intel_network_findings_start_unverified() -> None:
     finding = _build_malicious_network_finding(
         "README.md",
         NetworkReference(target="203.0.113.7", reference_type="ip", line_number=4),
-        NetworkReputationRecord(target="203.0.113.7", ip="203.0.113.7", is_malicious=True),
+        NetworkReputationRecord(
+            target="203.0.113.7", ip="203.0.113.7", is_malicious=True, outcome="ok"
+        ),
     )
 
     assert (finding.status, finding.verified, finding.reportable) == ("UNVERIFIED", False, True)
