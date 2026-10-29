@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.1](https://github.com/dan-petty/devops-cli/compare/v0.16.0...v0.16.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **ai:** the MCP gateway tools take no URL and guard the AI key ([#2640](https://github.com/dan-petty/devops-cli/issues/2640)) ([7dde54e](https://github.com/dan-petty/devops-cli/commit/7dde54e8a284ed29d4a4a1ba6fa28aa4e3f2643e)), closes [#2480](https://github.com/dan-petty/devops-cli/issues/2480)
+
 ## [0.16.0](https://github.com/dan-petty/devops-cli/compare/v0.15.1...v0.16.0) (2026-10-29)
 
 
