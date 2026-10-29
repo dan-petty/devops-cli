@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2054-grafana-plugin-renovate`
 - Pending a person: after the merge, check that the Renovate App's next run reports no configuration error and opens one pull request for each plugin with a newer 3.x release.
 - Pending a person: before merging a plugin pull request, check the release's `grafanaDependency` against the Grafana image of the `grafana` chart.
