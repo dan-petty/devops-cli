@@ -27,4 +27,5 @@
 
 - The library keys that make a library of the child load a module, for example `OPENSSL_CONF`: #2503.
 - The keys of `gh` and `kubectl` that name a program, for example `GH_EDITOR`, `GH_BROWSER`, `KUBE_EDITOR` and `KUBECTL_EXTERNAL_DIFF`: #2672.
+- The keys that make a child write a file that the caller names, and the open `LD_` keys such as `LD_DEBUG` and `LD_DEBUG_OUTPUT`: #2674.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
