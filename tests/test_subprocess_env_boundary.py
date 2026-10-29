@@ -157,11 +157,19 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 # list, BASH_FUNC_x(), the export form of the patched bash of Red Hat, and two function names pin
 # the prefix rule. BASH_FUNC_git%% replaces the git command in a bash child. zsh reads its start-up
 # files from ZDOTDIR (zsh(1)), functions from FPATH and a command from NULLCMD and READNULLCMD
-# (zshparam(1)). The Python, Node.js, Perl, Ruby and Java keys name a file, a module, a directory
-# or an option that makes the interpreter load code (python(1), node(1), perlrun(1), ruby(1),
-# java(1), the JVM TI specification). The default env_delete table of sudo lists each zsh and
-# interpreter key but PYTHONPLATLIBDIR, PYTHONPYCACHEPREFIX, NODE_COMPILE_CACHE,
-# NODE_REPL_EXTERNAL_MODULE and JDK_JAVA_OPTIONS, and it is the source of _JAVA_OPTIONS.
+# (zshparam(1)). git reads configuration values from GIT_CONFIG_COUNT with its numbered KEY and
+# VALUE pairs and from GIT_CONFIG_PARAMETERS, which `git -c` sets (git-config(1), git(1)). It reads
+# a configuration file from GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM (git-config(1)), starts the
+# program of GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, GIT_EDITOR, GIT_SEQUENCE_EDITOR, GIT_PAGER and
+# GIT_EXTERNAL_DIFF (git(1)) and of GIT_PROXY_COMMAND (git-config(1)), and runs the git commands
+# of GIT_EXEC_PATH (git(1)) and the hooks of GIT_TEMPLATE_DIR (git-init(1)). With no GIT_EDITOR
+# and no GIT_PAGER it falls back to VISUAL, EDITOR and PAGER (git-var(1)). The Python, Node.js,
+# Perl, Ruby and Java keys name a file, a module, a directory or an option that makes the
+# interpreter load code (python(1), node(1), perlrun(1), ruby(1), java(1), the JVM TI
+# specification). The default env_delete table of sudo lists each zsh and interpreter key but
+# PYTHONPLATLIBDIR, PYTHONPYCACHEPREFIX, NODE_COMPILE_CACHE, NODE_REPL_EXTERNAL_MODULE and
+# JDK_JAVA_OPTIONS, it is the source of _JAVA_OPTIONS, and it lists GIT_SSH_COMMAND and the
+# GIT_CONFIG_* family. GIT_CONFIG_KEY_12 and GIT_CONFIG_VALUE_12 pin the prefix rule of the pairs.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
@@ -188,6 +196,27 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "FPATH",
     "NULLCMD",
     "READNULLCMD",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_KEY_12",
+    "GIT_CONFIG_VALUE_0",
+    "GIT_CONFIG_VALUE_12",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_ASKPASS",
+    "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR",
+    "GIT_PAGER",
+    "GIT_EXTERNAL_DIFF",
+    "GIT_PROXY_COMMAND",
+    "GIT_EXEC_PATH",
+    "GIT_TEMPLATE_DIR",
+    "EDITOR",
+    "VISUAL",
+    "PAGER",
     "PYTHONPATH",
     "PYTHONHOME",
     "PYTHONSTARTUP",
@@ -220,7 +249,7 @@ def test_a_caller_override_that_loads_code_into_the_child_is_refused(
 ) -> None:
     """A caller override of a loader, glibc, shell or interpreter variable that loads or runs
     code raises `SecurityError` that names the key, in upper and in lower case, with isolation on
-    and off (#2151, #2205, #2433, #2429)."""
+    and off (#2151, #2205, #2433, #2429, #2483)."""
     with pytest.raises(SecurityError) as refused:
         build_subprocess_env(
             env={"EXAMPLE_FLAG": "on", key: "libexample.so"}, isolate_env=isolate_env
@@ -237,8 +266,8 @@ def test_an_isolated_child_gets_no_refused_key_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With isolation on, no key that the guard refuses from a caller reaches the child from the
-    environment of the person, in upper or in lower case, for example `PYTHONPATH` and
-    `PYTHONHOME` (#2429)."""
+    environment of the person, in upper or in lower case, for example `PYTHONPATH`,
+    `PYTHONHOME` and `GIT_CONFIG_GLOBAL` (#2429, #2483)."""
     environment_keys = [*REFUSED_OVERRIDE_KEYS, *(key.lower() for key in REFUSED_OVERRIDE_KEYS)]
     for key in environment_keys:
         monkeypatch.setenv(key, "example")
@@ -263,6 +292,28 @@ def test_a_caller_override_outside_the_refused_families_reaches_the_child(
         "PYTHONUNBUFFERED": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
         "NODE_ENV": "production",
+    }
+
+    env = build_subprocess_env(env=override, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in override} == override
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_a_git_key_that_runs_no_program_reaches_the_child(isolate_env: bool) -> None:
+    """The author and committer keys, `GIT_TERMINAL_PROMPT`, `GIT_CONFIG_NOSYSTEM` and
+    `GIT_SSH_VARIANT` run no program, and two names that only contain a refused git name are not
+    refused, so all of them reach the child with their values (#2483)."""
+    override = {
+        "GIT_AUTHOR_NAME": "Example Author",
+        "GIT_AUTHOR_EMAIL": "author@example.com",
+        "GIT_COMMITTER_NAME": "Example Committer",
+        "GIT_COMMITTER_EMAIL": "committer@example.com",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_SSH_VARIANT": "ssh",
+        "GIT_CONFIGURATION": "example",
+        "EXAMPLE_GIT_SSH_COMMAND": "example",
     }
 
     env = build_subprocess_env(env=override, isolate_env=isolate_env)

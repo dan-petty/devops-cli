@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from devops_cli.commands.k8s.cluster_runtime import _run_cmd
 from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.argocd_overrides import (
@@ -206,6 +207,57 @@ def test_an_application_renders_what_its_revision_holds(tmp_path: Path) -> None:
     assert [d["spec"]["rules"] for d in yaml.safe_load_all(rendered)] == [
         [{"host": "chat.example.com"}]
     ]
+
+
+def test_the_fetch_of_an_ssh_remote_starts_ssh_without_a_prompt_through_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The runner of `deploy-stack` gives git the environment of the fetch through the guard of
+    `build_subprocess_env`, and `ssh` starts with `-o BatchMode=yes` (#2483). A stand-in `ssh`
+    program records its arguments and fails, so the fetch ends at once."""
+    ssh_log = tmp_path / "ssh.log"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stand_in = bin_dir / "ssh"
+    stand_in.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{ssh_log}"\nexit 1\n')
+    stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    source = ApplicationSource("ssh://git@example.com/repository.git", "main", "k8s/app")
+
+    with pytest.raises(KubernetesContextError, match="fetch"):
+        render_at_revision(source, tmp_path / "work", _run_cmd)
+
+    assert ssh_log.read_text(encoding="utf-8").splitlines()[0].startswith("-o BatchMode=yes ")
+
+
+def test_only_the_fetch_gets_the_ssh_option_and_every_command_gets_only_the_prompt_switch(
+    tmp_path: Path,
+) -> None:
+    """The SSH option is an argument of `git fetch`, the one command that opens an SSH
+    connection, and the environment of each command holds `GIT_TERMINAL_PROMPT=0` and no other
+    key (#2483)."""
+    started: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def record(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        started.append((cmd, kwargs.get("env")))  # type: ignore[arg-type]
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    source = ApplicationSource("ssh://git@example.com/repository.git", "main", "k8s/app")
+    render_at_revision(source, tmp_path / "work", record)
+
+    fetch = next(cmd for cmd, _ in started if "fetch" in cmd)
+    before_subcommand = fetch[: fetch.index("fetch")]
+    assert (
+        [fetch[at + 1] for at, word in enumerate(fetch) if word == "-c"],
+        "-c" in before_subcommand,
+        [cmd for cmd, _ in started if "-c" in cmd] == [fetch],
+        [env for _, env in started],
+    ) == (
+        ["core.sshCommand=ssh -o BatchMode=yes"],
+        True,
+        True,
+        [{"GIT_TERMINAL_PROMPT": "0"}] * len(started),
+    )
 
 
 @pytest.mark.parametrize(
