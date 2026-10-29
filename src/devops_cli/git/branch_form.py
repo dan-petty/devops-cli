@@ -8,13 +8,23 @@ branch that breaks it, and `tests/test_branch_form.py` fails when the types or t
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 from devops_cli.config.constants import CONST_BRANCH_SLUG_PATTERN, CONST_BRANCH_TYPES
 
 _SLUG = re.compile(CONST_BRANCH_SLUG_PATTERN)
 _BRANCH = re.compile(
-    rf"(?:{'|'.join(CONST_BRANCH_TYPES)})/(?P<issue>[0-9]+)-{CONST_BRANCH_SLUG_PATTERN}"
+    rf"(?P<type>{'|'.join(CONST_BRANCH_TYPES)})/(?P<issue>[0-9]+)-(?P<slug>"
+    rf"{CONST_BRANCH_SLUG_PATTERN})"
 )
+
+
+class BranchParts(NamedTuple):
+    """The three parts of a branch in the form `<type>/<issue>-<slug>`."""
+
+    type: str
+    issue: int
+    slug: str
 
 
 def is_valid_slug(slug: str) -> bool:
@@ -27,10 +37,16 @@ def branch_name(issue: int, type_: str, slug: str) -> str:
     return f"{type_}/{issue}-{slug}"
 
 
-def issue_of_branch(branch: str | None) -> int | None:
-    """The issue that `branch` names, or None for a branch that breaks the form (`main`, a
+def parse_branch(branch: str | None) -> BranchParts | None:
+    """The type, issue and slug of `branch`, or None for a branch that breaks the form (`main`, a
     detached head, a bot's branch). The number is read whole: `feat/23370-x` is issue 23370."""
     if branch is None:
         return None
     match = _BRANCH.fullmatch(branch)
-    return int(match["issue"]) if match else None
+    return BranchParts(match["type"], int(match["issue"]), match["slug"]) if match else None
+
+
+def issue_of_branch(branch: str | None) -> int | None:
+    """The issue that `branch` names, or None for a branch that breaks the form."""
+    parts = parse_branch(branch)
+    return parts.issue if parts else None

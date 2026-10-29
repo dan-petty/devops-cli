@@ -11,9 +11,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 import yaml
 
 from devops_cli.config.constants import CONST_BRANCH_SLUG_PATTERN, CONST_BRANCH_TYPES
+from devops_cli.git.branch_form import issue_of_branch, parse_branch
 from tests.support.paths import REPO_ROOT
 
 
@@ -44,3 +46,16 @@ def test_the_branch_form_of_the_code_is_the_form_of_the_hook() -> None:
     form = f"(?:{types})/[0-9]+-{CONST_BRANCH_SLUG_PATTERN}"
 
     assert _branch_name_hook_pattern() == f"^(?!{form}$)"
+
+
+def test_a_branch_gives_its_type_issue_and_slug() -> None:
+    parts = parse_branch("feat/2657-staged-takeover")
+
+    assert parts is not None
+    assert (parts.type, parts.issue, parts.slug) == ("feat", 2657, "staged-takeover")
+
+
+@pytest.mark.parametrize("branch", [None, "main", "feat/2657", "wip/2657-x", "feat/2657-Bad"])
+def test_a_branch_that_breaks_the_form_has_no_parts(branch: str | None) -> None:
+    assert parse_branch(branch) is None
+    assert issue_of_branch(branch) is None

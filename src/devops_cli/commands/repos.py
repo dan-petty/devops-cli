@@ -513,6 +513,14 @@ def _render_add_report(report: Any) -> None:
             MESSAGES.repos.worktrees_add_not_reclaimed.format(reason=report.reclaim_error),
             prefix=False,
         )
+    if report.status == "took over":
+        print_success(
+            MESSAGES.repos.worktrees_add_took_over.format(
+                path=report.path, branch=report.branch, commits=report.commits
+            ),
+            prefix=False,
+        )
+        return
     if report.status == "created":
         print_success(
             MESSAGES.repos.worktrees_add_created.format(path=report.path, branch=report.branch),
@@ -532,13 +540,13 @@ def worktrees_add(
         typer.Argument(min=1, help=HELP.repos.worktrees_add_issue),
     ],
     branch_type: Annotated[
-        str,
+        str | None,
         typer.Option("--type", help=HELP.repos.worktrees_add_type),
-    ],
+    ] = None,
     slug: Annotated[
-        str,
+        str | None,
         typer.Option("--slug", help=HELP.repos.worktrees_add_slug),
-    ],
+    ] = None,
     repo_dir: Annotated[
         Path | None,
         typer.Option("--repo-dir", "-r", help=HELP.repos.worktrees_repo_dir),
@@ -564,22 +572,26 @@ def worktrees_add(
 
     The command first removes the worktrees of merged pull requests, as prune --confirm does,
     because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
-    the standard directory or a pushed branch of origin already holds.
+    the standard directory or a pushed branch of origin already holds. A pushed branch whose
+    commits past origin/main all have the App as author is a staged branch: the command adds the
+    worktree on it and takes --type and --slug from it.
     """
-    if branch_type not in CONST_BRANCH_TYPES:
+    is_plan = dry_run or is_dry_run()
+    if is_plan and (branch_type is None or slug is None):
+        raise typer.BadParameter(MESSAGES.repos.worktrees_add_dry_run_needs_options)
+    if branch_type is not None and branch_type not in CONST_BRANCH_TYPES:
         raise typer.BadParameter(
             MESSAGES.repos.worktrees_add_bad_type.format(
                 type=branch_type, types=", ".join(CONST_BRANCH_TYPES)
             ),
             param_hint="--type",
         )
-    if not is_valid_slug(slug):
+    if slug is not None and not is_valid_slug(slug):
         raise typer.BadParameter(
             MESSAGES.repos.worktrees_add_bad_slug.format(slug=slug), param_hint="--slug"
         )
     root = (repo_dir or find_repo_root()).resolve()
     resolved = resolve_format(output_format, json_output=json_output)
-    is_plan = dry_run or is_dry_run()
     reclaimed = reclaim_merged_worktrees(root, dry_run=is_plan) if reclaim else ReclaimResult()
     if resolved == CONST_OUTPUT_FORMAT_TABLE:
         # Each removal is shown before a later refusal can hide it.
