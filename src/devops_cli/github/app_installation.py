@@ -8,7 +8,8 @@ gidgethub signs a JWT with the key, and the process exchanges it for an installa
 GitHub's API origin only. The request asks for `CONST_GITHUB_APP_TOKEN_PERMISSIONS` only, the
 permissions the roadmap jobs use, so the token carries no other permission that the installation
 grants (#2473). A runner Job also sets `service.github_app.token_repository`, and then the request
-names that one repository, so a step cannot push to another one (#2667). `gidgethub.apps.get_installation_access_token` sends no body, so the process
+names that one repository, so a step cannot push to another one (#2667). The implement job runs
+no step without it. `gidgethub.apps.get_installation_access_token` sends no body, so the process
 posts the request through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
 every gh and git child and mints a new one before it expires. The App's login is its bot's,
 `<slug>[bot]`: an installation token cannot read `GET /user`.
