@@ -644,6 +644,22 @@ serverFiles:
             annotations:
               summary: "Valkey cache {{ $labels.namespace }}/{{ $labels.instance }} is down or rejecting connections"
               description: "Valkey exporter {{ $labels.namespace }}/{{ $labels.instance }} reports redis_up == 0 or rejected client connections over the last 5 minutes."
+      # A Valkey with the policy noeviction refuses each write at its maxmemory: the cache Valkey
+      # (#711), whose refused writes cost Open WebUI its session and task state (#2094). The
+      # policy selects the Valkey, so a Valkey that evicts at its bound never fires. A maxmemory of
+      # 0 is no bound, where the ratio is +Inf, so the guard leaves out Argo CD's Redis.
+      # redis_instance_info carries more labels than the memory gauges, so the join names the two
+      # that identify the exporter.
+      - name: valkey-memory
+        rules:
+          - alert: ValkeyMemoryNearBound
+            expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8 and redis_memory_max_bytes > 0 and on (namespace, instance) redis_instance_info{maxmemory_policy="noeviction"}
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Valkey {{ $labels.namespace }}/{{ $labels.job }} uses {{ $value | humanizePercentage }} of its maxmemory"
+              description: "Valkey {{ $labels.namespace }}/{{ $labels.job }} ({{ $labels.instance }}) has kept its data above 80% of its maxmemory for 10 minutes. Its policy is noeviction, so at the bound it refuses each write and evicts no key. Find what fills it, or raise --maxmemory and the memory limit of its container (k8s/README.md, Alerting)."
       # The roadmap Service (#2472). Two paths send its series, and both give them
       # job="roadmap-service": k8s-monitoring's annotation autodiscovery scrapes its /metrics and
       # names the job after the pod's app.kubernetes.io/name, and the OpenTelemetry collector

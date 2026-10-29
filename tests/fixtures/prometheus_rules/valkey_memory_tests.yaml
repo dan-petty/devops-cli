@@ -1,0 +1,66 @@
+# promtool rule unit tests of the alert group valkey-memory in
+# k8s/monitoring/prometheus-values.yaml (#2094). The rule fires when a Valkey whose policy is
+# noeviction keeps its data above 80% of its maxmemory for 10 minutes. It stays quiet on a
+# Valkey under 80%, on a Valkey that evicts at its bound (allkeys-lru), and on a Valkey with no
+# bound (a maxmemory of 0, where the ratio is +Inf).
+#
+# tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
+# beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. The exporter gives redis_instance_info
+# more labels than the memory gauges, as the live exporter does.
+rule_files:
+  - valkey-memory.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: A noeviction Valkey above 80% of its bound fires after 10 minutes
+    interval: 1m
+    input_series:
+      - series: 'redis_memory_used_bytes{job="valkey", namespace="llm", instance="192.0.2.10:9121"}'
+        values: '900x20'
+      - series: 'redis_memory_max_bytes{job="valkey", namespace="llm", instance="192.0.2.10:9121"}'
+        values: '1000x20'
+      - series: 'redis_instance_info{job="valkey", namespace="llm", instance="192.0.2.10:9121", maxmemory_policy="noeviction", role="master"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ValkeyMemoryNearBound
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ValkeyMemoryNearBound
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: valkey
+              namespace: llm
+              instance: 192.0.2.10:9121
+            exp_annotations:
+              summary: "Valkey llm/valkey uses 90% of its maxmemory"
+              description: "Valkey llm/valkey (192.0.2.10:9121) has kept its data above 80% of its maxmemory for 10 minutes. Its policy is noeviction, so at the bound it refuses each write and evicts no key. Find what fills it, or raise --maxmemory and the memory limit of its container (k8s/README.md, Alerting)."
+
+  - name: A Valkey under 80%, an evicting Valkey and a Valkey with no bound stay quiet
+    interval: 1m
+    input_series:
+      - series: 'redis_memory_used_bytes{job="valkey", namespace="llm", instance="192.0.2.10:9121"}'
+        values: '500x20'
+      - series: 'redis_memory_max_bytes{job="valkey", namespace="llm", instance="192.0.2.10:9121"}'
+        values: '1000x20'
+      - series: 'redis_instance_info{job="valkey", namespace="llm", instance="192.0.2.10:9121", maxmemory_policy="noeviction", role="master"}'
+        values: '1x20'
+      - series: 'redis_memory_used_bytes{job="valkey-devops", namespace="llm", instance="192.0.2.11:9121"}'
+        values: '950x20'
+      - series: 'redis_memory_max_bytes{job="valkey-devops", namespace="llm", instance="192.0.2.11:9121"}'
+        values: '1000x20'
+      - series: 'redis_instance_info{job="valkey-devops", namespace="llm", instance="192.0.2.11:9121", maxmemory_policy="allkeys-lru", role="master"}'
+        values: '1x20'
+      - series: 'redis_memory_used_bytes{job="argocd-redis-metrics", namespace="argocd", instance="192.0.2.12:9121"}'
+        values: '32000000x20'
+      - series: 'redis_memory_max_bytes{job="argocd-redis-metrics", namespace="argocd", instance="192.0.2.12:9121"}'
+        values: '0x20'
+      - series: 'redis_instance_info{job="argocd-redis-metrics", namespace="argocd", instance="192.0.2.12:9121", maxmemory_policy="noeviction", role="master"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ValkeyMemoryNearBound
+        exp_alerts: []
