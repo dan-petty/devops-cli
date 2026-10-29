@@ -42,7 +42,12 @@ from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.aibom import generate_aibom
 from devops_cli.security.complexity import run_complexity_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
-from devops_cli.security.pipeline import ScanReport, build_report, report_from_findings
+from devops_cli.security.pipeline import (
+    ScanReport,
+    build_report,
+    gate_report,
+    report_from_findings,
+)
 from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.sarif import SarifError, read_sarif, write_sarif
 from devops_cli.security.sbom import run_trivy_sbom
@@ -872,49 +877,24 @@ def _warn_missing_scanners(report: ScanReport) -> None:
             print_warning(f"Scanner '{name}' failed during execution: {outcome.reason}", safe=True)
 
 
-def _check_failed_scanners(report: ScanReport, json_output: bool) -> bool:
-    """Return True if any scanner failed, printing an error message if not json_output."""
-    failed = [name for name, o in report.outcomes.items() if o.status == "failed"]
-    if failed and not json_output:
-        print_error(f"Scanner(s) failed during execution: {', '.join(sorted(failed))}")
-    return bool(failed)
-
-
-def _check_explicit_scanners_not_run(
-    report: ScanReport, explicit_scanners: list[str], json_output: bool
-) -> bool:
-    """Return True if any explicitly named scanner did not run."""
-    not_run = [
-        name
-        for name in explicit_scanners
-        if report.outcomes.get(name) is None
-        or report.outcomes[name].status not in ("ran", "built-in patterns")
-    ]
-    if not_run and not json_output:
-        print_error(f"Requested scanner(s) did not run: {', '.join(sorted(not_run))}")
-    return bool(not_run)
-
-
-def _evaluate_fail_on(
+def _enforce_gate(
     report: ScanReport,
     *,
     fail_on: str | None,
     explicit_scanners: list[str] | None,
     json_output: bool,
 ) -> None:
-    """Enforce failure criteria when --fail-on is specified."""
-    if not fail_on:
-        return
-
-    if _check_failed_scanners(report, json_output):
+    """Exit 1 when the report fails the `--fail-on` gate, naming the failed or missing scanners."""
+    verdict = gate_report(report, fail_on=fail_on, explicit_scanners=explicit_scanners)
+    if verdict.failed_scanners:
+        if not json_output:
+            print_error(f"Scanner(s) failed during execution: {', '.join(verdict.failed_scanners)}")
         raise typer.Exit(1)
-
-    if explicit_scanners and _check_explicit_scanners_not_run(
-        report, explicit_scanners, json_output
-    ):
+    if verdict.scanners_not_run:
+        if not json_output:
+            print_error(f"Requested scanner(s) did not run: {', '.join(verdict.scanners_not_run)}")
         raise typer.Exit(1)
-
-    if report.exceeds(fail_on):
+    if verdict.exceeds_threshold:
         raise typer.Exit(1)
 
 
@@ -1138,7 +1118,7 @@ def scan_report(
         if sarif is not None:
             print_success(f"SARIF document written to {sarif}")
 
-    _evaluate_fail_on(
+    _enforce_gate(
         report,
         fail_on=fail_on,
         explicit_scanners=selected_names if selected_names else None,

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -58,16 +58,21 @@ def hostile_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
 
 
 @pytest.fixture
-def user_level(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolate_user_data_root: Path
-) -> Path:
+def user_level(monkeypatch: pytest.MonkeyPatch, isolate_user_data_root: Path) -> Iterator[Path]:
     """The user's own config, naming the user's gateway, with neither `DEVOPS_CLI_CONFIG` nor
     `DEVOPS_CLI_DATA_DIR` set, as a shell outside this repository's devcontainer has them.
 
-    Returns the user-level data root a review's relative data paths resolve under.
+    The config is the global config file of the test's isolated HOME, which the settings read
+    when no `DEVOPS_CLI_CONFIG` names another. Returns the user-level data root a review's
+    relative data paths resolve under.
     """
-    config = tmp_path / "home" / ".config" / "devops-cli" / "config.yaml"
-    config.parent.mkdir(parents=True)
+    from devops_cli.config import settings
+
+    config = settings.CONFIG_PATH
+    assert config.is_relative_to(Path(os.environ["HOME"]))
+    before = config.read_text(encoding="utf-8") if config.exists() else None
+    made = [parent for parent in reversed(config.parents) if not parent.exists()]
+    config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text(
         f"ai:\n  gateway_url: {_USER_GATEWAY}\n  allow_private_network: true\n"
         "  rag:\n    enabled: false\n",
@@ -75,9 +80,15 @@ def user_level(
     )
     monkeypatch.delenv("DEVOPS_CLI_CONFIG", raising=False)
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
-    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", config)
     reset_settings_cache()
-    return isolate_user_data_root
+    yield isolate_user_data_root
+    if before is None:
+        config.unlink()
+    else:
+        config.write_text(before, encoding="utf-8")
+    for directory in reversed(made):
+        directory.rmdir()
+    reset_settings_cache()
 
 
 def _seen_by_a_review[T](

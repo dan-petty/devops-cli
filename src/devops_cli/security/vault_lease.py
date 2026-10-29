@@ -12,7 +12,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
     CONST_KUBERNETES_SA_TOKEN_PATH,
@@ -22,6 +22,7 @@ from devops_cli.config.constants import (
     CONST_VAULT_PATH_LEASE_REVOKE,
     CONST_VAULT_PATH_TOKEN_RENEW_SELF,
     CONST_VAULT_PATH_TOKEN_REVOKE_SELF,
+    CONST_VAULT_TOKEN_REJECTED_STATUSES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS,
@@ -30,7 +31,11 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.vault import VaultAuthenticationError, VaultLeaseError
 from devops_cli.models.vault import VaultAuthResult, VaultLease, VaultLeaseReport
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_http import vault_request
+
+if TYPE_CHECKING:
+    from devops_cli.security.vault_broker import VaultSecretBroker
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +350,33 @@ def reset_lease_registry() -> None:
     _LEASE_REGISTRY = None
 
 
+def revoke_lease(broker: VaultSecretBroker, lease_id: str) -> None:
+    """Revoke one lease through the session's lease registry, with the broker's token.
+
+    A token that Vault rejects raises the broker's error for that status, which names the token
+    source and `devops vault login`. Any other refusal raises a `VaultLeaseError` that names the
+    masked lease id and the status that Vault answered.
+    """
+    registry = get_lease_registry(
+        LeaseRegistry(
+            vault_addr=broker.vault_addr,
+            token=broker.require_token(),
+            namespace=broker.vault_namespace,
+        )
+    )
+    try:
+        registry.revoke(lease_id)
+    except VaultLeaseError as exc:
+        status = exc.status_code
+        if status is not None and status in CONST_VAULT_TOKEN_REJECTED_STATUSES:
+            raise broker.status_error(status, CONST_VAULT_PATH_LEASE_REVOKE) from exc
+        raise VaultLeaseError(
+            f"Could not revoke lease '{mask_secrets(lease_id)}': {exc.message}",
+            vault_addr=broker.vault_addr,
+            status_code=status,
+        ) from exc
+
+
 __all__ = [
     "LeaseRegistry",
     "get_lease_registry",
@@ -352,5 +384,6 @@ __all__ = [
     "login_kubernetes",
     "read_service_account_token",
     "reset_lease_registry",
+    "revoke_lease",
     "revoke_self",
 ]

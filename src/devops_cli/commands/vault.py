@@ -11,9 +11,7 @@ from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_VAULT_AUTH_METHODS,
     CONST_VAULT_LOGIN_KEYRING_KEY,
-    CONST_VAULT_PATH_LEASE_REVOKE,
     CONST_VAULT_PATH_TOKEN_REVOKE_SELF,
-    CONST_VAULT_TOKEN_REJECTED_STATUSES,
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.os_keyring import (
@@ -27,7 +25,7 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
-from devops_cli.exceptions.vault import VaultConfigurationError, VaultError, VaultLeaseError
+from devops_cli.exceptions.vault import VaultConfigurationError, VaultError
 from devops_cli.lang import HELP
 from devops_cli.models.vault import (
     VaultAuthResult,
@@ -48,11 +46,10 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import VaultSecretBroker
 from devops_cli.security.vault_http import vault_url
 from devops_cli.security.vault_lease import (
-    LeaseRegistry,
-    get_lease_registry,
     login_approle,
     login_kubernetes,
     reset_lease_registry,
+    revoke_lease,
     revoke_self,
 )
 
@@ -566,31 +563,8 @@ def vault_leases(
         )
         return
 
-    registry = get_lease_registry(
-        LeaseRegistry(
-            vault_addr=broker.vault_addr,
-            token=broker.require_token(),
-            namespace=broker.vault_namespace,
-        )
-    )
-    _revoke_lease(registry, revoke, broker)
-
-
-def _revoke_lease(registry: LeaseRegistry, lease_id: str, broker: VaultSecretBroker) -> None:
-    """Revoke one lease, raising with the status Vault answered when it refuses."""
-    masked = mask_secrets(lease_id)
-    try:
-        registry.revoke(lease_id)
-    except VaultLeaseError as exc:
-        status = exc.status_code
-        if status is not None and status in CONST_VAULT_TOKEN_REJECTED_STATUSES:
-            raise broker.status_error(status, CONST_VAULT_PATH_LEASE_REVOKE) from exc
-        raise VaultLeaseError(
-            f"Could not revoke lease '{masked}': {exc.message}",
-            vault_addr=broker.vault_addr,
-            status_code=status,
-        ) from exc
-    print_success(f"Revoked lease '{masked}'.")
+    revoke_lease(broker, revoke)
+    print_success(f"Revoked lease '{mask_secrets(revoke)}'.")
 
 
 # =============================================================================

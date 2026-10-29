@@ -7,7 +7,6 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -15,6 +14,7 @@ from typer.testing import CliRunner
 from devops_cli.ai.tools.builtin_tools import docker_analyze_layers
 from devops_cli.commands.docker import app as docker_app
 from devops_cli.security.dive import DiveScanner, run_dive_analysis
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 # Dive's JSON export (`dive <image> --json <file>`), keyed as wagoodman/dive writes it.
 _DIVE_EXPORT: dict[str, Any] = {
@@ -37,45 +37,40 @@ _DIVE_EXPORT: dict[str, Any] = {
 }
 
 
-DiveStub = Callable[[list[str]], subprocess.CompletedProcess[str]]
-
-
-def _subprocess_run(dive: DiveStub, seen: list[list[str]]) -> Any:
-    """Stand in for `subprocess.run`, handing dive's command to `dive` and recording it.
-
-    Anything else gets an empty success: the tracer's first span runs `uname -p` (through
-    `platform`), whichever test starts it, and that must neither run nor reach `dive`.
-    """
-
-    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if Path(cmd[0]).name != "dive":
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-        seen.append(list(cmd))
-        return dive(list(cmd))
-
-    return fake_run
+DiveStub = Callable[[ProcessCall], subprocess.CompletedProcess[str]]
 
 
 def _writes_export(export: dict[str, Any]) -> DiveStub:
     """A dive that writes `export` to the file `--json` names, as wagoodman/dive does."""
 
-    def dive(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-        Path(cmd[cmd.index("--json") + 1]).write_text(json.dumps(export), encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout="Analyzing image...\n", stderr="")
+    def dive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        argv = list(call.argv)
+        Path(argv[argv.index("--json") + 1]).write_text(json.dumps(export), encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0, stdout="Analyzing image...\n", stderr="")
 
     return dive
 
 
-def _times_out(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    """A dive that runs past its timeout."""
-    raise subprocess.TimeoutExpired(cmd, 5)
+def _answer_dive(process_fake: ProcessFake, answer: ProcessAnswer) -> None:
+    """Answer each run of dive, which `run_dive_analysis` starts from its path on PATH."""
+    process_fake.answer(lambda call: Path(call.argv[0]).name == "dive", answer)
 
 
-def test_dive_missing_reports_unavailable_without_inventing_layers() -> None:
+def _dive_runs(process_fake: ProcessFake) -> list[list[str]]:
+    """The argv of each dive run the fake received."""
+    return [list(call.argv) for call in process_fake.calls if Path(call.argv[0]).name == "dive"]
+
+
+def test_dive_missing_reports_unavailable_without_inventing_layers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Without dive on PATH there is no analysis: no layers, no score, and the tool says so."""
-    with patch("shutil.which", return_value=None):
-        result = run_dive_analysis("img:1")
-        tool_reply = docker_analyze_layers("img:1")
+    empty_bin = tmp_path / "bin-without-dive"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+
+    result = run_dive_analysis("img:1")
+    tool_reply = docker_analyze_layers("img:1")
 
     assert (result.status, result.layers, result.efficiency_score, result.total_bytes) == (
         "unavailable",
@@ -88,19 +83,17 @@ def test_dive_missing_reports_unavailable_without_inventing_layers() -> None:
 
 
 def test_dive_reads_the_json_export_file_it_asked_for(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Dive writes `--json <path>` to that file, never stdout; the export's real keys are parsed."""
     monkeypatch.chdir(tmp_path)  # a relative export path would land in the working directory
-    seen: list[list[str]] = []
-    with (
-        patch("shutil.which", return_value="/usr/local/bin/dive"),
-        patch("subprocess.run", side_effect=_subprocess_run(_writes_export(_DIVE_EXPORT), seen)),
-    ):
-        result = run_dive_analysis("my-app:v1")
+    _answer_dive(process_fake, ProcessAnswer(side_effect=_writes_export(_DIVE_EXPORT)))
 
-    export_path = Path(seen[0][-1])
-    assert seen[0][:3] == ["/usr/local/bin/dive", "my-app:v1", "--json"]
+    result = run_dive_analysis("my-app:v1")
+
+    (seen,) = _dive_runs(process_fake)
+    export_path = Path(seen[-1])
+    assert seen[:3] == ["/usr/local/bin/dive", "my-app:v1", "--json"]
     assert (export_path.name != "-", export_path.exists()) == (True, False)
     assert (result.status, result.efficiency_score, result.wasted_bytes, result.total_bytes) == (
         "ran",
@@ -113,25 +106,34 @@ def test_dive_reads_the_json_export_file_it_asked_for(
     ]
 
 
-def test_dive_failures_report_failed_with_the_reason() -> None:
+@pytest.mark.parametrize(
+    ("answer", "reason"),
+    [
+        pytest.param(
+            ProcessAnswer(side_effect=subprocess.TimeoutExpired(["dive"], 5)),
+            "timed out",
+            id="times-out",
+        ),
+        pytest.param(
+            ProcessAnswer(returncode=1, stderr="image not found"), "image not found", id="exits-1"
+        ),
+        pytest.param(ProcessAnswer(), "dive wrote no JSON export", id="writes-no-export"),
+    ],
+)
+def test_dive_failures_report_failed_with_the_reason(
+    process_fake: ProcessFake, answer: ProcessAnswer, reason: str
+) -> None:
     """A dive that raises, exits non-zero, or writes no export is a failed run, not a clean image."""
-    dives: list[DiveStub] = [
-        _times_out,
-        lambda cmd: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="image not found"),
-        lambda cmd: subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""),
-    ]
-    results = []
-    with patch("shutil.which", return_value="/usr/local/bin/dive"):
-        for dive in dives:
-            with patch("subprocess.run", side_effect=_subprocess_run(dive, [])):
-                results.append(run_dive_analysis("img:1"))
+    _answer_dive(process_fake, answer)
 
-    assert [(r.status, r.layers, r.efficiency_score) for r in results] == [("failed", [], 0.0)] * 3
-    assert ["timed out" in results[0].reason, "image not found" in results[1].reason] == [
+    result = run_dive_analysis("img:1")
+
+    assert (result.status, result.layers, result.efficiency_score, reason in result.reason) == (
+        "failed",
+        [],
+        0.0,
         True,
-        True,
-    ]
-    assert results[2].reason == "dive wrote no JSON export"
+    )
 
 
 # A private key dive quotes in its error, long enough that a cut at the shared cap would drop its
@@ -145,33 +147,27 @@ _KEY_ERROR = (
 )
 
 
-def _exits_quoting_the_key(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    """A dive that exits 1 with the key in its stderr."""
-    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=f"error: {_KEY_ERROR}\n")
-
-
-def _raises_quoting_the_key(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    """A dive that cannot be run, with the key in the error."""
-    raise OSError(_KEY_ERROR)
-
-
 @pytest.mark.parametrize(
-    ("dive", "reason"),
+    ("answer", "reason"),
     [
         (
-            _exits_quoting_the_key,
+            ProcessAnswer(returncode=1, stderr=f"error: {_KEY_ERROR}\n"),
             "dive exited with code 1: error: cannot load registry credentials from "
             "<masked-private-key>\n\n",
         ),
         (
-            _raises_quoting_the_key,
+            ProcessAnswer(side_effect=OSError(_KEY_ERROR)),
             "dive failed: cannot load registry credentials from <masked-private-key>\n\n",
         ),
     ],
     ids=["dive exits non-zero", "dive cannot be run"],
 )
 def test_a_dive_failure_masks_a_secret_before_it_is_cut(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dive: DiveStub, reason: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    answer: ProcessAnswer,
+    reason: str,
 ) -> None:
     """Verify a key in dive's error is masked whole wherever its reason goes.
 
@@ -180,14 +176,12 @@ def test_a_dive_failure_masks_a_secret_before_it_is_cut(
     line cannot hide the key.
     """
     monkeypatch.chdir(tmp_path)
-    with (
-        patch("shutil.which", return_value="/usr/local/bin/dive"),
-        patch("subprocess.run", side_effect=_subprocess_run(dive, [])),
-    ):
-        analysis = run_dive_analysis("org/img:1")
-        outcome = DiveScanner().scan(tmp_path, image="org/img:1")
-        tool_reply = docker_analyze_layers("org/img:1")
-        cli = CliRunner().invoke(docker_app, ["analyze-layers", "org/img:1"])
+    _answer_dive(process_fake, answer)
+
+    analysis = run_dive_analysis("org/img:1")
+    outcome = DiveScanner().scan(tmp_path, image="org/img:1")
+    tool_reply = docker_analyze_layers("org/img:1")
+    cli = CliRunner().invoke(docker_app, ["analyze-layers", "org/img:1"])
 
     places = (
         ("analysis", analysis.reason),
@@ -207,19 +201,17 @@ def test_a_dive_failure_masks_a_secret_before_it_is_cut(
 
 
 def test_dive_scanner_reads_the_export_and_flags_an_inefficient_image(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """The `devops scan` adapter reads the same export file, so a wasteful image is a finding."""
     monkeypatch.chdir(tmp_path)
     wasteful = {**_DIVE_EXPORT, "image": {**_DIVE_EXPORT["image"], "efficiencyScore": 0.5}}
-    seen: list[list[str]] = []
-    with (
-        patch("shutil.which", return_value="/usr/local/bin/dive"),
-        patch("subprocess.run", side_effect=_subprocess_run(_writes_export(wasteful), seen)),
-    ):
-        outcome = DiveScanner().scan(tmp_path, image="my-app:v1")
+    _answer_dive(process_fake, ProcessAnswer(side_effect=_writes_export(wasteful)))
 
-    assert (outcome.status, [f.location for f in outcome.findings], "-" in seen[0]) == (
+    outcome = DiveScanner().scan(tmp_path, image="my-app:v1")
+
+    (seen,) = _dive_runs(process_fake)
+    assert (outcome.status, [f.location for f in outcome.findings], "-" in seen) == (
         "ran",
         ["my-app:v1:efficiency"],
         False,
@@ -227,33 +219,15 @@ def test_dive_scanner_reads_the_export_and_flags_an_inefficient_image(
 
 
 def test_dive_passes_docker_host_when_endpoint_not_from_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Dive sets DOCKER_HOST in subprocess env when resolved endpoint is not from DOCKER_HOST."""
     monkeypatch.chdir(tmp_path)
-    captured_envs: list[dict[str, str]] = []
+    socket = "unix:///run/user/1000/podman/podman.sock"
+    monkeypatch.setenv("CONTAINER_HOST", socket)
+    _answer_dive(process_fake, ProcessAnswer(side_effect=_writes_export(_DIVE_EXPORT)))
 
-    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if kwargs.get("env"):
-            captured_envs.append(kwargs["env"])
-        return _writes_export(_DIVE_EXPORT)(cmd)
+    analysis = run_dive_analysis("my-app:v1")
 
-    mock_endpoint = MagicMock()
-    mock_endpoint.source = "/run/user/1000/podman/podman.sock"
-    mock_endpoint.raw = "unix:///run/user/1000/podman/podman.sock"
-
-    mock_engine = MagicMock()
-    mock_engine.resolve_host.return_value = mock_endpoint
-
-    with (
-        patch("shutil.which", return_value="/usr/local/bin/dive"),
-        patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
-        patch("subprocess.run", side_effect=fake_run),
-    ):
-        analysis = run_dive_analysis("my-app:v1")
-
-    assert (
-        analysis.status,
-        len(captured_envs) > 0,
-        captured_envs[0].get("DOCKER_HOST"),
-    ) == ("ran", True, "unix:///run/user/1000/podman/podman.sock")
+    (dive_call,) = [call for call in process_fake.calls if Path(call.argv[0]).name == "dive"]
+    assert (analysis.status, (dive_call.env or {}).get("DOCKER_HOST")) == ("ran", socket)

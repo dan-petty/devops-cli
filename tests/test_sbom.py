@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -88,14 +87,9 @@ def test_scan_sbom_missing_trivy_reports_not_installed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cli: Callable[..., Any]
 ) -> None:
     """Verify devops scan sbom exits non-zero and reports not installed when Trivy is missing."""
-    real_which = shutil.which
-
-    def fake_which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
-        if cmd == "trivy":
-            return None
-        return real_which(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(shutil, "which", fake_which)
+    empty_bin = tmp_path / "bin-without-trivy"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
 
     res = cli(["scan", "sbom", str(tmp_path)])
     assert res.exit_code != 0

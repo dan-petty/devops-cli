@@ -23,6 +23,7 @@ from devops_cli.crypto.tls_certificates import (
     verify_certificate,
 )
 from devops_cli.models.tls import CertGenerationRequest
+from tests.support.fakes.clock import ClockFake
 
 
 def test_generate_ca_certificate(tmp_path: Path) -> None:
@@ -274,10 +275,9 @@ def test_tls_overwriting_insecure_permissions(tmp_path: Path) -> None:
     assert pub_mode == 0o644
 
 
-def test_verify_certificate_expired_and_non_rsa(tmp_path: Path) -> None:
+def test_verify_certificate_expired_and_non_rsa(tmp_path: Path, clock: ClockFake) -> None:
     """Verify verify_certificate returns False for expired certs and non-RSA CAs."""
     from datetime import UTC, datetime, timedelta
-    from unittest.mock import patch
 
     ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, validity_days=30)
     srv_cert, _, _ = generate_server_certificate(
@@ -291,10 +291,9 @@ def test_verify_certificate_expired_and_non_rsa(tmp_path: Path) -> None:
     # 1. Verification succeeds normally
     assert verify_certificate(srv_cert, ca_cert) is True
 
-    # 2. Date expired simulation
-    with patch("datetime.datetime") as mock_dt:
-        mock_dt.now.return_value = datetime.now(UTC) + timedelta(days=50)
-        assert verify_certificate(srv_cert, ca_cert) is False
+    # 2. Fifty days on, the ten-day certificate has expired
+    clock.move_to(datetime.now(UTC) + timedelta(days=50))
+    assert verify_certificate(srv_cert, ca_cert) is False
 
     # 3. Invalid cert data
     assert verify_certificate(b"not_a_valid_cert", ca_cert) is False

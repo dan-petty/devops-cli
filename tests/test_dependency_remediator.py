@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,6 +21,22 @@ from devops_cli.security.dependency_remediator import (
     DependencyRemediator,
     detect_lockfile_ecosystem,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+
+def _upgrades(call: ProcessCall) -> bool:
+    """Whether `call` is the lock upgrade of a remediation (uv's argv may carry preview flags)."""
+    return "--upgrade-package" in call.argv
+
+
+def _current_branch(repo: Path) -> str:
+    """The branch that the working tree of `repo` is on."""
+    return subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 def test_detect_lockfile_ecosystem(tmp_path: Path) -> None:
@@ -86,10 +103,11 @@ def test_plan_remediation_dry_run(tmp_path: Path) -> None:
     assert "vulnerable-pkg==2.0.0" in action.upgrade_command
 
 
-def test_apply_remediation_success(tmp_path: Path) -> None:
+def test_apply_remediation_success(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Test applying a planned remediation command successfully."""
     (tmp_path / "uv.lock").write_text("", encoding="utf-8")
     remediator = DependencyRemediator(target_dir=tmp_path)
+    process_fake.answer(_upgrades, ProcessAnswer(stdout="Lockfile updated"))
 
     action = VulnerabilityFixAction(
         package="demo-pkg",
@@ -99,18 +117,20 @@ def test_apply_remediation_success(tmp_path: Path) -> None:
         upgrade_command=["uv", "lock", "--upgrade-package", "demo-pkg==1.0.1"],
     )
 
-    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_sub:
-        mock_sub.return_value = MagicMock(returncode=0, stdout="Lockfile updated", stderr="")
-        res = remediator.apply_action(action)
-        assert res.status == "APPLIED"
-        assert res.error_message is None
-        assert mock_sub.called
+    res = remediator.apply_action(action)
+
+    assert (res.status, res.error_message, [call.cwd for call in process_fake.calls]) == (
+        "APPLIED",
+        None,
+        [tmp_path],
+    )
 
 
-def test_apply_remediation_failure(tmp_path: Path) -> None:
+def test_apply_remediation_failure(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Test handling remediation command failure gracefully."""
     (tmp_path / "uv.lock").write_text("", encoding="utf-8")
     remediator = DependencyRemediator(target_dir=tmp_path)
+    process_fake.answer(_upgrades, ProcessAnswer(returncode=1, stderr="Version conflict"))
 
     action = VulnerabilityFixAction(
         package="failing-pkg",
@@ -120,17 +140,16 @@ def test_apply_remediation_failure(tmp_path: Path) -> None:
         upgrade_command=["uv", "lock", "--upgrade-package", "failing-pkg==2.0.0"],
     )
 
-    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_sub:
-        mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="Version conflict")
-        res = remediator.apply_action(action)
-        assert res.status == "FAILED"
-        assert res.error_message == "Version conflict"
+    res = remediator.apply_action(action)
+
+    assert (res.status, res.error_message) == ("FAILED", "Version conflict")
 
 
-def test_remediate_with_git_branch(tmp_path: Path) -> None:
+def test_remediate_with_git_branch(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Test full remediation execution with git branch creation."""
     (tmp_path / "uv.lock").write_text("", encoding="utf-8")
     remediator = DependencyRemediator(target_dir=tmp_path)
+    process_fake.answer(_upgrades, ProcessAnswer(stdout="Updated"))
 
     action = VulnerabilityFixAction(
         package="secure-lib",
@@ -140,21 +159,14 @@ def test_remediate_with_git_branch(tmp_path: Path) -> None:
         upgrade_command=["uv", "lock", "--upgrade-package", "secure-lib==1.0.0"],
     )
 
-    with (
-        patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_sub,
-        patch("devops_cli.security.dependency_remediator.create_remediation_branch") as mock_branch,
-    ):
-        mock_sub.return_value = MagicMock(returncode=0, stdout="Updated", stderr="")
-        mock_branch.return_value = "fix/security-secure-lib-GHSA-abcd-efgh"
+    result = remediator.remediate(actions=[action], create_branch=True)
 
-        result = remediator.remediate(
-            actions=[action],
-            create_branch=True,
-        )
-
-        assert result.applied_count == 1
-        assert result.branch_name == "fix/security-secure-lib-GHSA-abcd-efgh"
-        assert mock_branch.called
+    branch = "fix/security-secure-lib-ghsa-abcd-efgh"
+    assert (
+        result.applied_count,
+        result.branch_name,
+        ("git", "checkout", "-b", branch) in [call.argv for call in process_fake.calls],
+    ) == (1, branch, True)
 
 
 def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any]) -> None:
@@ -188,7 +200,7 @@ def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any]) -> None:
         assert "PENDING" in res.output
 
 
-def test_build_upgrade_commands_and_branch(tmp_path: Path) -> None:
+def test_build_upgrade_commands_and_branch(tmp_path: Path, git: Callable[..., None]) -> None:
     """Test build_upgrade_command and create_remediation_branch."""
     from devops_cli.security.dependency_remediator import (
         build_upgrade_command,
@@ -209,11 +221,13 @@ def test_build_upgrade_commands_and_branch(tmp_path: Path) -> None:
         "golang.org/x/crypto==0.1.0",
     ]
 
-    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_subproc:
-        mock_subproc.return_value = MagicMock(returncode=0)
-        b_name = create_remediation_branch(tmp_path, "requests", "CVE:2026/1234")
-        assert b_name == "fix/security-requests-cve-2026-1234"
-        assert mock_subproc.called
+    git(tmp_path, "init", "-q")
+    b_name = create_remediation_branch(tmp_path, "requests", "CVE:2026/1234")
+
+    assert (b_name, _current_branch(tmp_path)) == (
+        "fix/security-requests-cve-2026-1234",
+        "fix/security-requests-cve-2026-1234",
+    )
 
 
 def _upgrade_action(**overrides: Any) -> VulnerabilityFixAction:
@@ -241,29 +255,25 @@ def test_an_action_with_no_upgrade_command_is_skipped(tmp_path: Path) -> None:
 
 
 def test_an_upgrade_command_that_exits_non_zero_fails_the_action_with_its_stderr(
-    tmp_path: Path,
+    tmp_path: Path, process_fake: ProcessFake
 ) -> None:
     """A failed upgrade fails the action, and its error names what the command printed."""
     remediator = DependencyRemediator(target_dir=tmp_path)
+    process_fake.answer("false", ProcessAnswer(returncode=1, stderr="Upgrade error"))
 
-    with patch(
-        "devops_cli.security.dependency_remediator.run_subprocess",
-        return_value=MagicMock(returncode=1, stderr="Upgrade error", stdout=""),
-    ):
-        result = remediator.apply_action(_upgrade_action())
+    result = remediator.apply_action(_upgrade_action())
 
     assert (result.status, "Upgrade error" in (result.error_message or "")) == ("FAILED", True)
 
 
-def test_an_upgrade_command_that_raises_fails_the_action_with_the_error(tmp_path: Path) -> None:
+def test_an_upgrade_command_that_raises_fails_the_action_with_the_error(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """An upgrade that cannot run fails the action, and its error names the cause."""
     remediator = DependencyRemediator(target_dir=tmp_path)
+    process_fake.answer("false", ProcessAnswer(side_effect=RuntimeError("Subprocess timeout")))
 
-    with patch(
-        "devops_cli.security.dependency_remediator.run_subprocess",
-        side_effect=RuntimeError("Subprocess timeout"),
-    ):
-        result = remediator.apply_action(_upgrade_action())
+    result = remediator.apply_action(_upgrade_action())
 
     assert (result.status, "Subprocess timeout" in (result.error_message or "")) == (
         "FAILED",
@@ -325,23 +335,24 @@ def test_remediator_filter_mismatch_and_fallback_cmd() -> None:
     assert len(plan.actions) == 0
 
 
-def test_create_remediation_branch_failure_returns_none(tmp_path: Path) -> None:
+def test_create_remediation_branch_failure_returns_none(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
     """Test create_remediation_branch returns None when git command fails."""
     from devops_cli.security.dependency_remediator import create_remediation_branch
 
-    # Success case (returncode=0)
-    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_subproc:
-        mock_subproc.return_value = MagicMock(returncode=0, stdout="", stderr="")
-        b_name = create_remediation_branch(tmp_path, "urllib3", "CVE-2026-0001")
-        assert b_name == "fix/security-urllib3-cve-2026-0001"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    git(repo, "commit", "--allow-empty", "-q", "-m", "initial")
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
 
-    # Failure case (returncode != 0 e.g. branch exists or not git repo)
-    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_subproc:
-        mock_subproc.return_value = MagicMock(
-            returncode=128, stdout="", stderr="fatal: not a git repo"
-        )
-        b_name = create_remediation_branch(tmp_path, "urllib3", "CVE-2026-0001")
-        assert b_name is None
+    assert (
+        create_remediation_branch(repo, "urllib3", "CVE-2026-0001"),
+        create_remediation_branch(repo, "urllib3", "CVE-2026-0001"),
+        create_remediation_branch(not_a_repo, "urllib3", "CVE-2026-0001"),
+    ) == ("fix/security-urllib3-cve-2026-0001", None, None)
 
 
 def test_plan_remediation_min_severity_filtering() -> None:

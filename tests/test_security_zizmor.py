@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -18,6 +16,7 @@ from devops_cli.config.commands import BIN_ZIZMOR, build_zizmor_cmd
 from devops_cli.config.constants import CONST_EXIT_COMMAND_NOT_FOUND
 from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.security.zizmor import parse_zizmor_json, run_zizmor
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 
@@ -45,8 +44,11 @@ def _finding(rule: str, severity: str = "High", *, row: int = 66, ignored: bool 
     }
 
 
-def _ran(findings: list[Any], returncode: int = 0) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess([], returncode, stdout=json.dumps(findings), stderr="")
+def _answer_zizmor(process_fake: ProcessFake, findings: list[Any], returncode: int = 0) -> None:
+    """Answer each zizmor run with `findings` as its JSON, and `returncode`."""
+    process_fake.answer(
+        BIN_ZIZMOR, ProcessAnswer(returncode=returncode, stdout=json.dumps(findings))
+    )
 
 
 def test_a_finding_is_read_at_its_primary_location_and_an_ignored_one_is_left_out() -> None:
@@ -73,10 +75,12 @@ def test_zizmor_runs_offline_and_reports_findings_by_its_output_not_its_exit_cod
 
 
 @pytest.mark.parametrize("returncode", [CONST_EXIT_COMMAND_NOT_FOUND, 2])
-def test_zizmor_that_could_not_run_is_an_error_not_a_clean_result(returncode: int) -> None:
-    with patch("devops_cli.security.zizmor.run_subprocess", return_value=_ran([], returncode)):
-        with pytest.raises(ToolExecutionError, match="zizmor"):
-            run_zizmor(Path(".github"))
+def test_zizmor_that_could_not_run_is_an_error_not_a_clean_result(
+    process_fake: ProcessFake, returncode: int
+) -> None:
+    _answer_zizmor(process_fake, [], returncode)
+    with pytest.raises(ToolExecutionError, match="zizmor"):
+        run_zizmor(Path(".github"))
 
 
 @pytest.mark.parametrize(
@@ -91,10 +95,10 @@ def test_zizmor_that_could_not_run_is_an_error_not_a_clean_result(returncode: in
     ids=["injection", "permissions", "unpinned", "other-rules-only", "none"],
 )
 def test_scan_workflows_fails_only_on_the_gated_rules_and_shows_every_finding(
-    findings: list[Any], exit_code: int, blocking: bool
+    process_fake: ProcessFake, findings: list[Any], exit_code: int, blocking: bool
 ) -> None:
-    with patch("devops_cli.security.zizmor.run_subprocess", return_value=_ran(findings)):
-        result = runner.invoke(scan_app, ["workflows"])
+    _answer_zizmor(process_fake, findings)
+    result = runner.invoke(scan_app, ["workflows"])
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
@@ -103,10 +107,9 @@ def test_scan_workflows_fails_only_on_the_gated_rules_and_shows_every_finding(
     ) == (exit_code, True, blocking)
 
 
-def test_scan_workflows_fails_when_zizmor_could_not_run() -> None:
-    could_not_run = _ran([], CONST_EXIT_COMMAND_NOT_FOUND)
-    with patch("devops_cli.security.zizmor.run_subprocess", return_value=could_not_run):
-        result = runner.invoke(scan_app, ["workflows"])
+def test_scan_workflows_fails_when_zizmor_could_not_run(process_fake: ProcessFake) -> None:
+    _answer_zizmor(process_fake, [], CONST_EXIT_COMMAND_NOT_FOUND)
+    result = runner.invoke(scan_app, ["workflows"])
     assert (result.exit_code, "zizmor" in result.output) == (1, True)
 
 
@@ -119,10 +122,11 @@ def test_the_ci_gate_runs_the_scan_with_the_pinned_dev_zizmor() -> None:
     ) == (["uv", "run", "devops", "scan", "workflows"], ["zizmor==1.30.1"])
 
 
-def test_scan_workflows_json_marks_which_findings_block() -> None:
-    found = [_finding("template-injection"), _finding("artipacked", "Medium", row=40)]
-    with patch("devops_cli.security.zizmor.run_subprocess", return_value=_ran(found)):
-        result = runner.invoke(scan_app, ["workflows", "--json"])
+def test_scan_workflows_json_marks_which_findings_block(process_fake: ProcessFake) -> None:
+    _answer_zizmor(
+        process_fake, [_finding("template-injection"), _finding("artipacked", "Medium", row=40)]
+    )
+    result = runner.invoke(scan_app, ["workflows", "--json"])
     rows = json.loads(result.stdout[result.stdout.index("[") :])
     assert (result.exit_code, [(row["rule"], row["blocks"]) for row in rows]) == (
         1,
@@ -130,10 +134,9 @@ def test_scan_workflows_json_marks_which_findings_block() -> None:
     )
 
 
-def test_a_dry_run_names_the_audit_and_runs_nothing() -> None:
-    with patch("devops_cli.security.zizmor.run_subprocess") as ran:
-        result = runner.invoke(scan_app, ["workflows", "--dry-run"])
-    assert (result.exit_code, ran.called) == (0, False)
+def test_a_dry_run_names_the_audit_and_runs_nothing(process_fake: ProcessFake) -> None:
+    result = runner.invoke(scan_app, ["workflows", "--dry-run"])
+    assert (result.exit_code, process_fake.calls) == (0, [])
 
 
 def _repo_with_workflow(root: Path) -> Path:
