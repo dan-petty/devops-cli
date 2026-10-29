@@ -51,7 +51,12 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN uv sync --locked --no-editable
+# A Job installs no tool, so npm goes (it bundles `undici` and `brace-expansion`) and so does pip
+# (it vendors `certifi`, `urllib3` and `msgpack`), as in the service stage. The scan of the image
+# reports all of them. The uv cache of root, which holds the wheels of the build, goes too.
+RUN uv sync --locked --no-editable && \
+    rm -rf /root/.cache/uv /usr/local/lib/node_modules/npm /usr/local/bin/npm \
+      /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
 
 RUN groupadd -g 1000 devops && \
     useradd -u 1000 -g 1000 -m -d /home/devops -s /bin/bash devops

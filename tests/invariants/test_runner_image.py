@@ -58,6 +58,28 @@ def test_the_runner_stage_adds_the_dev_dependencies_and_git_to_the_builder() -> 
     ) == (["builder", "AS", "runner"], 1, True, False, 1, True)
 
 
+def test_the_runner_stage_removes_what_only_the_build_needs() -> None:
+    """Verify that the runner stage deletes npm, pip and the uv cache of root.
+
+    The builder installs OpenSpec with npm and fills the cache of root while it syncs. A Job runs
+    none of them, and the scan of the image reports the findings in them (npm bundles `undici`
+    and `brace-expansion`, pip vendors `certifi`, `urllib3` and `msgpack`), so the stage deletes
+    them, as the service stage deletes pip.
+    """
+    runs = " ".join(_runs(_stages()["runner"]))
+
+    assert [
+        path
+        for path in (
+            "/usr/local/lib/node_modules/npm",
+            "/usr/local/bin/npm",
+            "/root/.cache/uv",
+            "/usr/local/lib/python3.14/site-packages/pip*",
+        )
+        if "rm -rf" not in runs or path not in runs
+    ] == []
+
+
 def test_the_runner_stage_runs_as_user_1000_and_starts_devops() -> None:
     """Verify the user, the entrypoint and the environment of the runner stage."""
     runner = _stages()["runner"]
