@@ -23,7 +23,7 @@ The Service's `/metrics` SHALL hold `devops_cli_service_budget_limit_requests`, 
 - **THEN** the gauges and the counter read (limit 100, spent 0, holds 0), then (100, 100, 1), then (100, 0, 1), then (100, 100, 2)
 
 ### Requirement: A restart keeps what stops the Service
-The Service SHALL keep its halt, the GitHub requests of its budget window and its ledger of failed rounds in files in the `roadmap` directory of its data directory, beside each repository's `schedule.json`, and a Service that starts SHALL read them back. The Service SHALL write each request to the budget file when it sends the request, so a pod that stops in the middle of a round loses none. A Service that starts halted SHALL count the refusal once. A file that exists and cannot be read SHALL stop the start with an error that names the file.
+The Service SHALL keep its halt, the GitHub requests of its budget window and its ledger of failed rounds in files in the `roadmap` directory of its data directory, and a Service that starts SHALL read them back. It SHALL write each request to the budget file when it sends the request. A Service that starts halted SHALL count the refusal once. A file that cannot be read SHALL stop the start with an error that names it.
 
 #### Scenario: A pod stops in the middle of a round
 - **WHEN** the Service sends 3 requests of a round and the pod stops before the round ends
