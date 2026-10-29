@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,7 @@ from typing import Any
 
 import pytest
 
+from devops_cli.ai.client import network
 from devops_cli.config.constants import (
     CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_BUDGET_WINDOW_SECONDS,
@@ -108,6 +110,7 @@ def _manager(
     per_hour: int = 500,
     poll_interval: int = 300,
     volume: Path | None = None,
+    model_call_concurrency: int = 1,
 ) -> ServiceManager:
     manager = ServiceManager(
         config=ServiceConfig(
@@ -115,6 +118,7 @@ def _manager(
             github_app=GitHubAppConfig(app_id=1001, installation_id=42, slug="bot-account"),
             poll_interval_seconds=poll_interval,
             github_requests_per_hour=per_hour,
+            model_call_concurrency=model_call_concurrency,
         ),
         secrets={},
         jobs=jobs,
@@ -139,6 +143,38 @@ def _refusal_metric() -> float:
     return GLOBAL_METRICS.get_counter_value(
         CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": "bot-account[bot]"}
     )
+
+
+# ── The model call slot ──────────────────────────────────────────────────────────────────────
+
+
+def test_the_service_keeps_one_model_call_in_flight_by_default() -> None:
+    """Verify the Service keeps one model call in flight by default, so a lane that waits does so
+    in the Service, where no stall timer runs (#2564)."""
+    assert ServiceConfig().model_call_concurrency == 1
+
+
+def test_the_service_installs_its_model_call_limit() -> None:
+    """Verify the Service admits two model calls at once and holds a third, from its setting,
+    rather than queueing at the gateway's stall timer (#2564)."""
+    _manager({"lane": lambda batch: None}, clock=_Clock(), model_call_concurrency=2)
+
+    admitted = False
+
+    def third() -> None:
+        nonlocal admitted
+        with network.model_call_slot():
+            admitted = True
+
+    with network.model_call_slot(), network.model_call_slot():
+        thread = threading.Thread(target=third)
+        thread.start()
+        # Two of the Service's two slots are held, so the third waits and takes no slot.
+        assert not wait_until(lambda: admitted, 0.5)
+
+    thread.join(timeout=5)
+    assert admitted
+    assert not thread.is_alive()
 
 
 # ── The identity ────────────────────────────────────────────────────────────────────────────

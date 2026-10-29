@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
 from devops_cli import __version__
+from devops_cli.ai.client import network
 from devops_cli.config.constants import (
     CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_BUDGET_WINDOW_SECONDS,
@@ -581,6 +582,7 @@ class ServiceManager:
         self.config = config
         self.secrets = secrets
         self.jobs = jobs
+        network.set_model_call_limit(config.model_call_concurrency)
         self.clock = clock
         self.sleep_func = sleep_func
         self.managed_repos: set[str] = set(config.repos)

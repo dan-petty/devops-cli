@@ -841,6 +841,10 @@ DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR: Final[int] = 500
 # How many rounds in a row a roadmap job may fail before the Service stops running it until its
 # input changes (#2161).
 DEFAULT_SERVICE_MAX_FAILED_ROUNDS: Final[int] = 3
+# The most model calls the Service keeps in flight at once. The Service's model tier serves one
+# call at a time, so one keeps a lane's call from queueing at the gateway, where a stall timer
+# would refuse it, and lets it wait in the Service instead (#2564).
+DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY: Final[int] = 1
 
 # ── AI Research Information Foraging Defaults ────────────────────────────────
 DEFAULT_AI_FORAGE_MAX_NODES: Final[int] = 20

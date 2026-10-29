@@ -258,6 +258,7 @@ In-cluster webhook receiver and background job runner settings.
 | `poll_interval_seconds` | `int` | `300` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | Periodic polling interval for service mode in seconds |
 | `drain_timeout_seconds` | `int` | `120` | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | Shutdown drain timeout for running service jobs in seconds |
 | `github_requests_per_hour` | `int` | `500` | - | - |
+| `model_call_concurrency` | `int` | `1` | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
 
 ## Firecrawl Configuration (`firecrawl`)
 

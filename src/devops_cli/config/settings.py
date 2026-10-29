@@ -89,6 +89,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
+    DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
@@ -838,6 +839,11 @@ class ServiceConfig(BaseModel):
         gt=0,
     )
     github_requests_per_hour: int = Field(default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR, gt=0)
+    model_call_concurrency: Annotated[int, Variable()] = Field(
+        description="The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs",
+        default=DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
+        ge=1,
+    )
 
     @field_validator("repos", mode="before")
     @classmethod

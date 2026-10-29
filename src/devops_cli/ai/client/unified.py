@@ -402,6 +402,7 @@ class LLMClient(
             dispatch_attrs["gen_ai.request.top_p"] = self._config.top_p
 
         with (
+            network.model_call_slot(),
             trace_span(
                 "ai.llm.dispatch", dispatch_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
             ) as span_handle,

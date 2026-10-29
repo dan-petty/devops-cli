@@ -341,3 +341,64 @@ def test_another_provider_sends_while_every_gateway_slot_is_held(
         reply = client._openai_compat_messages("sys", _MESSAGES)
 
     assert (reply.content, len(sent)) == ("ok", 1)
+
+
+@pytest.mark.usefixtures("public_dns")
+def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify three dispatch calls, each slow on its send, keep only one model call in flight when
+    the Service's limit is one, so a lane that waits holds the process, not the gateway (#2564)."""
+    network.set_model_call_limit(1)
+    client = LLMClient(_OPENAI, api_key="sk-test", cache_enabled=False)
+
+    in_flight = peak = 0
+    lock = threading.Lock()
+
+    def slow_send(request: httpx2.Request) -> httpx2.Response:
+        nonlocal in_flight, peak
+        with lock:
+            in_flight += 1
+            peak = max(peak, in_flight)
+        time.sleep(0.1)
+        with lock:
+            in_flight -= 1
+        return httpx2.Response(200, json=_CHAT_REPLY)
+
+    sent = route_client(client, monkeypatch, slow_send)
+
+    lanes = [
+        threading.Thread(target=lambda: client._dispatch_messages("sys", _MESSAGES))
+        for _ in range(3)
+    ]
+    for lane in lanes:
+        lane.start()
+    for lane in lanes:
+        lane.join(timeout=10)
+
+    assert all(not lane.is_alive() for lane in lanes)
+    assert (peak, len(sent)) == (1, 3)
+
+
+def test_the_model_call_slot_admits_only_its_limit() -> None:
+    """Verify four lanes, held in threads, keep at most the Service's limit in flight, and that
+    every lane completes rather than failing when it waits for the slot (#2564)."""
+    network.set_model_call_limit(2)
+    in_flight = peak = 0
+    lock = threading.Lock()
+
+    def hold_the_slot() -> None:
+        nonlocal in_flight, peak
+        with network.model_call_slot():
+            with lock:
+                in_flight += 1
+                peak = max(peak, in_flight)
+            time.sleep(0.03)
+            with lock:
+                in_flight -= 1
+
+    threads = [threading.Thread(target=hold_the_slot) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert (peak, in_flight) == (2, 0)
