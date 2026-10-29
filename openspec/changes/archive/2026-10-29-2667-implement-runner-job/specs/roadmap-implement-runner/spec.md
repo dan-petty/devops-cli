@@ -24,6 +24,13 @@ The `runner` stage SHALL set `UV_PYTHON` to the interpreter of its base image, a
 - **WHEN** a test reads the `runner` stage, and CI runs `uv run --locked ruff --version` in a copy of the checkout on a read-only root
 - **THEN** the stage sets `UV_PYTHON=/usr/local/bin/python3` and the command succeeds
 
+### Requirement: The runner stage deletes what only the build needs
+The `runner` stage SHALL delete npm, pip and the uv cache of root, because a Job installs no tool and the scan of the image fails on the findings in them.
+
+#### Scenario: The stage is read offline
+- **WHEN** a test reads the `runner` stage
+- **THEN** one `RUN` deletes `/usr/local/lib/node_modules/npm`, `/usr/local/bin/npm`, `/root/.cache/uv` and the pip files of site-packages
+
 ### Requirement: The release publishes the runner image
 `release.yml` SHALL have a job that builds the `runner` target of `Dockerfile`, runs a smoke test, scans the image with Trivy for HIGH and CRITICAL findings, pushes it by digest as `ghcr.io/<repository>/runner`, attests its provenance, and tags the attested digest with the release tag and `latest`. `ci.yml` SHALL build, smoke-test and scan the same target on a pull request, push nothing, and run only when image content changed.
 
