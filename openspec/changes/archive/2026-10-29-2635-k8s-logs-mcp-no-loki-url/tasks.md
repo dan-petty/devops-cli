@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2635-k8s-logs-mcp-no-loki-url`
 
 ## Workflow follow-up
