@@ -144,6 +144,27 @@ def test_render_active_devops_configmap_success(tmp_path: Path) -> None:
     )
 
 
+def test_a_token_repository_of_the_active_config_is_not_rendered_into_the_service_section(
+    tmp_path: Path,
+) -> None:
+    """The Service mints tokens for every repository in `service.repos`: only the Job that the
+    Service makes names one repository, through its own environment (#2667)."""
+    devops_dir = tmp_path / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+    scoped = APP.model_copy(update={"token_repository": "active/repo"})
+    settings = Settings(service=ServiceConfig(repos=["active/repo"], github_app=scoped))
+
+    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=settings)
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+
+    assert inner["service"]["github_app"] == {
+        "app_id": 1001,
+        "installation_id": 42,
+        "slug": "devops-roadmap",
+    }
+
+
 def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> None:
     """The background tier serves one request at a time, so each model call of the Service and
     the cluster Jobs is sent at most two times (#2494)."""

@@ -1,0 +1,47 @@
+# What the roadmap Service may do in namespace devops: create the implement Job from CronJob
+# devops-cli-runner, list Jobs and their pods, and read a pod's log. `resourceNames` limits `get`
+# only; `create` and `list` cover the namespace. A Job can take Secret `devops-cli` through
+# `envFrom`, which the Service pod holds already, so the Role gives no secret that the Service
+# does not have. It reads no Secret and creates nothing but Jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: roadmap-service-jobs
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: roadmap-service
+    app.kubernetes.io/part-of: devops-cli-stack
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list"]
+  # The Job is built from this template.
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    resourceNames: ["devops-cli-runner"]
+    verbs: ["get"]
+  # The Job controller gives a pod a random name, so the Service lists the pods to find the one
+  # whose log it reads.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: roadmap-service-jobs
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: roadmap-service
+    app.kubernetes.io/part-of: devops-cli-stack
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: roadmap-service-jobs
+subjects:
+  - kind: ServiceAccount
+    name: roadmap-service
+    namespace: devops

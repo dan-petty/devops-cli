@@ -497,6 +497,15 @@ def _in_namespace(item: Any, namespace: str | None) -> bool:
     return item_namespace is None or item_namespace == namespace
 
 
+def _equality_selector(selector: str | None) -> dict[str, str]:
+    """The labels of an equality label selector, `a=b,c=d`, the one form devops-cli sends. A
+    selector of another form is refused, so a test cannot pass on a filter the fake ignores."""
+    pairs = [pair.split("=") for pair in (selector or "").split(",") if pair]
+    if any(len(pair) != 2 or not pair[0] or "!" in pair[0] for pair in pairs):
+        raise ValueError(f"The fake takes only equality label selectors, not {selector!r}")
+    return {key: value for key, value in pairs}
+
+
 def _merge(target: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     """Apply a JSON merge patch (RFC 7386): a null deletes a key, a mapping merges."""
     merged = copy.deepcopy(target)
@@ -546,10 +555,12 @@ class FakeCustomObjects(_FakeApi):
                 **kwargs,
             },
         )
+        wanted = _equality_selector(kwargs.get("label_selector"))
         items = [
             copy.deepcopy(obj)
             for obj in self.objects.get((group, version, plural), [])
             if (obj.get("metadata") or {}).get("namespace") == namespace
+            and wanted.items() <= ((obj.get("metadata") or {}).get("labels") or {}).items()
         ]
         return {"apiVersion": f"{group}/{version}", "items": items, "metadata": {}}
 

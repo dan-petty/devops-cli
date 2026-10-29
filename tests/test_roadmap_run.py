@@ -321,13 +321,18 @@ def _poll_round(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics row runs first, then the model lane's intake, refine, stage and
-    alternatives; no row closes items, cuts or starts a release (#1360, #2652, #2659)."""
+    """The status lane's metrics row runs first, then the model lane's intake, refine, stage,
+    implement and alternatives; no row closes items, cuts or starts a release (#1360, #2652,
+    #2659, #2667)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS),
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
-    ) == (["metrics", "intake", "refine", "stage", "alternatives"], True, ["issues"])
+    ) == (
+        ["metrics", "intake", "refine", "stage", "implement", "alternatives"],
+        True,
+        ["issues"],
+    )
 
 
 def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
@@ -646,6 +651,7 @@ def test_idle_records_zero_or_one_store_calls(
         intake=HALF_HOUR_AGO,
         refine=HALF_HOUR_AGO,
         stage=HALF_HOUR_AGO,
+        implement=recent,
         metrics=recent,
         alternatives=recent,
     )
@@ -742,7 +748,7 @@ def test_service_wiring(
             (REPO, STATUS_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
-        [["metrics"], ["intake", "refine", "stage", "alternatives"]],
+        [["metrics"], ["intake", "refine", "stage", "implement", "alternatives"]],
     )
 
 
@@ -1694,7 +1700,7 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A model-lane round records intake, refine, stage and alternatives while a status-lane round
+    """A model-lane round records intake, refine, stage, implement and alternatives while a status-lane round
     is running metrics, which had read `schedule.json` before them: metrics' success keeps theirs."""
     later = NOW + timedelta(seconds=1)
 
@@ -1707,7 +1713,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             data_dir=tmp_path,
             now=later,
         )
-        assert model_round == ("intake", "refine", "stage", "alternatives")
+        assert model_round == ("intake", "refine", "stage", "implement", "alternatives")
         return JobOutcome()
 
     ran = run_due_jobs(
@@ -1724,6 +1730,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "intake": later.isoformat(),
             "refine": later.isoformat(),
             "stage": later.isoformat(),
+            "implement": later.isoformat(),
             "alternatives": later.isoformat(),
             "metrics": NOW.isoformat(),
         },
@@ -2131,7 +2138,12 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
     """The row is due on a first run, 24 hours after its last success and not before, and a
     webhook hint that makes intake due makes it due no sooner (#2652)."""
     five_minutes_ago = NOW - timedelta(minutes=5)
-    recent = {"intake": five_minutes_ago, "refine": five_minutes_ago, "stage": five_minutes_ago}
+    recent = {
+        "intake": five_minutes_ago,
+        "refine": five_minutes_ago,
+        "stage": five_minutes_ago,
+        "implement": five_minutes_ago,
+    }
 
     def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
         _stamp(tmp_path, **stamps)
@@ -2143,7 +2155,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
     assert (first, too_soon, a_day, hinted) == (
-        ("intake", "refine", "stage", "alternatives"),
+        ("intake", "refine", "stage", "implement", "alternatives"),
         (),
         ("alternatives",),
         ("intake",),
@@ -2159,10 +2171,10 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
 
-    assert (cli.exit_code, "Due: metrics, intake, refine, stage, alternatives\n" in cli.output) == (
-        0,
-        True,
-    )
+    assert (
+        cli.exit_code,
+        "Due: metrics, intake, refine, stage, implement, alternatives\n" in cli.output,
+    ) == (0, True)
 
 
 def test_the_alternatives_adapter_imports_the_job_at_module_level_not_lazily(

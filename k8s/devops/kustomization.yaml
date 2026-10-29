@@ -3,5 +3,6 @@ kind: Kustomization
 resources:
 - serviceaccount.yaml
 - cronjob.yaml
+- cronjob-runner.yaml
 - networkpolicy.yaml
 - roadmap-service

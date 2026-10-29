@@ -1,0 +1,28 @@
+# The Service pod reaches the Kubernetes API server, to create and read the implement Job (#2667).
+# This policy adds to `devops-default-perimeter`, which still gives the pod DNS, the gateway, the
+# cache, the OTLP collector and public HTTPS. No policy gives a Job pod this port, and a Job pod
+# keeps no token. The `kubernetes` Service resolves to the node's address on 6443, which no
+# namespace selector matches, so the peer is an ipBlock with the cloud metadata address excluded,
+# as k8s/argo-workflows/networkpolicy.yaml does.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: roadmap-service-egress
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: roadmap-service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 6443

@@ -82,7 +82,131 @@ def test_the_job_runs_no_step_unless_it_is_in_a_runner(
     assert job_world.origin_log() == ["fix(roadmap): plan"]
 
 
+def test_the_job_refuses_a_token_that_is_not_scoped_to_the_repository_of_the_plan(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    """A Job made by `devops k8s run-job` sets no token repository, so its installation token
+    would cover every repository of the App: the job runs no step then (#2667)."""
+    config(service={"github_app": {"token_repository": "example/other"}})
+    plan = job_world.plan()
+    requests_before = list(job_world.api.requested)
+    script = two_groups()
+
+    with pytest.raises(RoadmapImplementError) as raised:
+        apply_implement(
+            job_world.store,
+            plan,
+            source=job_world.repo.clone,
+            model=script.model(),
+            window=WINDOW,
+        )
+
+    assert "example/other" in str(raised.value)
+    assert (script.seen, job_world.api.requested) == ([], requests_before)
+    assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
+def test_the_job_refuses_a_token_with_no_repository_scope(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(service={"github_app": {"token_repository": None}})
+
+    with pytest.raises(RoadmapImplementError) as raised:
+        job_world.run(two_groups())
+
+    assert "service.github_app.token_repository" in str(raised.value)
+
+
+def test_the_job_refuses_to_run_when_it_does_not_act_as_the_app(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the App's key the token is the person's `gh` login, which no setting can scope."""
+    monkeypatch.setattr("devops_cli.roadmap.implement_run.acts_as_github_app", lambda: False)
+
+    with pytest.raises(RoadmapImplementError) as raised:
+        job_world.run(two_groups())
+
+    assert "GitHub App" in str(raised.value)
+
+
+def test_the_job_checks_the_token_scope_before_it_clears_its_dumpable_flag(
+    job_world: JobWorld, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config(service={"github_app": {"token_repository": None}})
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.deny_environment_reads", lambda: seen.append("called")
+    )
+
+    with pytest.raises(RoadmapImplementError):
+        job_world.run(two_groups())
+
+    assert seen == []
+
+
 # ── The run to a ready pull request ───────────────────────────────────────────────────────
+
+
+def test_the_job_makes_its_process_unreadable_before_it_does_any_work(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A step runs as the same user as the job, so the job clears its dumpable flag first, and
+    only in a runner (#2667). The spy replaces the kernel call, which would change the test run."""
+    seen: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.deny_environment_reads",
+        lambda: seen.append((len(job_world.api.requested), len(job_world.programs.calls))),
+    )
+    plan = job_world.plan()
+    before = (len(job_world.api.requested), len(job_world.programs.calls))
+
+    applied = apply_implement(
+        job_world.store,
+        plan,
+        source=job_world.repo.clone,
+        model=two_groups().model(),
+        window=WINDOW,
+    )
+
+    assert (seen, applied.ready) == ([before], (1,))
+
+
+def test_the_job_runs_no_step_when_the_kernel_refuses_to_clear_the_flag(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`apply_implement` itself refuses, not only the function it calls: a step that could read
+    the environment of the job must never start (#2667)."""
+    monkeypatch.setattr("devops_cli.core.process_hardening._prctl", lambda *_args: -1)
+    script = two_groups()
+    plan = job_world.plan()
+    calls_before = len(job_world.programs.calls)
+
+    with pytest.raises(RoadmapImplementError, match="PR_SET_DUMPABLE"):
+        apply_implement(
+            job_world.store,
+            plan,
+            source=job_world.repo.clone,
+            model=script.model(),
+            window=WINDOW,
+        )
+
+    assert (script.seen, len(job_world.programs.calls) - calls_before) == ([], 0)
+    assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
+def test_a_job_outside_a_runner_does_not_touch_its_process(
+    job_world: JobWorld, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config(roadmap={"implement": {"in_runner": False}})
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.deny_environment_reads", lambda: seen.append("called")
+    )
+
+    with pytest.raises(RoadmapImplementError):
+        job_world.run(two_groups())
+
+    assert seen == []
 
 
 def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pull_request(

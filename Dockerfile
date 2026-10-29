@@ -39,6 +39,53 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
       --tool openspec --target-dir /opt/devops-tools/bin && \
     chmod -R a+rX /opt/devops-tools
 
+# The runner: the pod of a cluster Job in which `devops roadmap implement` runs its steps (#2667).
+# It adds to the builder's venv the dev dependencies that the steps' tests and checks run (pytest,
+# ruff, mypy), and git, which a step and the job need. The builder holds uv, gh, the Node runtime
+# and the pinned OpenSpec already. This stage comes before `service`, so that a build with no
+# `--target` still builds the Service image.
+FROM builder AS runner
+
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# A Job installs no tool, so npm goes (it bundles `undici` and `brace-expansion`) and so does pip
+# (it vendors `certifi`, `urllib3` and `msgpack`), as in the service stage. The scan of the image
+# reports all of them. The uv cache of root, which holds the wheels of the build, goes too.
+RUN uv sync --locked --no-editable && \
+    rm -rf /root/.cache/uv /usr/local/lib/node_modules/npm /usr/local/bin/npm \
+      /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
+
+RUN groupadd -g 1000 devops && \
+    useradd -u 1000 -g 1000 -m -d /home/devops -s /bin/bash devops
+
+RUN git config --system credential.https://github.com.helper '!gh auth git-credential' && \
+    git config --system credential.https://gist.github.com.helper '!gh auth git-credential'
+
+# `uv run` in a worktree builds the worktree's own venv, from the cache below, which the Job's
+# home volume holds: the root filesystem of the Job is read-only. The builder forbids a Python
+# download, and the `.python-version` of a checkout can name a patch release that this base image
+# lacks, so `UV_PYTHON` names the image's own interpreter, which uv uses for that minor release.
+ENV HOME=/home/devops \
+    UV_PYTHON=/usr/local/bin/python3 \
+    DEVOPS_CLI_DATA_DIR=/home/devops/.data \
+    UV_CACHE_DIR=/home/devops/.cache/uv \
+    TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
+    PATH=/app/.venv/bin:/opt/devops-tools/bin:$PATH \
+    DO_NOT_TRACK=1 \
+    OPENSPEC_TELEMETRY=0 \
+    OPENSPEC_NO_UPDATE_CHECK=1 \
+    PYTHONUNBUFFERED=1 \
+    GH_PROMPT_DISABLED=1 \
+    GH_NO_UPDATE_NOTIFIER=1
+
+WORKDIR /home/devops
+USER 1000:1000
+
+ENTRYPOINT ["devops"]
+
 FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS service
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \

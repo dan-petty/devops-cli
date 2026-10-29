@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from collections.abc import Sequence
+import subprocess
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +43,7 @@ from devops_cli.roadmap.implement_step import (
     shell_environment,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
     DOCS,
     SHOUT_CODE,
@@ -53,6 +54,7 @@ from tests.support.implement_step import (
     WINDOW,
     command_text,
     git,
+    git_for_real,
     is_clean_at,
     make_checkout,
     programs_run,
@@ -496,6 +498,7 @@ def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
 ) -> None:
     """No git configuration, helper or key of the user's home reaches a shell command."""
     monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+    monkeypatch.delenv("UV_PYTHON", raising=False)
 
     env = shell_environment(tmp_path / "home")
 
@@ -506,6 +509,18 @@ def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
     }
+
+
+def test_the_shell_gets_the_interpreter_that_uv_is_told_to_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`uv run` in a step finds no interpreter in the runner image unless `UV_PYTHON` reaches it:
+    the image forbids a Python download and its Python can be older than `.python-version`."""
+    monkeypatch.setenv("UV_PYTHON", "/usr/local/bin/python3")
+
+    env = shell_environment(tmp_path / "home")
+
+    assert env["UV_PYTHON"] == "/usr/local/bin/python3"
 
 
 def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
@@ -847,3 +862,63 @@ def test_a_fix_step_that_changes_no_file_stops(
         StepStatus.STOPPED,
         "The agent changed no file.",
     )
+
+
+# ── No process of the agent lives when the job runs a program with the token ──────────────
+
+
+@pytest.mark.live("sleep")
+def test_no_process_of_the_agent_is_alive_when_git_runs_after_the_step_in_a_runner(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    """A `git` or `gh` child of the job gets the session token in its environment, which a process
+    of the same user can read through `/proc/<pid>/environ`. The agent's shell is such a process,
+    and it can leave one behind that polls `/proc`. So the step ends every process of the agent
+    before the job runs a program with the token (#2667)."""
+    config(roadmap={"implement": {"in_runner": True}})
+    leftovers: list[subprocess.Popen[bytes]] = []
+    alive_at_git: list[bool] = []
+
+    def leave_a_process() -> None:
+        leftovers.append(subprocess.Popen(["sleep", "60"], start_new_session=True))
+
+    def git_and_look(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        alive_at_git.extend(p.poll() is None for p in leftovers)
+        return git_for_real(call)
+
+    programs.answer("git", ProcessAnswer(side_effect=git_and_look))
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: leave_a_process})
+    try:
+        _step(store, checkout, script)
+    finally:
+        for process in leftovers:
+            process.kill()
+            process.wait()
+
+    assert (len(leftovers), alive_at_git, [p.poll() is None for p in leftovers]) == (
+        1,
+        [False] * len(alive_at_git),
+        [False],
+    )
+    assert alive_at_git
+
+
+def test_a_process_that_survives_the_end_of_the_step_stops_the_step(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config(roadmap={"implement": {"in_runner": True}})
+
+    def refuse() -> None:
+        raise RoadmapImplementError("a process of the agent survived")
+
+    monkeypatch.setattr("devops_cli.roadmap.implement_step.end_leftover_processes", refuse)
+
+    with pytest.raises(RoadmapImplementError, match="survived"):
+        _step(store, checkout, ModelScript(say("Done.")))

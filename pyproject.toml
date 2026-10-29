@@ -76,6 +76,7 @@ dependencies = [
     "pybreaker==1.4.1",
     "ruamel-yaml==0.19.1",
     "filelock==4.2.4",
+    "psutil==7.2.2",
 ]
 
 [project.scripts]
@@ -107,6 +108,7 @@ dev = [
     "time-machine==3.5.1",
     "fakeredis[valkey]==2.40.0",
     "mdit-py-plugins==0.6.1",
+    "types-psutil==7.2.2.20260906",
 ]
 
 [tool.hatch.build.targets.wheel]

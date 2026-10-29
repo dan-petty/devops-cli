@@ -75,7 +75,7 @@ def test_deployment_spec_and_container() -> None:
         True,
         True,
         True,
-        "devops-cli",
+        "roadmap-service",
         150,
     )
 
@@ -302,7 +302,7 @@ def test_kustomizations_list_manifests_and_directory() -> None:
         sorted(rs_kust["resources"]),
         len(expected_manifests),
         all((ROADMAP_SERVICE_DIR / m).is_file() for m in rs_kust["resources"]),
-    ) == (True, expected_manifests, 6, True)
+    ) == (True, expected_manifests, 9, True)
 
 
 def test_the_folder_tree_of_the_readme_lists_each_file_of_the_roadmap_service() -> None:

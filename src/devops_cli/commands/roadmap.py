@@ -504,7 +504,7 @@ def _implement_job(
         return
     if confirm:
         with _exit_on_failure("Could not run the job"):
-            require_runner()
+            require_runner(target)
     elif not plan_only:
         print_info(MESSAGES.roadmap.implement_job_plain_note)
     from devops_cli.roadmap.run import model_clone

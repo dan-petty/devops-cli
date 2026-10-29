@@ -679,9 +679,20 @@ class K8sMessages:
         "source missing or invalid, and no live value differing without --rotate. "
         "--plan reads the keyring, gh and the cluster to show each key's state."
     )
+    job_runner_needs_repo: str = (
+        "A runner Job needs the repository it acts on. Pass --repo owner/name: the Job's GitHub "
+        "token then names only that repository. No Job was created."
+    )
+    job_repo_needs_runner: str = (
+        "--repo sets the repository of a runner Job. Use it with --template runner. No Job was "
+        "created."
+    )
     job_cronjob_missing: str = (
-        "CronJob devops/devops-cli not found. Deploy it first: "
+        "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"
+    )
+    job_api_refused: str = (
+        "The Kubernetes API refused to {action} in namespace devops: HTTP {status} {reason}"
     )
     job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"
     job_dry_run_heading: str = (
@@ -2016,6 +2027,24 @@ class RoadmapMessages:
     )
     implement_job_retry_note: str = " (a retry: the stop on record is cleared first)"
     implement_job_left_line: str = "- #{number} {title}: {reason}"
+    implement_hardening_failed: str = (
+        "The implement job could not make its process unreadable by its own shell "
+        "(prctl PR_SET_DUMPABLE): {reason}. It runs no step."
+    )
+    implement_job_token_not_app: str = (
+        "The implement job runs only as the GitHub App, whose installation token a setting can "
+        "limit to one repository. This process does not hold the App's private key. It ran no "
+        "step."
+    )
+    implement_job_token_scope_refused: str = (
+        "The implement job for {repo} needs a token for that one repository. Set "
+        "service.github_app.token_repository to {repo}; it is now {scoped}. Without it the token "
+        "covers every repository of the installation. This process ran no step."
+    )
+    implement_leftover_processes: str = (
+        "A process that the agent's shell started is still alive after the step: {names}. The job "
+        "runs no program with the GitHub token while such a process lives, so it stops the item."
+    )
     implement_job_runner_refused: str = (
         "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
         "true there. The shell of the agent is no security boundary, so the runner is the "
@@ -2062,6 +2091,17 @@ class RoadmapMessages:
         "Then comment `implement: retry`.{note}"
     )
     implement_comment_last_none: str = "none."
+    implement_job_report: str = (
+        "{marker}\nThe runner Job {name} ended: {state}.\n\nThe last lines of its log:\n\n{log}"
+    )
+    implement_job_report_gone: str = (
+        "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log."
+    )
+    implement_job_report_no_log: str = "    (no log: the Job has no pod)"
+    implement_job_report_stopped: str = (
+        "\n\nThe Job left this item without a result. The item is Ready again, and the job "
+        "will not run it. Fix the cause. Then comment `implement: retry`."
+    )
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "

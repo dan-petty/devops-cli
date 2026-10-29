@@ -256,7 +256,7 @@ In-cluster webhook receiver and background job runner settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `repos` | `list` | `[]` | `DEVOPS_CLI_SERVICE_REPOS` | Target repository list for service mode |
-| `github_app` | `GitHubAppConfig` | `app_id=None installation_id=None slug=None` | - | - |
+| `github_app` | `GitHubAppConfig` | `app_id=None installation_id=None slug=None token_repository=None` | - | - |
 | `poll_interval_seconds` | `int` | `300` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | Periodic polling interval for service mode in seconds |
 | `drain_timeout_seconds` | `int` | `120` | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | Shutdown drain timeout for running service jobs in seconds |
 | `github_requests_per_hour` | `int` | `500` | - | - |

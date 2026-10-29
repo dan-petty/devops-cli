@@ -67,7 +67,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
@@ -416,14 +418,19 @@ def shell_environment(home: Path) -> dict[str, str]:
     """The variables a shell command gets on top of the workspace's own: a scratch `home` in place
     of the user's, so that no git configuration, credential helper or key of the user reaches the
     agent, no system git configuration, no prompt for a password, and the cache of `uv` where the
-    user keeps it, so that `uv run` finds its packages."""
-    return {
+    user keeps it, so that `uv run` finds its packages. `UV_PYTHON` goes on when the process has
+    it: the runner image sets it, as it forbids a Python download and `uv run` finds no
+    interpreter without it."""
+    env = {
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"),
     }
+    if interpreter := os.environ.get("UV_PYTHON"):
+        env["UV_PYTHON"] = interpreter
+    return env
 
 
 def _tune(
@@ -718,13 +725,24 @@ def _commit(source: Path, message: str) -> tuple[str, str]:
 # ── The step ──────────────────────────────────────────────────────────────────────────────
 
 
+def _end_agent_processes() -> None:
+    """End every process the agent's shell left, in a runner, before the job runs a program that
+    gets the session's token. A `git` or `gh` child holds the token in its environment, and a
+    process of the same user could read it. Raises `RoadmapImplementError` when one survives."""
+    if load_settings().roadmap.implement.in_runner:
+        end_leftover_processes()
+
+
 def _attempt(
     source: Path, model: Any, window: int, inputs: StepInputs, item: int, start: str
 ) -> StepOutcome:
     """Run the agent, then judge the exit and commit."""
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
         agent = build_agent(model, source, inputs.instructions, window, Path(home))
-        run = _run_agent(agent, model, inputs.message)
+        try:
+            run = _run_agent(agent, model, inputs.message)
+        finally:
+            _end_agent_processes()
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,

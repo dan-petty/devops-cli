@@ -127,7 +127,7 @@ Taking a Staged item to a ready pull request: one step for each task group that 
 _Avoid_: building, executing
 
 **Runner**:
-The pod of a cluster Job in which the implement job runs its steps. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod holds a token for one repository and no other credential. The setting `roadmap.implement.in_runner` says a process is one.
+The pod of a cluster Job in which the implement job runs its steps. The Service creates the Job from CronJob `devops-cli-runner`, for one Staged item, and creates no second Job for a repository while one runs. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod has no Kubernetes token, the installation token of the job names one repository, the step's shell gets none of the job's variables, and the job process is not dumpable. The setting `roadmap.implement.in_runner` says a process is one.
 _Avoid_: agent host, worker
 
 **Service**:

@@ -1367,6 +1367,8 @@ CONST_GITHUB_APP_LEDGER_KEY: Final[str] = "app-installation-{installation_id}"
 # The permissions that each installation token of the App asks for: those the roadmap jobs use
 # (ADR 0015). The token carries only these, whatever the installation grants. GitHub refuses a
 # token with HTTP 422 when the installation does not grant one of them (#2473).
+# The setting that limits an installation token to one repository (#2667).
+CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING: Final[str] = "service.github_app.token_repository"
 CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "issues": "write",
     "pull_requests": "write",
@@ -2930,6 +2932,12 @@ CONST_ROADMAP_IMPLEMENT_HEAD_POLLS: Final[int] = 20
 # comment of the job on an item.
 CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT: Final[str] = "implement: retry"
 CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER: Final[str] = "<!-- devops roadmap implement -->"
+# The runner Job of the Service's `implement` row (#2667). The label that holds a digest of the
+# repository (`owner/name` is no label value), the lines of a Job's log that the report of an ended
+# Job quotes, and the step that a stop by the Service records, as the job records a group.
+CONST_ROADMAP_IMPLEMENT_JOB_LABEL: Final[str] = "implement-repo"
+CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES: Final[int] = 40
+CONST_ROADMAP_IMPLEMENT_JOB_STEP: Final[str] = "job"
 # The number of the group of a fix step: a change numbers its groups from 1.
 CONST_ROADMAP_IMPLEMENT_FIX_GROUP: Final[int] = 0
 # The headings, in lower case, of the two sections of an issue that a step gives the model: the

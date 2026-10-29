@@ -209,7 +209,7 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 |  | `devops k8s deploy-stack [OPTIONS]` | Deploy one stack (infra, llm, logging, devops, gitea) or all of them to Kubernetes with Helm and Kustomize. |
 |  | `devops k8s sync-secrets [OPTIONS]` | Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring. |
 |  | `devops k8s push-secrets [OPTIONS]` | Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones nobody types, and never replaces a live value without --rotate. |
-|  | `devops k8s run-job [OPTIONS] <args>` | Run a devops command as a Job in namespace devops, from CronJob devops-cli's template with only its arguments changed, follow its log and exit with its exit code. |
+|  | `devops k8s run-job [OPTIONS] <args>` | Run a devops command as a Job in namespace devops, from the template of a CronJob with only its arguments changed, follow its log and exit with its exit code. |
 |  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Kubernetes stack URLs and update CLI config. |
 |  | `devops k8s service-url [OPTIONS] <service>` | Show, or fetch from, a cluster service address that needs no port-forward. |
 |  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports. |

@@ -233,7 +233,11 @@ def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
                                 "10.0.0.0/8",
                                 "172.16.0.0/12",
                                 "192.168.0.0/16",
+                                "100.64.0.0/10",
+                                "169.254.0.0/16",
                                 "169.254.169.254/32",
+                                "192.0.0.0/24",
+                                "198.18.0.0/15",
                             ],
                         }
                     }
@@ -312,7 +316,9 @@ def test_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_
             else workload["spec"]
         )["template"]["spec"]["containers"]
     }
+    # The runner has no entry here: Image Updater writes its own entry (#2667).
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
+        ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),
         ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),
     }

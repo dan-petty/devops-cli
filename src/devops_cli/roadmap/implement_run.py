@@ -3,9 +3,13 @@ to a ready pull request, and the stop of an item that cannot get there.
 
 **Where it runs.** The job runs a step only when `roadmap.implement.in_runner` is true. The
 step's shell checks the first word of a command and is no security boundary, so the pod of a
-runner Job is the sandbox. Every `git` command, every GitHub call and every `gh` call of the job
-runs in this process, never in the agent's shell; the process runner gives a `git` or `gh` child
-the session's token, and any other child (`uv`, `ruff`) none.
+runner Job is the sandbox. The job clears the dumpable flag of its own process, so that the shell,
+a child of the same user, cannot read the job's environment (#2667). Every `git` command, every
+GitHub call and every `gh` call of the job runs in this process, never in the agent's shell. The
+process runner gives a `git` or `gh` child the session's token, and any other child (`uv`,
+`ruff`) none. A `git` or `gh` child holds that token in its environment while it runs, so the job
+ends every process of a step when the step ends (`end_leftover_processes`), before such a child
+can start.
 
 **One item.** The job takes over the staged branch in a worktree, sets Status In Progress and
 rebases onto the fetched default branch. It runs one step for each group that has an unticked
@@ -46,7 +50,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import acts_as_github_app, run_subprocess
+from devops_cli.core.process_hardening import adopt_orphans, deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
@@ -111,11 +116,23 @@ class ImplementApplied:
     failed: tuple[ImplementFailure, ...] = ()
 
 
-def require_runner() -> None:
-    """Raise `RoadmapImplementError` unless `roadmap.implement.in_runner` is true. The job calls
-    this before it reads a repository or asks a model."""
-    if not load_settings().roadmap.implement.in_runner:
-        raise RoadmapImplementError(MESSAGES.roadmap.implement_job_runner_refused)
+def require_runner(repo: str) -> None:
+    """Raise `RoadmapImplementError` unless the process is a runner Job for `repo`:
+    `roadmap.implement.in_runner` is true, the process acts as the GitHub App, and its token is
+    limited to `repo` by `service.github_app.token_repository`. A Job that `devops k8s run-job`
+    makes sets no such repository, and its token would cover the whole installation (#2667). The
+    job calls this before it reads a repository or asks a model."""
+    settings = load_settings()
+    texts = MESSAGES.roadmap
+    if not settings.roadmap.implement.in_runner:
+        raise RoadmapImplementError(texts.implement_job_runner_refused)
+    if not acts_as_github_app():
+        raise RoadmapImplementError(texts.implement_job_token_not_app)
+    scoped = settings.service.github_app.token_repository
+    if (scoped or "").casefold() != repo.casefold():
+        raise RoadmapImplementError(
+            texts.implement_job_token_scope_refused.format(repo=repo, scoped=scoped or "unset")
+        )
 
 
 def _tail(text: str) -> str:
@@ -196,8 +213,8 @@ class _ItemRun:
         self.store.set_marks(self._fresh(), {keys[name]: value for name, value in marks.items()})
 
     def _program(self, argv: Sequence[str]) -> None:
-        """Run a command of the project in the worktree, outside any agent shell. Raises `_StopError` for the
-        current step when it fails or runs out of time."""
+        """Run a command of the project in the worktree, outside any agent shell. Raises
+        `_StopError` for the current step when it fails or runs out of time."""
         shown = " ".join(argv)
         texts = MESSAGES.roadmap
         try:
@@ -484,8 +501,12 @@ def apply_implement(
     """Run each selected item of the plan, one after the other. A stopped item does not stop the
     run, and an item whose writes fail is reported while the others still run. Rejected GitHub or
     model credentials stop the run. Raises `RoadmapImplementError` before anything runs unless
-    `roadmap.implement.in_runner` is true."""
-    require_runner()
+    the process is a runner Job for the plan's repository (`require_runner`). It then makes its
+    own process unreadable by the shell of an agent, which runs as the same user
+    (`deny_environment_reads`), and adopts the orphans of a step (`adopt_orphans`)."""
+    require_runner(plan.repo)
+    deny_environment_reads()
+    adopt_orphans()
     checkout = Path(source)
     ready: list[int] = []
     stopped: list[int] = []

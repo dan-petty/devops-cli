@@ -54,6 +54,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label, and reports those with no `priority/*` label as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
 | **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand / Pre-PR | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Provisions and links the board, reconciles card fields, and audits the 4 declarative project views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | No keys past rotation_days |
+| **Workspace & Sync** | Roadmap Implement Job (Service) | Every 10 minutes (row `implement`) | `kubectl -n devops get jobs -l implement-repo` / `devops k8s run-job --template runner --repo <owner/name> -- roadmap implement --item <number> --confirm` | The Service makes one runner Job per repository at a time for a Staged item, reports each Job that ended on its item, and stops an item whose Job left it eligible | No Job ends without a comment on its item; no item runs twice after a failed Job until a person comments `implement: retry` |
 
 
 ---
@@ -321,6 +322,16 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
   devops gh issues status
   devops gh project audit
   devops gh views audit
+  ```
+
+#### 5. Roadmap Implement Job (Runner)
+- **Frequency**: Continuous. The Service's row `implement` is due every 10 minutes ([k8s/README.md](../k8s/README.md), Roadmap service step 16).
+- **Methodology**: The Service runs no step. In namespace `devops` it makes a runner Job from the suspended CronJob `devops-cli-runner` for the first Staged item, and makes no second Job for the repository while one runs. The runner has the dev tools, 2 CPU, 4 Gi and 7200 s; its pod has no Kubernetes token, and its shell gets none of the variables of the job. The Service's ServiceAccount has a Role that creates and reads Jobs, lists pods and reads pod logs in that namespace, and nothing else ([k8s/README.md](../k8s/README.md), Runner Jobs). A later round comments the state and the end of the log on the item. A Job that leaves its item In Progress, or Ready with no stop, stops the item (`implement.stopped` is `job`) until a person comments `implement: retry`. A person merges the pull request.
+- **Commands**:
+  ```bash
+  kubectl -n devops get jobs -l implement-repo
+  kubectl -n devops logs job/<name>
+  devops k8s run-job --template runner --repo <owner/name> --dry-run -- roadmap implement --item <number> --confirm
   ```
 
 ---
