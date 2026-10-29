@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.2](https://github.com/dan-petty/devops-cli/compare/v0.13.1...v0.13.2) (2026-10-29)
+
+
+### Performance Improvements
+
+* **valkey:** the caches of a process share one Valkey cache tier ([#2604](https://github.com/dan-petty/devops-cli/issues/2604)) ([c778cde](https://github.com/dan-petty/devops-cli/commit/c778cde87479fdc6a89e4865d454810d6c629591))
+
 ## [0.13.1](https://github.com/dan-petty/devops-cli/compare/v0.13.0...v0.13.1) (2026-10-29)
 
 
