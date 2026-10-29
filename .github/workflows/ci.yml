@@ -67,8 +67,13 @@ jobs:
       - name: Install Trivy
         run: uv run devops install-tools --tool trivy --only-missing
 
+      # The pinned actionlint validates the workflows. It is the same digest-pinned image that the
+      # devcontainer Dockerfile copies, so the gate does not run actionlint twice (#1119).
+      - name: Run actionlint
+        uses: docker://docker.io/kjanat/actionlint:1.17.0@sha256:d484cccadf56b6a356466ade9af4c8e05c5dce1badaf0a9ecd0d7639d68d9c92
+
       - name: Static Analysis Quality Gate
-        run: uv run devops ci --check --no-cache --skip test,outdated
+        run: uv run devops ci --check --no-cache --skip test,outdated,actionlint
 
       # The scan skips Trivy's filesystem scan, `trivy`, which took 194 s over this tree. The audit
       # row of the quality gate checks the dependencies.

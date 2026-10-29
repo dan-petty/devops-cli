@@ -100,7 +100,12 @@ def test_ci_all_checks_dry_run(recorder: list[list[str]]) -> None:
         in res.stdout,
     ) == (True, True, True)
     for spec in specs:
-        target_name = spec.cmd[2] if len(spec.cmd) > 2 and spec.cmd[0] == "uv" else spec.cmd[1]
+        if len(spec.cmd) > 2 and spec.cmd[0] == "uv":
+            target_name = spec.cmd[2]
+        elif len(spec.cmd) > 1:
+            target_name = spec.cmd[1]
+        else:
+            target_name = spec.cmd[0]
         assert target_name in res.stdout
     # No pass badges or summary table under dry run
     assert ("✓ pass" in res.stdout, "CI Summary" in res.stdout) == (False, False)
