@@ -26,7 +26,7 @@ env:
 jobs:
   release-please:
     name: Release Please
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     # The App token opens the release pull request, so its checks run like those of any other
     # pull request; a pull request that GITHUB_TOKEN opens starts no workflow.
@@ -111,7 +111,7 @@ jobs:
     name: Upload Release Assets
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: write
@@ -153,7 +153,7 @@ jobs:
     name: Build DevContainer Image
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -221,7 +221,7 @@ jobs:
   devcontainer-smoke:
     name: Smoke-Test DevContainer Image
     needs: [release-please, devcontainer-image]
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -262,7 +262,7 @@ jobs:
   devcontainer:
     name: Attest & Tag DevContainer Image
     needs: [devcontainer-image, devcontainer-smoke]
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -317,7 +317,7 @@ jobs:
     # release, then tags it with the release tag and latest; Image Updater rolls the cluster onto
     # the new digest (#1486).
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read

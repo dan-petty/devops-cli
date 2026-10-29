@@ -34,7 +34,7 @@ jobs:
   static:
     name: Static Analysis
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -91,7 +91,7 @@ jobs:
   test:
     name: Tests & Coverage
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -155,7 +155,7 @@ jobs:
     name: DevContainer Image
     if: >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -266,7 +266,7 @@ jobs:
     name: Service Image
     if: >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -362,7 +362,7 @@ jobs:
   dependency-freshness:
     name: Dependency Freshness
     if: github.event_name == 'schedule'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -387,7 +387,7 @@ jobs:
   changed-tests:
     name: Changed-Test Independence
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -434,7 +434,7 @@ jobs:
   rule-pack:
     name: Rule Pack Tests
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -488,7 +488,7 @@ jobs:
   docs-site:
     name: Docs Site Build
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -578,7 +578,7 @@ jobs:
   image-pins:
     name: Image Pins
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
