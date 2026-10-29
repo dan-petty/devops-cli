@@ -273,6 +273,35 @@ def _sanitize_api_key_header(api_key: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {clean}"}
 
 
+def _configured_gateway_origins(ai_config: AIConfig) -> set[httpx2.Origin]:
+    """The origins of the gateways that the configuration names: `ai.gateway_url`, `ai.portkey_url`."""
+    return {
+        origin
+        for url in (ai_config.gateway_url, ai_config.portkey_url)
+        if url and (origin := get_url_origin(str(url)))
+    }
+
+
+def _key_for(gateway_url: str, api_key: str | None, ai_config: AIConfig) -> str | None:
+    """The AI API key when `gateway_url` has the origin of a configured gateway, else None.
+
+    A URL that a caller gives is input, not configuration. The key goes only to the gateways that
+    the configuration names, whatever the URL says (#2480).
+    """
+    if get_url_origin(gateway_url) in _configured_gateway_origins(ai_config):
+        return api_key
+    return None
+
+
+def _withheld_key_refusal(gateway_url: str) -> AICredentialsError:
+    """The refusal of a gateway that is not a configured one, and so got no AI API key."""
+    return AICredentialsError(
+        f"The LLM gateway at {origin_label(httpx2.URL(gateway_url).origin)} requires an API key. "
+        "The AI API key goes only to the configured gateway, so this gateway got none. "
+        "To use the key with this gateway, make it the configured gateway."
+    )
+
+
 def _fetch_endpoint_resp(
     http_client: httpx2.Client, gateway_url: str, headers: dict[str, str]
 ) -> httpx2.Response:
@@ -287,13 +316,19 @@ def _query_model_info(
     allow_private: bool,
     api_key: str | None,
     client: httpx2.Client | None = None,
+    *,
+    ai_config: AIConfig | None = None,
 ) -> Any:
     """GET the gateway's /model/info (falling back to /models); None when unreachable.
+
+    The request carries the AI API key only when `gateway_url` has the origin of a gateway that
+    `ai_config` names, or that the loaded settings name without it.
 
     Without a `client`, the query dials at the configured level: loopback, or private when
     `allow_private` (`ai.allow_private_network`) is set. The connect checks the address.
     """
-    headers = _sanitize_api_key_header(api_key)
+    config = load_settings().ai if ai_config is None else ai_config
+    headers = _sanitize_api_key_header(_key_for(gateway_url, api_key, config))
     level = EgressLevel.PRIVATE if allow_private else EgressLevel.LOOPBACK
     try:
         if client is not None:
@@ -310,16 +345,24 @@ def fetch_model_info(
     allow_private: bool,
     api_key: str | None = None,
     client: httpx2.Client | None = None,
+    *,
+    ai_config: AIConfig | None = None,
 ) -> list[dict[str, Any]] | None:
     """Return the gateway's `/model/info` entries; None when it is unreachable or lists nothing.
 
-    Raises AICredentialsError when the gateway rejects the request, rather than letting the
-    caller fall back to defaults that do not describe the gateway.
+    The AI API key goes only to a gateway that `ai_config` names, or that the loaded settings name
+    without it. Raises AICredentialsError when the gateway rejects the request, rather than letting
+    the caller fall back to defaults that do not describe the gateway. When that gateway got no key
+    because it is not a configured one, the error says so.
     """
-    resp = _query_model_info(gateway_url.rstrip("/"), allow_private, api_key, client=client)
+    config = load_settings().ai if ai_config is None else ai_config
+    url = gateway_url.rstrip("/")
+    resp = _query_model_info(url, allow_private, api_key, client=client, ai_config=config)
     if resp is None:
         return None
     if resp.status_code in (401, 403):
+        if api_key and _key_for(url, api_key, config) is None:
+            raise _withheld_key_refusal(url)
         raise credentials_error("The LLM gateway", has_key=bool(api_key), status=resp.status_code)
     if resp.status_code >= 400:
         return None
@@ -371,6 +414,7 @@ def resolve_gateway_reasoning_models(
     *,
     data: list[dict[str, Any]] | None = None,
     client: httpx2.Client | None = None,
+    ai_config: AIConfig | None = None,
 ) -> dict[str, bool]:
     """Return model_name -> supports_reasoning map for gateway, cached per process."""
     if data is not None:
@@ -378,7 +422,9 @@ def resolve_gateway_reasoning_models(
     key = (gateway_url.rstrip("/"), api_key)
     if key in _GATEWAY_REASONING_CACHE:
         return _GATEWAY_REASONING_CACHE[key]
-    raw_data = fetch_model_info(gateway_url, allow_private, api_key, client=client)
+    raw_data = fetch_model_info(
+        gateway_url, allow_private, api_key, client=client, ai_config=ai_config
+    )
     result = parse_gateway_reasoning_models(raw_data)
     _GATEWAY_REASONING_CACHE[key] = result
     return result
@@ -392,19 +438,20 @@ def is_gateway_model_reasoning(
     *,
     data: list[dict[str, Any]] | None = None,
     client: httpx2.Client | None = None,
+    ai_config: AIConfig | None = None,
 ) -> bool:
     """Check if model_name is declared with supports_reasoning in gateway deployments."""
     caps = resolve_gateway_reasoning_models(
-        gateway_url, allow_private, api_key, data=data, client=client
+        gateway_url, allow_private, api_key, data=data, client=client, ai_config=ai_config
     )
     return caps.get(model_name, False)
 
 
 def _fetch_remote_routes(
-    gateway_url: str, allow_private: bool, api_key: str | None = None
+    gateway_url: str, allow_private: bool, api_key: str | None, ai_config: AIConfig
 ) -> list[GatewayRoute] | None:
     """Query the gateway's deployments as routes; None when it is unreachable or lists nothing."""
-    data = fetch_model_info(gateway_url, allow_private, api_key)
+    data = fetch_model_info(gateway_url, allow_private, api_key, ai_config=ai_config)
     return _parse_remote_model_items(data, gateway_url.rstrip("/")) or None if data else None
 
 
@@ -425,16 +472,6 @@ def _probe_gateway_http(
         return (code < 400, code, None)
     except (httpx2.HTTPError, OSError) as exc:
         return (False, 0, str(exc)[:256])
-
-
-def _withheld_key_refusal(url: str) -> AICredentialsError:
-    """The refusal of a gateway that is not the configured one, and so got no AI API key."""
-    origin = get_url_origin(url)
-    return AICredentialsError(
-        f"The LLM gateway at {origin_label(origin) if origin else 'that URL'} requires an API key. "
-        "The AI API key goes only to the configured gateway, so this gateway got none. "
-        "To use the key with this gateway, make it the configured gateway."
-    )
 
 
 class GatewayRouter:
@@ -472,33 +509,15 @@ class GatewayRouter:
             )
         return self.config.gateway_url
 
-    def _key_for(self, url: str) -> str | None:
-        """The AI API key when `url` has the origin of the configured gateway, else None.
-
-        A URL that a caller gives is input, not configuration. The key goes only to the gateway
-        that the configuration names, whatever the URL says (#2480).
-        """
-        try:
-            configured = get_url_origin(self.gateway_url)
-        except ConfigurationError:
-            return None
-        if configured is None or get_url_origin(url) != configured:
-            return None
-        return self._api_key
-
     def list_routes(self, gateway_url: str | None = None) -> list[GatewayRoute]:
         """Return configured or live queried virtual model routes.
 
         A `gateway_url` other than the configured gateway gets no AI API key.
         """
         if gateway_url:
-            key = self._key_for(gateway_url)
-            try:
-                remote = _fetch_remote_routes(gateway_url, self.config.allow_private_network, key)
-            except AICredentialsError as exc:
-                if self._api_key and key is None:
-                    raise _withheld_key_refusal(gateway_url) from exc
-                raise
+            remote = _fetch_remote_routes(
+                gateway_url, self.config.allow_private_network, self._api_key, self.config
+            )
             if remote is not None:
                 return remote
         return list(self._active_routes)

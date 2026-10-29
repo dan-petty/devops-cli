@@ -451,7 +451,11 @@ def tune_cmd(
     ] = DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
     gateway_url: Annotated[
         str | None,
-        typer.Option("--gateway-url", "-u", help="Optional gateway base URL override."),
+        typer.Option(
+            "--gateway-url",
+            "-u",
+            help="Optional gateway base URL override. Only the configured gateway gets the AI API key.",
+        ),
     ] = None,
     namespace: Annotated[
         str, typer.Option("--namespace", "-n", help="Namespace of the gateway deployment.")

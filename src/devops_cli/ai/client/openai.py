@@ -147,6 +147,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 gateway_url=gw_url,
                 allow_private=allow_private,
                 api_key=self._api_key,
+                ai_config=self._config,
             )
         return False
 

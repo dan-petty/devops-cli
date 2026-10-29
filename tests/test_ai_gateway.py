@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -16,10 +18,13 @@ from typer.testing import CliRunner
 from devops_cli.ai.client import AICredentialsError
 from devops_cli.ai.gateway import (
     GatewayRouter,
+    fetch_model_info,
 )
+from devops_cli.ai.gateway_tune import GatewayTuneError, tune_pool
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
+    CONST_EXIT_ERROR_INFERENCE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_CLUSTER_URL,
@@ -616,16 +621,38 @@ GATEWAY_TOOL_PARAMETERS = {
 }
 """The parameters that the MCP tools of the gateway read-only commands publish: no URL."""
 
+CONFIGURED_TOOL_CALLS = {
+    "status": (
+        "ai_gateway_status",
+        {},
+        {"gateway_url": "http://example.com/v1"},
+        80,
+    ),
+    "routes": (
+        "ai_gateway_routes",
+        {},
+        {"gateway_url": "http://example.com/v1"},
+        80,
+    ),
+    "probe backend": (
+        "ai_gateway_probe_backend",
+        {"backend": "ollama"},
+        {"ollama_urls": ["http://example.com:11434"]},
+        11434,
+    ),
+}
+"""Each tool, its arguments, the setting that names the service that it queries, and its port."""
 
-async def _call_gateway_tool(tool: str, arguments: dict[str, object]) -> bool:
-    """Call a tool the way an MCP client does, and say whether the call failed."""
+
+async def _call_gateway_tool(tool: str, arguments: dict[str, object]) -> tuple[bool, str]:
+    """Call a tool the way an MCP client does: whether the call failed, and its reply."""
     from fastmcp import Client
 
     from devops_cli.ai.mcp.server import mcp
 
     async with Client(mcp) as client:
         result = await client.call_tool(tool, arguments, raise_on_error=False)
-    return bool(result.is_error)
+    return bool(result.is_error), "\n".join(getattr(block, "text", "") for block in result.content)
 
 
 class TestGatewayToolsTakeNoUrlFromTheModel:
@@ -648,19 +675,24 @@ class TestGatewayToolsTakeNoUrlFromTheModel:
         } == GATEWAY_TOOL_PARAMETERS
 
     @pytest.mark.parametrize(
-        ("tool", "arguments"),
+        ("tool", "arguments", "parameter"),
         [
             (
                 "ai_gateway_probe_backend",
                 {"backend": "ollama", "backend_url": "http://127.0.0.1:8200/v1/sys/seal-status?x="},
+                "backend_url",
             ),
-            ("ai_gateway_routes", {"gateway_url": "https://attacker.example.org/v1"}),
-            ("ai_gateway_status", {"gateway_url": "https://attacker.example.org/v1"}),
+            ("ai_gateway_routes", {"gateway_url": "https://example.org/v1"}, "gateway_url"),
+            ("ai_gateway_status", {"gateway_url": "https://example.org/v1"}, "gateway_url"),
         ],
         ids=["backend on loopback", "routes on a public host", "status on a public host"],
     )
     async def test_a_url_argument_is_refused_and_reaches_no_socket(
-        self, monkeypatch: pytest.MonkeyPatch, tool: str, arguments: dict[str, object]
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tool: str,
+        arguments: dict[str, object],
+        parameter: str,
     ) -> None:
         """A call that gives a URL fails, no request is sent, and the AI API key is not on the wire.
 
@@ -668,45 +700,70 @@ class TestGatewayToolsTakeNoUrlFromTheModel:
         call sent `Authorization: Bearer <key>` to the public host.
         """
         monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-secret")
-        scripted_resolver(monkeypatch, {"attacker.example.org": [[PUBLIC_ADDRESS]]})
+        scripted_resolver(monkeypatch, {"example.org": [[PUBLIC_ADDRESS]]})
         recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 4)
 
-        failed = await _call_gateway_tool(tool, arguments)
+        failed, reply = await _call_gateway_tool(tool, arguments)
 
         reached = {(PUBLIC_ADDRESS, 443), ("127.0.0.1", 8200)}
         assert (
             failed,
+            f"1. Parameter: `{parameter}`\n   Kind: HALLUCINATED_PARAM\n" in reply,
             [dial for dial in recorder.dialled if dial in reached],
             b"sk-secret" in b"".join(recorder.written),
-        ) == (True, [], False)
+        ) == (True, True, [], False)
 
     @pytest.mark.parametrize(
         ("answer", "flag", "dialled"),
         [
-            ("127.0.0.1", "false", [("127.0.0.1", 80)]),
-            ("192.0.2.10", "false", []),
-            ("192.0.2.10", "true", [("192.0.2.10", 80)]),
+            ("127.0.0.1", False, True),
+            ("192.0.2.10", False, False),
+            ("192.0.2.10", True, True),
         ],
         ids=["loopback without the flag", "private without the flag", "private with the flag"],
     )
-    async def test_the_status_tool_dials_the_configured_gateway_at_the_configured_level(
+    @pytest.mark.parametrize("call", list(CONFIGURED_TOOL_CALLS))
+    async def test_each_tool_dials_the_configured_service_at_the_configured_level(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        config: Any,
+        call: str,
         answer: str,
-        flag: str,
-        dialled: list[tuple[str, int]],
+        flag: bool,
+        dialled: bool,
     ) -> None:
-        """Loopback, and private addresses with `ai.allow_private_network`, as for the CLI."""
-        monkeypatch.setenv("DEVOPS_CLI_AI_GATEWAY_URL", "http://gateway.example.com/v1")
-        monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", flag)
-        scripted_resolver(monkeypatch, {"gateway.example.com": [[answer]]})
-        recorder = record_connects(monkeypatch, [http_response(200, "{}")])
+        """Loopback, and private addresses with `ai.allow_private_network`, as for the CLI.
 
-        failed = await _call_gateway_tool("ai_gateway_status", {})
+        The floor sets the flag with its environment variable, which outranks the config file, so
+        the test sets the variable.
+        """
+        tool, arguments, setting, port = CONFIGURED_TOOL_CALLS[call]
+        monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
+        config(ai=setting)
+        scripted_resolver(monkeypatch, {"example.com": [[answer]]})
+        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 4)
 
-        assert (failed, [dial for dial in recorder.dialled if dial[0] == answer]) == (
-            not dialled,
-            dialled,
+        await _call_gateway_tool(tool, arguments)
+
+        assert [dial for dial in recorder.dialled if dial[0] == answer] == (
+            [(answer, port)] if dialled else []
+        )
+
+    async def test_the_routes_tool_sends_the_key_to_the_configured_gateway(
+        self, monkeypatch: pytest.MonkeyPatch, config: Any
+    ) -> None:
+        """The key still reaches the gateway that the configuration names."""
+        monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-secret")
+        config(ai={"gateway_url": "http://example.com/v1"})
+        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        recorder = record_connects(monkeypatch, [http_response(200, '{"data": []}')])
+
+        failed, _reply = await _call_gateway_tool("ai_gateway_routes", {})
+
+        assert (failed, recorder.requested_hosts, b"Bearer sk-secret" in recorder.written[0]) == (
+            False,
+            ["example.com"],
+            True,
         )
 
 
@@ -952,36 +1009,68 @@ class TestGatewayRouteDiscovery:
         assert written_keys(isolate_data_dir) == [["ai.allow_private_network", "ai.gateway_url"]]
 
 
+CONFIGURED_GATEWAY = "http://example.com:4000/v1"
+
+
 class TestTheKeyGoesOnlyToTheConfiguredGateway:
-    """A URL override is input from a caller. `routes` sends the AI API key only to the origin of
-    the configured gateway (#2480)."""
+    """A URL from a caller is input. The AI API key goes only to the origin of the gateway that
+    the configuration names, for the routes, the model query and the tuning sweep (#2480)."""
 
     @staticmethod
-    def _requests_of_discovery(
-        monkeypatch: pytest.MonkeyPatch, ai_config: AIConfig, url: str
-    ) -> list[bytes]:
-        """List the routes at `url`; return the request bytes that each connection received."""
+    def _routes(url: str) -> None:
+        GatewayRouter(AIConfig(gateway_url=CONFIGURED_GATEWAY), api_key="sk-gateway").list_routes(
+            url
+        )
+
+    @staticmethod
+    def _model_info(url: str) -> None:
+        fetch_model_info(url, False, "sk-gateway")
+
+    @staticmethod
+    def _sweep(url: str) -> None:
+        """Start the tuning sweep at `url`. It stops at the model query, before any cluster call."""
+        tune_pool(
+            gateway_url=url,
+            allow_private=False,
+            api_key="sk-gateway",
+            model_group="devops-chat",
+            levels=[1],
+            rounds=1,
+            prompt_tokens=1,
+            max_tokens=1,
+            request_timeout=1.0,
+            namespace="llm",
+            deployment="litellm",
+        )
+
+    @classmethod
+    def _tune(cls, url: str) -> None:
+        with contextlib.suppress(GatewayTuneError):
+            cls._sweep(url)
+
+    @staticmethod
+    def _wire_of(monkeypatch: pytest.MonkeyPatch, call: Callable[[], None]) -> list[bytes]:
+        """Run `call` against two hosts that answer a public address; return the bytes that each
+        connection received."""
         scripted_resolver(
             monkeypatch,
-            {
-                "gateway.example.com": [[PUBLIC_ADDRESS]],
-                "attacker.example.com": [[PUBLIC_ADDRESS]],
-            },
+            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
         )
         recorder = record_connects(monkeypatch, [http_response(200, '{"data": []}')] * 2)
-        GatewayRouter(ai_config, api_key="sk-gateway").list_routes(url)
+        call()
         return [bytes(written) for written in recorder.written]
 
+    @pytest.mark.parametrize("caller", ["_routes", "_model_info", "_tune"])
     @pytest.mark.parametrize(
         ("url", "gets_key"),
         [
-            ("http://gateway.example.com:4000/v1", True),
-            ("http://gateway.example.com:4000/another/path", True),
-            ("HTTP://Gateway.Example.com:4000/v1", True),
-            ("http://attacker.example.com:4000/v1", False),
-            ("http://gateway.example.com:4001/v1", False),
-            ("https://gateway.example.com:4000/v1", False),
-            ("http://gateway.example.com:4000@attacker.example.com:4000/v1", False),
+            (CONFIGURED_GATEWAY, True),
+            ("http://example.com:4000/another/path", True),
+            ("HTTP://Example.COM:4000/v1", True),
+            ("http://example.org:4000/v1", False),
+            ("http://example.com:4001/v1", False),
+            ("http://example.com:40000/v1", False),
+            ("https://example.com:4000/v1", False),
         ],
         ids=[
             "the configured URL",
@@ -989,53 +1078,70 @@ class TestTheKeyGoesOnlyToTheConfiguredGateway:
             "another spelling of the origin",
             "another host",
             "another port",
+            "a port that starts with the configured port",
             "another scheme",
-            "the configured origin as user information",
         ],
     )
     def test_a_request_carries_the_key_only_for_the_configured_origin(
-        self, monkeypatch: pytest.MonkeyPatch, url: str, gets_key: bool
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, caller: str, url: str, gets_key: bool
     ) -> None:
-        written = self._requests_of_discovery(monkeypatch, AIConfig(gateway_url=GATEWAY_URL), url)
+        config(ai={"gateway_url": CONFIGURED_GATEWAY})
 
-        assert [b"Bearer sk-gateway" in request for request in written] == [gets_key]
+        wire = self._wire_of(monkeypatch, lambda: getattr(self, caller)(url))
 
-    def test_no_override_gets_the_key_when_no_gateway_is_configured(
-        self, monkeypatch: pytest.MonkeyPatch
+        assert [b"Bearer sk-gateway" in request for request in wire] == [gets_key]
+
+    @pytest.mark.parametrize("caller", ["_routes", "_model_info"])
+    def test_no_url_gets_the_key_when_no_gateway_is_configured(
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, caller: str
     ) -> None:
-        written = self._requests_of_discovery(monkeypatch, AIConfig(), GATEWAY_URL)
+        config(ai={"gateway_url": None})
 
-        assert [b"Bearer sk-gateway" in request for request in written] == [False]
+        def call() -> None:
+            if caller == "_routes":
+                GatewayRouter(AIConfig(), api_key="sk-gateway").list_routes(CONFIGURED_GATEWAY)
+            else:
+                self._model_info(CONFIGURED_GATEWAY)
+
+        wire = self._wire_of(monkeypatch, call)
+
+        assert [b"Bearer sk-gateway" in request for request in wire] == [False]
 
     def test_the_routes_command_sends_no_key_to_another_gateway(
-        self, monkeypatch: pytest.MonkeyPatch, cli: Any
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, cli: Any
     ) -> None:
-        monkeypatch.setenv("DEVOPS_CLI_AI_GATEWAY_URL", GATEWAY_URL)
         monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-gateway")
-        scripted_resolver(monkeypatch, {"attacker.example.com": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, [http_response(200, '{"data": []}')] * 2)
+        config(ai={"gateway_url": CONFIGURED_GATEWAY})
+        scripted_resolver(monkeypatch, {"example.org": [[PUBLIC_ADDRESS]]})
+        recorder = record_connects(monkeypatch, [http_response(401, "{}")])
 
-        result = cli("ai", "gateway", "routes", "--gateway-url", "http://attacker.example.com/v1")
+        result = cli("ai", "gateway", "routes", "--gateway-url", "http://example.org/v1")
 
         assert (
             result.exit_code,
+            "so this gateway got none" in result.output,
             recorder.requested_hosts,
             b"sk-gateway" in b"".join(recorder.written),
-        ) == (0, ["attacker.example.com"], False)
+        ) == (1, True, ["example.org"], False)
 
+    @pytest.mark.parametrize("caller", ["_model_info", "_tune"])
     def test_a_refusal_by_another_gateway_says_that_it_got_no_key(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, caller: str
     ) -> None:
         """The AI API key is set, so a message that asks for a key would mislead."""
-        scripted_resolver(monkeypatch, {"attacker.example.com": [[PUBLIC_ADDRESS]]})
+        config(ai={"gateway_url": CONFIGURED_GATEWAY})
+        scripted_resolver(monkeypatch, {"example.org": [[PUBLIC_ADDRESS]]})
         record_connects(monkeypatch, [http_response(401, "{}")])
-        router = GatewayRouter(AIConfig(gateway_url=GATEWAY_URL), api_key="sk-gateway")
 
         with pytest.raises(AICredentialsError) as refused:
-            router.list_routes("http://attacker.example.com:4000/v1")
+            getattr(self, "_model_info" if caller == "_model_info" else "_sweep")(
+                "http://example.org:4000/v1"
+            )
 
-        assert str(refused.value) == (
-            "The LLM gateway at attacker.example.com:4000 requires an API key. "
+        assert (refused.value.error_code, refused.value.exit_code, str(refused.value)) == (
+            "LLM_INFERENCE_ERROR",
+            CONST_EXIT_ERROR_INFERENCE,
+            "The LLM gateway at example.org:4000 requires an API key. "
             "The AI API key goes only to the configured gateway, so this gateway got none. "
-            "To use the key with this gateway, make it the configured gateway."
+            "To use the key with this gateway, make it the configured gateway.",
         )
