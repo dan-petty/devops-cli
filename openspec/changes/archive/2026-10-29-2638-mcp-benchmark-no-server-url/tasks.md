@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2638-mcp-benchmark-no-server-url`
 
 ## Workflow follow-up
