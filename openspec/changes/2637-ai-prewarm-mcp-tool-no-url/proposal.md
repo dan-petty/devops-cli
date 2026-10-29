@@ -41,7 +41,7 @@ None.
 - `CONST_MCP_EXPOSURE_TABLE` marks `ai prewarm` as not read-only, and `docs/MCP_TOOLS.md` shows `readOnlyHint: false`. The tool posts and changes which models a server holds in memory, so the mark is right.
 - `devops ai prewarm` takes its servers from `_resolve_prewarm_urls`. Without `--url`, it takes all of `ai.ollama_urls`, or the first one with `--single-node`. The tool needs nothing else.
 - `_preload_single_ollama_url` builds its client at the configured egress level and checks the URL with `validate_base_url`. The level is right for the servers of `ai.ollama_urls`. It admits loopback, which is the usual Ollama address, and private addresses only with `ai.allow_private_network`.
-- No other path gives a model a prewarm URL. `preload_models` has two other callers, `prewarm_async` and the chat prewarm, and both use `ai.ollama_urls`.
+- No other path gives a model a prewarm URL. In `src`, `preload_models` has six callers. `prewarm_models`, `evict_models` and `prewarm_async` in `ai/client/ollama.py` pass no URL. `devops ai preload`, the chat prewarm and `devops ai prewarm` are in `commands/ai.py`. Only `devops ai prewarm` takes a URL, and only from `--url`. The tests of `tests/test_mcp.py` exclude `ai preload` and `ai chat` from MCP.
 
 ## Existing Tool Considered
 

@@ -18,4 +18,5 @@
 
 - The other MCP tools that publish a URL option are not part of this change. #2638 covers `ai_benchmark` and #2639 covers `vault_status`.
 - The paragraph under principle 11 of `SECURITY.md` says that the Valkey commands are not MCP tools. Six of them are. #2670 covers this.
+- The output of `devops ai prewarm` and `devops ai preload` names each Ollama server by its configured URL. The metric `AI_PREWARMS_TOTAL` also has an unbounded `model` label. #2676 covers both.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
