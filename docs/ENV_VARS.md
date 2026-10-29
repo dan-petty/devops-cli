@@ -92,6 +92,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID` | `service.github_app.installation_id` | No | ID of the App's installation on the account that owns the managed repositories |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` | `service.github_app.private_key` | 🔒 Yes | PEM private key of the GitHub App (stored in OS keyring). A process whose environment holds it acts as the App |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG` | `service.github_app.slug` | No | Slug of the GitHub App; its bot's login is `<slug>[bot]` |
+| `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | `service.model_call_concurrency` | No | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
 | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | `service.poll_interval_seconds` | No | Periodic polling interval for service mode in seconds |
 | `DEVOPS_CLI_SERVICE_REPOS` | `service.repos` | No | Target repository list for service mode |
 | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | `service.webhook_secrets` | 🔒 Yes | JSON map of repo to webhook HMAC secret for incoming GitHub webhooks |

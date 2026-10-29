@@ -509,6 +509,53 @@ def acquire_gateway_slot() -> Generator[float]:
         gateway_slots.release()
 
 
+# The process's most model calls in flight at once, held by the roadmap Service from its
+# configuration (#2564). None until the Service sets it: a CLI process sends its calls with no
+# such limit. A lane that cannot take a slot waits in the process, where no stall timer runs.
+_model_call_sem: threading.Semaphore | None = None
+
+
+def set_model_call_limit(limit: int) -> threading.Semaphore:
+    """Set the process's most model calls in flight at once and return its shared semaphore.
+
+    A limit of one keeps one model call in flight, as the Service's single-slot model tier
+    serves. A higher limit admits more, and a limit of zero or less is read as one.
+    """
+    global _model_call_sem
+    _model_call_sem = threading.Semaphore(max(1, int(limit)))
+    return _model_call_sem
+
+
+def get_model_call_limit() -> threading.Semaphore | None:
+    """The process's model call limit, or None when the process sets none."""
+    return _model_call_sem
+
+
+def reset_model_call_limit() -> None:
+    """Remove the process's model call limit (for tests)."""
+    global _model_call_sem
+    _model_call_sem = None
+
+
+@contextmanager
+def model_call_slot() -> Generator[None]:
+    """Hold the process's model call slot for the block; none when the process sets no limit.
+
+    The slot is the standard library's `threading.Semaphore`, shared by the Service's worker
+    threads, so a lane that cannot take one waits in the process instead of queueing at the
+    gateway, where a stall timer would refuse it (#2564).
+    """
+    sem = _model_call_sem
+    if sem is None:
+        yield
+        return
+    sem.acquire()
+    try:
+        yield
+    finally:
+        sem.release()
+
+
 @contextmanager
 def track_ollama_url(
     url: str,
