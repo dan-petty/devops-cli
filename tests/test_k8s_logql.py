@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
+from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
+
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
     from tests.support.fakes.process import ProcessFake
     from tests.web_fakes import StubWeb
 
@@ -432,3 +438,127 @@ def test_execute_kubectl_logql_fallback_refuses_unsupported_queries(
         execute_kubectl_logql(query, namespace="default")
 
     assert "loki.url" in str(exc_info.value)
+
+
+LOGS_TOOL_PARAMETERS = [
+    "pod",
+    "query_arg",
+    "query",
+    "container",
+    "namespace",
+    "follow",
+    "tail",
+    "limit",
+    "since",
+    "dry_run",
+]
+"""The parameters that the MCP tool of `devops k8s logs` publishes: no Loki URL."""
+
+LOKI_ANSWER = json.dumps(
+    {
+        "data": {
+            "result": [
+                {
+                    "stream": {"app": "web", "namespace": "prod"},
+                    "values": [["1788950400000000000", "LOG-LINE-2635 from the default loki"]],
+                }
+            ]
+        }
+    }
+)
+
+
+async def _call_logs_tool(arguments: dict[str, object]) -> tuple[bool, str]:
+    """Call `k8s_logs` the way an MCP client does: whether the call failed, and its reply."""
+    from fastmcp import Client
+
+    from devops_cli.ai.mcp.server import mcp
+
+    async with Client(mcp) as client:
+        await client.call_tool("hydrate_tool_domain", {"domain": "k8s"})
+        result = await client.call_tool("k8s_logs", arguments, raise_on_error=False)
+    return bool(result.is_error), "\n".join(getattr(block, "text", "") for block in result.content)
+
+
+class TestLogsToolTakesNoLokiUrlFromTheModel:
+    """The MCP tool `k8s_logs` queries the default Loki, never a URL that the calling model gives
+    (#2635)."""
+
+    async def test_the_tool_publishes_no_loki_url_parameter(self) -> None:
+        """The schema holds the options of a log query and no Loki URL."""
+        from fastmcp import Client
+
+        from devops_cli.ai.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            await client.call_tool("hydrate_tool_domain", {"domain": "k8s"})
+            tools = await client.list_tools()
+
+        assert [
+            list(tool.input_schema["properties"]) for tool in tools if tool.name == "k8s_logs"
+        ] == [LOGS_TOOL_PARAMETERS]
+
+    @pytest.mark.parametrize(
+        "loki_url",
+        [
+            "http://127.0.0.1:8200/v1/sys/seal-status?x=",
+            "http://example.com:8200/v1/sys/seal-status?x=",
+        ],
+        ids=["loopback", "host in a private range"],
+    )
+    async def test_a_loki_url_argument_is_refused_and_reaches_no_socket(
+        self, monkeypatch: pytest.MonkeyPatch, loki_url: str
+    ) -> None:
+        """A call that gives a URL fails, no request is sent, and no answer text comes back.
+
+        On `origin/main` the client dialled port 8200 at the private level, wrote
+        `GET /v1/sys/seal-status?query=...`, and the tool error held the text of the answer.
+        """
+        scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
+        recorder = record_connects(monkeypatch, [http_response(500, "MARKER-2635-answer-text")] * 4)
+
+        failed, reply = await _call_logs_tool({"query": '{namespace="a"}', "loki_url": loki_url})
+
+        assert (
+            failed,
+            "1. Parameter: `loki_url`\n   Kind: HALLUCINATED_PARAM\n" in reply,
+            "MARKER-2635-answer-text" in reply,
+            [dial for dial in recorder.dialled if dial[1] == 8200],
+        ) == (True, True, False, [])
+
+    async def test_a_call_with_no_url_queries_the_default_loki(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The query goes to `localhost:3100`, as it goes for a person who gives no `--loki-url`."""
+        scripted_resolver(monkeypatch, {"localhost": [["127.0.0.1"]]})
+        recorder = record_connects(monkeypatch, [http_response(200, LOKI_ANSWER)])
+
+        failed, reply = await _call_logs_tool({"query": '{app="web"}'})
+
+        loki = [
+            bytes(written).split(b" HTTP/1.1")[0]
+            for dialled, written in zip(recorder.dialled, recorder.written, strict=True)
+            if dialled == ("127.0.0.1", 3100)
+        ]
+        assert (failed, loki, "LOG-LINE-2635 from the default loki" in reply) == (
+            False,
+            [
+                b"GET /loki/api/v1/query_range?query=%7Bapp%3D%22web%22%7D&limit=100&since=1h&direction=BACKWARD"
+            ],
+            True,
+        )
+
+
+def test_the_command_keeps_its_loki_url_option(
+    monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+) -> None:
+    """A person who types `--loki-url` still names the Loki that the command queries."""
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    recorder = record_connects(monkeypatch, [http_response(200, LOKI_ANSWER)])
+
+    result = cli("k8s", "logs", '{app="web"}', "--loki-url", "http://example.com:3100")
+
+    assert (result.exit_code, [dial for dial in recorder.dialled if dial[0] == PUBLIC_ADDRESS]) == (
+        0,
+        [(PUBLIC_ADDRESS, 3100)],
+    )

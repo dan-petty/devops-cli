@@ -49,6 +49,23 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         "allowed": frozenset({"backend"}),
         "required": frozenset(),
     },
+    ("k8s", "logs"): {
+        "allowed": frozenset(
+            {
+                "pod",
+                "query_arg",
+                "query",
+                "container",
+                "namespace",
+                "follow",
+                "tail",
+                "limit",
+                "since",
+                "dry_run",
+            }
+        ),
+        "required": frozenset(),
+    },
 }
 
 
