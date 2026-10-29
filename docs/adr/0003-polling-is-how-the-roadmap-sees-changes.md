@@ -1,5 +1,7 @@
 # Polling is how the roadmap sees changes; webhooks only cut latency
 
+The webhook clause is superseded on 2026-10-29 by [ADR 0017](0017-each-subscribed-webhook-event-runs-the-update-scoped-to-it.md): each subscribed webhook event runs the update scoped to it at once, and the poll reconciles.
+
 Amended on 2026-10-28 by [ADR 0016](0016-labels-hold-the-roadmap-items-fields.md). Labels hold Status, Priority, Value and Effort, so a change of a field is a `labeled` or `unlabeled` issue event. The poll reads those events, and the repository webhook sends them. No roadmap job reads a board.
 
 The service finds changes by polling GitHub on a short tick, using conditional requests so an unchanged answer costs nothing, and treats a repository webhook only as a hint that makes a job due sooner. GitHub sends no webhook when a board owned by a personal account changes, so edits to status, priority, Value and Effort can only be found by polling, and GitHub never retries a failed delivery. Polling is needed anyway, and making it the source of truth means a missed webhook only delays a job until the next tick.

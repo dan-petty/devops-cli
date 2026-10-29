@@ -330,7 +330,8 @@ class IntakePlan:
 
     With a `limit`, `left` holds the candidates the run left for a later one, in the order a
     later run takes them, and `fresh_left` whether a fresh one is among them: never decided, or
-    edited since it was.
+    edited since it was. A run over `issues` with a `waiting` record sets `others_fresh` when a
+    candidate it was not asked for is fresh.
 
     A dry run (`dry_run`) made no request, so it has no decision: `requests` holds the reads
     and model calls a run makes, in order, and `writes` those `--confirm` adds.
@@ -341,6 +342,7 @@ class IntakePlan:
     limit: int | None = None
     left: tuple[int, ...] = ()
     fresh_left: bool = False
+    others_fresh: bool = False
     spend: Spend | None = None
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
@@ -421,6 +423,20 @@ class IntakeRecord(BaseModel):
         }
         kept = {number: self.waiting[number] for number in plan.left if number in self.waiting}
         return IntakeRecord(pending=plan.fresh_left, waiting=kept | decided)
+
+    def merged(self, plan: IntakePlan, now: datetime) -> IntakeRecord:
+        """The record once a scoped run decided `plan`'s candidates, at `now` (ADR 0017): it adds
+        or replaces their entries and keeps every other entry. Intake stays due when it was, or
+        when the run saw a fresh candidate it was not asked for, so a scoped run never hides a
+        candidate that a lost delivery left for the poll."""
+        decided = {
+            decision.subject.number: Waiting(updated_at=decision.subject.updated_at, decided_at=now)
+            for decision in plan.decisions
+            if decision.subject.number is not None
+        }
+        return IntakeRecord(
+            pending=self.pending or plan.others_fresh, waiting={**self.waiting, **decided}
+        )
 
 
 class _InvalidProposal(ValueError):
@@ -509,15 +525,23 @@ def _is_candidate(issue: IssueRecord, run: _Run) -> bool:
 
 def _subjects(
     run: _Run, issues: Collection[int], new: NewCandidate | None
-) -> tuple[list[Subject], tuple[int, ...]]:
-    """The candidates this run decides, by number, and the asked-for numbers that are none."""
+) -> tuple[list[Subject], tuple[int, ...], list[Subject]]:
+    """The candidates this run decides, by number, the asked-for numbers that are none, and the
+    candidates it was not asked for."""
     if new is not None:
-        return [_new_subject(run, new)], ()
+        return [_new_subject(run, new)], (), []
     found = [_subject(issue) for issue in run.issues if _is_candidate(issue, run)]
     if not issues:
-        return found, ()
+        return found, (), []
     chosen = [subject for subject in found if subject.number in issues]
-    return chosen, tuple(sorted(set(issues) - {subject.number for subject in chosen}))
+    others = [subject for subject in found if subject.number not in issues]
+    return chosen, tuple(sorted(set(issues) - {subject.number for subject in chosen})), others
+
+
+def _fresh(subject: Subject, waiting: Mapping[int, Waiting]) -> bool:
+    """Whether `subject` is fresh: never decided, or edited since it was."""
+    before = waiting.get(subject.number or 0)
+    return before is None or before.updated_at != subject.updated_at
 
 
 @dataclass(frozen=True)
@@ -533,13 +557,10 @@ def _queue(subjects: Sequence[Subject], waiting: Mapping[int, Waiting], limit: i
     """The first `limit` candidates: the fresh ones, never decided or edited since they were,
     oldest (lowest number) first, then the others, longest waiting first."""
 
-    def fresh(subject: Subject) -> bool:
-        before = waiting.get(subject.number or 0)
-        return before is None or before.updated_at != subject.updated_at
-
-    renewed = sorted((s for s in subjects if fresh(s)), key=lambda s: s.number or 0)
+    renewed = sorted((s for s in subjects if _fresh(s, waiting)), key=lambda s: s.number or 0)
     waited = sorted(
-        (s for s in subjects if not fresh(s)), key=lambda s: waiting[s.number or 0].decided_at
+        (s for s in subjects if not _fresh(s, waiting)),
+        key=lambda s: waiting[s.number or 0].decided_at,
     )
     ordered = renewed + waited
     left = tuple(subject.number for subject in ordered[limit:] if subject.number is not None)
@@ -1072,7 +1093,7 @@ def plan_intake(
         issues=listed,
         items={item.number: item for item in select_items(listed)},
     )
-    subjects, missing = _subjects(run, issues, new)
+    subjects, missing, others = _subjects(run, issues, new)
     queue = _Queue(subjects, (), False) if limit is None else _queue(subjects, waiting or {}, limit)
     decisions = tuple(_Planner(run, agent_candidates=new is not None).decide_all(queue.decided))
     return IntakePlan(
@@ -1081,6 +1102,7 @@ def plan_intake(
         limit=limit,
         left=queue.left,
         fresh_left=queue.fresh_left,
+        others_fresh=waiting is not None and any(_fresh(other, waiting) for other in others),
     )
 
 

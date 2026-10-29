@@ -64,9 +64,11 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     MODEL_LANE_ROWS,
+    SCOPED_UPDATES,
     STATUS_LANE_ROWS,
     JobOutcome,
     JobRow,
+    WebhookDelivery,
     _run_intake_adapter,
     _run_metrics_adapter,
     _run_refine_adapter,
@@ -74,6 +76,7 @@ from devops_cli.roadmap.run import (
     ensure_checkout,
     read_intake_record,
     run_due_jobs,
+    run_scoped_update,
     service_job,
     service_jobs,
     service_state_dir,
@@ -1874,3 +1877,149 @@ def test_service_job_unreadable_github_roadmap_propagates_unchanged(
         service_job(batch, table=MODEL_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME)
 
     assert not isinstance(exc_info.value, ConfigurationError)
+
+
+# ── Scoped updates (ADR 0017) ─────────────────────────────────────────────────
+
+
+def _delivery(action: str, number: int, *, event: str = "issues") -> WebhookDelivery:
+    """What a webhook delivery of `event` with `action` about issue `number` carries."""
+    return WebhookDelivery(repo=REPO, event=event, action=action, number=number)
+
+
+def test_the_issues_actions_run_a_scoped_intake_on_the_model_lane() -> None:
+    """`issues` opened, edited and reopened each run intake of one issue on the model lane, and
+    no other event has a scoped update."""
+    assert {key: (update.job, update.lane) for key, update in SCOPED_UPDATES.items()} == {
+        ("issues", "opened"): ("intake", CONST_SERVICE_LANE_MODEL),
+        ("issues", "edited"): ("intake", CONST_SERVICE_LANE_MODEL),
+        ("issues", "reopened"): ("intake", CONST_SERVICE_LANE_MODEL),
+    }
+
+
+@pytest.mark.parametrize("action", ["opened", "edited", "reopened"])
+def test_an_issues_delivery_intakes_only_its_issue_and_writes_no_last_success(
+    action: str, tmp_path: Path
+) -> None:
+    """The scoped update of an `issues` delivery decides and places only the issue it names: the
+    model judges it alone, only it gets labels and a reason comment, and `schedule.json` keeps
+    each job's last success as it was."""
+    store, _, _ = _candidates(3)
+    _stamp(tmp_path, intake=HALF_HOUR_AGO)
+    model = _IntakeModel()
+
+    outcome = run_scoped_update(
+        _delivery(action, 2), store, data_dir=tmp_path, now=NOW, model=model
+    )
+
+    assert (
+        outcome,
+        model.asked,
+        sorted({write.number for write in store.job_writes()}),
+        [store.item(number) is not None for number in (1, 2, 3)],
+        [len(store.comments_on(number)) for number in (1, 2, 3)],
+        _schedule(tmp_path),
+    ) == (
+        JobOutcome(),
+        ["candidate 2"],
+        [2],
+        [False, True, False],
+        [0, 1, 0],
+        {"intake": HALF_HOUR_AGO.isoformat()},
+    )
+
+
+def test_an_edit_of_an_item_and_an_event_with_no_scoped_update_change_nothing(
+    tmp_path: Path,
+) -> None:
+    """An edit of an issue that is already an Item decides nothing and writes no record. An
+    `issues` action or an event with no scoped update returns None, so its delivery stays a hint
+    for a whole round."""
+    store, _, _ = _candidates(0)
+    placed = store.seed_issue("placed", fields={ItemField.PRIORITY: "P2-Medium"})
+    model = _IntakeModel()
+
+    def run(delivery: WebhookDelivery) -> JobOutcome | None:
+        return run_scoped_update(delivery, store, data_dir=tmp_path, now=NOW, model=model)
+
+    edited = run(_delivery("edited", placed))
+    closed = run(_delivery("closed", placed))
+    pull = run(_delivery("opened", placed, event="pull_request"))
+
+    assert (
+        edited,
+        closed,
+        pull,
+        model.asked,
+        store.job_writes(),
+        (tmp_path / REPO_DIR / "intake.json").exists(),
+    ) == (JobOutcome(), None, None, [], [], False)
+
+
+@pytest.mark.parametrize("lost", ["opened", "reopened"])
+def test_a_poll_after_a_scoped_update_decides_the_lost_delivery_and_not_the_handled_one(
+    lost: str, tmp_path: Path
+) -> None:
+    """Test first for #2009: the delivery of issue 2 runs its scoped update, and the delivery of
+    issue 1 is lost. The next poll comes before intake's hourly interval. It runs intake, which
+    decides issue 1 and does not decide issue 2 again."""
+    store, clock, _ = _candidates(1)
+    if lost == "reopened":
+        store.close_by_hand(1, CloseReason.NOT_PLANNED)
+        clock.now = NOW - timedelta(minutes=5)
+        store.reopen_issue(1)
+    delivered = store.seed_issue("candidate 2")
+    _stamp(tmp_path, intake=HALF_HOUR_AGO)
+    model = _IntakeModel()
+    ran: list[str] = []
+
+    run_scoped_update(
+        _delivery("opened", delivered), store, data_dir=tmp_path, now=NOW, model=model
+    )
+    after_update = _schedule(tmp_path)
+    jobs = _poll_round(
+        store, tmp_path, now=NOW + timedelta(minutes=5), table=_intake_table(model, ran)
+    )
+
+    assert (
+        after_update,
+        jobs,
+        model.asked,
+        store.item(1) is not None,
+        store.item(delivered) is not None,
+    ) == (
+        {"intake": HALF_HOUR_AGO.isoformat()},
+        ("intake",),
+        ["candidate 2", "candidate 1"],
+        True,
+        True,
+    )
+
+
+def test_a_scoped_update_keeps_the_entries_and_the_pending_flag_a_capped_round_left(
+    tmp_path: Path,
+) -> None:
+    """A capped round decides five of seven candidates and leaves a fresh one. A scoped update of
+    candidate 6 adds its entry, keeps the five others and keeps intake due. The next poll decides
+    candidate 7 alone."""
+    store, _, titles = _candidates(7)
+    model = _IntakeModel()
+    table = _intake_table(model, [])
+    _poll_round(store, tmp_path, table=table)
+
+    run_scoped_update(
+        _delivery("opened", 6),
+        store,
+        data_dir=tmp_path,
+        now=NOW + timedelta(minutes=1),
+        model=model,
+    )
+    record = read_intake_record(tmp_path / REPO_DIR / "intake.json")
+    asked = len(model.asked)
+    _poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table)
+
+    assert (record.pending, sorted(record.waiting), model.asked[asked:]) == (
+        True,
+        [1, 2, 3, 4, 5, 6],
+        [titles[6]],
+    )
