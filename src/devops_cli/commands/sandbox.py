@@ -50,6 +50,7 @@ from devops_cli.sandbox.models import (
     SandboxNetworkConfig,
     SandboxProbeReport,
     SandboxStatus,
+    container_sandbox_policy,
 )
 from devops_cli.security.sanitizer import mask_dict_secrets, mask_secrets
 from devops_cli.telemetry.tracer import trace_span
@@ -135,10 +136,15 @@ def deploy(
         typer.Option("--local-whitelist", help="Comma-separated local URLs/IPs allowed for egress"),
     ] = None,
     env: Annotated[list[str] | None, typer.Option("--env", "-e", help=HELP.sandbox.env)] = None,
+    seccomp_profile: Annotated[
+        Path | None, typer.Option("--seccomp-profile", help=HELP.sandbox.seccomp_profile)
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> CommandDryRunResult | None:
     """Deploy an isolated background container sandbox with security containment."""
     set_dry_run(dry_run)
+    policy = container_sandbox_policy(seccomp_profile)
+    profile = policy.seccomp_profile
     engine = WorkloadSandboxEngine()
     env_map = _parse_env_flags(env)
     cmd_list = command or ["sleep", "infinity"]
@@ -168,6 +174,7 @@ def deploy(
         public_whitelist=pub_list,
         local_whitelist=loc_list,
         env=env_map,
+        policy=policy,
     )
 
     if is_dry_run():
@@ -184,6 +191,7 @@ def deploy(
                 "network_mode": cfg.network_mode,
                 "network_config": cfg.network_config.model_dump(),
                 "declared_controls": engine.declared_controls(cfg),
+                "seccomp_profile": str(profile.path) if profile else None,
             },
         )
         return None

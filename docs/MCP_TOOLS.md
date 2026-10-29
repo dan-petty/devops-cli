@@ -741,6 +741,7 @@ Execute workload inside an isolated, disposable Docker container sandbox.
 | `local_whitelist` | `string` | No | - | Comma-separated local URLs/IPs allowed for egress |
 | `read_only` | `boolean` | No | `False` | Mount workspace as read-only |
 | `rootless` | `boolean` | No | `True` | Run container with host user UID/GID |
+| `seccomp_profile` | `string` | No | - | Seccomp profile file for the container, in the JSON format of `docker --security-opt seccomp=<file>`, in place of the engine's default profile. Its defaultAction must refuse the system calls that it does not name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `docker_sign`
@@ -1903,6 +1904,7 @@ Deploy an isolated background container sandbox with security containment.
 | `public_whitelist` | `string` | No | - | Comma-separated public domains/IPs allowed for egress |
 | `local_whitelist` | `string` | No | - | Comma-separated local URLs/IPs allowed for egress |
 | `env` | `array[string]` | No | - | Environment variable in KEY=VALUE format. |
+| `seccomp_profile` | `string` | No | - | Seccomp profile file for the container, in the JSON format of `docker --security-opt seccomp=<file>`, in place of the engine's default profile. Its defaultAction must refuse the system calls that it does not name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `sandbox_exec`

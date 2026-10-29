@@ -52,6 +52,7 @@ from devops_cli.core.validation import (
 )
 from devops_cli.exceptions import SandboxValidationError, SSRFBlockedError
 from devops_cli.http.egress import EgressLevel, vet_addresses
+from devops_cli.sandbox.seccomp import SeccompProfile, load_seccomp_profile
 
 _DOCKER_HOST_GATEWAY_DNS_NAME: Final[dns.name.Name] = dns.name.from_text(
     CONST_DOCKER_HOST_GATEWAY_HOSTNAME
@@ -498,13 +499,24 @@ class SandboxPolicy(BaseModel):
     system_symlinks: tuple[str, ...] = CONST_HOST_SANDBOX_SYSTEM_SYMLINKS
     default_env: tuple[tuple[str, str], ...] = CONST_HOST_SANDBOX_DEFAULT_ENV
     forbidden_env_keys: frozenset[str] = frozenset()
+    # A container sandbox with no profile runs under the engine's default seccomp profile.
+    seccomp_profile: SeccompProfile | None = None
 
-    def to_docker_security_kwargs(self, read_only: bool | None = None) -> dict[str, Any]:
-        """Render identical security options for Docker container creation."""
+    def to_docker_security_kwargs(
+        self, read_only: bool | None = None, *, inline_seccomp: bool = True
+    ) -> dict[str, Any]:
+        """Render identical security options for Docker container creation.
+
+        A seccomp profile is sent as its JSON, or as its file path when `inline_seccomp` is
+        False, for an engine that reads only a path (Podman before 6.2.0).
+        """
         effective_ro = self.read_only if read_only is None else read_only
+        security_opt = list(self.security_opt)
+        if self.seccomp_profile is not None:
+            security_opt.append(self.seccomp_profile.security_opt(inline=inline_seccomp))
         return {
             "cap_drop": list(self.cap_drop),
-            "security_opt": list(self.security_opt),
+            "security_opt": security_opt,
             "pids_limit": self.pids_limit,
             "read_only": effective_ro,
             "tmpfs": dict(self.tmpfs),
@@ -512,6 +524,15 @@ class SandboxPolicy(BaseModel):
 
 
 DEFAULT_SANDBOX_POLICY: Final[SandboxPolicy] = SandboxPolicy()
+
+
+def container_sandbox_policy(seccomp_profile_file: Path | None = None) -> SandboxPolicy:
+    """The default container policy, with the checked seccomp profile of the file, if any."""
+    if seccomp_profile_file is None:
+        return DEFAULT_SANDBOX_POLICY
+    return DEFAULT_SANDBOX_POLICY.model_copy(
+        update={"seccomp_profile": load_seccomp_profile(seccomp_profile_file)}
+    )
 
 
 class PortBinding(BaseModel):

@@ -84,6 +84,7 @@ devops test sandbox [OPTIONS] <command>
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
 | `--rootless` / `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--seccomp-profile` | `path` | - | Seccomp profile file for the container, in the JSON format of `docker --security-opt seccomp=<file>`, in place of the engine's default profile. Its defaultAction must refuse the system calls that it does not name. |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
 ---
