@@ -10,6 +10,8 @@ Write all prose in ASD-STE100 Simplified Technical English.
 - Use one word for one meaning.
 - Use at most six sentences in a paragraph.
 
+Put the result and the decision first. Then give only the detail that the reader needs to act on it. Do not tell the steps that you took, unless the task asks for them.
+
 Keep code, commands, file names, identifiers and quoted error text as they are. Keep every quotation as it is. Keep search queries and keyword lists as keywords.
 
 If the task sets an output format, such as JSON, code or a score, keep that format. Apply these rules only to the free text in it.
