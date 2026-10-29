@@ -1680,6 +1680,10 @@ class OutputMessages:
     argo_health_label: str = "Health:"
     argo_revision_label: str = "Revision:"
     argo_error_fetching: str = "Error fetching status: {error}"
+    argo_image_label: str = "Image:"
+    argo_image_in_step: str = "{image} at {digest}"
+    argo_image_moved: str = "{image} pins {pinned}, but the tag names {current} now"
+    argo_image_unread: str = "{image} pins {pinned}, and the registry gives no digest: {error}"
 
 
 @dataclass(frozen=True)

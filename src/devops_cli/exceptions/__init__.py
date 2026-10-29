@@ -17,6 +17,7 @@ from devops_cli.exceptions.docker import (
     DockerEngineError,
     DockerError,
     DockerSandboxError,
+    RegistryReadError,
 )
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
@@ -128,6 +129,7 @@ __all__ = [
     "KubernetesError",
     "KubernetesLoggingError",
     "LogfireConfigurationError",
+    "RegistryReadError",
     "RoadmapIntakeError",
     "RoadmapItemChangedError",
     "RoadmapRefineError",

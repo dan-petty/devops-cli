@@ -184,7 +184,13 @@ devops argo cd apps sync [OPTIONS] <name>
 
 #### `devops argo cd apps status`
 
-**Show sync and health status for an ArgoCD application.**
+**Show the sync and health of an Argo CD application, and check each image it pins.**
+
+Show the sync and health of an Argo CD application, and check each image it pins.
+
+An image the application pins as `<image>:<tag>@<digest>` in its kustomize images is checked
+against the digest its tag names in the registry now. Without --watch, the command exits 1
+when the status cannot be read, a tag names another digest, or a registry gives no digest.
 
 ```bash
 devops argo cd apps status [OPTIONS] <name>
@@ -202,6 +208,7 @@ devops argo cd apps status [OPTIONS] <name>
 |---|---|---|---|
 | `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
 | `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops argo cd apps bootstrap-gitops`
 
