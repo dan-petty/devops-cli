@@ -5009,7 +5009,7 @@ devops ai gateway routes [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. Only the configured gateway gets the AI API key. |
 | `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
@@ -5097,7 +5097,7 @@ devops ai gateway tune [OPTIONS]
 | `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
 | `--prompt-tokens` | `integer` | `512` | Prompt size in tokens. |
 | `--max-tokens` | `integer` | `200` | Completion tokens requested per call. |
-| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. Only the configured gateway gets the AI API key. |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |
 | `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
 | `--context` | `string` | - | Kubernetes context override. |

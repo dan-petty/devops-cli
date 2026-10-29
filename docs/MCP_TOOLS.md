@@ -314,7 +314,6 @@ Directly probe health and latency of an inference backend.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `backend` | `string` | Yes | - | Backend to probe (e.g. ollama). |
-| `backend_url` | `string` | No | - | Optional backend base URL override. |
 
 ### `ai_gateway_routes`
 
@@ -326,7 +325,6 @@ List registered virtual models and target backend inference instances.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `gateway_url` | `string` | No | - | Optional gateway base URL override. |
 | `provider` | `string` | No | - | Gateway provider: litellm or portkey. |
 
 ### `ai_gateway_status`
@@ -339,7 +337,6 @@ Probe LLM Gateway health, latency, and circuit breaker metrics.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `gateway_url` | `string` | No | - | Optional gateway base URL override. |
 | `provider` | `string` | No | - | Gateway provider: litellm or portkey. |
 
 ### `ai_harness_offload`
