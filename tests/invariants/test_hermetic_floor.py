@@ -345,7 +345,7 @@ def test_a_dispatch_worker_abandoned_by_a_timeout_is_finished_before_the_next_te
         def test_the_dispatch_times_out_and_the_command_is_released(monkeypatch):
             release = threading.Event()
 
-            def slow_success(span, cmd_name, seconds):
+            def slow_success(span, cmd_name, labels, seconds):
                 time.sleep(0.5)
                 finished.append(cmd_name)
 

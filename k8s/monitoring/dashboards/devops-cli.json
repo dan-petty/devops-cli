@@ -388,7 +388,7 @@
         "y": 27
       },
       "id": 17,
-      "title": "Subcommand Latency Breakdown",
+      "title": "Sub-commands",
       "type": "row"
     },
     {
@@ -396,7 +396,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Subcommand wall time over the last hour. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
+      "description": "Runs of each selected sub-command over the last hour, and the runs that ended with the status error. The sub-commands come from the series, so a new sub-command shows with no change to the dashboard. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -407,7 +407,7 @@
             "drawStyle": "line",
             "lineInterpolation": "smooth"
           },
-          "unit": "s"
+          "unit": "short"
         }
       },
       "gridPos": {
@@ -423,9 +423,7 @@
           "placement": "bottom"
         }
       },
-      "repeat": "command",
-      "repeatDirection": "h",
-      "title": "$command Subcommand Latency (p50, p95, p99)",
+      "title": "Sub-command Calls",
       "type": "timeseries",
       "targets": [
         {
@@ -433,8 +431,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
-          "legendFormat": "p50 {{command}}",
+          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "legendFormat": "{{sub_command}}",
           "refId": "A"
         },
         {
@@ -442,8 +440,66 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
-          "legendFormat": "p95 {{command}}",
+          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\",status=\"error\"}[1h])))",
+          "legendFormat": "errors {{sub_command}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Wall time of one sub-command over the last hour. The panel repeats for each sub-command that the sub_command variable selects. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 36
+      },
+      "id": 27,
+      "maxPerRow": 4,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "repeat": "sub_command",
+      "repeatDirection": "h",
+      "title": "Telemetry: $sub_command",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "legendFormat": "p95",
           "refId": "B"
         },
         {
@@ -451,8 +507,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
-          "legendFormat": "p99 {{command}}",
+          "expr": "histogram_quantile(0.99, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "legendFormat": "p99",
           "refId": "C"
         },
         {
@@ -460,8 +516,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
-          "legendFormat": "mean {{command}}",
+          "expr": "histogram_avg(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "legendFormat": "mean",
           "refId": "D"
         },
         {
@@ -469,11 +525,23 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
-          "legendFormat": "count {{command}}",
+          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "legendFormat": "count",
           "refId": "E"
         }
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "id": 28,
+      "title": "RAG Retrieval",
+      "type": "row"
     },
     {
       "datasource": {
@@ -498,7 +566,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 45
       },
       "id": 15,
       "options": {
@@ -561,7 +629,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 36
+        "y": 45
       },
       "id": 16,
       "options": {
@@ -609,7 +677,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 44
+        "y": 53
       },
       "id": 26,
       "options": {
@@ -638,7 +706,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 61
       },
       "id": 5,
       "title": "AI Review Findings Breakdown",
@@ -666,7 +734,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 53
+        "y": 62
       },
       "id": 13,
       "options": {
@@ -716,7 +784,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 53
+        "y": 62
       },
       "id": 14,
       "options": {
@@ -761,7 +829,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 61
+        "y": 70
       },
       "id": 6,
       "options": {
@@ -806,7 +874,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 61
+        "y": 70
       },
       "id": 7,
       "options": {
@@ -835,7 +903,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 78
       },
       "id": 8,
       "title": "AI Spend & Economics",
@@ -876,7 +944,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 70
+        "y": 79
       },
       "id": 9,
       "options": {
@@ -929,7 +997,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 70
+        "y": 79
       },
       "id": 10,
       "options": {
@@ -958,7 +1026,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 85
       },
       "id": 21,
       "title": "GitHub API",
@@ -986,7 +1054,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 77
+        "y": 86
       },
       "id": 22,
       "options": {
@@ -1031,7 +1099,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 77
+        "y": 86
       },
       "id": 23,
       "options": {
@@ -1076,7 +1144,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 77
+        "y": 86
       },
       "id": 24,
       "options": {
@@ -1121,7 +1189,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 77
+        "y": 86
       },
       "id": 25,
       "options": {
@@ -1177,228 +1245,67 @@
         "allValue": ".*",
         "current": {
           "selected": true,
-          "text": "All",
-          "value": "$__all"
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(devops_cli_command_total, command)",
         "hide": 0,
         "includeAll": true,
         "label": "Command",
         "multi": true,
         "name": "command",
-        "options": [
-          {
-            "selected": true,
-            "text": "All",
-            "value": "$__all"
-          },
-          {
-            "selected": false,
-            "text": "ai",
-            "value": "ai"
-          },
-          {
-            "selected": false,
-            "text": "argo",
-            "value": "argo"
-          },
-          {
-            "selected": false,
-            "text": "branches",
-            "value": "branches"
-          },
-          {
-            "selected": false,
-            "text": "ci",
-            "value": "ci"
-          },
-          {
-            "selected": false,
-            "text": "cloudflare",
-            "value": "cloudflare"
-          },
-          {
-            "selected": false,
-            "text": "config",
-            "value": "config"
-          },
-          {
-            "selected": false,
-            "text": "dashboard",
-            "value": "dashboard"
-          },
-          {
-            "selected": false,
-            "text": "devcontainer",
-            "value": "devcontainer"
-          },
-          {
-            "selected": false,
-            "text": "docker",
-            "value": "docker"
-          },
-          {
-            "selected": false,
-            "text": "docs",
-            "value": "docs"
-          },
-          {
-            "selected": false,
-            "text": "format",
-            "value": "format"
-          },
-          {
-            "selected": false,
-            "text": "gh",
-            "value": "gh"
-          },
-          {
-            "selected": false,
-            "text": "grafana",
-            "value": "grafana"
-          },
-          {
-            "selected": false,
-            "text": "install-tools",
-            "value": "install-tools"
-          },
-          {
-            "selected": false,
-            "text": "k8s",
-            "value": "k8s"
-          },
-          {
-            "selected": false,
-            "text": "kustomize",
-            "value": "kustomize"
-          },
-          {
-            "selected": false,
-            "text": "lint",
-            "value": "lint"
-          },
-          {
-            "selected": false,
-            "text": "mcp",
-            "value": "mcp"
-          },
-          {
-            "selected": false,
-            "text": "openspec",
-            "value": "openspec"
-          },
-          {
-            "selected": false,
-            "text": "pipeline",
-            "value": "pipeline"
-          },
-          {
-            "selected": false,
-            "text": "pr",
-            "value": "pr"
-          },
-          {
-            "selected": false,
-            "text": "prometheus",
-            "value": "prometheus"
-          },
-          {
-            "selected": false,
-            "text": "release",
-            "value": "release"
-          },
-          {
-            "selected": false,
-            "text": "repos",
-            "value": "repos"
-          },
-          {
-            "selected": false,
-            "text": "review",
-            "value": "review"
-          },
-          {
-            "selected": false,
-            "text": "roadmap",
-            "value": "roadmap"
-          },
-          {
-            "selected": false,
-            "text": "sandbox",
-            "value": "sandbox"
-          },
-          {
-            "selected": false,
-            "text": "scan",
-            "value": "scan"
-          },
-          {
-            "selected": false,
-            "text": "serve",
-            "value": "serve"
-          },
-          {
-            "selected": false,
-            "text": "ssh",
-            "value": "ssh"
-          },
-          {
-            "selected": false,
-            "text": "status",
-            "value": "status"
-          },
-          {
-            "selected": false,
-            "text": "survey",
-            "value": "survey"
-          },
-          {
-            "selected": false,
-            "text": "telemetry",
-            "value": "telemetry"
-          },
-          {
-            "selected": false,
-            "text": "test",
-            "value": "test"
-          },
-          {
-            "selected": false,
-            "text": "tf",
-            "value": "tf"
-          },
-          {
-            "selected": false,
-            "text": "tls",
-            "value": "tls"
-          },
-          {
-            "selected": false,
-            "text": "tui",
-            "value": "tui"
-          },
-          {
-            "selected": false,
-            "text": "uv",
-            "value": "uv"
-          },
-          {
-            "selected": false,
-            "text": "valkey",
-            "value": "valkey"
-          },
-          {
-            "selected": false,
-            "text": "vault",
-            "value": "vault"
-          },
-          {
-            "selected": false,
-            "text": "workspace",
-            "value": "workspace"
-          }
-        ],
-        "query": "ai, argo, branches, ci, cloudflare, config, dashboard, devcontainer, docker, docs, format, gh, grafana, install-tools, k8s, kustomize, lint, mcp, openspec, pipeline, pr, prometheus, release, repos, review, roadmap, sandbox, scan, serve, ssh, status, survey, telemetry, test, tf, tls, tui, uv, valkey, vault, workspace",
-        "type": "custom"
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(devops_cli_command_total, command)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(devops_cli_subcommand_duration_seconds{command=~\"$command\"}, sub_command)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Sub-command",
+        "multi": true,
+        "name": "sub_command",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(devops_cli_subcommand_duration_seconds{command=~\"$command\"}, sub_command)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
       }
     ]
   }

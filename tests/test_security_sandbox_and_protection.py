@@ -148,7 +148,9 @@ def test_cli_telemetry_masks_secrets_in_cli_error() -> None:
 
     span_mock = MagicMock()
     exc = ValueError("Failed connection with token=ghp_secret_telemetry_token_999")
-    _record_cli_failure(span_mock, "test_cmd", 1.5, exc)
+    _record_cli_failure(
+        span_mock, "test_cmd", {"command": "test_cmd", "sub_command": "test_cmd"}, 1.5, exc
+    )
 
     for call in span_mock.set_attribute.call_args_list:
         attr_name, attr_val = call[0]
