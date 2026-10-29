@@ -106,3 +106,12 @@ def test_every_table_entry_names_a_defect_class() -> None:
     )
 
     assert named - _CLASSES == set()
+
+
+def test_a_defect_class_is_stored_in_lower_case() -> None:
+    """A finding stores its defect class as the lower-case member name (#1538)."""
+    assert (
+        DefectClass("secret_exposure") is DefectClass.SECRET_EXPOSURE,
+        all(str(defect) == defect.name.lower() for defect in DefectClass),
+        len(DefectClass),
+    ) == (True, True, 27)

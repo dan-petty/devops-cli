@@ -20,6 +20,8 @@ from devops_cli.core.validation import is_loopback_host
 # from a word -- it carries a digit, a capital, or a separator, or it is longer than any
 # English word -- so the value is inspected rather than assumed.
 _CREDENTIAL_MIN_OPAQUE_LENGTH = 24
+# What a URL shows in place of its masked userinfo.
+_URL_MASK = "***"
 
 
 def _looks_like_a_credential(value: str) -> bool:
@@ -396,8 +398,8 @@ def mask_uri_credentials(uri: str) -> str:
         return "<masked-url>"
     if u.password:
         if u.username:
-            return str(u.copy_with(username=u.username, password="***"))
-        return str(u.copy_with(username="***", password=None))
+            return str(u.copy_with(username=u.username, password=_URL_MASK))
+        return str(u.copy_with(username=_URL_MASK, password=None))
     return uri
 
 

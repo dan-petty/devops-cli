@@ -23,7 +23,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import CONST_ROADMAP_TYPE_LABEL_PREFIX
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.github.client import GhCliClient, parse_paginated_json
 from devops_cli.roadmap import store as roadmap_store
@@ -166,23 +168,33 @@ def _parse_tag_datetime(date_str: str) -> datetime.datetime:
         return datetime.datetime.now(datetime.UTC)
 
 
+def _git_output(root: Path, *args: str, timeout: float) -> str | None:
+    """The standard output of a local read of `git` in `root`, through the process seam, or None
+    when git is missing, fails or runs out of time; the warning gives the cause, and the seam's
+    error names a missing program (#1538)."""
+    try:
+        done = run_subprocess(
+            [BIN_GIT, *args], cwd=root, timeout=timeout, local_read=True, quiet=True
+        )
+    except subprocess.TimeoutExpired as err:
+        logger.warning("git %s timed out: %s", args[0], err)
+        return None
+    if done.returncode != 0:
+        logger.warning("git %s failed: %s", args[0], done.stderr.strip())
+        return None
+    return done.stdout
+
+
 def _get_git_tag_entries(root: Path) -> list[tuple[str, datetime.datetime]]:
     """Return release git tags sorted chronologically by creation date."""
-    try:
-        proc = subprocess.run(
-            ["git", "tag", "-l", "v*", "--format=%(refname:short)|%(creatordate:iso8601)"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=15,
-        )
-    except (subprocess.SubprocessError, OSError) as err:
-        logger.warning("Failed to inspect git tags: %s", err)
+    output = _git_output(
+        root, "tag", "-l", "v*", "--format=%(refname:short)|%(creatordate:iso8601)", timeout=15
+    )
+    if output is None:
         return []
 
     entries: list[tuple[str, datetime.datetime]] = []
-    for line in proc.stdout.splitlines():
+    for line in output.splitlines():
         if "|" not in line:
             continue
         tag, raw_date = line.split("|", 1)
@@ -208,35 +220,12 @@ def _count_bullet_commits(body: str) -> int:
 def _extract_commits_and_prs(root: Path, prev_tag: str | None, tag: str) -> tuple[int, int]:
     """Calculate commits count and merged pull requests count between two tags."""
     rev_range = f"{prev_tag}..{tag}" if prev_tag else tag
-    commit_count = 0
-    body = ""
-
+    count = _git_output(root, "rev-list", "--count", rev_range, timeout=10)
     try:
-        proc = subprocess.run(
-            ["git", "rev-list", "--count", rev_range],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
-        )
-        commit_count = int(proc.stdout.strip() or "0")
-    except subprocess.SubprocessError, ValueError, OSError:
+        commit_count = int(count.strip() or "0") if count is not None else 1
+    except ValueError:
         commit_count = 1
-
-    try:
-        log_cmd = ["git", "log", "--pretty=format:%s%n%b", rev_range]
-        log_proc = subprocess.run(
-            log_cmd,
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=15,
-        )
-        body = log_proc.stdout
-    except subprocess.SubprocessError, OSError:
-        body = ""
+    body = _git_output(root, "log", "--pretty=format:%s%n%b", rev_range, timeout=15) or ""
 
     bullet_count = _count_bullet_commits(body)
     effective_commits = max(commit_count, bullet_count)

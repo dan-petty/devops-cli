@@ -64,6 +64,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _ARGOCD_LABEL = "Argo CD"
+# The Kubernetes object in which Argo CD stores the first admin password.
+_ARGOCD_INITIAL_ADMIN_OBJECT = "argocd-initial-admin-secret"
 _GRAFANA_LABEL = "Grafana"
 
 
@@ -216,7 +218,7 @@ def fetch_argocd_password(
 ) -> str | None:
     """Fetch initial ArgoCD admin password from Kubernetes and store in keyring."""
     pw = fetch_secret_field(
-        secret_name="argocd-initial-admin-secret",
+        secret_name=_ARGOCD_INITIAL_ADMIN_OBJECT,
         field="password",
         namespace=namespace,
         context=context,

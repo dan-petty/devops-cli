@@ -1,8 +1,16 @@
 # Bandit's scope for this repository: every Python file it tracks lies under these targets.
-# `devops ci security` runs `bandit -r --ini .bandit`, and `devops scan report` on this tree, the
-# code-scanning upload in ci.yml, reads this file too, so both scan the same files and honour the
-# same `# nosec` markers. The severity threshold, DEFAULT_BANDIT_SEVERITY (medium), is on both
-# command lines: Bandit 1.9.4 reads a `level` set here as text and fails on it.
+# `devops ci security` runs `bandit -r <target> --ini .bandit` once for each target: `src` at low
+# severity and above, `tests` at DEFAULT_BANDIT_SEVERITY (medium) and above (#1538). Bandit 1.9.4
+# reads a `level` set here as text and fails on it, so each threshold is on its command line.
+# `devops scan report` on this tree reads this file too, so it scans the same files and honours
+# the same `# nosec` markers. A `# nosec` in `src/` names its rules and, after a second `#`, why.
+#
+# The skipped rules are low severity, so the medium run over `tests` is the same without them:
+# - B404 (import of subprocess) and B603 (a process started from a list, without a shell): a CLI
+#   that runs tools starts processes by design, through the process seam in core/process.py.
+# - B110 (try, except, pass) and B112 (try, except, continue): the swallowed-failures ratchet,
+#   tests/test_swallowed_failures_ratchet.py, counts them with Ruff's S110 and S112.
 [bandit]
 targets = src,tests
 recursive = true
+skips = B404,B603,B110,B112

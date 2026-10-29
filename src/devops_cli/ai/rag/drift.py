@@ -17,11 +17,13 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.kb import knowledge_base_digest
 from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.indexer import WorkspaceIndexer, detect_project_name
+from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import CONST_RAG_KB_PROJECT
 from devops_cli.config.defaults import (
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_RAG_CACHE_DIR,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import RAG_DRIFT_DETECTED, RAG_DRIFT_SCORE, emit
@@ -56,21 +58,21 @@ class RAGDriftReport(BaseModel):
 
 
 def _resolve_git_head_commit(root_dir: Path) -> str | None:
-    """Retrieve current git commit hash for directory with graceful fallback."""
+    """The commit at HEAD of `root_dir`, a local read of `git` through the process seam, or None
+    when git is missing, the directory is no checkout or the read runs out of time. The debug line
+    gives the cause, and the seam's error names a missing program (#1538)."""
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=root_dir,
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
+        done = run_subprocess(
+            [BIN_GIT, "rev-parse", "HEAD"], cwd=root_dir, timeout=5, local_read=True, quiet=True
         )
-        if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout.strip()
-    except Exception as exc:
+    except subprocess.TimeoutExpired as exc:
         logger.debug("Failed checking git commit for %s: %s", root_dir, exc)
-    return None
+        return None
+    head = done.stdout.strip()
+    if done.returncode != 0 or not head:
+        logger.debug("Failed checking git commit for %s: %s", root_dir, done.stderr.strip())
+        return None
+    return head
 
 
 def _load_indexed_commit(cache_dir: Path) -> str | None:

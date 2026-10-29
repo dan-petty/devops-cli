@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import ast
 import builtins
-import random
 import re
 import statistics
 import warnings
@@ -42,6 +41,7 @@ from devops_cli.config.constants import (
     CONST_STATUS_INVALIDATED,
     REVIEW_GENERIC_SYMBOL_STOPWORDS,
 )
+from devops_cli.core.draws import seeded_choice
 from devops_cli.exceptions.validation import ValidationError
 
 CORPUS_MANIFEST = "manifest.json"
@@ -1270,9 +1270,8 @@ def _inject(
         return None
     # Seeded per file, so adding a file does not change the injections in the others. The
     # template is drawn first, so frequent patterns do not crowd out rarer ones.
-    rng = random.Random(f"{seed}:{rel}")
-    template, sites = rng.choice(candidates)
-    site = rng.choice(sites)
+    template, sites = seeded_choice(candidates, f"{seed}:{rel}")
+    site = seeded_choice(sites, f"{seed}:{rel}:{template.name}")
     target = files_dir / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(

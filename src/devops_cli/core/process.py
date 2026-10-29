@@ -20,11 +20,11 @@ from typing import Any, Protocol
 from devops_cli.config.constants import (
     CONST_CODE_LOADING_ENV_PATTERNS,
     CONST_EXIT_COMMAND_NOT_FOUND,
+    CONST_GH_AUTH_ENV_VAR,
     CONST_GH_AUTH_SUBCOMMAND,
     CONST_GH_CLI,
     CONST_GH_LOGIN_ENV_VARS,
     CONST_GH_NON_API_COMMANDS,
-    CONST_GH_TOKEN_ENV,
     CONST_GH_TOKEN_ENV_VARS,
     CONST_GIT_CLI,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
@@ -427,7 +427,7 @@ def _pin_github_token(
     else:
         token, _ = _session_github_token(retry_now=False)
     if token:
-        sub_env[CONST_GH_TOKEN_ENV] = token
+        sub_env[CONST_GH_AUTH_ENV_VAR] = token
 
 
 class PlannedProcessResult(subprocess.CompletedProcess[str], PlannedRequest):

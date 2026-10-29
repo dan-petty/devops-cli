@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import random
+import secrets
 import time
 
 from devops_cli.ai.chaos.models import (
@@ -17,6 +17,9 @@ from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
+# Whether a fault fires at the configured rate, drawn from the operating system's source: it
+# guards nothing, and no seed is shared with other draws (#1538).
+_FAULTS = secrets.SystemRandom()
 
 _METRIC_CHAOS_INJECTIONS = "devops_cli_ai_chaos_injections_total"
 _METRIC_CHAOS_RECOVERIES = "devops_cli_ai_chaos_recoveries_total"
@@ -156,7 +159,7 @@ class ModelChaosInjector:
     def _dispatch_fault(self, mode: ChaosMode) -> ChaosFaultResult:
         """Dispatch fault injection according to specified mode."""
         if self.config.error_rate <= 0.0 or (
-            self.config.error_rate < 1.0 and random.random() > self.config.error_rate
+            self.config.error_rate < 1.0 and _FAULTS.random() > self.config.error_rate
         ):
             return ChaosFaultResult(
                 mode=mode,

@@ -564,10 +564,11 @@ class _Entry:
     def text(self) -> str:
         return f"{self.title}\n\n{self.body}"[:DEFAULT_ROADMAP_INTAKE_TEXT_CHARS]
 
-    def neighbour(self) -> Neighbour:
-        assert self.number is not None
+    def neighbour(self, number: int) -> Neighbour:
+        """The entry as the model sees it, under `number`, the issue number the shortlist holds it
+        by."""
         excerpt = self.body[:DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS]
-        return Neighbour(number=self.number, title=self.title, state=self.state, excerpt=excerpt)
+        return Neighbour(number=number, title=self.title, state=self.state, excerpt=excerpt)
 
 
 def _is_done(issue: IssueRecord) -> bool:
@@ -982,7 +983,11 @@ class _Planner:
         request = ProposalRequest(
             title=subject.title,
             body=subject.body[:DEFAULT_ROADMAP_INTAKE_TEXT_CHARS],
-            shortlist=tuple(entry.neighbour() for entry in shortlist),
+            shortlist=tuple(
+                entry.neighbour(number)
+                for entry in shortlist
+                if (number := entry.number) is not None
+            ),
             types=self.run.types,
         )
         return self._propose(subject, request, shortlist)
@@ -1109,22 +1114,39 @@ def dry_run_intake(
 # ── Writing ───────────────────────────────────────────────────────────────────
 
 
-def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int:
-    """Make one placement's writes in order, Priority last, and return the issue's number."""
+def _lacks(decision: IntakeDecision, part: str) -> RoadmapIntakeError:
+    """The error for a decision that has no `part`, which the writes or the report need."""
+    return RoadmapIntakeError(
+        MESSAGES.roadmap.intake_decision_lacks.format(subject=decision.subject.name, part=part)
+    )
+
+
+def _placement_target(store: RoadmapStore, decision: IntakeDecision) -> tuple[int, Item]:
+    """The issue a placement writes to and its Item: the subject's, or, for a new candidate, the
+    issue filed for it. An issue's subject without its Item is refused before any write."""
     subject = decision.subject
-    number, item = subject.number, subject.item
-    if number is None:
+    if subject.number is None:
         filed = store.create_issue(subject.title, subject.body, labels=decision.filing_labels)
-        number, item = filed.number, item_of(filed)
+        return filed.number, item_of(filed)
+    if subject.item is None:
+        raise _lacks(decision, "item")
+    return subject.number, subject.item
+
+
+def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int:
+    """Make one placement's writes in order, Priority last, and return the issue's number. A
+    decision that lacks its Priority or its Item is refused before the first write."""
+    priority = decision.priority
+    if priority is None:
+        raise _lacks(decision, "Priority")
+    number, item = _placement_target(store, decision)
     for label in decision.labels:
         store.label_issue(number, label)
-    assert item is not None
-    assert decision.priority is not None
     for item_field, value in decision.fields:
         store.set_field(item, item_field, value)
     if decision.comment:
         store.comment(number, decision.comment)
-    store.set_field(item, ItemField.PRIORITY, decision.priority)
+    store.set_field(item, ItemField.PRIORITY, priority)
     return number
 
 
@@ -1214,7 +1236,8 @@ def _decision_lines(decision: IntakeDecision) -> list[str]:
     subject = decision.subject.name
     if decision.outcome is Outcome.SKIP:
         return [texts.intake_skip_line.format(subject=subject, reason=decision.reason)]
-    assert decision.placement is not None
+    if decision.placement is None:
+        raise _lacks(decision, "placement")
     kind, priority, value, effort = decision.shown
     placed = texts.intake_place_line.format(
         subject=subject,

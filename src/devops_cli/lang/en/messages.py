@@ -1863,6 +1863,7 @@ class RoadmapMessages:
     intake_related_field: str = "Related"
     intake_related_value: str = "#{number}, which asks for a different change"
     intake_skip_line: str = "- {subject}: skipped, nothing written: {reason}"
+    intake_decision_lacks: str = "Intake cannot place {subject}: its decision has no {part}."
     intake_writes: str = "  - writes: {writes}"
     intake_note: str = "  - note: {note}"
     intake_write_file: str = "file the issue with {labels}"

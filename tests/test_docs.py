@@ -531,7 +531,7 @@ def _option_cells(page: str, flag: str) -> list[tuple[str, str]]:
 def test_committed_command_pages_show_the_defaults_and_switches_they_hid() -> None:
     """The committed reference, which `devops docs check` keeps equal to the generator's output,
     shows the defaults it masked and the off switch it listed as an alias (#956)."""
-    from devops_cli.config.constants import CONST_RUNS_INDEX_SECRET
+    from devops_cli.config.constants import CONST_RUNS_INDEX_AUTH_OBJECT
     from devops_cli.config.defaults import (
         DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
         DEFAULT_K8S_TLS_SECRET_NAME,
@@ -557,7 +557,7 @@ def test_committed_command_pages_show_the_defaults_and_switches_they_hid() -> No
     ) == (
         [("`--max-tokens`", "`1500`"), ("`--max-tokens`", f"`{DEFAULT_GATEWAY_TUNE_MAX_TOKENS}`")],
         [("`--max-tokens-increase`", "`0.2`")],
-        [("`--secret-name`", f"`{CONST_RUNS_INDEX_SECRET}`")],
+        [("`--secret-name`", f"`{CONST_RUNS_INDEX_AUTH_OBJECT}`")],
         [("`--valkey-port`", f"`{DEFAULT_VALKEY_PORT}`")],
         [("`--secret-name`", f"`{DEFAULT_K8S_TLS_SECRET_NAME}`")],
         [("`--key-size`, `-k`", f"`{DEFAULT_TLS_KEY_SIZE}`")] * 2,

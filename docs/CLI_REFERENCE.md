@@ -2877,7 +2877,7 @@ devops ci audit [OPTIONS]
 
 ### `devops ci security`
 
-**Run bandit static security analysis over src/ and tests/, the targets .bandit names.**
+**Run bandit static security analysis over src/ at low severity and over tests/ at --severity.**
 
 ```bash
 devops ci security [OPTIONS]
@@ -2887,7 +2887,7 @@ devops ci security [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--severity`, `-s` | `string` | `medium` | Minimum severity threshold (low, medium, high). |
+| `--severity`, `-s` | `string` | `medium` | Minimum severity for tests/ (low, medium, high); src/ is scanned at low. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci actionlint`

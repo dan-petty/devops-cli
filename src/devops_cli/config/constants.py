@@ -576,7 +576,7 @@ CONST_REVIEW_COMMAND_WORDS: Final[frozenset[tuple[str, ...]]] = frozenset(
 # working directory off `sys.path`, which plain `-m` puts first (#980).
 CONST_DEVOPS_CLI_COMMAND: Final[str] = "devops"
 CONST_DEVOPS_CLI_ENTRY_MODULE: Final[str] = "devops_cli.entry"
-CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
+CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108 # names the shared temp directories to refuse them; nothing writes here
 CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
     Path("/etc"),
     Path("/usr"),
@@ -1315,10 +1315,11 @@ CONST_GH_CLI = "gh"
 CONST_CI_WORKFLOW_FILE = "ci.yml"
 CONST_GIT_CLI = "git"
 CONST_GH_AUTH_SUBCOMMAND = "auth"
-# The token gh reads first; the session pins it on every gh and git child (#767).
-CONST_GH_TOKEN_ENV = "GH_TOKEN"
+# The variable gh reads its token from first; the session pins it on every gh and git child
+# (#767).
+CONST_GH_AUTH_ENV_VAR = "GH_TOKEN"
 # Every variable gh reads a token from, so a pinned child is given none but the session's.
-CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_TOKEN_ENV, "GITHUB_TOKEN")
+CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_AUTH_ENV_VAR, "GITHUB_TOKEN")
 # Where `gh auth token` finds a stored login: its config directory and the keyring's session bus.
 CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
     {"GH_CONFIG_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS"}
@@ -1630,10 +1631,11 @@ CONST_OTEL_COLLECTOR_POD_LABELS: Final[dict[str, str]] = {
     "app.kubernetes.io/instance": "otel-collector",
 }
 CONST_OTEL_COLLECTOR_SERVICE = "otel-collector-opentelemetry-collector"
-# The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml) and its password secret.
+# The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml), and the Kubernetes object
+# that holds its password.
 CONST_RUNS_INDEX_NAMESPACE = "llm"
 CONST_RUNS_INDEX_SERVICE = "valkey-runs"
-CONST_RUNS_INDEX_SECRET = "valkey-runs-auth"
+CONST_RUNS_INDEX_AUTH_OBJECT = "valkey-runs-auth"
 
 # ── Network Reference & Egress Security Invariants ────────────────────────────
 # httpx2 request extension carrying a caller's egress policy, a callable the HTTP broker's request
@@ -2253,7 +2255,7 @@ CONST_XDG_RUNTIME_DIR_ENV_VAR: Final[str] = "XDG_RUNTIME_DIR"
 # The user's SSH agent socket directory and the X11 socket directory. A sandbox workspace never
 # is or holds either (#1384); a workspace under one is still mounted.
 CONST_SSH_AUTH_SOCK_ENV_VAR: Final[str] = "SSH_AUTH_SOCK"
-CONST_X11_SOCKET_DIR: Final[Path] = Path("/tmp/.X11-unix")  # nosec B108
+CONST_X11_SOCKET_DIR: Final[Path] = Path("/tmp/.X11-unix")  # nosec B108 # the fixed X11 socket directory that X servers create; read, not written
 
 # Multi-tier sandbox networking mode constants
 CONST_SANDBOX_NETWORK_ISOLATED: Final[str] = "isolated"
@@ -3843,11 +3845,11 @@ CONST_DEFAULT_SERIAL_CONCURRENCY: Final[int] = 1
 
 # ── Bubblewrap Host Sandbox Confinement Constants ──────────────────────────────
 CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
-    ("HOME", "/tmp"),  # nosec B108
+    ("HOME", "/tmp"),  # nosec B108 # the HOME of a sandboxed child on its own tmpfs
     ("PATH", "/usr/local/bin:/usr/bin:/bin"),
     ("LANG", "C.UTF-8"),
     ("LC_ALL", "C.UTF-8"),
-    ("TMPDIR", "/tmp"),  # nosec B108
+    ("TMPDIR", "/tmp"),  # nosec B108 # the TMPDIR of a sandboxed child on its own tmpfs
     ("PYTHONDONTWRITEBYTECODE", "1"),
     ("PYTHONWARNINGS", "ignore::SyntaxWarning"),
 )

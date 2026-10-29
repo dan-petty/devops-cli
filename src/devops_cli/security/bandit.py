@@ -136,8 +136,8 @@ class BanditScanner(BaseSecurityScanner):
         A directory whose own `.bandit` names its targets, scanned with `tree_config`, is scanned
         as that file says, as the tree's own `bandit -r --ini .bandit` is: Bandit runs from the
         directory, takes its targets from the file and walks each directory among them, and the
-        tree's `# nosec` markers hold. On this repository that is the run `devops ci security`
-        makes, so the code-scanning upload reports what the gate fails on. Any other scan, such as
+        tree's `# nosec` markers hold. On this repository that scans what `devops ci security`
+        scans at medium; the gate also scans `src` at low (#1538). Any other scan, such as
         one of a tree whose `.bandit` names no targets, names its targets and ignores `# nosec`,
         which a review's admission judges itself (#871).
         """

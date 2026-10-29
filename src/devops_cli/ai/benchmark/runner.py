@@ -374,7 +374,7 @@ class BenchmarkRunner:
             )
 
         for task in self.tasks:
-            if dry_run:
+            if client is None:
                 resp = self._simulate_response(task, model_name, server_url=server_url)
                 results.append(resp)
                 msg = (
@@ -386,7 +386,6 @@ class BenchmarkRunner:
                     print_info(msg, prefix=False)
                 continue
 
-            assert client is not None
             resp = self._generate_single_task_response(
                 task=task,
                 client=client,

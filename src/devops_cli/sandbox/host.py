@@ -35,7 +35,7 @@ from devops_cli.sandbox.models import SandboxPolicy
 # bubblewrap mounts a tmpfs nosuid,nodev but has no noexec option, so the host policy declares
 # only the size, and the container policy (DEFAULT_SANDBOX_POLICY) keeps noexec.
 DEFAULT_HOST_SANDBOX_POLICY: Final[SandboxPolicy] = SandboxPolicy(
-    tmpfs={"/tmp": "size=64m"}  # nosec B108
+    tmpfs={"/tmp": "size=64m"}  # nosec B108 # a private tmpfs inside the sandbox, not the host's /tmp
 )
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import math
-import random
 import re
 from collections import Counter
 from collections.abc import Sequence
@@ -16,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.ai.kb import get_knowledge_base_dir, list_knowledge_base_articles
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
+from devops_cli.core.draws import seeded_sample
 
 logger = logging.getLogger(__name__)
 
@@ -328,21 +328,22 @@ class InMemoryDocumentTokenizer:
             cat = self._infer_category(c.heading, c.text)
             cat_to_indices.setdefault(cat, []).append(c_i)
 
-        rng = random.Random(random_seed)
         selected_indices: list[int] = []
-        # Sample evenly across all detected categories first
+        # Sample evenly across all detected categories first; the seed repeats the sample.
         cats = list(cat_to_indices.keys())
         per_cat = max(1, sample_count // len(cats)) if cats else 1
-        for _cat, idxs in cat_to_indices.items():
+        for cat, idxs in cat_to_indices.items():
             k = min(per_cat, len(idxs))
-            selected_indices.extend(rng.sample(idxs, k))
+            selected_indices.extend(seeded_sample(idxs, k, f"{random_seed}:{cat}"))
 
         # Fill remaining slots up to sample_count
         remaining_slots = sample_count - len(selected_indices)
         all_remaining = [i for i in range(len(chunks)) if i not in selected_indices]
         if remaining_slots > 0 and all_remaining:
             selected_indices.extend(
-                rng.sample(all_remaining, min(remaining_slots, len(all_remaining)))
+                seeded_sample(
+                    all_remaining, min(remaining_slots, len(all_remaining)), f"{random_seed}:rest"
+                )
             )
 
         selected_indices = sorted(set(selected_indices))[:sample_count]
