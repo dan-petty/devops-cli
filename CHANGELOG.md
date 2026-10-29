@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0](https://github.com/dan-petty/devops-cli/compare/v0.15.1...v0.16.0) (2026-10-29)
+
+
+### Features
+
+* **service:** the Service keeps one model call in flight by default ([#2627](https://github.com/dan-petty/devops-cli/issues/2627)) ([3fdafbd](https://github.com/dan-petty/devops-cli/commit/3fdafbd70a17604a7788bb3a28095e8f9b32a4b9))
+
+
+### Bug Fixes
+
+* **config:** remove the dead cloudflare.access settings ([#2632](https://github.com/dan-petty/devops-cli/issues/2632)) ([dde2f55](https://github.com/dan-petty/devops-cli/commit/dde2f55b970a7bca5799fdbb0bb47ca9e0547d19))
+* **roadmap:** read only the last comment as the job record ([#2630](https://github.com/dan-petty/devops-cli/issues/2630)) ([a3eb41f](https://github.com/dan-petty/devops-cli/commit/a3eb41f4ca6e58ceeed77b159eb910a3b3151b7a)), closes [#2538](https://github.com/dan-petty/devops-cli/issues/2538)
+* **service:** check the GitHub budget for each request ([#2631](https://github.com/dan-petty/devops-cli/issues/2631)) ([99066e7](https://github.com/dan-petty/devops-cli/commit/99066e7a1de937c1c597d6f70e827af79bd8768e))
+* **telemetry:** enable remote write 2.0 for created timestamps ([#2629](https://github.com/dan-petty/devops-cli/issues/2629)) ([e84a643](https://github.com/dan-petty/devops-cli/commit/e84a6430b9d82f6e91dd7177c839303de42b6324)), closes [#2506](https://github.com/dan-petty/devops-cli/issues/2506)
+
 ## [0.15.1](https://github.com/dan-petty/devops-cli/compare/v0.15.0...v0.15.1) (2026-10-29)
 
 
