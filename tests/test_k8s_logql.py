@@ -11,6 +11,9 @@ import pytest
 from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
     from tests.support.fakes.process import ProcessFake
     from tests.web_fakes import StubWeb
 
@@ -546,18 +549,14 @@ class TestLogsToolTakesNoLokiUrlFromTheModel:
         )
 
 
-def test_the_command_keeps_its_loki_url_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_command_keeps_its_loki_url_option(
+    monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+) -> None:
     """A person who types `--loki-url` still names the Loki that the command queries."""
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.k8s import app
-
     scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
     recorder = record_connects(monkeypatch, [http_response(200, LOKI_ANSWER)])
 
-    result = CliRunner().invoke(
-        app, ["logs", '{app="web"}', "--loki-url", "http://example.com:3100"]
-    )
+    result = cli("k8s", "logs", '{app="web"}', "--loki-url", "http://example.com:3100")
 
     assert (result.exit_code, [dial for dial in recorder.dialled if dial[0] == PUBLIC_ADDRESS]) == (
         0,
