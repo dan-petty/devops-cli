@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.5](https://github.com/dan-petty/devops-cli/compare/v0.16.4...v0.16.5) (2026-10-29)
+
+
+### Bug Fixes
+
+* **ai:** name benchmark servers and models by host and port ([#2666](https://github.com/dan-petty/devops-cli/issues/2666)) ([8a08031](https://github.com/dan-petty/devops-cli/commit/8a0803135112ab9163ffa2a9fdfaf75d2ceae801)), closes [#2481](https://github.com/dan-petty/devops-cli/issues/2481)
+* **config:** the audit-keys alert names the removal commands ([#2663](https://github.com/dan-petty/devops-cli/issues/2663)) ([3eb138d](https://github.com/dan-petty/devops-cli/commit/3eb138d063faa65c9ab65b4d6161acb683cb0833)), closes [#2513](https://github.com/dan-petty/devops-cli/issues/2513)
+* **k8s:** the MCP tool k8s_logs takes no Loki URL ([#2668](https://github.com/dan-petty/devops-cli/issues/2668)) ([39fae85](https://github.com/dan-petty/devops-cli/commit/39fae855b0efd5172702f81665bb0d7e3605fdac)), closes [#2635](https://github.com/dan-petty/devops-cli/issues/2635)
+
 ## [0.16.4](https://github.com/dan-petty/devops-cli/compare/v0.16.3...v0.16.4) (2026-10-29)
 
 
