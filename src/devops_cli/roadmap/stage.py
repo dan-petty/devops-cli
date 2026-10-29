@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -52,6 +52,7 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
+    CONST_GIT_CLI,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STATUS_BLOCKED,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
@@ -61,9 +62,19 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_LIMIT
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions import RoadmapStageError, ValidationError
+from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import (
+    DevOpsCLIError,
+    GitHubUnauthenticatedError,
+    GitOperationError,
+    RoadmapStageError,
+    ValidationError,
+)
 from devops_cli.git.branch_form import branch_name
-from devops_cli.git.worktree_add import issue_holder, read_remote_heads
+from devops_cli.git.worktree_add import add_worktree, issue_holder, read_remote_heads
+from devops_cli.git.worktree_inventory import git_message
+from devops_cli.github.client import CreatedPull
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec, output_of
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
@@ -76,10 +87,11 @@ from devops_cli.roadmap.stage_change import (
     measure_groups,
     pull_request_body,
     render_change,
+    safe_text,
     write_change_files,
 )
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
-from devops_cli.security.sanitizer import redact_text
+from devops_cli.security.sanitizer import mask_secrets, redact_text
 
 # ── The filter ────────────────────────────────────────────────────────────────
 
@@ -347,8 +359,8 @@ _PROBLEM_CHARS: Final[int] = 2000
 @dataclass(frozen=True)
 class StagedChange:
     """A change ready to write: the target, the title and the body of its draft pull request, the
-    files by path from the repository root, the measure of each task group, and whether
-    `openspec validate` ran on it (it does not without the binary)."""
+    files by path from the repository root, the measure of each task group, whether
+    `openspec validate` ran on it (it does not without the binary), and the budget of the run."""
 
     target: StageTarget
     title: str
@@ -356,6 +368,7 @@ class StagedChange:
     files: Mapping[str, str]
     groups: tuple[MeasuredGroup, ...]
     validated: bool
+    budget: int
 
 
 @dataclass(frozen=True)
@@ -477,7 +490,9 @@ class _Planner:
         problem = self._validate(target.change, files)
         if problem is not None:
             return problem
-        return StagedChange(target, title, body, files, tuple(measured), self._tool is not None)
+        return StagedChange(
+            target, title, body, files, tuple(measured), self._tool is not None, self._budget
+        )
 
     def _build(
         self, target: StageTarget, proposal: StageProposal
@@ -525,7 +540,7 @@ def _title_of(target: StageTarget, proposal: StageProposal) -> str:
     """The Conventional Commit title of the pull request: the type of the item's title, the
     scope and the summary of the reply."""
     scope = f"({proposal.scope})" if proposal.scope else ""
-    return f"{target.type_}{scope}: {proposal.summary.strip()}"
+    return f"{target.type_}{scope}: {safe_text(proposal.summary)}"
 
 
 def _capabilities(source: Path) -> frozenset[str]:
@@ -632,15 +647,192 @@ def plan_stage(
     )
 
 
+# ── The writes ────────────────────────────────────────────────────────────────
+
+# Every comment of the stage job starts with this marker.
+_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
+_CHANGES_DIRECTORY: Final[str] = "openspec/changes"
+_GIT_OPERATION: Final[str] = "roadmap.stage"
+
+
+@dataclass(frozen=True)
+class StageApplied:
+    """What a run wrote: the items it staged, the items it stopped on a group over the budget, and
+    the items whose writes failed."""
+
+    staged: tuple[int, ...] = ()
+    stopped: tuple[int, ...] = ()
+    failed: tuple[StageFailure, ...] = ()
+
+
+def _git(cwd: Path, *args: str) -> str:
+    """The output of `git <args>` in `cwd`; a failure raises `GitOperationError` with git's reason,
+    credentials masked."""
+    proc = run_subprocess([CONST_GIT_CLI, "-C", str(cwd), *args], check=False, quiet=True)
+    if proc.returncode != 0:
+        raise GitOperationError(
+            MESSAGES.roadmap.stage_git_failed.format(
+                command=" ".join(args), reason=mask_secrets(git_message(proc))
+            ),
+            operation=_GIT_OPERATION,
+        )
+    return proc.stdout.strip()
+
+
+@contextmanager
+def _worktree(source: Path, target: StageTarget) -> Iterator[Path]:
+    """The worktree of the item's branch at the fetched default branch. The worktree and the
+    local branch go when the block ends, so the clone keeps its HEAD and holds no issue."""
+    report = add_worktree(source, issue=target.item.number, type_=target.type_, slug=target.slug)
+    path = Path(report.path)
+    try:
+        yield path
+    finally:
+        _git(source, "worktree", "remove", "--force", str(path))
+        _git(source, "branch", "-D", target.branch)
+
+
+def _commit_and_push(path: Path, change: StagedChange) -> str:
+    """Write the files, make the one commit and push the branch with `-u origin`; the commit's
+    SHA."""
+    target = change.target
+    write_change_files(path, change.files)
+    _git(path, "add", "--", f"{_CHANGES_DIRECTORY}/{target.change}")
+    _git(path, "commit", "-q", "-m", change.title, "-m", f"Plans #{target.item.number}.")
+    sha = _git(path, "rev-parse", "HEAD")
+    _git(path, "push", "-q", "-u", "origin", target.branch)
+    return sha
+
+
+def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
+    """The draft pull request of the pushed branch. When GitHub does not make it, the branch
+    goes from `origin`, so no remote branch stays without an open pull request."""
+    branch = change.target.branch
+    try:
+        return get_github_session().client.create_draft_pull(
+            repo,
+            title=change.title,
+            body=change.body,
+            head=branch,
+            base=_git(source, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix(
+                "origin/"
+            ),
+        )
+    except DevOpsCLIError:
+        _git(source, "push", "origin", "--delete", branch)
+        raise
+
+
+def _groups_listed(groups: Sequence[MeasuredGroup]) -> str:
+    return "\n".join(
+        MESSAGES.roadmap.stage_comment_group.format(
+            index=index, title=safe_text(measured.group.title), tokens=measured.tokens
+        )
+        for index, measured in enumerate(groups, start=1)
+    )
+
+
+def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
+    """The groups as `stage.groups` holds them: a JSON list of [title, tokens]."""
+    return json.dumps([[m.group.title, m.tokens] for m in groups], ensure_ascii=False)
+
+
+def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
+    """Make the branch, the commit, the push and the draft of one item, then record them and
+    post the one comment. The Status of the item stays as it is."""
+    target = change.target
+    with _worktree(source, target) as path:
+        sha = _commit_and_push(path, change)
+        pull = _open_pull(repo, source, change)
+    store.set_marks(
+        target.item,
+        {
+            StageRecordKey.BRANCH: target.branch,
+            StageRecordKey.PR: str(pull.number),
+            StageRecordKey.SHA: sha,
+            StageRecordKey.GROUPS: _groups_recorded(change.groups),
+            StageRecordKey.NEEDS_SPLIT: None,
+        },
+    )
+    texts = MESSAGES.roadmap
+    store.comment(
+        target.item.number,
+        texts.stage_comment_staged.format(
+            marker=_COMMENT_MARKER,
+            branch=target.branch,
+            pull=pull.number,
+            budget=change.budget,
+            groups=_groups_listed(change.groups),
+            notes="" if change.validated else texts.stage_comment_not_validated,
+        ),
+    )
+
+
+def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
+    """Tell a person that a group is still over the budget, and record it: the job leaves the
+    item alone until a person decides."""
+    worst = stopped.worst
+    texts = MESSAGES.roadmap
+    number = stopped.target.item.number
+    store.set_marks(
+        stopped.target.item,
+        {
+            StageRecordKey.NEEDS_SPLIT: texts.stage_split_record.format(
+                title=worst.group.title, tokens=worst.tokens
+            ),
+            StageRecordKey.GROUPS: _groups_recorded(stopped.groups),
+        },
+    )
+    store.comment(
+        number,
+        texts.stage_comment_over_budget.format(
+            marker=_COMMENT_MARKER,
+            title=safe_text(worst.group.title),
+            tokens=worst.tokens,
+            budget=stopped.budget,
+            number=number,
+            groups=_groups_listed(stopped.groups),
+        ),
+    )
+
+
+def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> StageApplied:
+    """Writes the plan: stages each ready change, and stops each item whose group is over the
+    budget. A write that fails stops its item, and the others go on; rejected GitHub credentials
+    stop the run."""
+    checkout = Path(source)
+    staged: list[int] = []
+    failed: list[StageFailure] = []
+    for change in plan.ready:
+        item = change.target.item
+        try:
+            _stage_one(store, plan.repo, checkout, change)
+        except GitHubUnauthenticatedError:
+            raise
+        except DevOpsCLIError as exc:
+            failed.append(
+                StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)))
+            )
+        else:
+            staged.append(item.number)
+    for stopped in plan.over_budget:
+        _stop_on_budget(store, stopped)
+    return StageApplied(
+        tuple(staged), tuple(s.target.item.number for s in plan.over_budget), tuple(failed)
+    )
+
+
 __all__ = [
     "LeftOut",
     "OverBudget",
+    "StageApplied",
     "StageFailure",
     "StageFilter",
     "StagePlan",
     "StageSelection",
     "StageTarget",
     "StagedChange",
+    "apply_stage",
     "parse_filters",
     "plan_stage",
     "select_stageable",

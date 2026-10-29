@@ -99,3 +99,9 @@ def seed_stageable(
         labels=("type/bug",),
         fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
     )
+
+
+def write_big_file(repo: StageRepo, name: str = "src/devops_cli/big.py") -> None:
+    """A Python file in the clone that is far over a budget of a few thousand tokens."""
+    lines = [f"def function_{i}(value):\n    return value + {i}\n" for i in range(1500)]
+    (repo.clone / name).write_text("\n".join(lines), encoding="utf-8")

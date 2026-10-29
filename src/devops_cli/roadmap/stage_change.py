@@ -26,6 +26,7 @@ from devops_cli.core.paths import safe_resolve_subpath
 from devops_cli.exceptions import SecurityError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.refine import sanitize_text
 
 # The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming).
 SUMMARY_MAX_CHARS: Final[int] = 60
@@ -332,8 +333,14 @@ def render_change(
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
     """The body of the draft: `Plans #<issue>`, the what and why, and the change folder."""
     return MESSAGES.roadmap.stage_pull_request_body.format(
-        number=number, body=proposal.pull_request_body.strip(), change=change
+        number=number, body=safe_text(proposal.pull_request_body), change=change
     )
+
+
+def safe_text(text: str) -> str:
+    """The model's `text` on one line, with a handle, a link or a reference to another repository
+    in a code span, so it pings no one and links nothing in a pull request or a comment."""
+    return sanitize_text(" ".join(text.split()), set())
 
 
 # ── The measure ───────────────────────────────────────────────────────────────

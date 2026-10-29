@@ -83,6 +83,13 @@ class CommitPull(BaseModel):
     head_sha: str = Field(validation_alias=AliasPath("head", "sha"))
 
 
+class CreatedPull(BaseModel):
+    """A pull request that GitHub made: its number and the address of its page."""
+
+    number: int
+    html_url: str
+
+
 class IssueSearchHit(BaseModel):
     """One issue that an issue search found: its number, its state, why it was closed (None while
     it is open), and its body, which GitHub gives as null when it is empty."""
@@ -205,6 +212,19 @@ class GitHubClient:
         """The pull request's title, and the commit, branch and repository of its head and base."""
         path = _repo_path(repo, f"pulls/{number}")
         return _read_as(PullRequest, self._session.rest("GET", path), path=path)
+
+    def create_draft_pull(
+        self, repo: str, *, title: str, body: str, head: str, base: str
+    ) -> CreatedPull:
+        """Open a draft pull request from the branch `head` into `base` (#2654)."""
+        path = _repo_path(repo, "pulls")
+        payload = {"title": title, "body": body, "head": head, "base": base, "draft": True}
+        return _read_as(CreatedPull, self._session.rest("POST", path, body=payload), path=path)
+
+    def close_pull(self, repo: str, number: int) -> None:
+        """Close the pull request `number` without a merge."""
+        path = _repo_path(repo, f"pulls/{number}")
+        self._session.rest("PATCH", path, body={"state": "closed"})
 
     def get_pull_files(self, repo: str, number: int) -> list[PullRequestFile]:
         """Every file the pull request changes, read page by linked page."""

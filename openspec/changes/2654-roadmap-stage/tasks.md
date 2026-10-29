@@ -14,9 +14,9 @@
 
 ## 3. The writes of one item
 
-- [ ] 3.1 Write `tests/test_roadmap_stage_apply.py` (the branch, the one commit by the session identity, the push, the draft, the comment, the record, the stop on a refused push, the stop of a group over budget), and verify that `uv run devops ci test tests/test_roadmap_stage_apply.py` fails on the base
-- [ ] 3.2 Add `create_draft_pull` and `close_pull` in `src/devops_cli/github/client.py` and `apply_stage` in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_apply.py` passes
-- [ ] 3.3 Regenerate the documents, and verify that `uv run devops ci docs` passes
+- [x] 3.1 Write `tests/test_roadmap_stage_apply.py` (the branch, the one commit by the session identity, the push, the draft, the comment, the record, the stop on a refused push, the stop of a group over budget), and verify that `uv run devops ci test tests/test_roadmap_stage_apply.py` fails on the base
+- [x] 3.2 Add `create_draft_pull` and `close_pull` in `src/devops_cli/github/client.py` and `apply_stage` in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_apply.py` passes
+- [x] 3.3 Regenerate the documents, and verify that `uv run devops ci docs` passes
 
 ## 4. The reconcile of staged branches
 

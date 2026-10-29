@@ -30,6 +30,7 @@ from tests.support.roadmap_stage import (
     StageRepo,
     run_git,
     seed_stageable,
+    write_big_file,
 )
 
 if TYPE_CHECKING:
@@ -83,11 +84,6 @@ def _plan(
 
 def _requests(model_fake: ModelFake) -> list[dict[str, Any]]:
     return [json.loads(call.prompt) for call in model_fake.calls]
-
-
-def _write_big_file(repo: StageRepo, name: str = "src/devops_cli/big.py") -> None:
-    lines = [f"def function_{i}(value):\n    return value + {i}\n" for i in range(1500)]
-    (repo.clone / name).write_text("\n".join(lines), encoding="utf-8")
 
 
 def _about(number: int) -> Callable[[str], bool]:
@@ -184,7 +180,7 @@ def test_a_group_is_measured_with_the_packed_files_it_names(
 def test_a_group_over_the_budget_is_split_once(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    _write_big_file(stage_repo)
+    write_big_file(stage_repo)
     big = make_stage_proposal()
     heavy = big.groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
     light = [
@@ -208,7 +204,7 @@ def test_a_group_over_the_budget_is_split_once(
 def test_a_group_still_over_the_budget_after_the_split_stops_the_item(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    _write_big_file(stage_repo)
+    write_big_file(stage_repo)
     heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
     model_fake.answer(
         make_stage_proposal().model_copy(update={"groups": [heavy]}),

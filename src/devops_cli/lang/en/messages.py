@@ -1969,6 +1969,25 @@ class RoadmapMessages:
     )
     stage_secret: str = "The reply has text that looks like a secret, in {path}."
     stage_violations: str = "{count} schema violation(s)"
+    stage_git_failed: str = "`git {command}` failed: {reason}"
+    # The comments of the stage job; each starts with its marker.
+    stage_comment_staged: str = (
+        "{marker}\nStaged: branch `{branch}`, draft pull request #{pull}. The pull request "
+        "plans the item and closes no issue.\n\nThe task groups, with the tokens of the inputs "
+        "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
+    )
+    stage_comment_group: str = "{index}. {title}: {tokens} tokens"
+    stage_comment_not_validated: str = (
+        "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
+        "OpenSpec gate of CI judges the change."
+    )
+    stage_comment_over_budget: str = (
+        '{marker}\nThe stage job stopped. The inputs of the step of the task group "{title}" '
+        "hold {tokens} tokens, over the budget of {budget} tokens, also after the model split "
+        "the groups once. A person decides how to split the item. The job stages the item again "
+        "when a person runs it with --item {number}.\n\nThe task groups:\n\n{groups}"
+    )
+    stage_split_record: str = "{title} ({tokens} tokens)"
     stage_none: str = "None."
     stage_fits_one_pr: str = "The change fits one pull request."
     stage_pending_review: str = (
