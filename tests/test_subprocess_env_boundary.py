@@ -424,6 +424,132 @@ def test_no_key_of_the_ambient_allowlist_is_refused_from_a_caller(key: str) -> N
     assert build_subprocess_env(env={key: "example"})[key] == "example"
 
 
+# Each of these keys makes a library of the child load a module that the caller chooses, or
+# makes Python start from a virtual environment of the caller (#2503). OpenSSL reads a
+# configuration from OPENSSL_CONF, included files from OPENSSL_CONF_INCLUDE, providers from
+# OPENSSL_MODULES and engines from OPENSSL_ENGINES. openssl-env(7) calls these four
+# security-sensitive. OPENSSL_SEC_MEM, OPENSSL_ia32cap and OPENSSL_EXAMPLE_KEY load no module.
+# They pin the rule that the guard refuses each OPENSSL key. The KRB5 keys of kerberos(7) pin the
+# same rule for Kerberos. MIT Kerberos loads the plug-in modules that the file of KRB5_CONFIG
+# names (krb5.conf(5)). The GSS-API library loads the libraries that the file of GSS_MECH_CONFIG
+# lists (kerberos(7)). Cyrus SASL loads the plug-ins in the directory of SASL_PATH. Python takes
+# sys.executable from PYTHONEXECUTABLE or __PYVENV_LAUNCHER__, then reads the pyvenv.cfg and the
+# .pth files of that environment (Modules/getpath.py of CPython).
+REFUSED_LIBRARY_KEYS: tuple[str, ...] = (
+    "OPENSSL_CONF",
+    "OPENSSL_CONF_INCLUDE",
+    "OPENSSL_MODULES",
+    "OPENSSL_ENGINES",
+    "OPENSSL_SEC_MEM",
+    "OPENSSL_ia32cap",
+    "OPENSSL_EXAMPLE_KEY",
+    "OPENSSL",
+    "KRB5_CONFIG",
+    "KRB5_KTNAME",
+    "KRB5_KDC_PROFILE",
+    "KRB5_TRACE",
+    "KRB5CCNAME",
+    "KRB5_CLIENT_KTNAME",
+    "KRB5RCACHEDIR",
+    "GSS_MECH_CONFIG",
+    "SASL_PATH",
+    "PYTHONEXECUTABLE",
+    "__PYVENV_LAUNCHER__",
+)
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+@pytest.mark.parametrize(
+    "key", [*REFUSED_LIBRARY_KEYS, *(key.lower() for key in REFUSED_LIBRARY_KEYS)]
+)
+def test_a_caller_override_that_makes_a_library_load_a_module_is_refused(
+    key: str, isolate_env: bool
+) -> None:
+    """A caller override of an OpenSSL or Kerberos key, of the GSS-API mechanism file, of the
+    Cyrus SASL plug-in directory or of a Python launcher key raises `SecurityError` that names
+    the key, in upper and in lower case, with isolation on and off (#2503)."""
+    with pytest.raises(SecurityError) as refused:
+        build_subprocess_env(
+            env={"EXAMPLE_FLAG": "on", key: "example.cnf"}, isolate_env=isolate_env
+        )
+
+    assert (refused.value.message, refused.value.exit_code, refused.value.error_code) == (
+        f"Prohibited dangerous environment variable override: '{key}'",
+        CONST_EXIT_FAILURE,
+        "SECURITY_ERROR",
+    )
+
+
+def test_an_isolated_child_gets_no_library_key_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With isolation on, no key that makes a library load a module reaches the child from the
+    environment of the person, in upper or in lower case (#2503)."""
+    environment_keys = [*REFUSED_LIBRARY_KEYS, *(key.lower() for key in REFUSED_LIBRARY_KEYS)]
+    for key in environment_keys:
+        monkeypatch.setenv(key, "example")
+
+    env = build_subprocess_env(env={"EXAMPLE_FLAG": "on"})
+
+    assert sorted(set(environment_keys) & set(env)) == []
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_a_library_key_that_loads_no_module_reaches_the_child(
+    isolate_env: bool, tmp_path: Path
+) -> None:
+    """A key that names certificate data, a locale or message directory, a log level or a
+    configuration directory of a library loads no module, so it reaches the child (#2503)."""
+    override = {
+        "SSL_CERT_FILE": str(tmp_path / "ca.pem"),
+        "SSL_CERT_DIR": str(tmp_path / "certs"),
+        "CURL_CA_BUNDLE": str(tmp_path / "ca.pem"),
+        "CURL_HOME": str(tmp_path / "curl"),
+        "NODE_EXTRA_CA_CERTS": str(tmp_path / "ca.pem"),
+        "LOCPATH": str(tmp_path / "locale"),
+        "NLSPATH": str(tmp_path / "%N"),
+        "GNUTLS_DEBUG_LEVEL": "0",
+        "P11_KIT_DEBUG": "none",
+        "SASL_CONF_PATH": str(tmp_path / "sasl"),
+        "LDAPCONF": str(tmp_path / "ldap.conf"),
+    }
+
+    env = build_subprocess_env(env=override, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in override} == override
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_a_key_that_only_looks_like_a_refused_library_key_reaches_the_child(
+    isolate_env: bool,
+) -> None:
+    """A key matches the OpenSSL and Kerberos families only when it starts with the family name.
+    It matches another refused key only when it is that key (#2503)."""
+    override = {
+        "EXAMPLE_OPENSSL_CONF": "example.cnf",
+        "EXAMPLE_KRB5_CONFIG": "example.conf",
+        "GSS_MECH_CONFIGURATION": "example",
+        "SASL_PATHS": "example",
+        "PYTHONEXECUTABLES": "example",
+    }
+
+    env = build_subprocess_env(env=override, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in override} == override
+
+
+def test_run_subprocess_starts_no_child_for_a_refused_library_key(tmp_path: Path) -> None:
+    """`run_subprocess` raises `SecurityError` for a refused library key before it starts the
+    program, so the program runs nothing of the place that the key names (#2503)."""
+    ran = tmp_path / "ran"
+    program = [sys.executable, "-c", f"open({str(ran)!r}, 'w').close()"]
+
+    with pytest.raises(SecurityError):
+        run_subprocess(program, env={"OPENSSL_CONF": str(tmp_path / "o.cnf")})
+
+    assert not ran.exists()
+
+
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
 @pytest.mark.parametrize(
     ("override", "named_key"),
