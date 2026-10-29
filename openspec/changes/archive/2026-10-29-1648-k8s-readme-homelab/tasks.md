@@ -22,7 +22,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1648-k8s-readme-homelab`
 
 ## Workflow follow-up
