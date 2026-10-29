@@ -12,13 +12,14 @@ import json
 import re
 import shlex
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
 import yaml
 
 from devops_cli.commands.ci import get_check_spec, resolve_step_rows
+from devops_cli.config.constants import CONST_DEFECT_TITLE_PATTERN
 from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.markdown_examples import CodeSnippet, devops_commands
@@ -637,69 +638,124 @@ def test_sdlc_names_only_the_supply_chain_controls_the_repository_runs() -> None
     ) == ([], ["uv", "audit"], True)
 
 
-def test_fail_to_pass_skips_the_release_pull_request_without_cancelled_runs() -> None:
-    """The release pull request changes only the changelog, the manifest and the version lines,
-    so no test replays there and both jobs skip. release-please pushes, then edits and labels the
-    pull request, so three events start runs on one head; each run of a release-please branch gets
-    its own concurrency group, so none cancels another and the pull request shows no cancelled
-    check (#1960). Every other pull request keeps one group, where a newer event cancels an older
-    run."""
+def _starts_on(paths: list[str], changed: str) -> bool:
+    """Whether a `pull_request` path filter starts its workflow for a change to `changed`: the
+    last pattern that matches decides, and a `!` pattern excludes, as GitHub documents."""
+    started = False
+    for pattern in paths:
+        if PurePosixPath(changed).full_match(pattern.removeprefix("!")):
+            started = not pattern.startswith("!")
+    return started
+
+
+@pytest.mark.parametrize(
+    ("changed", "starts"),
+    [
+        ("src/devops_cli/ci/fail_to_pass.py", True),
+        ("src/devops_cli/commands/ci.py", True),
+        ("src/devops_cli/ai/knowledge_base/devops_cli/tasks/testing.md", False),
+        ("tests/test_fail_to_pass.py", False),
+        ("Dockerfile", False),
+        ("docs/TESTING.md", False),
+        # The files of a release pull request (the last `chore(main): release` commit).
+        (".release-please-manifest.json", False),
+        ("CHANGELOG.md", False),
+        ("pyproject.toml", False),
+        ("uv.lock", False),
+    ],
+)
+def test_fail_to_pass_starts_only_for_a_change_to_src_outside_the_knowledge_base(
+    changed: str, starts: bool
+) -> None:
+    """Only a change to the code under src/ can make a test fail on base, so the workflow starts
+    for no other change, the release pull request among them (#1879). It keeps one concurrency
+    group for each ref, where a newer event cancels an older run (#1960)."""
     workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")
-    skip = "${{ !startsWith(github.head_ref, 'release-please--') }}"
-    assert (
-        {name: job.get("if") for name, job in workflow["jobs"].items()},
-        workflow["concurrency"],
-    ) == (
-        {"fail-to-pass": skip, "self-check": skip},
-        {
-            "group": "fail-to-pass-${{ startsWith(github.head_ref, 'release-please--')"
-            " && github.run_id || github.ref }}",
-            "cancel-in-progress": True,
-        },
+    paths = workflow["on"]["pull_request"]["paths"]
+    assert (_starts_on(paths, changed), workflow["concurrency"]) == (
+        starts,
+        {"group": "fail-to-pass-${{ github.ref }}", "cancel-in-progress": True},
     )
 
 
 def test_workflow_contract_fail_to_pass() -> None:
-    """Validate `.github/workflows/fail-to-pass.yml` triggers, env, self-check, and no `${{` in `run:` (#844)."""
+    """`.github/workflows/fail-to-pass.yml` runs one replay job on a pull request into main that
+    changes `src/` outside the knowledge base, and passes the replay no title, label or body
+    (#844, #1879)."""
     workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")
     pr_trigger = workflow.get("on", {}).get("pull_request", {})
     jobs = workflow.get("jobs", {})
     gate_steps = jobs.get("fail-to-pass", {}).get("steps", [])
-    self_steps = jobs.get("self-check", {}).get("steps", [])
-    all_steps = [*gate_steps, *self_steps]
     replay_step = next(
         (s for s in gate_steps if "devops ci fail-to-pass" in str(s.get("run", ""))),
-        {},
-    )
-    self_replay = next(
-        (s for s in self_steps if "5768cd9" in str(s.get("run", ""))),
         {},
     )
     commands = _extract_devops_commands(workflow)
     assert (
         pr_trigger.get("types"),
         pr_trigger.get("branches"),
+        pr_trigger.get("paths"),
+        sorted(jobs),
         all(
             s.get("with", {}).get("fetch-depth") == 0
-            for s in all_steps
+            for s in gate_steps
             if "actions/checkout" in str(s.get("uses", ""))
         ),
-        {"PR_TITLE", "PR_LABELS", "PR_BODY"} <= set(replay_step.get("env", {})),
+        sorted(replay_step.get("env", {})),
         "devops ci fail-to-pass" in str(replay_step.get("run", "")),
-        any("${{" in str(s.get("run", "")) for s in all_steps),
-        "36b2bee" in str(self_replay.get("run", ""))
-        and "16 failed and 24 passed in tests/test_ai_fixer.py" in str(self_replay.get("run", "")),
+        any("${{" in str(s.get("run", "")) for s in gate_steps),
         [resolve_devops_argv(tokens) for tokens in commands],
     ) == (
-        ["opened", "synchronize", "reopened", "edited", "labeled"],
+        ["opened", "synchronize", "reopened", "edited"],
         ["main"],
+        ["src/**", "!src/devops_cli/ai/knowledge_base/**"],
+        ["fail-to-pass"],
         True,
-        True,
+        ["BASE_REF"],
         True,
         False,
-        True,
-        [None, None],
+        [None],
     )
+
+
+# A job condition that only joins `startsWith(<pull request title>, '<prefix>')` terms with `||`.
+_TITLE_PREFIX_TERM = re.compile(r"startsWith\(github\.event\.pull_request\.title, '([^']+)'\)")
+
+
+def _title_prefixes(condition: str) -> list[str]:
+    """The title prefixes of a job condition that only joins `startsWith` terms on the pull
+    request title with `||`, failing on any other form."""
+    expression = condition.strip().removeprefix("${{").removesuffix("}}").strip()
+    matches = [_TITLE_PREFIX_TERM.fullmatch(term.strip()) for term in expression.split("||")]
+    assert all(matches), expression
+    return [match.group(1) for match in matches if match]
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "fix(ci): replay the changed tests",
+        "fix: replay the changed tests",
+        "FIX(ci): replay the changed tests",
+        "fix(ci)!: replay the changed tests",
+        "fix!: replay the changed tests",
+        "feat(ci): add a check",
+        "docs(ci): describe the check",
+        "refactor(ci): move the check",
+        "ci(fail-to-pass): scope the check",
+        "chore(main): release 1.0.0",
+        "fixup: squash a commit",
+        "fix the check",
+    ],
+)
+def test_the_fail_to_pass_job_runs_for_a_fix_title_and_no_other(title: str) -> None:
+    """The replay job runs for a title that `CONST_DEFECT_TITLE_PATTERN` reads as a fix, and is
+    skipped for every other title. GitHub's `startsWith` ignores case, as the pattern does."""
+    job = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")["jobs"]["fail-to-pass"]
+    prefixes = _title_prefixes(str(job.get("if", "")))
+    runs = any(title.lower().startswith(prefix.lower()) for prefix in prefixes)
+    is_fix = re.match(CONST_DEFECT_TITLE_PATTERN, title, re.IGNORECASE) is not None
+    assert runs == is_fix
 
 
 # ── The OpenSpec gate's workflows (#1844) ─────────────────────────────────────

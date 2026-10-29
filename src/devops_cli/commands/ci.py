@@ -2303,11 +2303,6 @@ def fail_to_pass(
         str, typer.Option("--base", "-b", help=HELP.options.base_branch)
     ] = CONST_GIT_MAIN_BRANCH,
     head: Annotated[str, typer.Option("--head", help=HELP.ci.fail_to_pass_head)] = "HEAD",
-    title: Annotated[str | None, typer.Option("--title", help=HELP.ci.fail_to_pass_title)] = None,
-    labels: Annotated[
-        str | None, typer.Option("--labels", help=HELP.ci.fail_to_pass_labels)
-    ] = None,
-    body: Annotated[str | None, typer.Option("--body", help=HELP.ci.fail_to_pass_body)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Replay changed tests against the merge-base tree to prove a fix's tests fail on base (#844)."""
@@ -2320,23 +2315,9 @@ def fail_to_pass(
         return
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    from devops_cli.ci.fail_to_pass import (
-        format_fail_to_pass_report,
-        parse_pr_labels,
-        run_fail_to_pass,
-    )
+    from devops_cli.ci.fail_to_pass import format_fail_to_pass_report, run_fail_to_pass
 
-    resolved_title = title if title is not None else os.environ.get("PR_TITLE")
-    resolved_labels = parse_pr_labels(labels if labels is not None else os.environ.get("PR_LABELS"))
-    resolved_body = body if body is not None else os.environ.get("PR_BODY")
-    report = run_fail_to_pass(
-        _get_project_root(),
-        base=base,
-        head=head,
-        title=resolved_title,
-        labels=resolved_labels,
-        body=resolved_body,
-    )
+    report = run_fail_to_pass(_get_project_root(), base=base, head=head)
     output = format_fail_to_pass_report(report)
     _append_step_summary(output)
     if not report.satisfied:

@@ -1437,23 +1437,22 @@ class CIMessages:
     )
     mutate_survivor: str = "{path}:{line} {qualname}"
     mutate_counts: str = "Mutants of the selected functions: {counts}."
-    fail_to_pass_not_applicable: str = "Fail-to-pass: not applicable: {reason}"
     fail_to_pass_test_line: str = "  {status} on base: {test_id}{detail}"
     fail_to_pass_summary: str = (
         "{failed} failed on base ({failed} failed and {passed} passed in {files}; "
         "{errored} errored)."
     )
     fail_to_pass_no_tests: str = (
-        "Defect PR modifies no tests/**/test_*.py files and declares no "
-        "'Fail-to-pass: not applicable: <reason>' line."
+        "The fix changes no tests/**/test_*.py file. A fix adds or changes a test that fails on "
+        "its base."
     )
     fail_to_pass_none_failed: str = (
-        "Defect PR requires at least one changed test to fail in the call phase on base ({tests})."
+        "A fix needs at least one changed test that fails in the call phase on base ({tests})."
     )
     fail_to_pass_could_not_run: str = (
         "The fail-to-pass replay could not run on base: pytest exited with status {status} "
-        "replaying {files}. A pull request whose replay cannot run on its base can declare "
-        "'Fail-to-pass: not applicable: <reason>' in its body."
+        "replaying {files}. Merge the change to the test harness or to the dependencies first, in "
+        "a pull request that is not a fix. Then replay this fix against the new base."
     )
     fail_to_pass_replay_output: str = "pytest's last output: {output}"
     fail_to_pass_worktree_failed: str = (
