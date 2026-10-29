@@ -560,6 +560,9 @@ _DECISION_WITHOUT_SOURCE: Final[str] = "(decision with no verified source)"
 # The characters that can close a question's text without answering it.
 _EMPHASIS_CHARS: Final[str] = "*_` \t"
 _KEY_QUESTIONS_TITLE_RE = re.compile(r"Key questions\b", re.IGNORECASE)
+_DEPENDENCIES_TITLE_RE = re.compile(r"Dependencies\b", re.IGNORECASE)
+# The punctuation that can follow or wrap an issue reference in a list of them, such as `(#12),`.
+_REFERENCE_PUNCTUATION: Final[str] = ".,;:()[]"
 
 
 def _section_tokens(tokens: Sequence[Token], title_re: re.Pattern[str]) -> list[Token]:
@@ -623,6 +626,24 @@ def body_questions(body: str) -> list[str]:
     section = _section_tokens(MarkdownIt("commonmark").parse(persons_text), _KEY_QUESTIONS_TITLE_RE)
     asked = (_unanswered_question(item) for item in _top_items(section))
     return [question for question in asked if question]
+
+
+def body_dependencies(body: str) -> list[int]:
+    """The issues the body names under a "Dependencies" heading, in order (#2654).
+
+    The section is the one refine writes (`render_proposal_section`) or a person writes: the
+    text under the heading, up to the next heading of the same or a higher level. A word that is
+    `#` and digits, with the punctuation of a list around it, is an issue; the body is parsed as
+    CommonMark, so a heading in a code block is not a heading.
+    """
+    section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
+    words = (
+        word.strip(_REFERENCE_PUNCTUATION)
+        for token in section
+        if token.type == "inline"
+        for word in token.content.split()
+    )
+    return [int(word[1:]) for word in words if word.startswith("#") and word[1:].isdigit()]
 
 
 def _extract_heading_bullets(body: str, heading_re: re.Pattern[str]) -> list[str]:
@@ -1924,6 +1945,7 @@ __all__ = [
     "WaitingItem",
     "WebSearch",
     "apply_refine",
+    "body_dependencies",
     "body_questions",
     "check_person_edits",
     "check_ready",

@@ -2,9 +2,9 @@
 
 ## 1. The selection and the settings
 
-- [ ] 1.1 Write `tests/test_roadmap_stage_selection.py` (the default filter, repeated values, an unknown family, each reason to leave an item out, the limit and `--item`), and verify that `uv run devops ci test tests/test_roadmap_stage_selection.py` fails on the base: the module `devops_cli.roadmap.stage` does not exist
-- [ ] 1.2 Add `StageRecordKey` in `src/devops_cli/roadmap/store.py`, the constants, defaults and the `roadmap.stage.step_tokens` setting, the messages, the exception `RoadmapStageError`, `read_remote_heads` and `issue_holder` in `src/devops_cli/git/worktree_add.py`, `body_dependencies` in `src/devops_cli/roadmap/refine.py`, and the selection in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_selection.py` passes
-- [ ] 1.3 Regenerate the configuration documents, and verify that `uv run devops docs generate --sync-readme` leaves no diff after a second run
+- [x] 1.1 Write `tests/test_roadmap_stage_selection.py` (the default filter, repeated values, an unknown family, each reason to leave an item out, the limit and `--item`), and verify that `uv run devops ci test tests/test_roadmap_stage_selection.py` fails on the base: the module `devops_cli.roadmap.stage` does not exist
+- [x] 1.2 Add `StageRecordKey` in `src/devops_cli/roadmap/store.py`, the constants, defaults and the `roadmap.stage.step_tokens` setting, the messages, the exception `RoadmapStageError`, `read_remote_heads` and `issue_holder` in `src/devops_cli/git/worktree_add.py`, `body_dependencies` in `src/devops_cli/roadmap/refine.py`, and the selection in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_selection.py` passes
+- [x] 1.3 Regenerate the configuration documents, and verify that `uv run devops docs generate --sync-readme` leaves no diff after a second run
 
 ## 2. The plan of one item
 

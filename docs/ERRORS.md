@@ -95,6 +95,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `RoadmapItemChangedError` | `ROADMAP_ITEM_CHANGED` | `1` | Roadmap | Raised before a job's field write that would revert a change made since it read the Item. |
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |
+| `RoadmapStageError` | `ROADMAP_STAGE_FAILED` | `1` | Roadmap | Raised after a stage run in which one or more items failed (#2654). |
 | `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |
 | `SSHRegistrationError` | `GITHUB_OPERATION_FAILED` | `1` | Devops_cli.github.ssh | Raised when SSH/signing key registration on GitHub fails. |
 | `SSRFBlockedError` | `SSRF_BLOCKED` | `2` | Security | Raised when an outbound HTTP request targets a private or forbidden network IP. |

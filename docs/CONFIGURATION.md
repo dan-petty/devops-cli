@@ -262,6 +262,14 @@ In-cluster webhook receiver and background job runner settings.
 | `github_requests_per_hour` | `int` | `500` | - | - |
 | `model_call_concurrency` | `int` | `1` | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
 
+## Roadmap Configuration (`roadmap`)
+
+roadmap configuration settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `stage` | `RoadmapStageConfig` | `step_tokens=40000` | - | - |
+
 ## Firecrawl Configuration (`firecrawl`)
 
 Firecrawl web search API authentication settings.

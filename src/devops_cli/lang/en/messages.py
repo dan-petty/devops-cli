@@ -1927,6 +1927,40 @@ class RoadmapMessages:
     alternatives_block_no_tool: str = "Tool: none found."
     alternatives_maintained: str = "maintained"
     alternatives_not_maintained: str = "not maintained"
+    # `devops roadmap stage` (#2654): the filter, and why the job leaves an item out.
+    stage_filter_family: str = (
+        "'{family}' is not a label family to filter on. Use one of: {families}."
+    )
+    stage_filter_form: str = "'{option}' is not in the form family=value."
+    stage_status_none: str = "none"
+    stage_left_started: str = (
+        "Status {status}: the stage job takes only items that no one has started."
+    )
+    stage_left_not_ready: str = "Status {status}: --item stages only an open Ready item."
+    stage_left_needs_split: str = (
+        "The item has the label needs-split. Refine proposed a split, and a person makes it first."
+    )
+    stage_left_author: str = (
+        "The author's association with the repository is {association}. The model reads the "
+        "body, so the stage job takes only the items that the owner, a member or a collaborator "
+        "opened."
+    )
+    stage_left_dependency: str = "The item depends on the open issue {issues}."
+    stage_left_title_type: str = (
+        "The title has no Conventional Commit type, so the branch has no type."
+    )
+    stage_left_title_slug: str = "The summary of the title has no word for the branch name."
+    stage_left_recorded_split: str = (
+        "An earlier run stopped on a task group over the budget: {detail}. A person decides, or "
+        "runs the job with --item {number}."
+    )
+    stage_left_secret: str = (
+        "The title or the body looks like a secret, so the model does not read it."
+    )
+    stage_left_closed: str = "The issue is closed."
+    stage_left_not_item: str = (
+        "The issue is no item: it has no Priority label, or it does not exist."
+    )
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
