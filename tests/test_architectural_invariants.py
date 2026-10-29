@@ -31,10 +31,6 @@ from devops_cli.config.constants import (
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_MAX_NESTING_DEPTH,
-)
-from devops_cli.core.code_metrics import measure_tree
 from devops_cli.core.import_graph import (
     build_import_graph,
     import_cycle_violations,
@@ -329,25 +325,17 @@ def _parse_src() -> dict[Path, ast.Module]:
 def test_the_source_tree_keeps_its_structural_invariants(
     parsed_source_trees: dict[Path, ast.Module],
 ) -> None:
-    """Every function under src/devops_cli nests at most DEFAULT_MAX_NESTING_DEPTH deep,
-    the module-level import graph has no cycles, and no module outside `devops_cli.commands.*`
-    and `devops_cli.main` imports `devops_cli.commands` (#773, #848).
+    """The module-level import graph under src/devops_cli has no cycles, and no module outside
+    `devops_cli.commands.*` and `devops_cli.main` imports `devops_cli.commands` (#773, #848).
 
-    The function body is depth 1, as the structural-invariants commit hook counts it. This is
-    the one test that parses the whole tree: further whole-tree rules belong here, on its parse.
+    Nesting depth is Ruff's PLR1702 in `ruff check` (#1876). This is the one test that parses the
+    whole tree: further whole-tree rules belong here, on its parse.
     """
     trees = parsed_source_trees
-    too_deep = [
-        f"{path}:{fn.line_number}: {fn.name} nesting {fn.max_nesting_depth}"
-        for path, tree in trees.items()
-        for fn in measure_tree(tree)
-        if fn.max_nesting_depth > DEFAULT_MAX_NESTING_DEPTH
-    ]
     assert (
-        too_deep,
         import_cycle_violations(trees),
         interface_layer_violations(trees),
-    ) == ([], [], [])
+    ) == ([], [])
 
 
 def test_no_bare_generic_exceptions_in_refactored_modules() -> None:

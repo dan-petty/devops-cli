@@ -1,4 +1,4 @@
-"""Tests for AST code complexity and nesting scanner."""
+"""Tests for the AST code complexity scanner. Ruff's PLR1702 caps nesting (#1876)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ def test_analyze_simple_function(tmp_path: Path) -> None:
     assert len(functions) == 1
     assert functions[0].name == "add"
     assert functions[0].cyclomatic_complexity == 1
-    assert functions[0].max_nesting_depth == 1
 
 
 def test_analyze_complex_function(tmp_path: Path) -> None:
@@ -53,11 +52,10 @@ def test_analyze_complex_function(tmp_path: Path) -> None:
     fn = functions[0]
     assert fn.name == "process"
     assert fn.cyclomatic_complexity >= 5
-    assert fn.max_nesting_depth >= 4
 
 
 def test_run_complexity_scan_thresholds(tmp_path: Path) -> None:
-    """Verify findings generation when complexity exceeds limits."""
+    """A function over the complexity cap gets one finding; its depth of six blocks gets none."""
     sample = tmp_path / "deep.py"
     sample.write_text(
         "def deep_nesting(val: int) -> None:\n"
@@ -70,10 +68,9 @@ def test_run_complexity_scan_thresholds(tmp_path: Path) -> None:
         "                            print(val)\n",
         encoding="utf-8",
     )
-    findings = run_complexity_scan(sample, max_complexity=2, max_nesting_depth=3)
-    assert len(findings) >= 1
-    assert any("Excessive Nesting Depth" in f.title for f in findings)
-    assert any("High Cyclomatic Complexity" in f.title for f in findings)
+    findings = run_complexity_scan(sample, max_complexity=2)
+
+    assert [f.title for f in findings] == ["High Cyclomatic Complexity in `deep_nesting` (7 > 2)"]
 
 
 def test_scan_complexity_cli(tmp_path: Path, cli: Callable[..., Any]) -> None:
@@ -91,7 +88,11 @@ def test_scan_complexity_cli(tmp_path: Path, cli: Callable[..., Any]) -> None:
     # Test clean pass table output
     res_clean = cli(["scan", "complexity", str(sample), "--max-complexity", "20"])
     assert res_clean.exit_code == 0
-    assert "Code complexity and indentation depth within standard limits" in res_clean.output
+    assert "Code complexity within standard limits" in res_clean.output
+
+    # Nesting is Ruff's PLR1702, so the scanner has no nesting option
+    res_indent = cli(["scan", "complexity", str(sample), "--max-indent", "5"])
+    assert res_indent.exit_code == 2
 
     # Test dry run
     res_dry = cli(["scan", "complexity", str(sample), "--dry-run"])
@@ -117,11 +118,11 @@ def test_analyze_class_method_distinction(tmp_path: Path) -> None:
     assert method.is_method is True
 
 
-def test_a_closure_counts_toward_the_enclosing_function_but_nests_on_its_own(
+def test_a_closure_counts_toward_the_enclosing_function_and_is_reported_on_its_own(
     tmp_path: Path,
 ) -> None:
     """As in Ruff's C901, a closure adds 1 plus its own count to the function defining it and
-    is reported on its own too; its nesting is measured from its own body."""
+    is reported on its own too."""
     sample = tmp_path / "closure.py"
     sample.write_text(
         "def outer(x):\n"
@@ -133,11 +134,9 @@ def test_a_closure_counts_toward_the_enclosing_function_but_nests_on_its_own(
         "    return inner\n",
         encoding="utf-8",
     )
-    assert sorted(
-        (f.name, f.cyclomatic_complexity, f.max_nesting_depth) for f in _measure(sample)
-    ) == [
-        ("inner", 3, 2),
-        ("outer", 4, 1),
+    assert sorted((f.name, f.cyclomatic_complexity) for f in _measure(sample)) == [
+        ("inner", 3),
+        ("outer", 4),
     ]
 
 
@@ -228,7 +227,7 @@ def test_complexity_findings_are_located_relative_to_a_nested_worktree(
     )
     monkeypatch.chdir(nested)
 
-    findings = run_complexity_scan(nested / "src", max_complexity=2, max_nesting_depth=3)
+    findings = run_complexity_scan(nested / "src", max_complexity=2)
 
     locations = [finding.location for finding in findings]
     assert (

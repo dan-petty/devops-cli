@@ -11,7 +11,7 @@ These rules apply to every contributor. [`AGENTS.md`](AGENTS.md) sends agents he
 - **Test-First Implementation (TDD)**: All features, fixes, and refactorings **must** have tests written first. Tests serve as the executable documentation of public interfaces, edge cases, and architectural boundaries.
 - **Complexity and Nesting Caps**:
   - Ruff caps cyclomatic complexity at 10 (`C901`) in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. `devops scan complexity` reports the same McCabe count and does not gate.
-  - Maximum nesting depth $\le 5$ (< 6 indentation levels) project-wide.
+  - Ruff caps nesting at 4 nested blocks in a function (`PLR1702`, `max-nested-blocks = 4` in `pyproject.toml`). It counts `if`, `for`, `while`, `with` and `try` blocks, and not `match` blocks. `PLR1702` is a preview rule, so `pyproject.toml` turns on lint preview with `explicit-preview-rules`, and `tests/test_ruff_complexity_cap.py` checks the cap, the preview settings and the formatter's stable style.
   - Decompose multi-step procedures into dedicated single-responsibility helpers and pure predicates.
   - For a closed set of cases, use `match` with `assert_never`, or a table. Do not write an `if`/`elif` chain.
 - **Closed Lists and Standard Parsers**:

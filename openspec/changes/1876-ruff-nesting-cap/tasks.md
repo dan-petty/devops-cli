@@ -11,11 +11,11 @@
 
 ## 2. The hook and the nesting figure are deleted
 
-- [ ] Add failing tests: the complexity scan gives no nesting finding and refuses `--max-indent`; the spec verifier records no indentation rule
+- [x] Add failing tests: the complexity scan gives no nesting finding and refuses `--max-indent`; the spec verifier records no indentation rule
   - Verification: `uv run devops ci test tests/test_scan_complexity.py tests/test_ai_spec.py tests/test_docs_command_resolver.py`
-- [ ] Delete the `structural-invariants` hook, the nesting leg of the whole-tree test, the nesting code of `core/code_metrics.py`, `DEFAULT_MAX_NESTING_DEPTH`, `--max-indent` and the `max_indentation` rule, with their tests
+- [x] Delete the `structural-invariants` hook, the nesting leg of the whole-tree test, the nesting code of `core/code_metrics.py`, `DEFAULT_MAX_NESTING_DEPTH`, `--max-indent` and the `max_indentation` rule, with their tests
   - Verification: `uv run devops ci test tests/test_code_metrics.py tests/test_architectural_invariants.py tests/test_review_ruff_mypy_evidence.py tests/test_mcp.py tests/test_fastmcp_contracts.py`
-- [ ] Name `PLR1702` at 4 in `CONTRIBUTING.md`, `docs/SDLC.md`, `docs/SELF_IMPROVEMENT.md`, `docs/VISION.md` and the code-review knowledge-base page, and regenerate the documentation
+- [x] Name `PLR1702` at 4 in `CONTRIBUTING.md`, `docs/SDLC.md`, `docs/SELF_IMPROVEMENT.md`, `docs/VISION.md` and the code-review knowledge-base page, and regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 3. Archive

@@ -300,7 +300,7 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 |  | `devops scan workflows [OPTIONS] <target>` | Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
 and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
-|  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |
+|  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity analysis. |
 |  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) using Trivy (#1439). |
 |  | `devops scan aibom [OPTIONS] <target>` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
 |  | `devops scan fix [OPTIONS] <target>` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |

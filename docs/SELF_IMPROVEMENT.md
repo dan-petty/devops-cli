@@ -552,7 +552,7 @@ Before altering implementation code in `src/`:
 
 - Implement clean, minimal fixes satisfying the tests.
 - Ruthlessly remove legacy shims or zombie code (zero compatibility debt).
-- Keep cyclomatic complexity $\le 10$ (Ruff `C901`) and nesting depth $\le 5$. Decompose multi-branch procedures into single-responsibility pure functions.
+- Keep cyclomatic complexity $\le 10$ (Ruff `C901`) and at most 4 nested blocks (Ruff `PLR1702`). Decompose multi-branch procedures into single-responsibility pure functions.
 
 ### Step 5: Verify
 

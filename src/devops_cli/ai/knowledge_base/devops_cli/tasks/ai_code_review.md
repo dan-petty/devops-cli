@@ -123,7 +123,7 @@ devops review export-feedback --status INVALIDATED
 5. **Ground-Truth Symbol & Export Verification**: Analysis stages must inspect actual source module ASTs or exports before asserting that imported variables, constants, or classes are missing or cause `ImportError`. A person invalidates a false missing-symbol claim, and one that recurs from a tool becomes a `.devops/review.toml` suppression.
 6. **Closed-Loop Finding Remediation Workflow**: When remediating reported review findings:
    - **Step 1 (Test-First Specification)**: Author unit/regression tests asserting the defect and desired behavior before modifying source files.
-   - **Step 2 (Clean Implementation & Architectural Invariants)**: Implement fixes adhering strictly to cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$ project-wide. Ruthlessly prune zombie code.
+   - **Step 2 (Clean Implementation & Architectural Invariants)**: Implement fixes adhering strictly to cyclomatic complexity $\le 10$ (Ruff `C901`) and at most 4 nested blocks (Ruff `PLR1702`) project-wide. Ruthlessly prune zombie code.
    - **Step 3 (Record the Verdict)**: A person records the verdict, `MITIGATED` or `INVALIDATED` with explicit step-by-step causal rationale, via `devops review verify <session> --index <n> --status <STATUS> --reason "..."`; agents record none. A recurring false positive becomes a `.devops/review.toml` suppression with a reason and an expiry.
    - **Step 4 (Export the Verdicts)**: Run `devops review export-feedback --status ALL` to append the verdicts to the feedback dataset (`.data/feedback_dataset.jsonl`), which `devops ai prompt-eval` counts per labeller.
 
