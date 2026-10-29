@@ -33,9 +33,9 @@
 
 ## 4. The documents
 
-- [ ] 4.1 Add the term "Planned" to `CONTEXT.md`, and say in `k8s/README.md` and `docs/ROUTINE_TASKS.md` that the stage job leaves out a planned item and the implement job takes it
+- [x] 4.1 Add the term "Planned" to `CONTEXT.md`, and say in `k8s/README.md` and `docs/ROUTINE_TASKS.md` that the stage job leaves out a planned item and the implement job takes it
   - Verification: `uv run devops ci docs`
-- [ ] 4.2 Regenerate the documents
+- [x] 4.2 Regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 5. Archive

@@ -111,23 +111,27 @@ An open, maintained tool or library that covers the need of an item, in whole or
 _Avoid_: competitor, substitute
 
 **Staging**:
-Making a Ready item Staged: a branch, an OpenSpec change in task groups that each fit one step, and a draft pull request that plans the item and closes no issue.
+Making a Ready item Staged: a branch, an OpenSpec change in task groups that each fit one step, and a draft pull request that plans the item and closes no issue. The pull request has the type `docs(openspec)`, because a plan is no fix and adds no changelog line. The branch keeps the type of the issue.
 _Avoid_: scaffolding, pre-work
 
 **Staged**:
-A Ready item whose staging is done. Its Status stays Ready until a person or an agent starts the code. The draft pull request on its branch is the record.
+A Ready item whose staging is done and whose staged branch is on `origin`. Its Status stays Ready until a person or an agent starts the code. The draft pull request on its branch is the record.
 _Avoid_: prepared, queued
+
+**Planned**:
+A Ready item whose change folder `openspec/changes/<issue>-<slug>/` is on the default branch, and that has no branch on `origin`: a person merged the staging pull request. The stage job leaves it out, and also an item whose change is archived there. The implement job takes it: it makes the branch `<type>/<issue>-<slug>` at the default branch, with the slug of the folder, runs the groups that have an unticked task, and opens the draft pull request that closes the issue.
+_Avoid_: merged plan, orphan
 
 **Step**:
 The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the item, the change folder and the packed files of the group.
 _Avoid_: chunk, phase
 
 **Implementing**:
-Taking a Staged item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A stopped item goes back to Ready and waits for the comment `implement: retry`. A person merges.
+Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A stopped item goes back to Ready and waits for the comment `implement: retry`. A person merges.
 _Avoid_: building, executing
 
 **Runner**:
-The pod of a cluster Job in which the implement job runs its steps. The Service creates the Job from CronJob `devops-cli-runner`, for one Staged item, and creates no second Job for a repository while one runs. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod has no Kubernetes token, the installation token of the job names one repository, the step's shell gets none of the job's variables, and the job process is not dumpable. The setting `roadmap.implement.in_runner` says a process is one.
+The pod of a cluster Job in which the implement job runs its steps. The Service creates the Job from CronJob `devops-cli-runner`, for one Staged or Planned item, and creates no second Job for a repository while one runs. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod has no Kubernetes token, the installation token of the job names one repository, the step's shell gets none of the job's variables, and the job process is not dumpable. The setting `roadmap.implement.in_runner` says a process is one.
 _Avoid_: agent host, worker
 
 **Service**:
