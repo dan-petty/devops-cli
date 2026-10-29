@@ -1,4 +1,4 @@
-# Cluster jobs accept no ingress. They reach DNS, the LLM gateway, the OpenTelemetry collector and public HTTPS (GitHub).
+# Cluster jobs accept no ingress. They reach DNS, the LLM gateway, their cache Valkey, the OpenTelemetry collector and public HTTPS (GitHub).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -22,8 +22,10 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 2. The LLM gateway. A namespace-selector-only peer with `ports:`, the shape the monitoring
-    #    policy relies on: kube-router refused a namespace+pod selector peer paired with `ports:`.
+    # 2. The LLM gateway (4000) and devops-cli's cache Valkey, valkey-devops (6379), in namespace
+    #    llm. A namespace-selector-only peer with `ports:`, the shape the monitoring policy relies
+    #    on: kube-router refused a namespace+pod selector peer paired with `ports:`. Each target's
+    #    own policy admits only the pods it serves.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -31,6 +33,8 @@ spec:
       ports:
         - protocol: TCP
           port: 4000
+        - protocol: TCP
+          port: 6379
     # 3. OpenTelemetry collector in namespace otel, on its OTLP/HTTP port only: devops-cli sends no
     #    OTLP over gRPC (4317).
     - to:

@@ -309,3 +309,153 @@ def test_open_webui_is_the_only_workload_that_names_the_cache_valkey() -> None:
     )
 
     assert files == ["llm/values-open-webui.yaml"]
+
+
+# devops-cli's cache in the cluster: the Valkey that the Service and the cluster jobs use for their
+# embeddings and their threat-intelligence reads (#1655).
+DEVOPS_CACHE = "valkey-devops"
+DEVOPS_CACHE_MANIFEST = LLM_DIR / "valkey-devops.yaml"
+DEVOPS_CACHE_URL = "valkey://valkey-devops.llm.svc.cluster.local:6379/0"
+DEVOPS_CONFIGMAP_TEMPLATE = K8S_DIR / "devops" / "configmap.example.yaml"
+
+
+def _devops_cache_secret() -> tuple[str, str]:
+    """Return the name and only key of the Secret that holds the devops cache Valkey's password."""
+    secret = next(s for s in CLUSTER_SECRETS if s.ref == "llm/valkey-devops-auth")
+    (entry,) = secret.entries
+    return secret.name, entry.key
+
+
+def _keys(node: Any) -> Iterator[str]:
+    """Yield every mapping key in a parsed YAML document, at any depth."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield str(key)
+            yield from _keys(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _keys(item)
+
+
+def test_the_devops_cache_valkey_takes_its_password_from_its_secret_as_the_run_index_does() -> None:
+    """devops-cli's cache Valkey requires a password from Secret valkey-devops-auth, written as
+    the run index writes its own, and its exporter sends it (#1655).
+
+    The cache Valkey of Open WebUI keeps its state with noeviction, so it can't hold a cache that
+    must evict; this Valkey holds only devops-cli's caches.
+    """
+    cache = _document(DEVOPS_CACHE_MANIFEST, "Deployment", DEVOPS_CACHE)
+    runs = _document(LLM_DIR / "valkey-runs.yaml", "Deployment", "valkey-runs")
+    cache_prelude, _, cache_volume = _password_setup(cache)
+    runs_prelude, _, runs_volume = _password_setup(runs)
+    secret, key = _devops_cache_secret()
+
+    assert (
+        _secret_env(_container(cache, "valkey")),
+        _secret_env(_container(cache, "redis-exporter")),
+        (cache_prelude, cache_volume),
+    ) == (
+        {"VALKEY_PASSWORD": (secret, key)},
+        {"REDIS_PASSWORD": (secret, key)},
+        (runs_prelude, runs_volume),
+    )
+
+
+def test_the_devops_cache_valkey_evicts_the_least_recently_used_key_at_a_bound_below_its_limit() -> (
+    None
+):
+    """It keeps at most three quarters of its container's memory limit as data, and at that bound
+    evicts the least recently used key (#1655).
+
+    It holds caches only, so an evicted key costs one more model request, not a lost state. It
+    writes no RDB and no AOF, and a restart starts it empty.
+    """
+    deployment = _document(DEVOPS_CACHE_MANIFEST, "Deployment", DEVOPS_CACHE)
+    flags = _server_flags(deployment)
+    limit = parse_quantity(_container(deployment, "valkey")["resources"]["limits"]["memory"])
+
+    assert (flags.get("--maxmemory-policy"), flags.get("--save"), flags.get("--appendonly")) == (
+        "allkeys-lru",
+        "",
+        "no",
+    )
+    assert int(flags["--maxmemory"].removesuffix("mb")) * VALKEY_MB_BYTES <= limit * 3 / 4
+
+
+def test_only_the_devops_namespace_and_the_metrics_scrapers_reach_the_devops_cache_valkey() -> None:
+    """valkey-devops-perimeter admits namespace devops on 6379 and the monitoring namespace on the
+    exporter's port, and lets Valkey dial nothing (#1655).
+
+    A namespace-selector peer with `ports:` is the shape kube-router enforces.
+    """
+    policy = _document(DEVOPS_CACHE_MANIFEST, "NetworkPolicy", "valkey-devops-perimeter")
+    service = _document(DEVOPS_CACHE_MANIFEST, "Service", DEVOPS_CACHE)
+
+    assert policy["spec"] == {
+        "podSelector": {"matchLabels": {"app.kubernetes.io/name": DEVOPS_CACHE}},
+        "policyTypes": ["Ingress", "Egress"],
+        "ingress": [
+            {
+                "from": [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "devops"}
+                        }
+                    }
+                ],
+                "ports": [{"protocol": "TCP", "port": 6379}],
+            },
+            {
+                "from": [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+                        }
+                    }
+                ],
+                "ports": [{"protocol": "TCP", "port": 9121}],
+            },
+        ],
+        "egress": [],
+    }
+    assert (service["spec"]["type"], service["spec"]["ports"]) == (
+        "ClusterIP",
+        [{"name": "valkey", "port": 6379, "targetPort": 6379}],
+    )
+
+
+def test_the_cluster_jobs_name_the_devops_cache_valkey_and_get_its_password_from_their_secret() -> (
+    None
+):
+    """The devops ConfigMap names the devops cache Valkey and holds no password. Secret devops-cli
+    carries the password under the variable that `valkey.password` reads, from the keyring entry
+    of Secret valkey-devops-auth, and adopts the live value when the keyring lacks it (#1655)."""
+    from devops_cli.config.env import credential
+    from devops_cli.k8s.cluster_secrets import (
+        DEVOPS_CACHE_VALKEY_AUTH_KEY,
+        KeyringSource,
+        SecretKeyRef,
+    )
+
+    template = yaml.safe_load(DEVOPS_CONFIGMAP_TEMPLATE.read_text(encoding="utf-8"))
+    config = yaml.safe_load(template["data"]["devops-cli.yaml"])
+    devops = next(s for s in CLUSTER_SECRETS if s.ref == "devops/devops-cli")
+    (variable, *_) = credential("valkey.password").env_vars
+    entry = next(e for e in devops.entries if e.key == variable)
+    llm = next(s for s in CLUSTER_SECRETS if s.ref == "llm/valkey-devops-auth")
+    (llm_entry,) = llm.entries
+    secret, key = _devops_cache_secret()
+
+    assert (
+        config["valkey"],
+        [k for k in _keys(config) if "password" in k.lower()],
+        entry.source,
+        llm_entry.source,
+        entry.adopt_from,
+    ) == (
+        {"url": DEVOPS_CACHE_URL},
+        [],
+        KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY),
+        KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY),
+        SecretKeyRef("llm", secret, key),
+    )

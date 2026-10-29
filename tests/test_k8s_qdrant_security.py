@@ -308,6 +308,7 @@ def test_deploy_stack_pushes_secrets_after_namespaces_and_before_manifests_and_h
             "llm/qdrant-api-key",
             "llm/valkey-runs-auth",
             "llm/valkey-auth",
+            "llm/valkey-devops-auth",
             "cloudflared/cloudflared-token",
         ],
     )

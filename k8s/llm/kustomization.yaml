@@ -5,6 +5,7 @@ resources:
   - networkpolicy.yaml
   - valkey.yaml
   - valkey-runs.yaml
+  - valkey-devops.yaml
   - profiles
   - gateway
   - gateway/servicemonitor.yaml

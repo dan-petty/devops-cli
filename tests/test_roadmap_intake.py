@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import httpx2
 import pytest
+from fakeredis import FakeServer
 from fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from syrupy.assertion import SnapshotAssertion
@@ -29,6 +31,7 @@ from typer.testing import CliRunner
 from devops_cli import entry
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.mcp import server as mcp_server
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.commands import roadmap as roadmap_command
 from devops_cli.commands.roadmap import app
 from devops_cli.config.constants import CONST_ROADMAP_INTAKE_REASON_MARKER
@@ -82,7 +85,9 @@ from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.model import ModelFake
+from tests.support.fakes.valkey import valkey_client_on
 from tests.support.paths import FIXTURES
+from tests.web_fakes import StubWeb
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
@@ -1761,6 +1766,58 @@ def test_the_model_sees_the_candidate_as_json_data_under_the_intake_prompt() -> 
 class _Embedder:
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         return [[1.0] for _ in texts]
+
+
+# ── The embeddings of settled items (#1655) ───────────────────────────────────
+
+
+class _Proposer:
+    """The `analysis` model: the same proposal for each candidate."""
+
+    def chat_structured(
+        self, system: str, prompt: str, schema: type[ModelProposal]
+    ) -> ModelProposal:
+        return schema.model_validate(DEFAULT_PROPOSAL)
+
+
+def _embeddings_server(request: httpx2.Request) -> httpx2.Response | None:
+    """The gateway's OpenAI-compatible `/v1/embeddings`: one vector for each text."""
+    if request.url.path != "/v1/embeddings":
+        return None
+    texts = json.loads(request.content)["input"]
+    vectors = [{"index": i, "embedding": [1.0, float(len(t) % 7)]} for i, t in enumerate(texts)]
+    return httpx2.Response(200, json={"data": vectors, "usage": {"prompt_tokens": len(texts)}})
+
+
+@pytest.mark.parametrize(
+    ("cached", "embedding_requests"),
+    [pytest.param(True, [1, 0], id="valkey-cache"), pytest.param(False, [1, 1], id="no-cache")],
+)
+def test_a_second_intake_run_over_settled_items_sends_no_embedding_request_with_the_valkey_cache(
+    roadmap: Roadmap,
+    stub_web: StubWeb,
+    valkey_server: FakeServer,
+    cached: bool,
+    embedding_requests: list[int],
+) -> None:
+    """Each run is a new process with an empty memory cache, as each round of the Service and
+    each cluster job is. With the shared Valkey cache, a second run over the same items and the
+    same candidate sends no embedding request. With no cache it embeds them all again (#1655)."""
+    stub_web.serve(_embeddings_server)
+    roadmap.finished("Retry policy for the gateway")
+    roadmap.finished("Dashboard for the gateway")
+    roadmap.issue("feat: cache the embeddings")
+    ai = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
+    sent: list[int] = []
+    for _run in range(2):
+        before = len(stub_web.sent)
+        valkey = valkey_client_on(valkey_server) if cached else None
+        engine = EmbeddingsEngine(ai, api_key="sk-test", valkey_client=valkey)
+        model = GatewayIntakeModel(ai, embedder=engine, client=_Proposer())
+        plan = plan_intake(roadmap.store, repo=REPO, model=model)
+        sent.append(sum(1 for r in stub_web.sent[before:] if r.url.path == "/v1/embeddings"))
+
+    assert (sent, [d.outcome for d in plan.decisions]) == (embedding_requests, [Outcome.PLACE])
 
 
 def test_a_model_answer_that_fails_validation_skips_only_its_candidate(roadmap: Roadmap) -> None:

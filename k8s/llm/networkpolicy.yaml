@@ -15,6 +15,7 @@ spec:
           - portkey
           - valkey
           - valkey-runs
+          - valkey-devops
   policyTypes:
     - Ingress
     - Egress

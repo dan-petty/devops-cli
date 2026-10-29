@@ -1023,7 +1023,7 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_llm_namespace_default_perimeter_excludes_gateway_and_workloads(self) -> None:
-        """Verify llm-default-perimeter excludes gateway, portkey and both Valkeys
+        """Verify llm-default-perimeter excludes gateway, portkey and the three Valkeys
         to avoid additive policy leakage."""
         np_path = Path("k8s/llm/networkpolicy.yaml")
         docs = list(yaml.safe_load_all(np_path.read_text(encoding="utf-8")))
@@ -1036,7 +1036,7 @@ class TestK8sLLMGatewayManifests:
             sorted(name_expr["values"]),
         ) == (
             "NotIn",
-            ["llm-gateway", "portkey", "valkey", "valkey-runs"],
+            ["llm-gateway", "portkey", "valkey", "valkey-devops", "valkey-runs"],
         )
 
     def test_llm_manifests_have_a_deploy_path(self) -> None:
