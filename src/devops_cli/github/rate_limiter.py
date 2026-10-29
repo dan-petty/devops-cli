@@ -28,7 +28,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Generator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -787,6 +787,18 @@ def _calculate_secondary_delay(
     return delay
 
 
+_request_gate: Callable[[], None] | None = None
+"""What every request waits on before it is paced, or None (#2547)."""
+
+
+def set_request_gate(gate: Callable[[], None] | None) -> None:
+    """Make every request that `GitHubRateLimiter.acquire` paces, from any thread, call `gate`
+    first, or none when `gate` is None. The gate can wait, and it can raise to refuse the
+    request: the Service's hourly request budget is one (#2547)."""
+    global _request_gate
+    _request_gate = gate
+
+
 class GitHubRateLimiter:
     """GitHub rate limiter that institutes a mandatory pause on gh requests.
 
@@ -1061,6 +1073,9 @@ class GitHubRateLimiter:
         lets go adds 1 to `devops_cli_github_requests_total` for its resource, its HTTP `method`,
         and the repository and job row of its request scope (#2475).
         """
+        gate = _request_gate
+        if gate is not None:
+            gate()
         target = resource or subcommand
         with self._lock:
             self._requests_paced[target] = self._requests_paced.get(target, 0) + 1

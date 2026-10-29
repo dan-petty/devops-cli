@@ -745,7 +745,7 @@ serverFiles:
               summary: "The roadmap Service has an unavailable replica"
               description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had an unavailable replica for 10 minutes (k8s/README.md, Roadmap service)."
           # 90% of the default service.github_requests_per_hour (500). The Service holds its
-          # rounds at the budget, and one round per worker can go past it.
+          # requests at the budget: a request waits when the hour has no room.
           - alert: RoadmapServiceGitHubRequestsHigh
             expr: >-
               sum(
