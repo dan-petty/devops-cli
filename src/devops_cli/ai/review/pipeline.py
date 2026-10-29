@@ -898,45 +898,12 @@ def _format_extraction_summary(
     )
 
 
-def _fetch_domains_threat_intel(
-    radar_client: CloudflareRadarClient,
-    domain_targets: list[str],
-) -> dict[str, NetworkReputationRecord]:
-    """Fetch threat intelligence for domain targets with resilient fallback."""
-    if not domain_targets:
-        return {}
-    try:
-        return radar_client.check_domains_batch(domain_targets)
-    except Exception as exc:
-        logger.debug("Cloudflare Radar batch lookup failed: %s", exc)
-        return {
-            d: NetworkReputationRecord(
-                target=d,
-                ip="",
-                source="Cloudflare Radar",
-                outcome="failed",
-                reputation_summary=f"Cloudflare Radar lookup failed: {exc}",
-            )
-            for d in domain_targets
-        }
-
-
 def _fetch_ip_threat_intel(
     shodan_client: ShodanInternetDBClient,
     ip: str,
 ) -> tuple[str, NetworkReputationRecord]:
-    """Fetch threat intelligence for a single IP address with fallback."""
-    try:
-        return ip, shodan_client.check_ip(ip)
-    except Exception as exc:
-        logger.debug("Shodan InternetDB lookup failed for %s: %s", ip, exc)
-        return ip, NetworkReputationRecord(
-            target=ip,
-            ip=ip,
-            source="Shodan InternetDB",
-            outcome="failed",
-            reputation_summary=f"Shodan InternetDB lookup failed: {exc}",
-        )
+    """Fetch threat intelligence for a single IP address."""
+    return ip, shodan_client.check_ip(ip)
 
 
 def _execute_pre_analysis_batch(
@@ -2776,7 +2743,7 @@ class ReviewPipelineOrchestrator:
         domain_targets = [target for target, rtype in unique_nets if rtype != "ip"]
         ip_targets = [target for target, rtype in unique_nets if rtype == "ip"]
         if domain_targets:
-            net_cache.update(_fetch_domains_threat_intel(radar_client, domain_targets))
+            net_cache.update(radar_client.check_domains_batch(domain_targets))
         if ip_targets:
             with ThreadPoolExecutor(max_workers=min(8, len(ip_targets))) as executor:
                 net_cache.update(
