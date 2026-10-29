@@ -2149,6 +2149,8 @@ class RoadmapMessages:
     stage_left_secret: str = (
         "The title or the body looks like a secret, so the model does not read it."
     )
+    stage_left_planned: str = "Its plan is on {branch}: the change folder `{folder}` is there."
+    stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     stage_left_closed: str = "The issue is closed."
     stage_left_not_item: str = (
         "The issue is no item: it has no Priority label, or it does not exist."
@@ -2223,6 +2225,8 @@ class RoadmapMessages:
         default_factory=lambda: {
             "update_clone": "update the model clone of the repository",
             "remote_heads": "the branches of origin",
+            "fetch_default": "fetch the default branch, to read its plans",
+            "default_plans": "the change folders of the default branch",
             "model_change": "the analysis model plans the change of the item",
             "model_split": "the analysis model splits the task groups over the budget",
             "model_correction": "the analysis model corrects a change that fails its checks",

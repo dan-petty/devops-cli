@@ -75,17 +75,26 @@ def branch_of(number: int) -> str:
     return f"fix/{number}-the-job-drops-a-comment"
 
 
-def write_change(root: Path, tasks: str = TASKS, number: int = 1) -> None:
-    """The files of the change folder of item `number`, in the checkout at `root`."""
-    folder = root / "openspec" / "changes" / f"{number}-the-job-drops-a-comment"
+def write_change(
+    root: Path,
+    tasks: str = TASKS,
+    number: int = 1,
+    *,
+    slug: str = "the-job-drops-a-comment",
+    archived: bool = False,
+) -> None:
+    """The files of the change folder of item `number`, in the checkout at `root`. With
+    `archived`, the folder is where `openspec archive` puts it, with a date."""
+    name = f"2026-10-28-{number}-{slug}" if archived else f"{number}-{slug}"
+    folder = root / "openspec" / "changes" / ("archive" if archived else "") / name
     folder.mkdir(parents=True, exist_ok=True)
-    for name, text in (
+    for filename, text in (
         ("proposal.md", PROPOSAL),
         ("design.md", DESIGN),
         ("tasks.md", tasks),
         (".openspec.yaml", "schema: spec-driven\ncreated: 2026-10-29\n"),
     ):
-        (folder / name).write_text(text, encoding="utf-8")
+        (folder / filename).write_text(text, encoding="utf-8")
 
 
 def push_staged_branch(
@@ -101,6 +110,22 @@ def push_staged_branch(
     repo.git("push", "-q", "origin", branch)
     repo.git("switch", "-q", "main")
     repo.git("branch", "-q", "-D", branch)
+
+
+def merge_plan(
+    repo: StageRepo,
+    number: int = 1,
+    *,
+    tasks: str = TASKS,
+    slug: str = "the-job-drops-a-comment",
+    archived: bool = False,
+) -> None:
+    """Merge the change of item `number` into `main` of `origin`, as the merge of its staging
+    pull request does: one commit on `main`, and no branch."""
+    write_change(repo.clone, tasks, number, slug=slug, archived=archived)
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", f"docs(openspec): plan #{number}")
+    repo.git("push", "-q", "origin", "main")
 
 
 def seed_staged(

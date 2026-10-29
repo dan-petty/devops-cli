@@ -2,11 +2,11 @@
 
 ## 1. Stage leaves out an item whose plan is on the default branch
 
-- [ ] 1.1 Add failing tests: the read of `origin/<default>` with one `ls-tree`, a plan on the default branch with the branch gone, with the branch still on `origin`, with another slug, in the archive, for a closed issue, for two items, and a tree that cannot be read; the dry-run requests of stage
+- [x] 1.1 Add failing tests: the read of `origin/<default>` with one `ls-tree`, a plan on the default branch with the branch gone, with the branch still on `origin`, with another slug, in the archive, for a closed issue, for two items, and a tree that cannot be read; the dry-run requests of stage
   - Verification: `uv run devops ci test tests/test_roadmap_planned.py tests/test_roadmap_stage_selection.py tests/test_roadmap_dry_runs.py`
-- [ ] 1.2 Add `roadmap/planned.py` and the directory grammars of `config/constants.py`; make `plan_stage` read the plans once and `select_stageable` leave out a planned or archived item; add the messages and the stage requests of the dry run
+- [x] 1.2 Add `roadmap/planned.py` and the directory grammars of `config/constants.py`; make `plan_stage` read the plans once and `select_stageable` leave out a planned or archived item; add the messages and the stage requests of the dry run
   - Verification: `uv run devops ci test tests/test_roadmap_planned.py tests/test_roadmap_stage_selection.py tests/test_roadmap_dry_runs.py`
-- [ ] 1.3 Document the new reasons in the module text of `stage.py`, and run `uv run devops docs generate --sync-readme`
+- [x] 1.3 Document the new reasons in the module text of `stage.py`, and run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`
 
 ## 2. The staging pull request has the type docs(openspec)

@@ -382,3 +382,23 @@ def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_jo
         f"{API}/repos/{REPO}/issues/<pull request>/comments",
         ("--force-with-lease=<branch>:<remote tip>", "origin", "<branch>"),
     )
+
+
+def test_the_stage_plan_reads_the_change_folders_of_the_default_branch_with_one_ls_tree() -> None:
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    reads, _ = stage_requests(REPO)
+
+    trees = [request.argv for request in reads if "ls-tree" in request.argv]
+    assert trees == [
+        (
+            "git",
+            "-C",
+            "<model-clone>",
+            "ls-tree",
+            "--name-only",
+            "origin/main",
+            "openspec/changes/",
+            "openspec/changes/archive/",
+        )
+    ]
