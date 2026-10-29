@@ -1577,6 +1577,10 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "LESSCLOSE",
     # the git-mergetool--lib script, which reads a shell file from this directory
     "MERGE_TOOLS_DIR",
+    # ssh(1), ssh-add(1), ssh-keygen(1), ssh-agent(1) and the OpenSSH source (#2633): each SSH_ key
+    "SSH_*",
+    # ssh_config(5): ssh starts this program to run a ProxyCommand, a LocalCommand or a Match exec
+    "SHELL",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",

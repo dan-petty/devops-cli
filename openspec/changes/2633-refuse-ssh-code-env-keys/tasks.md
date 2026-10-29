@@ -8,9 +8,9 @@
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 - [x] 1.3 Add a test: with isolation off, the child gets `SHELL` from the environment
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
-- [ ] 1.4 Add `SSH_*` and `SHELL` to `CONST_CODE_LOADING_ENV_PATTERNS`, in a block with a comment line for each. Keep the comment of the constant as it is
+- [x] 1.4 Add `SSH_*` and `SHELL` to `CONST_CODE_LOADING_ENV_PATTERNS`, in a block with a comment line for each. Keep the comment of the constant as it is
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_review_rules_pack.py`
-- [ ] 1.5 Remove `SHELL` from `DEFAULT_ALLOWED_ENV_VARS`
+- [x] 1.5 Remove `SHELL` from `DEFAULT_ALLOWED_ENV_VARS`
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_ci.py tests/test_cli_startup_imports.py`
 
 ## 2. Documentation

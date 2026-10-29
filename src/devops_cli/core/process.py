@@ -63,7 +63,6 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
     {
         "PATH",
         "PATHEXT",
-        "SHELL",
         "COMSPEC",
         "SYSTEMROOT",
         "WINDIR",
