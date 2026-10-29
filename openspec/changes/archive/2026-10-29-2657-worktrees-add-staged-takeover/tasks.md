@@ -18,7 +18,7 @@
 ## 4. Documents
 
 - [x] 4.1 In `CONTRIBUTING.md` (the worktree row of "Naming" and the paragraph on starting work), `docs/ROUTINE_TASKS.md` and `docs/SDLC.md` Phase 1, say that `worktrees add` takes over a staged branch and when it refuses one. Run `uv run devops docs generate --sync-readme`. Verify: `uv run devops ci docs` passes and the three documents name the takeover.
-- [ ] 4.2 Run the full `uv run devops ci` once in the worktree. Verify: every check passes.
+- [x] 4.2 Run the full `uv run devops ci` once in the worktree. Verify: every check passes.
 
 ## Workflow follow-up
 

@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A new worktree starts at the fetched main
-When `origin` has no branch for the issue, `devops repos worktrees add <issue> --type <type> --slug <slug>` SHALL fetch `origin/main` and create the worktree `w-<issue>` under the agent worktrees directory of the data directory, on the new branch `<type>/<issue>-<slug>` at the tip of the fetched `origin/main`. The branch SHALL have no upstream. The command SHALL print the path and the branch. In that case `--type` and `--slug` are required, and the command SHALL exit 1 and change nothing when one is missing.
+When `origin` has no branch for the issue, `add <issue> --type <type> --slug <slug>` SHALL fetch `origin/main` and create the worktree `w-<issue>` under the agent worktrees directory, on the new branch `<type>/<issue>-<slug>` at the tip of the fetched `origin/main`. The branch SHALL have no upstream. The command SHALL print the path and the branch. It SHALL require `--type` and `--slug` in that case.
 
 #### Scenario: Create the worktree
 - **WHEN** the user runs `add 2337 --type feat --slug worktrees-add` and no worktree or branch holds issue 2337
