@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2637-ai-prewarm-mcp-tool-no-url`
 
 ## Workflow follow-up
