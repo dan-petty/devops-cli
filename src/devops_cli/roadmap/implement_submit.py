@@ -42,7 +42,8 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
+from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, job_name
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement import ImplementTarget, parse_implement_filters, plan_implement
@@ -115,13 +116,22 @@ def _comment(name: str, state: str, log: str, *, stopped: bool) -> str:
     return body + (texts.implement_job_report_stopped if stopped else "")
 
 
+def _log_of(jobs: ClusterJobs, name: str) -> str:
+    """The tail of the log of Job `name`, or empty when the API refuses it: a pod that was evicted
+    or never started has no log, and the report of the Job must not wait for one."""
+    try:
+        return jobs.log_tail(name, CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES)
+    except ClusterJobError:
+        return ""
+
+
 def _report(
     store: RoadmapStore, jobs: ClusterJobs, item: Item, name: str, ended: ClusterJob | None
 ) -> None:
     """Comment on the item what became of its Job, record the state, and stop the item when the
     Job left it eligible. The comment comes first, so a write that fails is reported again."""
     state = ended.state.value if ended else _GONE
-    log = jobs.log_tail(name, CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES) if ended else ""
+    log = _log_of(jobs, name) if ended else ""
     stops = _settles_as_stop(item)
     store.comment(item.number, _comment(name, state, log, stopped=stops))
     store.set_marks(_fresh(store, item.number), {ImplementRecordKey.JOB_STATE: state})
@@ -150,16 +160,27 @@ def _report_ended(
 def _create(
     store: RoadmapStore, jobs: ClusterJobs, repo: str, target: ImplementTarget, label: str
 ) -> str:
+    """Record the Job on the item, then create it. The record comes first: a record that fails
+    after the create would leave a Job that no item names, and a Job that dies early would leave
+    its item eligible for a new Job in every round. A create that fails takes the record back. A
+    round that dies between the two leaves a record of a Job that does not exist, which the next
+    round reports as gone and stops the item for."""
     number = target.item.number
-    name = jobs.create(
-        ["roadmap", "implement", "--repo", repo, "--item", str(number), "--confirm"],
-        template=RUNNER_TEMPLATE,
-        env={setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo},
-        labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
-    )
+    name = job_name(template=RUNNER_TEMPLATE)
     store.set_marks(
         _fresh(store, number), {ImplementRecordKey.JOB: name, ImplementRecordKey.JOB_STATE: None}
     )
+    try:
+        jobs.create(
+            ["roadmap", "implement", "--repo", repo, "--item", str(number), "--confirm"],
+            template=RUNNER_TEMPLATE,
+            env={setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo},
+            labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
+            name=name,
+        )
+    except ClusterJobError:
+        store.set_marks(_fresh(store, number), {ImplementRecordKey.JOB: None})
+        raise
     return name
 
 

@@ -105,6 +105,14 @@ def test_a_job_is_created_from_the_cronjob_with_the_args_env_and_labels_given(
     ) == (True, True, ["roadmap", "implement", "--item", "7"], True, "aaaa", "devops")
 
 
+def test_a_job_takes_the_name_the_caller_chose(kube: FakeCluster) -> None:
+    """The Service records the name on the item before it creates the Job."""
+    name = ClusterJobs().create(["roadmap"], template=RUNNER_TEMPLATE, name="devops-cli-runner-x")
+
+    (job,) = kube.custom_objects.objects[JOBS]
+    assert (name, job["metadata"]["name"]) == ("devops-cli-runner-x", "devops-cli-runner-x")
+
+
 def test_a_missing_cronjob_is_an_error_that_names_it_and_creates_no_job(
     cluster: FakeCluster,
 ) -> None:

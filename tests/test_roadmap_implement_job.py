@@ -171,6 +171,29 @@ def test_the_job_makes_its_process_unreadable_before_it_does_any_work(
     assert (seen, applied.ready) == ([before], (1,))
 
 
+def test_the_job_runs_no_step_when_the_kernel_refuses_to_clear_the_flag(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`apply_implement` itself refuses, not only the function it calls: a step that could read
+    the environment of the job must never start (#2667)."""
+    monkeypatch.setattr("devops_cli.core.process_hardening._prctl", lambda *_args: -1)
+    script = two_groups()
+    plan = job_world.plan()
+    calls_before = len(job_world.programs.calls)
+
+    with pytest.raises(RoadmapImplementError, match="PR_SET_DUMPABLE"):
+        apply_implement(
+            job_world.store,
+            plan,
+            source=job_world.repo.clone,
+            model=script.model(),
+            window=WINDOW,
+        )
+
+    assert (script.seen, len(job_world.programs.calls) - calls_before) == ([], 0)
+    assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
 def test_a_job_outside_a_runner_does_not_touch_its_process(
     job_world: JobWorld, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

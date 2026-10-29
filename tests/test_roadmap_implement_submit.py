@@ -14,9 +14,11 @@ from typing import Any
 
 import pytest
 import yaml
+from kubernetes.client.rest import ApiException
 
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.store import ImplementRecordKey, ItemField
@@ -316,6 +318,78 @@ def test_a_missing_cronjob_fails_the_round_naming_it_and_creates_no_job(
         _round(store, staged_repo)
 
     assert (_creates(cluster), _record(store).get("implement.job")) == ([], None)
+
+
+def test_the_item_records_its_job_before_the_job_is_created(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A write that fails after the create would leave a Job that no record names. If it also
+    dies early, its item stays eligible and every round makes another Job (#2667)."""
+    number = seed_staged(store)
+    seen: list[str | None] = []
+    create = kube.custom_objects.create_namespaced_custom_object
+
+    def peek(*args: Any, **kwargs: Any) -> Any:
+        seen.append(_record(store, number).get("implement.job"))
+        return create(*args, **kwargs)
+
+    monkeypatch.setattr(kube.custom_objects, "create_namespaced_custom_object", peek)
+
+    _round(store, staged_repo)
+
+    (job,) = _jobs(kube)
+    assert (seen, _record(store, number)["implement.job"]) == (
+        [job["metadata"]["name"]],
+        job["metadata"]["name"],
+    )
+
+
+def test_a_create_that_the_api_refuses_leaves_no_record_of_a_job(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    number = seed_staged(store)
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise ApiException(status=403, reason="Forbidden")
+
+    monkeypatch.setattr(kube.custom_objects, "create_namespaced_custom_object", refuse)
+
+    with pytest.raises(ClusterJobError, match="403"):
+        _round(store, staged_repo)
+
+    assert (_jobs(kube), _record(store, number).get("implement.job")) == ([], None)
+
+
+def test_a_log_that_cannot_be_read_still_reports_the_job_and_records_its_state(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The API refuses a log of a pod that was evicted or never started. The round would then
+    fail on this row every time and report nothing, so the report goes out without the log."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = ApiException(status=400, reason="Bad Request")
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    assert (
+        _record(store, number)["implement.job_state"],
+        "ended: failed." in comment,
+        MESSAGES.roadmap.implement_job_report_no_log in comment,
+        len(_creates(kube)),
+    ) == ("failed", True, True, 1)
 
 
 def test_a_pull_request_that_is_not_an_open_draft_is_left_alone(

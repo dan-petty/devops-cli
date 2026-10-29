@@ -69,8 +69,10 @@ class ClusterJobs:
         template: JobTemplate = DEFAULT_TEMPLATE,
         env: Mapping[str, str] | None = None,
         labels: Mapping[str, str] | None = None,
+        name: str | None = None,
     ) -> str:
-        """Create a Job from the template's CronJob and return its name.
+        """Create a Job from the template's CronJob and return its name: `name`, else a new one.
+        A caller that records the Job before it creates it chooses the name with `job_name`.
 
         Raises ClusterJobError when the CronJob is missing or the API refuses a call.
         """
@@ -85,7 +87,7 @@ class ClusterJobs:
                     MESSAGES.k8s.job_cronjob_missing.format(cronjob=template.cronjob)
                 ) from error
             raise self._refused("read CronJob", error) from error
-        name = job_name(template=template)
+        name = name or job_name(template=template)
         job = build_job(cronjob, args, name, template=template, env=env, labels=labels)
         try:
             custom.create_namespaced_custom_object(*_BATCH, JOB_NAMESPACE, "jobs", job)
