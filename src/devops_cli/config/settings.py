@@ -87,6 +87,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+    DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
@@ -836,6 +837,16 @@ class GitHubAppConfig(BaseModel):
         return f"{self.slug}[bot]" if self.slug else None
 
 
+class RoadmapStageConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    step_tokens: Annotated[int, Variable()] = Field(
+        description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
+        default=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+        ge=1000,
+    )
+
+
 class ServiceConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -908,6 +919,7 @@ class RoadmapConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     alternatives: AlternativesConfig = Field(default_factory=AlternativesConfig)
+    stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
 
 
 class DataConfig(BaseModel):
@@ -1026,8 +1038,8 @@ class Settings(BaseSettings):
     open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()
     service: ServiceConfig = ServiceConfig()
-    firecrawl: FirecrawlConfig = FirecrawlConfig()
     roadmap: RoadmapConfig = RoadmapConfig()
+    firecrawl: FirecrawlConfig = FirecrawlConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)

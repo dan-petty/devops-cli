@@ -6430,6 +6430,28 @@ devops roadmap alternatives [OPTIONS]
 | `--plan` | `boolean` | - | Run the checks and print them, and write nothing. This is the default. |
 | `--confirm` | `boolean` | - | Write each check to GitHub: its comment, its body block and its job record. |
 
+### `devops roadmap stage`
+
+**Make Ready items Staged: for each item that a label filter names, make the branch \<type\>/\<issue\>-\<slug\> at the fetched default branch, write the OpenSpec change of the item in task groups that each fit the step budget, make one commit as the identity of the session, push it, and open a draft pull request whose body starts with `Plans #<issue>` and holds no closing keyword. The Status of the item stays Ready, and the job never marks the pull request ready. One comment on the issue names the branch, the pull request and the task groups with their measures. The default filter is status=ready, priority=p0-critical, priority=p1-high and type=bug. The job leaves out an item that is not Ready, an item with the label needs-split, an item that an account without write access opened, an item that depends on an open issue, an item that a pushed branch or a worktree holds, and an item whose text looks like a secret; the plan says why. A task group over the budget goes back to the model once, and a group still over it stops the item. An item whose model call fails is skipped and reported, the others are still staged, and the command then exits 1. Each run also removes the draft and the branch of a closed item when only the identity of the session wrote to them.**
+
+```bash
+devops roadmap stage [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--source` | `path` | - | Path to a clone of the repository at its default branch. Without it, the job clones the repository into its own model clone, updates it, and uses it. |
+| `--item` | `integer` | - | Stage the one issue this number names, when it is open and Ready, and ignore the filter and the limit. |
+| `--filter` | `string` | - | A label filter in the form family=value, over the families status, priority, type, value and effort. Repeat the option: the values of one family are alternatives, and the families all apply. |
+| `--limit` | `integer` | `3` | Maximum number of items to stage in this run (default 3). |
+| `--step-tokens` | `integer` | - | Most tokens that the inputs of one implementation step may hold. The default is the setting roadmap.stage.step_tokens. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests and the git commands that a run makes, with placeholders. |
+| `--plan` | `boolean` | - | Read GitHub and call the model, and write nothing: print the changes that --confirm writes. This is the mode when no flag is given. |
+| `--confirm` | `boolean` | - | Plan as --plan does, then make the writes in git and on GitHub. |
+
 ### `devops roadmap run`
 
 **Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**

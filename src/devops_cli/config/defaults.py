@@ -723,6 +723,12 @@ DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
 # The PyPI JSON API reads of a package (`{name}` is one URL path segment) and its timeout.
 DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
+# The most items one stage run takes (#2654).
+DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
+# The tokens that the inputs of one implementation step may hold: the step's instructions, the
+# item, the change folder and the packed files of one task group. It leaves most of a 128k
+# window for tool output and the model's turns (#2654).
+DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = 40000
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

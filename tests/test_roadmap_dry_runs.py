@@ -37,7 +37,7 @@ from tests.support.fakes.github import API
 
 REPO = "dan-petty/devops-cli"
 runner = CliRunner()
-JOBS = ("intake", "refine", "alternatives")
+JOBS = ("intake", "refine", "alternatives", "stage")
 
 
 # ── No request ────────────────────────────────────────────────────────────────
@@ -68,6 +68,7 @@ def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ai_client, "get_llm_client", _fail("called LLM"))
     monkeypatch.setattr("devops_cli.roadmap.refine.get_llm_client", _fail("called LLM"))
     monkeypatch.setattr("devops_cli.roadmap.refine.get_task_model", _fail("called LLM"))
+    monkeypatch.setattr("devops_cli.roadmap.stage.get_llm_client", _fail("called LLM"))
     monkeypatch.setattr(
         "devops_cli.roadmap.refine_investigation.firecrawl_search", _fail("called search")
     )
@@ -106,7 +107,12 @@ def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> N
 
 @pytest.mark.parametrize(
     ("job", "mode"),
-    [("intake", "--plan"), ("refine", "--confirm"), ("alternatives", "--plan")],
+    [
+        ("intake", "--plan"),
+        ("refine", "--confirm"),
+        ("alternatives", "--plan"),
+        ("stage", "--plan"),
+    ],
 )
 def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:
     result = runner.invoke(app, [job, "--repo", REPO, "--dry-run", mode])

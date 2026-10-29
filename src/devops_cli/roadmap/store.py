@@ -16,8 +16,8 @@ not name, as the job wrote the other; with more than one such, the first in the 
 A job sets a field by replacing every label of the family with the value's label.
 
 **The job record.** Every field write also records the value it set, so a job can tell a person's
-change from its own (ADR 0002). The record also holds refine's own marks on an Item, which
-change no field. It is a JSON object in a hidden block at the end of the issue body
+change from its own (ADR 0002). The record also holds the marks of refine and of stage on an Item,
+which change no field. It is a JSON object in a hidden block at the end of the issue body
 (`<!-- devops-roadmap-record {...} -->`): the body every read returns holds no block, and a body
 write keeps the issue's block. A block that is not a JSON object reads as an empty record, and
 the next record write replaces it.
@@ -157,7 +157,19 @@ class AlternativesRecordKey(StrEnum):
     TOOL = "alternatives.tool"
 
 
-JobRecord = dict[ItemField | RefineRecordKey | AlternativesRecordKey, str | None]
+class StageRecordKey(StrEnum):
+    """What the stage job records in an Item's job record (#2654): the staged branch, the number
+    of its draft pull request, the commit it ends on, the task groups with their measures in
+    tokens, and the task group over the budget that stopped the item, which a person decides."""
+
+    BRANCH = "stage.branch"
+    PR = "stage.pr"
+    SHA = "stage.sha"
+    GROUPS = "stage.groups"
+    NEEDS_SPLIT = "stage.needs_split"
+
+
+JobRecord = dict[ItemField | RefineRecordKey | AlternativesRecordKey | StageRecordKey, str | None]
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -394,7 +406,7 @@ _RECORD_SEPARATORS = ("\r\n\r\n", "\n\n")
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are another version's, kept as they are.
 _JOB_RECORD_KEYS = frozenset(
-    key.value for key in (*ItemField, *RefineRecordKey, *AlternativesRecordKey)
+    key.value for key in (*ItemField, *RefineRecordKey, *AlternativesRecordKey, *StageRecordKey)
 )
 
 
@@ -751,6 +763,7 @@ __all__ = [
     "RefineRecordKey",
     "RepositoryFacts",
     "RoadmapStore",
+    "StageRecordKey",
     "as_utc",
     "decode_job_record",
     "encode_job_record",

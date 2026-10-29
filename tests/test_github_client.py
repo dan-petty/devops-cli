@@ -691,3 +691,40 @@ def test_an_issue_search_that_is_not_complete_is_unread(
         _client().search_issue_bodies(_SEARCHED_REPO, _SEARCHED_PHRASE)
 
     assert (raised.value.details["path"], len(search_quota.requested)) == (_search_page_path(1), 1)
+
+
+def test_a_draft_pull_request_is_opened_with_the_draft_flag(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The request carries the title, the body, both branches and `draft`, and the answer gives
+    the number and the page of the new pull request (#2654)."""
+    github_api.route(
+        "POST",
+        "/repos/octocat/Hello-World/pulls",
+        github_json({"number": 9, "html_url": "https://example.com/pull/9"}, status=201),
+    )
+
+    created = _client().create_draft_pull(
+        "octocat/Hello-World", title="fix: a title", body="Plans #1", head="fix/1-a", base="main"
+    )
+
+    assert (created.number, created.html_url) == (9, "https://example.com/pull/9")
+    assert github_api.requested == [f"POST {API}/repos/octocat/Hello-World/pulls"]
+    assert json.loads(github_api.sent[0].content) == {
+        "title": "fix: a title",
+        "body": "Plans #1",
+        "head": "fix/1-a",
+        "base": "main",
+        "draft": True,
+    }
+
+
+def test_a_pull_request_is_closed_with_a_state_change(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    github_api.route("PATCH", "/repos/octocat/Hello-World/pulls/9", github_json({"number": 9}))
+
+    _client().close_pull("octocat/Hello-World", 9)
+
+    assert github_api.requested == [f"PATCH {API}/repos/octocat/Hello-World/pulls/9"]
+    assert json.loads(github_api.sent[0].content) == {"state": "closed"}

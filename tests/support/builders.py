@@ -19,6 +19,7 @@ from devops_cli.ai.review.adjudication import Verdict
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.constants import CONST_STATUS_VERIFIED
 from devops_cli.review.report import ReportInput
+from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.store import Candidate, Item, Milestone
 from devops_cli.security.normalization import NormalizedFinding
 
@@ -102,6 +103,56 @@ def make_report_input(**overrides: Any) -> ReportInput:
         "reportable_findings": (),
     }
     return ReportInput(**{**defaults, **overrides})
+
+
+_STAGE_PROPOSAL: dict[str, Any] = {
+    "scope": "roadmap",
+    "summary": "Stop the job dropping a comment",
+    "pull_request_body": "The job keeps every comment it reads. It dropped the last one.",
+    "why": "Issue #1: the job drops the last comment of a thread.",
+    "what_changes": ["`src/devops_cli/sample.py` keeps the last comment."],
+    "skip_specs": False,
+    "feasibility": ["`src/devops_cli/sample.py` shows the fault at the first line."],
+    "existing_tool": "The standard library covers the need, so the change builds no helper.",
+    "decisions": [{"decision": "Keep the list", "reason": "It is the simplest fix."}],
+    "rejected": [{"alternative": "A new class", "evidence": "The list already holds the data."}],
+    "specs": [
+        {
+            "capability": "comment-thread",
+            "purpose": "Defines how the job reads the comments of a thread, so none is lost.",
+            "added": [
+                {
+                    "name": "The job keeps every comment",
+                    "text": "The job SHALL keep every comment of a thread.",
+                    "scenarios": [
+                        {
+                            "name": "The last comment",
+                            "when": "a thread has two comments",
+                            "then": "both comments are kept",
+                        }
+                    ],
+                }
+            ],
+        }
+    ],
+    "groups": [
+        {
+            "title": "Keep the last comment",
+            "reads": ["src/devops_cli/sample.py"],
+            "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
+            "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
+            "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
+            "documentation": "Change no document",
+            "verify": "uv run devops ci test tests/test_sample.py",
+        }
+    ],
+}
+
+
+def make_stage_proposal(**overrides: Any) -> StageProposal:
+    """The model's plan of a change for the stage job: one group that reads and changes
+    `src/devops_cli/sample.py`, and a spec delta that creates the capability `comment-thread`."""
+    return _validated(StageProposal, _STAGE_PROPOSAL, overrides)
 
 
 def _validated[ModelT: BaseModel](

@@ -262,14 +262,6 @@ In-cluster webhook receiver and background job runner settings.
 | `github_requests_per_hour` | `int` | `500` | - | - |
 | `model_call_concurrency` | `int` | `1` | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
 
-## Firecrawl Configuration (`firecrawl`)
-
-Firecrawl web search API authentication settings.
-
-| Option | Type | Default | Environment Variable | Description |
-|---|---|---|---|---|
-| `api_key` | `Union` | - | `DEVOPS_CLI_FIRECRAWL_API_KEY` | - |
-
 ## Roadmap Configuration (`roadmap`)
 
 roadmap configuration settings.
@@ -277,6 +269,15 @@ roadmap configuration settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `alternatives` | `AlternativesConfig` | `recheck_days=30` | - | - |
+| `stage` | `RoadmapStageConfig` | `step_tokens=40000` | - | - |
+
+## Firecrawl Configuration (`firecrawl`)
+
+Firecrawl web search API authentication settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `api_key` | `Union` | - | `DEVOPS_CLI_FIRECRAWL_API_KEY` | - |
 
 ## Top-Level Settings
 

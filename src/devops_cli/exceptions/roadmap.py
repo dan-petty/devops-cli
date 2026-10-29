@@ -115,6 +115,29 @@ class RoadmapAlternativesError(DevOpsCLIError):
         )
 
 
+class RoadmapStageError(DevOpsCLIError):
+    """Raised after a stage run in which one or more items failed (#2654).
+
+    The job staged each other item first. The message names each failed item and says why,
+    never with the model's text; `failed_items` holds their numbers.
+    """
+
+    error_code = "ROADMAP_STAGE_FAILED"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_items: Sequence[int] = (),
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.failed_items = tuple(failed_items)
+        super().__init__(
+            message,
+            details={"failed_items": list(self.failed_items), **(details or {})},
+        )
+
+
 class RoadmapIntakeError(DevOpsCLIError):
     """Raised after an intake round in which the writes failed for one or more candidates.
 

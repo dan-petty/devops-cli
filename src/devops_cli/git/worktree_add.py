@@ -153,6 +153,12 @@ def _main_ref() -> str:
     return f"{CONST_GIT_REMOTE_ORIGIN}/{CONST_GIT_MAIN_BRANCH}"
 
 
+def remote_branches(ls_remote: str) -> list[str]:
+    """The branch names in the output of `git ls-remote --heads`, in its order."""
+    refs = (line.partition("\t")[2] for line in ls_remote.splitlines())
+    return [ref.removeprefix(CONST_REFS_HEADS_PREFIX) for ref in refs if ref]
+
+
 def _commands(repo_root: Path, branch: str, directory: Path) -> list[list[str]]:
     """The four git commands that a run can make, in order: read the branches of `origin`, fetch
     the main branch, read the authors of the pushed branch past main, and create the worktree.
@@ -342,3 +348,25 @@ def add_worktree(
         return _create(repo_root, issue, _new_branch(issue, type_, slug), directory, reclaim)
     _check_names(issue, pushed, type_, slug)
     return _take_over(repo_root, issue, pushed, directory, reclaim)
+
+
+def read_remote_heads(repo_root: Path) -> str:
+    """The output of `git ls-remote --heads origin` for the clone at `repo_root`: one read of the
+    branches of `origin`, for `issue_holder` to judge many issues with."""
+    _require_origin(repo_root)
+    return _run([*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN])
+
+
+def issue_holder(repo_root: Path, issue: int, remote_heads: str) -> str | None:
+    """Who holds `issue`, as a sentence: a worktree of the clone, the standard directory of its
+    worktree, or a branch of `origin` that `remote_heads` lists; None when nobody does. A caller
+    that judges an issue before it adds a worktree leaves a held issue alone (#2654); `add_worktree`
+    itself takes over a staged branch."""
+    held = _local_holder(repo_root, issue, worktree_directory(issue, repo_root))
+    if held is not None:
+        return held
+    pushed = _pushed_branches(remote_heads, issue)
+    if not pushed:
+        return None
+    names = ", ".join(f"origin/{branch.name}" for branch in pushed)
+    return MESSAGES.repos.worktrees_add_held_by_pushed.format(issue=issue, branches=names)

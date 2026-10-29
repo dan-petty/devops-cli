@@ -387,6 +387,105 @@ def alternatives_requests(
     return tuple(reads), tuple(writes)
 
 
+def stage_requests(
+    repo: str,
+    *,
+    item: int | None = None,
+    limit: int | None = None,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap stage` reads, in order, and the writes `--confirm` makes after them
+    (#2654). The run updates its clone, reads every issue and the open issues that an item
+    depends on, reads the branches of `origin`, and for each item asks the model, and validates
+    the change. The model is asked again only when a task group is over the budget or the change
+    fails its checks. Each run then fetches the staged branch of each closed item. The writes
+    are the worktree, the commit and the push of each item, the draft pull request, the record
+    and the comment, and the removal of the draft and the branch of a closed item. `limit` and
+    `item` change no request: they change how many items the run repeats them for."""
+    del limit
+    store = StoreRequests(repo)
+    texts = MESSAGES.roadmap
+    req, cond, rep = texts.stage_requests, texts.stage_request_conditions, texts.plan_repeat
+    clone, tree, branch, change = "<model-clone>", "<worktree>", _p("branch"), _p("change")
+    each_item, each_closed = rep["stage_item"], rep["stage_closed"]
+
+    def git(key: str, cwd: str, *args: str, when: str = "", repeat: str = "") -> PlannedRequest:
+        return PlannedRequest(
+            "git", req[key], argv=("git", "-C", cwd, *args), condition=when, repeat=repeat
+        )
+
+    def other(method: str, key: str, *argv: str, when: str = "") -> PlannedRequest:
+        return PlannedRequest(method, req[key], argv=argv, condition=when, repeat=each_item)
+
+    pulls = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls"
+    reads = [
+        git("update_clone", clone, "fetch", "--prune", "origin"),
+        *store.every_issue(),
+        *(store.issue(f"#{item}") if item is not None else []),
+        *within(store.issue(_p("blocker")), repeat=rep["blocker"]),
+        git("remote_heads", clone, "ls-remote", "--heads", "origin"),
+        git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
+        PlannedRequest("model", req["model_change"], repeat=each_item),
+        PlannedRequest(
+            "model", req["model_split"], condition=cond["model_split"], repeat=each_item
+        ),
+        PlannedRequest(
+            "model", req["model_correction"], condition=cond["model_correction"], repeat=each_item
+        ),
+        other(
+            "process", "validate", "openspec", "validate", change, "--strict", when=cond["validate"]
+        ),
+    ]
+    writes = [
+        PlannedRequest(
+            "REST write",
+            req["close_pull"],
+            argv=("PATCH", f"{pulls}/{_p('pull')}"),
+            condition=cond["close_pull"],
+            repeat=each_closed,
+        ),
+        git(
+            "delete_branch",
+            clone,
+            "push",
+            "origin",
+            "--delete",
+            branch,
+            when=cond["delete_branch"],
+            repeat=each_closed,
+        ),
+        *within(store.set_marks(_p("item")), cond["close_pull"], repeat=each_closed),
+        git(
+            "worktree",
+            clone,
+            "worktree",
+            "add",
+            "--no-track",
+            "-b",
+            branch,
+            tree,
+            "origin/main",
+            repeat=each_item,
+        ),
+        git("commit", tree, "add", "--", f"openspec/changes/{change}", repeat=each_item),
+        git("commit", tree, "commit", "-q", "-m", _p("title"), repeat=each_item),
+        git("push", tree, "push", "-q", "-u", "origin", branch, repeat=each_item),
+        other("REST write", "pull", "POST", pulls),
+        git(
+            "delete_failed",
+            clone,
+            "push",
+            "origin",
+            "--delete",
+            branch,
+            when=cond["delete_failed"],
+            repeat=each_item,
+        ),
+        *within(store.set_marks(_p("item")), repeat=each_item),
+        *within(store.comment(_p("item")), repeat=each_item),
+    ]
+    return tuple(reads), tuple(writes)
+
+
 def render_dry_run(
     job: str,
     repo: str,
@@ -415,5 +514,6 @@ __all__ = [
     "planned_session_read",
     "refine_requests",
     "render_dry_run",
+    "stage_requests",
     "within",
 ]
