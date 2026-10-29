@@ -1463,7 +1463,9 @@ def _ledger_limiter(persist_path: Path) -> GitHubRateLimiter:
 
 
 def reset_github_rate_limiter() -> None:
-    """Forget every identity's rate limiter, so the next one reads its ledger from disk again."""
+    """Forget every identity's rate limiter, so the next one reads its ledger from disk again,
+    and remove the request gate."""
+    set_request_gate(None)
     with _GLOBAL_LOCK:
         _ledger_limiter.cache_clear()
         _identity_cache_root.cache_clear()

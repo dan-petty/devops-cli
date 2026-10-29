@@ -41,7 +41,6 @@ from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github import rate_limiter, session_transport
-from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_labels
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
@@ -397,6 +396,8 @@ def test_the_requests_of_a_session_are_admitted_by_the_service_budget(
 ) -> None:
     """The rate limiter asks the budget for each request it lets go, so a request is counted
     where it is sent, and not at the end of a round (#2547)."""
+    from devops_cli.github.rate_limiter import set_request_gate
+
     github_api.route("GET", f"/repos/{REPO_A}/issues", github_json([]))
     budget = RequestBudget(_Clock(), 100)
     set_request_gate(budget.admit)
