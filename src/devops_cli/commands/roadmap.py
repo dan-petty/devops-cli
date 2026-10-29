@@ -351,6 +351,7 @@ def stage_cmd(
     from devops_cli.roadmap.stage import (
         apply_stage,
         dry_run_stage,
+        emit_stage_results,
         parse_filters,
         plan_stage,
         raise_for_failed,
@@ -385,6 +386,7 @@ def stage_cmd(
     if confirm:
         with _exit_on_failure("Could not stage"):
             applied = apply_stage(store, plan, source=clone)
+        emit_stage_results(plan, applied)
         print_success(
             MESSAGES.roadmap.stage_applied.format(
                 staged=len(applied.staged),

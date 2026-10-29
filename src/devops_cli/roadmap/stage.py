@@ -36,6 +36,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from enum import StrEnum
 from functools import partial
 from pathlib import Path
 from typing import Any, Final
@@ -98,6 +99,7 @@ from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
+from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
 
 # ── The filter ────────────────────────────────────────────────────────────────
 
@@ -930,6 +932,34 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     return StageApplied(tuple(staged), tuple(stopped), tuple(failed), tuple(removed))
 
 
+class StageResult(StrEnum):
+    """How a run handled an item, as `devops_cli_roadmap_stage_total` labels it."""
+
+    STAGED = "staged"
+    NEEDS_SPLIT = "needs_split"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResult]:
+    """The result of each item a run handled, by issue number. A write that failed moves its item
+    from staged or needs_split to failed, so an item has one result (#2659)."""
+    results = dict.fromkeys((left.number for left in plan.left_out), StageResult.SKIPPED)
+    results |= dict.fromkeys(applied.staged, StageResult.STAGED)
+    results |= dict.fromkeys(applied.stopped, StageResult.NEEDS_SPLIT)
+    results |= dict.fromkeys(
+        (failure.number for failure in (*plan.failed, *applied.failed)), StageResult.FAILED
+    )
+    return results
+
+
+def emit_stage_results(plan: StagePlan, applied: StageApplied) -> None:
+    """Add 1 to `devops_cli_roadmap_stage_total` for each item of a run that wrote, by its result
+    (#2659). A plan with no write counts nothing."""
+    for result in stage_results(plan, applied).values():
+        emit(ROADMAP_STAGE_TOTAL, 1, {"result": result.value})
+
+
 # ── The report ────────────────────────────────────────────────────────────────
 
 
@@ -1027,14 +1057,17 @@ __all__ = [
     "StageFailure",
     "StageFilter",
     "StagePlan",
+    "StageResult",
     "StageSelection",
     "StageTarget",
     "StagedChange",
     "apply_stage",
     "dry_run_stage",
+    "emit_stage_results",
     "parse_filters",
     "plan_stage",
     "raise_for_failed",
     "render_stage_plan",
     "select_stageable",
+    "stage_results",
 ]

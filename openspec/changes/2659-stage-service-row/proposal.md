@@ -6,13 +6,13 @@ Issue #2659, a part of #2653: the Service does not run `devops roadmap stage`, s
 
 ## What Changes
 
-- `src/devops_cli/roadmap/run.py` gets the row `stage` in `MODEL_LANE_ROWS`, after `refine`. It is due by its interval (`DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES`, 60), on a first run, and in a round where refine set an item Ready. `JobOutcome` gets the field `set_ready`, which the refine job fills from `RefineApplied.readied_count`.
+- `src/devops_cli/roadmap/run.py` imports `devops_cli.roadmap.stage` at module level, as it does for refine (#2535), and gets the row `stage` in `MODEL_LANE_ROWS`, after `refine`. It is due by its interval (`DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES`, 60), on a first run, and in a round where refine set an item Ready. `JobOutcome` gets the field `set_ready`, which the refine job fills from `RefineApplied.readied_count`.
 - The row runs the stage job with the model clone of the lane: the plan, the writes, and the failure report that `devops roadmap stage --confirm` uses.
 - `RoadmapStageConfig` gets `roadmap.stage.filter` (a list of `family=value`) and `roadmap.stage.limit`, each with its variable. An entry that is not `family=value` over a known label family is refused, and the message names the entry. `devops roadmap stage` reads both settings when `--filter` or `--limit` is not given.
 - `src/devops_cli/telemetry/instruments.py` gets `devops_cli_roadmap_stage_total{result}`. Each item of a round counts once, with the result `staged`, `skipped`, `needs_split` or `failed`.
 - `Dockerfile` carries the Node runtime and the pinned OpenSpec in the service stage. The builder stage runs `devops install-tools --tool openspec`, which runs `npm ci` on the lockfile of `src/devops_cli/tools_lock/openspec`. The service stage copies the tool directory and the `node` binary, puts `openspec` on `PATH`, and turns off the telemetry and the update check of OpenSpec. The smoke test of the image, in `ci.yml` and `release.yml`, runs `openspec --version`.
 - `CONTEXT.md` ("Lane"), `k8s/README.md` ("Roadmap service") and `k8s/devops/configmap.example.yaml` name the row and the settings.
-- The row, the settings, the metric and the image are observable, so the change carries spec deltas for `roadmap-stage` and `roadmap-service-deployment`.
+- The row, the settings, the metric and the image are observable, so the change carries spec deltas for `roadmap-stage`, `roadmap-service-deployment` and `roadmap-service-worker-startup`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -25,6 +25,7 @@ None.
 
 - `roadmap-stage`: the Service runs the job, the settings name the filter, the limit and the step budget, and each item counts once by its result.
 - `roadmap-service-deployment`: the Service image runs the pinned OpenSpec.
+- `roadmap-service-worker-startup`: the Service imports the stage job's dependencies before its workers start.
 
 ## Impact
 

@@ -14,9 +14,9 @@
 
 ## 3. The row and the metric
 
-- [ ] 3.1 Write the due-table tests in `tests/test_roadmap_run.py` (first run, interval, refine set an item Ready, refine set none, the dry run lists `stage`) and `tests/test_roadmap_stage_job.py` (a round plans with the settings, writes, fails for a failed item, and counts each item once by its result), and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_stage_job.py` fails on the base
-- [ ] 3.2 Add the row, `JobOutcome.set_ready`, the runner, `DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES`, `ROADMAP_STAGE_TOTAL` and `emit_stage_results`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_stage_job.py tests/test_telemetry_instruments.py` passes
-- [ ] 3.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 3.1 Write the due-table tests in `tests/test_roadmap_run.py` (first run, interval, refine set an item Ready, refine set none, the dry run lists `stage`, the module-level import of the stage module) and `tests/test_roadmap_stage_job.py` (a round plans with the settings, writes, fails for a failed item, and counts each item once by its result), and `tests/test_roadmap_refine.py` (the refine job reports `set_ready`), and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_stage_job.py tests/test_roadmap_refine.py` fails on the base
+- [x] 3.2 Add the row, `JobOutcome.set_ready`, the runner, `DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES`, `ROADMAP_STAGE_TOTAL` and `emit_stage_results`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_stage_job.py tests/test_roadmap_refine.py tests/test_telemetry_instruments.py` passes
+- [x] 3.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 4. The documents
 
