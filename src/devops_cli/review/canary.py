@@ -674,7 +674,8 @@ def run_tool_canary(
     """Run the canary for `tool` once per `(tool, version, binary_sha, language_version, ruleset_digest)`.
 
     The canary starts its tool through `tool_executor`, and without one in the sandbox, as a scan
-    of a review does. A review gives it the executor of its scans.
+    of a review does. A review gives it the executor of its scans. The run succeeded when the
+    canary passed.
     """
     from devops_cli.security.tool_executor import SandboxToolExecutor
 
@@ -700,9 +701,10 @@ def run_tool_canary(
         workdir = Path(tmp_dir)
         materialize_canary_fixtures(workdir)
         request = build_canary_request(norm, workdir, language_version=language_version)
-        raw_output = _canary_output(norm, executor.run(request))
+        run = executor.run(request)
 
-    result = evaluate_canary_gate(norm, raw_output, cache_key=key)
+    result = evaluate_canary_gate(norm, _canary_output(norm, run), cache_key=key)
+    executor.settle(run, success=result.passed)
     if use_cache:
         _CANARY_CACHE[key] = result
     return result

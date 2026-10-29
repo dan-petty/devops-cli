@@ -9,11 +9,12 @@ SARIF needs no bespoke parser at all.
 Emission and ingestion are inverses over the normalized taxonomy, which is what the
 round-trip tests assert.
 
-A review keeps the `ToolRun` of each run of its tools. The run of a tool in the document holds
-each record of that tool in its property bag, under `tool_runs`, with the field names of
-`ToolRun`. The driver takes the version of the records when no result names one. The module
-docstring of `devops_cli.security.tool_executor` gives the SARIF name of each field, and the reason
-why the record cannot fill the other SARIF names.
+A review keeps the `ToolRun` of each run of its tools. Each tool that gave a result or has a
+record gets a run in the document. The run of a tool holds each record of that tool in its property
+bag, under `tool_runs`, with the field names of `ToolRun`, and one invocation for each record that
+its scanner settled. The driver takes the version of the records when no result names one. The
+module docstring of `devops_cli.security.tool_executor` gives the SARIF name of each field, and the
+reason why the record cannot fill the other SARIF names.
 
 Reference: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 """
@@ -21,6 +22,7 @@ Reference: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 from __future__ import annotations
 
 import json
+import shlex
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -36,6 +38,9 @@ from devops_cli.config.constants import (
     CONST_SARIF_VERSION,
     CONST_SEVERITY_TO_SARIF_LEVEL,
     CONST_SEVERITY_TO_SECURITY_SCORE,
+    CONST_TOOL_CONFIG_PLACEHOLDER,
+    CONST_TOOL_RULESET_PLACEHOLDER,
+    CONST_TOOL_TARGETS_PLACEHOLDER,
 )
 from devops_cli.security.normalization import (
     NormalizedFinding,
@@ -57,6 +62,13 @@ _PROBLEM_SEVERITY_PROPERTY = "problem.severity"
 _PROBLEM_SEVERITY_RECOMMENDATION = "recommendation"
 # The property of a run that holds the records of its tool: the name of the field of the profile.
 _TOOL_RUNS_PROPERTY = "tool_runs"
+# The placeholders that stand for paths in the template of a record. They are the redaction tokens
+# of a run, in this order (SARIF 2.1.0, 3.5.2 and 3.14.28).
+_REDACTION_TOKENS = (
+    CONST_TOOL_TARGETS_PLACEHOLDER,
+    CONST_TOOL_CONFIG_PLACEHOLDER,
+    CONST_TOOL_RULESET_PLACEHOLDER,
+)
 
 
 class SarifError(ValueError):
@@ -153,6 +165,26 @@ def _driver_version_of(findings: list[NormalizedFinding], records: Sequence[Tool
     return versions.pop() if len(versions) == 1 else None
 
 
+def _command_line(template: Sequence[str]) -> str:
+    """The command line of a record: each argument quoted for a POSIX shell, but a placeholder.
+
+    A placeholder stays as it is, so it is the same string as its redaction token.
+    """
+    return " ".join(arg if arg in _REDACTION_TOKENS else shlex.quote(arg) for arg in template)
+
+
+def _invocation_of(record: ToolRun) -> dict[str, Any]:
+    """The invocation of a settled record. A run that timed out or that a signal ended has no
+    exit code (SARIF 2.1.0, 3.20.9)."""
+    invocation: dict[str, Any] = {
+        "commandLine": _command_line(record.argv_template),
+        "executionSuccessful": record.success,
+    }
+    if record.exit_code is not None:
+        invocation["exitCode"] = record.exit_code
+    return invocation
+
+
 def _run_for(
     tool: str,
     findings: list[NormalizedFinding],
@@ -163,6 +195,12 @@ def _run_for(
 
     Each tool gets its own run because a run carries exactly one tool driver; merging them
     would attribute every finding to whichever driver was written first.
+
+    Each settled record is one invocation, in the order of the runs. With no settled record, the
+    run keeps `invocation`, the invocation of a scanner outcome. A run with no results says that
+    the tool looked and found nothing (SARIF 2.1.0, 3.14.23). So a tool with no result has an empty
+    results array only when every record of the tool succeeded. Otherwise the run has no results,
+    which SARIF reads as null.
     """
     rule_indices: dict[str, int] = {}
     rules: list[dict[str, Any]] = []
@@ -185,12 +223,20 @@ def _run_for(
     if version:
         driver["version"] = version
 
-    run: dict[str, Any] = {
-        "tool": {"driver": driver},
-        "results": results,
-    }
-    if invocation is not None:
-        run["invocations"] = [invocation]
+    run: dict[str, Any] = {"tool": {"driver": driver}}
+    if findings or all(record.success for record in records):
+        run["results"] = results
+    settled = [record for record in records if record.success is not None]
+    invocations = [_invocation_of(record) for record in settled]
+    if not invocations and invocation is not None:
+        invocations = [invocation]
+    if invocations:
+        run["invocations"] = invocations
+    tokens = [
+        token for token in _REDACTION_TOKENS if any(token in r.argv_template for r in settled)
+    ]
+    if tokens:
+        run["redactionTokens"] = tokens
     if records:
         run["properties"] = {
             _TOOL_RUNS_PROPERTY: [record.model_dump(mode="json") for record in records]
@@ -282,8 +328,8 @@ def to_sarif(
     SARIF, each tool named by a finding gets a run.
 
     `tool_runs` are the records of the runs of the tools, in the order of the runs. The run of a
-    tool holds the records of that tool. A record gives no tool a run. A record does not say that
-    its tool succeeded, and a run with no results says that the tool looked and found nothing.
+    tool holds the records of that tool, and an invocation for each record that its scanner
+    settled. Without outcomes, each tool that has a record gets a run, also with no result.
     """
     by_tool: dict[str, list[NormalizedFinding]] = {}
     for finding in findings:
@@ -296,8 +342,8 @@ def to_sarif(
         runs = _runs_for_outcomes(by_tool, outcomes, records)
     else:
         runs = [
-            _run_for(tool, tool_findings, records=records.get(tool, []))
-            for tool, tool_findings in sorted(by_tool.items())
+            _run_for(tool, by_tool.get(tool, []), records=records.get(tool, []))
+            for tool in sorted(by_tool.keys() | records.keys())
         ]
     if not runs:
         runs = [_run_for(CONST_SARIF_TOOL_NAME, [])]

@@ -648,6 +648,12 @@ executor could not read one of the files, because a scan must not fail for its r
 shows `{targets}`, `{config}` and `{ruleset}` where the command names those files by path, so the
 same scan records the same template.
 
+A record also says how its run ended: `exit_code`, and `success` as the code that ran the tool
+decided it. The exit code alone does not tell success: Gitleaks and Semgrep exit with 1 when they
+find a result. A scan succeeded when its outcome is `ran` or `coverage_gap`, and mypy when it ended
+with exit code 0 or 1. A run that timed out, or that a signal ended, has no exit code. A record
+with no success is a run that its scanner did not settle.
+
 The `binary_sha256` of a native binary, such as Gitleaks, Trivy or the Ruff binary, is the SHA-256
 of its file. A Python tool, such as Bandit or Semgrep, starts from a launcher script that its
 installer writes from a console script, and the launcher holds the path of its interpreter. So its
@@ -668,7 +674,8 @@ program file, and `version` is `unknown`. Mypy gets its cache directory through 
 the template holds no path of the cache. The canary of each tool runs on the executor of the
 review, as the tool does. A canary scans nothing of the review, so the review keeps no record of it.
 
-`review.md` lists the distinct records in the Tool Runs table, each with its number of runs.
+`review.md` lists the distinct records in the Tool Runs table, each with its exit code, if it
+succeeded, and its number of runs.
 Gitleaks scans one file at a time, so one row can stand for hundreds of runs. The table leaves out
 the targets digest and shows the first 16 digits of the binary digest. `profile.json` keeps every
 record in full. The two digests cover these files:
@@ -693,11 +700,15 @@ cover them.
 The record is read before the tool starts. Trivy fetches its checks bundle during a scan when the
 cache is old, so Trivy may use newer rules than the record names.
 
-The SARIF document of the review, `findings.sarif`, holds the records of a tool in the run of that
-tool. The property bag of the run holds each record in full under `tool_runs`. The driver of the run
-names the version of the records when no result names one. Only a tool that gave a result has a run,
-because a record does not say that its tool succeeded. The module docstring of
-`src/devops_cli/security/tool_executor.py` tells why the record fills no other SARIF 2.1.0 name.
+The SARIF document of the review, `findings.sarif`, has a run for each tool that gave a result or
+has a record. The property bag of the run holds each record in full under `tool_runs`. Each settled
+record is one invocation of the run, with `executionSuccessful`, `exitCode` and `commandLine`. The
+command line is the template, and the run lists the placeholders that its command lines hold in
+`redactionTokens`. The driver of the run names the version of the records when no result names one.
+A tool that gave no result has an empty `results` array only when each of its runs succeeded.
+Otherwise its run has no `results`, which SARIF reads as null: the tool did not finish its analysis.
+The module docstring of `src/devops_cli/security/tool_executor.py` tells why the record fills no
+other SARIF 2.1.0 name.
 
 ### Project Review Conventions
 

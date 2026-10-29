@@ -3,7 +3,8 @@
 A review starts many runs of the same tool. Gitleaks scans one file at a time, and a review of 300
 files starts it 300 times. A run is one `ToolRun`, the record of what ran. `profile.json` keeps
 every record. The report holds one row for each distinct record and counts its runs, because two
-runs differ only by the files they scanned.
+runs differ only by the files they scanned. A row shows how its runs ended: the exit code, and if
+the scanner decided that the runs succeeded.
 """
 
 from __future__ import annotations
@@ -25,10 +26,14 @@ TOOL_RUNS_COLUMNS = (
     "Ruleset",
     "Commit",
     "Command",
+    "Exit code",
+    "Succeeded",
     "Runs",
 )
 # How many hexadecimal digits of the binary digest the report shows. `profile.json` holds all.
 _BINARY_DIGEST_CHARS = 16
+# The cell of the success of a record. A run that its scanner did not settle is `unknown`.
+_SUCCEEDED: dict[bool | None, str] = {True: "yes", False: "no", None: "unknown"}
 
 
 def tool_run_rows(runs: Iterable[ToolRun]) -> list[tuple[ToolRun, int]]:
@@ -55,6 +60,8 @@ def _row(run: ToolRun, count: int) -> str:
         f"`{run.ruleset_digest}`",
         f"`{run.commit}`" if run.commit else "none",
         f"`{' '.join(run.argv_template)}`",
+        "none" if run.exit_code is None else str(run.exit_code),
+        _SUCCEEDED[run.success],
         str(count),
     )
     return "| " + " | ".join(_cell(cell) for cell in cells) + " |"

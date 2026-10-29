@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,20 +44,27 @@ class TrivySbomScanner(TrivyScanner):
         format_type: str = "cyclonedx",
         timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
     ) -> str:
-        """Execute Trivy to generate an SBOM document through the scanner base."""
+        """Execute Trivy to generate an SBOM document through the scanner base.
+
+        The run succeeded when Trivy exited with 0. A run that timed out raises
+        `subprocess.TimeoutExpired`, and any other failure raises `ToolExecutionError`.
+        """
         if not self._check_binary():
             raise DependencyError(tool_name=self.binary_name)
 
         cmd = self.build_command(target_path, format_type=format_type)
         cwd = self._resolve_cwd(target_path)
-        proc = self._run_tool(cmd, cwd, target_path, timeout)
-        if proc.returncode != 0:
+        result = self._run_tool(cmd, cwd, target_path, timeout)
+        self._tool_executor.settle(result, success=result.exit_code == 0)
+        if result.timed_out:
+            raise subprocess.TimeoutExpired(cmd, timeout, result.stdout, result.stderr)
+        if result.exit_code != 0:
             raise ToolExecutionError(
-                f"Trivy SBOM generation failed with code {proc.returncode}: {proc.stderr.strip()}",
+                f"Trivy SBOM generation failed with code {result.exit_code}: {result.stderr.strip()}",
                 tool_name=self.binary_name,
-                exit_code=proc.returncode or 1,
+                exit_code=result.exit_code or 1,
             )
-        return str(proc.stdout or "")
+        return result.stdout
 
 
 def run_trivy_sbom(

@@ -30,9 +30,13 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
 if TYPE_CHECKING:
-    from devops_cli.security.tool_executor import KubeApiNetwork, ToolExecutor
+    from devops_cli.security.tool_executor import KubeApiNetwork, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
+
+# The outcomes of a scan whose tool ran and whose output the scanner read. A coverage gap from the
+# tool's own report names the files that the tool left out of a run that succeeded.
+_TOOL_SUCCEEDED = frozenset({"ran", "coverage_gap"})
 
 
 def _has_builtin_patterns(scanner: Any) -> bool:
@@ -640,12 +644,12 @@ class BaseSecurityScanner(ABC):
         timeout: float,
         files: Callable[[], ToolFiles] = ToolFiles,
         network: KubeApiNetwork | None = None,
-    ) -> Any:
-        """Start `cmd` through the tool executor and answer as a finished process. `files` names
-        the config files and the ruleset files the tool reads, so the record of the run holds a
-        digest of each. `network` is the network profile of the request (`tool_network`).
+    ) -> ToolResult:
+        """Start `cmd` through the tool executor and answer how the run ended. `files` names the
+        config files and the ruleset files the tool reads, so the record of the run holds a digest
+        of each. `network` is the network profile of the request (`tool_network`).
 
-        A run that ran out of time raises `subprocess.TimeoutExpired`, as the process would.
+        The caller decides if the run succeeded and settles it with the tool executor.
         """
         # Imported here: the executor pulls in the sandbox and the canary, which a scanner that
         # never runs does not need.
@@ -675,10 +679,7 @@ class BaseSecurityScanner(ABC):
             limits=ToolLimits.for_tool(cmd[0], wall_seconds=timeout),
             network=network,
         )
-        result = self._tool_executor.run(request)
-        if result.timed_out:
-            raise subprocess.TimeoutExpired(cmd, timeout, result.stdout, result.stderr)
-        return subprocess.CompletedProcess(cmd, result.exit_code, result.stdout, result.stderr)
+        return self._tool_executor.run(request)
 
     def _resolve_cwd(self, target_path: Any, **kwargs: Any) -> Path:
         """The directory a scan that is not isolated starts in: the nearest directory on disk that
@@ -711,34 +712,44 @@ class BaseSecurityScanner(ABC):
 
         The scanner gets an empty stdin, never the caller's, such as a stdio MCP server's
         request stream, so no target it is named makes it read one (#1079). `network` is the
-        network profile of the request (`tool_network`)."""
+        network profile of the request (`tool_network`).
+
+        A run that started is settled with the tool executor: it succeeded when the outcome of
+        the scan is `ran` or `coverage_gap` (#2100)."""
 
         @trace_span(f"security.{self.name}")
         def _run() -> ScanOutcome:
+            result: ToolResult | None = None
             try:
-                proc = self._run_tool(cmd, cwd_dir, target_path, timeout, files, network)
-                is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
-                if not is_valid_json:
-                    return _handle_non_json_output(self, proc, target_path)
-                return _handle_json_output(
-                    self, data, proc.returncode, proc.stderr or "", target_path
-                )
-            except subprocess.TimeoutExpired as exc:
-                timed_out = f"timed out after {exc.timeout:g} s"
-                return self._failed_run(
-                    target_path, timed_out, f"{timed_out}; used built-in patterns"
-                )
+                result = self._run_tool(cmd, cwd_dir, target_path, timeout, files, network)
+                outcome = self._outcome_of(cmd, result, target_path, timeout)
             except SandboxUnavailableError as refused:
                 # The tool did not run, in the sandbox or outside it (#2096).
                 return ScanOutcome("coverage_gap", [], refused.message)
             except Exception as exc:
-                return self._failed_run(
+                outcome = self._failed_run(
                     target_path,
                     f"Scanner execution failed: {exc}",
                     f"Scanner error: {exc}; used built-in patterns",
                 )
+            if result is not None:
+                self._tool_executor.settle(result, success=outcome.status in _TOOL_SUCCEEDED)
+            return outcome
 
         return _run()
+
+    def _outcome_of(
+        self, cmd: list[str], result: ToolResult, target_path: Any, timeout: float
+    ) -> ScanOutcome:
+        """The outcome of a scan whose tool ended as `result`, from its exit code and its output."""
+        if result.timed_out:
+            timed_out = f"timed out after {timeout:g} s"
+            return self._failed_run(target_path, timed_out, f"{timed_out}; used built-in patterns")
+        proc = subprocess.CompletedProcess(cmd, result.exit_code, result.stdout, result.stderr)
+        is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
+        if not is_valid_json:
+            return _handle_non_json_output(self, proc, target_path)
+        return _handle_json_output(self, data, proc.returncode, proc.stderr or "", target_path)
 
     def _failed_run(self, target_path: Any, failed: str, fallen_back: str) -> ScanOutcome:
         """The outcome of a run that raised: the built-in patterns' findings with the

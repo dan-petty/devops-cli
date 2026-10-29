@@ -5,6 +5,8 @@ The seam is `ToolExecutor` in `devops_cli.security.tool_executor`: code that run
 takes an executor and calls `run(request)`. The real executor starts the tool in a bubblewrap
 sandbox. This fake starts nothing. It answers each request with the `ToolAnswer` scripted for the
 request's tool, an empty success when none is scripted, and keeps every request in `requests`.
+The code that runs a tool settles each run. The fake keeps no records, so its `settle` does
+nothing, as the settle of a real executor does.
 
 Everything inside the process runs for real. The fake builds each `ToolRun` with the same
 `record_tool_run` that the real executor calls. So the fake refuses a target outside the tree, and
@@ -119,6 +121,10 @@ class ToolExecutorFake:
             stderr=answer.stderr,
             timed_out=answer.timed_out,
         )
+
+    def settle(self, result: ToolResult, *, success: bool) -> None:
+        """Do nothing, as the real executors do: the fake keeps requests, not records. A test reads
+        the settled records from a `RecordingToolExecutor` around the fake."""
 
 
 @pytest.fixture

@@ -301,9 +301,11 @@ def run_mypy_scan(
             return ScanOutcome(
                 status="failed", findings=[], reason=f"Scanner execution failed: {exc}"
             )
+    checked = not result.timed_out and result.exit_code in _MYPY_CHECKED_EXIT_CODES
+    executor.settle(result, success=checked)
     if result.timed_out:
         return ScanOutcome(status="failed", findings=[], reason=f"timed out after {timeout:g} s")
-    if result.exit_code not in _MYPY_CHECKED_EXIT_CODES:
+    if not checked:
         error = (result.stderr or result.stdout).strip()
         return ScanOutcome(
             status="failed",
