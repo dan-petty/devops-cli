@@ -52,7 +52,6 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
-    CONST_GIT_CLI,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
@@ -60,12 +59,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_LIMIT
 from devops_cli.config.settings import load_settings
-from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
-    GitOperationError,
     RoadmapStageError,
     ToolExecutionError,
     ValidationError,
@@ -77,11 +74,11 @@ from devops_cli.git.worktree_add import (
     read_remote_heads,
     remote_branches,
 )
-from devops_cli.git.worktree_inventory import git_message
 from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
+from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
@@ -637,22 +634,12 @@ def _pull_of(item: Item) -> int | None:
     return int(recorded) if recorded.isdigit() else None
 
 
-def _default_branch(source: Path) -> str:
-    """The default branch of the clone, from `refs/remotes/origin/HEAD`."""
-    ref = _git(source, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-    return ref.removeprefix("origin/")
-
-
 def _foreign_commits(source: Path, branch: str) -> int:
     """How many commits `origin/<branch>` holds past the default branch whose author is not the
-    identity the clone commits as. The author is the name of the commit, as `worktrees add` reads
-    it when it takes a staged branch over."""
+    identity the clone commits as."""
     own = _git(source, "config", "user.name")
-    _git(source, "fetch", "-q", "origin", branch)
-    authors = _git(
-        source, "log", "--format=%an", f"origin/{_default_branch(source)}..origin/{branch}"
-    )
-    return sum(1 for author in authors.splitlines() if author != own)
+    authors = branch_authors(source, branch, operation=_GIT_OPERATION)
+    return sum(1 for author in authors if author != own)
 
 
 def _reconcile(
@@ -763,17 +750,8 @@ class StageApplied:
 
 
 def _git(cwd: Path, *args: str) -> str:
-    """The output of `git <args>` in `cwd`; a failure raises `GitOperationError` with git's reason,
-    credentials masked."""
-    proc = run_subprocess([CONST_GIT_CLI, "-C", str(cwd), *args], check=False, quiet=True)
-    if proc.returncode != 0:
-        raise GitOperationError(
-            MESSAGES.roadmap.stage_git_failed.format(
-                command=" ".join(args), reason=mask_secrets(git_message(proc))
-            ),
-            operation=_GIT_OPERATION,
-        )
-    return proc.stdout.strip()
+    """The output of `git <args>` in `cwd` for the stage job."""
+    return git(cwd, *args, operation=_GIT_OPERATION)
 
 
 @contextmanager
@@ -811,7 +789,7 @@ def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
             title=change.title,
             body=change.body,
             head=branch,
-            base=_default_branch(source),
+            base=default_branch(source, operation=_GIT_OPERATION),
         )
     except DevOpsCLIError:
         _git(source, "push", "origin", "--delete", branch)

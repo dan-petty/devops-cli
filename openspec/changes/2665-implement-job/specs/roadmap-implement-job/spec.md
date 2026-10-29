@@ -18,10 +18,10 @@ A Staged item SHALL hold `stage.pr` and `stage.branch` in its record, its branch
 
 #### Scenario: The default filter
 - **WHEN** the roadmap holds a Staged Ready P1 bug of low effort, a Staged Ready P1 bug of high effort, and a Staged Ready P3 bug of low effort
-- **THEN** the plan selects the first item, and leaves out the other two with the reason that a label of the filter is missing
+- **THEN** the plan selects the first item, and does not name the other two, which the filter does not name
 
 ### Requirement: The job leaves out an item and says why
-The job SHALL leave out, with a reason in the plan, an item that is not Ready, is not Staged, holds `implement.stopped`, has an author who is not the owner, a member or a collaborator, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft.
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is not Ready, is not Staged, holds `implement.stopped`, has an author who is not the owner, a member or a collaborator, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record

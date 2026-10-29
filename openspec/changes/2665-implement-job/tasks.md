@@ -16,9 +16,9 @@
 
 ## 3. The selection and the plan
 
-- [ ] Add failing tests: the default filter, each reason to leave an item out, the retry comment, the limit and the order, and the dry run
+- [x] Add failing tests: the default filter, each reason to leave an item out, the retry comment, the limit and the order, and the dry run
   - Verification: `uv run devops ci test tests/test_roadmap_implement_selection.py`
-- [ ] Add `roadmap/implement.py`: the filter, the judge, the plan, the dry run and the report
+- [x] Add `roadmap/implement.py`: the filter, the judge, the plan, the dry run and the report
   - Verification: `uv run devops ci test tests/test_roadmap_implement_selection.py`
 
 ## 4. The run of one item
