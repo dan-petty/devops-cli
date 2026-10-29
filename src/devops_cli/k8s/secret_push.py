@@ -351,6 +351,11 @@ def _missing_hint(secret: ClusterSecret, entry: SecretEntry, reason: str) -> str
             f"{secret.ref} {entry.key}: keyring {source.key} is empty and {adopt} holds no "
             f"value{store}"
         )
+    if isinstance(source, SettingSource):
+        return (
+            f"{secret.ref} {entry.key}: {source.label} has no value; set it with "
+            f"`devops config set {source.option}`"
+        )
     return f"{secret.ref} {entry.key}: {source.label} has no value"
 
 

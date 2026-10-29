@@ -30,13 +30,14 @@ from devops_cli.config.env import (
     secret_keys,
 )
 from devops_cli.config.os_keyring import set_keyring_edge
-from devops_cli.config.settings import TelemetryConfig
+from devops_cli.config.settings import TelemetryConfig, reset_settings_cache
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
     LLM_GATEWAY_MASTER_KEY,
     KeyringSource,
     SecretGenerator,
+    SettingSource,
 )
 from devops_cli.security.secrets import build_secret_registry
 from devops_cli.telemetry import tracer
@@ -240,6 +241,17 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "monitoring/grafana admin-password",
             ("deployment/grafana",),
         ),
+        ("argocd/argocd-notifications-secret", "github-appID", "infra", False, None, None, ()),
+        (
+            "argocd/argocd-notifications-secret",
+            "github-installationID",
+            "infra",
+            False,
+            None,
+            None,
+            (),
+        ),
+        ("argocd/argocd-notifications-secret", "github-privateKey", "infra", False, None, None, ()),
         ("gitea/gitea-admin", "username", "gitea", True, None, None, ("deployment/gitea",)),
         ("gitea/gitea-admin", "password", "gitea", True, None, None, ("deployment/gitea",)),
     ]
@@ -477,6 +489,140 @@ def test_readme_lists_the_table() -> None:
     readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
     rows = [_readme_row(s, e) for s in CLUSTER_SECRETS for e in s.entries]
     assert [row for row in rows if row not in readme] == []
+
+
+# ── Argo CD's GitHub notifier (#2000) ────────────────────────────────────────
+
+NOTIFIER = "argocd/argocd-notifications-secret"
+NOTIFIER_KEYRING = "argocd_github_app_private_key"
+# PEM-shaped: three lines, the last one ending in a newline. It holds no key.
+NOTIFIER_PEM = "-----BEGIN TEST KEY-----\nnotifier-key-body-0001\n-----END TEST KEY-----\n"
+NOTIFIER_APP_ID = "123456"
+NOTIFIER_INSTALLATION_ID = "7890123"
+
+
+def _notifier_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ARGOCD_GITHUB_APP_ID", NOTIFIER_APP_ID)
+    monkeypatch.setenv("DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID", NOTIFIER_INSTALLATION_ID)
+    reset_settings_cache()
+
+
+def test_the_notifier_values_are_two_settings_and_a_managed_credential() -> None:
+    """The two IDs are plain settings; the private key is a managed credential that a person
+    stores with `devops config set --from-file`. No entry is required or generated."""
+    from devops_cli.config.settings import ArgoCDConfig
+
+    notifier = next(s for s in CLUSTER_SECRETS if s.ref == NOTIFIER)
+    assert (
+        [(e.key, e.source, e.required, e.generator) for e in notifier.entries],
+        notifier.restarts,
+        sorted(set(ArgoCDConfig.model_fields) - {"url"}),
+        option_env_vars()["argocd.github_app_id"],
+        option_env_vars()["argocd.github_app_installation_id"],
+        option_env_vars()["argocd.github_app_private_key"],
+        keyring_names()["argocd.github_app_private_key"],
+        "argocd.github_app_private_key" in secret_keys(),
+        "argocd.github_app_id" in secret_keys(),
+    ) == (
+        [
+            ("github-appID", SettingSource("argocd.github_app_id"), False, None),
+            (
+                "github-installationID",
+                SettingSource("argocd.github_app_installation_id"),
+                False,
+                None,
+            ),
+            (
+                "github-privateKey",
+                KeyringSource(NOTIFIER_KEYRING, "argocd.github_app_private_key"),
+                False,
+                None,
+            ),
+        ],
+        (),
+        ["github_app_id", "github_app_installation_id"],
+        "DEVOPS_CLI_ARGOCD_GITHUB_APP_ID",
+        "DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID",
+        "DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY",
+        NOTIFIER_KEYRING,
+        True,
+        False,
+    )
+
+
+def test_the_notifier_secret_gets_the_ids_and_the_pem_key_byte_for_byte(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cluster.namespaces.add("argocd")
+    _install(monkeypatch, cluster, values={**FULL_KEYRING, NOTIFIER_KEYRING: NOTIFIER_PEM})
+    _notifier_settings(monkeypatch)
+    result = _push("--only", NOTIFIER)
+    assert (
+        result.exit_code,
+        cluster.live_data("argocd", "argocd-notifications-secret"),
+        cluster.commands("kubectl", "rollout"),
+        [v for v in (NOTIFIER_PEM.splitlines()[1], NOTIFIER_APP_ID) if v in result.output],
+    ) == (
+        0,
+        {
+            "github-appID": NOTIFIER_APP_ID,
+            "github-installationID": NOTIFIER_INSTALLATION_ID,
+            "github-privateKey": NOTIFIER_PEM,
+        },
+        [],
+        [],
+    ), result.output
+
+
+def test_the_notifier_plan_names_each_key_and_its_source_with_no_value(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cluster.namespaces.add("argocd")
+    _install(monkeypatch, cluster, values={**FULL_KEYRING, NOTIFIER_KEYRING: NOTIFIER_PEM})
+    _notifier_settings(monkeypatch)
+    result = _push("--only", NOTIFIER, "--plan")
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "github-appID (setting argocd.github_app_id) would create" in output,
+        "github-installationID (setting argocd.github_app_installation_id) would create" in output,
+        f"github-privateKey (keyring {NOTIFIER_KEYRING}) would create" in output,
+        [v for v in (NOTIFIER_PEM.splitlines()[1], NOTIFIER_APP_ID) if v in result.output],
+        cluster.applies(),
+    ) == (0, True, True, True, [], []), result.output
+
+
+def test_with_no_notifier_value_the_push_writes_nothing_and_names_the_commands(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cluster.namespaces.add("argocd")
+    _install(monkeypatch, cluster)
+    reset_settings_cache()
+    result = _push("--only", NOTIFIER)
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "devops config set argocd.github_app_id" in output,
+        "devops config set argocd.github_app_installation_id" in output,
+        "devops config set argocd.github_app_private_key" in output,
+        cluster.applies(),
+    ) == (0, True, True, True, []), result.output
+
+
+def test_the_notifier_dry_run_names_the_keys_with_placeholders_and_runs_nothing(
+    cluster: FakeCluster,
+) -> None:
+    result = _push("--only", NOTIFIER, "--dry-run")
+    output = result.output
+    assert (
+        result.exit_code,
+        '"github-appID": "<base64 of setting argocd.github_app_id, left out when it has none>"'
+        in output,
+        f'"github-privateKey": "<base64 of keyring {NOTIFIER_KEYRING}, left out when it has none>"'
+        in output,
+        "no request was made" in output,
+        cluster.calls,
+    ) == (0, True, True, True, []), output
 
 
 # ── push-secrets: apply and resolution ──────────────────────────────────────

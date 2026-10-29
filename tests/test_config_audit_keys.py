@@ -71,7 +71,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 15)
+    ) == (True, True, True, 16)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -80,6 +80,7 @@ def test_config_audit_keys_json_output() -> None:
         "grafana.password" in keys,
         "argocd.token" in keys,
         "argocd.password" in keys,
+        "argocd.github_app_private_key" in keys,
         "ai.api_key" in keys,
         "qdrant.api_key" in keys,
         "valkey.password" in keys,
@@ -91,6 +92,7 @@ def test_config_audit_keys_json_output() -> None:
         "service.github_app.private_key" in keys,
         "firecrawl.api_key" in keys,
     ) == (
+        True,
         True,
         True,
         True,

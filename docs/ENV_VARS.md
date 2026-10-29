@@ -38,6 +38,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT` | `ai.tasks.metadata.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | `argocd.github_app_id` | No | ID of the GitHub App that Argo CD's GitHub notifier acts as |
+| `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | `argocd.github_app_installation_id` | No | ID of the installation of Argo CD's notifier App on the managed repositories |
+| `DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY` | `argocd.github_app_private_key` | 🔒 Yes | PEM private key of the GitHub App that Argo CD's GitHub notifier acts as (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_PASSWORD` | `argocd.password` | 🔒 Yes | ArgoCD admin password (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_TOKEN` | `argocd.token` | 🔒 Yes | ArgoCD API token (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_URL` | `argocd.url` | No | ArgoCD service URL |

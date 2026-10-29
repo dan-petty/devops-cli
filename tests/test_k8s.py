@@ -242,6 +242,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
             "cloudflared/cloudflared-token: token",
             "devops/devops-cli: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_FIRECRAWL_API_KEY, DEVOPS_CLI_VALKEY_PASSWORD (if namespace devops exists)",
             "monitoring/grafana-admin: admin-user, admin-password",
+            "argocd/argocd-notifications-secret: github-appID, github-installationID, github-privateKey",
         ],
         [],
     )

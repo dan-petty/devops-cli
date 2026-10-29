@@ -135,6 +135,9 @@ _VARIABLES_ADDED = frozenset(
 _VARIABLES_OF_LATER_SETTINGS = frozenset(
     {
         "DEVOPS_CLI_K8S_TUNNEL_HOST",  # #1641
+        "DEVOPS_CLI_ARGOCD_GITHUB_APP_ID",  # #2000
+        "DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID",  # #2000
+        "DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY",  # #2000
     }
 )
 
@@ -157,6 +160,12 @@ _KEYRING_BEFORE = {
 }
 
 
+# Credentials added after the declaration moved onto the fields.
+_KEYRING_OF_LATER_CREDENTIALS = {
+    "argocd.github_app_private_key": "argocd_github_app_private_key",  # #2000
+}
+
+
 def _variables_read() -> set[str]:
     credential_variables = {var for ref in build_secret_registry().values() for var in ref.env_vars}
     specs = {spec.env_var for spec in env.get_all_env_var_specs()}
@@ -171,11 +180,9 @@ def test_the_variables_are_those_before_one_for_each_read_option_that_had_none_a
     )
 
 
-def test_the_keyring_entries_and_the_secret_keys_are_those_before() -> None:
-    assert (env.keyring_names(), sorted(env.secret_keys())) == (
-        _KEYRING_BEFORE,
-        sorted(_KEYRING_BEFORE),
-    )
+def test_the_keyring_entries_and_the_secret_keys_are_those_before_and_later_ones() -> None:
+    keyring = {**_KEYRING_BEFORE, **_KEYRING_OF_LATER_CREDENTIALS}
+    assert (env.keyring_names(), sorted(env.secret_keys())) == (keyring, sorted(keyring))
 
 
 def test_config_env_lists_every_variable_that_sets_a_setting_or_a_credential() -> None:

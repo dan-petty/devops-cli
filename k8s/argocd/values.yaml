@@ -116,6 +116,11 @@ dex:
 
 notifications:
   enabled: false
+  secret:
+    # `devops k8s push-secrets` writes argocd-notifications-secret from the keyring and the
+    # settings (#2000), so the chart creates no Secret of that name, also once notifications
+    # are turned on.
+    create: false
 
 applicationSet:
   # The upstream argo-cd chart has no enable switch for this controller; replicas: 0 disables

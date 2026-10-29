@@ -78,6 +78,8 @@ Argo CD server endpoint, authentication, TLS, and service addressing settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `url` | `Union` | - | `DEVOPS_CLI_ARGOCD_URL` | ArgoCD service URL |
+| `github_app_id` | `Union` | - | `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | ID of the GitHub App that Argo CD's GitHub notifier acts as |
+| `github_app_installation_id` | `Union` | - | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | ID of the installation of Argo CD's notifier App on the managed repositories |
 
 ## Qdrant Vector Store (`qdrant`)
 

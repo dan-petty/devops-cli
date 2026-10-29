@@ -73,6 +73,11 @@ CREDENTIALS: tuple[Credential, ...] = (
     Credential("grafana.password", "Grafana admin password (stored in OS keyring)"),
     Credential("argocd.token", "ArgoCD API token (stored in OS keyring)"),
     Credential("argocd.password", "ArgoCD admin password (stored in OS keyring)"),
+    Credential(
+        "argocd.github_app_private_key",
+        "PEM private key of the GitHub App that Argo CD's GitHub notifier acts as (stored in OS "
+        "keyring)",
+    ),
     Credential("ai.api_key", "AI API key (stored in OS keyring)"),
     Credential("qdrant.api_key", "Qdrant API key (stored in OS keyring)", in_file=True),
     Credential(

@@ -868,3 +868,20 @@ def test_the_template_application_syncs_after_the_chart_that_brings_its_crds() -
         if name in {"argo-workflows", "argo-workflows-manifests"}
     }
     assert waves["argo-workflows"] < waves["argo-workflows-manifests"]
+
+
+def test_the_push_is_the_one_owner_of_the_notifications_secret() -> None:
+    """`devops k8s push-secrets` writes `argocd/argocd-notifications-secret` (#2000). The chart
+    creates no Secret of that name, also once notifications are turned on, and Argo CD ignores the
+    pushed Secret as an orphan."""
+    values = _load_yaml(K8S_DIR / "argocd" / "values.yaml")
+    homelab = next(
+        doc
+        for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+        if doc["metadata"]["name"] == "homelab"
+    )
+    assert (
+        values["notifications"]["secret"]["create"],
+        {"group": "", "kind": "Secret", "name": "argocd-notifications-secret"}
+        in homelab["spec"]["orphanedResources"]["ignore"],
+    ) == (False, True)
