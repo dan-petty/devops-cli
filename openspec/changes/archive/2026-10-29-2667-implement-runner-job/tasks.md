@@ -10,9 +10,9 @@
 ## 2. The Job template and the run-job option
 
 - [x] Add failing tests: the Job builder with the runner template, the extra environment and labels, the name prefix, the `--template` option and its dry run
-  - Verification: `uv run devops ci test tests/test_k8s_cluster_job.py`
+  - Verification: `uv run devops ci test tests/test_k8s_run_job.py tests/test_k8s_cluster_job_api.py`
 - [x] Add `JobTemplate`, the `--template` option, and the messages and help
-  - Verification: `uv run devops ci test tests/test_k8s_cluster_job.py`
+  - Verification: `uv run devops ci test tests/test_k8s_run_job.py tests/test_k8s_cluster_job_api.py`
 
 ## 3. The manifests
 

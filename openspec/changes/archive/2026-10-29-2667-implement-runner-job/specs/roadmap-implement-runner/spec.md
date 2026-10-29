@@ -17,6 +17,13 @@ The `runner` stage of `Dockerfile` SHALL be built from the `builder` stage and S
 - **WHEN** a test reads every `FROM` and `COPY --from` of `Dockerfile`
 - **THEN** each image carries a digest, the `runner` stage included
 
+### Requirement: The runner stage names its interpreter
+The `runner` stage SHALL set `UV_PYTHON` to the interpreter of its base image, and the shell of a step SHALL get that variable. The builder stage forbids a Python download, and the `.python-version` of a checkout can name a patch release that the pinned base image lacks, so `uv run` would find no interpreter.
+
+#### Scenario: uv finds an interpreter
+- **WHEN** a test reads the `runner` stage, and CI runs `uv run --locked ruff --version` in a copy of the checkout on a read-only root
+- **THEN** the stage sets `UV_PYTHON=/usr/local/bin/python3` and the command succeeds
+
 ### Requirement: The release publishes the runner image
 `release.yml` SHALL have a job that builds the `runner` target of `Dockerfile`, runs a smoke test, scans the image with Trivy for HIGH and CRITICAL findings, pushes it by digest as `ghcr.io/<repository>/runner`, attests its provenance, and tags the attested digest with the release tag and `latest`. `ci.yml` SHALL build, smoke-test and scan the same target on a pull request, push nothing, and run only when image content changed.
 
@@ -29,29 +36,33 @@ The `runner` stage of `Dockerfile` SHALL be built from the `builder` stage and S
 - **THEN** a job builds `target: runner` with `push: false` and `load: true`, and each of its build steps runs only if the image content changed
 
 ### Requirement: A suspended CronJob is the template of the runner Job
-CronJob `devops-cli-runner` in namespace `devops` SHALL be suspended and SHALL never run on a schedule. Its Job template SHALL name the image `ghcr.io/dan-petty/devops-cli/runner` with no tag, request and limit 2 CPU and 4 Gi, set `activeDeadlineSeconds` to 7200 and `backoffLimit` to 0, and use the `securityContext` of CronJob `devops-cli`. Its pod SHALL use ServiceAccount `devops-cli`, which mounts no token.
+CronJob `devops-cli-runner` in namespace `devops` SHALL be suspended and SHALL never run on a schedule. Its Job template SHALL name the image `ghcr.io/dan-petty/devops-cli/runner` with no tag, request and limit 2 CPU and 4 Gi, request 2 Gi and limit 6 Gi of `ephemeral-storage`, set `activeDeadlineSeconds` to 7200 and `backoffLimit` to 0, and use the `securityContext` of CronJob `devops-cli`. Its pod SHALL use ServiceAccount `devops-cli`, which mounts no token.
 
 #### Scenario: The manifest is read
 - **WHEN** a test reads the rendered `k8s/devops` kustomization
 - **THEN** CronJob `devops-cli-runner` holds the values above, its container is named `runner`, its pod mounts no ServiceAccount token, its root filesystem is read-only, and its capabilities drop `ALL`
 
 ### Requirement: The runner Job knows it is a runner and holds a home volume
-The container of CronJob `devops-cli-runner` SHALL set `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, take Secret `devops-cli` through `envFrom`, mount ConfigMap `devops-cli-config`, and mount an `emptyDir` of 4 Gi as its home. The other CronJob SHALL not set that variable.
+The container of CronJob `devops-cli-runner` SHALL set `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, take Secret `devops-cli` through `envFrom`, mount ConfigMap `devops-cli-config`, and mount an `emptyDir` of 4 Gi as its home and an `emptyDir` of 1 Gi as `/tmp`. The other CronJob SHALL not set that variable. The `ephemeral-storage` limit SHALL cover both volumes.
 
 #### Scenario: The variable
 - **WHEN** a test reads the rendered `k8s/devops` kustomization
-- **THEN** only the runner container sets `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER`, and the pod of `roadmap-service` does not
+- **THEN** both volumes have a `sizeLimit`, only the runner container sets `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER`, and the pod of `roadmap-service` does not
 
 ### Requirement: run-job creates a Job from the runner template
-`devops k8s run-job --template runner -- ARGS` SHALL create a Job from CronJob `devops-cli-runner` and change only the args of its container `runner`, the name and the labels. `--template default` SHALL be the default and SHALL use CronJob `devops-cli`. The name of a Job SHALL start with the name of its CronJob. A `--dry-run` SHALL make no request and SHALL name the CronJob of the template.
+`devops k8s run-job --template runner --repo owner/name -- ARGS` SHALL create a Job from CronJob `devops-cli-runner`, changing only the args of container `runner`, the name, the labels and the variable `DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY`, which `--repo` sets. `--template default` SHALL be the default and use CronJob `devops-cli`. The name SHALL start with the name of its CronJob. `--dry-run` SHALL make no request and name the CronJob.
 
 #### Scenario: A Job from the runner template
 - **WHEN** the Job builder gets CronJob `devops-cli-runner` with the args `roadmap implement --item 7 --confirm`
 - **THEN** the Job has a name that starts with `devops-cli-runner-`, the container `runner` has those args, every other field of the pod template equals the CronJob's, and the Job and its pod carry the label `app.kubernetes.io/name=devops-cli-job`
 
+#### Scenario: A repository that does not fit the template
+- **WHEN** `run-job` gets the runner template with no `--repo`, or `--repo` with the default template
+- **THEN** the command exits 1, names the option, and sends no request
+
 #### Scenario: A dry run
-- **WHEN** `devops k8s run-job --template runner --dry-run -- roadmap implement --item 7` runs
-- **THEN** no process starts, and the plan names CronJob `devops-cli-runner`
+- **WHEN** `devops k8s run-job --template runner --repo example/project --dry-run -- roadmap implement --item 7` runs
+- **THEN** no process starts, and the plan names CronJob `devops-cli-runner` and the token repository
 
 ### Requirement: The Service creates Jobs through a narrow Role
 ServiceAccount `roadmap-service` SHALL be the account of the Service pod. A Role in namespace `devops` SHALL allow `create`, `get` and `list` on `jobs`, `get` on `cronjobs` named `devops-cli-runner`, `list` on `pods` and `get` on `pods/log`, and nothing else. A RoleBinding SHALL bind the Role to the account and to no other subject. The Service pod SHALL mount a projected service-account token with `expirationSeconds` 3600. The pods of Jobs SHALL keep no token.
@@ -66,6 +77,13 @@ A NetworkPolicy SHALL admit egress of the pods labeled `app.kubernetes.io/name=r
 #### Scenario: The policies are read
 - **WHEN** a test reads the rendered NetworkPolicies of namespace `devops`
 - **THEN** the policy for `roadmap-service` holds one egress rule, to port 6443 with the metadata address excluded, and no other policy of the namespace names port 6443
+
+### Requirement: Public HTTPS excludes the non-public ranges
+Rule 4 of `devops-default-perimeter` SHALL exclude the private ranges, the shared address space `100.64.0.0/10`, the link-local range `169.254.0.0/16`, `169.254.169.254/32`, `192.0.0.0/24` and `198.18.0.0/15`.
+
+#### Scenario: The policy is read
+- **WHEN** a test reads the rendered NetworkPolicy `devops-default-perimeter`
+- **THEN** the `except` list of the port 443 rule holds exactly those ranges
 
 ### Requirement: Image Updater keeps the runner image on its latest digest
 ImageUpdater `devops` SHALL name `ghcr.io/dan-petty/devops-cli/runner:latest` with the `digest` strategy and `forceUpdate: true`, as it names the Service image.
