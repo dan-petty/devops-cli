@@ -22,11 +22,10 @@ _JSON_PARAM_NAMES: frozenset[str] = frozenset({"format", "output_format", "json"
 _INTEGER_ID_PARAM_NAMES: frozenset[str] = frozenset(
     {"number", "pr_number", "issue_number", "run_id"}
 )
-# The options of a command that its MCP tool publishes, for a command whose other options are for
-# a person at the command line. A gateway or backend URL is input from the model that calls the
-# tool, and the command treats it as configuration: it dials it at the configured level, and
-# `devops ai gateway routes` sends the AI API key to it (#2480). The tools query the configured
-# gateway and backend.
+# The options of a command that its MCP tool publishes. A command lists an option here when the
+# other options are for a person at the command line. A URL option is input from the model that
+# calls the tool, so the tool does not publish it. The tool queries the service that the
+# configuration names.
 _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
     ("telemetry", "profile"): {
         "allowed": frozenset({"trace_id"}),
