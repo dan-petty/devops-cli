@@ -1988,6 +1988,10 @@ class RoadmapMessages:
         "when a person runs it with --item {number}.\n\nThe task groups:\n\n{groups}"
     )
     stage_split_record: str = "{title} ({tokens} tokens)"
+    stage_kept_reason: str = (
+        "The branch holds {count} commit(s) by another author past the default branch, so the "
+        "job keeps the branch and its draft."
+    )
     stage_none: str = "None."
     stage_fits_one_pr: str = "The change fits one pull request."
     stage_pending_review: str = (

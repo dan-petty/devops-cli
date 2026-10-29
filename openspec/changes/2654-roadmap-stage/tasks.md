@@ -20,9 +20,9 @@
 
 ## 4. The reconcile of staged branches
 
-- [ ] 4.1 Write `tests/test_roadmap_stage_reconcile.py` (a closed item whose branch holds only commits of the session identity, a branch with a commit by another author, and a branch that is gone), and verify that `uv run devops ci test tests/test_roadmap_stage_reconcile.py` fails on the base
-- [ ] 4.2 Add the reconcile in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_reconcile.py` passes
-- [ ] 4.3 Regenerate the documents, and verify that `uv run devops ci docs` passes
+- [x] 4.1 Write `tests/test_roadmap_stage_reconcile.py` (a closed item whose branch holds only commits of the session identity, a branch with a commit by another author, and a branch that is gone), and verify that `uv run devops ci test tests/test_roadmap_stage_reconcile.py` fails on the base
+- [x] 4.2 Add the reconcile in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_reconcile.py` passes
+- [x] 4.3 Regenerate the documents, and verify that `uv run devops ci docs` passes
 
 ## 5. The command, the dry run and the documents
 

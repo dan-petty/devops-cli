@@ -44,9 +44,12 @@ class StageRepo:
         return run_git(self.origin, *args)
 
     def push_branch(self, branch: str, *, email: str = "person@example.com") -> None:
-        """Push a branch with one commit by `email` to `origin`, as another clone does."""
-        self.git("switch", "-q", "-c", branch)
-        (self.clone / f"{branch.replace('/', '-')}.txt").write_text(branch, encoding="utf-8")
+        """Push one more commit by `email` to `branch` of `origin`, as another clone does; the
+        branch starts at `main` when `origin` has none."""
+        exists = bool(self.git("ls-remote", "--heads", "origin", branch))
+        self.git("switch", "-q", "-c", branch, *([f"origin/{branch}"] if exists else []))
+        name = f"{branch}-{email}".replace("/", "-")
+        (self.clone / f"{name}.txt").write_text(name, encoding="utf-8")
         self.git("add", "-A")
         self.git("-c", f"user.email={email}", "commit", "-q", "-m", "work")
         self.git("push", "-q", "origin", branch)

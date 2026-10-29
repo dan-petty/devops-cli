@@ -71,7 +71,12 @@ from devops_cli.exceptions import (
     ValidationError,
 )
 from devops_cli.git.branch_form import branch_name
-from devops_cli.git.worktree_add import add_worktree, issue_holder, read_remote_heads
+from devops_cli.git.worktree_add import (
+    add_worktree,
+    issue_holder,
+    read_remote_heads,
+    remote_branches,
+)
 from devops_cli.git.worktree_inventory import git_message
 from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
@@ -396,6 +401,31 @@ class StageFailure:
 
 
 @dataclass(frozen=True)
+class Removal:
+    """The staged branch of a closed item that only the session's identity wrote to: the job
+    closes its draft pull request and deletes it, or, when `gone`, only clears the record."""
+
+    item: Item
+    branch: str
+    pull: int | None
+    gone: bool = False
+
+    @property
+    def number(self) -> int:
+        """The number of the closed item."""
+        return self.item.number
+
+
+@dataclass(frozen=True)
+class KeptBranch:
+    """The staged branch of a closed item that the job keeps, and why."""
+
+    number: int
+    branch: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class StagePlan:
     """What a run does: the changes ready to write, the items stopped on a group over the budget,
     the items that failed, and the issues left out with their reasons."""
@@ -407,6 +437,8 @@ class StagePlan:
     over_budget: tuple[OverBudget, ...] = ()
     failed: tuple[StageFailure, ...] = ()
     left_out: tuple[LeftOut, ...] = ()
+    removals: tuple[Removal, ...] = ()
+    kept: tuple[KeptBranch, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -592,6 +624,52 @@ def _plan_each(
     return ready, stopped, failed
 
 
+def _pull_of(item: Item) -> int | None:
+    """The number of the draft pull request that the item's record holds, if it is a number."""
+    recorded = item.job_record.get(StageRecordKey.PR) or ""
+    return int(recorded) if recorded.isdigit() else None
+
+
+def _default_branch(source: Path) -> str:
+    """The default branch of the clone, from `refs/remotes/origin/HEAD`."""
+    ref = _git(source, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    return ref.removeprefix("origin/")
+
+
+def _foreign_commits(source: Path, branch: str) -> int:
+    """How many commits `origin/<branch>` holds past the default branch whose author is not the
+    identity the clone commits as."""
+    own = _git(source, "config", "user.email")
+    _git(source, "fetch", "-q", "origin", branch)
+    authors = _git(
+        source, "log", "--format=%ae", f"origin/{_default_branch(source)}..origin/{branch}"
+    )
+    return sum(1 for author in authors.splitlines() if author != own)
+
+
+def _reconcile(
+    store: RoadmapStore, source: Path, remote_heads: str
+) -> tuple[tuple[Removal, ...], tuple[KeptBranch, ...]]:
+    """Judge the staged branch of each closed item whose record holds one: removed when the
+    branch is gone or every commit past the default branch is the clone identity's, else kept."""
+    pushed = set(remote_branches(remote_heads))
+    removals: list[Removal] = []
+    kept: list[KeptBranch] = []
+    for item in store.items():
+        branch = item.job_record.get(StageRecordKey.BRANCH)
+        if item.state is not GitHubState.CLOSED or not branch:
+            continue
+        pull = _pull_of(item)
+        if branch not in pushed:
+            removals.append(Removal(item, branch, pull, gone=True))
+        elif (foreign := _foreign_commits(source, branch)) == 0:
+            removals.append(Removal(item, branch, pull))
+        else:
+            reason = MESSAGES.roadmap.stage_kept_reason.format(count=foreign)
+            kept.append(KeptBranch(item.number, branch, reason))
+    return tuple(removals), tuple(kept)
+
+
 def plan_stage(
     store: RoadmapStore,
     *,
@@ -620,7 +698,8 @@ def plan_stage(
     )
     settings = load_settings()
     budget = step_tokens or settings.roadmap.stage.step_tokens
-    plan = StagePlan(repo, sha, budget, left_out=selection.left_out)
+    removals, kept = _reconcile(store, checkout, heads)
+    plan = StagePlan(repo, sha, budget, left_out=selection.left_out, removals=removals, kept=kept)
     if not selection.selected:
         return plan
     client = model or get_llm_client(task="analysis", settings=settings)
@@ -644,6 +723,8 @@ def plan_stage(
         over_budget=tuple(stopped),
         failed=tuple(failed),
         left_out=selection.left_out,
+        removals=removals,
+        kept=kept,
     )
 
 
@@ -663,6 +744,7 @@ class StageApplied:
     staged: tuple[int, ...] = ()
     stopped: tuple[int, ...] = ()
     failed: tuple[StageFailure, ...] = ()
+    removed: tuple[int, ...] = ()
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -714,9 +796,7 @@ def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
             title=change.title,
             body=change.body,
             head=branch,
-            base=_git(source, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix(
-                "origin/"
-            ),
+            base=_default_branch(source),
         )
     except DevOpsCLIError:
         _git(source, "push", "origin", "--delete", branch)
@@ -796,13 +876,38 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
     )
 
 
+def _write_failure(item: Item, exc: DevOpsCLIError) -> StageFailure:
+    """The failure of a write: the error's class and its message, credentials masked."""
+    return StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)))
+
+
+def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Removal) -> None:
+    """Close the draft of a closed item and delete its branch, then clear the item's stage
+    record. A branch that is gone needs only the record cleared."""
+    if not removal.gone:
+        if removal.pull is not None:
+            get_github_session().client.close_pull(repo, removal.pull)
+        _git(source, "push", "origin", "--delete", removal.branch)
+    store.set_marks(removal.item, {key: None for key in StageRecordKey})
+
+
 def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> StageApplied:
-    """Writes the plan: stages each ready change, and stops each item whose group is over the
-    budget. A write that fails stops its item, and the others go on; rejected GitHub credentials
-    stop the run."""
+    """Writes the plan: removes the staged branches of closed items, stages each ready change,
+    and stops each item whose group is over the budget. A write that fails stops its item, and
+    the others go on; rejected GitHub credentials stop the run."""
     checkout = Path(source)
     staged: list[int] = []
+    removed: list[int] = []
     failed: list[StageFailure] = []
+    for removal in plan.removals:
+        try:
+            _remove_staged(store, plan.repo, checkout, removal)
+        except GitHubUnauthenticatedError:
+            raise
+        except DevOpsCLIError as exc:
+            failed.append(_write_failure(removal.item, exc))
+        else:
+            removed.append(removal.number)
     for change in plan.ready:
         item = change.target.item
         try:
@@ -818,13 +923,18 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     for stopped in plan.over_budget:
         _stop_on_budget(store, stopped)
     return StageApplied(
-        tuple(staged), tuple(s.target.item.number for s in plan.over_budget), tuple(failed)
+        tuple(staged),
+        tuple(s.target.item.number for s in plan.over_budget),
+        tuple(failed),
+        tuple(removed),
     )
 
 
 __all__ = [
+    "KeptBranch",
     "LeftOut",
     "OverBudget",
+    "Removal",
     "StageApplied",
     "StageFailure",
     "StageFilter",
