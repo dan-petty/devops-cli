@@ -10,7 +10,7 @@ import pytest
 
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import parse_filters, plan_stage
-from devops_cli.roadmap.stage_change import SUMMARY_MAX_CHARS, staging_title
+from devops_cli.roadmap.stage_change import SUMMARY_MAX_CHARS, delivery_title, staging_title
 from devops_cli.roadmap.store import ItemField
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
@@ -86,3 +86,24 @@ def test_the_staging_pull_request_of_a_bug_and_of_a_feature_has_the_docs_type_an
     (change,) = plan.ready
     assert change.title == f"docs(openspec): plan #{number} Stop the job dropping a comment"
     assert change.target.branch.startswith(f"{branch_type}/{number}-")
+
+
+def test_the_delivery_title_is_the_title_of_the_issue() -> None:
+    assert delivery_title("fix(config): report a clear error") == (
+        "fix(config): report a clear error"
+    )
+
+
+def test_the_delivery_title_keeps_the_type_and_the_scope_and_cuts_the_summary_at_a_word() -> None:
+    title = delivery_title("perf(roadmap): " + "read the tree of the default branch once " * 3)
+
+    head, _, summary = title.partition(": ")
+    assert (head, len(summary) <= SUMMARY_MAX_CHARS, summary.endswith("...")) == (
+        "perf(roadmap)",
+        True,
+        True,
+    )
+
+
+def test_the_delivery_title_drops_the_mark_of_a_breaking_change() -> None:
+    assert delivery_title("feat(cli)!: add a flag") == "feat(cli): add a flag"

@@ -503,18 +503,22 @@ def implement_requests(
     limit: int | None = None,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap implement` reads, in order, and the writes `--confirm` makes after
-    them (#2665). The run updates its clone, reads every issue, the comments of an item with a
-    stop, the branches of `origin`, and for each candidate the commit authors of its branch and
-    the state of its pull request. The writes are, for each item, the worktree, the Status, the
-    rebase, one model step for each task group, the documentation and the archive, the push, the
-    body and the comment of the pull request, the watch of its checks, one fix step when a check
-    fails, `gh pr ready`, the Status and the record, and the comment on the issue. `limit` and
-    `item` change no request: they change how many items the run repeats them for."""
+    them (#2665, #2714). The run updates its clone, reads every issue, the comments of an item
+    with a stop, the branches of `origin` and the change folders of the default branch. For a
+    Staged item it reads the commit authors of the branch and the state of its pull request. For a
+    Planned item it reads the tasks of its change. The writes are, for each item, the worktree
+    (on the staged branch, or on a new branch at the default branch), the Status, the rebase, one
+    model step for each task group, the documentation and the archive, the push (for a Planned
+    item the first push, then the draft pull request), the title and the body and the comment of
+    the pull request, the watch of its checks, one fix step when a check fails, `gh pr ready`, the
+    Status and the record, and the comment on the issue. `limit` and `item` change no request:
+    they change how many items the run repeats them for."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
     req, cond, rep = texts.implement_requests, texts.implement_request_conditions, texts.plan_repeat
     clone, tree, branch = "<model-clone>", "<worktree>", _p("branch")
+    new_branch = _p("new_branch")
     each_item, each_group = rep["implement_item"], rep["implement_group"]
     pulls = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{_p('pull')}"
     issues = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/issues"
@@ -544,13 +548,59 @@ def implement_requests(
         PlannedRequest(
             "git", req["remote_heads"], argv=("git", "-C", clone, "ls-remote", "--heads", "origin")
         ),
-        git("fetch_branch", clone, "fetch", "-q", "origin", branch),
-        git("authors", clone, "log", "--format=%an", f"origin/main..origin/{branch}"),
-        other("GET", "pull_status", "GET", pulls),
+        git("fetch_default", clone, "fetch", "-q", "origin", "main", repeat=""),
+        git(
+            "default_plans",
+            clone,
+            "ls-tree",
+            "--name-only",
+            "origin/main",
+            "openspec/changes/",
+            "openspec/changes/archive/",
+            repeat="",
+        ),
+        git(
+            "planned_tasks",
+            clone,
+            "show",
+            f"origin/main:openspec/changes/{_p('change')}/tasks.md",
+            when=cond["planned"],
+        ),
+        git("fetch_branch", clone, "fetch", "-q", "origin", branch, when=cond["staged"]),
+        git(
+            "authors",
+            clone,
+            "log",
+            "--format=%an",
+            f"origin/main..origin/{branch}",
+            when=cond["staged"],
+        ),
+        other("GET", "pull_status", "GET", pulls, when=cond["staged"]),
     ]
     writes = [
         git(
-            "worktree", clone, "worktree", "add", "--track", "-b", branch, tree, f"origin/{branch}"
+            "worktree",
+            clone,
+            "worktree",
+            "add",
+            "--track",
+            "-b",
+            branch,
+            tree,
+            f"origin/{branch}",
+            when=cond["staged"],
+        ),
+        git(
+            "worktree_new",
+            clone,
+            "worktree",
+            "add",
+            "--no-track",
+            "-b",
+            new_branch,
+            tree,
+            "origin/main",
+            when=cond["planned"],
         ),
         *within(store.set_field(target, "Status"), repeat=each_item),
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
@@ -568,6 +618,15 @@ def implement_requests(
             f"--force-with-lease={branch}:{_p('remote_tip')}",
             "origin",
             branch,
+            when=cond["staged"],
+        ),
+        git("push_new", tree, "push", "-u", "origin", new_branch, when=cond["planned"]),
+        other(
+            "REST write",
+            "create_pull",
+            "POST",
+            f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls",
+            when=cond["planned"],
         ),
         other("REST write", "body", "PATCH", pulls),
         other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),

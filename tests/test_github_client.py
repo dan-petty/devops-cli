@@ -753,15 +753,20 @@ def test_a_pull_request_status_says_whether_it_is_an_open_draft(
     )
 
 
-def test_a_pull_request_body_is_set_with_a_patch(
+def test_the_title_and_the_body_of_a_pull_request_are_set_with_one_patch(
     github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
     github_api.route("PATCH", "/repos/octocat/Hello-World/pulls/9", github_json({"number": 9}))
 
-    _client().update_pull_body("octocat/Hello-World", 9, "Closes #1")
+    _client().update_pull(
+        "octocat/Hello-World", 9, title="fix(config): report an error", body="Closes #1"
+    )
 
     assert github_api.requested == [f"PATCH {API}/repos/octocat/Hello-World/pulls/9"]
-    assert json.loads(github_api.sent[0].content) == {"body": "Closes #1"}
+    assert json.loads(github_api.sent[0].content) == {
+        "title": "fix(config): report an error",
+        "body": "Closes #1",
+    }
 
 
 def test_a_comment_on_a_pull_request_goes_to_its_issue(

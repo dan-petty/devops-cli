@@ -538,8 +538,8 @@ def _run_implement_adapter(
     clone_path: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Submit the implement Job of one Staged item, report the Jobs that ended, and wait while a
-    Job of the repository runs. The Service runs no step: the runner Job does (#2667)."""
+    """Submit the implement Job of one Staged or Planned item, report the Jobs that ended, and wait
+    while a Job of the repository runs. The Service runs no step: the runner Job does (#2667)."""
     source = _job_clone("implement", clone_path)
     result = run_implement_round(store, repo=repo, source=source)
     logger.info(

@@ -458,18 +458,20 @@ class JobWorld:
         return out.splitlines()
 
 
-@pytest.fixture
-def job_world(
-    staged_repo: StageRepo,
+def _world(
+    repo: StageRepo,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     config: Callable[..., Path],
     clock: ClockFake,
     roadmap_store: InMemoryRoadmapStore,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    planned: bool,
 ) -> JobWorld:
-    """The job in a runner: a Staged item, pull request 5 as a draft whose checks pass, and the
-    process edge, where git runs for real and the project's own commands are answered. The kernel
-    call that makes the job's process unreadable is answered too: it would change the test run."""
+    """The job in a runner, with pull request 5 as a draft whose checks pass, and the process edge,
+    where git runs for real and the project's own commands are answered. The kernel call that makes
+    the job's process unreadable is answered too: it would change the test run. For a Planned item,
+    GitHub makes pull request 5 when the job opens it."""
     monkeypatch.setattr("devops_cli.core.process_hardening._prctl", lambda *_args: 0)
     # The runner Job acts as the App, with a token for the one repository. The test mints no token.
     monkeypatch.setattr("devops_cli.roadmap.implement_run.acts_as_github_app", lambda: True)
@@ -493,7 +495,46 @@ def job_world(
         ProcessAnswer(side_effect=docs_effect),
     )
     route_pull_status(api)
-    seed_staged(roadmap_store)
-    return JobWorld(
-        staged_repo, roadmap_store, api, programs, PullFake(api, programs, staged_repo), clock
+    if planned:
+        api.route(
+            "POST",
+            f"/repos/{STAGE_REPO}/pulls",
+            github_json(
+                {"number": PULL, "html_url": f"https://example.com/pull/{PULL}"}, status=201
+            ),
+        )
+    seed_staged(roadmap_store, record=not planned)
+    return JobWorld(repo, roadmap_store, api, programs, PullFake(api, programs, repo), clock)
+
+
+@pytest.fixture
+def job_world(
+    staged_repo: StageRepo,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    config: Callable[..., Path],
+    clock: ClockFake,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> JobWorld:
+    """The job in a runner with a Staged item: its branch is pushed, and its draft is open."""
+    return _world(
+        staged_repo, github_api_and_gh, config, clock, roadmap_store, monkeypatch, planned=False
+    )
+
+
+@pytest.fixture
+def planned_world(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    config: Callable[..., Path],
+    clock: ClockFake,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> JobWorld:
+    """The job in a runner with a Planned item: the change is on `main`, and no branch and no
+    pull request exist."""
+    merge_plan(stage_repo)
+    return _world(
+        stage_repo, github_api_and_gh, config, clock, roadmap_store, monkeypatch, planned=True
     )

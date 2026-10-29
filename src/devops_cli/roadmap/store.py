@@ -184,13 +184,14 @@ class StageRecordKey(StrEnum):
 
 class ImplementRecordKey(StrEnum):
     """What the implement job records in an Item's job record (#2665): the last task group that
-    passed, the commit the job ended on, the pull request, the step that stopped the item, and
-    the spend of its steps as JSON. A person clears `implement.stopped` with a comment. The
+    passed, the commit the job ended on, the branch and the pull request it works on (#2714), the
+    step that stopped the item, and the spend of its steps as JSON. A person clears `implement.stopped` with a comment. The
     Service records the runner Job it made for the item and, once the Job ended, its state
     (#2667)."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
+    BRANCH = "implement.branch"
     PR = "implement.pr"
     STOPPED = "implement.stopped"
     SPEND = "implement.spend"

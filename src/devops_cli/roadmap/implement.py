@@ -1,20 +1,29 @@
-"""`devops roadmap implement` as a job: which Staged items it takes (#2665).
+"""`devops roadmap implement` as a job: which Staged and Planned items it takes (#2665, #2714).
 
-The job takes each Staged item that a label filter names and runs the task groups of its change
-(`implement_run`). This module selects and plans. It makes no write to git or to GitHub.
+The job takes each Staged or Planned item that a label filter names and runs the task groups of
+its change (`implement_run`). This module selects and plans. It makes no write to git or to GitHub.
 
-**Staged.** An item is Staged when the stage job's record holds its branch (`stage.branch`) and
-its draft pull request (`stage.pr`), the branch is on `origin`, and the draft is open.
+**Staged.** An item is Staged when its record holds a branch and a draft pull request, the branch
+is on `origin`, and the draft is open. The pair is `implement.branch` and `implement.pr` when the
+implement job wrote both, else `stage.branch` and `stage.pr`.
+
+**Planned.** An item is Planned when the folder `openspec/changes/<issue>-<slug>` is on
+`origin/<default branch>` and no recorded branch is on `origin`: a person merged the staging pull
+request, and its branch is gone. The job makes the branch `<type>/<issue>-<slug>` at the default
+branch, with the slug of the folder. An item whose recorded branch is still on `origin` is Staged,
+also when its plan is on the default branch.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`: the values of one family are alternatives, and the
 families all apply. With no filter the job takes the Ready P0 and P1 bugs of low effort. An item
 that the filter names, and that the job leaves out, is in the plan with its reason: its Status
-is not Ready, it is not Staged, a step stopped it and no person cleared the stop, its author is
-not the owner, a member or a collaborator, its branch is gone from `origin` or holds a commit by
-anyone but the App, a worktree holds the issue, or its pull request is not an open draft. A run
-takes at most `--limit` items, the highest priority first. `--item` takes the one item it names
-and does not apply the filter or the limit.
+is not Ready, it is neither Staged nor Planned, a step stopped it and no person cleared the stop,
+its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
+a commit by anyone but the App, a worktree holds the issue, its pull request is not an open
+draft, or, for a Planned item, a branch of `origin` holds the issue, its change is archived, it
+has no branch name, or every task of its change is ticked. A run takes at most `--limit` items,
+the highest priority first. `--item` takes the one item it names and does not apply the filter or
+the limit.
 
 **Retry.** A person clears a stop with the comment `implement: retry`, made after the comment
 of the job that told of the stop. Only a comment of the owner, a member or a collaborator counts.
@@ -25,7 +34,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
@@ -37,7 +46,9 @@ from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import GitHubNotFoundError
+from devops_cli.git.branch_form import BranchParts, branch_name, parse_branch
 from devops_cli.git.worktree_add import (
+    issue_holder,
     local_holder,
     read_remote_heads,
     remote_branches,
@@ -47,8 +58,16 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import branch_authors
+from devops_cli.roadmap.implement_step import parse_task_groups
+from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes, tasks_on_default
 from devops_cli.roadmap.refine import inspect_checkout
-from devops_cli.roadmap.stage import LeftOut, StageFilter, parse_filters, priority_order
+from devops_cli.roadmap.stage import (
+    LeftOut,
+    StageFilter,
+    commit_type,
+    parse_filters,
+    priority_order,
+)
 from devops_cli.roadmap.store import (
     GitHubState,
     ImplementRecordKey,
@@ -78,13 +97,27 @@ def parse_implement_filters(options: Iterable[str]) -> StageFilter:
 
 @dataclass(frozen=True)
 class ImplementTarget:
-    """A Staged item to implement: its staged branch, its draft pull request, and whether a
-    person's retry comment clears a stop on its record before the first step."""
+    """An item to implement: its branch, its draft pull request, and whether a person's retry
+    comment clears a stop on its record before the first step.
+
+    A Staged item has the branch and the open draft that the stage job or an earlier run made. A
+    Planned item has `pull` None: its plan is on the default branch, and the job makes `branch`
+    and opens the draft when the branch first holds a commit (#2714)."""
 
     item: Item
     branch: str
-    pull: int
+    pull: int | None
     retry: bool = False
+
+    @property
+    def planned(self) -> bool:
+        """Whether the item is Planned: the job makes its branch and its pull request."""
+        return self.pull is None
+
+    @property
+    def new_branch(self) -> BranchParts | None:
+        """The parts of the branch that the job makes, or None for a Staged item."""
+        return parse_branch(self.branch) if self.planned else None
 
 
 @dataclass(frozen=True)
@@ -100,10 +133,36 @@ class ImplementPlan:
     write_requests: tuple[PlannedRequest, ...] = ()
 
 
-def recorded_pull(item: Item) -> int | None:
-    """The number of the draft pull request in the item's stage record, or None."""
-    recorded = item.job_record.get(StageRecordKey.PR) or ""
-    return int(recorded) if recorded.isdigit() else None
+class RecordedBranch(NamedTuple):
+    """The branch and the draft pull request that a record names."""
+
+    branch: str
+    pull: int
+
+
+def _pull_number(recorded: str | None) -> int | None:
+    return int(recorded) if recorded is not None and recorded.isdigit() else None
+
+
+def recorded_branch(item: Item) -> RecordedBranch | None:
+    """The branch and the pull request in the item's record, or None. The pair that the implement
+    job wrote comes first: after a Planned run opened its draft, a retry finds that draft, not the
+    merged pull request of the stage job (#2714). The two keys of a pair go together."""
+    record = item.job_record
+    for branch_key, pull_key in (
+        (ImplementRecordKey.BRANCH, ImplementRecordKey.PR),
+        (StageRecordKey.BRANCH, StageRecordKey.PR),
+    ):
+        branch, pull = record.get(branch_key), _pull_number(record.get(pull_key))
+        if branch and pull is not None:
+            return RecordedBranch(branch, pull)
+    return None
+
+
+class _Planned(NamedTuple):
+    """The change folder, `<issue>-<slug>`, of a Planned item."""
+
+    folder: str
 
 
 def _retry_asked(comments: Sequence[IssueComment]) -> bool:
@@ -132,30 +191,68 @@ class _Judge:
         repo: str,
         source: Path,
         remote_heads: str,
+        planned: PlannedChanges,
         pull_status: Callable[[int], PullStatus],
     ) -> None:
         self._store = store
         self._source = source
+        self._heads = remote_heads
         self._pushed = frozenset(remote_branches(remote_heads))
+        self._planned = planned
         self._pull_status = pull_status
         self._bot = load_settings().service.github_app.bot_login
 
     def judge(self, item: Item) -> ImplementTarget | str:
         """The target for `item`, or the reason the job leaves it out."""
         texts = MESSAGES.roadmap
-        record = item.job_record
-        branch, pull = record.get(StageRecordKey.BRANCH), recorded_pull(item)
         if item.status != CONST_ROADMAP_STATUS_READY:
             return texts.implement_left_not_ready.format(status=item.status or "none")
-        if not branch or pull is None:
-            return texts.implement_left_not_staged
+        route = self._route(item)
+        if route is None:
+            return self._not_taken(item)
         if item.author_association not in CONST_ROADMAP_TRUSTED_AUTHORS:
             return texts.implement_left_author.format(association=item.author_association)
-        stopped = record.get(ImplementRecordKey.STOPPED)
+        stopped = item.job_record.get(ImplementRecordKey.STOPPED)
         if stopped and not _retry_asked(self._store.comments_on(item.number)):
             return texts.implement_left_stopped.format(stopped=stopped)
-        why = self._branch_reason(item, branch) or self._pull_reason(pull)
-        return why if why is not None else ImplementTarget(item, branch, pull, bool(stopped))
+        retry = bool(stopped)
+        if isinstance(route, _Planned):
+            return self._planned_target(item, route.folder, retry=retry)
+        why = self._branch_reason(item, route.branch) or self._pull_reason(route.pull)
+        return why if why is not None else ImplementTarget(item, route.branch, route.pull, retry)
+
+    def _route(self, item: Item) -> RecordedBranch | _Planned | None:
+        """A Staged item keeps its branch while the branch is on `origin`, or while no plan is on
+        the default branch. Else the plan on the default branch makes a Planned item."""
+        recorded = recorded_branch(item)
+        folder = self._planned.active.get(item.number)
+        if recorded is not None and (folder is None or recorded.branch in self._pushed):
+            return recorded
+        return _Planned(folder) if folder is not None else None
+
+    def _not_taken(self, item: Item) -> str:
+        texts = MESSAGES.roadmap
+        if (folder := self._planned.archived.get(item.number)) is not None:
+            return texts.stage_left_archived.format(branch=self._planned.default, folder=folder)
+        return texts.implement_left_not_staged.format(branch=self._planned.default)
+
+    def _planned_target(self, item: Item, folder: str, *, retry: bool) -> ImplementTarget | str:
+        """The new branch of a Planned item, or the reason the job leaves it out. The slug of the
+        branch is the slug of the folder, whatever the title says."""
+        texts = MESSAGES.roadmap
+        type_ = commit_type(item.title)
+        if type_ is None:
+            return texts.stage_left_title_type
+        branch = branch_name(item.number, type_, folder.partition("-")[2])
+        if parse_branch(branch) is None:
+            return texts.implement_left_planned_branch.format(folder=folder, branch=branch)
+        held = issue_holder(self._source, item.number, self._heads)
+        if held is not None:
+            return held
+        tasks = tasks_on_default(self._source, self._planned, folder, operation=GIT_OPERATION)
+        if all(task.ticked for group in parse_task_groups(tasks) for task in group.tasks):
+            return texts.implement_left_all_ticked.format(folder=folder)
+        return ImplementTarget(item, branch, None, retry)
 
     def _branch_reason(self, item: Item, branch: str) -> str | None:
         texts = MESSAGES.roadmap
@@ -213,8 +310,9 @@ def plan_implement(
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
 ) -> ImplementPlan:
-    """Plans a run without a write to git or to GitHub: up to `limit` Staged items that `filters`
-    name, and the named items that the job leaves out. `source` is the clone of the repository."""
+    """Plans a run without a write to git or to GitHub: up to `limit` Staged or Planned items that
+    `filters` name, and the named items that the job leaves out. `source` is the clone of the
+    repository."""
     checkout = Path(source)
     inspect_checkout(checkout, repo)
     client = get_github_session().client
@@ -223,6 +321,7 @@ def plan_implement(
         repo=repo,
         source=checkout,
         remote_heads=read_remote_heads(checkout),
+        planned=read_planned_changes(checkout, operation=GIT_OPERATION),
         pull_status=lambda pull: client.get_pull_status(repo, pull),
     )
     if item_number is not None:
@@ -265,7 +364,7 @@ def render_implement_plan(plan: ImplementPlan) -> str:
     texts = MESSAGES.roadmap
     lines = [texts.implement_job_title.format(repo=plan.repo)]
     ready = [
-        texts.implement_job_ready_line.format(
+        (texts.implement_job_planned_line if t.planned else texts.implement_job_ready_line).format(
             number=t.item.number,
             title=t.item.title,
             branch=t.branch,
@@ -294,9 +393,10 @@ __all__ = [
     "GIT_OPERATION",
     "ImplementPlan",
     "ImplementTarget",
+    "RecordedBranch",
     "dry_run_implement",
     "parse_implement_filters",
     "plan_implement",
-    "recorded_pull",
+    "recorded_branch",
     "render_implement_plan",
 ]

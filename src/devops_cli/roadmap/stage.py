@@ -162,7 +162,7 @@ class StageTarget:
         return branch_name(self.item.number, self.type_, self.slug)
 
 
-def _commit_type(title: str) -> str | None:
+def commit_type(title: str) -> str | None:
     """The Conventional Commit type of `title`, or None when it has none."""
     head, colon, _ = title.partition(":")
     kind = head.partition("(")[0].removesuffix("!")
@@ -249,7 +249,7 @@ class _Judge:
         )
 
     def _title(self, item: Item) -> str | None:
-        if _commit_type(item.title) is None:
+        if commit_type(item.title) is None:
             return MESSAGES.roadmap.stage_left_title_type
         return None if _slug_of(item.title) else MESSAGES.roadmap.stage_left_title_slug
 
@@ -289,7 +289,7 @@ class _Judge:
 
 def _target_of(item: Item) -> StageTarget:
     """The target of an item whose title gives a branch name (`_Judge._title`)."""
-    return StageTarget(item, _commit_type(item.title) or "", _slug_of(item.title))
+    return StageTarget(item, commit_type(item.title) or "", _slug_of(item.title))
 
 
 def priority_order(item: Item) -> tuple[int, int]:
@@ -1062,6 +1062,7 @@ __all__ = [
     "StageTarget",
     "StagedChange",
     "apply_stage",
+    "commit_type",
     "dry_run_stage",
     "emit_stage_results",
     "parse_filters",

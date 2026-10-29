@@ -346,6 +346,16 @@ def staging_title(number: int, summary: str) -> str:
     return f"{_STAGING_TYPE}: {lead}{textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)}"
 
 
+def delivery_title(issue_title: str) -> str:
+    """The title of the pull request that delivers the code of an item (#2714): the type and the
+    scope of the issue's title, and its summary cut at a word to `SUMMARY_MAX_CHARS`. The staging
+    pull request has the type `docs(openspec)`, which the delivery must not keep. A mark of a
+    breaking change is dropped: the project has none before 1.0.0."""
+    head, _, summary = issue_title.partition(":")
+    shortened = textwrap.shorten(safe_text(summary), SUMMARY_MAX_CHARS, placeholder=_ELLIPSIS)
+    return f"{head.strip().removesuffix('!')}: {shortened}"
+
+
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
     """The body of the draft: `Plans #<issue>`, the what and why, and the change folder."""
     return MESSAGES.roadmap.stage_pull_request_body.format(

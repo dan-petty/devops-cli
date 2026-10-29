@@ -14,9 +14,16 @@ can start.
 **One item.** The job takes over the staged branch in a worktree, sets Status In Progress and
 rebases onto the fetched default branch. It runs one step for each group that has an unticked
 task, regenerates the documentation, archives the change, rebases again and pushes with a lease.
-Then it sets the body of the pull request, comments the outcome of each step, and watches the
-checks. A failed check gets one fix step. When the checks pass the job marks the pull request
-ready and sets Status In Review. It never merges.
+Then it sets the title and the body of the pull request, comments the outcome of each step, and
+watches the checks. A failed check gets one fix step. When the checks pass the job marks the pull
+request ready and sets Status In Review. It never merges.
+
+**A Planned item** (#2714) has its plan on the default branch and no branch. The job makes the
+branch `<type>/<issue>-<slug>` at the fetched default branch, and goes on as above. A pull request
+needs a commit past its base, so the job publishes the branch at its first push (`_publish`): it
+pushes with `-u`, opens the draft, and records `implement.branch` and `implement.pr`. A stop before
+the first commit pushes nothing. A stop after it publishes what passed, so a retry finds the branch
+and the draft and takes them over as a Staged item.
 
 **A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
 item: the job pushes the commits that passed, comments the step, the reason and the last message
@@ -74,7 +81,7 @@ from devops_cli.roadmap.implement_step import (
     run_step,
     section_text,
 )
-from devops_cli.roadmap.stage_change import closing_keyword_in, safe_text
+from devops_cli.roadmap.stage_change import closing_keyword_in, delivery_title, safe_text
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -146,9 +153,16 @@ def _step_label(group: int) -> str:
 
 @contextmanager
 def _worktree(source: Path, target: ImplementTarget) -> Iterator[Path]:
-    """The worktree on the staged branch, taken over from `origin`. The worktree and the local
-    branch go when the block ends, so the clone keeps its HEAD and holds no issue."""
-    report = add_worktree(source, issue=target.item.number, type_=None, slug=None)
+    """The worktree on the staged branch, taken over from `origin`, or for a Planned item on the new
+    branch at the fetched default branch. The worktree and the local branch go when the block
+    ends, so the clone keeps its HEAD and holds no issue."""
+    parts = target.new_branch
+    report = add_worktree(
+        source,
+        issue=target.item.number,
+        type_=parts.type if parts else None,
+        slug=parts.slug if parts else None,
+    )
     path = Path(report.path)
     try:
         yield path
@@ -171,6 +185,11 @@ class _ItemRun:
     step: str = ""
     change: str = ""
     outcomes: list[StepOutcome] = field(default_factory=list)
+    # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
+    pull: int | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.pull = self.target.pull
 
     # ── Small helpers ──
 
@@ -248,14 +267,16 @@ class _ItemRun:
         self._start()
         self._groups()
         self._finish_change()
-        self._push()
-        self._pull_request()
-        self._checks()
-        self._ready()
+        pull = self._push()
+        self._pull_request(pull)
+        self._checks(pull)
+        self._ready(pull)
 
     def _start(self) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["rebase"]
-        marks: dict[Any, str | None] = {ImplementRecordKey.PR: str(self.target.pull)}
+        marks: dict[Any, str | None] = {ImplementRecordKey.BRANCH: self.branch}
+        if self.pull is not None:
+            marks[ImplementRecordKey.PR] = str(self.pull)
         if self.target.retry:
             marks[ImplementRecordKey.STOPPED] = None
         self.store.set_field(
@@ -318,17 +339,49 @@ class _ItemRun:
         self._program([BIN_UV, "run", BIN_DEVOPS, "openspec", "archive", change.name])
         self._commit_if_changed(f"docs(openspec): archive the change (#{self.number})")
 
-    def _push(self) -> None:
+    def _push(self) -> int:
         """Rebase onto the default branch again, then push with a lease on the remote tip that the
-        job has seen, so a push of anyone else is never overwritten."""
+        job has seen, so a push of anyone else is never overwritten. A Planned item has no remote
+        tip yet: its first push publishes the branch. The number of the pull request."""
         self.step = MESSAGES.roadmap.implement_step_names["push"]
         self._sync()
+        if self.pull is None:
+            return self._publish()
         self._push_with_lease()
+        return self.pull
 
     def _push_with_lease(self) -> None:
         remote = self._git("rev-parse", f"origin/{self.branch}")
         if remote != self._head():
             self._git("push", f"--force-with-lease={self.branch}:{remote}", "origin", self.branch)
+
+    def _has_new_commits(self) -> bool:
+        return self._head() != self._git("rev-parse", f"origin/{self.default}")
+
+    def _publish(self) -> int:
+        """The first push of a Planned item: push the new branch with `-u`, open its draft pull
+        request, and record both. The first body closes no issue: the body that does comes after
+        the archive. A draft that GitHub refuses takes the branch off `origin` again, so no branch
+        stays without a pull request, and stops the item with nothing left to push."""
+        texts = MESSAGES.roadmap
+        self._git("push", "-u", "origin", self.branch)
+        try:
+            created = get_github_session().client.create_draft_pull(
+                self.repo,
+                title=delivery_title(self.target.item.title),
+                body=texts.implement_pull_body_draft.format(number=self.number),
+                head=self.branch,
+                base=self.default,
+            )
+        except DevOpsCLIError as exc:
+            self._git("push", "origin", "--delete", self.branch)
+            reason = texts.implement_stop_draft_failed.format(
+                branch=self.branch, output=mask_secrets(str(exc))
+            )
+            raise _StopError(self.step, reason, push=False) from exc
+        self.pull = created.number
+        self.store.set_marks(self._fresh(), {ImplementRecordKey.PR: str(created.number)})
+        return created.number
 
     def _archived_name(self) -> str:
         """The folder `openspec archive` made for the change: `<date>-<issue>-<slug>`."""
@@ -349,7 +402,9 @@ class _ItemRun:
             text = safe_text(self.target.item.title)
         return textwrap.shorten(text, CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS, placeholder="...")
 
-    def _pull_request(self) -> None:
+    def _pull_request(self, pull: int) -> None:
+        """Set the title and the body of the pull request. The title is the one of the issue: the
+        staging pull request of a Staged item has the type `docs(openspec)` (#2714)."""
         self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
         texts = MESSAGES.roadmap
         archived = self._archived_name()
@@ -357,12 +412,12 @@ class _ItemRun:
             number=self.number, why=self._why(archived), archived=archived
         )
         client = get_github_session().client
-        client.update_pull_body(self.repo, self.target.pull, body)
+        client.update_pull(self.repo, pull, title=delivery_title(self.target.item.title), body=body)
         lines = "\n".join(self._outcome_line(o) for o in self.outcomes)
         comment = texts.implement_pull_comment.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=lines or "-"
         )
-        client.comment_on_pull(self.repo, self.target.pull, comment)
+        client.comment_on_pull(self.repo, pull, comment)
 
     def _outcome_line(self, outcome: StepOutcome) -> str:
         texts = MESSAGES.roadmap
@@ -375,15 +430,15 @@ class _ItemRun:
             commit=commit if outcome.commit else "",
         )
 
-    def _checks(self) -> None:
+    def _checks(self, pull: int) -> None:
         """Watch the checks. A failed check gets one fix step; a second failure stops the item."""
         self.step = MESSAGES.roadmap.implement_step_names["checks"]
-        watch = watch_pull(self.repo, self.target.pull, self._head())
+        watch = watch_pull(self.repo, pull, self._head())
         if watch.kind is WatchKind.FAILED and watch.check is not None:
             self._fix(watch.check.name, failed_log(self.repo, watch.check))
             self._push()
             self.step = MESSAGES.roadmap.implement_step_names["checks"]
-            watch = watch_pull(self.repo, self.target.pull, self._head())
+            watch = watch_pull(self.repo, pull, self._head())
         if watch.kind is not WatchKind.READY:
             raise _StopError(self.step, watch.reason)
 
@@ -401,13 +456,13 @@ class _ItemRun:
         if outcome.status is StepStatus.STOPPED:
             raise _StopError(self.step, outcome.reason, outcome.last_message)
 
-    def _ready(self) -> None:
+    def _ready(self, pull: int) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["ready"]
-        mark_ready(self.repo, self.target.pull)
+        mark_ready(self.repo, pull)
         head = self._head()
         marks: dict[Any, str | None] = {
             ImplementRecordKey.SHA: head,
-            ImplementRecordKey.PR: str(self.target.pull),
+            ImplementRecordKey.PR: str(pull),
             ImplementRecordKey.SPEND: self._spend(),
         }
         self.store.set_field(
@@ -417,7 +472,7 @@ class _ItemRun:
         self.store.comment(
             self.number,
             MESSAGES.roadmap.implement_comment_finished.format(
-                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, pull=self.target.pull, **spend
+                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, pull=pull, **spend
             ),
         )
 
@@ -443,20 +498,28 @@ class _ItemRun:
         )
         marks: dict[Any, str | None] = {
             ImplementRecordKey.STOPPED: stop.step,
-            ImplementRecordKey.PR: str(self.target.pull),
             ImplementRecordKey.SPEND: self._spend(),
         }
+        if self.pull is not None:
+            marks[ImplementRecordKey.PR] = str(self.pull)
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks
         )
 
     def _push_passed(self) -> str:
-        """Push the commits of the steps that passed. The text to add to the comment when the push
-        fails, else empty."""
+        """Push the commits of the steps that passed. A Planned item with a commit publishes its
+        branch and opens its draft; with none, nothing is pushed. The text to add to the comment
+        when the push fails, else empty."""
+        texts = MESSAGES.roadmap
         try:
-            self._push_with_lease()
+            if self.pull is not None:
+                self._push_with_lease()
+            elif self._has_new_commits():
+                self._publish()
         except GitOperationError as exc:
-            return MESSAGES.roadmap.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
+            return texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
+        except _StopError as exc:
+            return texts.implement_stop_push_failed.format(output=mask_secrets(exc.reason))
         return ""
 
 

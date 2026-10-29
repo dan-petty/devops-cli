@@ -224,8 +224,9 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
     ]
     assert job_world.sent("PATCH", f"pulls/{PULL}") == [
         {
+            "title": "fix(roadmap): the job drops a comment",
             "body": "Closes #1\n\nThe job drops the last comment of a thread (#1). It must keep it."
-            f"\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`"
+            f"\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
         }
     ]
     assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]

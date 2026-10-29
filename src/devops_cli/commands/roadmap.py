@@ -1,6 +1,6 @@
 """`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
-refine readies items, stage makes a Ready item Staged, implement takes a Staged item to a ready
-pull request, and return sends an item back to New.
+refine readies items, stage makes a Ready item Staged, implement takes a Staged or Planned item
+to a ready pull request, and return sends an item back to New.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
@@ -485,7 +485,7 @@ def _implement_job(
     plan_only: bool,
     confirm: bool,
 ) -> None:
-    """Take the Staged items that the filter names to a ready pull request."""
+    """Take the Staged and Planned items that the filter names to a ready pull request."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
     from devops_cli.roadmap.implement import (
         dry_run_implement,
@@ -568,7 +568,7 @@ def implement_cmd(
         bool, typer.Option("--confirm", help=HELP.roadmap.implement_confirm)
     ] = False,
 ) -> None:
-    """Run one task group of a Staged item's change (--group), or the job that implements Staged items."""
+    """Run one task group of a Staged item's change (--group), or the job that implements items."""
     if group is None:
         _implement_job(
             repo,

@@ -27,6 +27,7 @@ from tests.support.fakes.kubernetes import FakeCluster, pod
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
     PULL,
+    merge_plan,
     push_staged_branch,
     route_pull_status,
     seed_staged,
@@ -144,6 +145,28 @@ def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for
         True,
         False,
     )
+
+
+def test_a_round_creates_one_job_for_a_planned_item_whose_branch_is_gone(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    merge_plan(stage_repo, number)
+
+    _round(store, stage_repo)
+
+    (job,) = _jobs(kube)
+    (container,) = job["spec"]["template"]["spec"]["containers"]
+    assert container["args"] == [
+        "roadmap",
+        "implement",
+        "--repo",
+        STAGE_REPO,
+        "--item",
+        str(number),
+        "--confirm",
+    ]
+    assert _record(store, number)["implement.job"] == job["metadata"]["name"]
 
 
 def test_no_second_job_is_created_while_the_first_runs_also_for_another_staged_item(
