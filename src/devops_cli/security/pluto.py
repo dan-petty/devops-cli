@@ -9,9 +9,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_PLUTO, build_pluto_cmd
-from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
-)
 from devops_cli.review.manifests import manifest_object_key
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.kubelinter import manifest_location
@@ -111,7 +108,7 @@ class PlutoScanner(BaseSecurityScanner):
 
 
 def run_pluto_scan(
-    target: Path = DEFAULT_CURRENT_PATH,
+    target: Path,
     *,
     isolated: bool = False,
     tree: Path | None = None,

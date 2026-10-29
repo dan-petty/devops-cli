@@ -40,6 +40,7 @@ from devops_cli.output import (
 )
 from devops_cli.review.session import ReviewSessionStore
 from tests.support.fakes.github import pull_request_payload, route_pull_request
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
@@ -158,6 +159,31 @@ def test_prepare_content_helpers(tmp_path: Path, github_api: GitHubApiFake) -> N
         "Mock PR Title",
         "owner/repo",
         True,
+    )
+
+
+def test_a_pr_review_with_no_repo_names_the_origin_of_the_checkout_it_gets(
+    tmp_path: Path, github_api: GitHubApiFake, process_fake: ProcessFake
+) -> None:
+    """With no `--repo`, the PR review reads the pull request of the origin of the checkout that
+    the command gives, not of the directory that the process runs in (#2127)."""
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    process_fake.answer(
+        "git remote get-url origin",
+        ProcessAnswer(stdout="git@github.com:example-org/app.git\n"),
+    )
+    route_pull_request(
+        github_api,
+        "example-org/app",
+        7,
+        pull_request_payload(title="Origin PR"),
+        diff="diff --git a/app.py b/app.py\n+content\n",
+    )
+    *_, repo, _base = _prepare_pr_content(7, checkout=checkout)
+    assert (repo, [call.cwd for call in process_fake.calls]) == (
+        "example-org/app",
+        [checkout.resolve()],
     )
 
 

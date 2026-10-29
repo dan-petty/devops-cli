@@ -20,7 +20,6 @@ from devops_cli.config.constants import (
     CONST_TRIVY_DB_METADATA,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
 )
@@ -213,7 +212,7 @@ class TrivyConfigScanner(TrivyScanner):
 
 
 def run_trivy_scan(
-    target: Path = DEFAULT_CURRENT_PATH,
+    target: Path,
     scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
     severity: str = DEFAULT_TRIVY_SEVERITIES,
     *,

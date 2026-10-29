@@ -8,7 +8,6 @@ from pathlib import Path
 
 from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_DEPENDENCY_MIN_SEVERITY,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -96,7 +95,7 @@ def _found_vulnerabilities(package: str, lookup: PackageLookupResult) -> list[Vu
 class DependencyRemediator:
     """Automated dependency vulnerability remediation and lockfile patching coordinator."""
 
-    def __init__(self, target_dir: Path = DEFAULT_CURRENT_PATH) -> None:
+    def __init__(self, target_dir: Path) -> None:
         self.target_dir = Path(target_dir).resolve()
         self.ecosystem, self.lockfile = detect_lockfile_ecosystem(self.target_dir)
 

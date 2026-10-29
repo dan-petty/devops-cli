@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
     CONST_SARIF_LEVEL_WARNING,
     CONST_SARIF_LEVELS,
 )
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, ToolCacheDir
@@ -326,7 +325,7 @@ def _infer_ruff_tree(target: Path | list[Path], tree: Path | None) -> Path | Non
 
 
 def run_ruff_scan(
-    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
+    target: Path | list[Path],
     *,
     advisory_rules: Sequence[str] = CONST_DEFAULT_REVIEW_ADVISORY_RULES,
     diff_hunks: dict[str, list[tuple[int, int]]] | None = None,

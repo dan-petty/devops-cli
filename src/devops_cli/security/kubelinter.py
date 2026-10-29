@@ -12,9 +12,6 @@ import yaml
 
 from devops_cli.ai.review_schema import DefectClass, Finding, defect_class
 from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
-from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
-)
 from devops_cli.review.manifests import manifest_object_key
 from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
 
@@ -146,7 +143,7 @@ class KubelinterScanner(BaseSecurityScanner):
 
 
 def run_kubelinter_scan(
-    target: Path = DEFAULT_CURRENT_PATH,
+    target: Path,
     *,
     isolated: bool = False,
     tool_executor: ToolExecutor | None = None,

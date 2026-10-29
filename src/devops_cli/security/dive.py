@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_DIVE_MAX_WASTED_BYTES,
     DEFAULT_DIVE_MIN_EFFICIENCY,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
@@ -243,7 +242,7 @@ class DiveScanner(BaseSecurityScanner):
 
 
 def run_dive_scan(
-    target: Path | str = DEFAULT_CURRENT_PATH,
+    target: Path | str,
     **kwargs: Any,
 ) -> ScanOutcome:
     """Execute Dive container layer scanner and return scan outcome."""

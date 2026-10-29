@@ -16,7 +16,6 @@ from devops_cli.config.constants import (
     CONST_SEMGREP_EXCLUDED_EXTENSIONS,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_SEMGREP_REVIEW_BATCH_FILES,
@@ -441,7 +440,7 @@ def _scan_reviewed_files(
 
 
 def run_semgrep_scan(
-    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
+    target: Path | list[Path],
     config: str = DEFAULT_SEMGREP_CONFIG,
     timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
     *,

@@ -29,6 +29,7 @@ from devops_cli.core.repo import (
 )
 from devops_cli.main import app
 from tests.support.fakes.github import github_json
+from tests.support.fakes.process import ProcessFake
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
@@ -1139,6 +1140,15 @@ def test_repos_sync_and_status_dry_run() -> None:
     """Verify sync and status commands handle --dry-run."""
     res_sync = runner.invoke(app, ["--dry-run", "repos", "sync"])
     assert (res_sync.exit_code, "devops repos sync" in res_sync.output) == (0, True)
+
+
+def test_a_directory_with_no_repository_has_no_origin_whatever_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """The lookup reads the origin remote of the root that the caller gives, and nothing else:
+    `GITHUB_REPOSITORY` names no repository for a directory that holds none (#2127)."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/app")
+    assert (get_repo_origin_name(tmp_path), process_fake.calls) == (None, [])
 
 
 def test_repo_origin_lru_caching(tmp_path: Path) -> None:

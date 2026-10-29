@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.commands import build_trivy_sbom_cmd
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
     DEFAULT_TRIVY_SEVERITIES,
 )
@@ -60,7 +59,7 @@ class TrivySbomScanner(TrivyScanner):
 
 
 def run_trivy_sbom(
-    target: Path = DEFAULT_CURRENT_PATH,
+    target: Path,
     format_type: str = "cyclonedx",
     *,
     tool_executor: ToolExecutor | None = None,

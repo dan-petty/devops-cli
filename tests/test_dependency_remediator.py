@@ -322,14 +322,14 @@ def test_scan_and_plan_fails_when_the_osv_lookup_fails(tmp_path: Path) -> None:
     )
 
 
-def test_remediator_filter_mismatch_and_fallback_cmd() -> None:
+def test_remediator_filter_mismatch_and_fallback_cmd(tmp_path: Path) -> None:
     """Test unknown ecosystem fallback upgrade command and package_filter skipping."""
     from devops_cli.security.dependency_remediator import build_upgrade_command
 
     cmd = build_upgrade_command("UnknownEcosystem", "my-pkg", "1.2.3")
     assert cmd == ["uv", "lock", "--upgrade-package", "my-pkg==1.2.3"]
 
-    remediator = DependencyRemediator()
+    remediator = DependencyRemediator(tmp_path)
     vuln = VulnerabilityRecord(id="CVE-2026-9999", package="other-pkg", severity="HIGH")
     plan = remediator.plan_remediation([vuln], package_filter="target-pkg")
     assert len(plan.actions) == 0
@@ -355,9 +355,9 @@ def test_create_remediation_branch_failure_returns_none(
     ) == ("fix/security-urllib3-cve-2026-0001", None, None)
 
 
-def test_plan_remediation_min_severity_filtering() -> None:
+def test_plan_remediation_min_severity_filtering(tmp_path: Path) -> None:
     """Test that plan_remediation respects min_severity threshold."""
-    remediator = DependencyRemediator()
+    remediator = DependencyRemediator(tmp_path)
     vulns = [
         VulnerabilityRecord(id="V-1", package="p1", severity="LOW"),
         VulnerabilityRecord(id="V-2", package="p2", severity="MEDIUM"),

@@ -627,21 +627,12 @@ def _cached_repo_origin(resolved_root: Path) -> str | None:
     return None
 
 
-def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
-    """Extract owner/repo string from git remote origin URL (e.g. 'org/repo')."""
-    root = (repo_root or find_repo_root()).resolve()
-    origin = _cached_repo_origin(root)
-    if origin is not None:
-        return origin
+def get_repo_origin_name(repo_root: Path) -> str | None:
+    """The owner/repo of the origin remote of the repository at `repo_root` (e.g. 'org/repo').
 
-    if repo_root is None:
-        import os
-
-        env_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
-        if env_repo and "/" in env_repo:
-            return env_repo
-
-    return None
+    The caller gives the root: a command gives the root of the repository that holds its working
+    directory, `find_repo_root(Path.cwd())` (#2127)."""
+    return _cached_repo_origin(repo_root.resolve())
 
 
 get_repo_origin_name.cache_clear = _cached_repo_origin.cache_clear  # type: ignore[attr-defined]

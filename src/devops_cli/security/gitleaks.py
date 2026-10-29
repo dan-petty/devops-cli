@@ -11,7 +11,6 @@ from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
 from devops_cli.config.constants import CONST_REVIEW_SCAN_GITLEAKS_CONFIG
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
@@ -177,7 +176,7 @@ class GitleaksScanner(BaseSecurityScanner):
 
 
 def run_gitleaks_scan(
-    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
+    target: Path | list[Path],
     no_git: bool = True,
     ignore_tests: bool = False,
     *,
