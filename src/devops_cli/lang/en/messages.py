@@ -1955,6 +1955,37 @@ class RoadmapMessages:
         "Intake without a mode flag runs as --plan: it reads GitHub and calls the model, and "
         "writes nothing. --dry-run makes no request."
     )
+    intake_eval_title: str = (
+        "# Intake duplicate evaluation: {cases} case(s), the analysis model {model} at {gateway}"
+    )
+    intake_eval_agree: str = "- agree: {name}: a person says {person}, intake says {intake}."
+    intake_eval_disagree: str = (
+        "- DISAGREE: {name}: a person says {person}, intake says {intake}.{reason}"
+    )
+    intake_eval_reason: str = " Intake's reason: `{reason}`"
+    intake_eval_error: str = "- ERROR: {name}: {error}"
+    intake_eval_agreed: str = "Agree: {agreed} of {cases} case(s)."
+    intake_eval_score: str = (
+        "Duplicate verdict: precision {true} of {said} ({precision}), recall {true} of "
+        "{expected} ({recall}), {false} false duplicate(s)."
+    )
+    intake_eval_no_ratio: str = "none"
+    intake_eval_failed: str = (
+        "{failed} case(s) could not run. The score counts only the cases that ran."
+    )
+    intake_eval_dry_run: str = (
+        "Dry run: no request was made. A run makes one analysis call to {gateway} for each "
+        "case, one case at a time, and no embedding or GitHub request:"
+    )
+    intake_eval_dry_run_calls: str = "{calls} analysis call(s)."
+    intake_eval_spent: str = (
+        "Spent: {calls} analysis call(s) and {github} GitHub request(s). The run makes no "
+        "embedding request."
+    )
+    intake_eval_labels_missing: str = (
+        "This checkout has no {path}. The evaluation reads the type labels from it, as intake "
+        "reads them from the repository. Run the command in a checkout that has the file."
+    )
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "

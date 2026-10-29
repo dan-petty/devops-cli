@@ -50,6 +50,7 @@ from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
+from devops_cli.roadmap.duplicate_eval import DUPLICATE_CASES
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake import (
     IntakePlan,
@@ -86,7 +87,6 @@ from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.valkey import valkey_client_on
-from tests.support.paths import FIXTURES
 from tests.web_fakes import StubWeb
 
 REPO = "example/roadmap"
@@ -457,11 +457,14 @@ def test_a_possible_duplicate_a_person_planned_or_an_older_one_is_placed_and_sta
 
 # ── The same change, not a shared theme (#1755) ───────────────────────────────
 
-# The evaluation set: candidates intake folded for a shared theme, with the model's answers of
-# that run, and duplicates a person closed, with answers written from the person's comment.
-JUDGEMENTS: list[dict[str, Any]] = json.loads(
-    (FIXTURES / "roadmap" / "intake-duplicate-judgements.json").read_text(encoding="utf-8")
-)["cases"]
+# The evaluation set's cases that hold a recorded reply: candidates intake folded for a shared
+# theme, with the model's answers of that run, and duplicates a person closed, with answers
+# written from the person's comment. `devops roadmap intake-eval` runs every case live.
+JUDGEMENTS: list[dict[str, Any]] = [
+    case
+    for case in json.loads(DUPLICATE_CASES.read_text(encoding="utf-8"))["cases"]
+    if case.get("answer") is not None
+]
 
 
 def _judged(
