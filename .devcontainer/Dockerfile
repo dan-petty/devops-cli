@@ -1,3 +1,7 @@
+# The maintained actionlint fork (#1501) that knows current runner labels, pinned by digest.
+# This stage is a reference only; the binary is copied into the devcontainer image below.
+FROM docker.io/kjanat/actionlint:1.17.0@sha256:d484cccadf56b6a356466ade9af4c8e05c5dce1badaf0a9ecd0d7639d68d9c92 AS actionlint
+
 FROM debian:sid
 
 # Avoid interactive prompts during apt operations in CI
@@ -49,3 +53,7 @@ COPY src/ /tmp/devops-cli/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --break-system-packages --no-deps /tmp/devops-cli && \
     rm -rf /tmp/devops-cli
+
+# Provide the pinned actionlint binary on PATH so the bare `actionlint` command resolves.
+# Placed last so a source change above rebuilds no earlier layer.
+COPY --from=actionlint /usr/local/bin/actionlint /usr/local/bin/actionlint

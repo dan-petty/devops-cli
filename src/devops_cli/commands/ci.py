@@ -8,6 +8,7 @@ import functools
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -769,7 +770,7 @@ def get_check_specs() -> list[CheckSpec]:
         CheckSpec(
             name="actionlint",
             display_title=MESSAGES.ci.actionlint,
-            cmd=["uv", "run", "actionlint"],
+            cmd=["actionlint"],
             span_name="ci.step.actionlint",
             metric_step="actionlint",
         ),
@@ -2010,6 +2011,13 @@ def actionlint(
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not dry_run and shutil.which("actionlint") is None:
+        print_error(
+            "actionlint is not on PATH. The devcontainer image provides it. "
+            "For other hosts, install it from https://github.com/kjanat/actionlint "
+            "or the actionlint install page."
+        )
         raise typer.Exit(1)
     spec = get_check_spec("actionlint")
     if not _run(spec.cmd):

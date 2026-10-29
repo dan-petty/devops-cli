@@ -344,10 +344,23 @@ def test_ci_actionlint_command(monkeypatch) -> None:
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name: "/usr/local/bin/actionlint" if name == "actionlint" else None,
+    )
 
     result = runner.invoke(app, ["actionlint"])
     assert result.exit_code == 0
     assert any("actionlint" in c for c in called)
+
+
+def test_ci_actionlint_not_on_path(monkeypatch) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    result = runner.invoke(app, ["actionlint"])
+    assert result.exit_code == 1
+    assert "actionlint" in result.output
+    assert "devcontainer" in result.output
 
 
 def test_ci_lint_command(monkeypatch) -> None:
@@ -2361,6 +2374,11 @@ def test_subcommand_dispatches_exact_table_row_cmd(
 
     monkeypatch.setattr(subprocess, "run", mock_run)
     monkeypatch.setattr(ci_module, "run_subprocess", mock_run)
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name: "/usr/local/bin/actionlint" if name == "actionlint" else None,
+    )
 
     spec = get_check_spec(expected_row)
     args = [subcmd]
@@ -2642,6 +2660,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Install Trivy",
         ): "Installs the pinned Trivy that the Security Scan step runs, with the lock's installer",
         (
+            "static",
+            "Run actionlint",
+        ): "Runs the pinned actionlint via the docker image, so the gate skips it (#1119)",
+        (
             "test",
             "Install promtool",
         ): "Installs the pinned promtool that the rule tests of the test row run, with the lock's installer",
@@ -2683,6 +2705,13 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             f"Step '{step_name}' in job '{job_id}' runs raw non-gate command: {run_cmd}"
         )
         covered_rows.update(rows)
+
+    # The docker:// actionlint step covers the actionlint row without a `run` command (#1119).
+    for job_info in jobs.values():
+        for step in job_info.get("steps", []):
+            uses = step.get("uses", "") if isinstance(step, dict) else ""
+            if "kjanat/actionlint" in uses:
+                covered_rows.add("actionlint")
 
     missing = all_spec_names - covered_rows
     assert not missing, (

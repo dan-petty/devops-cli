@@ -640,12 +640,14 @@ def _uses(node: Any) -> Iterator[str]:
 
 def test_every_remote_action_is_pinned_to_a_commit_sha() -> None:
     """A tag or branch can be moved to other code; a 40-character commit SHA cannot. Local
-    `./` actions are this repository's own."""
+    `./` actions are this repository's own. `docker://` images are pinned by digest (#1119)."""
     unpinned = [
         f"{path}: {ref}"
         for path in _automation_files()
         for ref in _uses(_load_workflow(path))
-        if not ref.startswith("./") and not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref)
+        if not ref.startswith("./")
+        and not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref)
+        and not (ref.startswith("docker://") and re.search(r"@sha256:[0-9a-f]{64}", ref))
     ]
     assert unpinned == []
 
@@ -1252,4 +1254,28 @@ def test_a_pull_request_that_changes_an_image_pin_resolves_each_pinned_image() -
                 "run": "uv run devops k8s image-pins",
             },
         ],
+    )
+
+
+def test_actionlint_digest_pinned_in_dockerfile_and_ci() -> None:
+    """The Dockerfile FROM and the ci.yml uses: reference the same digest-pinned image (#1119)."""
+    dockerfile = Path(".devcontainer/Dockerfile").read_text(encoding="utf-8")
+    ci_yaml = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    dockerfile_match = re.search(
+        r"FROM\s+(docker\.io/kjanat/actionlint:1\.17\.0@sha256:[0-9a-f]{64})\s+AS\s+actionlint",
+        dockerfile,
+    )
+    assert dockerfile_match, "Dockerfile FROM actionlint digest-pinned image not found"
+
+    ci_yaml_match = re.search(
+        r"uses:\s+(docker://docker\.io/kjanat/actionlint:1\.17\.0@sha256:[0-9a-f]{64})",
+        ci_yaml,
+    )
+    assert ci_yaml_match, "ci.yml uses: actionlint digest-pinned image not found"
+
+    dockerfile_ref = dockerfile_match.group(1)
+    ci_yaml_ref = ci_yaml_match.group(1).removeprefix("docker://")
+    assert dockerfile_ref == ci_yaml_ref, (
+        f"Dockerfile and ci.yml actionlint digests differ: {dockerfile_ref} != {ci_yaml_ref}"
     )
