@@ -1737,8 +1737,13 @@ class RoadmapMessages:
         "branch changes one of these files: {paths}."
     )
     refine_incomplete: str = (
-        "The proposal has no problem statement, or no acceptance criterion with a "
-        "verification. State the problem and how to verify the change."
+        "The proposal has no problem statement, no acceptance criterion with its requirement, "
+        "scenario, WHEN and THEN, or no answer to the existing-tool question. State the "
+        "problem, the requirements with their scenarios, and the open tool that covers the need "
+        "or the cost of building it."
+    )
+    refine_requirement_keyword: str = (
+        "The requirement must contain SHALL or MUST, as an OpenSpec requirement does."
     )
     refine_set_back_by_person: str = (
         "A person set the item back to New after refine set it to Ready. A reply that tells "

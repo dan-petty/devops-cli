@@ -57,11 +57,24 @@ from tests.web_fakes import StubWeb
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/roadmap"
+
+# One acceptance criterion in the shape of an OpenSpec requirement, and the existing-tool answer
+# that every proposal carries (#1849).
+_CRITERION = AcceptanceCriterion(
+    name="A design",
+    requirement="The item SHALL have a design.",
+    scenario="A person reads the item",
+    when="a person reads the item",
+    then="the design is in the item",
+)
+_CRITERION_JSON = _CRITERION.model_dump()
+_TOOL = "No open tool covers the need."
 _FIRECRAWL_URL = "https://api.firecrawl.dev/v2/search"
 _OPEN_FACT = QuestionAnswer(question="Where is the sample function?", answer="?", kind="fact")
 _FIRST = RefinementProposal(
+    existing_tool=_TOOL,
     problem_statement="The item needs a design.",
-    acceptance_criteria=[AcceptanceCriterion(description="It is designed.", verification="pytest")],
+    acceptance_criteria=[_CRITERION],
     key_questions=[_OPEN_FACT],
 )
 _SETTLED = _FIRST.model_copy(

@@ -7,6 +7,8 @@ Use the tools to settle each open question, and each decision that has no source
 - `search_code`, `list_files` and `read_file` read the repository at the commit being refined. Cite the path and the line that you read, such as `src/app.py:12`.
 - `search_web` searches the web. Cite the URL of a result.
 
+When the proposal's `existing_tool` names no tool, or names a tool with no source, search for the open, maintained tool or library that covers the need, and revise `existing_tool` with what you find.
+
 The number of tool calls is limited, so make a small number of calls that each aim at one question. When the tools give no evidence for a fact, keep the fact with no source.
 
 Reply with the whole proposal, revised with what you found. Keep each part that the evidence does not change.
