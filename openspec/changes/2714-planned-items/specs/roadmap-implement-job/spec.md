@@ -6,7 +6,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The job takes a Staged or a Planned item that the filter names
-A Staged item SHALL have a recorded branch on `origin` and an open draft pull request. The pair is `implement.branch` and `implement.pr`, else `stage.branch` and `stage.pr`. A Planned item SHALL have no recorded branch on `origin` and its change folder on `origin/<default branch>`. A branch on `origin` makes it Staged. The default filter SHALL be `status=ready`, `priority=p0-critical`, `priority=p1-high`, `type=bug` and `effort=low`. `--limit` SHALL default to 1.
+A Staged item SHALL hold a branch and a pull request in its record, its branch SHALL be on `origin`, and its draft pull request SHALL be open. The pair is `implement.branch` and `implement.pr` when both are set, else `stage.branch` and `stage.pr`. A Planned item SHALL be open and have no branch on `origin` in its record, and the folder `openspec/changes/<issue>-<slug>` SHALL be in the tree of `origin/<default branch>`. An item whose recorded branch is on `origin` SHALL take the Staged path, also when its plan is on the default branch. The default filter SHALL be `status=ready`, `priority=p0-critical`, `priority=p1-high`, `type=bug` and `effort=low`. The values of one family are alternatives and the families all apply. `--limit` SHALL default to 1, and the highest priority comes first.
 
 #### Scenario: The default filter
 - **WHEN** the roadmap holds a Staged Ready P1 bug of low effort, a Staged Ready P1 bug of high effort, and a Staged Ready P3 bug of low effort
@@ -25,7 +25,7 @@ A Staged item SHALL have a recorded branch on `origin` and an open draft pull re
 - **THEN** the plan selects both, the lower number first
 
 ### Requirement: The job leaves out an item and says why
-The job SHALL leave out, with a reason in the plan, an item that the filter names and that is not Ready, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. It SHALL also leave out a Planned item with a branch of `origin` or a worktree that holds it, an archived change, no branch type, no branch name, or no unticked task.
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is not Ready, is neither Staged nor Planned, holds `implement.stopped`, has an author who is not the owner, a member or a collaborator, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. The job SHALL also leave out a Planned item that a branch of `origin` holds, that a worktree holds, whose change is archived, whose title gives no branch type, whose folder gives no branch name, or whose `tasks.md` on the default branch has no unticked task.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record and no change folder on `origin/main`

@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The job leaves out the items it must not stage
-The job SHALL leave out an item that is not Ready, has the label `needs-split`, has an untrusted author, or depends on an open issue. It SHALL leave out a held item: `origin` or a worktree of the clone has a branch `<type>/<issue>-<slug>` for it. It SHALL leave out an item whose plan is on `origin/<default branch>` or whose change is archived there, matched by the issue number only. The plan SHALL name each item it leaves out and say why.
+The job SHALL leave out an item that is not Ready, an item with the label `needs-split`, an item whose author is not the owner, a member or a collaborator, and an item whose Dependencies section names an open issue. The job SHALL also leave out a held item: `origin` has a branch of the form `<type>/<issue>-<slug>` for it, or a worktree of the clone has one. The job SHALL also leave out an item whose plan is on the default branch, and an item whose change is archived there: the folder `openspec/changes/<issue>-*` or `openspec/changes/archive/<date>-<issue>-*` is in the tree of `origin/<default branch>`. The folder SHALL match by the issue number only, and the plan SHALL name the folder and the default branch in the reason. The plan SHALL name each item it leaves out and say why.
 
 #### Scenario: Items that are left out
 - **WHEN** the filter names a Blocked item, an item with `needs-split`, an item opened by an account with no write access, an item that depends on an open issue, and an item with a pushed branch
