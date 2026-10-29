@@ -375,8 +375,13 @@ class K8sCommandHelp:
         "clusters only)."
     )
     run_job: str = (
-        "Run a devops command as a Job in namespace devops, from CronJob devops-cli's "
-        "template with only its arguments changed, follow its log and exit with its exit code."
+        "Run a devops command as a Job in namespace devops, from the template of a CronJob "
+        "with only its arguments changed, follow its log and exit with its exit code."
+    )
+    run_job_template: str = (
+        "The CronJob whose template makes the Job: default is CronJob devops-cli, runner is "
+        "CronJob devops-cli-runner, the pod of the implement job (it sets "
+        "roadmap.implement.in_runner)."
     )
     run_job_args: str = "The devops arguments the Job runs, after `--`."
     run_job_wait: str = (

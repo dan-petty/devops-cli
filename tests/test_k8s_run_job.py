@@ -17,12 +17,26 @@ from click.testing import CliRunner
 
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
-from devops_cli.k8s.cluster_job import build_job, job_name
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name
 from tests.support.paths import REPO_ROOT
 
 CRONJOB = yaml.safe_load(
     (REPO_ROOT / "k8s" / "devops" / "cronjob.yaml").read_text(encoding="utf-8")
 )
+
+
+def _runner_cronjob() -> dict[str, Any]:
+    """CronJob devops-cli-runner as the manifest names it: the template of CronJob devops-cli
+    with the name, the container and the image of the runner."""
+    cronjob = copy.deepcopy(CRONJOB)
+    cronjob["metadata"]["name"] = "devops-cli-runner"
+    container = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
+    container["name"] = "runner"
+    container["image"] = "ghcr.io/dan-petty/devops-cli/runner"
+    container["env"] = [{"name": "DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", "value": "true"}]
+    return cronjob
+
+
 _app = typer.Typer()
 _app.command()(run_job)
 RUN_JOB = typer.main.get_command(_app)
@@ -33,6 +47,7 @@ class FakeJobs:
     """kubectl in namespace devops: the CronJob, the created Job's pod phase and exit code."""
 
     cronjob: dict[str, Any] | None = field(default_factory=lambda: copy.deepcopy(CRONJOB))
+    runner_cronjob: dict[str, Any] | None = field(default_factory=_runner_cronjob)
     phases: list[str] = field(default_factory=lambda: ["Pending", "Running"])
     exit_code: str = "0"
     calls: list[list[str]] = field(default_factory=list)
@@ -48,7 +63,8 @@ class FakeJobs:
     def _answer(self, argv: list[str], stdin: str | None) -> str:
         verb = argv[3:5]
         if verb == ["get", "cronjob"]:
-            return json.dumps(self.cronjob) if self.cronjob else ""
+            held = self.runner_cronjob if argv[5] == "devops-cli-runner" else self.cronjob
+            return json.dumps(held) if held else ""
         if argv[3:4] == ["create"]:
             self.created.append(json.loads(stdin or "{}"))
             return "job.batch/created\n"
@@ -221,3 +237,94 @@ def test_a_pod_that_never_starts_exits_1_naming_describe(jobs: FakeJobs) -> None
     name = jobs.created[0]["metadata"]["name"]
     output = " ".join(result.output.split())
     assert (result.exit_code, f"kubectl -n devops describe job/{name}" in output) == (1, True)
+
+
+def test_a_runner_job_changes_only_the_args_of_the_runner_container_and_adds_env_and_labels() -> (
+    None
+):
+    cronjob = _runner_cronjob()
+    name = job_name(datetime(2026, 10, 4, 2, 14, 5, tzinfo=UTC), RUNNER_TEMPLATE)
+    job = build_job(
+        cronjob,
+        ["roadmap", "implement", "--item", "7", "--confirm"],
+        name,
+        template=RUNNER_TEMPLATE,
+        env={"DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY": "example/project"},
+        labels={"implement-repo": "0123456789abcdef"},
+    )
+    pod = job["spec"]["template"]
+    (container,) = pod["spec"]["containers"]
+    template = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
+    assert (
+        name.startswith("devops-cli-runner-20261004-021405-"),
+        container["args"],
+        container["env"],
+        {key: value for key, value in container.items() if key not in {"args", "env"}},
+        job["metadata"]["labels"],
+        pod["metadata"]["labels"]["implement-repo"],
+    ) == (
+        True,
+        ["roadmap", "implement", "--item", "7", "--confirm"],
+        [
+            *template["env"],
+            {"name": "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY", "value": "example/project"},
+        ],
+        {key: value for key, value in template.items() if key not in {"args", "env"}},
+        {"app.kubernetes.io/name": "devops-cli-job", "implement-repo": "0123456789abcdef"},
+        "0123456789abcdef",
+    )
+
+
+def test_an_env_name_that_the_template_sets_is_replaced_not_repeated() -> None:
+    job = build_job(
+        _runner_cronjob(),
+        ["--version"],
+        "devops-cli-runner-x",
+        template=RUNNER_TEMPLATE,
+        env={"DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER": "false"},
+    )
+    (container,) = job["spec"]["template"]["spec"]["containers"]
+    assert container["env"] == [
+        {"name": "DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", "value": "false"}
+    ]
+
+
+def test_the_runner_template_reads_its_own_cronjob_and_follows_its_container(
+    jobs: FakeJobs,
+) -> None:
+    result = _run("--template", "runner", "--", "roadmap", "implement", "--item", "7")
+    name = jobs.created[0]["metadata"]["name"]
+    (container,) = jobs.created[0]["spec"]["template"]["spec"]["containers"]
+    exit_code_read = next(c for c in jobs.calls if "jsonpath" in c[-1] and "exitCode" in c[-1])
+    assert (
+        result.exit_code,
+        ["kubectl", "-n", "devops", "get", "cronjob", "devops-cli-runner"] == jobs.calls[0][:6],
+        name.startswith("devops-cli-runner-"),
+        container["name"],
+        container["args"],
+        '@.name=="runner"' in exit_code_read[-1],
+    ) == (0, True, True, "runner", ["roadmap", "implement", "--item", "7"], True)
+
+
+def test_a_missing_runner_cronjob_names_it(jobs: FakeJobs) -> None:
+    jobs.runner_cronjob = None
+    result = _run("--template", "runner", "--", "--version")
+    assert (result.exit_code, "CronJob devops/devops-cli-runner not found" in result.output) == (
+        1,
+        True,
+    )
+
+
+def test_the_dry_run_of_the_runner_template_names_its_cronjob() -> None:
+    result = _run("--template", "runner", "--dry-run", "--", "roadmap", "implement")
+    assert (
+        result.exit_code,
+        "get cronjob devops-cli-runner" in result.output,
+        "<devops-cli-runner-yyyymmdd-hhmmss-xxxx>" in result.output,
+        "get cronjob devops-cli --" in result.output,
+    ) == (0, True, True, False), result.output
+
+
+def test_an_unknown_template_is_refused() -> None:
+    result = _run("--template", "other", "--", "--version")
+    assert (result.exit_code, "runner" in result.output) == (2, True)

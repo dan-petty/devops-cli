@@ -1,60 +1,110 @@
-"""Jobs that run one devops command in the cluster, built from CronJob devops-cli's template.
+"""Jobs that run one devops command in the cluster, built from a suspended CronJob's template.
 
-The suspended CronJob `devops/devops-cli` keeps the pod spec in git: its security context, the
+A suspended CronJob in namespace `devops` keeps the pod spec in git: its security context, the
 `devops-cli` Secret through `envFrom`, the config and the volumes. A Job made from it changes
-only the container's args, its name and one label, so it passes the namespace's `restricted`
-Pod Security and cannot drift from git.
+only the container's args, its name, its labels and, for the runner, some environment values, so
+it passes the namespace's `restricted` Pod Security and cannot drift from git. Two CronJobs are
+templates: `devops-cli` for any command, and `devops-cli-runner` for the implement job (#2667).
 """
 
 from __future__ import annotations
 
 import copy
 import secrets
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from devops_cli.exceptions.k8s import ClusterJobError
 
 JOB_NAMESPACE = "devops"
-JOB_CRONJOB = "devops-cli"
-JOB_CONTAINER = "devops-cli"
 JOB_NAME_LABEL = "app.kubernetes.io/name"
 JOB_NAME_LABEL_VALUE = "devops-cli-job"
 # Set on every pod by the Job controller.
 JOB_POD_SELECTOR_LABEL = "batch.kubernetes.io/job-name"
 
 
-def job_name(now: datetime | None = None) -> str:
-    """`devops-cli-<UTC yyyymmdd-hhmmss>-<4 hex>`."""
+@dataclass(frozen=True)
+class JobTemplate:
+    """A CronJob that Jobs come from: its name, which also starts the name of each Job, and the
+    name of the container whose args a Job changes."""
+
+    cronjob: str
+    container: str
+
+
+DEFAULT_TEMPLATE = JobTemplate(cronjob="devops-cli", container="devops-cli")
+RUNNER_TEMPLATE = JobTemplate(cronjob="devops-cli-runner", container="runner")
+
+
+class TemplateName(StrEnum):
+    """The `--template` values of `devops k8s run-job`."""
+
+    DEFAULT = "default"
+    RUNNER = "runner"
+
+    @property
+    def template(self) -> JobTemplate:
+        return RUNNER_TEMPLATE if self is TemplateName.RUNNER else DEFAULT_TEMPLATE
+
+
+def job_name(now: datetime | None = None, template: JobTemplate = DEFAULT_TEMPLATE) -> str:
+    """`<cronjob>-<UTC yyyymmdd-hhmmss>-<4 hex>`."""
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
-    return f"{JOB_CRONJOB}-{stamp}-{secrets.token_hex(2)}"
+    return f"{template.cronjob}-{stamp}-{secrets.token_hex(2)}"
 
 
-def _labelled(metadata: dict[str, Any] | None) -> dict[str, Any]:
-    """A copy of the metadata carrying the cluster-job label."""
+def _labelled(
+    metadata: dict[str, Any] | None, extra: Mapping[str, str] | None = None
+) -> dict[str, Any]:
+    """A copy of the metadata carrying the cluster-job label and the extra labels."""
     labelled = copy.deepcopy(metadata or {})
-    labelled["labels"] = {**labelled.get("labels", {}), JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE}
+    labelled["labels"] = {
+        **labelled.get("labels", {}),
+        JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE,
+        **(extra or {}),
+    }
     return labelled
 
 
-def build_job(cronjob: dict[str, Any], args: list[str], name: str) -> dict[str, Any]:
-    """The Job the CronJob's template makes, with only args, name and label changed.
+def _with_env(container: dict[str, Any], env: Mapping[str, str] | None) -> None:
+    """Set the environment values on the container; a name the template sets is replaced."""
+    if not env:
+        return
+    kept = [entry for entry in container.get("env", []) if entry.get("name") not in env]
+    container["env"] = [*kept, *({"name": name, "value": value} for name, value in env.items())]
 
-    The label goes on the Job and on its pods, so `-l app.kubernetes.io/name=devops-cli-job`
+
+def build_job(
+    cronjob: dict[str, Any],
+    args: list[str],
+    name: str,
+    *,
+    template: JobTemplate = DEFAULT_TEMPLATE,
+    env: Mapping[str, str] | None = None,
+    labels: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """The Job the CronJob's template makes, with only args, name, labels and `env` changed.
+
+    The labels go on the Job and on its pods, so `-l app.kubernetes.io/name=devops-cli-job`
     finds both.
     """
-    template = cronjob["spec"]["jobTemplate"]
-    spec = copy.deepcopy(template["spec"])
+    job_template = cronjob["spec"]["jobTemplate"]
+    spec = copy.deepcopy(job_template["spec"])
     pod_template = spec["template"]
-    pod_template["metadata"] = _labelled(pod_template.get("metadata"))
+    pod_template["metadata"] = _labelled(pod_template.get("metadata"), labels)
     container = next(
-        (c for c in pod_template["spec"]["containers"] if c.get("name") == JOB_CONTAINER), None
+        (c for c in pod_template["spec"]["containers"] if c.get("name") == template.container),
+        None,
     )
     if container is None:
         raise ClusterJobError(
-            f"CronJob {JOB_NAMESPACE}/{JOB_CRONJOB} has no container {JOB_CONTAINER}"
+            f"CronJob {JOB_NAMESPACE}/{template.cronjob} has no container {template.container}"
         )
     container["args"] = list(args)
-    metadata = _labelled(template.get("metadata"))
+    _with_env(container, env)
+    metadata = _labelled(job_template.get("metadata"), labels)
     metadata.update(name=name, namespace=JOB_NAMESPACE)
     return {"apiVersion": "batch/v1", "kind": "Job", "metadata": metadata, "spec": spec}

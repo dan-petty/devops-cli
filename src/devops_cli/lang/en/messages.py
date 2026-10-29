@@ -680,7 +680,7 @@ class K8sMessages:
         "--plan reads the keyring, gh and the cluster to show each key's state."
     )
     job_cronjob_missing: str = (
-        "CronJob devops/devops-cli not found. Deploy it first: "
+        "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"
     )
     job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"

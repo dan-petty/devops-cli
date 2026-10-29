@@ -2,7 +2,9 @@
 
 `kubectl create job --from=cronjob/devops-cli` cannot change a template's args, and a hand-built
 pod fails the namespace's `restricted` Pod Security or drifts from git, so this command builds
-the Job from CronJob devops-cli's template with only the args, name and label changed.
+the Job from a CronJob's template with only the args, name and label changed. `--template`
+chooses the CronJob: `default` is CronJob devops-cli, `runner` is CronJob devops-cli-runner, the
+template of the implement job's runner (#2667).
 `--dry-run` makes no request: it prints the kubectl requests a run would make, in order.
 """
 
@@ -22,12 +24,13 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import (
-    JOB_CONTAINER,
-    JOB_CRONJOB,
+    DEFAULT_TEMPLATE,
     JOB_NAME_LABEL,
     JOB_NAME_LABEL_VALUE,
     JOB_NAMESPACE,
     JOB_POD_SELECTOR_LABEL,
+    JobTemplate,
+    TemplateName,
     build_job,
     job_name,
 )
@@ -41,14 +44,21 @@ _EXIT_CODE_ATTEMPTS = 10
 _LOG_STREAM_TIMEOUT_SECONDS = 7200.0 + 300.0
 
 
-# Where a dry run shows the Job's name, which a run chooses when it creates the Job.
-JOB_NAME_PLACEHOLDER = "<devops-cli-yyyymmdd-hhmmss-xxxx>"
-_CRONJOB_ARGS = ["get", "cronjob", JOB_CRONJOB, "--ignore-not-found", "-o", "json"]
 _CREATE_ARGS = ["create", "-f", "-", "-o", "name"]
 _PHASE_PATH = ".status.phase"
-_EXIT_CODE_PATH = (
-    f'.status.containerStatuses[?(@.name=="{JOB_CONTAINER}")].state.terminated.exitCode'
-)
+
+
+def _name_placeholder(template: JobTemplate) -> str:
+    """Where a dry run shows the Job's name, which a run chooses when it creates the Job."""
+    return f"<{template.cronjob}-yyyymmdd-hhmmss-xxxx>"
+
+
+def _cronjob_args(template: JobTemplate) -> list[str]:
+    return ["get", "cronjob", template.cronjob, "--ignore-not-found", "-o", "json"]
+
+
+def _exit_code_path(template: JobTemplate) -> str:
+    return f'.status.containerStatuses[?(@.name=="{template.container}")].state.terminated.exitCode'
 
 
 @dataclass(frozen=True)
@@ -94,9 +104,9 @@ def _kubectl(args: Sequence[str], context: str | None, *, stdin: str | None = No
     return result.stdout or ""
 
 
-def _read_cronjob(context: str | None) -> dict[str, Any] | None:
-    """CronJob devops-cli, or None when it is not applied."""
-    raw = _kubectl(_CRONJOB_ARGS, context)
+def _read_cronjob(context: str | None, template: JobTemplate) -> dict[str, Any] | None:
+    """The template's CronJob, or None when it is not applied."""
+    raw = _kubectl(_cronjob_args(template), context)
     return json.loads(raw) if raw.strip() else None
 
 
@@ -127,10 +137,10 @@ def _stream_logs(name: str, context: str | None) -> None:
     )
 
 
-def _exit_code(name: str, context: str | None) -> int | None:
+def _exit_code(name: str, context: str | None, template: JobTemplate) -> int | None:
     """The container's `state.terminated.exitCode`, waiting briefly for the status to land."""
     for attempt in range(_EXIT_CODE_ATTEMPTS):
-        code = _pod_field(name, context, _EXIT_CODE_PATH)
+        code = _pod_field(name, context, _exit_code_path(template))
         if code:
             return int(code.split()[0])
         if attempt + 1 < _EXIT_CODE_ATTEMPTS:
@@ -138,7 +148,7 @@ def _exit_code(name: str, context: str | None) -> int | None:
     return None
 
 
-def _follow(name: str, context: str | None, start_timeout: float) -> int:
+def _follow(name: str, context: str | None, start_timeout: float, template: JobTemplate) -> int:
     """Wait for the pod, stream its log and return the container's exit code."""
     if not _wait_until_started(name, context, start_timeout):
         print_error(
@@ -148,21 +158,21 @@ def _follow(name: str, context: str | None, start_timeout: float) -> int:
         )
         return 1
     _stream_logs(name, context)
-    code = _exit_code(name, context)
+    code = _exit_code(name, context, template)
     if code is None:
         print_error(MESSAGES.k8s.job_no_exit_code.format(name=name), prefix=False, safe=True)
         return 1
     return code
 
 
-def _job_preview(args: Sequence[str]) -> str:
+def _job_preview(args: Sequence[str], template: JobTemplate) -> str:
     """The Job a run creates, with what it copies from the CronJob as placeholders."""
-    copied = f"<from CronJob {JOB_NAMESPACE}/{JOB_CRONJOB}'s jobTemplate>"
+    copied = f"<from CronJob {JOB_NAMESPACE}/{template.cronjob}'s jobTemplate>"
     job = {
         "apiVersion": "batch/v1",
         "kind": "Job",
         "metadata": {
-            "name": JOB_NAME_PLACEHOLDER,
+            "name": _name_placeholder(template),
             "namespace": JOB_NAMESPACE,
             "labels": {"...": copied, JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE},
         },
@@ -172,7 +182,7 @@ def _job_preview(args: Sequence[str]) -> str:
                 "metadata": {"labels": {"...": copied, JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE}},
                 "spec": {
                     "...": copied,
-                    "containers": [{"name": JOB_CONTAINER, "...": copied, "args": list(args)}],
+                    "containers": [{"name": template.container, "...": copied, "args": list(args)}],
                 },
             },
         },
@@ -181,22 +191,27 @@ def _job_preview(args: Sequence[str]) -> str:
 
 
 def dry_run_job(
-    args: Sequence[str], context: str | None, *, wait: bool, start_timeout: float
+    args: Sequence[str],
+    context: str | None,
+    *,
+    wait: bool,
+    start_timeout: float,
+    template: JobTemplate = DEFAULT_TEMPLATE,
 ) -> JobRun:
     """The requests a run would make, in order, making none: not even the CronJob is read."""
-    name = JOB_NAME_PLACEHOLDER
+    name = _name_placeholder(template)
 
     def kubectl(command: Sequence[str], target: str, **extra: Any) -> PlannedRequest:
         method = f"kubectl {command[0]}"
         return PlannedRequest(method, target, tuple(_kubectl_argv(command, context)), **extra)
 
     requests = [
-        kubectl(_CRONJOB_ARGS, f"cronjob {JOB_NAMESPACE}/{JOB_CRONJOB}"),
+        kubectl(_cronjob_args(template), f"cronjob {JOB_NAMESPACE}/{template.cronjob}"),
         kubectl(
             _CREATE_ARGS,
             f"job {JOB_NAMESPACE}/{name}",
-            stdin=_job_preview(args),
-            condition=f"CronJob {JOB_NAMESPACE}/{JOB_CRONJOB} exists",
+            stdin=_job_preview(args, template),
+            condition=f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists",
         ),
     ]
     if wait:
@@ -211,7 +226,7 @@ def dry_run_job(
             ),
             kubectl(_logs_args(name), f"job {name}", condition="the pod left Pending"),
             kubectl(
-                _pod_field_args(name, _EXIT_CODE_PATH),
+                _pod_field_args(name, _exit_code_path(template)),
                 f"pods of job {name}",
                 condition="the pod left Pending",
                 repeat=(
@@ -224,21 +239,26 @@ def dry_run_job(
 
 
 def execute_job(
-    args: Sequence[str], context: str | None, *, wait: bool, start_timeout: float
+    args: Sequence[str],
+    context: str | None,
+    *,
+    wait: bool,
+    start_timeout: float,
+    template: JobTemplate = DEFAULT_TEMPLATE,
 ) -> JobRun:
     """Create the Job from the CronJob's template and, with `wait`, follow it to its exit code.
 
     Raises ClusterJobError when the CronJob is missing or kubectl fails.
     """
-    cronjob = _read_cronjob(context)
+    cronjob = _read_cronjob(context, template)
     if cronjob is None:
-        raise ClusterJobError(MESSAGES.k8s.job_cronjob_missing)
-    name = job_name()
-    job = build_job(cronjob, list(args), name)
+        raise ClusterJobError(MESSAGES.k8s.job_cronjob_missing.format(cronjob=template.cronjob))
+    name = job_name(template=template)
+    job = build_job(cronjob, list(args), name, template=template)
     _kubectl(_CREATE_ARGS, context, stdin=json.dumps(job))
     if not wait:
         return JobRun(name)
-    return JobRun(name, exit_code=_follow(name, context, start_timeout))
+    return JobRun(name, exit_code=_follow(name, context, start_timeout, template))
 
 
 def run_job(
@@ -246,18 +266,27 @@ def run_job(
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
+    template: Annotated[
+        TemplateName, typer.Option("--template", help=HELP.k8s.run_job_template)
+    ] = TemplateName.DEFAULT,
     wait: Annotated[bool, typer.Option("--wait/--no-wait", help=HELP.k8s.run_job_wait)] = True,
     start_timeout: Annotated[
         float, typer.Option("--start-timeout", min=0, help=HELP.k8s.run_job_start_timeout)
     ] = DEFAULT_JOB_START_TIMEOUT_SECONDS,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.run_job_dry_run)] = False,
 ) -> None:
-    """Run a devops command as a Job from CronJob devops-cli's template and follow it."""
+    """Run a devops command as a Job from a CronJob's template and follow it."""
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
     if dry_run or is_dry_run():
-        planned = dry_run_job(args, effective_context, wait=wait, start_timeout=start_timeout)
+        planned = dry_run_job(
+            args,
+            effective_context,
+            wait=wait,
+            start_timeout=start_timeout,
+            template=template.template,
+        )
         render_request_plan(
             MESSAGES.k8s.job_dry_run_heading,
             planned.requests,
@@ -265,7 +294,13 @@ def run_job(
         )
         return
     try:
-        run = execute_job(args, effective_context, wait=wait, start_timeout=start_timeout)
+        run = execute_job(
+            args,
+            effective_context,
+            wait=wait,
+            start_timeout=start_timeout,
+            template=template.template,
+        )
     except ClusterJobError as exc:
         print_error(str(exc), prefix=False, safe=True)
         raise typer.Exit(1) from exc
