@@ -20,7 +20,7 @@
 
 ## 3. Archive
 
-- [ ] 3.1 Archive the change
+- [x] 3.1 Archive the change
   - Verification: `uv run devops openspec archive 2633-refuse-ssh-code-env-keys`
 
 ## Workflow follow-up
