@@ -28,7 +28,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_REFERENCE_PROVIDER,
 )
-from devops_cli.prometheus.promql import selectors
+from devops_cli.prometheus.promql import grouping_labels, selectors
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -431,3 +431,84 @@ def test_the_records_hold_each_kind_of_series_and_a_range_before_the_price_rule(
         kinds,
         any(datetime.fromisoformat(record["end"]) < first_price for record in saved["records"]),
     ) == ({(True, True), (False, True), (False, False)}, True)
+
+
+# The gateway counts every caller's model calls and their status, and devops-cli counts only its
+# own calls that ended with a reply, so the dashboard takes gateway traffic from the gateway (#1668).
+GATEWAY_REQUESTS = "litellm_proxy_total_requests_metric_total"
+GATEWAY_TOKENS = "litellm_total_tokens_metric_total"
+GATEWAY_MODEL_CALLS = 'route=~"/v1/(chat/completions|embeddings)"'
+GATEWAY_REPLIED = 'status_code=~"2.."'
+
+
+def _ai_spend_panel(title: str) -> dict[str, Any]:
+    (panel,) = [panel for panel in _ai_spend_dashboard()["panels"] if panel.get("title") == title]
+    return panel
+
+
+def _targets(panel: dict[str, Any]) -> list[str]:
+    return [target["expr"] for target in panel["targets"]]
+
+
+def test_requests_and_tokens_in_range_take_gateway_traffic_from_the_gateways_own_series() -> None:
+    """A call through the gateway is counted once, from the gateway's series, whoever sent it: a
+    reply's request with `status_code` 2xx, and its tokens. devops-cli's own series add only the
+    calls that bypassed the gateway, and never a gateway call a second time (#1668)."""
+    (requests,) = _targets(_ai_spend_panel("AI Requests in Range"))
+    (tokens,) = _targets(_ai_spend_panel("Tokens Processed in Range"))
+
+    assert (
+        {s.metric for s in selectors(requests)},
+        GATEWAY_MODEL_CALLS in requests and GATEWAY_REPLIED in requests,
+        'devops_cli_ai_requests_total{provider!="gateway", cached="false"}' in requests,
+        {s.metric for s in selectors(tokens)},
+        'devops_cli_ai_tokens_total{provider!="gateway", server!="cache", type!="reasoning"}'
+        in tokens,
+        [expr for expr in (requests, tokens) if 'provider="gateway"' in expr],
+    ) == (
+        {GATEWAY_REQUESTS, "devops_cli_ai_requests_total"},
+        True,
+        True,
+        {GATEWAY_TOKENS, "devops_cli_ai_tokens_total"},
+        True,
+        [],
+    )
+
+
+def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_cli_coverage() -> (
+    None
+):
+    """The gateway's model calls by status show the attempts that failed, such as its 408
+    timeouts. Its replied requests and its tokens by `end_user` show each caller that names
+    itself. The coverage stat is the share of the gateway's replied requests that devops-cli's
+    own series count (#1668)."""
+    attempts = _ai_spend_panel("Gateway Attempts by Status")
+    callers = _ai_spend_panel("Gateway Requests and Tokens by Caller")
+    coverage = _ai_spend_panel("devops-cli Coverage of Gateway Requests")
+    (coverage_expr,) = _targets(coverage)
+    numerator, _, denominator = coverage_expr.partition(" / ")
+
+    assert (
+        [
+            (grouping_labels(e), GATEWAY_MODEL_CALLS in e, GATEWAY_REPLIED in e)
+            for e in _targets(attempts)
+        ],
+        [
+            ({s.metric for s in selectors(e)}, grouping_labels(e), GATEWAY_REPLIED in e)
+            for e in _targets(callers)
+        ],
+        coverage["type"],
+        coverage["fieldConfig"]["defaults"]["unit"],
+        'devops_cli_ai_requests_total{provider="gateway", cached="false"}' in numerator,
+        GATEWAY_REQUESTS in denominator and GATEWAY_REPLIED in denominator,
+    ) == (
+        [({"status_code"}, True, False)],
+        [
+            ({GATEWAY_REQUESTS}, {"end_user"}, True),
+            ({GATEWAY_TOKENS}, {"end_user"}, False),
+        ],
+        "stat",
+        "percentunit",
+        True,
+        True,
+    )

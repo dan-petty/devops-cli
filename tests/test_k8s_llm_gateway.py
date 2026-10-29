@@ -819,10 +819,21 @@ class TestK8sLLMGatewayManifests:
             True,
         )
 
+    def test_the_gateway_names_each_callers_end_user_id_on_its_metrics(self) -> None:
+        """LiteLLM puts the end-user id that a request names, as the `x-litellm-end-user-id`
+        header that devops-cli sends, on its request and token series only when this setting is
+        true, so the AI spend dashboard can split the gateway's traffic by caller (#1668)."""
+        assert (
+            _gateway_config()["litellm_settings"].get(
+                "enable_end_user_cost_tracking_prometheus_only"
+            )
+            is True
+        )
+
     def test_open_webui_values_connect_to_gateway(self) -> None:
         """Verify Open WebUI uses the gateway as its OpenAI connection and for its RAG
-        embeddings, both with the shared master key, and connects to the speed Services of the
-        serving tiers for Ollama's native API.
+        embeddings, both with the shared master key, and has no connection to Ollama's native
+        API, so each of its model calls is on the gateway's series (#1668).
 
         Open WebUI sets no RAG Ollama URL, so its default is `localhost`, where its pod runs no
         Ollama, and its RAG API key defaults to none (#1637)."""
@@ -834,7 +845,7 @@ class TestK8sLLMGatewayManifests:
             values["openaiBaseApiUrl"],
             values["openaiApiKeyExistingSecret"],
             values["openaiApiKeyExistingSecretKey"],
-            values["ollamaUrls"],
+            values.get("ollamaUrls"),
             env["RAG_EMBEDDING_ENGINE"],
             env["RAG_OPENAI_API_BASE_URL"],
             env["RAG_OPENAI_API_KEY"],
@@ -843,10 +854,7 @@ class TestK8sLLMGatewayManifests:
             DEFAULT_AI_GATEWAY_CLUSTER_URL,
             GATEWAY_SECRET,
             GATEWAY_SECRET_KEY,
-            [
-                "http://ollama-fast.llm.svc.cluster.local:11434",
-                "http://ollama-standard.llm.svc.cluster.local:11434",
-            ],
+            None,
             "openai",
             DEFAULT_AI_GATEWAY_CLUSTER_URL,
             {"secretKeyRef": {"name": GATEWAY_SECRET, "key": GATEWAY_SECRET_KEY}},
@@ -1492,9 +1500,9 @@ def test_the_gpu_placement_table_says_for_each_tier_whether_it_serves() -> None:
 def test_every_ollama_consumer_names_a_service_that_selects_a_serving_tier() -> None:
     """Each place that names an Ollama Service names one that selects the pods of a tier the
     README marks as serving: the CLI's default Service and failover routes, the review slots,
-    the ollama ingress, Open WebUI, the gateway and the devcontainer. Before #1637 the ingress,
-    the CLI default and Open WebUI named tiers whose host was offline, and answered 503 or
-    nothing for weeks."""
+    the ollama ingress, the gateway and the devcontainer. Open WebUI names none since #1668, and
+    is held to the same rule if it names one again. Before #1637 the ingress, the CLI default
+    and Open WebUI named tiers whose host was offline, and answered 503 or nothing for weeks."""
     assert (bool(_ollama_consumers()), _consumers_off_serving_tiers(_serving_tiers())) == (
         True,
         set(),

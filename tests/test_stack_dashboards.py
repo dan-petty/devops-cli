@@ -425,6 +425,67 @@ def test_the_dashboard_queries_only_what_its_exporters_serve(
     )
 
 
+# ai-spend.json reads devops-cli's own series, which tests/test_telemetry_instruments.py checks,
+# and the gateway's request and token series (#1668), which the LiteLLM capture backs.
+GATEWAY_SERIES = re.compile(r"\blitellm_[a-z0-9_]+")
+_COUNTER_READS = ("rate(", "increase(")
+
+
+def _gateway_violations(expression: str, known: dict[str, frozenset[str]]) -> list[str]:
+    """Each gateway series, matcher and grouping label in a query that the capture does not back,
+    and each gateway counter that the query reads outside `rate(` or `increase(`."""
+    gateway = [s for s in selectors(expression) if GATEWAY_SERIES.fullmatch(s.metric or "")]
+    carried = frozenset().union(*(known.get(s.metric or "", frozenset()) for s in gateway))
+    return [
+        *(f"{expression}: {s.metric} is in no capture" for s in gateway if s.metric not in known),
+        *(
+            f"{expression}: {s.metric} does not carry {label}"
+            for s in gateway
+            for label in sorted(s.labels - known.get(s.metric or "", s.labels))
+        ),
+        *(
+            f"{expression}: groups by {label}, which no gateway series it selects carries"
+            for label in sorted(grouping_labels(expression) - carried)
+        ),
+        *(
+            f"{expression}: reads {match.group(0)} outside rate( or increase("
+            for match in GATEWAY_SERIES.finditer(expression)
+            if not expression[: match.start()].endswith(_COUNTER_READS)
+        ),
+    ]
+
+
+def test_the_ai_spend_dashboard_reads_only_gateway_series_the_gateway_serves() -> None:
+    """Verify each gateway series of the AI spend dashboard is in the LiteLLM capture with every
+    label it matches or groups by, is read as a counter, and is scraped (#1668)."""
+    known = known_series(("litellm",))
+    gateway = [
+        expression
+        for expression in _expressions(_dashboard("ai-spend.json"))
+        if GATEWAY_SERIES.search(expression)
+    ]
+    litellm = EXPORTERS["litellm"]
+
+    assert (
+        len(gateway) > 0,
+        [
+            violation
+            for expression in gateway
+            for violation in _gateway_violations(expression, known)
+        ],
+        litellm.scraped(_yaml(litellm.values)),
+    ) == (True, [], True)
+
+
+def test_a_gateway_counter_read_without_rate_or_increase_fails() -> None:
+    """Verify a raw read of a gateway counter is named: its value restarts with each gateway pod."""
+    expression = "sum(litellm_total_tokens_metric_total)"
+
+    assert _gateway_violations(expression, known_series(("litellm",))) == [
+        f"{expression}: reads litellm_total_tokens_metric_total outside rate( or increase("
+    ]
+
+
 def test_a_query_naming_a_series_missing_from_the_capture_fails() -> None:
     """Verify a series no exporter serves is named."""
     expression = "sum(rate(litellm_requests_served_total[5m]))"

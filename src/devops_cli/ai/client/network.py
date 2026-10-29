@@ -31,8 +31,10 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS,
     DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
 )
+from devops_cli.http.client import user_agent
 from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, AI_OLLAMA_SLOT_WAIT, emit
+from devops_cli.telemetry.tracer import otel_service_name
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -54,6 +56,31 @@ current_request_priority: ContextVar[RequestPriority] = ContextVar(
 )
 global_ollama_url_index: int = 0
 global_ollama_url_lock = threading.Lock()
+
+# The header in which LiteLLM reads the caller of a request as its end user, one of its standard
+# customer-id headers. With `enable_end_user_cost_tracking_prometheus_only` it writes the value
+# as the `end_user` label of its request and token series (#1668).
+_GATEWAY_END_USER_HEADER = "x-litellm-end-user-id"
+
+
+def gateway_caller_headers() -> dict[str, str]:
+    """What each call to the LLM gateway says about its caller (#1668).
+
+    Every caller sends the gateway's one key, so the gateway tells callers apart by these: the
+    process's OTel service name as the end user, from a closed set that the workloads set, and
+    devops-cli and its release as the user agent.
+    """
+    return {"User-Agent": user_agent(), _GATEWAY_END_USER_HEADER: otel_service_name()}
+
+
+async def name_gateway_caller(request: httpx2.Request) -> None:
+    """Request hook that puts the gateway caller headers on a request that a library built.
+
+    pydantic-ai sets its own User-Agent on each request, so only a hook that runs after it can
+    name devops-cli.
+    """
+    request.headers.update(gateway_caller_headers())
+
 
 # Every chat request the process sends to the gateway holds one of these, so the requests in
 # flight never outnumber the slots of the backends behind it, whatever thread pools sent them.

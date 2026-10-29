@@ -10,7 +10,7 @@ import httpx2
 from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
 from devops_cli.config.defaults import DEFAULT_HTTP_MAX_REDIRECTS, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.exceptions import InvalidURLError
-from devops_cli.http.client import new_async_http_client, new_http_client
+from devops_cli.http.client import new_async_http_client, new_http_client, user_agent
 from devops_cli.http.egress import EgressLevel
 from devops_cli.telemetry.context import inject_traceparent_headers
 
@@ -38,7 +38,7 @@ class HttpClientBroker:
     def build_headers(self, headers: dict[str, str] | None = None) -> dict[str, str]:
         """Construct request headers with OpenTelemetry traceparent context propagation."""
         base_headers = dict(headers or {})
-        base_headers.setdefault("User-Agent", "devops-cli/0.2.9")
+        base_headers.setdefault("User-Agent", user_agent())
         return inject_traceparent_headers(base_headers)
 
     @staticmethod

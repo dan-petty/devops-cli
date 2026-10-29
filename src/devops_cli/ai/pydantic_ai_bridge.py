@@ -92,15 +92,22 @@ def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) ->
     name, base_url = _resolve_remote_provider_endpoint(model_str, active_settings)
     api_key = get_ai_api_key(active_settings)
     allow_private = active_settings.ai.allow_private_network
+    to_gateway = bool(
+        active_settings.ai.provider == CONST_AI_GATEWAY_PROVIDER or _gateway_prefix(model_str)
+    )
 
     def _provider_factory(prov_name: str) -> Any:
         return create_pydantic_ai_provider(
-            prov_name, base_url=base_url, api_key=api_key, allow_private_network=allow_private
+            prov_name,
+            base_url=base_url,
+            api_key=api_key,
+            allow_private_network=allow_private,
+            gateway_caller=to_gateway,
         )
 
     try:
         model_obj = infer_model(name, provider_factory=_provider_factory)
-        if active_settings.ai.provider == CONST_AI_GATEWAY_PROVIDER or _gateway_prefix(model_str):
+        if to_gateway:
             setattr(model_obj, "served_by", base_url)
         return model_obj
     except (UserError, ValueError, ImportError) as exc:

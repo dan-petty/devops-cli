@@ -154,7 +154,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM calls and embedding requests over the dashboard's time range, replies the response cache answered included; Response Cache Hit Share shows how many those were. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Model calls over the dashboard's time range, from every caller. A call through the gateway is counted once, from the gateway's own series: its chat and embedding requests that got a reply (status 2xx), whoever sent them. devops-cli's own series add only its calls that did not go through the gateway. Replies the response cache answered are not model calls, and Response Cache Hit Share shows them; Gateway Attempts by Status shows the attempts that failed (#1668). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -191,7 +191,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_ai_requests_total[$__range])) or vector(0)",
+          "expr": "(sum(increase(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\", status_code=~\"2..\"}[$__range])) or vector(0)) + (sum(increase(devops_cli_ai_requests_total{provider!=\"gateway\", cached=\"false\"}[$__range])) or vector(0))",
           "instant": true,
           "legendFormat": "Requests",
           "refId": "A"
@@ -203,7 +203,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Prompt and completion tokens of LLM calls and embedding requests over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Prompt and completion tokens of model calls over the dashboard's time range, from every caller. Tokens of a call through the gateway come from the gateway's own series, whoever sent the call; devops-cli's own series add only the tokens of its calls that did not go through the gateway, without the cache's replies and without reasoning tokens, which the completion tokens hold (#1668). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -240,7 +240,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_ai_tokens_total[$__range])) or vector(0)",
+          "expr": "(sum(increase(litellm_total_tokens_metric_total[$__range])) or vector(0)) + (sum(increase(devops_cli_ai_tokens_total{provider!=\"gateway\", server!=\"cache\", type!=\"reasoning\"}[$__range])) or vector(0))",
           "instant": true,
           "legendFormat": "Total Tokens",
           "refId": "A"
@@ -945,7 +945,7 @@
             "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum by (priority) (increase(devops_cli_ai_ollama_slot_wait_seconds[1h])))",
-          "legendFormat": "p95 {{{{priority}}}}",
+          "legendFormat": "p95 {{priority}}",
           "refId": "A"
         },
         {
@@ -954,8 +954,194 @@
             "uid": "prometheus"
           },
           "expr": "histogram_count(sum by (priority) (increase(devops_cli_ai_ollama_slot_wait_seconds[1h])))",
-          "legendFormat": "calls {{{{priority}}}}",
+          "legendFormat": "calls {{priority}}",
           "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "id": 21,
+      "panels": [],
+      "title": "Gateway Traffic from Every Caller",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The gateway's chat and embedding requests per hour, by HTTP status, from every caller. A status other than 2xx is a failed attempt: 408 a timeout, 499 a caller that closed the request, 5xx a failure of the gateway or its backend. devops-cli's own series count only the calls that got a reply (#1668).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "min": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 0,
+        "y": 45
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Gateway Attempts by Status",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (status_code) (increase(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\", status_code=~\"[0-9]+\"}[1h]))",
+          "legendFormat": "{{status_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The gateway's requests per hour that got a reply, and their tokens on the right axis, by the end user that each request names. devops-cli names its OTel service: devops-cli, devops-cli-job or roadmap-service. A caller that names no end user, such as Open WebUI or an editor extension, shows as unnamed (#1668).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^tokens "
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "tokens"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 9,
+        "y": 45
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Gateway Requests and Tokens by Caller",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "label_replace(sum by (end_user) (increase(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\", status_code=~\"2..\"}[1h])), \"end_user\", \"unnamed\", \"end_user\", \"None\")",
+          "legendFormat": "requests {{end_user}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "label_replace(sum by (end_user) (increase(litellm_total_tokens_metric_total[1h])), \"end_user\", \"unnamed\", \"end_user\", \"None\")",
+          "legendFormat": "tokens {{end_user}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "devops-cli's own count of its gateway calls that got a reply, as a share of all the gateway's replied chat and embedding requests over the dashboard's time range. The rest came from other callers, or from devops-cli calls whose telemetry did not arrive; Gateway Requests and Tokens by Caller tells them apart (#1668). Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 1,
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 45
+      },
+      "id": 24,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "title": "devops-cli Coverage of Gateway Requests",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_ai_requests_total{provider=\"gateway\", cached=\"false\"}[$__range])) / sum(increase(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\", status_code=~\"2..\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "Coverage",
+          "refId": "A"
         }
       ]
     }

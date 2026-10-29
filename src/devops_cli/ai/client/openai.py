@@ -32,6 +32,7 @@ from devops_cli.ai.client.network import (
     acquire_gateway_slot,
     extract_served_by,
     extract_served_model,
+    gateway_caller_headers,
     reply_schema,
     stream_finish_reason,
     stream_model,
@@ -80,12 +81,16 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         else:
             base_url = None
 
+        # A call to the gateway names devops-cli and its service as the caller, in place of the
+        # SDK's own User-Agent (#1668).
+        caller = gateway_caller_headers() if self._config.provider == "gateway" else None
         client = openai.OpenAI(
             base_url=base_url,
             api_key=self._api_key or "none",
             http_client=shared,
             max_retries=0,
             timeout=self._request_timeout(),
+            default_headers=caller,
         )
         self._cached_openai_client = client
         return client

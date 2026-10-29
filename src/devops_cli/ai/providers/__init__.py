@@ -78,6 +78,7 @@ def create_pydantic_ai_provider(
     api_key: str | None = None,
     *,
     allow_private_network: bool = False,
+    gateway_caller: bool = False,
     **kwargs: Any,
 ) -> Any:
     """Create and configure a native Pydantic AI Provider instance.
@@ -85,6 +86,8 @@ def create_pydantic_ai_provider(
     Configures endpoint URLs, API keys, and client parameters according to provider type.
     A provider that takes an ``http_client`` gets a factory client at the configured level:
     loopback, or private with ``allow_private_network``. The connect checks each address.
+    With ``gateway_caller``, each request of that client names devops-cli and its service as the
+    caller, for the LLM gateway (#1668).
     """
     prov_name = provider.lower().strip()
     provider_cls: Any = _PYDANTIC_PROVIDERS.get(prov_name)
@@ -107,7 +110,14 @@ def create_pydantic_ai_provider(
         from devops_cli.http.egress import EgressLevel
 
         level = EgressLevel.PRIVATE if allow_private_network else EgressLevel.LOOPBACK
-        init_kwargs["http_client"] = new_async_http_client(level=level)
+        if gateway_caller:
+            from devops_cli.ai.client.network import name_gateway_caller
+
+            init_kwargs["http_client"] = new_async_http_client(
+                level=level, event_hooks={"request": [name_gateway_caller]}
+            )
+        else:
+            init_kwargs["http_client"] = new_async_http_client(level=level)
 
     return provider_cls(**init_kwargs)
 
