@@ -1,8 +1,18 @@
 # Spec Delta
 
-## MODIFIED Requirements
+## REMOVED Requirements
 
 ### Requirement: The panels that read the items gauge describe what it counts
+**Reason**: The gauge has no `milestone` label, so no panel groups the items by milestone (#2702).
+**Migration**: The panel "Items by Release" groups the items by release. The requirement "The panels that read the items gauge group them by release" holds the rule.
+
+### Requirement: The items gauge counts the Items of the repository
+**Reason**: A milestone is a planning bucket and not a release, so the gauge carries the release in place of the milestone (#2702).
+**Migration**: The requirement "The items gauge counts the Items of the repository by release" holds the rule.
+
+## ADDED Requirements
+
+### Requirement: The panels that read the items gauge group them by release
 The panels "Items by Release" and "Active Items by State" SHALL group `devops_cli_project_items` only by labels that the gauge sends. The description of each panel and of the instrument SHALL name the labels, and the panel "Items by Release" SHALL show an item in no release as `unreleased`.
 
 #### Scenario: A panel groups by a label that the gauge does not send
@@ -17,7 +27,7 @@ The panels "Items by Release" and "Active Items by State" SHALL group `devops_cl
 - **WHEN** the panel "Active Items by State" reads the items gauge
 - **THEN** its query is `sum by (state) (last_over_time(devops_cli_project_items[$__range]))`
 
-### Requirement: The items gauge counts the Items of the repository
+### Requirement: The items gauge counts the Items of the repository by release
 `devops_cli_project_items` SHALL count the Items of the repository, open and closed, with the labels `release`, `state`, `type` and `priority`. The `release` label SHALL be the first `v*` tag whose commits close the Item with a closing keyword, and empty for an open Item or a closed Item that no release holds. The `type` label SHALL be the `type/*` label of the issue without its prefix, empty when the issue has none, and the `priority` label SHALL be the Item's Priority.
 
 #### Scenario: An open Item
