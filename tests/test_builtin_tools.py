@@ -386,39 +386,15 @@ def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
     )
 
 
-def test_builtin_security_and_iac_tools(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusing_port: int
+def test_rag_search_reports_an_empty_result(
+    monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
-    """Verify tf_lint, docker_analyze_layers, and rag_search.
+    """Verify rag_search.
 
     The knowledge base check before the search finds Qdrant down, refused through
     `refusing_port`, and its retry waits return at once.
     """
-    from devops_cli.ai.review_schema import Finding
-    from devops_cli.ai.tools.builtin_tools import (
-        docker_analyze_layers,
-        rag_search,
-        tf_lint,
-    )
-
-    mock_finding = Finding(
-        category="security",
-        severity="HIGH",
-        location="main.tf:1",
-        title="Sample issue",
-        fix="Fix issue",
-    )
-
-    from devops_cli.security.dive import DiveAnalysisResult
-
-    mock_dive = DiveAnalysisResult(
-        image_name="alpine:latest",
-        status="ran",
-        efficiency_score=0.95,
-        wasted_bytes=1024 * 1024,
-        total_bytes=10 * 1024 * 1024,
-    )
-
+    from devops_cli.ai.tools.builtin_tools import rag_search
     from devops_cli.config.settings import reset_settings_cache
 
     monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
@@ -427,20 +403,12 @@ def test_builtin_security_and_iac_tools(
 
     with (
         patch("devops_cli.ai.tools.builtin_tools._is_safe_workspace_path", return_value=True),
-        patch("devops_cli.security.tflint.run_tflint_scan", return_value=[mock_finding]),
-        patch("devops_cli.security.dive.run_dive_analysis", return_value=mock_dive),
         patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
         patch(
             "devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context",
             return_value=MagicMock(results=[]),
         ),
     ):
-        res_tflint = tf_lint(str(tmp_path))
-        assert "Sample issue" in res_tflint
-
-        res_docker = docker_analyze_layers("alpine:latest")
-        assert "Efficiency Score: 95.0%" in res_docker
-
         res_rag = rag_search("test query")
         assert "No semantic matches found" in res_rag
 

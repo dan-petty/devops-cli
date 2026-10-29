@@ -25,6 +25,10 @@
 # `cargo install` or `brew`, and never run `tuicr update`: each one skips this pin. Take the Linux
 # build from the `musl` archive, which is static. A bump of tuicr also needs a run of
 # `tests/test_tuicr_config.py`.
+# tflint publishes `.zip` archives only, each of one file, `tflint`, so its builds have the `zip`
+# format and the member `tflint`. Each `sha256` is the asset `digest`, which equals the line of the
+# release file `checksums.txt`. The release also has a cosign keyless signature of that file
+# (`checksums.txt.keyless.sig` and `checksums.txt.pem`), which `devops install-tools` does not check.
 #
 # To bump a Python tool, set its `version` here and in `<name>.in`, then, in this directory, run
 #   uv pip compile --universal --generate-hashes --python-version 3.14 <name>.in -o <name>.txt
@@ -350,6 +354,33 @@ member = "kubeconform"
 url = "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-darwin-arm64.tar.gz"
 sha256 = "f84f4dfbebf4a6b0b230385fa065a39ea35e02608c2b50d025dcf64775a69d67"
 member = "kubeconform"
+
+[binary.tflint]
+version = "0.65.0"
+description = "TFLint Terraform and OpenTofu linter"
+source = "https://github.com/terraform-linters/tflint"
+bin = "tflint"
+format = "zip"
+
+[binary.tflint.platforms.linux-amd64]
+url = "https://github.com/terraform-linters/tflint/releases/download/v0.65.0/tflint_linux_amd64.zip"
+sha256 = "d4c545ed2e29d6338604b586f34f544f380f70f243aa72f7b484713835eaec61"
+member = "tflint"
+
+[binary.tflint.platforms.linux-arm64]
+url = "https://github.com/terraform-linters/tflint/releases/download/v0.65.0/tflint_linux_arm64.zip"
+sha256 = "843017c47a98be1de4d88fa038daa293770fe25cd01656c4f08b2e30d1d3b3a0"
+member = "tflint"
+
+[binary.tflint.platforms.darwin-amd64]
+url = "https://github.com/terraform-linters/tflint/releases/download/v0.65.0/tflint_darwin_amd64.zip"
+sha256 = "27696ea23ed77c1918945147ebfe6485a74f58560b9557ccecc77379205702c5"
+member = "tflint"
+
+[binary.tflint.platforms.darwin-arm64]
+url = "https://github.com/terraform-linters/tflint/releases/download/v0.65.0/tflint_darwin_arm64.zip"
+sha256 = "5a71c63481ba56760864298011fdb7317a9ae80a0bbaeceefa35883c7f62ac71"
+member = "tflint"
 
 [binary.k9s]
 version = "0.51.0"

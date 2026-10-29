@@ -77,37 +77,6 @@ class DockerStatsResult(BaseModel):
     total_containers: int = Field(default=0, description="Total number of running containers")
 
 
-class DockerLayerAnalysisRequest(BaseModel):
-    """Request parameters for Dive container layer efficiency analysis."""
-
-    image_tag: str = Field(..., description="Target container image name and tag")
-    lowest_efficiency: float = Field(
-        default=0.9, description="Minimum acceptable image efficiency score (0.0 - 1.0)"
-    )
-    highest_wasted_bytes: int = Field(
-        default=20000000, description="Maximum acceptable wasted storage space in bytes"
-    )
-
-
-class DockerLayerAnalysisResult(BaseModel):
-    """Results from Dive container image layer analysis."""
-
-    image_tag: str = Field(..., description="Analyzed container image name and tag")
-    efficiency_score: float = Field(default=1.0, description="Overall image efficiency score (0-1)")
-    wasted_space_bytes: int = Field(
-        default=0, description="Total wasted duplicate/overwritten bytes"
-    )
-    wasted_space_human: str = Field(default="0B", description="Human-readable wasted storage space")
-    layer_count: int = Field(default=0, description="Total number of filesystem layers")
-    passed: bool = Field(default=True, description="Whether the image meets efficiency thresholds")
-    recommendations: list[str] = Field(
-        default_factory=list, description="Optimization suggestions for layer size reduction"
-    )
-    raw_metrics: dict[str, Any] = Field(
-        default_factory=dict, description="Raw analyzer metrics payload"
-    )
-
-
 class DockerSignRequest(BaseModel):
     """Request parameters for Sigstore Cosign container image signing."""
 

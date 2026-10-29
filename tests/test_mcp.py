@@ -470,7 +470,6 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("devcontainer", "unlock-keyring"),
             ("devcontainer", "update"),
             ("devcontainer", "validate"),
-            ("docker", "analyze-layers"),
             ("docker", "build"),
             ("docker", "cache"),
             ("docker", "prune"),

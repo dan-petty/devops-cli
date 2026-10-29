@@ -8,7 +8,6 @@ from devops_cli.ai.personas import Persona
 from devops_cli.ai.tools.builtin_tools import (
     argo_apps,
     check_threat_intel,
-    docker_analyze_layers,
     git_diff,
     git_status,
     k8s_pods,
@@ -58,7 +57,6 @@ def get_default_tools() -> list[Any]:
         scan_osv,
         check_threat_intel,
         tf_lint,
-        docker_analyze_layers,
     ]
     return native + get_mcp_agent_tools()
 
@@ -100,7 +98,6 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             k8s_validate_manifests,
             argo_apps,
             tf_lint,
-            docker_analyze_layers,
             mcp_module.k8s_status,
             mcp_module.k8s_tempo_info,
             mcp_module.argo_cd_apps_status,
@@ -119,7 +116,6 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             rag_search,
             scan_semgrep,
             k8s_validate_manifests,
-            docker_analyze_layers,
             mcp_module.ci,
             mcp_module.review_stats,
             mcp_module.review_findings,

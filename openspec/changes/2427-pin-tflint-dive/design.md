@@ -39,4 +39,8 @@ A test reads `binary_name` of each scanner of the default registry and requires 
 ## Out of scope
 
 - `--recursive` for tflint (above).
-- A run of tflint recorded in `tests/fixtures/scanner_runs/runs_with_findings.json`, with its version held to `tools.lock` by `test_each_run_with_findings_is_of_the_version_the_tools_lock_pins`. It needs a run of the downloaded tflint, which the owner has not approved. The tasks give the commands.
+- A run of tflint recorded in `tests/fixtures/scanner_runs/runs_with_findings.json`, with its version held to `tools.lock` by `test_each_run_with_findings_is_of_the_version_the_tools_lock_pins`. It needs a run of the downloaded tflint, which the owner has not approved. A person records it so:
+  1. In a scratch directory `<scratch>`, set `HOME=<scratch>/home` and run `uv run devops install-tools --tool tflint --target-dir <scratch>/bin`. The installer checks the build against the `sha256` of the lock. `<scratch>/bin/tflint --version` must print `0.65.0`.
+  2. In `<scratch>/tree`, write a `main.tf` with `variable "unused" {}`. From `<scratch>/tree`, run `<scratch>/bin/tflint --format json`, which is the command of the adapter. Keep its exit code, stdout and stderr. The exit code must be 2, and the report must hold one issue or more. Where the report has none, add a `.tf` line that the bundled `terraform` ruleset flags, such as `x = "${var.a}"`.
+  3. Add the key `tflint` to `runs_with_findings.json` with `version` `0.65.0`, `argv` `["tflint", "--format", "json"]`, `cwd` `{tree}`, `returncode`, `stdout` and `stderr`, with the path of `<scratch>/tree` replaced by `{tree}`.
+  4. Add a test to `tests/security/test_tflint.py` that scripts the run with `scanner_fake.script_run_with_findings("tflint", tree=tmp_path)` and asserts the findings that `run_tflint_scan` gives. `test_each_run_with_findings_is_of_the_version_the_tools_lock_pins` then holds the recording to the locked version.

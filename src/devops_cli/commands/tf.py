@@ -800,6 +800,13 @@ def tf_lint(
         print_muted(f"Executing TFLint static analysis on '{target_dir}'...")
     findings = run_tflint_scan(target_dir=target_dir, config_file=config)
 
+    if findings.status != "ran":
+        print_error(
+            MESSAGES.tf.tflint_not_run.format(status=findings.status, reason=findings.reason),
+            safe=True,
+        )
+        raise typer.Exit(1)
+
     if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized([f.model_dump() for f in findings], resolved_format)
         return

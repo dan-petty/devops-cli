@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.base import BaseSecurityScanner, materialize_targets
-from devops_cli.security.dive import DiveAnalysisResult
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
@@ -228,7 +227,6 @@ def test_a_scanner_that_raises_is_failed_and_only_named_registered_scanners_run(
 
 ALL_EXPECTED_SCANNER_NAMES = [
     "bandit",
-    "dive",
     "gitleaks",
     "kubeconform",
     "kubelinter",
@@ -264,7 +262,6 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
     """Verify each of the 11 scanner classes subclasses BaseSecurityScanner."""
     from devops_cli.security import (
         BanditScanner,
-        DiveScanner,
         GitleaksScanner,
         KubeconformScanner,
         KubelinterScanner,
@@ -278,7 +275,6 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
 
     classes = [
         BanditScanner,
-        DiveScanner,
         GitleaksScanner,
         KubeconformScanner,
         KubelinterScanner,
@@ -508,21 +504,11 @@ def test_scanner_contract_execution_and_parsing(
     scanner_fake.script(
         scanner.binary_name, ToolAnswer(stdout=_SAMPLE_STDOUTS.get(scanner_name, "[]"))
     )
-    # Dive writes its analysis to a file, so its adapter reads it through `run_dive_analysis`.
-    dive_analysis = DiveAnalysisResult(
-        image_name="ubuntu:latest",
-        status="ran",
-        efficiency_score=0.80,
-        wasted_bytes=60_000_000,
-        total_bytes=200_000_000,
+    findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
+    assert isinstance(findings, list)
+    assert len(findings) >= 1, (
+        f"Scanner '{scanner_name}' failed to produce normalized findings from sample output"
     )
-
-    with patch("devops_cli.security.dive.run_dive_analysis", return_value=dive_analysis):
-        findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
-        assert isinstance(findings, list)
-        assert len(findings) >= 1, (
-            f"Scanner '{scanner_name}' failed to produce normalized findings from sample output"
-        )
 
 
 def test_kubelinter_contract_finding_names_its_check(
@@ -540,20 +526,6 @@ def test_kubelinter_contract_finding_names_its_check(
     assert [finding.title for finding in findings] == [
         "[no-read-only-root-fs] Root filesystem writeable"
     ]
-
-
-def test_dive_scanner_skips_directory_without_image(
-    tmp_path: Path, scanner_fake: ScannerFake
-) -> None:
-    """Verify Dive scanner skips filesystem directories when no image is specified."""
-    scanner = global_scanner_registry.get("dive")
-    assert scanner is not None
-    scanner_fake.script(scanner.binary_name, ToolAnswer())
-
-    dir_path = tmp_path / "my_project"
-    dir_path.mkdir()
-
-    assert scanner.scan(dir_path) == []
 
 
 def test_materialized_targets_are_hard_links_else_copies_and_replace_nothing(

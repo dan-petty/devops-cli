@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -10,100 +9,6 @@ from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
-
-logger = logging.getLogger(__name__)
-
-
-def _build_unrestricted_cidr_finding(rel_str: str, idx: int) -> Finding:
-    """Build finding for unrestricted CIDR block."""
-    return Finding(
-        severity="HIGH",
-        location=f"{rel_str}:{idx}",
-        title="Unrestricted CIDR block in security group rule",
-        description="Security group allows unrestricted access (0.0.0.0/0).",
-        fix="Restrict CIDR blocks to specific trusted IP ranges.",
-    )
-
-
-def _is_security_context_line(lower_line: str) -> bool:
-    """Return True if line indicates security group or ingress rule context."""
-    return any(
-        kw in lower_line
-        for kw in (
-            "security_group",
-            "ingress",
-            "aws_security_group",
-            "azurerm_network_security_rule",
-            "google_compute_firewall",
-        )
-    )
-
-
-class _TfBlockContext:
-    """Tracks HCL security group and CIDR block nesting context across lines."""
-
-    def __init__(self) -> None:
-        self.in_security: bool = False
-        self.in_cidr: bool = False
-        self.sec_brace_depth: int = 0
-        self.brace_depth: int = 0
-
-    def update(self, line: str, lower_line: str) -> bool:
-        """Update context from line and return True if 0.0.0.0/0 matches unrestricted rule."""
-        if _is_security_context_line(lower_line):
-            self.in_security = True
-            self.sec_brace_depth = self.brace_depth
-
-        if "cidr_blocks" in lower_line or "cidr" in lower_line:
-            self.in_cidr = True
-
-        matches = "0.0.0.0/0" in line and (self.in_cidr or self.in_security or "cidr" in lower_line)
-
-        self.brace_depth += line.count("{") - line.count("}")
-        if "]" in line:
-            self.in_cidr = False
-        if self.brace_depth <= self.sec_brace_depth:
-            self.in_security = False
-
-        return matches
-
-
-def _inspect_tf_file_fallback(f: Path, rel_root: Path) -> list[Finding]:
-    """Check single Terraform file for open CIDR blocks and exposed security groups."""
-    findings: list[Finding] = []
-    try:
-        rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name
-        ctx = _TfBlockContext()
-        with f.open("r", encoding="utf-8", errors="replace") as fp:
-            for idx, line in enumerate(fp, start=1):
-                stripped = line.strip()
-                if not stripped or stripped.startswith(("#", "//")):
-                    continue
-                if ctx.update(stripped, stripped.lower()):
-                    findings.append(_build_unrestricted_cidr_finding(rel_str, idx))
-    except Exception as exc:
-        logger.debug("Failed reading %s in tflint fallback: %s", f, exc)
-    return findings
-
-
-def _run_native_fallback_tf_lint(target_dir: Path) -> list[Finding]:
-    """Fallback static checks for Terraform files when tflint is not installed."""
-    findings: list[Finding] = []
-    if target_dir.is_symlink():
-        return findings
-
-    resolved = target_dir.resolve()
-    if resolved.is_dir():
-        tf_files = [p for p in resolved.rglob("*.tf") if not p.is_symlink()]
-    else:
-        tf_files = [resolved] if not resolved.is_symlink() else []
-    rel_root = resolved if resolved.is_dir() else resolved.parent
-
-    for f in tf_files:
-        if f.is_file() and not f.is_symlink():
-            findings.extend(_inspect_tf_file_fallback(f, rel_root))
-
-    return findings
 
 
 def _parse_tflint_issue(issue: dict[str, Any]) -> Finding:
@@ -136,7 +41,6 @@ class TflintScanner(BaseSecurityScanner):
     name: str = "tflint"
     binary_name: str = "tflint"
     gating: ClassVar[bool] = True
-    has_builtin_patterns: ClassVar[bool] = True
 
     def build_command(
         self,
@@ -151,13 +55,13 @@ class TflintScanner(BaseSecurityScanner):
         return cmd
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
-        """Parse raw TFLint JSON payload into Finding models."""
+        """Parse the one JSON object that `tflint --format json` writes into Finding models.
+
+        The shape is that of `formatter/json.go` of tflint v0.65.0, and its severities are
+        `error`, `warning` and `info` (`toSeverity` in `formatter/formatter.go`).
+        """
         issues = data.get("issues", []) if isinstance(data, dict) else []
         return [_parse_tflint_issue(issue) for issue in issues]
-
-    def fallback_scan(self, target_path: Path) -> list[Finding]:
-        """Execute native fallback static inspection for Terraform files."""
-        return _run_native_fallback_tf_lint(target_path)
 
 
 @trace_span("security.tflint")

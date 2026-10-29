@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,6 @@ import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
-from devops_cli.security.dive import DiveAnalysisResult, DiveLayerInfo
 
 runner = CliRunner()
 
@@ -30,7 +28,7 @@ def _mock_proc(
 
 
 def test_docker_commands(tmp_path: Path, docker_engine: Any, docker_client: Any) -> None:
-    """Verify docker images, build, push, prune, and analyze-layers subcommands."""
+    """Verify docker images, build, push, and prune subcommands."""
     mock_client = docker_client
     mock_img = MagicMock()
     mock_img.tags = ["alpine:latest"]
@@ -129,60 +127,6 @@ def test_docker_has_no_analyze_layers_command() -> None:
     result = runner.invoke(docker_app, ["analyze-layers", "alpine:latest"])
 
     assert (result.exit_code, "No such command" in result.output) == (2, True)
-
-
-def test_docker_analyze_layers() -> None:
-    """Test docker analyze-layers subcommand."""
-    mock_result = DiveAnalysisResult(
-        image_name="alpine:latest",
-        status="ran",
-        efficiency_score=0.98,
-        total_bytes=5000000,
-        wasted_bytes=100000,
-        layers=[
-            DiveLayerInfo(index=0, digest="sha256:1111", size_bytes=5000000, command="FROM alpine")
-        ],
-    )
-    with patch("devops_cli.security.dive.run_dive_analysis", return_value=mock_result):
-        res_table = runner.invoke(docker_app, ["analyze-layers", "alpine:latest"])
-        assert res_table.exit_code == 0
-
-        res_json = runner.invoke(docker_app, ["analyze-layers", "alpine:latest", "--json"])
-        assert res_json.exit_code == 0
-        assert json.loads(res_json.stdout)["efficiency_score"] == 0.98
-
-        res_dry = runner.invoke(docker_app, ["analyze-layers", "alpine:latest", "--dry-run"])
-        assert res_dry.exit_code == 0
-
-
-def test_docker_analyze_layers_without_dive_says_so_and_fails() -> None:
-    """With dive missing there is no table or score to show: a warning and a non-zero exit."""
-    with patch("shutil.which", return_value=None):
-        res_table = runner.invoke(docker_app, ["analyze-layers", "img:1"])
-        res_json = runner.invoke(docker_app, ["analyze-layers", "img:1", "--json"])
-
-    assert (res_table.exit_code, res_json.exit_code) == (1, 1)
-    assert ("unavailable" in res_table.output, "Efficiency" in res_table.output) == (True, False)
-    # stdout under --json is the JSON document alone.
-    assert json.loads(res_json.stdout)["status"] == "unavailable"
-
-
-def test_docker_analyze_layers_shows_layer_commands_as_text() -> None:
-    """A layer command is image history, written by whoever built the image: its brackets are
-    text, never Rich markup that drops words or adds styles and links."""
-    commands = [
-        "RUN pip install uvicorn[standard]",
-        "FROM [bold]x[/bold] [link=https://x.test]y[/link]",
-    ]
-    analysis = DiveAnalysisResult(
-        image_name="img:1",
-        status="ran",
-        layers=[DiveLayerInfo(index=i, command=c) for i, c in enumerate(commands)],
-    )
-    with patch("devops_cli.security.dive.run_dive_analysis", return_value=analysis):
-        res = runner.invoke(docker_app, ["analyze-layers", "img:1"], env={"COLUMNS": "120"})
-
-    assert (res.exit_code, [command in res.output for command in commands]) == (0, [True, True])
 
 
 def test_docker_client_and_error_branches(

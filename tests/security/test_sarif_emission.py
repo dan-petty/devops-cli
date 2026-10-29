@@ -239,11 +239,11 @@ def test_built_in_pattern_findings_never_carry_the_real_tools_driver_name(
 
 
 def test_a_non_gating_finding_is_a_recommendation_without_a_security_severity() -> None:
-    """An image efficiency score is advice, so it must not rank as a security alert."""
+    """A workflow audit finding is advice, so it must not rank as a security alert."""
     finding = make_normalized_finding(
-        tool="dive", rule_id="efficiency", severity="MEDIUM", gating=False
+        tool="zizmor", rule_id="template-injection", severity="MEDIUM", gating=False
     )
-    document = to_sarif([finding], {"dive": _timed("ran")})
+    document = to_sarif([finding], {"zizmor": _timed("ran")})
     rule = document["runs"][0]["tool"]["driver"]["rules"][0]
     result = document["runs"][0]["results"][0]
     assert (

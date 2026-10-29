@@ -1735,28 +1735,6 @@ devops docker cache [OPTIONS]
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops docker analyze-layers`
-
-**Analyze container image layer efficiency and wasted space using Dive.**
-
-```bash
-devops docker analyze-layers [OPTIONS] <image>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<image>` | `string` | Yes | Docker image name or repository tag. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
 ### `devops docker sandbox`
 
 **Execute workload inside an isolated, disposable Docker container sandbox.**

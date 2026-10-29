@@ -36,7 +36,7 @@ def test_get_knowledge_base_dir() -> None:
 def test_list_knowledge_base_articles_all() -> None:
     articles = list_knowledge_base_articles()
     # 38 devops_cli (4 core + 12 tasks + 22 libraries) + 38 it_domains (10 topics + 28 tools)
-    assert len(articles) == 77
+    assert len(articles) == 76
     assert all(a.suffix == ".md" for a in articles)
     assert all(a.name != "README.md" for a in articles)
     assert any(a.name == "valkey.md" for a in articles)
@@ -47,7 +47,7 @@ def test_list_knowledge_base_articles_by_division() -> None:
     it_domains_articles = list_knowledge_base_articles("it_domains")
 
     assert len(devops_cli_articles) == 39  # 4 core + 12 tasks + 23 libraries
-    assert len(it_domains_articles) == 38  # 10 topics + 28 tools
+    assert len(it_domains_articles) == 37  # 10 topics + 27 tools
 
 
 def test_list_knowledge_base_articles_by_category() -> None:
@@ -56,7 +56,7 @@ def test_list_knowledge_base_articles_by_category() -> None:
     assert len(topics) == 10
 
     tools = list_knowledge_base_articles("it_domains/tools")
-    assert len(tools) == 28
+    assert len(tools) == 27
 
     tasks = list_knowledge_base_articles("devops_cli/tasks")
     assert len(tasks) == 12
@@ -102,11 +102,11 @@ def test_get_knowledge_base_stats() -> None:
     stats = get_knowledge_base_stats()
     assert stats.exists is True
     assert stats.devops_cli_count == 39
-    assert stats.it_domains_count == 38
+    assert stats.it_domains_count == 37
     assert stats.topics_count == 10
-    assert stats.tools_count == 28
+    assert stats.tools_count == 27
     assert stats.tasks_count == 12
-    assert stats.total_articles == 77
+    assert stats.total_articles == 76
 
 
 def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
