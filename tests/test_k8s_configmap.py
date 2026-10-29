@@ -156,6 +156,27 @@ def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> No
     assert (settings.ai.model, settings.ai.max_retries) == ("devops-background", 1)
 
 
+def test_the_repository_template_sets_the_stage_job_of_the_service() -> None:
+    """The template names the filter, the limit and the step budget of the Service's stage job,
+    which a repository's ConfigMap changes (#2659)."""
+    rendered = render_active_devops_configmap(
+        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
+    )
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+    stage = Settings.model_validate(inner).roadmap.stage
+
+    assert inner["roadmap"]["stage"] == {
+        "filter": ["status=ready", "priority=p0-critical", "priority=p1-high", "type=bug"],
+        "limit": 3,
+        "step_tokens": 40000,
+    }
+    assert (stage.filter, stage.limit, stage.step_tokens) == (
+        inner["roadmap"]["stage"]["filter"],
+        3,
+        40000,
+    )
+
+
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:
     """Verify render_active_devops_configmap raises FileNotFoundError when template is missing."""
     with pytest.raises(
