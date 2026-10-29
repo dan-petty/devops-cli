@@ -299,6 +299,15 @@ def test_the_record_keeps_the_last_group_the_last_commit_and_the_spend_of_every_
     assert spend["input_tokens"] > 0
 
 
+def test_the_record_of_a_staged_item_keeps_its_branch_and_its_pull_request(
+    job_world: JobWorld,
+) -> None:
+    job_world.run(two_groups())
+
+    _, record = _item(job_world)
+    assert (record["implement.branch"], record["implement.pr"]) == (BRANCH, str(PULL))
+
+
 def test_the_push_runs_in_the_worktree_with_a_lease_and_leaves_no_worktree_behind(
     job_world: JobWorld,
 ) -> None:
