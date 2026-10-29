@@ -22,6 +22,7 @@ BIN_BANDIT: str = "bandit"
 BIN_BASH: str = "bash"
 BIN_COSIGN: str = "cosign"
 BIN_DAGGER: str = "dagger"
+BIN_DEVOPS: str = "devops"
 BIN_DIFFT: str = "difft"
 BIN_FIND: str = "find"
 BIN_GIT: str = "git"
@@ -49,6 +50,14 @@ BIN_TOFU: str = "tofu"
 BIN_TRIVY: str = "trivy"
 BIN_UV: str = "uv"
 BIN_ZIZMOR: str = "zizmor"
+
+
+# The programs that a `devops roadmap implement` step (#2664) may start. The shell tool of the
+# agent takes the first list: the project's own build tools, and not `devops` or `openspec`,
+# which can write to GitHub or to the change. The step runs the verification commands of a group
+# under the second list, which adds those two.
+IMPLEMENT_SHELL_PROGRAMS: tuple[str, ...] = (BIN_GIT, BIN_UV, BIN_RUFF, BIN_MYPY)
+IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (*IMPLEMENT_SHELL_PROGRAMS, BIN_OPENSPEC, BIN_DEVOPS)
 
 
 # ── Command Argument List Builders ───────────────────────────────────────────

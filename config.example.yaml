@@ -153,7 +153,7 @@ ai:
     top_k: 5
     score_threshold: 0.35
 
-  # Per-task model & server overrides (chat, metadata, analysis, compose, embedding)
+  # Per-task model & server overrides (chat, metadata, analysis, compose, embedding, implement)
   # All embedding configuration (model, server URLs, timeout) is configured under tasks.embedding
   # tasks:
   #   embedding:

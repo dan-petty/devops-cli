@@ -1928,6 +1928,58 @@ class RoadmapMessages:
     alternatives_block_no_tool: str = "Tool: none found."
     alternatives_maintained: str = "maintained"
     alternatives_not_maintained: str = "not maintained"
+    # `devops roadmap implement` (#2664): the refusals of a step, and why a step stops.
+    implement_not_item: str = "#{number} is not an item of the roadmap."
+    implement_no_change: str = "The checkout has no change folder that matches {pattern}."
+    implement_many_changes: str = (
+        "The checkout has more than one change folder that matches {pattern}: {names}."
+    )
+    implement_no_group: str = "The change {change} has no group {group}. Its groups are {groups}."
+    implement_dirty: str = (
+        "The checkout {path} has uncommitted changes. A step resets the checkout when it fails. "
+        "Commit or discard the changes first."
+    )
+    implement_over_window: str = (
+        "The inputs of the step measure {measured} tokens. The limit is {limit} tokens: the "
+        "window of {window} tokens minus {reserve} tokens for the turns of the run."
+    )
+    implement_git_failed: str = "git {command} failed.\n{output}"
+    implement_stop_tasks_edited: str = (
+        "The tasks of group {group} changed. A step may only tick them."
+    )
+    implement_stop_unticked: str = "A task of the group is not ticked: {task}"
+    implement_stop_group_changed: str = (
+        "Group {group} changed. A step may change only its own group."
+    )
+    implement_stop_command_denied: str = (
+        "The verification command {command} is not allowed. {program} is not one of: {allowed}."
+    )
+    implement_stop_command_unparsed: str = (
+        "The verification command {command} is not a valid command line."
+    )
+    implement_stop_command_failed: str = "{command} exited with status {status}.\n{output}"
+    implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
+    implement_stop_no_change: str = "The agent changed no file."
+    implement_stop_head_moved: str = (
+        "The agent moved HEAD from {start} to {head}. A step makes the only commit."
+    )
+    implement_stop_commit_failed: str = "The commit failed.\n{output}"
+    implement_title: str = "Implement step: item #{item}, group {group} ({title})"
+    implement_labels: dict[str, str] = field(
+        default_factory=lambda: {
+            "status": "Status",
+            "reason": "Reason",
+            "commit": "Commit",
+            "requests": "Model requests",
+            "input_tokens": "Input tokens",
+            "output_tokens": "Output tokens",
+            "last_message": "Last message of the agent",
+        }
+    )
+    implement_dry_run_reason: str = "Dry run: no request was made and nothing ran."
+    implement_model_request: str = "model request"
+    implement_model_target: str = "{model} for group {group} of item #{item}"
+    implement_model_repeat: str = "up to {limit} times"
     # `devops roadmap stage` (#2654): the filter, and why the job leaves an item out.
     stage_filter_family: str = (
         "'{family}' is not a label family to filter on. Use one of: {families}."

@@ -1,0 +1,67 @@
+# serializer version: 1
+# name: test_the_inputs_hold_the_item_the_change_the_group_and_the_files_it_names
+  '''
+  # Item #1: Make the sample shout
+  
+  ## Problem or Motivation
+  
+  The sample cannot shout.
+  
+  ## Acceptance criteria
+  
+  - `shout("a")` returns `A!`.
+  
+  # proposal.md of the change
+  
+  # Proposal
+  
+  Why the sample shouts.
+  
+  # design.md of the change
+  
+  # Design
+  
+  Shout in capitals.
+  
+  # tasks.md of the change
+  
+  # Tasks
+  
+  ## 1. The first group
+  
+  - [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`
+    - Verification: `uv run devops ci test tests/test_sample.py`
+  - [ ] Add `shout` to `src/sample.py`
+    - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`
+  
+  ## 2. The second group
+  
+  - [x] Document the function in `docs/SAMPLE.md`
+    - Verification: `uv run devops docs check`
+  
+  ## Workflow follow-up
+  
+  - A plain bullet with `src/other.py` in it.
+  
+  # Your group
+  
+  ## 1. The first group
+  
+  - [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`
+    - Verification: `uv run devops ci test tests/test_sample.py`
+  - [ ] Add `shout` to `src/sample.py`
+    - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`
+  
+  # Files the group names (signatures only)
+  
+  ## src/sample.py
+  
+  ```
+  """A sample module."""
+  
+  def hello(name: str) -> str:
+      """Greet `name`."""
+      ...
+  ```
+  '''
+# ---

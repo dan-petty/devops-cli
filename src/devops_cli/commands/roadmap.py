@@ -27,6 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
     DEFAULT_ROADMAP_STAGE_LIMIT,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
@@ -425,6 +426,56 @@ def run_cmd(
     except RoadmapRunError as exc:
         print_error(str(exc), safe=True)
         raise typer.Exit(1) from exc
+
+
+@app.command("implement", help=HELP.roadmap.implement)
+def implement_cmd(
+    item: Annotated[int, typer.Option("--item", help=HELP.roadmap.implement_item)],
+    group: Annotated[int, typer.Option("--group", help=HELP.roadmap.implement_group)],
+    repo: RepoOption = None,
+    source: Annotated[Path, typer.Option("--source", help=HELP.roadmap.implement_source)] = Path(
+        "."
+    ),
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help=HELP.roadmap.implement_dry_run)
+    ] = False,
+) -> None:
+    """Run one task group of an item's change in a checkout, and commit it or reset it."""
+    from devops_cli.output.serialization import resolve_format
+
+    fmt = resolve_format(output_format, json_output=json_output)
+    target = repo or get_repo_origin_name(source)
+    if not target or "/" not in target:
+        _refuse("Cannot resolve the repository; pass --repo owner/name.")
+
+    from devops_cli.config.settings import load_settings
+    from devops_cli.roadmap import implement_step
+
+    task = load_settings().ai.for_task("implement")
+    if dry_run or is_dry_run():
+        outcome = implement_step.dry_run_step(target, item=item, group=group, model=task.model)
+        implement_step.render_outcome(outcome, target, fmt)
+        return
+
+    from devops_cli.ai.client.factory import get_task_model
+
+    with _exit_on_failure("Could not run the step"):
+        _, store = _open_store(target)
+        outcome = implement_step.run_step(
+            store,
+            item=item,
+            group=group,
+            source=source,
+            model=get_task_model("implement"),
+            window=task.context_window,
+        )
+    implement_step.render_outcome(outcome, target, fmt)
+    if outcome.status is implement_step.StepStatus.STOPPED:
+        raise typer.Exit(1)
 
 
 def _resolve_comment(comment: str, comment_file: Path | None) -> str:
