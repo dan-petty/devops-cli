@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.cluster_runtime import _run_cmd
 from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.argocd_overrides import (
     ApplicationSource,
@@ -209,10 +209,24 @@ def test_an_application_renders_what_its_revision_holds(tmp_path: Path) -> None:
     ]
 
 
+def _guarded_run(
+    cmd: list[str],
+    *,
+    check: bool = False,
+    capture: bool = True,
+    timeout: float,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """A runner as `deploy-stack` gives `render_at_revision`: it starts the command with
+    `run_subprocess`, so the environment of the caller passes the guard of
+    `build_subprocess_env`."""
+    return run_subprocess(cmd, check=check, capture_output=capture, timeout=timeout, env=env)
+
+
 def test_the_fetch_of_an_ssh_remote_starts_ssh_without_a_prompt_through_the_guard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The runner of `deploy-stack` gives git the environment of the fetch through the guard of
+    """`run_subprocess` gives git the environment of the fetch through the guard of
     `build_subprocess_env`, and `ssh` starts with `-o BatchMode=yes` (#2483). A stand-in `ssh`
     program records its arguments and fails, so the fetch ends at once."""
     ssh_log = tmp_path / "ssh.log"
@@ -225,7 +239,7 @@ def test_the_fetch_of_an_ssh_remote_starts_ssh_without_a_prompt_through_the_guar
     source = ApplicationSource("ssh://git@example.com/repository.git", "main", "k8s/app")
 
     with pytest.raises(KubernetesContextError, match="fetch"):
-        render_at_revision(source, tmp_path / "work", _run_cmd)
+        render_at_revision(source, tmp_path / "work", _guarded_run)
 
     assert ssh_log.read_text(encoding="utf-8").splitlines()[0].startswith("-o BatchMode=yes ")
 
@@ -238,8 +252,10 @@ def test_only_the_fetch_gets_the_ssh_option_and_every_command_gets_only_the_prom
     key (#2483)."""
     started: list[tuple[list[str], dict[str, str] | None]] = []
 
-    def record(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        started.append((cmd, kwargs.get("env")))  # type: ignore[arg-type]
+    def record(
+        cmd: list[str], *, env: dict[str, str] | None = None, **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        started.append((cmd, env))
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     source = ApplicationSource("ssh://git@example.com/repository.git", "main", "k8s/app")
