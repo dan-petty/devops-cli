@@ -12,6 +12,11 @@ candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A r
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first
 run, and in a round where intake placed a critical fix or a P0 item (#1515). Every clone tracks
 origin's default branch.
+
+A subscribed webhook event runs the update scoped to it at once (`run_scoped_update`, ADR 0017):
+`issues` opened, edited or reopened runs intake of that one issue on the model lane. A scoped
+update writes no job's last success, so the poll still judges every change since then; it
+records the issue it decided in `IntakeRecord`, so the poll does not decide it again.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from pydantic import TypeAdapter
@@ -390,6 +396,49 @@ def _run_intake_adapter(
     return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
 
 
+@dataclass(frozen=True)
+class WebhookDelivery:
+    """What a webhook delivery of a subscribed event carries that its scoped update reads: the
+    repository, the event, its action and the number of the issue it is about (ADR 0017)."""
+
+    repo: str
+    event: str
+    action: str
+    number: int
+
+
+def _intake_one(
+    store: RoadmapStore,
+    delivery: WebhookDelivery,
+    *,
+    repo_dir: Path,
+    now: datetime,
+    model: IntakeModel | None = None,
+) -> JobOutcome:
+    """Decide and place the one issue `delivery` names, when it is a candidate, with intake's
+    own decision code (ADR 0017). The record of what it decided is merged into the intake record
+    before any placement, as the intake job writes it; an issue that is no candidate, such as
+    an Item a person edited, is decided by no one and writes nothing."""
+    from devops_cli.roadmap.intake_model import build_intake_model
+
+    record_path = repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME
+    record = read_intake_record(record_path)
+    plan = plan_intake(
+        store,
+        repo=delivery.repo,
+        model=model or build_intake_model(),
+        issues=(delivery.number,),
+        waiting=record.waiting,
+    )
+    merged = record.merged(plan, now)
+    if merged != record:
+        _write_intake_record(record_path, merged)
+    applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
+    if plan.has_writes:
+        raise_for_failed_placements(applied)
+    return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
+
+
 def _job_clone(job: str, clone_path: Path | None) -> Path:
     """The clone `job` reads its repository in. A row that gives it none is a due-table error,
     never a reason to read the working directory instead (#1358)."""
@@ -492,6 +541,57 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS)
 """Every row, the status lane's first: what `devops roadmap run` runs in one round."""
+
+
+@dataclass(frozen=True)
+class ScopedUpdate:
+    """The update that one subscribed event runs at once, scoped to its delivery: the job whose
+    decision code it narrows, the lane it runs on, and its runner (ADR 0017)."""
+
+    job: str
+    lane: str
+    runner: Callable[..., JobOutcome]
+
+
+_SCOPED_INTAKE = ScopedUpdate(job="intake", lane=CONST_SERVICE_LANE_MODEL, runner=_intake_one)
+
+SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
+    {("issues", action): _SCOPED_INTAKE for action in ("opened", "edited", "reopened")}
+)
+"""The scoped update of each event and action that has one (ADR 0017). An event or action that
+is not here keeps its delivery a hint that makes a whole round due."""
+
+
+def run_scoped_update(
+    delivery: WebhookDelivery,
+    store: RoadmapStore,
+    *,
+    data_dir: Path | str | None = None,
+    now: datetime | None = None,
+    model: IntakeModel | None = None,
+) -> JobOutcome | None:
+    """Run the update scoped to `delivery` on `store`, the roadmap of its repository, or return
+    None when its event and action have none (ADR 0017).
+
+    The update reads the repository's intake record beside its `schedule.json` in `data_dir`,
+    and writes no job's last success: the reconciling poll still judges every change made since
+    each job's last round, so a scoped update never hides a change it did not handle."""
+    update = SCOPED_UPDATES.get((delivery.event, delivery.action))
+    if update is None:
+        return None
+    schedule_path = _resolve_roadmap_repo_path(
+        _resolve_data_dir(data_dir),
+        delivery.repo,
+        CONST_ROADMAP_RUN_STATE_FILENAME,
+        error_cls=GitOperationError,
+    )
+    return update.runner(
+        store,
+        delivery,
+        repo_dir=schedule_path.parent,
+        now=now or datetime.now(UTC),
+        model=model,
+    )
 
 
 def build_stub_table(
@@ -915,15 +1015,19 @@ def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
 __all__ = [
     "DEFAULT_DUE_TABLE",
     "MODEL_LANE_ROWS",
+    "SCOPED_UPDATES",
     "STATUS_LANE_ROWS",
     "FailureLedger",
     "JobOutcome",
     "JobRow",
+    "ScopedUpdate",
+    "WebhookDelivery",
     "build_stub_table",
     "ensure_checkout",
     "identity_refused",
     "parse_due_tuple",
     "run_due_jobs",
+    "run_scoped_update",
     "service_job",
     "service_jobs",
     "service_state_dir",
