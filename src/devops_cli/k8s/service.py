@@ -94,6 +94,15 @@ class PodLogStream:
             self._response.shutdown()
 
 
+def _first_node_address(nodes: list[Any]) -> str | None:
+    """Return the first internal or external address of the nodes, in their order."""
+    for node in nodes:
+        for addr in node.status.addresses or []:
+            if addr.type in ("InternalIP", "ExternalIP") and addr.address:
+                return str(addr.address)
+    return None
+
+
 class KubernetesService:
     """The process's one way to the Kubernetes API, without kubectl subprocesses.
 
@@ -364,15 +373,11 @@ class KubernetesService:
                     return str(httpx2.URL(scheme="http", host=lb_host, port=int(port)))
 
             if node_port:
-                import httpx2
+                address = _first_node_address(self.list_nodes(context=context))
+                if address:
+                    import httpx2
 
-                nodes = self.list_nodes(context=context)
-                for node in nodes:
-                    for addr in node.status.addresses or []:
-                        if addr.type in ("InternalIP", "ExternalIP") and addr.address:
-                            return str(
-                                httpx2.URL(scheme="http", host=addr.address, port=int(node_port))
-                            )
+                    return str(httpx2.URL(scheme="http", host=address, port=int(node_port)))
         except Exception as exc:
             logger.debug("Failed to resolve service endpoint for %s: %s", service, exc)
 

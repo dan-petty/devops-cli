@@ -42,27 +42,10 @@ def record_failed_attempt(
     served_model = extract_served_model(headers)
     prompt_tokens = 0
     completion_tokens = 0
-
     if response is not None:
-        try:
-            try:
-                response.read()
-            except (httpx2.HTTPError, RuntimeError) as exc:
-                logger.debug("Failed reading response content: %s", exc)
-            data = response.json()
-            if isinstance(data, dict):
-                usage = data.get("usage")
-                if isinstance(usage, dict):
-                    prompt_tokens = int(usage.get("prompt_tokens") or 0)
-                    completion_tokens = int(usage.get("completion_tokens") or 0)
-                if not served_model:
-                    err_obj = data.get("error")
-                    err_dict = err_obj if isinstance(err_obj, dict) else {}
-                    m = data.get("model") or err_dict.get("model")
-                    if m and m != ctx.model:
-                        served_model = str(m)
-        except (ValueError, UnicodeDecodeError, httpx2.HTTPError, RuntimeError) as exc:
-            logger.debug("Failed to parse response JSON: %s", exc)
+        prompt_tokens, completion_tokens, served_model = _failed_attempt_usage(
+            response, served_model, ctx.model
+        )
 
     track_request_spend(
         provider=ctx.provider,
@@ -79,6 +62,36 @@ def record_failed_attempt(
         stage=resolve_spend_stage(None, ctx.task_name),
         finish_reason=CONST_FINISH_REASON_ERROR,
     )
+
+
+def _failed_attempt_usage(
+    response: httpx2.Response, served_model: str | None, requested_model: str
+) -> tuple[int, int, str | None]:
+    """Read the token usage of a failed attempt's reply body, and the model it names when the
+    headers named none and it differs from the requested model. A body that cannot be read
+    keeps what was read before the failure."""
+    prompt_tokens = 0
+    completion_tokens = 0
+    try:
+        try:
+            response.read()
+        except (httpx2.HTTPError, RuntimeError) as exc:
+            logger.debug("Failed reading response content: %s", exc)
+        data = response.json()
+        if isinstance(data, dict):
+            usage = data.get("usage")
+            if isinstance(usage, dict):
+                prompt_tokens = int(usage.get("prompt_tokens") or 0)
+                completion_tokens = int(usage.get("completion_tokens") or 0)
+            if not served_model:
+                err_obj = data.get("error")
+                err_dict = err_obj if isinstance(err_obj, dict) else {}
+                m = data.get("model") or err_dict.get("model")
+                if m and m != requested_model:
+                    served_model = str(m)
+    except (ValueError, UnicodeDecodeError, httpx2.HTTPError, RuntimeError) as exc:
+        logger.debug("Failed to parse response JSON: %s", exc)
+    return prompt_tokens, completion_tokens, served_model
 
 
 class AttemptRecordingTransport(httpx2.BaseTransport):

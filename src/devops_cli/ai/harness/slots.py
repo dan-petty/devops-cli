@@ -358,6 +358,22 @@ def _collect_matching_symbols(
             _collect_matching_symbols(node.children, rel_path, query_lower, matches)
 
 
+def _scout_files(root: Path, pattern: str, max_results: int) -> tuple[list[str], int]:
+    """Return the files under root whose name matches pattern, at most max_results of them, and
+    the count of files scanned. A file that git ignores is not scanned."""
+    matched: list[str] = []
+    scanned = 0
+    for item in root.rglob("*"):
+        if is_ignored_by_git(root, item) or not item.is_file():
+            continue
+        scanned += 1
+        if fnmatch.fnmatch(item.name, pattern):
+            matched.append(str(item.relative_to(root)))
+            if len(matched) >= max_results:
+                break
+    return matched, scanned
+
+
 class SubAgentSlot(BaseSlot):
     """Slot managing sub-agent exploration and offloading engines."""
 
@@ -473,7 +489,6 @@ class SubAgentSlot(BaseSlot):
         """Offload directory mapping and file pattern scouting."""
         start_time = time.perf_counter()
         root = Path(repo_path).resolve()
-        matched_files: list[str] = []
 
         try:
             if not root.is_dir():
@@ -486,16 +501,7 @@ class SubAgentSlot(BaseSlot):
                     error=f"NotADirectoryError: {repo_path}",
                     duration_seconds=round(elapsed, 4),
                 )
-            files_scanned = 0
-            for item in root.rglob("*"):
-                if is_ignored_by_git(root, item):
-                    continue
-                if item.is_file():
-                    files_scanned += 1
-                    if fnmatch.fnmatch(item.name, pattern):
-                        matched_files.append(str(item.relative_to(root)))
-                        if len(matched_files) >= max_results:
-                            break
+            matched_files, files_scanned = _scout_files(root, pattern, max_results)
 
             output_text = f"Scouted {len(matched_files)} files matching '{pattern}':\n" + "\n".join(
                 f"- {f}" for f in matched_files

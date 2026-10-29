@@ -504,11 +504,7 @@ class PydanticAgent[T, DepsT = Any]:
                 self.client = client
 
             if toolsets is not None:
-                self.toolsets = list(toolsets)
-                for ts in self.toolsets:
-                    if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
-                        for ts_tool in extract_tools_from_toolset(ts):
-                            self.add_tool(ts_tool)
+                self._install_toolsets(toolsets)
 
             if capabilities is not None:
                 self.capabilities = list(capabilities)
@@ -519,6 +515,14 @@ class PydanticAgent[T, DepsT = Any]:
             self.toolsets = orig_toolsets
             self.capabilities = orig_capabilities
             self._tools = orig_tools
+
+    def _install_toolsets(self, toolsets: list[AgentToolset]) -> None:
+        """Replace the toolsets, and register the tools of each toolset that holds tools."""
+        self.toolsets = list(toolsets)
+        for ts in self.toolsets:
+            if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+                for ts_tool in extract_tools_from_toolset(ts):
+                    self.add_tool(ts_tool)
 
     async def __aenter__(self) -> PydanticAgent[T, DepsT]:
         """Enter asynchronous context, opening any connected MCP toolsets or capabilities."""

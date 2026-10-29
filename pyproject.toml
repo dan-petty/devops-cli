@@ -121,9 +121,15 @@ exclude = ["repos"]
 # BLE family left out: #423 owns BLE001 and requires triage before enforcement.
 # SIM family left out: readability preference; SIM115 (unclosed file) kept.
 # C901 is the complexity cap of 10 (standard McCabe, #586).
+# PLR1702 caps a function at 4 nested blocks (#1876). It is a preview rule in Ruff 0.16, so lint
+# preview is on. `explicit-preview-rules` runs no preview rule that `select` does not name; the
+# preview behavior of the stable rules (for example F822 on a lazy `__all__`) is on too. The
+# formatter keeps its stable style: preview is set for lint only.
+preview = true
+explicit-preview-rules = true
 select = [
     "E", "F", "I", "N", "W", "UP", "B", "RUF", "ASYNC",
-    "C901", "PGH004", "PGH003", "RUF100", "SIM115", "PT011", "PT015", "PT017", "PT018",
+    "C901", "PLR1702", "PGH004", "PGH003", "RUF100", "SIM115", "PT011", "PT015", "PT017", "PT018",
     "TID251",
     "PLE2502", "PLE2510", "PLE2512", "PLE2513", "PLE2514", "PLE2515",
 ]
@@ -139,6 +145,11 @@ allowed-confusables = ["–", "×", "ℹ"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
+
+# Four nested blocks pass and five fail, as the removed nesting hook counted `if`, `for`, `while`,
+# `with` and `except` (#1876). PLR1702 also counts a `try` body, and it does not count `match`.
+[tool.ruff.lint.pylint]
+max-nested-blocks = 4
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "socket.inet_aton".msg = "Parse and format addresses with ipaddress.ip_address."

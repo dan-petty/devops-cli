@@ -36,7 +36,7 @@ from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from devops_cli.telemetry.tracer import trace_span
+from devops_cli.telemetry.tracer import SpanHandle, trace_span
 
 if TYPE_CHECKING:
     from devops_cli.output.models import TablePayload
@@ -507,6 +507,18 @@ class GitOpsWatcher:
         """Signal the continuous watch loop to terminate."""
         self._running = False
 
+    def _record_drift_cycle(
+        self, span_h: SpanHandle, drift: list[GitOpsDriftEvent]
+    ) -> GitOpsSyncTriggerResult:
+        """Record one drift on the watch span and in the drift counter, then process its cycle."""
+        span_h.add_event("manifest_drift", {"count": len(drift), "app": self.app_name})
+        GLOBAL_METRICS.increment_counter(
+            "devops_cli_argo_gitops_drift_events_total",
+            value=float(len(drift)),
+            labels={"app": self.app_name},
+        )
+        return self._process_drift_cycle(drift)
+
     def _process_drift_cycle(self, drift: list[GitOpsDriftEvent]) -> GitOpsSyncTriggerResult:
         """Process detected drift through debounce window and trigger synchronization."""
         time.sleep(self.debounce_seconds)
@@ -552,19 +564,9 @@ class GitOpsWatcher:
                 while self._running:
                     drift = self.scan_drift()
                     if drift:
-                        span_h.add_event(
-                            "manifest_drift",
-                            {"count": len(drift), "app": self.app_name},
-                        )
-                        GLOBAL_METRICS.increment_counter(
-                            "devops_cli_argo_gitops_drift_events_total",
-                            value=float(len(drift)),
-                            labels={"app": self.app_name},
-                        )
-                        result = self._process_drift_cycle(drift)
-                        sync_results.append(result)
-                        if max_events is not None and len(sync_results) >= max_events:
-                            break
+                        sync_results.append(self._record_drift_cycle(span_h, drift))
+                    if drift and max_events is not None and len(sync_results) >= max_events:
+                        break
 
                     iterations += 1
                     if max_iterations is not None and iterations >= max_iterations:

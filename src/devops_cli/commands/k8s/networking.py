@@ -106,6 +106,14 @@ def _is_node_ready(item: dict[str, Any]) -> bool:
     return any(cond.get("type") == "Ready" and cond.get("status") == "True" for cond in conditions)
 
 
+def _first_ready_node_ip(nodes_data: dict[str, Any]) -> str | None:
+    """Return the first address of the first ready node that has an address."""
+    for item in nodes_data.get("items", []):
+        if _is_node_ready(item) and (node_ip := _extract_first_node_ip(item)):
+            return node_ip
+    return None
+
+
 def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | None:
     """Query Kubernetes nodes to find node IP and construct nodePort URL."""
     try:
@@ -120,14 +128,11 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
         if nodes_res.returncode == 0 and nodes_res.stdout.strip():
             import json
 
-            nodes_data = json.loads(nodes_res.stdout)
-            for item in nodes_data.get("items", []):
-                if _is_node_ready(item):
-                    node_ip = _extract_first_node_ip(item)
-                    if node_ip:
-                        import httpx2
+            node_ip = _first_ready_node_ip(json.loads(nodes_res.stdout))
+            if node_ip:
+                import httpx2
 
-                        return str(httpx2.URL(scheme="http", host=node_ip, port=int(node_port)))
+                return str(httpx2.URL(scheme="http", host=node_ip, port=int(node_port)))
     except Exception as exc:
         logger.debug("Failed to resolve k8s node port URL: %s", exc)
     return None

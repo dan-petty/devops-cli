@@ -1,6 +1,8 @@
-"""Ruff holds the complexity cap, and the gate's own flags and settings keep it from being weakened.
+"""Ruff holds the complexity and nesting caps, and the gate's own flags and settings keep them.
 
-Ruff's C901 is the cap of 10 (#586). Four things could take a function past it without
+Ruff's C901 is the cap of 10 (#586). Ruff's PLR1702 caps a function at 4 nested blocks (#1876): it
+is a preview rule, so lint preview is on with `explicit-preview-rules`, and no other preview rule
+runs unless `select` names it; the formatter stays out of preview. Four things could take a function past it without
 a marker to count: a setting in `pyproject.toml`, a Ruff configuration file nearer the
 function, an ignore file that hides the function from Ruff's walk, and a flag on the command
 that runs Ruff. `ruff check --config pyproject.toml` closes the nested configuration files, the
@@ -38,11 +40,15 @@ CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
     "socket.inet_pton",
     "socket.inet_ntop",
 )
-CONST_COMPLEXITY_LINT_RULES: Final[frozenset[str]] = frozenset({"C901", "PGH004", "RUF100"})
+CONST_COMPLEXITY_LINT_RULES: Final[frozenset[str]] = frozenset(
+    {"C901", "PLR1702", "PGH004", "RUF100"}
+)
 CONST_RUFF_CHECK_GATE_FLAGS: Final[frozenset[str]] = frozenset({"--config", "--fix"})
 CONST_RUFF_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi", ".ipynb"})
 
 _RUFF_TIMEOUT_SECONDS = 60
+# The deepest nesting a function may have: four nested blocks pass, five fail (#1876).
+_MAX_NESTED_BLOCKS = 4
 _BANNED_API_RULE = "TID251"
 _CONFIG_PIN = ["--config", CONST_PYPROJECT_FILENAME]
 _COMPLEXITY_ELEVEN = "def over(x):\n" + "".join(
@@ -99,6 +105,10 @@ def _cap_breaches(settings: str) -> list[str]:
     ]
     wanted = {
         "linter.mccabe.max_complexity": str(DEFAULT_MAX_COMPLEXITY),
+        "linter.pylint.max_nested_blocks": str(_MAX_NESTED_BLOCKS),
+        "linter.preview": "enabled",
+        "linter.explicit_preview_rules": "true",
+        "formatter.preview": "disabled",
         "linter.per_file_ignores": "{}",
         "linter.exclude": "[]",
     }
@@ -187,7 +197,8 @@ def _tracked_sources_ruff_skips(project: Path) -> list[str]:
 
 @pytest.mark.live("ruff")
 def test_the_resolved_ruff_settings_hold_the_complexity_cap() -> None:
-    """Ruff itself reports C901 enabled at 10, with no waiver, no lint exclusion and the banned APIs.
+    """Ruff itself reports C901 enabled at 10 and PLR1702 at 4 through explicit lint preview, with
+    no waiver, no lint exclusion and the banned APIs.
 
     The resolved settings answer what `select`, `ignore`, `extend-*`, `extend`, and prefix
     resolution add up to, which a test of the keys in `pyproject.toml` can only guess at.
@@ -249,6 +260,31 @@ def test_a_rebuilt_pyproject_that_weakens_nothing_holds_the_cap(tmp_path: Path) 
             "linter.per_file_ignores",
             id="per-file-waiver",
         ),
+        pytest.param(
+            lambda ruff: ruff["lint"]["pylint"].update({"max-nested-blocks": 5}),
+            "linter.pylint.max_nested_blocks: 5, not 4",
+            id="nesting-cap-raised",
+        ),
+        pytest.param(
+            lambda ruff: ruff["lint"]["select"].remove("PLR1702"),
+            "PLR1702: not enabled",
+            id="nesting-cap-not-selected",
+        ),
+        pytest.param(
+            lambda ruff: ruff["lint"].update({"preview": False}),
+            "PLR1702: not enabled",
+            id="lint-preview-off",
+        ),
+        pytest.param(
+            lambda ruff: ruff["lint"].update({"explicit-preview-rules": False}),
+            "linter.explicit_preview_rules: false, not true",
+            id="every-preview-rule-on",
+        ),
+        pytest.param(
+            lambda ruff: ruff.update({"preview": True}),
+            "formatter.preview: enabled, not disabled",
+            id="formatter-preview-on",
+        ),
     ],
 )
 def test_a_weakened_pyproject_is_reported_by_the_resolved_settings(
@@ -261,6 +297,35 @@ def test_a_weakened_pyproject_is_reported_by_the_resolved_settings(
     settings = _ruff(tmp_path, "check", *_CONFIG_PIN, "--show-settings", "src/mod.py").stdout
 
     assert any(breach in line for line in _cap_breaches(settings))
+
+
+def _nested_ifs(blocks: int) -> str:
+    """A function whose innermost statement sits inside `blocks` nested `if` blocks."""
+    lines = ["def nested(x):"]
+    for depth in range(blocks):
+        lines.append(f"{'    ' * (depth + 1)}if x > {depth}:")
+    lines.append(f"{'    ' * (blocks + 1)}return x")
+    lines.append("    return 0")
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.live("ruff")
+def test_the_nesting_cap_fails_five_nested_blocks_and_passes_four(tmp_path: Path) -> None:
+    """With the real Ruff table, five nested `if` blocks fail PLR1702 and four pass."""
+    _write_project(
+        tmp_path,
+        _real_pyproject(),
+        {
+            "src/deep.py": _nested_ifs(_MAX_NESTED_BLOCKS + 1),
+            "src/shallow.py": _nested_ifs(_MAX_NESTED_BLOCKS),
+        },
+    )
+    result = _ruff(tmp_path, "check", *_CONFIG_PIN, "--output-format", "json", "src")
+    findings = sorted(
+        (Path(finding["filename"]).name, finding["code"]) for finding in json.loads(result.stdout)
+    )
+
+    assert findings == [("deep.py", "PLR1702")]
 
 
 @pytest.mark.live("ruff")

@@ -267,6 +267,38 @@ def _combine_output_parts(*parts: str) -> str:
     return "\n".join(combined).strip()
 
 
+def _invoke_on_thread(
+    runner: Any, app: Any, sub_args: list[str], env: dict[str, str] | None, timeout: float
+) -> tuple[Any, BaseException | None, bool]:
+    """Invoke the CLI app on a daemon thread and wait at most `timeout` seconds for it.
+
+    Return the result, the error the invocation raised, and whether the thread still runs.
+    """
+    res: Any = None
+    worker_exc: BaseException | None = None
+
+    def _worker() -> None:
+        nonlocal res, worker_exc
+        try:
+            res = runner.invoke(app, sub_args, env=env)
+        except (
+            RuntimeError,
+            ValueError,
+            OSError,
+            SystemExit,
+            KeyError,
+            TypeError,
+            AttributeError,
+            TimeoutError,
+        ) as exc:
+            worker_exc = exc
+
+    t = threading.Thread(target=_worker, name=CONST_MCP_DISPATCH_THREAD_NAME, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    return res, worker_exc, t.is_alive()
+
+
 class InProcessDispatcher:
     """Direct in-process execution engine for devops-cli tools eliminating subshell spawning."""
 
@@ -318,44 +350,21 @@ class InProcessDispatcher:
             saved_sys_stdin = sys.stdin
             try:
                 start_t = time.perf_counter()
-                res: Any = None
-                worker_exc: BaseException | None = None
 
-                with _isolate_child_stdio() as (out_f, err_f):
-                    with _dry_run_invocation(sub_args):
+                with _isolate_child_stdio() as (out_f, err_f), _dry_run_invocation(sub_args):
+                    res, worker_exc, timed_out = _invoke_on_thread(
+                        runner, app, sub_args, env, timeout
+                    )
+                    if timed_out:
+                        sys.stdout = saved_sys_stdout
+                        sys.stderr = saved_sys_stderr
+                        sys.stdin = saved_sys_stdin
+                        logger.warning("In-process dispatch timed out after %.2fs", timeout)
+                        target = " ".join(cmd) if cmd else f"devops {' '.join(sub_args)}"
+                        return 124, f"Command timed out after {timeout} seconds: {target}"
 
-                        def _worker() -> None:
-                            nonlocal res, worker_exc
-                            try:
-                                res = runner.invoke(app, sub_args, env=env)
-                            except (
-                                RuntimeError,
-                                ValueError,
-                                OSError,
-                                SystemExit,
-                                KeyError,
-                                TypeError,
-                                AttributeError,
-                                TimeoutError,
-                            ) as exc:
-                                worker_exc = exc
-
-                        t = threading.Thread(
-                            target=_worker, name=CONST_MCP_DISPATCH_THREAD_NAME, daemon=True
-                        )
-                        t.start()
-                        t.join(timeout=timeout)
-
-                        if t.is_alive():
-                            sys.stdout = saved_sys_stdout
-                            sys.stderr = saved_sys_stderr
-                            sys.stdin = saved_sys_stdin
-                            logger.warning("In-process dispatch timed out after %.2fs", timeout)
-                            target = " ".join(cmd) if cmd else f"devops {' '.join(sub_args)}"
-                            return 124, f"Command timed out after {timeout} seconds: {target}"
-
-                        child_out = _read_stream(out_f)
-                        child_err = _read_stream(err_f)
+                    child_out = _read_stream(out_f)
+                    child_err = _read_stream(err_f)
 
                 if worker_exc is not None:
                     raise worker_exc

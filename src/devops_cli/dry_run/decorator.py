@@ -52,11 +52,9 @@ def dry_run_command(
                         if target_param and bound.arguments.get(target_param) is not None
                         else None
                     )
-                    details: dict[str, Any] = {}
-                    if detail_params:
-                        for p in detail_params:
-                            if p in bound.arguments:
-                                details[p] = bound.arguments[p]
+                    details: dict[str, Any] = {
+                        p: bound.arguments[p] for p in detail_params or () if p in bound.arguments
+                    }
                     render_dry_run_result(
                         command=command,
                         action=action,
