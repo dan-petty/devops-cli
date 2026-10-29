@@ -2310,6 +2310,7 @@ class RoadmapMessages:
     stage_impact_documents: str = "Documents"
     stage_impact_tests: str = "Tests"
     stage_group_files: str = "Reads: {reads}. Changes: {changes}."
+    stage_title_lead: str = "plan #{number} "
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
     )

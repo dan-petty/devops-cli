@@ -11,11 +11,11 @@
 
 ## 2. The staging pull request has the type docs(openspec)
 
-- [ ] 2.1 Add failing tests: the title and the commit subject of a staging pull request for a bug and for a feature, a long summary, the branch type, and a reply with no `scope`
-  - Verification: `uv run devops ci test tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_apply.py`
-- [ ] 2.2 Add `staging_title` and `delivery_title` to `stage_change.py`; delete the `scope` of the reply and of the prompt; ask for a summary of at most 40 characters
-  - Verification: `uv run devops ci test tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_apply.py tests/test_ai_task_prompts.py`
-- [ ] 2.3 Run `uv run devops docs generate --sync-readme`
+- [x] 2.1 Add failing tests: the title and the commit subject of a staging pull request for a bug and for a feature, a long summary, the branch type, and a reply with no `scope`
+  - Verification: `uv run devops ci test tests/test_roadmap_stage_title.py tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_apply.py`
+- [x] 2.2 Add `staging_title` to `stage_change.py`; delete the `scope` of the reply and of the prompt; ask for a summary of at most 40 characters
+  - Verification: `uv run devops ci test tests/test_roadmap_stage_title.py tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_apply.py tests/test_ai_task_loader.py`
+- [x] 2.3 Run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`
 
 ## 3. Implement takes a Planned item
@@ -26,7 +26,7 @@
   - Verification: `uv run devops ci test tests/test_roadmap_implement_selection.py tests/test_roadmap_implement_records.py tests/test_roadmap_implement_submit.py tests/test_roadmap_dry_runs.py tests/test_github_client.py`
 - [ ] 3.3 Add failing tests of the run: a Planned item with two groups to a ready pull request, a group that is done, a stop before the first commit, a stop after a commit and its retry, a draft that GitHub refuses, and a Staged item that gets the delivery title
   - Verification: `uv run devops ci test tests/test_roadmap_implement_job.py`
-- [ ] 3.4 Add the new branch, `_publish` and the title to `roadmap/implement_run.py`
+- [ ] 3.4 Add `delivery_title` to `stage_change.py`, and the new branch, `_publish` and the title to `roadmap/implement_run.py`
   - Verification: `uv run devops ci test tests/test_roadmap_implement_job.py tests/test_roadmap_implement_checks.py`
 - [ ] 3.5 Run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`

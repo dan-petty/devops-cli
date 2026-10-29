@@ -2,8 +2,9 @@
 
 The job turns each item that a label filter names into a branch `<type>/<issue>-<slug>` at the
 fetched default branch, with the OpenSpec change `openspec/changes/<issue>-<slug>/` written from
-the refined body, one commit by the identity of the session, and a draft pull request whose body
-starts with `Plans #<issue>`. It never marks the pull request ready and never changes the item's
+the refined body, one commit by the identity of the session, and a draft pull request whose title
+is `docs(openspec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
+`Plans #<issue>`. It never marks the pull request ready and never changes the item's
 Status. The staged branch and the draft are the record.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
@@ -93,6 +94,7 @@ from devops_cli.roadmap.stage_change import (
     pull_request_body,
     render_change,
     safe_text,
+    staging_title,
     write_change_files,
 )
 from devops_cli.roadmap.stage_filter import split_filter_entry
@@ -516,7 +518,7 @@ class _Planner:
         problems = check_proposal(proposal, self._known)
         if problems:
             return " ".join(problems)
-        title = _title_of(target, proposal)
+        title = staging_title(target.item.number, proposal.summary)
         body = pull_request_body(target.item.number, target.change, proposal)
         keyword = closing_keyword_in(f"{title}\n{body}")
         if keyword is not None:
@@ -573,13 +575,6 @@ class _Planner:
         if self._tool is None:
             return None
         return validate_change(self._tool, self._source, change, files)
-
-
-def _title_of(target: StageTarget, proposal: StageProposal) -> str:
-    """The Conventional Commit title of the pull request: the type of the item's title, the
-    scope and the summary of the reply."""
-    scope = f"({proposal.scope})" if proposal.scope else ""
-    return f"{target.type_}{scope}: {safe_text(proposal.summary)}"
 
 
 def _capabilities(source: Path) -> frozenset[str]:
