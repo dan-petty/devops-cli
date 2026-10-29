@@ -391,6 +391,43 @@ def test_a_broken_record_block_reads_as_an_empty_record(
     ) == (("Text", {}), True, {RefineRecordKey.BODY_HASH: "abc"})
 
 
+QUOTED_RECORDS = {
+    "code-span": f"Quote `{RECORD} {{...}} -->` here.",
+    "fence": f"```text\n{RECORD} {{...}} -->\n```",
+    "indented-code": f"Example:\n\n    {RECORD} {{...}} -->",
+    "in-the-middle": f'{RECORD} {{"Priority": "P1-High"}} -->\n\nMore text.',
+}
+
+
+@pytest.mark.parametrize("quote", QUOTED_RECORDS.values(), ids=QUOTED_RECORDS.keys())
+def test_a_quote_of_the_record_format_stays_in_the_body_and_is_no_record(
+    world: World, quote: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only a comment at the end of the body is the job record (#2538): text that quotes the
+    format, or a comment that more text follows, stays in the body, gives no warning, and
+    survives the next write of the record."""
+    number = world.seed("quotes", labels=("priority/p2-medium",), body=quote)
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.store"):
+        item = read(world, number)
+    world.store.set_marks(item, {RefineRecordKey.BODY_HASH: "abc"})
+    assert (
+        (item.body, item.job_record),
+        caplog.messages,
+        world.raw_body(number).startswith(f"{quote}\n\n{RECORD} "),
+        read(world, number).body,
+    ) == ((quote, {}), [], True, quote)
+
+
+def test_a_quote_of_the_record_format_does_not_hide_the_real_record_block(world: World) -> None:
+    """The record block at the end is the record, though the body quotes the format before it."""
+    quote = f"Quote `{RECORD} {{...}} -->` here."
+    number = world.seed("quotes", labels=("priority/p2-medium",), body=quote)
+    world.store.set_marks(read(world, number), {RefineRecordKey.BODY_HASH: "abc"})
+    world.store.write_issue_body(number, f"{quote} Again.")
+    item = read(world, number)
+    assert (item.body, item.job_record) == (f"{quote} Again.", {RefineRecordKey.BODY_HASH: "abc"})
+
+
 def test_a_write_to_a_pull_request_or_an_issue_that_does_not_exist_raises(world: World) -> None:
     pull = world.seed("a pull request", labels=("priority/p1-high",), pull_request=True)
     probe = Item(number=pull, title="a pull request", url="https://example.com/pull")

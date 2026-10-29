@@ -36,8 +36,9 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast, runtime_checkable
 
+from markdown_it import MarkdownIt
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
@@ -344,30 +345,44 @@ def require_value(field: ItemField, value: str | None, operation: str) -> None:
 _RECORD_BLOCK = re.compile(
     rf"<!-- {re.escape(CONST_ROADMAP_RECORD_MARKER)} (?P<record>.*?) -->", re.DOTALL
 )
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
+# GitHub's Markdown is CommonMark: `html_block` is a real comment, `code_inline`, `fence` and
+# `code_block` are text that only shows one.
+_BODY_MARKDOWN: Final = MarkdownIt("commonmark")
 _RECORD_SEPARATORS = ("\r\n\r\n", "\n\n")
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are another version's, kept as they are.
 _JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *RefineRecordKey))
 
 
+def _record_block_span(body: str) -> tuple[int, int] | None:
+    """The start and end of the last block of `body`, when it is a comment: the only place
+    `with_record` writes the record block. A quote of the block in a code span or a code block,
+    or a comment that more text follows, is not it."""
+    last = next((token for token in reversed(_BODY_MARKDOWN.parse(body)) if token.level == 0), None)
+    if last is None or last.type != "html_block" or last.map is None:
+        return None
+    starts = [0, *(found.end() for found in _LINE_BREAK.finditer(body))]
+    first, after = last.map
+    return starts[first], starts[after] if after < len(starts) else len(body)
+
+
 def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, Any]]:
     """The body with its record block taken out, and the JSON object the block holds: empty
     when the body has no block, or when the block holds no JSON object, which a warning names.
 
-    The writer's separator before a block at the end of the body goes with it, so a body read
-    back after `with_record` is the body written.
+    The record block is the comment at the end of the body. The writer's separator before it
+    goes with it, so a body read back after `with_record` is the body written.
     """
-    found = _RECORD_BLOCK.search(body)
-    if found is None:
+    span = _record_block_span(body)
+    found = _RECORD_BLOCK.fullmatch(body[span[0] : span[1]].strip()) if span else None
+    if span is None or found is None:
         return body, {}
-    before, after = body[: found.start()], body[found.end() :]
-    if not after.strip():
-        after = ""
-        before = next(
-            (before.removesuffix(sep) for sep in _RECORD_SEPARATORS if before.endswith(sep)),
-            before,
-        )
-    rest = _RECORD_BLOCK.sub("", before + after)
+    rest = body[: span[0]]
+    rest = next(
+        (rest.removesuffix(sep) for sep in _RECORD_SEPARATORS if rest.endswith(sep)),
+        rest,
+    )
     try:
         held = json.loads(found.group("record"))
     except json.JSONDecodeError:
