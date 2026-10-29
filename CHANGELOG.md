@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.0](https://github.com/dan-petty/devops-cli/compare/v0.18.0...v0.19.0) (2026-10-29)
+
+
+### Features
+
+* **roadmap:** add the implement job to roadmap implement ([#2692](https://github.com/dan-petty/devops-cli/issues/2692)) ([9c7a5f5](https://github.com/dan-petty/devops-cli/commit/9c7a5f50048558d8ecb7e8e12b945c05a4eeeae0)), closes [#2665](https://github.com/dan-petty/devops-cli/issues/2665)
+* **roadmap:** run the alternatives check as a Service row ([#2688](https://github.com/dan-petty/devops-cli/issues/2688)) ([c462318](https://github.com/dan-petty/devops-cli/commit/c462318850a391bd9e42c2defebf3bb9f914979d)), closes [#2652](https://github.com/dan-petty/devops-cli/issues/2652)
+* **roadmap:** run the stage job as a Service row ([#2691](https://github.com/dan-petty/devops-cli/issues/2691)) ([a8d5f0e](https://github.com/dan-petty/devops-cli/commit/a8d5f0ec1b4bcd09901b13b59104104bc2ca2af1)), closes [#2659](https://github.com/dan-petty/devops-cli/issues/2659)
+
+
+### Bug Fixes
+
+* **ci:** re-pin every CI runner to ubuntu-26.04 ([#2693](https://github.com/dan-petty/devops-cli/issues/2693)) ([31fe55c](https://github.com/dan-petty/devops-cli/commit/31fe55cb4aeb3478e4131d4137a708d5fae71bf6)), closes [#1501](https://github.com/dan-petty/devops-cli/issues/1501)
+
 ## [0.18.0](https://github.com/dan-petty/devops-cli/compare/v0.17.0...v0.18.0) (2026-10-29)
 
 
