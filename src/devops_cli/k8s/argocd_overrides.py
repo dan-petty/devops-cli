@@ -21,6 +21,7 @@ import yaml
 
 from devops_cli.config.constants import (
     CONST_GIT_NONINTERACTIVE_ENV,
+    CONST_GIT_NONINTERACTIVE_SSH_CONFIG,
     CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS,
 )
 from devops_cli.exceptions.k8s import KubernetesContextError
@@ -83,12 +84,15 @@ def render_at_revision(source: ApplicationSource, workdir: Path, run: Run) -> st
     The revision is fetched into `workdir`, never into the caller's checkout, so the hosts come
     from what Argo CD builds whichever branch the caller has checked out. The repository and
     revision come from the cluster or the command line, so git reads them after
-    ``--end-of-options`` and can never take one for an option.
+    ``--end-of-options`` and can never take one for an option. The fetch gets the SSH option as
+    ``git -c``, because the guard of ``build_subprocess_env`` refuses ``GIT_SSH_COMMAND``.
     """
     checkout = workdir / "checkout"
     git = ["git", "-C", str(checkout)]
     _stdout(run, ["git", "init", "--quiet", str(checkout)])
     fetch = [
+        "-c",
+        CONST_GIT_NONINTERACTIVE_SSH_CONFIG,
         "fetch",
         "--quiet",
         "--depth",

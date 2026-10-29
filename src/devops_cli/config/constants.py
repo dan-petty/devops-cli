@@ -1069,11 +1069,14 @@ CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
 """How long fetching an Application's revision may take before deploy-stack gives up."""
 """JQ expression in cluster.yaml ignoreDifferences matching Argo CD PreDelete/PostDelete finalizers (#1674)."""
-CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
-    "GIT_TERMINAL_PROMPT": "0",
-    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
-}
-"""Environment that makes git fail instead of prompting for credentials or a passphrase."""
+CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {"GIT_TERMINAL_PROMPT": "0"}
+"""Environment that makes git fail instead of prompting for credentials."""
+CONST_GIT_NONINTERACTIVE_SSH_CONFIG: Final[str] = "core.sshCommand=ssh -o BatchMode=yes"
+"""The `git -c` value that makes git fail instead of asking for a passphrase or a host key. It is
+an argument, because the guard of `build_subprocess_env` refuses `GIT_SSH_COMMAND` (#2483)."""
+CONST_GIT_GLOBAL_CONFIG_ENV: Final[frozenset[str]] = frozenset({"GIT_CONFIG_GLOBAL"})
+"""The ambient key that a `git config --global` call names in `extra_allowed_env`, so that it
+writes the global file that the environment names, as it does in a shell (#2483)."""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 
 # ── Kubernetes RBAC Audit ─────────────────────────────────────────────────────
@@ -1551,6 +1554,30 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "FPATH",
     "NULLCMD",
     "READNULLCMD",
+    # git-config(1), git(1) option -c
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_*",
+    "GIT_CONFIG_VALUE_*",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    # git(1)
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_ASKPASS",
+    "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR",
+    "GIT_PAGER",
+    "GIT_EXTERNAL_DIFF",
+    "GIT_EXEC_PATH",
+    # git-config(1), core.gitProxy
+    "GIT_PROXY_COMMAND",
+    # git-init(1)
+    "GIT_TEMPLATE_DIR",
+    # git-var(1), the fall-back keys of GIT_EDITOR and GIT_PAGER
+    "VISUAL",
+    "EDITOR",
+    "PAGER",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",
