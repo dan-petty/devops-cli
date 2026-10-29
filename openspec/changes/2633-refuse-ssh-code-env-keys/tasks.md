@@ -15,7 +15,7 @@
 
 ## 2. Documentation
 
-- [ ] 2.1 Update the `ARCHITECTURE.md` bullets and the purpose of the `subprocess-environment` spec for the ssh keys and `SHELL`
+- [x] 2.1 Update the `ARCHITECTURE.md` bullets and the purpose of the `subprocess-environment` spec for the ssh keys and `SHELL`
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 3. Archive
