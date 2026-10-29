@@ -212,6 +212,38 @@ def test_the_command_spans_keep_the_command_path_and_the_argument_count(
     ) == ("dummy", "3", False, "devops dummy set")
 
 
+def test_the_subcommand_histogram_names_the_command_group_and_the_sub_command(
+    delegated_set: list[dict[str, Any]],
+) -> None:
+    """`devops dummy set` is timed with the command group in `command` and its command path
+    below `devops` in `sub_command`, so that a dashboard finds each sub-command from its series
+    and tells `config list` from `pr list` (#2700)."""
+    points = metric_points(delegated_set, "devops_cli_subcommand_duration_seconds")
+    assert [attributes for attributes, _value in points] == [
+        {"command": "dummy", "sub_command": "dummy set", "status": "ok"}
+    ]
+
+
+def test_a_command_with_no_group_is_its_own_sub_command(
+    clean_tracer: list[tuple[str, dict[str, Any]]],
+) -> None:
+    """A command that runs with no command group above it names itself in both labels (#2700)."""
+    app = new_typer()
+
+    @app.command(name="alone")
+    def alone() -> None:
+        pass
+
+    CliRunner().invoke(app, [])
+    get_tracer().flush()
+    points = metric_points(
+        [payload for _path, payload in clean_tracer], "devops_cli_subcommand_duration_seconds"
+    )
+    assert [attributes for attributes, _value in points] == [
+        {"command": "alone", "sub_command": "alone", "status": "ok"}
+    ]
+
+
 def test_a_command_span_holds_no_process_command_line(
     delegated_set: list[dict[str, Any]],
 ) -> None:

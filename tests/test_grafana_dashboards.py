@@ -679,7 +679,7 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
     cli_command_var = any(
         v.get("name") == "command" for v in cli_dash.get("templating", {}).get("list", [])
     )
-    cli_repeat_panel = any(p.get("repeat") == "command" for p in cli_dash.get("panels", []))
+    cli_repeat_panel = any(p.get("repeat") == "sub_command" for p in cli_dash.get("panels", []))
 
     assert (
         sre_flamegraphs,
@@ -759,26 +759,84 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
     )
 
 
-def test_cli_dashboard_command_variable_covers_all_registered_subcommands() -> None:
-    """Verify that the command template variable in devops-cli.json covers all CLI subcommands."""
-    from devops_cli.main import _COMMAND_SPECS
-
+def test_cli_dashboard_finds_each_command_and_sub_command_from_its_series() -> None:
+    """The `command` and `sub_command` variables of devops-cli.json read their values from the
+    series that devops-cli sends, so a new command or sub-command shows with no change to the
+    dashboard. `sub_command` holds only the sub-commands of the commands selected (#2700)."""
     cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
-    var = next(
-        v for v in cli_dash.get("templating", {}).get("list", []) if v.get("name") == "command"
+    variables = {v["name"]: v for v in cli_dash.get("templating", {}).get("list", [])}
+
+    assert [
+        (
+            name,
+            variables[name].get("type"),
+            variables[name].get("definition"),
+            variables[name].get("query", {}).get("query"),
+            variables[name].get("datasource", {}).get("uid"),
+            variables[name].get("multi"),
+            variables[name].get("includeAll"),
+            variables[name].get("allValue"),
+            variables[name].get("refresh"),
+            "options" in variables[name] and variables[name]["options"] != [],
+        )
+        for name in ("command", "sub_command")
+    ] == [
+        (
+            "command",
+            "query",
+            "label_values(devops_cli_command_total, command)",
+            "label_values(devops_cli_command_total, command)",
+            "prometheus",
+            True,
+            True,
+            ".*",
+            2,
+            False,
+        ),
+        (
+            "sub_command",
+            "query",
+            'label_values(devops_cli_subcommand_duration_seconds{command=~"$command"}, sub_command)',
+            'label_values(devops_cli_subcommand_duration_seconds{command=~"$command"}, sub_command)',
+            "prometheus",
+            True,
+            True,
+            ".*",
+            2,
+            False,
+        ),
+    ]
+
+
+def test_cli_dashboard_repeats_a_latency_panel_for_each_selected_sub_command() -> None:
+    """The sub-command row has one calls panel by `sub_command` and one latency panel that
+    repeats for each selected `sub_command`, titled with it and filtered to it (#2700)."""
+    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    panels = cli_dash["panels"]
+    start = next(
+        i for i, p in enumerate(panels) if p.get("type") == "row" and p["title"] == "Sub-commands"
+    )
+    end = next(
+        (i for i in range(start + 1, len(panels)) if panels[i].get("type") == "row"), len(panels)
+    )
+    row = panels[start + 1 : end]
+    selector = (
+        'devops_cli_subcommand_duration_seconds{command=~"$command",sub_command=~"$sub_command"'
     )
 
-    option_values = {opt["value"] for opt in var.get("options", []) if opt["value"] != "$__all"}
-    query_values = {cmd.strip() for cmd in var.get("query", "").split(",") if cmd.strip()}
-    registered = set(_COMMAND_SPECS.keys())
-
-    assert (
-        var.get("type"),
-        var.get("includeAll"),
-        var.get("multi"),
-        sorted(registered - option_values),
-        sorted(registered - query_values),
-    ) == ("custom", True, True, [], [])
+    assert [
+        (
+            p["title"],
+            p.get("repeat"),
+            p.get("repeatDirection"),
+            p.get("maxPerRow"),
+            all(selector in t["expr"] for t in p["targets"]),
+        )
+        for p in row
+    ] == [
+        ("Sub-command Calls", None, None, None, True),
+        ("Telemetry: $sub_command", "sub_command", "h", 4, True),
+    ]
 
 
 def test_profiling_dashboards_query_pyroscope_service_name_without_created_by_name() -> None:

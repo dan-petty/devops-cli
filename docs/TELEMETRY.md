@@ -48,7 +48,7 @@ writes by name.
 |---|---|---|---|
 | `devops_cli_command_total` | Counter | `1` | Commands run, by command and status. |
 | `devops_cli_command_duration_seconds` | Histogram | `s` | Command wall time, by command. |
-| `devops_cli_subcommand_duration_seconds` | Histogram | `s` | Subcommand wall time, by subcommand and status: ok or error. |
+| `devops_cli_subcommand_duration_seconds` | Histogram | `s` | Sub-command wall time, by command group, sub-command (the command path below devops, such as pr threads reply) and status: ok or error. |
 | `devops_cli_subprocess_duration_seconds` | Histogram | `s` | Wall time of a program that devops-cli ran, by program and status: ok or error. |
 | `devops_cli_telemetry_tests_total` | Counter | `1` | Test points that devops telemetry test sent, to show that metrics reach the collector. |
 | `devops_cli_ci_checks_total` | Counter | `1` | Checks that devops ci ran, by step and outcome: pass or fail. |

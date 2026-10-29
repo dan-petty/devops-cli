@@ -410,6 +410,10 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     """
     wanted = {
         ("devops_cli_command_duration_seconds", "command"),
+        (
+            'devops_cli_subcommand_duration_seconds{command=~"$command",sub_command=~"$sub_command"}',
+            "sub_command",
+        ),
         ('devops_cli_command_total{status="error"}', "command"),
         ("devops_cli_review_duration_seconds", "target_type"),
         ("devops_cli_findings_total", "severity"),
@@ -434,6 +438,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
         [],
         {
             "devops_cli_command_duration_seconds": {0.5, 0.95, 0.99},
+            "devops_cli_subcommand_duration_seconds": {0.5, 0.95, 0.99},
             "devops_cli_review_duration_seconds": {0.5, 0.95},
             "devops_cli_rag_query_duration_ms": {0.5, 0.95},
             "devops_cli_project_release_interval_days": {0.5, 0.95},

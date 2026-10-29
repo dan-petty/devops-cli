@@ -47,7 +47,7 @@ SUBCOMMAND_DURATION = Instrument(
     "devops_cli_subcommand_duration_seconds",
     InstrumentKind.HISTOGRAM,
     "s",
-    "Subcommand wall time, by subcommand and status: ok or error",
+    "Sub-command wall time, by command group, sub-command (the command path below devops, such as pr threads reply) and status: ok or error",
 )
 SUBPROCESS_DURATION = Instrument(
     "devops_cli_subprocess_duration_seconds",

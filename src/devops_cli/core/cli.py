@@ -15,7 +15,21 @@ from devops_cli.config.constants import CONST_HELP_OPTION_NAMES
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
-def _record_cli_success(span_h: Any, cmd_name: str, dur: float) -> None:
+def _subcommand_labels(cmd_name: str, command_path: str | None) -> dict[str, str]:
+    """The command group and the sub-command that `devops_cli_subcommand_duration_seconds` is sent by.
+
+    Click's command path, such as `devops pr threads reply`, gives the command group (`pr`) and
+    the path below `devops` (`pr threads reply`). Leaf names repeat across groups (`config list`,
+    `pr list`), so the dashboard reads the full path (#2700). A command with no group above it
+    names itself in both labels.
+    """
+    words = (command_path or "").split()[1:]
+    if not words:
+        return {"command": cmd_name, "sub_command": cmd_name}
+    return {"command": words[0], "sub_command": " ".join(words)}
+
+
+def _record_cli_success(span_h: Any, cmd_name: str, labels: dict[str, str], dur: float) -> None:
     """Record telemetry attributes, events, and metrics for successful CLI command execution."""
     from devops_cli.telemetry.instruments import SUBCOMMAND_DURATION, emit
 
@@ -25,10 +39,12 @@ def _record_cli_success(span_h: Any, cmd_name: str, dur: float) -> None:
         "subcommand_completed",
         {"command": cmd_name, "duration_seconds": dur},
     )
-    emit(SUBCOMMAND_DURATION, dur, {"command": cmd_name, "status": "ok"})
+    emit(SUBCOMMAND_DURATION, dur, {**labels, "status": "ok"})
 
 
-def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) -> None:
+def _record_cli_failure(
+    span_h: Any, cmd_name: str, labels: dict[str, str], dur: float, exc: Exception
+) -> None:
     """Record telemetry attributes, events, and metrics for failed or exiting CLI command."""
     exit_code = getattr(exc, "exit_code", getattr(exc, "code", None))
     is_clean_exit = exit_code == 0
@@ -45,7 +61,7 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
             "subcommand_completed",
             {"command": cmd_name, "duration_seconds": dur, "exit_code": 0},
         )
-        emit(SUBCOMMAND_DURATION, dur, {"command": cmd_name, "status": "ok"})
+        emit(SUBCOMMAND_DURATION, dur, {**labels, "status": "ok"})
     else:
         if isinstance(exc, typer.TyperException):
             # A usage error of Typer, such as `typer.BadParameter`, quotes what the person typed,
@@ -58,7 +74,7 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
             detail = {"error": mask_secrets(str(exc))}
             span_h.set_attribute("cli.error", detail["error"])
         span_h.add_event("subcommand_failed", {"command": cmd_name, **detail})
-        emit(SUBCOMMAND_DURATION, dur, {"command": cmd_name, "status": "error"})
+        emit(SUBCOMMAND_DURATION, dur, {**labels, "status": "error"})
 
 
 def _execute_traced_cli_command(
@@ -92,14 +108,15 @@ def _execute_traced_cli_command(
     context = get_current_context(silent=True)
     if context is not None:
         attrs["cli.command_path"] = context.command_path
+    labels = _subcommand_labels(cmd_name, context.command_path if context is not None else None)
     with trace_span(span_name, attributes=attrs) as span_h:
         span_h.add_event("subcommand_started", {"command": cmd_name})
         try:
             res = f(*f_args, **f_kwargs)
-            _record_cli_success(span_h, cmd_name, time.perf_counter() - start_time)
+            _record_cli_success(span_h, cmd_name, labels, time.perf_counter() - start_time)
             return res
         except Exception as exc:
-            _record_cli_failure(span_h, cmd_name, time.perf_counter() - start_time, exc)
+            _record_cli_failure(span_h, cmd_name, labels, time.perf_counter() - start_time, exc)
             raise
 
 
