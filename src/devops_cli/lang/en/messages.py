@@ -2075,6 +2075,11 @@ class RoadmapMessages:
     implement_pull_body: str = (
         "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
     )
+    implement_step_needs_item: str = "A step needs --item with --group."
+    implement_step_job_options: str = (
+        "--filter, --plan and --confirm are options of the job. With --group, the command runs "
+        "one step and takes only --item, --source, --format and --dry-run."
+    )
     implement_job_plain_note: str = (
         "Implement without a mode flag runs as --plan: it reads GitHub and git, and writes "
         "nothing. --dry-run makes no request."

@@ -37,11 +37,11 @@
 
 ## 6. The command and the documentation
 
-- [ ] Add failing CLI tests: the job options, the modes, the refusal, the report and the exit code, and the step mode that stays as it was
+- [x] Add failing CLI tests: the job options, the modes, the refusal, the report and the exit code, and the step mode that stays as it was
   - Verification: `uv run devops ci test tests/test_roadmap_implement_command.py`
-- [ ] Add the job mode to `devops roadmap implement`, its help and messages, the term in `CONTEXT.md`, and the dry-run plan
+- [x] Add the job mode to `devops roadmap implement`, its help and messages, the term in `CONTEXT.md`, and the dry-run plan
   - Verification: `uv run devops ci test tests/test_roadmap_implement_command.py tests/test_roadmap_dry_runs.py`
-- [ ] Regenerate the documentation
+- [x] Regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 7. Archive

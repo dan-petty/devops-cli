@@ -37,7 +37,7 @@ from tests.support.fakes.github import API
 
 REPO = "dan-petty/devops-cli"
 runner = CliRunner()
-JOBS = ("intake", "refine", "alternatives", "stage")
+JOBS = ("intake", "refine", "alternatives", "stage", "implement")
 
 
 # ── No request ────────────────────────────────────────────────────────────────
@@ -112,6 +112,7 @@ def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> N
         ("refine", "--confirm"),
         ("alternatives", "--plan"),
         ("stage", "--plan"),
+        ("implement", "--plan"),
     ],
 )
 def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:

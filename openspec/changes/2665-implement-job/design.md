@@ -17,6 +17,7 @@
 - **Status writes read the item again.** `set_field` refuses an item whose field changed since it was read. The job reads the item before each field write.
 - **One item failing does not stop the run.** A write that fails is reported with the class of its error and the next item goes on, as stage does. Rejected GitHub credentials stop the run.
 - **The step and the job share a command.** `--group` selects the step, as before, and its absence selects the job. `--source` is the checkout of the step, and the clone of the job.
+- **A run that dies leaves its item In Progress.** The job takes only Ready items, so a pod that is killed mid-run leaves its item alone until a person sets the Status back. The job holds no lease, because the runner runs one item at a time (#2667). A model or GitHub error that the job can catch is a stop, not a death.
 
 ## Rejected alternatives
 

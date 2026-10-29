@@ -12,10 +12,12 @@ import pytest
 
 from devops_cli.ai.client import factory
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.implement_step import BODY, DOCS, command_text, git, the_whole_group
 from tests.support.model_script import ModelScript, say, tool_calls
+from tests.support.roadmap_implement import BRANCH, PULL, TITLE, JobWorld, two_groups
+from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -187,3 +189,128 @@ def test_a_dry_run_makes_no_request_and_lists_the_item_read_and_the_model_reques
         "",
         [],
     )
+
+
+# ── The job (#2665) ───────────────────────────────────────────────────────────────────────
+
+
+def _job(cli: Callable[..., Any], world: JobWorld, *flags: str) -> Any:
+    return cli(
+        "roadmap",
+        "implement",
+        "--repo",
+        STAGE_REPO,
+        "--source",
+        str(world.repo.clone),
+        *flags,
+    )
+
+
+def test_the_plan_names_the_staged_item_and_runs_nothing(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    result = _job(cli, job_world, "--plan")
+
+    assert result.exit_code == 0
+    assert "# Implement plan for example/roadmap" in result.output
+    assert f"- #1 {TITLE}: branch `{BRANCH}`, pull request #{PULL}" in result.output
+    assert job_world.pull.ready_calls == []
+    assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
+def test_a_run_with_no_mode_flag_is_a_plan_with_a_note(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    result = _job(cli, job_world)
+
+    assert result.exit_code == 0
+    assert "runs as --plan" in " ".join(result.output.split())
+    assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
+def test_the_plan_names_an_item_that_the_job_leaves_out_with_its_reason(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    held = job_world.store.item(1)
+    assert held is not None
+    job_world.store.set_marks(held, {ImplementRecordKey.STOPPED: "group 2"})
+
+    result = _job(cli, job_world, "--plan")
+
+    assert "## Left out" in result.output
+    assert "A step stopped it at group 2." in " ".join(result.output.split())
+
+
+def test_confirm_outside_a_runner_exits_1_and_runs_nothing(
+    cli: Callable[..., Any], job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"in_runner": False}})
+    script = two_groups()
+    factory.set_llm_client_override(script.model())
+
+    result = _job(cli, job_world, "--confirm")
+
+    assert result.exit_code == 1
+    assert "roadmap.implement.in_runner" in " ".join(result.output.split())
+    assert (script.seen, job_world.programs.calls, job_world.api.requested) == ([], [], [])
+
+
+def test_confirm_in_a_runner_takes_the_item_to_a_ready_pull_request(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    factory.set_llm_client_override(two_groups().model())
+
+    result = _job(cli, job_world, "--confirm")
+
+    assert result.exit_code == 0
+    assert "Took 1 item(s) to a ready pull request, stopped 0." in result.output
+    assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]
+
+
+def test_confirm_reports_a_stopped_item_and_exits_0(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    factory.set_llm_client_override(ModelScript(say("Stuck.")).model())
+
+    result = _job(cli, job_world, "--confirm")
+
+    assert result.exit_code == 0
+    assert "Took 0 item(s) to a ready pull request, stopped 1." in result.output
+
+
+def test_the_job_dry_run_makes_no_request_and_lists_the_requests_of_a_run(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    result = _job(cli, job_world, "--dry-run")
+
+    assert result.exit_code == 0
+    assert "Dry run: no request was made" in result.output
+    assert "pr ready" in result.output
+    assert (job_world.programs.calls, job_world.api.requested) == ([], [])
+
+
+def test_a_filter_on_an_unknown_family_exits_1(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    result = _job(cli, job_world, "--plan", "--filter", "color=red")
+
+    assert result.exit_code == 1
+    assert "not a label family" in " ".join(result.output.split())
+
+
+def test_a_step_with_a_job_option_is_refused(
+    cli: Callable[..., Any], item: int, implement_checkout: Path
+) -> None:
+    result = _implement(cli, implement_checkout, "--confirm")
+
+    assert result.exit_code == 1
+    assert "options of the job" in " ".join(result.output.split())
+
+
+def test_a_step_needs_its_item(cli: Callable[..., Any], implement_checkout: Path) -> None:
+    result = cli(
+        "roadmap", "implement", "--group", "1", "--repo", REPO, "--source", str(implement_checkout)
+    )
+
+    assert result.exit_code == 1
+    assert "needs --item" in " ".join(result.output.split())

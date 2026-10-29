@@ -122,6 +122,14 @@ _Avoid_: prepared, queued
 The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the item, the change folder and the packed files of the group.
 _Avoid_: chunk, phase
 
+**Implementing**:
+Taking a Staged item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A stopped item goes back to Ready and waits for the comment `implement: retry`. A person merges.
+_Avoid_: building, executing
+
+**Runner**:
+The pod of a cluster Job in which the implement job runs its steps. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod holds a token for one repository and no other credential. The setting `roadmap.implement.in_runner` says a process is one.
+_Avoid_: agent host, worker
+
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker

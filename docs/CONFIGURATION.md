@@ -270,6 +270,7 @@ roadmap configuration settings.
 |---|---|---|---|---|
 | `alternatives` | `AlternativesConfig` | `limit=5 recheck_days=30` | - | - |
 | `stage` | `RoadmapStageConfig` | `step_tokens=40000` | - | - |
+| `implement` | `RoadmapImplementConfig` | `in_runner=False` | - | - |
 
 ## Firecrawl Configuration (`firecrawl`)
 

@@ -416,6 +416,7 @@ def job_world(
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     config: Callable[..., Path],
     clock: ClockFake,
+    roadmap_store: InMemoryRoadmapStore,
 ) -> JobWorld:
     """The job in a runner: a Staged item, pull request 5 as a draft whose checks pass, and the
     process edge, where git runs for real and the project's own commands are answered."""
@@ -436,6 +437,7 @@ def job_world(
         ProcessAnswer(side_effect=docs_effect),
     )
     route_pull_status(api)
-    store = InMemoryRoadmapStore(repo=STAGE_REPO)
-    seed_staged(store)
-    return JobWorld(staged_repo, store, api, programs, PullFake(api, programs, staged_repo), clock)
+    seed_staged(roadmap_store)
+    return JobWorld(
+        staged_repo, roadmap_store, api, programs, PullFake(api, programs, staged_repo), clock
+    )

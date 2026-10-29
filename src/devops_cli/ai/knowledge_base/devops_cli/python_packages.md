@@ -151,7 +151,8 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 - **Pinned Version**: `pydantic-ai-harness[coder]==0.59.0`
 - **Ecosystem Role**: Capabilities for pydantic-ai agents. `Coder` gives an agent the file and shell tools of a coding agent.
 - **Codebase Integration**:
-  - `devops_cli.roadmap.implement_step`: Runs one task group of a staged change in one bounded agent run (`devops roadmap implement`).
+  - `devops_cli.roadmap.implement_step`: Runs one task group of a staged change in one bounded agent run (`devops roadmap implement --group`).
+  - `devops_cli.roadmap.implement_run`: Runs the steps of a staged item to a ready pull request (`devops roadmap implement`), in a runner pod only.
 
 #### `json-repair` ([Dedicated Manual](libraries/json_repair.md))
 - **Pinned Version**: `json-repair==0.63.4`
