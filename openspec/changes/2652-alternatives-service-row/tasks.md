@@ -17,7 +17,7 @@
 
 ## 4. Documentation
 
-- [ ] 4.1 Name the row in `CONTEXT.md` (Lane) and in `k8s/README.md` (Roadmap service), regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 4.1 Name the row in `CONTEXT.md` (Lane) and in `k8s/README.md` (Roadmap service), regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 - [ ] 4.2 Run `uv run devops ci` once, fix each failure at its cause, and verify that it passes
 
 ## Workflow follow-up

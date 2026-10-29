@@ -107,7 +107,7 @@ Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
 **Alternative**:
-An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none or not-applicable. A person decides what an alternative means for the item.
+An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none or not-applicable. A person decides what an alternative means for the item: refinement asks a person to adopt a covering tool or to keep the item with a reason.
 _Avoid_: competitor, substitute
 
 **Staging**:
@@ -127,7 +127,7 @@ The long-running devops-cli deployment that runs the roadmap jobs when they are 
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's two paths for a repository's jobs, each running one round at a time: the model lane runs intake and refinement, which call the model, and the other lane runs the metrics. Both get every trigger, and a round in one never waits for a round in the other.
+One of the Service's two paths for a repository's jobs, each running one round at a time: the model lane runs intake, refinement and the alternatives check, which call the model, and the other lane runs the metrics. Both get every trigger, and a round in one never waits for a round in the other.
 _Avoid_: queue, track, worker
 
 ## Code review
