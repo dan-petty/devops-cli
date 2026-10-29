@@ -191,7 +191,6 @@ CONST_AGENTS_MD_ROUTES: Final[tuple[tuple[str, str], ...]] = (
     ("openspec/config.yaml", "plan and record each item as an OpenSpec change"),
     (".github/ISSUE_TEMPLATE/", "file an issue"),
     (".github/pull_request_template.md", "write a pull request body"),
-    (".devops/review.md", "run a review: what it must not flag"),
     (".devops/review.toml", "suppress a review finding"),
     ("k8s/README.md", "change a manifest or the cluster"),
 )
@@ -457,7 +456,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "openspec/changes/**/*.md",
     ),
     CONST_DOCS_CLASS_PROMPT: (
-        ".devops/review.md",
         "src/devops_cli/ai/personas/**/*.md",
         "src/devops_cli/ai/prompts/**/*.md",
         "src/devops_cli/ai/tasks/**/*.md",
@@ -753,7 +751,6 @@ CONST_KEYRING_PROMPT_TIMEOUT_SECONDS: Final[int] = 60
 CONST_SPECS_DIR_NAME = ".devops/specs"
 # Review-specific conventions a project keeps for devops ai review: read in full, beside the
 # general conventions file, by the personas and the verifier.
-CONST_REVIEW_CONVENTIONS_FILE = ".devops/review.md"
 # Declarative path classes configuration file for review routing and tool scoping (#1047).
 CONST_REVIEW_CONFIG_FILE = ".devops/review.toml"
 CONST_DEFAULT_PATH_CLASSES: Final[dict[str, tuple[str, ...]]] = {

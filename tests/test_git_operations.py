@@ -382,18 +382,17 @@ def test_read_file_at_revision_reads_no_directory(tmp_path: Path, git: Callable[
 
 def test_read_file_at_revision_reads_no_link(tmp_path: Path, git: Callable[..., None]) -> None:
     """A committed link is no file at the revision. Its blob is the path it points to, which a
-    branch review took for the `.devops/review.md` a project linked to its rules (#946)."""
+    branch review took for the `AGENTS.md` a project linked to its rules (#946)."""
     git(tmp_path, "init", "--quiet", "-b", "main")
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "rules.md").write_text("Rules.\n", encoding="utf-8")
-    (tmp_path / ".devops").mkdir()
-    (tmp_path / ".devops" / "review.md").symlink_to("../docs/rules.md")
+    (tmp_path / "AGENTS.md").symlink_to("docs/rules.md")
     (tmp_path / "linked").symlink_to("docs", target_is_directory=True)
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "--quiet", "-m", "links")
 
     assert (
-        read_file_at_revision(tmp_path, "main", ".devops/review.md"),
+        read_file_at_revision(tmp_path, "main", "AGENTS.md"),
         read_file_at_revision(tmp_path, "main", "linked/rules.md"),
         read_file_at_revision(tmp_path, "main", "docs/rules.md"),
     ) == (None, None, "Rules.\n")

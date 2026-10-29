@@ -14,9 +14,9 @@ run with the same prompts, scored together: how many runs found each injection, 
 each figure beside its range across the runs.
 
 A corpus directory holds the mutated files under `files/`, the manifest of injections beside it
-(outside the reviewed tree, so the reviewer cannot read the answers) and copies of the source
-project's conventions and `.devops/review.md` where it has them, so the review sees the same
-conventions as a review of the source. The manifest marks the corpus root, where the conventions
+(outside the reviewed tree, so the reviewer cannot read the answers) and a copy of the source
+project's conventions where it has them, so the review sees the same conventions as a review of
+the source. The manifest marks the corpus root, where the conventions
 lookup stops: a corpus inside another repository is not reviewed under that repository's.
 """
 
@@ -37,7 +37,6 @@ from pydantic import BaseModel, Field, computed_field
 from devops_cli.ai.review.profile import ReviewProfile
 from devops_cli.ai.review_schema import LINE_OVERLAP_TOLERANCE, SavedFinding, _parse_location
 from devops_cli.config.constants import (
-    CONST_REVIEW_CONVENTIONS_FILE,
     CONST_STATUS_INVALIDATED,
     REVIEW_GENERIC_SYMBOL_STOPWORDS,
 )
@@ -1299,7 +1298,6 @@ def generate_corpus(
     sources: Sequence[str],
     seed: int,
     conventions: str = "",
-    review_conventions: str = "",
     templates: Sequence[DefectTemplate] = TEMPLATES,
 ) -> DefectCorpus:
     """Write a corpus of the source files that take an injection, one defect in each.
@@ -1313,13 +1311,8 @@ def generate_corpus(
         for path, rel in files
         if (injection := _inject(path, rel, files_dir, seed, templates)) is not None
     ]
-    for name, text in (
-        (CORPUS_CONVENTIONS_FILE, conventions),
-        (CONST_REVIEW_CONVENTIONS_FILE, review_conventions),
-    ):
-        if text:
-            (corpus_dir / name).parent.mkdir(parents=True, exist_ok=True)
-            (corpus_dir / name).write_text(text, "utf-8")
+    if conventions:
+        (corpus_dir / CORPUS_CONVENTIONS_FILE).write_text(conventions, "utf-8")
     corpus = DefectCorpus(
         sources=list(sources),
         seed=seed,

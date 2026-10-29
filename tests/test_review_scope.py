@@ -66,13 +66,28 @@ def _read_in(api: GitHubApiFake, repo: str) -> list[tuple[str, str]]:
     ]
 
 
+def test_a_pr_checkout_carries_no_review_guards_file_from_the_base(
+    tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """Verify a pull request checkout takes `AGENTS.md` from the base and no `.devops/review.md` (#1916)."""
+    route_file(github_api, "base/app", "AGENTS.md", "base456", "# Conventions\n")
+    route_file(github_api, "base/app", ".devops/review.md", "base456", "# Review rules\n")
+
+    _materialize_pr_head(get_github_session().client, "base/app", _pull(), tmp_path, [])
+
+    assert (
+        (tmp_path / "AGENTS.md").read_text(encoding="utf-8"),
+        (tmp_path / ".devops/review.md").exists(),
+        (".devops/review.md", "base456") in _read_in(github_api, "base/app"),
+    ) == ("# Conventions\n", False, False)
+
+
 def test_a_pr_review_reads_the_pr_heads_files_and_conventions(
     tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
     """Verify changed files are written from head repo, and conventions are safely loaded from base (#658)."""
     route_file(github_api, "fork/app", "src/app.py", "abc123", "print('head version')\n")
     route_file(github_api, "base/app", "AGENTS.md", "base456", "# Conventions\n")
-    route_file(github_api, "base/app", ".devops/review.md", "base456", "# Review rules\n")
     files = [
         PullRequestFile(filename=name, status=status, additions=1, changes=1)
         for name, status in (
@@ -89,20 +104,18 @@ def test_a_pr_review_reads_the_pr_heads_files_and_conventions(
     assert (
         written,
         (tmp_path / "src/app.py").read_text(encoding="utf-8"),
-        (tmp_path / ".devops/review.md").exists(),
+        (tmp_path / "AGENTS.md").read_text(encoding="utf-8"),
         (tmp_path / "old.py").exists(),
         (tmp_path.parent / "escape.py").exists(),
         _read_in(github_api, "fork/app"),
-        (".devops/review.md", "base456") in _read_in(github_api, "base/app"),
         {request.headers["authorization"] for request in github_api.sent},
     ) == (
-        3,
+        2,
         "print('head version')\n",
-        True,
+        "# Conventions\n",
         False,
         False,
         [("src/app.py", "abc123")],
-        True,
         {f"token {pin_github_session}"},
     )
 

@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
     CONST_PYTEST_MODULES,
     CONST_PYTEST_RUNNER_FUNCTIONS,
     CONST_PYTHON_CRITERIA_BINARIES,
-    CONST_REVIEW_CONVENTIONS_FILE,
 )
 
 _TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
@@ -143,18 +142,6 @@ def nearest_conventions(start: Path, revision: str | None = None) -> str:
     With `revision`, the files are read as they were at that git revision, not from disk.
     """
     return _nearest(start, _read_candidate_conventions_file, revision)
-
-
-def _read_review_conventions_file(directory: Path, read_file: _FileReader) -> str:
-    return read_file(directory / CONST_REVIEW_CONVENTIONS_FILE) or ""
-
-
-def nearest_review_conventions(start: Path, revision: str | None = None) -> str:
-    """The nearest `.devops/review.md`: rules a project keeps for reviews of its own code.
-
-    With `revision`, the files are read as they were at that git revision, not from disk.
-    """
-    return _nearest(start, _read_review_conventions_file, revision).strip()
 
 
 def _read_candidate_conventions_file(directory: Path, read_file: _FileReader) -> str:

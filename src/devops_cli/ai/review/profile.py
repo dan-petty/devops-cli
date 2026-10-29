@@ -121,7 +121,7 @@ class ReviewProfile(BaseModel):
     target: str
     # The review prompts the session started with, so runs of one prompt set can be told apart.
     prompt_digest: str = ""
-    # The target's conventions (`AGENTS.md` and `.devops/review.md`) its prompts carried, which
+    # The target's conventions (`AGENTS.md` or a peer file) its prompts carried, which
     # the prompt digest does not cover; empty when they carried none.
     conventions_digest: str = ""
     # The digest of the tools lock the review started with: the versions its tools are pinned

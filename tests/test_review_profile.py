@@ -361,7 +361,7 @@ def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
     under different conventions looked alike. A review whose target has no conventions records
     an empty digest, as one that never read them does, not the digest of an empty text.
     """
-    from devops_cli.ai.review.review_environment import nearest_review_conventions
+    from devops_cli.ai.review.review_environment import nearest_conventions
     from devops_cli.ai.run_store import digest
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
@@ -370,13 +370,12 @@ def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
         project = tmp_path / name
         (project / ".git").mkdir(parents=True)
         if rules:
-            (project / ".devops").mkdir()
-            (project / ".devops" / "review.md").write_text(rules, encoding="utf-8")
+            (project / "AGENTS.md").write_text(rules, encoding="utf-8")
         orchestrator = ReviewPipelineOrchestrator(
             session_id=name, llm_client=MagicMock(), target_dir=project
         )
         with profiling() as profiler:
-            conventions = nearest_review_conventions(project)
+            conventions = nearest_conventions(project)
             if conventions:
                 profiler.set_conventions(conventions)
             _write_review_profile(profiler, orchestrator, str(project), 1)

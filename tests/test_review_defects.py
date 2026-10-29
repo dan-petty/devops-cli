@@ -26,10 +26,7 @@ from devops_cli.ai.review.defects import (
     select_templates,
 )
 from devops_cli.ai.review.profile import ReviewProfile
-from devops_cli.ai.review.review_environment import (
-    nearest_conventions,
-    nearest_review_conventions,
-)
+from devops_cli.ai.review.review_environment import nearest_conventions
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.ai.run_store import Mechanism, load_runs
 from devops_cli.commands import review as review_commands
@@ -488,9 +485,9 @@ def test_a_corpus_inside_a_repository_reads_none_of_its_conventions(
     """Verify the conventions lookup stops at the corpus root its manifest marks (#946).
 
     A corpus is written under the reviews directory of the checkout that made it, and its
-    review climbed to that checkout's `AGENTS.md` and `.devops/review.md`, so every arm of a
-    benchmark was scored under conventions it did not choose. A source with none gives a
-    corpus with none; one with its own gives the corpus a copy.
+    review climbed to that checkout's `AGENTS.md`, so every arm of a benchmark was scored under
+    conventions it did not choose. A source with none gives a corpus with none; one with its
+    own gives the corpus a copy.
     """
     repo = _repository_with_conventions(tmp_path / "repo")
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(repo / ".data"))
@@ -505,25 +502,39 @@ def test_a_corpus_inside_a_repository_reads_none_of_its_conventions(
         sources=[str(source)],
         seed=7,
         conventions="Source conventions.\n",
-        review_conventions="Source review rules.\n",
     )
 
     assert (
         generated.exit_code,
-        (nearest_conventions(files / "src"), nearest_review_conventions(files / "src")),
-        (nearest_conventions(reviews), nearest_review_conventions(reviews)),
+        nearest_conventions(files / "src"),
+        nearest_conventions(reviews),
         bool(copied.injections),
-        (
-            nearest_conventions(repo / "copied" / CORPUS_FILES_DIR),
-            nearest_review_conventions(repo / "copied" / CORPUS_FILES_DIR),
-        ),
-    ) == (
-        0,
-        ("", ""),
-        ("Repository conventions.\n", "Repository review rules."),
-        True,
-        ("Source conventions.\n", "Source review rules."),
+        nearest_conventions(repo / "copied" / CORPUS_FILES_DIR),
+    ) == (0, "", "Repository conventions.\n", True, "Source conventions.\n")
+
+
+def test_a_corpus_carries_no_review_guards_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a corpus copies its source's `AGENTS.md` and no `.devops/review.md` (#1916).
+
+    No review stage reads a review guards file, so a corpus carries none, even from a source
+    whose repository keeps one.
+    """
+    repo = _repository_with_conventions(tmp_path / "repo")
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    source = _source_tree(repo)
+    corpus = tmp_path / "corpus"
+
+    generated = cli.invoke(
+        review_commands.corpus_app, ["generate", str(source), "--seed", "7", "--out", str(corpus)]
     )
+
+    assert (
+        generated.exit_code,
+        (corpus / "AGENTS.md").read_text(encoding="utf-8"),
+        (corpus / ".devops" / "review.md").exists(),
+    ) == (0, "Repository conventions.\n", False)
 
 
 def test_a_manifest_that_is_not_a_corpus_stops_no_conventions_lookup(tmp_path: Path) -> None:
@@ -532,7 +543,7 @@ def test_a_manifest_that_is_not_a_corpus_stops_no_conventions_lookup(tmp_path: P
     (repo / "public").mkdir()
     (repo / "public" / CORPUS_MANIFEST).write_text('{"name": "app"}', encoding="utf-8")
 
-    assert nearest_review_conventions(repo / "public") == "Repository review rules."
+    assert nearest_conventions(repo / "public") == "Repository conventions.\n"
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs FIFOs")
