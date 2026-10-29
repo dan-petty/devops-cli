@@ -72,6 +72,11 @@ from devops_cli.roadmap.intake import (
     plan_intake,
     raise_for_failed_placements,
 )
+
+# `refine` imports pydantic_ai. The Python 3.14 import lock deadlocks when two worker threads
+# import it for the first time together, so import it at module level, in the Service's main
+# thread, before any worker starts (#2535).
+from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
@@ -403,8 +408,6 @@ def _run_refine_adapter(
 ) -> JobOutcome:
     """Run refine job and return JobOutcome; it fails, once the other items are written, when the
     model call failed for any item."""
-    from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
-
     source = _job_clone("refine", clone_path)
     plan = plan_refine(store, repo=repo, source=source)
     if plan.has_writes:

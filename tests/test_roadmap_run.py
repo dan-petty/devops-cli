@@ -12,6 +12,7 @@ branch.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
@@ -91,6 +92,7 @@ from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
 
@@ -106,6 +108,34 @@ POLL_KEY = ("poll", "", "")
 # The Priority that makes an issue an Item, as a person sets it.
 PLACED = {ItemField.PRIORITY: "P2-Medium"}
 runner = CliRunner()
+
+
+def test_the_refine_import_is_at_module_level_not_lazy_in_the_adapter(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
+    """The refine adapter imports `devops_cli.roadmap.refine` at module level, so the Service's
+    main thread imports pydantic_ai before its worker threads start, and two workers never import
+    it for the first time at once and deadlock on the Python 3.14 import lock (#2535)."""
+    tree = parsed_source_trees[REPO_ROOT / "src" / "devops_cli" / "roadmap" / "run.py"]
+
+    module_level = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and (node.module or "") == "devops_cli.roadmap.refine"
+    ]
+    adapter = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_refine_adapter"
+    )
+    local = [
+        node
+        for node in ast.walk(adapter)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith("devops_cli.roadmap.refine")
+    ]
+
+    assert (len(module_level), local) == (1, [])
 
 
 @pytest.fixture
