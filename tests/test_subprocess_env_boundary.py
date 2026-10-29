@@ -182,6 +182,14 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 # PYTHONPLATLIBDIR, PYTHONPYCACHEPREFIX, NODE_COMPILE_CACHE, NODE_REPL_EXTERNAL_MODULE and
 # JDK_JAVA_OPTIONS, it is the source of _JAVA_OPTIONS, and it lists GIT_SSH_COMMAND and the
 # GIT_CONFIG_* family. GIT_CONFIG_KEY_12 and GIT_CONFIG_VALUE_12 pin the prefix rule of the pairs.
+# The guard refuses each SSH_ key (#2633). ssh, ssh-add, ssh-keygen and git start the program of
+# SSH_ASKPASS, and SSH_ASKPASS_REQUIRE makes them do so with a terminal present (ssh(1),
+# ssh-add(1)). ssh-keygen and ssh-add load the library of SSH_SK_PROVIDER, and they start the
+# program of SSH_SK_HELPER. ssh-agent starts the program of SSH_PKCS11_HELPER (the source of
+# OpenSSH, no page lists the two helpers). SSH_AUTH_SOCK names the agent that gets the private key
+# of ssh-add, and SSH_AGENT_PID names the process that ssh-agent -k ends (ssh-agent(1)).
+# SSH_ORIGINAL_COMMAND is a key that sshd sets, and SSH_EXAMPLE_KEY pins the rule that an SSH_ key
+# is refused. ssh starts the program of SHELL to run a ProxyCommand, so the guard refuses SHELL too.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
@@ -242,6 +250,16 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "PAGER",
     "LESSOPEN",
     "LESSCLOSE",
+    "SSH_ASKPASS",
+    "SSH_ASKPASS_REQUIRE",
+    "SSH_SK_PROVIDER",
+    "SSH_SK_HELPER",
+    "SSH_PKCS11_HELPER",
+    "SSH_AUTH_SOCK",
+    "SSH_AGENT_PID",
+    "SSH_ORIGINAL_COMMAND",
+    "SSH_EXAMPLE_KEY",
+    "SHELL",
     "PYTHONPATH",
     "PYTHONHOME",
     "PYTHONSTARTUP",
@@ -274,7 +292,7 @@ def test_a_caller_override_that_loads_code_into_the_child_is_refused(
 ) -> None:
     """A caller override of a loader, glibc, shell or interpreter variable that loads or runs
     code raises `SecurityError` that names the key, in upper and in lower case, with isolation on
-    and off (#2151, #2205, #2433, #2429, #2483)."""
+    and off (#2151, #2205, #2433, #2429, #2483, #2633)."""
     with pytest.raises(SecurityError) as refused:
         build_subprocess_env(
             env={"EXAMPLE_FLAG": "on", key: "libexample.so"}, isolate_env=isolate_env
@@ -292,7 +310,7 @@ def test_an_isolated_child_gets_no_refused_key_from_the_environment(
 ) -> None:
     """With isolation on, no key that the guard refuses from a caller reaches the child from the
     environment of the person, in upper or in lower case, for example `PYTHONPATH`,
-    `PYTHONHOME` and `GIT_CONFIG_GLOBAL` (#2429, #2483)."""
+    `PYTHONHOME`, `GIT_CONFIG_GLOBAL` and `SHELL` (#2429, #2483, #2633)."""
     environment_keys = [*REFUSED_OVERRIDE_KEYS, *(key.lower() for key in REFUSED_OVERRIDE_KEYS)]
     for key in environment_keys:
         monkeypatch.setenv(key, "example")
@@ -340,6 +358,49 @@ def test_a_git_key_that_devops_cli_sets_reaches_the_child(
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
         "EXAMPLE_GIT_SSH_COMMAND": "example",
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
+    }
+
+    env = build_subprocess_env(env=override, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in override} == override
+
+
+def test_a_child_without_isolation_gets_the_ssh_keys_and_shell_of_the_person(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The guard refuses a caller override only. With `isolate_env=False` the child gets the
+    environment of the person as it is, `SHELL`, `SSH_AUTH_SOCK` and `SSH_ASKPASS` included
+    (#2633)."""
+    ambient = {
+        "SHELL": "/bin/example-shell",
+        "SSH_AUTH_SOCK": str(tmp_path / "agent.sock"),
+        "SSH_ASKPASS": str(tmp_path / "askpass"),
+    }
+    for key, value in ambient.items():
+        monkeypatch.setenv(key, value)
+
+    env = build_subprocess_env(env={"EXAMPLE_FLAG": "on"}, isolate_env=False)
+
+    assert {key: env.get(key) for key in ambient} == ambient
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_a_key_that_ssh_reads_but_that_runs_no_program_reaches_the_child(
+    isolate_env: bool, tmp_path: Path
+) -> None:
+    """The keys that choose a display, a cookie file, a temporary directory or a locale reach the
+    child, as does a key that starts with `SSH` and has no underscore after it, and a key that
+    only contains a refused ssh name. `ssh` takes its configuration from the home directory of
+    the account, so `HOME` reaches the child too (#2633)."""
+    override = {
+        "DISPLAY": ":99",
+        "WAYLAND_DISPLAY": "wayland-99",
+        "XAUTHORITY": str(tmp_path / "cookie"),
+        "TMPDIR": str(tmp_path),
+        "LANG": "C.UTF-8",
+        "HOME": str(tmp_path / "home"),
+        "SSHPASS": "example",
+        "EXAMPLE_SSH_ASKPASS": "example",
     }
 
     env = build_subprocess_env(env=override, isolate_env=isolate_env)
