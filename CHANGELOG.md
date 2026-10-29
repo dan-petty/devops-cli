@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0](https://github.com/dan-petty/devops-cli/compare/v0.13.2...v0.14.0) (2026-10-29)
+
+
+### Features
+
+* **argo:** apps status checks each pinned image against its registry ([#2605](https://github.com/dan-petty/devops-cli/issues/2605)) ([6933005](https://github.com/dan-petty/devops-cli/commit/69330051f515c5c10741fd79d2768bb79c2d60b3)), closes [#1997](https://github.com/dan-petty/devops-cli/issues/1997)
+* **k8s:** push the Argo CD notifier App's IDs and key ([#2608](https://github.com/dan-petty/devops-cli/issues/2608)) ([a408dee](https://github.com/dan-petty/devops-cli/commit/a408dee1361e9bd198993edd58712c25ef7c3dee))
+* **release:** an urgent fix merges the release pull request ([#2596](https://github.com/dan-petty/devops-cli/issues/2596)) ([20e8ac4](https://github.com/dan-petty/devops-cli/commit/20e8ac46a41f267a7ee052bd829510cc68cb4ad9))
+* **roadmap:** a webhook event runs intake of its one issue ([#2607](https://github.com/dan-petty/devops-cli/issues/2607)) ([cf9f02c](https://github.com/dan-petty/devops-cli/commit/cf9f02c2a4fa0051751a783f55548f5c2f52e1de)), closes [#2009](https://github.com/dan-petty/devops-cli/issues/2009)
+* **roadmap:** devops roadmap intake-eval scores duplicates ([#2601](https://github.com/dan-petty/devops-cli/issues/2601)) ([22146d6](https://github.com/dan-petty/devops-cli/commit/22146d65d9d3588e4a349a3ced60a682c710c88a))
+
+
+### Code Refactoring
+
+* **ai:** three in-process caches use cachetools ([#2611](https://github.com/dan-petty/devops-cli/issues/2611)) ([0c30d2a](https://github.com/dan-petty/devops-cli/commit/0c30d2a8c232e558568f056b788fda83d1947aba)), closes [#1993](https://github.com/dan-petty/devops-cli/issues/1993)
+
 ## [0.13.2](https://github.com/dan-petty/devops-cli/compare/v0.13.1...v0.13.2) (2026-10-29)
 
 
