@@ -8,6 +8,7 @@ import pytest
 
 from devops_cli.exceptions import ValidationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import (
     LeftOut,
     StageSelection,
@@ -18,6 +19,7 @@ from devops_cli.roadmap.store import GitHubState, ItemField, StageRecordKey
 
 REPO = "example/roadmap"
 BUG = ("type/bug",)
+NO_PLANS = PlannedChanges("main", {}, {})
 
 
 def _no_holder(_issue: int) -> str | None:
@@ -49,11 +51,17 @@ def _select(
     store: InMemoryRoadmapStore,
     *filters: str,
     holder_of: Callable[[int], str | None] = _no_holder,
+    planned: PlannedChanges = NO_PLANS,
     item: int | None = None,
     limit: int = 3,
 ) -> StageSelection:
     return select_stageable(
-        store, filters=parse_filters(filters), holder_of=holder_of, item_number=item, limit=limit
+        store,
+        filters=parse_filters(filters),
+        holder_of=holder_of,
+        planned=planned,
+        item_number=item,
+        limit=limit,
     )
 
 
@@ -192,6 +200,25 @@ def test_a_held_item_is_left_out_with_the_sentence_of_its_holder(
 
     assert _numbers(selection) == [free]
     assert _reasons(selection) == {held: f"Issue {held} is held by the branch origin/fix/{held}-x."}
+
+
+def test_an_item_with_a_folder_on_the_default_branch_is_left_out_by_its_issue_number_alone(
+    store: InMemoryRoadmapStore,
+) -> None:
+    planned, archived, free = _seed(store), _seed(store), _seed(store)
+    plans = PlannedChanges(
+        "trunk", {planned: f"{planned}-any-slug"}, {archived: f"2026-10-28-{archived}-old"}
+    )
+
+    selection = _select(store, planned=plans)
+
+    assert _numbers(selection) == [free]
+    assert _reasons(selection) == {
+        planned: f"Its plan is on trunk: the change folder `{planned}-any-slug` is there.",
+        archived: (
+            f"Its change is archived on trunk: the folder `2026-10-28-{archived}-old` is there."
+        ),
+    }
 
 
 @pytest.mark.parametrize(

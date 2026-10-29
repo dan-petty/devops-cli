@@ -4470,16 +4470,18 @@ CONST_OPENSPEC_SPECS_DIR: Final[str] = f"{CONST_OPENSPEC_DIR}/specs"
 # is `openspec/changes/<issue>-<slug>/<file>`. The issue is the only link from a folder to GitHub.
 # The number is read as an integer, so `089-x` belongs to #89.
 CONST_OPENSPEC_CHANGE_NAME_RE: Final[str] = r"(?P<issue>\d+)-[^/]+"
-CONST_OPENSPEC_CHANGE_FOLDER_RE: Final[str] = (
-    rf"{CONST_OPENSPEC_CHANGES_DIR}/(?P<change>{CONST_OPENSPEC_CHANGE_NAME_RE})/.+"
+CONST_OPENSPEC_CHANGE_DIR_RE: Final[str] = (
+    rf"{CONST_OPENSPEC_CHANGES_DIR}/(?P<change>{CONST_OPENSPEC_CHANGE_NAME_RE})"
 )
+CONST_OPENSPEC_CHANGE_FOLDER_RE: Final[str] = rf"{CONST_OPENSPEC_CHANGE_DIR_RE}/.+"
 # The closed grammar of an archived change: `openspec archive` puts the date of the archive before
 # the name, `openspec/changes/archive/<YYYY-MM-DD>-<issue>-<slug>/<file>`. It is a grammar of its
 # own, because the active grammar would read the year of the date as the issue.
-CONST_OPENSPEC_ARCHIVED_FOLDER_RE: Final[str] = (
+CONST_OPENSPEC_ARCHIVED_DIR_RE: Final[str] = (
     rf"{CONST_OPENSPEC_ARCHIVE_DIR}/(?P<date>\d{{4}}-\d{{2}}-\d{{2}})-"
-    rf"(?P<change>{CONST_OPENSPEC_CHANGE_NAME_RE})/.+"
+    rf"(?P<change>{CONST_OPENSPEC_CHANGE_NAME_RE})"
 )
+CONST_OPENSPEC_ARCHIVED_FOLDER_RE: Final[str] = rf"{CONST_OPENSPEC_ARCHIVED_DIR_RE}/.+"
 # What stops OpenSpec's telemetry and its check for a newer version, and its prompts. The sanitized
 # environment `run_subprocess` builds keeps none of them, so the tool's runner sets each.
 CONST_OPENSPEC_OPT_OUT_ENV: Final[dict[str, str]] = {

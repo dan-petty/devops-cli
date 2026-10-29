@@ -89,7 +89,7 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
 
     assert (applied.staged, applied.stopped, applied.failed) == ((1,), (), ())
     assert stage_repo.origin_git("log", "--format=%ae|%s", f"main..{BRANCH}") == (
-        f"{STAGE_EMAIL}|fix(roadmap): Stop the job dropping a comment"
+        f"{STAGE_EMAIL}|docs(openspec): plan #1 Stop the job dropping a comment"
     )
     files = stage_repo.origin_git("ls-tree", "-r", "--name-only", BRANCH, "--", "openspec").split()
     assert files == [
@@ -104,6 +104,7 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
     assert opened.requested == [f"POST {API}{PULLS}"]
     request = json.loads(opened.sent[0].content)
     assert request["draft"] is True
+    assert request["title"] == "docs(openspec): plan #1 Stop the job dropping a comment"
     assert (request["head"], request["base"]) == (BRANCH, "main")
     assert request["body"].startswith("Plans #1\n")
 

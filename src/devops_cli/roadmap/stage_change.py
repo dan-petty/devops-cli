@@ -11,6 +11,7 @@ the context packer.
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -28,8 +29,13 @@ from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.refine import sanitize_text
 
-# The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming).
+# The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming): the part
+# after `<type>(<scope>): `, which the check `Semantic PR title` measures.
 SUMMARY_MAX_CHARS: Final[int] = 60
+# A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
+# revert add a line to the changelog, so a pull request that only plans an item has this type.
+_STAGING_TYPE: Final[str] = "docs(openspec)"
+_ELLIPSIS: Final[str] = "..."
 # The most characters of the body of a pull request: it is the message of the squash commit.
 BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
@@ -122,9 +128,9 @@ class StageGroup(_Reply):
 
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
-    `pull_request_body` the what and why of its body."""
+    `pull_request_body` the what and why of its body. The scope and the type of the title are not
+    the model's: see `staging_title`."""
 
-    scope: Annotated[str, AfterValidator(_capability_name)] | None = None
     summary: str = Field(min_length=1, max_length=SUMMARY_MAX_CHARS)
     pull_request_body: str = Field(min_length=1, max_length=BODY_MAX_CHARS)
     why: str
@@ -328,6 +334,27 @@ def render_change(
     for spec in proposal.specs:
         files[f"{root}/specs/{spec.capability}/spec.md"] = _spec_file(spec)
     return files
+
+
+def staging_title(number: int, summary: str) -> str:
+    """The title of the draft pull request of item `number`: `docs(openspec): plan #<number>
+    <summary>`. The summary is cut at a word, so that the part after the colon has at most
+    `SUMMARY_MAX_CHARS` characters (#2714). It is on one line, with a handle or a link in a code
+    span, so it pings no one."""
+    lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
+    room = SUMMARY_MAX_CHARS - len(lead)
+    shortened = textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)
+    return f"{_STAGING_TYPE}: {lead}{shortened}"
+
+
+def delivery_title(issue_title: str) -> str:
+    """The title of the pull request that delivers the code of an item (#2714): the type and the
+    scope of the issue's title, and its summary cut at a word to `SUMMARY_MAX_CHARS`. The staging
+    pull request has the type `docs(openspec)`, which the delivery must not keep. A mark of a
+    breaking change is dropped: the project has none before 1.0.0."""
+    head, _, summary = issue_title.partition(":")
+    shortened = textwrap.shorten(safe_text(summary), SUMMARY_MAX_CHARS, placeholder=_ELLIPSIS)
+    return f"{head.strip().removesuffix('!')}: {shortened}"
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:

@@ -133,7 +133,8 @@ def test_an_item_that_stage_has_not_recorded_is_left_out_as_not_staged(
     plan = _plan(store, staged_repo)
 
     assert _reasons(plan) == {
-        number: "It is not Staged: its record holds no staged branch or pull request."
+        number: "It is neither Staged nor Planned: its record holds no staged branch or pull "
+        "request, and main holds no change folder for it."
     }
 
 

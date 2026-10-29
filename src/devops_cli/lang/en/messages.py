@@ -2000,7 +2000,18 @@ class RoadmapMessages:
     implement_left_closed: str = "It is closed."
     implement_left_not_ready: str = "Its Status is {status}, not Ready."
     implement_left_not_staged: str = (
-        "It is not Staged: its record holds no staged branch or pull request."
+        "It is neither Staged nor Planned: its record holds no staged branch or pull request, "
+        "and {branch} holds no change folder for it."
+    )
+    implement_left_planned_branch: str = (
+        "Its change folder `{folder}` gives the branch `{branch}`, which breaks the form "
+        "<type>/<issue>-<slug>."
+    )
+    implement_left_all_ticked: str = (
+        "Every task of its change `{folder}` is ticked, so no group is left to run."
+    )
+    implement_left_no_tasks: str = (
+        "Its change `{folder}` has no readable tasks.md on {branch}: {reason}"
     )
     implement_left_stopped: str = (
         "A step stopped it at {stopped}. A person fixes the cause and comments `implement: retry`."
@@ -2021,6 +2032,9 @@ class RoadmapMessages:
     implement_job_heading_left: str = "## Left out"
     implement_job_ready_line: str = (
         "- #{number} {title}: branch `{branch}`, pull request #{pull}{retry}"
+    )
+    implement_job_planned_line: str = (
+        "- #{number} {title}: Planned, new branch `{branch}` and a new pull request{retry}"
     )
     implement_job_retry_note: str = " (a retry: the stop on record is cleared first)"
     implement_job_left_line: str = "- #{number} {title}: {reason}"
@@ -2112,6 +2126,13 @@ class RoadmapMessages:
     implement_pull_body: str = (
         "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
     )
+    implement_pull_body_draft: str = (
+        "Work on #{number}. The job closes the issue in the body when it finishes."
+    )
+    implement_stop_draft_failed: str = (
+        "GitHub did not open the draft pull request of `{branch}`: {output}. The job removed the "
+        "branch from origin."
+    )
     implement_step_needs_item: str = "A step needs --item with --group."
     implement_step_job_options: str = (
         "--filter, --plan and --confirm are options of the job. With --group, the command runs "
@@ -2149,6 +2170,8 @@ class RoadmapMessages:
     stage_left_secret: str = (
         "The title or the body looks like a secret, so the model does not read it."
     )
+    stage_left_planned: str = "Its plan is on {branch}: the change folder `{folder}` is there."
+    stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     stage_left_closed: str = "The issue is closed."
     stage_left_not_item: str = (
         "The issue is no item: it has no Priority label, or it does not exist."
@@ -2223,6 +2246,8 @@ class RoadmapMessages:
         default_factory=lambda: {
             "update_clone": "update the model clone of the repository",
             "remote_heads": "the branches of origin",
+            "fetch_default": "fetch the default branch, to read its plans",
+            "default_plans": "the change folders of the default branch",
             "model_change": "the analysis model plans the change of the item",
             "model_split": "the analysis model splits the task groups over the budget",
             "model_correction": "the analysis model corrects a change that fails its checks",
@@ -2251,17 +2276,23 @@ class RoadmapMessages:
         default_factory=lambda: {
             "update_clone": "update the model clone of the repository",
             "remote_heads": "the branches of origin",
+            "fetch_default": "fetch the default branch, to read its plans",
+            "default_plans": "the change folders of the default branch",
+            "planned_tasks": "the tasks of the change that the default branch holds",
             "fetch_branch": "the staged branch of an item",
             "authors": "the authors of the commits of the staged branch",
             "pull_status": "the state of the draft pull request of the item",
             "worktree": "the worktree on the staged branch, which the job takes over",
+            "worktree_new": "the worktree on a new branch at the fetched default branch",
             "rebase": "rebase the staged branch onto the fetched default branch",
             "model_step": "the implement model runs one task group",
             "commit": "commit the files of the task group",
             "docs": "regenerate the documentation of the change",
             "archive": "archive the change",
             "push": "push the branch with a lease on its remote tip",
-            "body": "set the body of the pull request to close the issue",
+            "push_new": "push the new branch, once it holds a commit past the default branch",
+            "create_pull": "open the draft pull request of the new branch",
+            "body": "set the title and the body of the pull request to close the issue",
             "pull_comment": "comment the outcome of each step on the pull request",
             "run_log": "read the log of the failed check",
             "model_fix": "the implement model fixes the failed check, once",
@@ -2273,6 +2304,10 @@ class RoadmapMessages:
     implement_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "comments": "the item holds a stop",
+            "planned": (
+                "the item is Planned: its plan is on the default branch and its branch is gone"
+            ),
+            "staged": "the item is Staged: its branch is on origin",
             "clear_stop": "a retry comment clears the stop",
             "docs_commit": "the documentation changes",
             "run_log": "a check fails",
@@ -2306,6 +2341,7 @@ class RoadmapMessages:
     stage_impact_documents: str = "Documents"
     stage_impact_tests: str = "Tests"
     stage_group_files: str = "Reads: {reads}. Changes: {changes}."
+    stage_title_lead: str = "plan #{number} "
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
     )
@@ -2344,6 +2380,7 @@ class RoadmapMessages:
             "blocker": "<blocking item>",
             "path": "<cited path>",
             "branch": "<branch>",
+            "new_branch": "<new branch>",
             "change": "<change>",
             "pull": "<pull request>",
             "remote_tip": "<remote tip>",

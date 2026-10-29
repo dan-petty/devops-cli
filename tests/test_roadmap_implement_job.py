@@ -224,8 +224,9 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
     ]
     assert job_world.sent("PATCH", f"pulls/{PULL}") == [
         {
+            "title": "fix(roadmap): the job drops a comment",
             "body": "Closes #1\n\nThe job drops the last comment of a thread (#1). It must keep it."
-            f"\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`"
+            f"\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
         }
     ]
     assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]
@@ -296,6 +297,15 @@ def test_the_record_keeps_the_last_group_the_last_commit_and_the_spend_of_every_
         4,
     )
     assert spend["input_tokens"] > 0
+
+
+def test_the_record_of_a_staged_item_keeps_its_branch_and_its_pull_request(
+    job_world: JobWorld,
+) -> None:
+    job_world.run(two_groups())
+
+    _, record = _item(job_world)
+    assert (record["implement.branch"], record["implement.pr"]) == (BRANCH, str(PULL))
 
 
 def test_the_push_runs_in_the_worktree_with_a_lease_and_leaves_no_worktree_behind(

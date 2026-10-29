@@ -14,7 +14,7 @@ from devops_cli.roadmap.store import ImplementRecordKey, ItemField, decode_job_r
 from tests.support.builders import make_item
 
 
-def test_the_job_keeps_five_keys_in_the_record_of_an_item() -> None:
+def test_the_job_keeps_six_keys_in_the_record_of_an_item() -> None:
     store = InMemoryRoadmapStore()
     number = store.seed_issue("fix(x): y", fields={ItemField.PRIORITY: "P1-High"})
     item = store.item(number)
@@ -25,6 +25,7 @@ def test_the_job_keeps_five_keys_in_the_record_of_an_item() -> None:
         {
             ImplementRecordKey.GROUP: "2",
             ImplementRecordKey.SHA: "abc",
+            ImplementRecordKey.BRANCH: "fix/1-y",
             ImplementRecordKey.PR: "9",
             ImplementRecordKey.STOPPED: "group 3",
             ImplementRecordKey.SPEND: '{"requests": 7}',
@@ -36,6 +37,7 @@ def test_the_job_keeps_five_keys_in_the_record_of_an_item() -> None:
     assert held.job_record == {
         ImplementRecordKey.GROUP: "2",
         ImplementRecordKey.SHA: "abc",
+        ImplementRecordKey.BRANCH: "fix/1-y",
         ImplementRecordKey.PR: "9",
         ImplementRecordKey.STOPPED: "group 3",
         ImplementRecordKey.SPEND: '{"requests": 7}',
@@ -43,10 +45,16 @@ def test_the_job_keeps_five_keys_in_the_record_of_an_item() -> None:
 
 
 def test_a_record_block_from_a_person_edit_is_decoded_with_the_implement_keys() -> None:
-    held = {"implement.stopped": "rebase", "implement.pr": "4", "other.job": "kept"}
+    held = {
+        "implement.stopped": "rebase",
+        "implement.branch": "fix/4-z",
+        "implement.pr": "4",
+        "other.job": "kept",
+    }
 
     assert decode_job_record(held) == {
         ImplementRecordKey.STOPPED: "rebase",
+        ImplementRecordKey.BRANCH: "fix/4-z",
         ImplementRecordKey.PR: "4",
     }
 

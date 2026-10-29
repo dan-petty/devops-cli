@@ -113,7 +113,7 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
     (change,) = plan.ready
     assert (change.target.branch, change.title, change.body, change.validated) == (
         f"fix/{item}-the-job-drops-a-comment",
-        "fix(roadmap): Stop the job dropping a comment",
+        "docs(openspec): plan #1 Stop the job dropping a comment",
         (
             f"Plans #{item}\n\nThe job keeps every comment it reads. It dropped the last one.\n\n"
             f"Change: `openspec/changes/{item}-the-job-drops-a-comment/`"
@@ -304,10 +304,10 @@ def test_an_existing_capability_takes_requirements_with_no_purpose() -> None:
         {"groups": [{"reads": ["../secret"]}]},
         {"groups": [{"changes": ["/etc/passwd"]}]},
         {"summary": "x" * 61},
-        {"scope": "Not A Slug"},
+        {"scope": "roadmap"},
     ],
 )
-def test_a_reply_with_a_path_outside_the_repository_or_a_long_summary_is_refused(
+def test_a_reply_with_a_path_outside_the_repository_a_long_summary_or_a_scope_is_refused(
     update: dict[str, Any],
 ) -> None:
     values = make_stage_proposal().model_dump()

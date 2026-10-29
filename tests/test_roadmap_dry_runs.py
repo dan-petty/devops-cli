@@ -376,9 +376,57 @@ def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_jo
 
     _, writes = implement_requests(REPO)
 
-    comment = next(request for request in writes if request.argv[:1] == ("POST",))
-    push = next(request for request in writes if request.argv[3:4] == ("push",))
+    comment = next(
+        request
+        for request in writes
+        if request.argv[:1] == ("POST",) and request.argv[1].endswith("/comments")
+    )
+    push = next(
+        request
+        for request in writes
+        if request.argv[3:4] == ("push",)
+        and "--force-with-lease=<branch>:<remote tip>" in request.argv
+    )
     assert (comment.argv[1], push.argv[4:]) == (
         f"{API}/repos/{REPO}/issues/<pull request>/comments",
         ("--force-with-lease=<branch>:<remote tip>", "origin", "<branch>"),
     )
+
+
+def test_the_stage_plan_reads_the_change_folders_of_the_default_branch_with_one_ls_tree() -> None:
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    reads, _ = stage_requests(REPO)
+
+    trees = [request.argv for request in reads if "ls-tree" in request.argv]
+    assert trees == [
+        (
+            "git",
+            "-C",
+            "<model-clone>",
+            "ls-tree",
+            "--name-only",
+            "origin/main",
+            "openspec/changes/",
+            "openspec/changes/archive/",
+        )
+    ]
+
+
+def test_the_implement_plan_reads_the_default_branch_and_lists_the_writes_of_a_planned_item() -> (
+    None
+):
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    reads, writes = implement_requests(REPO)
+
+    read_lines = [" ".join(request.argv) for request in reads]
+    write_lines = [" ".join(request.argv) for request in writes]
+    assert any("ls-tree --name-only origin/main openspec/changes/" in line for line in read_lines)
+    assert any("show origin/main:openspec/changes/<change>/tasks.md" in line for line in read_lines)
+    assert any(
+        "worktree add --no-track -b <new branch> <worktree> origin/main" in line
+        for line in write_lines
+    )
+    assert any("push -u origin <new branch>" in line for line in write_lines)
+    assert f"POST {API}/repos/{REPO}/pulls" in write_lines

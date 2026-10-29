@@ -106,7 +106,6 @@ def make_report_input(**overrides: Any) -> ReportInput:
 
 
 _STAGE_PROPOSAL: dict[str, Any] = {
-    "scope": "roadmap",
     "summary": "Stop the job dropping a comment",
     "pull_request_body": "The job keeps every comment it reads. It dropped the last one.",
     "why": "Issue #1: the job drops the last comment of a thread.",

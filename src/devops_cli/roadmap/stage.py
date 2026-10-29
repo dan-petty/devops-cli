@@ -2,8 +2,9 @@
 
 The job turns each item that a label filter names into a branch `<type>/<issue>-<slug>` at the
 fetched default branch, with the OpenSpec change `openspec/changes/<issue>-<slug>/` written from
-the refined body, one commit by the identity of the session, and a draft pull request whose body
-starts with `Plans #<issue>`. It never marks the pull request ready and never changes the item's
+the refined body, one commit by the identity of the session, and a draft pull request whose title
+is `docs(openspec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
+`Plans #<issue>`. It never marks the pull request ready and never changes the item's
 Status. The staged branch and the draft are the record.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
@@ -13,8 +14,10 @@ families all apply. With no `--filter` the job takes the filter of the setting
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
 It also leaves out an item with the label `needs-split`, an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
-(`worktree_add.issue_holder`), an item whose title gives no branch name, an item whose text looks
-like a secret, and an item whose record holds `stage.needs_split`. A run takes at most `--limit`
+(`worktree_add.issue_holder`), an item whose plan is already on the default branch or whose
+change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
+item whose title gives no branch name, an item whose text looks like a secret, and an item whose
+record holds `stage.needs_split`. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
 Ready.
 
@@ -79,6 +82,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
+from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
@@ -90,6 +94,7 @@ from devops_cli.roadmap.stage_change import (
     pull_request_body,
     render_change,
     safe_text,
+    staging_title,
     write_change_files,
 )
 from devops_cli.roadmap.stage_filter import split_filter_entry
@@ -157,7 +162,7 @@ class StageTarget:
         return branch_name(self.item.number, self.type_, self.slug)
 
 
-def _commit_type(title: str) -> str | None:
+def commit_type(title: str) -> str | None:
     """The Conventional Commit type of `title`, or None when it has none."""
     head, colon, _ = title.partition(":")
     kind = head.partition("(")[0].removesuffix("!")
@@ -197,9 +202,15 @@ class _Judge:
     the dearest: the labels and the text first, then the issues it depends on, then the git
     holders."""
 
-    def __init__(self, store: RoadmapStore, holder_of: Callable[[int], str | None]) -> None:
+    def __init__(
+        self,
+        store: RoadmapStore,
+        holder_of: Callable[[int], str | None],
+        planned: PlannedChanges,
+    ) -> None:
         self._store = store
         self._holder_of = holder_of
+        self._planned = planned
 
     def reason(self, item: Item, *, named: bool) -> str | None:
         """Why the job leaves `item` out, or None when it may stage it. A person who names the
@@ -210,6 +221,7 @@ class _Judge:
             self._author,
             self._title,
             self._dependency,
+            self._planned_on_default,
             self._held,
             self._secret,
         ]
@@ -237,7 +249,7 @@ class _Judge:
         )
 
     def _title(self, item: Item) -> str | None:
-        if _commit_type(item.title) is None:
+        if commit_type(item.title) is None:
             return MESSAGES.roadmap.stage_left_title_type
         return None if _slug_of(item.title) else MESSAGES.roadmap.stage_left_title_slug
 
@@ -250,6 +262,16 @@ class _Judge:
         if not open_issues:
             return None
         return MESSAGES.roadmap.stage_left_dependency.format(issues=", ".join(open_issues))
+
+    def _planned_on_default(self, item: Item) -> str | None:
+        """The plan is on the default branch, or its change is archived there (#2714). The folder
+        matches by the issue number, so a slug that differs from the title does not matter."""
+        texts = MESSAGES.roadmap
+        if (folder := self._planned.active.get(item.number)) is not None:
+            return texts.stage_left_planned.format(branch=self._planned.default, folder=folder)
+        if (folder := self._planned.archived.get(item.number)) is not None:
+            return texts.stage_left_archived.format(branch=self._planned.default, folder=folder)
+        return None
 
     def _held(self, item: Item) -> str | None:
         return self._holder_of(item.number)
@@ -267,7 +289,7 @@ class _Judge:
 
 def _target_of(item: Item) -> StageTarget:
     """The target of an item whose title gives a branch name (`_Judge._title`)."""
-    return StageTarget(item, _commit_type(item.title) or "", _slug_of(item.title))
+    return StageTarget(item, commit_type(item.title) or "", _slug_of(item.title))
 
 
 def priority_order(item: Item) -> tuple[int, int]:
@@ -298,15 +320,17 @@ def select_stageable(
     *,
     filters: StageFilter,
     holder_of: Callable[[int], str | None],
+    planned: PlannedChanges,
     limit: int,
     item_number: int | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
-    `holder_of` tells who holds an issue (`worktree_add.issue_holder`), or None. With
-    `item_number` the filter and the limit do not apply.
+    `holder_of` tells who holds an issue (`worktree_add.issue_holder`), or None. `planned` holds
+    the change folders of the default branch (#2714). With `item_number` the filter and the limit
+    do not apply.
     """
-    judge = _Judge(store, holder_of)
+    judge = _Judge(store, holder_of, planned)
     if item_number is not None:
         return _named_item(judge, store, item_number)
     named = sorted(
@@ -494,7 +518,7 @@ class _Planner:
         problems = check_proposal(proposal, self._known)
         if problems:
             return " ".join(problems)
-        title = _title_of(target, proposal)
+        title = staging_title(target.item.number, proposal.summary)
         body = pull_request_body(target.item.number, target.change, proposal)
         keyword = closing_keyword_in(f"{title}\n{body}")
         if keyword is not None:
@@ -551,13 +575,6 @@ class _Planner:
         if self._tool is None:
             return None
         return validate_change(self._tool, self._source, change, files)
-
-
-def _title_of(target: StageTarget, proposal: StageProposal) -> str:
-    """The Conventional Commit title of the pull request: the type of the item's title, the
-    scope and the summary of the reply."""
-    scope = f"({proposal.scope})" if proposal.scope else ""
-    return f"{target.type_}{scope}: {safe_text(proposal.summary)}"
 
 
 def _capabilities(source: Path) -> frozenset[str]:
@@ -675,6 +692,7 @@ def plan_stage(
         store,
         filters=filters,
         holder_of=partial(issue_holder, checkout, remote_heads=heads),
+        planned=read_planned_changes(checkout, operation=_GIT_OPERATION),
         item_number=item_number,
         limit=limit or settings.roadmap.stage.limit,
     )
@@ -1044,6 +1062,7 @@ __all__ = [
     "StageTarget",
     "StagedChange",
     "apply_stage",
+    "commit_type",
     "dry_run_stage",
     "emit_stage_results",
     "parse_filters",

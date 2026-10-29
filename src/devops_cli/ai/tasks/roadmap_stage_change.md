@@ -17,8 +17,7 @@ The rules of the project:
 
 The reply has these keys and no other, at the top level or inside any entry:
 
-- `scope`: the scope of the Conventional Commit title of the pull request, lower case words joined by single hyphens, or `null`.
-- `summary`: the summary of that title in the imperative mood, at most 60 characters, with no full stop.
+- `summary`: the summary of the title of the pull request in the imperative mood, at most 40 characters, with no full stop. The job writes the title as `docs(openspec): plan #<number> <summary>`, because the pull request only plans the item.
 - `pull_request_body`: what the change does and why, in plain text, at most 800 characters. It is the message of the squash commit. Never write close, closes, fix, fixes, resolve or resolves before an issue reference.
 - `why`: the problem the issue solves. Cite the issue as `#<number>`.
 - `what_changes`: a list of strings, one for each change. When `skip_specs` is `true`, one of them says why the change has no spec delta.

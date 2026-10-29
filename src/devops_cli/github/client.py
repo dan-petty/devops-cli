@@ -239,10 +239,10 @@ class GitHubClient:
         path = _repo_path(repo, f"pulls/{number}")
         return _read_as(PullStatus, self._session.rest("GET", path), path=path)
 
-    def update_pull_body(self, repo: str, number: int, body: str) -> None:
-        """Set the body of the pull request `number` (#2665)."""
+    def update_pull(self, repo: str, number: int, *, title: str, body: str) -> None:
+        """Set the title and the body of the pull request `number` (#2665, #2714)."""
         path = _repo_path(repo, f"pulls/{number}")
-        self._session.rest("PATCH", path, body={"body": body})
+        self._session.rest("PATCH", path, body={"title": title, "body": body})
 
     def comment_on_pull(self, repo: str, number: int, body: str) -> None:
         """Comment `body` on the pull request `number`. GitHub keeps the comments of a pull

@@ -16,10 +16,10 @@ of the job.
 **Wait.** A Job of the repository that has not ended blocks the round, whether or not an item
 records it. The API is the lock, so a restart of the Service loses nothing.
 
-**Submit.** Else the round plans the Staged items that the default filter names and creates one
-Job for the first of them, from CronJob `devops-cli-runner`, with the item's arguments and a
-token for the one repository (`service.github_app.token_repository`). The record of the item
-then names the Job.
+**Submit.** Else the round plans the Staged and Planned items that the default filter names and
+creates one Job for the first of them, from CronJob `devops-cli-runner`, with the item's
+arguments and a token for the one repository (`service.github_app.token_repository`). The record
+of the item then names the Job.
 """
 
 from __future__ import annotations
@@ -188,7 +188,7 @@ def run_implement_round(
     store: RoadmapStore, *, repo: str, source: Path | str, jobs: ClusterJobs | None = None
 ) -> SubmitResult:
     """One round of the `implement` row: report the Jobs that ended, wait while one runs, else
-    create the Job for the first Staged item that the default filter names.
+    create the Job for the first Staged or Planned item that the default filter names.
 
     Raises ClusterJobError when the Kubernetes API refuses a call or CronJob `devops-cli-runner`
     is missing.
