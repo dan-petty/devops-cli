@@ -8,6 +8,9 @@
   "kubernetes": {
     "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
   },
+  "argocd": {
+    "managerFilePatterns": ["/^k8s/argocd/apps/.+\\.ya?ml$/"]
+  },
   "packageRules": [
     {
       "matchManagers": ["pep621", "pip_requirements", "pip-compile", "setup-cfg"],
@@ -24,6 +27,16 @@
     {
       "matchManagers": ["kubernetes"],
       "labels": ["type/chore", "scope/infra"]
+    },
+    {
+      "matchManagers": ["argocd"],
+      "labels": ["type/chore", "scope/infra"]
+    },
+    {
+      "description": "Renovate reads an Application source with no chart as a git dependency. Argo CD tracks main on purpose (ADR 0013), so those dependencies stay off.",
+      "matchManagers": ["argocd"],
+      "matchDatasources": ["git-tags"],
+      "enabled": false
     },
     {
       "matchManagers": ["github-actions"],

@@ -29,6 +29,11 @@ CLOUDFLARE_PROXY_READ_TIMEOUT_SECONDS = 125
 # through llama-server, its runner on Linux. 0.40.0 ran that model on Apple MLX only (#2395).
 OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE = Version("0.40.4")
 
+# The first Traefik chart that ships Traefik v3.7.16, the release that fixes every advisory
+# published against v3.7.x up to GHSA-hrpp-p4fc-wwf8 (2026-10-21). The 41.x charts end at v3.7.14,
+# so only chart 42 carries the later fixes (#1659).
+TRAEFIK_FIRST_CHART_WITH_V3_7_16 = Version("42.1.1")
+
 
 def test_the_gateway_keeps_a_streamed_chat_reply_open_under_the_edge_timeout() -> None:
     """A streamed reply with no data for 125 s is cut at the edge, so the gateway writes a
@@ -60,6 +65,27 @@ def test_every_ollama_tier_runs_one_release_that_serves_multimodal_embedding_mod
     repository, tag = next(iter(images)).split(":")
     assert repository == "ollama/ollama"
     assert Version(tag) >= OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE
+
+
+def test_traefik_runs_a_chart_that_ships_traefik_v3_7_16() -> None:
+    """Traefik v3.7.14, v3.7.15 and v3.7.16 fix twelve advisories against v3.7.13. Chart 41.7.1,
+    the last 41.x chart, ships v3.7.14 only, and chart 42.1.1 is the first that ships v3.7.16
+    (#1659). The chart takes the Traefik image from its appVersion, so the values set no image
+    tag: a tag there could hold an older release than the chart."""
+    application = yaml.safe_load(
+        (REPO_ROOT / "k8s/argocd/apps/traefik.yaml").read_text(encoding="utf-8")
+    )
+    values = yaml.safe_load(
+        (REPO_ROOT / "k8s/ingress/traefik-values.yaml").read_text(encoding="utf-8")
+    )
+    chart_source = next(source for source in application["spec"]["sources"] if "chart" in source)
+
+    assert (
+        chart_source["repoURL"],
+        chart_source["chart"],
+        Version(str(chart_source["targetRevision"])) >= TRAEFIK_FIRST_CHART_WITH_V3_7_16,
+        values.get("image", {}).get("tag"),
+    ) == ("https://traefik.github.io/charts", "traefik", True, None)
 
 
 def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729() -> None:
@@ -309,7 +335,7 @@ _CHART_TOKENS: dict[
     ("tempo", "3.1.0"): (
         TokenSite("tempo", _token("serviceAccount.automountServiceAccountToken", True)),
     ),
-    ("traefik", "41.6.0"): (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
+    ("traefik", "42.1.3"): (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
 }
 
 # The pods that mount a ServiceAccount token that no role in the tree or in their chart binds,
