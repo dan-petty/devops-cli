@@ -2,8 +2,8 @@
 
 ## 1. The branch form gives type and slug
 
-- [ ] 1.1 Write the failing test in `tests/test_branch_form.py`: `parse_branch("feat/2657-staged-takeover")` gives the type `feat`, the issue 2657 and the slug `staged-takeover`, and gives None for `main`, `feat/2657` and `wip/2657-x`. Verify: `uv run devops ci test tests/test_branch_form.py` fails because `parse_branch` does not exist.
-- [ ] 1.2 Add `BranchParts` and `parse_branch` to `src/devops_cli/git/branch_form.py` and make `issue_of_branch` use them. Verify: `uv run devops ci test tests/test_branch_form.py` passes.
+- [x] 1.1 Write the failing test in `tests/test_branch_form.py`: `parse_branch("feat/2657-staged-takeover")` gives the type `feat`, the issue 2657 and the slug `staged-takeover`, and gives None for `main`, `feat/2657` and `wip/2657-x`. Verify: `uv run devops ci test tests/test_branch_form.py` fails because `parse_branch` does not exist.
+- [x] 1.2 Add `BranchParts` and `parse_branch` to `src/devops_cli/git/branch_form.py` and make `issue_of_branch` use them. Verify: `uv run devops ci test tests/test_branch_form.py` passes.
 
 ## 2. The takeover of a staged branch
 
