@@ -26,6 +26,7 @@ from devops_cli.config.constants import (
     CONST_GH_LOGIN_ENV_VARS,
     CONST_GH_NON_API_COMMANDS,
     CONST_GH_TOKEN_ENV_VARS,
+    CONST_GIT_ACCEPTED_ENV,
     CONST_GIT_CLI,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
 )
@@ -135,6 +136,14 @@ def _is_env_var_denied(
     return any(fnmatch.fnmatchcase(upper_key, pat) for pat in denied_patterns)
 
 
+def _is_env_override_refused(key: str) -> bool:
+    """Whether a caller may not set `key`: a pattern of `CONST_CODE_LOADING_ENV_PATTERNS` matches
+    it, and it is not a git key that `CONST_GIT_ACCEPTED_ENV` names."""
+    return key.upper() not in CONST_GIT_ACCEPTED_ENV and _is_env_var_denied(
+        key, CONST_CODE_LOADING_ENV_PATTERNS
+    )
+
+
 def _is_env_var_allowed(
     key: str,
     *,
@@ -181,7 +190,7 @@ def build_subprocess_env(
         from devops_cli.exceptions.security import SecurityError
 
         for k, v in env.items():
-            if _is_env_var_denied(k, CONST_CODE_LOADING_ENV_PATTERNS):
+            if _is_env_override_refused(k):
                 raise SecurityError(f"Prohibited dangerous environment variable override: '{k}'")
             if "\x00" in k or "\x00" in str(v):
                 raise SecurityError(f"Null byte in environment variable prohibited: '{k}'")
