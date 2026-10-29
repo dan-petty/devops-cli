@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -20,8 +19,12 @@ from devops_cli.config.constants import (
     CONST_SARIF_LEVELS,
 )
 from devops_cli.core.process import run_subprocess  # noqa: F401
-from devops_cli.core.repo import resolve_data_path
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, ToolCacheDir
+from devops_cli.security.base import (
+    BaseSecurityScanner,
+    ScanOutcome,
+    ToolCacheDir,
+    tree_cache_dir,
+)
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolExecutor
@@ -222,19 +225,6 @@ def filter_or_group_advisories(
     return standard_findings
 
 
-def _ruff_cache_dir(tree: Path) -> Path:
-    """The Ruff cache of the reviews of `tree`, in the data cache directory, as the mypy cache is.
-
-    Ruff keys its entries by the package of each file, so the reviews of one tree read the entries
-    of the reviews before. The directory of each tree is its own, so no tree writes the cache of
-    another (#972).
-    """
-    from devops_cli.config.settings import load_settings
-
-    key = hashlib.sha256(str(tree.resolve()).encode()).hexdigest()[:16]
-    return resolve_data_path(load_settings().data.cache_dir) / CONST_RUFF_CACHE_DIR_NAME / key
-
-
 class RuffScanner(BaseSecurityScanner):
     """Declarative security and lint scanner adapter for Astral Ruff."""
 
@@ -283,8 +273,11 @@ class RuffScanner(BaseSecurityScanner):
     def cache_dirs(self, tree: Path) -> tuple[ToolCacheDir, ...]:
         """The Ruff cache of `tree`, outside the tree (#772 Part D, #2096). The scan starts in a new
         scratch directory, which the sandbox binds read-only, so Ruff could keep no cache there,
-        and `RUFF_CACHE_DIR` wins over a `cache-dir` that the config of the tree names."""
-        return (ToolCacheDir(CONST_RUFF_CACHE_DIR_ENV, _ruff_cache_dir(tree)),)
+        and `RUFF_CACHE_DIR` wins over a `cache-dir` that the config of the tree names. Ruff keys its
+        entries by the package of each file, so the reviews of one tree share them
+        (`tree_cache_dir`)."""
+        cache = tree_cache_dir(CONST_RUFF_CACHE_DIR_NAME, tree)
+        return (ToolCacheDir(CONST_RUFF_CACHE_DIR_ENV, cache),)
 
     def parse_output(self, data: Any, target_path: Path | list[Path]) -> list[Finding]:
         """Parse Ruff SARIF JSON payload into Finding objects."""
