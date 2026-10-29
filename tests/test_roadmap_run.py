@@ -49,7 +49,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.config.settings import ServiceConfig
-from devops_cli.exceptions import ConfigurationError, GitOperationError, RoadmapRunError
+from devops_cli.exceptions import (
+    ConfigurationError,
+    GitOperationError,
+    RoadmapRefineError,
+    RoadmapRunError,
+)
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import store as roadmap_store_module
@@ -521,6 +526,34 @@ def test_stage_is_due_in_a_round_where_refine_set_an_item_ready(
         ("refine", "stage"),
         ("refine",),
     )
+
+
+def test_stage_is_due_in_a_round_where_refine_set_an_item_ready_and_failed_another(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """A refine round that fails an item after it set another Ready still makes the stage row
+    due in that round, and the round still fails for refine (#2659)."""
+    _stamp(
+        tmp_path,
+        intake=NOW - timedelta(minutes=5),
+        refine=NOW - timedelta(minutes=61),
+        stage=NOW - timedelta(minutes=5),
+    )
+    ran: list[str] = []
+
+    def failing_refine(**_: Any) -> JobOutcome:
+        raise RoadmapRefineError("refine failed", failed_items=[7], readied_count=1)
+
+    def stage(**_: Any) -> JobOutcome:
+        ran.append("stage")
+        return JobOutcome()
+
+    table = build_stub_table({"refine": failing_refine, "stage": stage}, include_stage=True)
+
+    with pytest.raises(RoadmapRunError) as raised:
+        _poll_round(seeded_store, tmp_path, table=table)
+
+    assert (raised.value.failed_jobs, ran) == (("refine",), ["stage"])
 
 
 def test_failure_isolation_and_cli_exit(

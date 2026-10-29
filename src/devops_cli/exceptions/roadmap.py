@@ -74,6 +74,7 @@ class RoadmapRefineError(DevOpsCLIError):
 
     Refine skipped each such item and wrote the others first. The message names each skipped
     item with its error's class and schema violation count, never the model's text.
+    `readied_count` is the number of items the same run set Ready before it failed.
     """
 
     error_code = "ROADMAP_REFINE_FAILED"
@@ -83,12 +84,18 @@ class RoadmapRefineError(DevOpsCLIError):
         message: str,
         *,
         failed_items: Sequence[int] = (),
+        readied_count: int = 0,
         details: dict[str, Any] | None = None,
     ) -> None:
         self.failed_items = tuple(failed_items)
+        self.readied_count = readied_count
         super().__init__(
             message,
-            details={"failed_items": list(self.failed_items), **(details or {})},
+            details={
+                "failed_items": list(self.failed_items),
+                "readied_count": readied_count,
+                **(details or {}),
+            },
         )
 
 

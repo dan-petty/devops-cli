@@ -16,6 +16,11 @@ The model lane of the Service SHALL hold the row `stage` after the row `refine`.
 - **WHEN** the last success of the row is 5 minutes old and the `refine` row of the same round returned an outcome with `set_ready`
 - **THEN** the row is due in that round
 
+#### Scenario: Refine set an item Ready and failed another
+- **WHEN** the last success of the row is 5 minutes old and the `refine` row of the same round set one item Ready and failed for another item
+- **THEN** the row is due in that round
+- **AND** the round still fails for the `refine` row
+
 #### Scenario: Refine set no item Ready
 - **WHEN** the last success of the row is 5 minutes old and the `refine` row returned an outcome with no `set_ready`
 - **THEN** the row is not due

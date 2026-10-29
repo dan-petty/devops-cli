@@ -18,6 +18,8 @@
 - [x] 3.2 Add the row, `JobOutcome.set_ready`, the runner, `DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES`, `ROADMAP_STAGE_TOTAL` and `emit_stage_results`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_stage_job.py tests/test_roadmap_refine.py tests/test_telemetry_instruments.py` passes
 - [x] 3.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
+- [x] 3.4 Write the tests for a refine round that sets an item Ready and fails another (`tests/test_roadmap_run.py`, `tests/test_roadmap_refine.py`), carry `readied_count` in `RoadmapRefineError`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_refine.py` passes
+
 ## 4. The documents
 
 - [x] 4.1 Name the row, the settings and the metric in `CONTEXT.md` ("Lane"), `k8s/README.md` ("Roadmap service") and `k8s/devops/configmap.example.yaml`, and verify that `uv run devops ci test tests/test_k8s_configmap.py tests/test_k8s_roadmap_service.py` passes

@@ -1194,6 +1194,22 @@ def test_the_refine_job_reports_whether_it_set_an_item_ready(
     assert (readied.set_ready, waiting.set_ready, quiet.set_ready) == (True, False, False)
 
 
+def test_a_failed_item_does_not_hide_the_items_a_refine_round_set_ready(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """When the model call fails for one item, the error of the refine job still says how many
+    items the round set Ready, so the stage row can follow (#2659)."""
+    first, _second, _third = _seed_new_items(store)
+    scripted_gateway({first: _SCHEMA_MISS})
+
+    with pytest.raises(RoadmapRefineError) as raised:
+        _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+
+    assert (raised.value.failed_items, raised.value.readied_count) == ((first,), 2)
+
+
 # ── The hourly round: no Ready count stops it, and no model call when nothing changed ──
 
 # A proposal refine leaves New: it does not fit one pull request.

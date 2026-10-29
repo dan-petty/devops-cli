@@ -70,7 +70,12 @@ from devops_cli.core.paths import (
     validate_no_path_traversal,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
+from devops_cli.exceptions import (
+    GitOperationError,
+    RoadmapRefineError,
+    RoadmapRunError,
+    SecurityError,
+)
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
@@ -389,6 +394,14 @@ def _stage_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
     return refine_outcome is not None and refine_outcome.set_ready
 
 
+def _outcome_of_failure(exc: Exception) -> JobOutcome:
+    """What a failed job still did that a later row follows: a refine run that failed for one
+    item has set the others Ready, and the stage row is due in that round (#2659)."""
+    if isinstance(exc, RoadmapRefineError):
+        return JobOutcome(set_ready=exc.readied_count > 0)
+    return JobOutcome()
+
+
 def _places_critical_or_p0(plan: IntakePlan) -> bool:
     """Whether intake placed a critical fix or a P0 item (#1540). A round with a failed
     placement fails before it judges this."""
@@ -495,7 +508,7 @@ def _run_refine_adapter(
     source = _job_clone("refine", clone_path)
     plan = plan_refine(store, repo=repo, source=source)
     readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
-    raise_for_failed_items(plan)
+    raise_for_failed_items(plan, readied)
     return JobOutcome(set_ready=readied > 0)
 
 
@@ -976,6 +989,7 @@ def _execute_due_rows(
             failures.succeeded(repo, row.name)
         except Exception as exc:
             failed_jobs.append(row.name)
+            outcomes[row.name] = _outcome_of_failure(exc)
             _count_failure(failures, repo, row.name, current)
             if row.needs_clone and clone_path is None:
                 clone_error = exc
