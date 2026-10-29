@@ -88,6 +88,8 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+    DEFAULT_ROADMAP_STAGE_FILTER,
+    DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
@@ -118,6 +120,7 @@ from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import ERRORS
+from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 
 if typing.TYPE_CHECKING:
@@ -841,11 +844,28 @@ class GitHubAppConfig(BaseModel):
 class RoadmapStageConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
+    filter: Annotated[list[str], Variable()] = Field(
+        description="The labels of the items that the stage job takes, as entries `family=value` over the families status, priority, type, value and effort: the values of one family are alternatives, and the families all apply; the job also takes Ready items only",
+        default_factory=lambda: list(DEFAULT_ROADMAP_STAGE_FILTER),
+        min_length=1,
+    )
+    limit: Annotated[int, Variable()] = Field(
+        description="The most items that one run of the stage job takes",
+        default=DEFAULT_ROADMAP_STAGE_LIMIT,
+        ge=1,
+    )
     step_tokens: Annotated[int, Variable()] = Field(
         description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
         default=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
         ge=1000,
     )
+
+    @field_validator("filter")
+    @classmethod
+    def _check_filter(cls, entries: list[str]) -> list[str]:
+        for entry in entries:
+            split_filter_entry(entry)
+        return entries
 
 
 class ServiceConfig(BaseModel):

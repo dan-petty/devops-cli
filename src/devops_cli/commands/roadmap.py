@@ -25,7 +25,6 @@ import typer
 
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_REFINE_LIMIT,
-    DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
@@ -338,8 +337,8 @@ def stage_cmd(
         list[str] | None, typer.Option("--filter", help=HELP.roadmap.stage_filter)
     ] = None,
     limit: Annotated[
-        int, typer.Option("--limit", min=1, help=HELP.roadmap.stage_limit)
-    ] = DEFAULT_ROADMAP_STAGE_LIMIT,
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.stage_limit)
+    ] = None,
     step_tokens: Annotated[
         int | None, typer.Option("--step-tokens", min=1000, help=HELP.roadmap.stage_step_tokens)
     ] = None,

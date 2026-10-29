@@ -8,9 +8,9 @@
 
 ## 2. The settings of the stage job
 
-- [ ] 2.1 Write `tests/test_roadmap_stage_settings.py` (the defaults, the config file, the variable, an invalid entry, the command taking the settings, the options replacing them) and add the two variables to `tests/test_config_declarations.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_settings.py` fails on the base
-- [ ] 2.2 Add `stage_filter.py`, the settings `roadmap.stage.filter` and `roadmap.stage.limit` with their defaults, and the settings fallback in `devops roadmap stage`, and verify that `uv run devops ci test tests/test_roadmap_stage_settings.py tests/test_roadmap_stage_selection.py tests/test_config_declarations.py` passes
-- [ ] 2.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 2.1 Write `tests/test_roadmap_stage_settings.py` (the defaults, the config file, the variable, an invalid entry, the command taking the settings, the options replacing them) and add the two variables to `tests/test_config_declarations.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_settings.py` fails on the base
+- [x] 2.2 Add `stage_filter.py`, the settings `roadmap.stage.filter` and `roadmap.stage.limit` with their defaults, and the settings fallback in `devops roadmap stage`, and verify that `uv run devops ci test tests/test_roadmap_stage_settings.py tests/test_roadmap_stage_selection.py tests/test_config_declarations.py` passes
+- [x] 2.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 3. The row and the metric
 

@@ -8,7 +8,8 @@ Status. The staged branch and the draft are the record.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`. The values of one family are alternatives, and the
-families all apply. With no filter the job takes the Ready P0 and P1 bugs. It leaves out an item
+families all apply. With no `--filter` the job takes the filter of the setting
+`roadmap.stage.filter`, by default the Ready P0 and P1 bugs. It leaves out an item
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
 It also leaves out an item with the label `needs-split`, an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
@@ -58,7 +59,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
-from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_LIMIT
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest
@@ -68,7 +68,6 @@ from devops_cli.exceptions import (
     GitOperationError,
     RoadmapStageError,
     ToolExecutionError,
-    ValidationError,
 )
 from devops_cli.git.branch_form import branch_name
 from devops_cli.git.worktree_add import (
@@ -95,20 +94,13 @@ from devops_cli.roadmap.stage_change import (
     safe_text,
     write_change_files,
 )
+from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 
 # ── The filter ────────────────────────────────────────────────────────────────
 
-_FILTER_FAMILIES: Final[tuple[str, ...]] = ("status", "priority", "type", "value", "effort")
-# What the job stages without a `--filter`: the Ready P0 and P1 bugs.
-_DEFAULT_FILTERS: Final[tuple[str, ...]] = (
-    "status=ready",
-    "priority=p0-critical",
-    "priority=p1-high",
-    "type=bug",
-)
 _NEEDS_SPLIT_LABEL: Final[str] = "needs-split"
 # The words of a title's summary that make the slug of the branch.
 _SLUG_WORDS: Final[int] = 6
@@ -126,26 +118,16 @@ class StageFilter:
 
 
 def parse_filters(options: Iterable[str]) -> StageFilter:
-    """The filter that the `family=value` options give, or the default filter with none.
+    """The filter that the `family=value` options give, or the filter of the setting
+    `roadmap.stage.filter` with none.
 
     A value is the label's name after the family: `priority=p1-high` is the label
     `priority/p1-high`. A family outside the label families, and an option that is not
     `family=value`, raise `ValidationError`.
     """
-    texts = MESSAGES.roadmap
     families: dict[str, set[str]] = {}
-    for option in tuple(options) or _DEFAULT_FILTERS:
-        family, _, value = option.partition("=")
-        family, value = family.strip().lower(), value.strip().lower()
-        if not family or not value:
-            raise ValidationError(texts.stage_filter_form.format(option=option), field="filter")
-        if family not in _FILTER_FAMILIES:
-            raise ValidationError(
-                texts.stage_filter_family.format(
-                    family=family, families=", ".join(_FILTER_FAMILIES)
-                ),
-                field="filter",
-            )
+    for option in tuple(options) or load_settings().roadmap.stage.filter:
+        family, value = split_filter_entry(option)
         families.setdefault(family, set()).add(f"{family}/{value}")
     return StageFilter({family: frozenset(labels) for family, labels in families.items()})
 
@@ -313,8 +295,8 @@ def select_stageable(
     *,
     filters: StageFilter,
     holder_of: Callable[[int], str | None],
+    limit: int,
     item_number: int | None = None,
-    limit: int = DEFAULT_ROADMAP_STAGE_LIMIT,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
@@ -682,26 +664,27 @@ def plan_stage(
     source: Path | str,
     filters: StageFilter,
     item_number: int | None = None,
-    limit: int = DEFAULT_ROADMAP_STAGE_LIMIT,
+    limit: int | None = None,
     step_tokens: int | None = None,
     model: LLMClient | None = None,
 ) -> StagePlan:
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
 
-    `source` is the clone of the repository, at the default branch. `step_tokens` overrides
-    `roadmap.stage.step_tokens`; `model` overrides the client of the `analysis` task.
+    `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
+    override `roadmap.stage.limit` and `roadmap.stage.step_tokens`; `model` overrides the client
+    of the `analysis` task.
     """
     checkout = Path(source)
     sha = inspect_checkout(checkout, repo)
     heads = read_remote_heads(checkout)
+    settings = load_settings()
     selection = select_stageable(
         store,
         filters=filters,
         holder_of=partial(issue_holder, checkout, remote_heads=heads),
         item_number=item_number,
-        limit=limit,
+        limit=limit or settings.roadmap.stage.limit,
     )
-    settings = load_settings()
     budget = step_tokens or settings.roadmap.stage.step_tokens
     removals, kept = _reconcile(store, checkout, heads)
     plan = StagePlan(repo, sha, budget, left_out=selection.left_out, removals=removals, kept=kept)

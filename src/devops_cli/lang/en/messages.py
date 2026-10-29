@@ -1986,7 +1986,8 @@ class RoadmapMessages:
     implement_model_repeat: str = "up to {limit} times"
     # `devops roadmap stage` (#2654): the filter, and why the job leaves an item out.
     stage_filter_family: str = (
-        "'{family}' is not a label family to filter on. Use one of: {families}."
+        "'{option}' is not a filter entry: '{family}' is not a label family to filter on. "
+        "Use one of: {families}."
     )
     stage_filter_form: str = "'{option}' is not in the form family=value."
     stage_status_none: str = "none"
