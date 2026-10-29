@@ -1961,6 +1961,42 @@ class RoadmapMessages:
     stage_left_not_item: str = (
         "The issue is no item: it has no Priority label, or it does not exist."
     )
+    # The files of the change that the stage job writes, and what its checks find wrong (#2654).
+    stage_invalid: str = "The change fails its checks, also after a second try: {problem}"
+    stage_closing: str = (
+        "The title or the body of the pull request has the closing keyword {keyword} before an "
+        "issue reference. A pull request that plans an item closes no issue."
+    )
+    stage_secret: str = "The reply has text that looks like a secret, in {path}."
+    stage_violations: str = "{count} schema violation(s)"
+    stage_none: str = "None."
+    stage_fits_one_pr: str = "The change fits one pull request."
+    stage_pending_review: str = (
+        "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)."
+    )
+    stage_bad_path: str = "'{path}' is not a path inside the repository."
+    stage_bad_capability: str = (
+        "'{capability}' is not a name. Use lowercase letters and digits joined by single hyphens."
+    )
+    stage_problem_purpose: str = (
+        "The capability {capability} is not in openspec/specs/, so its entry needs a purpose of "
+        "at least {count} characters."
+    )
+    stage_problem_modified: str = (
+        "The capability {capability} is not in openspec/specs/, so it has no requirement to "
+        "modify. Add the requirements instead."
+    )
+    stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
+    stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
+    stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
+    stage_impact_line: str = "{kind}: {paths}"
+    stage_impact_code: str = "Code"
+    stage_impact_documents: str = "Documents"
+    stage_impact_tests: str = "Tests"
+    stage_group_files: str = "Reads: {reads}. Changes: {changes}."
+    stage_pull_request_body: str = (
+        "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
+    )
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "

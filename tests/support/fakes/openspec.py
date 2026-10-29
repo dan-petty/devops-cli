@@ -73,6 +73,7 @@ class OpenSpecFake:
         self.installed = True
         self.calls: list[OpenSpecCall] = []
         self._scripted: dict[tuple[str, ...], RecordedRun | None] = {}
+        self._sequences: dict[tuple[str, ...], list[RecordedRun]] = {}
         self._real_run = subprocess.run
         self._real_which = shutil.which
 
@@ -90,6 +91,11 @@ class OpenSpecFake:
         """Answer `openspec <arguments>` with this run instead of the recorded one, in any scenario."""
         self._scripted[arguments] = RecordedRun(arguments, returncode, stdout, stderr)
 
+    def script_sequence(self, arguments: tuple[str, ...], *runs: tuple[int, str]) -> None:
+        """Answer `openspec <arguments>` with these runs (exit code, standard output) in order, the
+        last one again for each later call, for a command whose answer changes between calls."""
+        self._sequences[arguments] = [RecordedRun(arguments, code, out, "") for code, out in runs]
+
     def hang(self, arguments: tuple[str, ...]) -> None:
         """Make `openspec <arguments>` run past its timeout, as `subprocess.run` reports it."""
         self._scripted[arguments] = None
@@ -103,6 +109,9 @@ class OpenSpecFake:
     def _recorded(self, argv: tuple[str, ...]) -> RecordedRun:
         """The run scripted for `argv`, else the one recorded in the selected scenario, else in the
         base scenario."""
+        sequence = self._sequences.get(argv)
+        if sequence:
+            return sequence.pop(0) if len(sequence) > 1 else sequence[0]
         scripted = self._scripted.get(argv)
         if scripted is not None:
             return scripted

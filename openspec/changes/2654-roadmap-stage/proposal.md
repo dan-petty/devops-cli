@@ -38,7 +38,7 @@ None.
 Checked on 2026-10-29 against the real system:
 
 - `openspec --version` prints `1.14.3`. In a scratch project, `openspec validate 1-x --strict` exits 0 for a change with one requirement that says SHALL and has one scenario. It exits 1 and prints `ADDED "X" must include at least one scenario` for a requirement with no scenario. So the validation catches the errors that a model makes, and its output can go back to the model.
-- `openspec list --specs` prints one line for each capability, such as `roadmap-refine  requirements 20`. The job gives these lines to the model, as `openspec/config.yaml` asks.
+- `openspec list --specs` prints one line for each capability, such as `roadmap-refine  requirements 20`. The names are the directory names under `openspec/specs/`. The job reads the directory and gives the names to the model, as `openspec/config.yaml` asks, so planning needs no binary.
 - tiktoken 0.14.0 is a dependency. `devops_cli.ai.context_budget.count_tokens("hello world")` returns 2 offline. `ContextPacker.pack_file` in `src/devops_cli/ai/context_packer.py` returns `packed_tokens` for a file.
 - `add_worktree` in `src/devops_cli/git/worktree_add.py` makes `<type>/<issue>-<slug>` at the fetched `origin/main` and refuses a held issue. `branch_form.py` gives the form and `is_valid_slug`.
 - ADR 0015 says that the App has Contents and Pull requests write, and that git gets its token through `gh auth git-credential`. So a push and a pull request by the App work.

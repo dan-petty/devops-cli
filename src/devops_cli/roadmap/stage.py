@@ -15,14 +15,41 @@ an open issue, a held item (`worktree_add.issue_holder`), an item whose title gi
 an item whose text looks like a secret, and an item whose record holds `stage.needs_split`. A run
 takes at most `--limit` items, highest priority first. `--item` takes the one item it names when
 that item is open and Ready.
+
+**Plan.** For each item the job asks the model for one `StageProposal` (`ai.for_task("analysis")`,
+prompt `roadmap_stage_change.md`), measures each task group (`stage_change.measure_groups`) and
+asks once for a split of the groups over `--step-tokens`. A group still over the budget stops the
+item (`OverBudget`). The job validates the change with `openspec validate --strict` in a scratch
+directory when the binary is on `PATH`; a failure goes back to the model once, and a second one
+stops the item. A reply the rules refuse (`check_proposal`) takes the same one return. The plan
+writes nothing to git or to GitHub. A model call that fails skips its item; rejected credentials
+stop the run.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+import json
+import shutil
+import tempfile
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Final
+from datetime import UTC, date, datetime
+from functools import partial
+from pathlib import Path
+from typing import Any, Final
 
+from pydantic import BaseModel
+
+from devops_cli.ai.client import LLMClient, get_llm_client
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AICredentialsError,
+    StructuredOutputValidationError,
+)
+from devops_cli.ai.context_budget import truncate_to_token_limit
+from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
     CONST_ROADMAP_PRIORITY_VALUES,
@@ -33,10 +60,24 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_LIMIT
-from devops_cli.exceptions import ValidationError
+from devops_cli.config.settings import load_settings
+from devops_cli.exceptions import RoadmapStageError, ValidationError
 from devops_cli.git.branch_form import branch_name
+from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.refine import body_dependencies
+from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec, output_of
+from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
+from devops_cli.roadmap.stage_change import (
+    MeasuredGroup,
+    StageProposal,
+    StageSplit,
+    check_proposal,
+    closing_keyword_in,
+    measure_groups,
+    pull_request_body,
+    render_change,
+    write_change_files,
+)
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import redact_text
 
@@ -291,11 +332,316 @@ def select_stageable(
     return StageSelection(tuple(selected), tuple(left_out))
 
 
+# ── The plan of one item ──────────────────────────────────────────────────────
+
+_CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
+_SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
+# The model window is shared by the reply, the body of the item and the repository context.
+_WINDOW_SHARE_CONTEXT: Final[int] = 2
+_WINDOW_SHARE_BODY: Final[int] = 4
+_DEFAULT_WINDOW: Final[int] = 8192
+# The most characters of a validation problem that goes back to the model or to a report.
+_PROBLEM_CHARS: Final[int] = 2000
+
+
+@dataclass(frozen=True)
+class StagedChange:
+    """A change ready to write: the target, the title and the body of its draft pull request, the
+    files by path from the repository root, the measure of each task group, and whether
+    `openspec validate` ran on it (it does not without the binary)."""
+
+    target: StageTarget
+    title: str
+    body: str
+    files: Mapping[str, str]
+    groups: tuple[MeasuredGroup, ...]
+    validated: bool
+
+
+@dataclass(frozen=True)
+class OverBudget:
+    """An item with a task group over the budget after the split: a person decides."""
+
+    target: StageTarget
+    groups: tuple[MeasuredGroup, ...]
+    budget: int
+
+    @property
+    def worst(self) -> MeasuredGroup:
+        """The first group over the budget."""
+        return next(group for group in self.groups if group.tokens > self.budget)
+
+
+@dataclass(frozen=True)
+class StageFailure:
+    """An item the job could not plan: the class of the error and why, never the model's text."""
+
+    number: int
+    title: str
+    error: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class StagePlan:
+    """What a run does: the changes ready to write, the items stopped on a group over the budget,
+    the items that failed, and the issues left out with their reasons."""
+
+    repo: str
+    sha: str = ""
+    budget: int = 0
+    ready: tuple[StagedChange, ...] = ()
+    over_budget: tuple[OverBudget, ...] = ()
+    failed: tuple[StageFailure, ...] = ()
+    left_out: tuple[LeftOut, ...] = ()
+
+
+def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
+    return RoadmapStageError(message, failed_items=[target.item.number])
+
+
+class _Planner:
+    """Plans the change of each item with one model client, one checkout and one budget."""
+
+    def __init__(
+        self,
+        *,
+        client: LLMClient,
+        source: Path,
+        sha: str,
+        known: frozenset[str],
+        budget: int,
+        window: int,
+        tool: OpenSpecTool | None,
+    ) -> None:
+        self._client = client
+        self._source = source
+        self._sha = sha
+        self._known = known
+        self._budget = budget
+        self._window = window
+        self._tool = tool
+        self._today: date = datetime.now(UTC).date()
+
+    def plan(self, target: StageTarget) -> StagedChange | OverBudget:
+        """The change of `target`, or the group that stops it. A reply the checks refuse goes
+        back to the model once, with the problem."""
+        request = self._request(target)
+        proposal = self._ask(StageProposal, _CHANGE_TASK, request)
+        outcome = self._settle(target, proposal)
+        if isinstance(outcome, str):
+            again = {**request, "previous": proposal.model_dump(), "problem": outcome}
+            proposal = self._ask(StageProposal, _CHANGE_TASK, again)
+            outcome = self._settle(target, proposal)
+        if isinstance(outcome, str):
+            raise _stage_error(MESSAGES.roadmap.stage_invalid.format(problem=outcome), target)
+        return outcome
+
+    def _request(self, target: StageTarget) -> dict[str, Any]:
+        item = target.item
+        return {
+            "number": item.number,
+            "title": item.title,
+            "body": truncate_to_token_limit(item.body, self._window // _WINDOW_SHARE_BODY),
+            "context": collect_context(
+                self._source, self._sha, item.body, max_tokens=self._window // _WINDOW_SHARE_CONTEXT
+            ),
+            "capabilities": sorted(self._known),
+            "budget": self._budget,
+        }
+
+    def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
+        return self._client.chat_structured(
+            load_task_prompt(task), json.dumps(request, ensure_ascii=False, indent=1), schema
+        )
+
+    def _settle(
+        self, target: StageTarget, proposal: StageProposal
+    ) -> StagedChange | OverBudget | str:
+        """The outcome for one reply: a change, a stop on the budget, or the problem that sends
+        the reply back."""
+        problems = check_proposal(proposal, self._known)
+        if problems:
+            return " ".join(problems)
+        title = _title_of(target, proposal)
+        body = pull_request_body(target.item.number, target.change, proposal)
+        keyword = closing_keyword_in(f"{title}\n{body}")
+        if keyword is not None:
+            raise _stage_error(MESSAGES.roadmap.stage_closing.format(keyword=keyword), target)
+        proposal, files, measured = self._fit(target, proposal)
+        if any(m.tokens > self._budget for m in measured):
+            return OverBudget(target, tuple(measured), self._budget)
+        for path, text in files.items():
+            if redact_text(text) != text:
+                raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
+        problem = self._validate(target.change, files)
+        if problem is not None:
+            return problem
+        return StagedChange(target, title, body, files, tuple(measured), self._tool is not None)
+
+    def _build(
+        self, target: StageTarget, proposal: StageProposal
+    ) -> tuple[dict[str, str], list[MeasuredGroup]]:
+        files = render_change(target.change, proposal, self._known, created=self._today)
+        item = target.item
+        shared = [f"{item.title}\n{item.body}", *files.values()]
+        measured = measure_groups(self._source, proposal.groups, shared=shared, limit=self._budget)
+        return files, measured
+
+    def _fit(
+        self, target: StageTarget, proposal: StageProposal
+    ) -> tuple[StageProposal, dict[str, str], list[MeasuredGroup]]:
+        """The proposal with its groups measured. When a group is over the budget, the model
+        splits the groups once and the new groups are measured."""
+        files, measured = self._build(target, proposal)
+        if all(m.tokens <= self._budget for m in measured):
+            return proposal, files, measured
+        asked = {
+            "number": target.item.number,
+            "title": target.item.title,
+            "budget": self._budget,
+            "groups": [
+                {**m.group.model_dump(), "tokens": m.tokens, "over_budget": m.tokens > self._budget}
+                for m in measured
+            ],
+        }
+        split = self._ask(StageSplit, _SPLIT_TASK, asked)
+        proposal = proposal.model_copy(update={"groups": split.groups})
+        files, measured = self._build(target, proposal)
+        return proposal, files, measured
+
+    def _validate(self, change: str, files: Mapping[str, str]) -> str | None:
+        """The output of a failed `openspec validate <change> --strict` on `files` in a scratch
+        directory, or None when it passes or the tool is not installed."""
+        if self._tool is None:
+            return None
+        with tempfile.TemporaryDirectory(prefix="stage-") as scratch:
+            write_change_files(Path(scratch), files)
+            run = self._tool.run(["validate", change, "--strict"], Path(scratch))
+        return None if run.returncode == 0 else output_of(run)[:_PROBLEM_CHARS]
+
+
+def _title_of(target: StageTarget, proposal: StageProposal) -> str:
+    """The Conventional Commit title of the pull request: the type of the item's title, the
+    scope and the summary of the reply."""
+    scope = f"({proposal.scope})" if proposal.scope else ""
+    return f"{target.type_}{scope}: {proposal.summary.strip()}"
+
+
+def _capabilities(source: Path) -> frozenset[str]:
+    """The names of the specs under `openspec/specs/` of the checkout."""
+    specs = source / "openspec" / "specs"
+    return (
+        frozenset(p.name for p in specs.iterdir() if p.is_dir()) if specs.is_dir() else frozenset()
+    )
+
+
+@contextmanager
+def _openspec_tool() -> Iterator[OpenSpecTool | None]:
+    """The pinned OpenSpec under its own configuration, or None when `openspec` is not on PATH."""
+    if shutil.which(BIN_OPENSPEC) is None:
+        yield None
+        return
+    with isolated_openspec() as tool:
+        yield tool
+
+
+def _failure_of(target: StageTarget, exc: AIClientError | RoadmapStageError) -> StageFailure:
+    """The failure that `exc` made of the item. A model's error says its class and the count of
+    schema violations, never the reply."""
+    if isinstance(exc, StructuredOutputValidationError):
+        reason = MESSAGES.roadmap.stage_violations.format(count=exc.violations)
+    else:
+        reason = str(exc) if isinstance(exc, RoadmapStageError) else ""
+    return StageFailure(target.item.number, target.item.title, type(exc).__name__, reason)
+
+
+def _plan_each(
+    planner: _Planner, targets: Iterable[StageTarget]
+) -> tuple[list[StagedChange], list[OverBudget], list[StageFailure]]:
+    ready: list[StagedChange] = []
+    stopped: list[OverBudget] = []
+    failed: list[StageFailure] = []
+    for target in targets:
+        try:
+            outcome = planner.plan(target)
+        except AICredentialsError:
+            raise
+        except (AIClientError, RoadmapStageError) as exc:
+            failed.append(_failure_of(target, exc))
+            continue
+        if isinstance(outcome, OverBudget):
+            stopped.append(outcome)
+        else:
+            ready.append(outcome)
+    return ready, stopped, failed
+
+
+def plan_stage(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    source: Path | str,
+    filters: StageFilter,
+    item_number: int | None = None,
+    limit: int = DEFAULT_ROADMAP_STAGE_LIMIT,
+    step_tokens: int | None = None,
+    model: LLMClient | None = None,
+) -> StagePlan:
+    """Plans the stage of up to `limit` items without a write to git or to GitHub.
+
+    `source` is the clone of the repository, at the default branch. `step_tokens` overrides
+    `roadmap.stage.step_tokens`; `model` overrides the client of the `analysis` task.
+    """
+    checkout = Path(source)
+    sha = inspect_checkout(checkout, repo)
+    heads = read_remote_heads(checkout)
+    selection = select_stageable(
+        store,
+        filters=filters,
+        holder_of=partial(issue_holder, checkout, remote_heads=heads),
+        item_number=item_number,
+        limit=limit,
+    )
+    settings = load_settings()
+    budget = step_tokens or settings.roadmap.stage.step_tokens
+    plan = StagePlan(repo, sha, budget, left_out=selection.left_out)
+    if not selection.selected:
+        return plan
+    client = model or get_llm_client(task="analysis", settings=settings)
+    window = settings.ai.for_task("analysis").context_window or _DEFAULT_WINDOW
+    with _openspec_tool() as tool:
+        planner = _Planner(
+            client=client,
+            source=checkout,
+            sha=sha,
+            known=_capabilities(checkout),
+            budget=budget,
+            window=window,
+            tool=tool,
+        )
+        ready, stopped, failed = _plan_each(planner, selection.selected)
+    return StagePlan(
+        repo,
+        sha,
+        budget,
+        ready=tuple(ready),
+        over_budget=tuple(stopped),
+        failed=tuple(failed),
+        left_out=selection.left_out,
+    )
+
+
 __all__ = [
     "LeftOut",
+    "OverBudget",
+    "StageFailure",
     "StageFilter",
+    "StagePlan",
     "StageSelection",
     "StageTarget",
+    "StagedChange",
     "parse_filters",
+    "plan_stage",
     "select_stageable",
 ]

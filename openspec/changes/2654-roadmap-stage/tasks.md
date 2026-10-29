@@ -8,9 +8,9 @@
 
 ## 2. The plan of one item
 
-- [ ] 2.1 Write `tests/test_roadmap_stage_plan.py` (the files of a valid change, the measure of the groups, the split, the group still over budget, the validation retry, the missing binary, the secret, the closing keyword and the failures of the model), and verify that `uv run devops ci test tests/test_roadmap_stage_plan.py` fails on the base
-- [ ] 2.2 Add the prompts `roadmap_stage_change.md` and `roadmap_stage_split.md`, `src/devops_cli/roadmap/stage_change.py` and `plan_stage` in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_plan.py` passes
-- [ ] 2.3 Regenerate the documents, and verify that `uv run devops ci docs` passes
+- [x] 2.1 Write `tests/test_roadmap_stage_plan.py` (the files of a valid change, the measure of the groups, the split, the group still over budget, the validation retry, the missing binary, the secret, the closing keyword and the failures of the model), and verify that `uv run devops ci test tests/test_roadmap_stage_plan.py` fails on the base
+- [x] 2.2 Add the prompts `roadmap_stage_change.md` and `roadmap_stage_split.md`, `src/devops_cli/roadmap/stage_change.py` and `plan_stage` in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_plan.py` passes
+- [x] 2.3 Regenerate the documents, and verify that `uv run devops ci docs` passes
 
 ## 3. The writes of one item
 
