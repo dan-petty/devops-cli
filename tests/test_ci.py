@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import tomllib
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -832,6 +833,22 @@ def test_gate_test_step_argv_is_unchanged() -> None:
     )
 
 
+def test_the_gate_test_row_writes_the_term_report_and_no_xml_report() -> None:
+    """Verify the gate's test row prints the term report and writes no XML report (#1743).
+
+    Only CI's changed-line coverage step reads coverage.xml, and it writes the file itself from
+    the combined data, so the gate spends no serial report pass on it.
+    """
+    from devops_cli.commands.ci import _resolve_pytest_cmd
+
+    cmd = _resolve_pytest_cmd()
+    assert (
+        "--cov=src" in cmd,
+        "--cov-report=term-missing" in cmd,
+        [arg for arg in cmd if arg.startswith("--cov-report=xml")],
+    ) == (True, True, [])
+
+
 def test_gate_deps_step_spec() -> None:
     """Verify that the gate's deps step spec invokes deptry on src."""
     spec = get_check_spec("deps")
@@ -1078,7 +1095,8 @@ def test_toolchain_cache_runs_on_node24_and_one_job_per_event_saves_uv_cache() -
 def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() -> None:
     """Pull requests fail when under 90% of their changed lines are covered (#850, #2356).
 
-    The step reads the coverage.xml the gate already wrote, runs only on pull requests,
+    The step writes coverage.xml from the combined data that the gate keeps, before diff-cover
+    reads it (#1743); the gate itself writes no XML. It runs only on pull requests,
     takes the base ref through env rather than an inline expression, and fails the job
     below 90% of the changed lines. The summary still gets the added `pragma: no cover` lines
     when the figure fails: the step keeps diff-cover's status and exits with it last. It is
@@ -1098,6 +1116,7 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
         step.get("if"),
         step.get("env"),
         "diff-cover .data/coverage.xml" in run and '--compare-branch="origin/${BASE_REF}"' in run,
+        0 <= run.find("uv run coverage xml") < run.find("diff-cover .data/coverage.xml"),
         "GITHUB_STEP_SUMMARY" in run and "pragma: no cover" in run,
         "--fail-under 90" in run,
         0 <= run.find("pragma: no cover") < run.find('exit "$status"'),
@@ -1108,6 +1127,7 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
         True,
         "github.event_name == 'pull_request'",
         {"BASE_REF": "${{ github.base_ref }}"},
+        True,
         True,
         True,
         True,
@@ -2233,6 +2253,30 @@ def test_coverage_clean_up_follows_the_directory_the_gate_runs_in(
     ci_module._clean_coverage_artifacts(force=True)
 
     assert [(tree / ".coverage.worker").exists() for tree in (main, nested)] == [True, False]
+
+
+def test_the_coverage_clean_up_keeps_the_combined_data_file(tmp_path: Path) -> None:
+    """Verify the clean-up removes the worker data files and keeps the combined data (#1743).
+
+    `devops ci coverage --build-index` and CI's `coverage xml` read the combined
+    `.data/.coverage` after the gate, so the clean-up must not remove it, whatever its age.
+    """
+    data = tmp_path / ".data"
+    data.mkdir(exist_ok=True)
+    combined = data / ".coverage"
+    workers = [
+        data / ".coverage.host.pid4242.Xabcdef",
+        tmp_path / ".coverage.host.pid4243.Xabcdeg",
+    ]
+    for path in (combined, *workers):
+        path.write_text("", encoding="utf-8")
+    two_hours_ago = time.time() - 7200
+    os.utime(combined, (two_hours_ago, two_hours_ago))
+
+    with patch("devops_cli.commands.ci._get_project_root", return_value=tmp_path):
+        ci_module._clean_coverage_artifacts(force=True)
+
+    assert (combined.exists(), [path.exists() for path in workers]) == (True, [False, False])
 
 
 @pytest.mark.parametrize("check", ["test", "lint"])
