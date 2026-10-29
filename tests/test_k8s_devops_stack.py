@@ -52,13 +52,18 @@ def test_devops_stack_manifests_integrity() -> None:
         "deployment.yaml" in filenames,
         "service.yaml" in filenames,
         "clusterrolebinding.yaml" in filenames,
+        sorted(
+            f"{p.parent.name}/{p.name}"
+            for p in manifests
+            if p.name in {"cronjob-runner.yaml", "role.yaml", "networkpolicy-egress.yaml"}
+        ),
         [
             f"{p.parent.name}/{p.name}"
             for p in manifests
             if f"{p.parent.name}/{p.name}" in rate_limit_then_ingress
         ],
     ) == (
-        11,
+        15,
         True,
         True,
         True,
@@ -67,6 +72,11 @@ def test_devops_stack_manifests_integrity() -> None:
         True,
         True,
         True,
+        [
+            "devops/cronjob-runner.yaml",
+            "roadmap-service/networkpolicy-egress.yaml",
+            "roadmap-service/role.yaml",
+        ],
         rate_limit_then_ingress,
     )
 

@@ -49,7 +49,7 @@ from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, Item
 from devops_cli.security.sanitizer import mask_secrets
 
 _GONE = "gone"
-_TOKEN_REPOSITORY_KEY = "service.github_app.token_repository"
+_REPOSITORY_SETTING = "service.github_app.token_repository"
 
 
 @dataclass(frozen=True)
@@ -154,7 +154,7 @@ def _create(
     name = jobs.create(
         ["roadmap", "implement", "--repo", repo, "--item", str(number), "--confirm"],
         template=RUNNER_TEMPLATE,
-        env={setting_variables()[_TOKEN_REPOSITORY_KEY]: repo},
+        env={setting_variables()[_REPOSITORY_SETTING]: repo},
         labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
     )
     store.set_marks(

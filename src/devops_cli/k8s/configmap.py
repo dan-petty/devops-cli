@@ -43,7 +43,8 @@ def _service_block(
         )
     service: dict[str, Any] = {
         "repos": clean_repos,
-        "github_app": github_app.model_dump(mode="json"),
+        # The Service names no single repository for its tokens: the Job it makes does (#2667).
+        "github_app": github_app.model_dump(mode="json", exclude={"token_repository"}),
     }
     if drain_timeout_seconds is not None:
         service["drain_timeout_seconds"] = drain_timeout_seconds
