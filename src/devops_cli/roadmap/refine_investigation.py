@@ -16,7 +16,7 @@ import time
 from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx2
@@ -67,11 +67,35 @@ def _repository_path(text: str) -> str | None:
     return "" if str(path) == "." else str(path)
 
 
-def _cut(lines: list[str]) -> str:
+def cut(lines: list[str]) -> str:
     """At most `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and `..._MAX_CHARS` characters."""
     kept = lines[:CONST_ROADMAP_REFINE_TOOL_MAX_LINES]
     text = "\n".join(kept)[:CONST_ROADMAP_REFINE_TOOL_MAX_CHARS]
     return text if len(kept) == len(lines) else f"{text}\n(more lines are left out)"
+
+
+def cited_web_search(query: str, key: str, allowed_urls: set[str], *, results: int) -> str:
+    """One Firecrawl search of `results` results, as the text a tool answers: each result's
+    title, URL and description. Each http or https URL joins `allowed_urls`, the URLs a source
+    may cite. A failed search is answered as text, so it cannot stop the run (#2398)."""
+    try:
+        found = firecrawl_search(query, key, limit=results)
+    except (httpx2.HTTPError, ValueError) as exc:
+        return f"The search failed: {type(exc).__name__}."
+    lines: list[str] = []
+    for result in found:
+        url = str(result.get("url") or "")
+        if urlsplit(url).scheme in {"http", "https"}:
+            allowed_urls.add(url)
+        lines.append(f"{result.get('title') or ''}\n{url}\n{result.get('description') or ''}")
+    return cut("\n\n".join(lines).splitlines()) or "No result."
+
+
+class ToolSet(Protocol):
+    """The tools of one agent run: refine's `InvestigationTools`, or another job's."""
+
+    def tools(self) -> list[Tool[None]]:
+        """The pydantic-ai tools the model may call."""
 
 
 @dataclass(frozen=True)
@@ -130,7 +154,7 @@ class InvestigationTools:
             return "The search ran out of time. Search for a less common text."
         decoded = out.decode("utf-8", errors="replace").splitlines()
         lines = [line.removeprefix(f"{self.sha}:") for line in decoded]
-        return _cut(lines) if code == 0 and lines else "No match."
+        return cut(lines) if code == 0 and lines else "No match."
 
     def list_files(self, directory: str = "") -> str:
         """List the files and directories in one directory of the repository.
@@ -143,7 +167,7 @@ class InvestigationTools:
             return f"The path {directory} is outside the repository."
         _, out = self._git("ls-tree", "--name-only", self.sha, *([f"{path}/"] if path else []))
         names = out.decode("utf-8", errors="replace").splitlines()
-        return _cut(names) or f"The commit holds no directory {path}."
+        return cut(names) or f"The commit holds no directory {path}."
 
     def read_file(self, path: str, start_line: int = 1, end_line: int = 0) -> str:
         """Read a file of the repository. Each line starts with its number.
@@ -165,7 +189,7 @@ class InvestigationTools:
         first = max(1, start_line)
         last = len(lines) if end_line < first else min(end_line, len(lines))
         numbered = [f"{number}: {lines[number - 1]}" for number in range(first, last + 1)]
-        return _cut(numbered) or f"The file {clean} has no lines from line {first}."
+        return cut(numbered) or f"The file {clean} has no lines from line {first}."
 
     def search_web(self, query: str) -> str:
         """Search the web. Cite a result by its URL.
@@ -178,21 +202,12 @@ class InvestigationTools:
         if self.searches >= CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES:
             return "The search limit for this item is reached."
         self.searches += 1
-        try:
-            results = firecrawl_search(
-                query,
-                self.firecrawl_key,
-                limit=CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
-            )
-        except (httpx2.HTTPError, ValueError) as exc:
-            return f"The search failed: {type(exc).__name__}."
-        found: list[str] = []
-        for result in results:
-            url = str(result.get("url") or "")
-            if urlsplit(url).scheme in {"http", "https"}:
-                self.allowed_urls.add(url)
-            found.append(f"{result.get('title') or ''}\n{url}\n{result.get('description') or ''}")
-        return _cut("\n\n".join(found).splitlines()) or "No result."
+        return cited_web_search(
+            query,
+            self.firecrawl_key,
+            self.allowed_urls,
+            results=CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
+        )
 
     def tools(self) -> list[Tool[None]]:
         """The tools of the run: the git tools, and the web search when a key is set."""
@@ -250,7 +265,7 @@ def investigate[T: BaseModel](
     model: Any,
     instructions: str,
     request: str,
-    tools: InvestigationTools,
+    tools: ToolSet,
     output_type: type[T],
 ) -> T | InvestigationStopped:
     """Run one investigation and return its reply, or `InvestigationStopped` when the run ends
@@ -290,4 +305,11 @@ def investigate[T: BaseModel](
     raise error
 
 
-__all__ = ["InvestigationStopped", "InvestigationTools", "investigate"]
+__all__ = [
+    "InvestigationStopped",
+    "InvestigationTools",
+    "ToolSet",
+    "cited_web_search",
+    "cut",
+    "investigate",
+]

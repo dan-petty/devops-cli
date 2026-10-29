@@ -712,6 +712,13 @@ DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION: str = "OWNER"
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
+# `devops roadmap alternatives` (#2650): the most items one run checks, and the days after which a
+# check is old.
+DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5
+DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
+# The PyPI JSON API reads of a package (`{name}` is one URL path segment) and its timeout.
+DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
+DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

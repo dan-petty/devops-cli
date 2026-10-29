@@ -90,6 +90,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `ReviewSessionExistsError` | `REVIEW_SESSION_EXISTS` | `1` | Ai | Raised when a review is published under the name of a session that is already published. |
 | `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Devops_cli.review.state | Exception raised for invalid review finding state or state transition. |
+| `RoadmapAlternativesError` | `ROADMAP_ALTERNATIVES_FAILED` | `1` | Roadmap | Raised after an alternatives run in which the check of one or more items failed. |
 | `RoadmapIntakeError` | `ROADMAP_INTAKE_FAILED` | `1` | Roadmap | Raised after an intake round in which the writes failed for one or more candidates. |
 | `RoadmapItemChangedError` | `ROADMAP_ITEM_CHANGED` | `1` | Roadmap | Raised before a job's field write that would revert a change made since it read the Item. |
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |

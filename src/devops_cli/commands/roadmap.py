@@ -22,7 +22,10 @@ from typing import Annotated, NoReturn
 
 import typer
 
-from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+    DEFAULT_ROADMAP_REFINE_LIMIT,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
@@ -281,6 +284,47 @@ def refine_cmd(
             )
     with _exit_on_failure("Refinement incomplete"):
         raise_for_failed_items(plan)
+
+
+@app.command("alternatives", help=HELP.roadmap.alternatives)
+def alternatives_cmd(
+    repo: RepoOption = None,
+    item: Annotated[
+        int | None, typer.Option("--item", min=1, help=HELP.roadmap.alternatives_item)
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=1, help=HELP.roadmap.alternatives_limit)
+    ] = DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help=HELP.roadmap.alternatives_dry_run)
+    ] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.alternatives_plan)] = False,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help=HELP.roadmap.alternatives_confirm)
+    ] = False,
+) -> None:
+    """Check open items for an open, maintained tool that already covers their need."""
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    target = _target(repo)
+    from devops_cli.roadmap import alternatives as job
+
+    if dry_run or is_dry_run():
+        planned = job.dry_run_alternatives(target, item=item, limit=limit)
+        render_dry_run("alternatives", target, planned.requests, planned.write_requests)
+        return
+    with _exit_on_failure("Could not check for alternatives"):
+        _, store = _open_store(target)
+        plan = job.plan_alternatives(store, repo=target, item_number=item, limit=limit)
+    write_stdout(job.render_alternatives_plan(plan) + "\n")
+    if not confirm:
+        if plan.has_writes:
+            print_info(MESSAGES.roadmap.preview_only)
+    elif plan.has_writes:
+        with _exit_on_failure("Could not write the checks"):
+            written = job.apply_alternatives(store, plan)
+        print_success(MESSAGES.roadmap.alternatives_applied.format(count=written))
+    with _exit_on_failure("The check is incomplete"):
+        job.raise_for_failed_checks(plan)
 
 
 @app.command("run", help=HELP.roadmap.run)

@@ -1256,6 +1256,35 @@ class RoadmapCommandHelp:
     refine_source: str = "Path to the repository checkout (defaults to current directory)."
     refine_confirm: str = "Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only."
     refine_dry_run: str = "Make no request and change no git ref: print what refine would plan and run, with placeholders."
+    alternatives: str = (
+        "Check open items for an open, maintained tool or library that already covers their "
+        "need, in whole or in part. For each item, one agent run searches the web with "
+        "Firecrawl and reads the facts of each candidate from GitHub and PyPI: its license, its "
+        "last activity and whether it is archived. The verdict is covers, partly, none or "
+        "not-applicable. With --confirm, a check posts one comment, replaces the block "
+        "`devops-roadmap-alternatives` in the item's body, and records the check in the job "
+        "record. It changes no label and closes no issue. A person decides what a tool means "
+        "for the item. The run takes open New and Ready items that a person with write access "
+        "opened: first the items with no check, lowest number first, then the items whose check "
+        "is older than roadmap.alternatives.recheck_days or whose text changed since. "
+        "The check is off, and the plan says why, for a private repository or with no Firecrawl "
+        "key. An item whose model call fails or whose reply cites a URL that no tool returned "
+        "is skipped and reported; the others are written, and the command then exits 1."
+    )
+    alternatives_item: str = (
+        "Specific issue number to check instead of selecting. Alternatives checks it when it "
+        "is open, whoever opened it and whatever its status, even when its check is current."
+    )
+    alternatives_limit: str = "Maximum number of items to check in this run (default 5)."
+    alternatives_plan: str = (
+        "Run the checks and print them, and write nothing. This is the default."
+    )
+    alternatives_confirm: str = (
+        "Write each check to GitHub: its comment, its body block and its job record."
+    )
+    alternatives_dry_run: str = (
+        "Make no request: print the requests a run makes, with placeholders."
+    )
     return_item: str = (
         "Return an item to New with an evidence comment, handing it back to refinement when it "
         "cannot be built as specified or needs a refactor beyond its scope. The item gets the "

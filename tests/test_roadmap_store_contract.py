@@ -35,6 +35,7 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     RefineRecordKey,
+    RepositoryFacts,
     RoadmapStore,
 )
 from tests.roadmap_github_fake import GitHubFake
@@ -926,3 +927,20 @@ def test_repository_visibility_contract(store: InMemoryRoadmapStore) -> None:
         seeded_private,
         fresh_private_store.repository_is_private(),
     ) == (False, True, True)
+
+
+def test_repository_facts_are_those_seeded_for_the_repository(store: InMemoryRoadmapStore) -> None:
+    """The facts of a repository, a tool an item might use, and none for a repository that does not
+    exist (#2650)."""
+    facts = RepositoryFacts(
+        full_name="example/tool",
+        url="https://github.com/example/tool",
+        license="MIT",
+        pushed_at=datetime(2026, 10, 1, tzinfo=UTC),
+        stars=7,
+    )
+    store.seed_repository(facts)
+    assert (store.repository_facts("example/tool"), store.repository_facts("example/none")) == (
+        facts,
+        None,
+    )

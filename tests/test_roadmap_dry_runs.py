@@ -37,7 +37,7 @@ from tests.support.fakes.github import API
 
 REPO = "dan-petty/devops-cli"
 runner = CliRunner()
-JOBS = ("intake", "refine")
+JOBS = ("intake", "refine", "alternatives")
 
 
 # ── No request ────────────────────────────────────────────────────────────────
@@ -71,6 +71,7 @@ def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "devops_cli.roadmap.refine_investigation.firecrawl_search", _fail("called search")
     )
+    monkeypatch.setattr("devops_cli.roadmap.alternatives.get_task_model", _fail("called LLM"))
 
 
 @pytest.mark.parametrize("job", JOBS)
@@ -103,7 +104,10 @@ def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> N
     assert (result.exit_code, "Dry run: no request was made" in result.output) == (0, True)
 
 
-@pytest.mark.parametrize(("job", "mode"), [("intake", "--plan"), ("refine", "--confirm")])
+@pytest.mark.parametrize(
+    ("job", "mode"),
+    [("intake", "--plan"), ("refine", "--confirm"), ("alternatives", "--plan")],
+)
 def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:
     result = runner.invoke(app, [job, "--repo", REPO, "--dry-run", mode])
     assert (result.exit_code, "Pass one of --dry-run" in result.output) == (1, True)
@@ -325,3 +329,36 @@ def test_intakes_dry_run_shows_the_exact_gh_command_of_every_store_request() -> 
     plan = dry_run_intake(REPO, ref="main")
     bare = {request.method for request in plan.requests + plan.writes if not request.argv}
     assert bare == {"embedding", "model"}
+
+
+def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_request() -> None:
+    """The plan names the exact `gh` command of each GitHub request, and the method and the URL
+    of each Firecrawl and PyPI request (#2650)."""
+    from devops_cli.roadmap.alternatives import AlternativesPlan, dry_run_alternatives
+
+    plan = dry_run_alternatives(REPO, item=7)
+    argvs = [request.argv for request in plan.requests + plan.write_requests if request.argv]
+    assert (
+        type(plan),
+        plan.dry_run,
+        plan.has_writes,
+        ("POST", "https://api.firecrawl.dev/v2/search") in argvs,
+        ("GET", "https://pypi.org/pypi/<package>/json") in argvs,
+        ("gh", "api", "repos/<owner/name>") in argvs,
+        ("gh", "api", "repos/<owner/name>/releases/latest") in argvs,
+        ("gh", "api", f"repos/{REPO}/issues/7") in argvs,
+        {request.method for request in plan.requests if not request.argv},
+    ) == (AlternativesPlan, True, True, True, True, True, True, True, {"model call"})
+
+
+def test_the_alternatives_dry_run_names_no_project_board() -> None:
+    from devops_cli.roadmap.request_plan import alternatives_requests
+
+    reads, writes = alternatives_requests(REPO)
+    named = [
+        request.argv
+        for request in (*reads, *writes)
+        if request.argv[1:2] == ("project",)
+        or any(word in " ".join(request.argv) for word in ("projectV2", "roadmap.toml"))
+    ]
+    assert named == []

@@ -2882,6 +2882,23 @@ CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
 CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
 CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 120
 CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 4000
+# `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
+# its comment (a comment after the job's last one is a reply), the most searches and fact reads of
+# one item's check, and how long a tool may go without a push or an upload and stay maintained.
+CONST_ROADMAP_ALTERNATIVES_START_MARKER: Final[str] = "<!-- devops-roadmap-alternatives:start -->"
+CONST_ROADMAP_ALTERNATIVES_END_MARKER: Final[str] = "<!-- devops-roadmap-alternatives:end -->"
+CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER: Final[str] = "<!-- devops roadmap alternatives -->"
+CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES: Final[int] = 3
+CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS: Final[int] = 6
+CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS: Final[int] = 5
+CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS: Final[int] = 365
+# A PyPI package states its license in `license_expression`, in `license` (a name when it is short,
+# else the whole text) or in a classifier that starts with the prefix.
+CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS: Final[int] = 100
+CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER: Final[str] = "License :: "
+CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
+# The longest body, in tokens, that reaches the model with an item.
+CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 4096
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"

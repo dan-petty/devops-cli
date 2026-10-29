@@ -45,6 +45,7 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     Milestone,
+    RepositoryFacts,
     RoadmapStore,
     already_closed,
     as_utc,
@@ -99,6 +100,8 @@ class _Roadmap:
     evidence: set[Evidence] = field(default_factory=set)
     job_writes: list[JobWrite] = field(default_factory=list)
     is_private: bool = False
+    # The repositories `seed_repository` made, by full name.
+    repositories: dict[str, RepositoryFacts] = field(default_factory=dict)
 
 
 class InMemoryRoadmapStore(RoadmapStore):
@@ -208,6 +211,10 @@ class InMemoryRoadmapStore(RoadmapStore):
     def seed_commit(self, path: str, *, at: datetime) -> None:
         """Record a commit on the default branch, made at `at`, that changed `path`."""
         self._roadmap.commits.setdefault(path, []).append(as_utc(at))
+
+    def seed_repository(self, facts: RepositoryFacts) -> None:
+        """Make the repository `facts` describe, which GitHub knows."""
+        self._roadmap.repositories[facts.full_name] = facts
 
     def raw_body(self, number: int) -> str:
         """Issue `number`'s body as GitHub holds it, its record block included."""
@@ -377,6 +384,10 @@ class InMemoryRoadmapStore(RoadmapStore):
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
         return self._roadmap.is_private
+
+    def repository_facts(self, full_name: str) -> RepositoryFacts | None:
+        """The facts `seed_repository` gave for `full_name`, or None."""
+        return self._roadmap.repositories.get(full_name)
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, with no record block, raising if it is not an issue of

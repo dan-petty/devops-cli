@@ -21,7 +21,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 
-from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
+from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
+    CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
+    CONST_URL_GITHUB_API_BASE,
+)
+from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import github_store as gh
@@ -315,6 +320,73 @@ def refine_requests(
     return tuple(reads), tuple(writes)
 
 
+def alternatives_requests(
+    repo: str,
+    *,
+    item: int | None = None,
+    limit: int | None = None,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap alternatives` reads, in order, and the writes `--confirm` makes after
+    them (#2650). The run reads the repository's visibility and every issue, and stops when the
+    repository is private or no Firecrawl key is set. For each item it checks it reads the
+    item's comments, runs the model, and makes the searches and fact reads the model asks for;
+    `--item` names the item, and `limit` caps the items of a round, which `--limit` sets."""
+    del limit
+    store = StoreRequests(repo)
+    texts = MESSAGES.roadmap
+    cond, rep, methods = texts.plan_conditions, texts.plan_repeat, texts.plan_methods
+    subject = f"#{item}" if item is not None else _p("item")
+    each_item = rep["alternatives_item"]
+    visibility = [store.gh(gh.is_private_args(repo), "visibility")]
+    search = PlannedRequest(
+        method=methods["search"],
+        target=texts.plan_targets["web_search"].format(subject=subject),
+        argv=("POST", DEFAULT_FIRECRAWL_SEARCH_URL),
+        repeat=rep["search"].format(limit=CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES),
+    )
+    fact_repeat = rep["fact"].format(limit=CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS)
+    repository = _p("repository")
+    facts = [
+        store.gh(
+            gh.repository_args(repository),
+            "repository_facts",
+            subject=repository,
+            repeat=fact_repeat,
+        ),
+        store.gh(
+            gh.latest_release_args(repository),
+            "latest_release",
+            subject=repository,
+            repeat=fact_repeat,
+        ),
+        PlannedRequest(
+            method=methods["pypi"],
+            target=texts.plan_targets["pypi_package"].format(subject=_p("package")),
+            argv=("GET", DEFAULT_PYPI_PACKAGE_URL.format(name=_p("package"))),
+            repeat=fact_repeat,
+        ),
+    ]
+    model = PlannedRequest(
+        method=methods["model"],
+        target=texts.plan_targets["model_run"].format(subject=subject),
+    )
+    reads = [
+        *visibility,
+        *store.every_issue(),
+        *within([*store.comments_on(subject), model, search, *facts], cond["check_on"], each_item),
+    ]
+    writes = within(
+        [
+            *store.write_issue_body(subject),
+            *store.set_marks(subject),
+            *store.comment(subject),
+        ],
+        cond["check_on"],
+        each_item,
+    )
+    return tuple(reads), tuple(writes)
+
+
 def render_dry_run(
     job: str,
     repo: str,
@@ -337,6 +409,7 @@ def render_dry_run(
 
 __all__ = [
     "StoreRequests",
+    "alternatives_requests",
     "is_page_repeat",
     "planned_gh",
     "planned_session_read",

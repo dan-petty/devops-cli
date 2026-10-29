@@ -46,6 +46,9 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.config import constants
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
@@ -1801,6 +1804,37 @@ def test_a_persons_reply_makes_an_item_that_waits_on_them_eligible_and_reaches_t
         _replies_sent(model_fake),
         _require_item(store, asked).status,
     ) == ([], [asked], ["The job record holds it."], CONST_ROADMAP_STATUS_READY)
+
+
+def test_the_alternatives_jobs_block_and_comment_do_not_end_a_wait_of_refine(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The alternatives check (#2650) writes a block to the body and posts a comment. Neither is
+    a person's edit or reply, so an item that waits on a person still waits and the model is not
+    called again; the person's own reply after them still ends the wait."""
+    store.seed_visibility(is_private=True)
+    asked = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_QUESTION)
+    _refine_round(store, git_repo)
+    calls = model_fake.call_count
+
+    block = (
+        f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nVerdict: none.\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+    )
+    store.write_issue_body(asked, f"{store.read_issue_body(asked)}\n\n{block}")
+    store.comment(asked, f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\nVerdict: none.")
+    after_job = plan_refine(store, repo=REPO, source=git_repo)
+    job_calls = model_fake.call_count - calls
+    store.as_actor("alice").comment(asked, "The job record holds it.")
+    after_reply = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(w.item.number, w.step) for w in after_job.waiting_items],
+        after_job.refined_items,
+        job_calls,
+        [r.item.number for r in after_reply.refined_items],
+    ) == ([(asked, "person")], [], 0, [asked])
 
 
 def test_closing_the_item_that_blocks_an_item_makes_it_eligible_again(
