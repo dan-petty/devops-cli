@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.0](https://github.com/dan-petty/devops-cli/compare/v0.12.0...v0.13.0) (2026-10-29)
+
+
+### Features
+
+* **gh:** devops gh issues close records the close reason and a comment ([#2575](https://github.com/dan-petty/devops-cli/issues/2575)) ([97ed0ea](https://github.com/dan-petty/devops-cli/commit/97ed0ea9b58a92c1b3ca7b756356228da662826f)), closes [#1658](https://github.com/dan-petty/devops-cli/issues/1658)
+* **monitoring:** the ai spend dashboard counts gateway traffic from the gateway's own series, shows failed attempts and names each caller ([#2584](https://github.com/dan-petty/devops-cli/issues/2584)) ([33491ca](https://github.com/dan-petty/devops-cli/commit/33491ca1e6640426258abcf35bf330fde536f2df))
+* **roadmap:** refine writes each criterion as an OpenSpec requirement ([#2591](https://github.com/dan-petty/devops-cli/issues/2591)) ([d9a869f](https://github.com/dan-petty/devops-cli/commit/d9a869fda490d8bfd7343ae7b8622fc8cc1aeaa8))
+* **sandbox:** sandbox commands take a seccomp profile file ([#2588](https://github.com/dan-petty/devops-cli/issues/2588)) ([46958d4](https://github.com/dan-petty/devops-cli/commit/46958d4b56ce18d3420b6a96d25fa8facbefbdc0))
+
+
+### Bug Fixes
+
+* **monitoring:** RoadmapServiceGitHubWritesHigh counts a request with no method label as a write, so it fired on 341 reads ([#2583](https://github.com/dan-petty/devops-cli/issues/2583)) ([6dc3aa7](https://github.com/dan-petty/devops-cli/commit/6dc3aa7acae4331c686edd41758717ffa448b7f4)), closes [#2574](https://github.com/dan-petty/devops-cli/issues/2574)
+
+
+### Performance Improvements
+
+* **ci:** the gate writes no coverage XML, and the clean-up keeps the combined data ([#2582](https://github.com/dan-petty/devops-cli/issues/2582)) ([ae9ebb2](https://github.com/dan-petty/devops-cli/commit/ae9ebb23b2a2da7f7d82c8c587a55ce8036ee275)), closes [#1743](https://github.com/dan-petty/devops-cli/issues/1743)
+* **roadmap:** intake's embeddings are cached in a password-protected Valkey in the cluster ([#2578](https://github.com/dan-petty/devops-cli/issues/2578)) ([bfe8a0c](https://github.com/dan-petty/devops-cli/commit/bfe8a0ce6356222c082bc976a7b8ef5f9b161e28))
+
+
+### Code Refactoring
+
+* **devcontainer:** remove the DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP test switch from product code ([#2580](https://github.com/dan-petty/devops-cli/issues/2580)) ([7e7272e](https://github.com/dan-petty/devops-cli/commit/7e7272e7c19b713a0894bf7c12ec59e6b1d5ad2a))
+* **lint:** lazy exports import names under TYPE_CHECKING ([#2590](https://github.com/dan-petty/devops-cli/issues/2590)) ([c96dbfe](https://github.com/dan-petty/devops-cli/commit/c96dbfe326cd24a129b598c72ef57b7ee0b19346)), closes [#2010](https://github.com/dan-petty/devops-cli/issues/2010)
+
 ## [0.12.0](https://github.com/dan-petty/devops-cli/compare/v0.11.3...v0.12.0) (2026-10-29)
 
 
