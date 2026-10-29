@@ -15,7 +15,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1655-intake-embedding-valkey`
 
 ## Workflow follow-up
