@@ -7,8 +7,8 @@
 
 ## 2. Both jobs share the agent run
 
-- [ ] 2.1 Write `test_the_alternatives_tools_run_in_the_same_agent_run` in `tests/test_roadmap_refine_investigation.py` (a tool set other than `InvestigationTools` runs through `investigate`, and the web search of `InvestigationTools` still adds each URL and stops at its cap), and verify that `uv run devops ci test tests/test_roadmap_refine_investigation.py` fails because `investigate` accepts only `InvestigationTools`
-- [ ] 2.2 Move the web search body into `cited_web_search` and type the `tools` argument of `investigate` as a set of tools, in `src/devops_cli/roadmap/refine_investigation.py`, and verify that `uv run devops ci test tests/test_roadmap_refine_investigation.py tests/test_roadmap_refine.py` passes
+- [x] 2.1 Write `test_the_alternatives_tools_run_in_the_same_agent_run` in `tests/test_roadmap_refine_investigation.py` (a tool set other than `InvestigationTools` runs through `investigate`, and the web search of `InvestigationTools` still adds each URL and stops at its cap), and verify that `uv run devops ci test tests/test_roadmap_refine_investigation.py` fails because `investigate` accepts only `InvestigationTools`
+- [x] 2.2 Move the web search body into `cited_web_search` and type the `tools` argument of `investigate` as a set of tools, in `src/devops_cli/roadmap/refine_investigation.py`, and verify that `uv run devops ci test tests/test_roadmap_refine_investigation.py tests/test_roadmap_refine.py` passes
 
 ## 3. The job selects, checks, validates and writes
 

@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel
+from pydantic_ai import Tool
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelMessage,
@@ -49,6 +50,7 @@ from devops_cli.roadmap.refine import (
 from devops_cli.roadmap.refine_investigation import (
     InvestigationStopped,
     InvestigationTools,
+    cited_web_search,
     investigate,
 )
 from devops_cli.roadmap.store import ItemField
@@ -547,3 +549,61 @@ def test_a_gateway_models_run_is_recorded_under_the_gateway(
     assert _spend_rows(spend_ledger) == [
         ("agent_run", "analysis", "gateway", "example.com:4000", 1, 1)
     ]
+
+
+class _ShoutingTools:
+    """A tool set that is not refine's: one tool, which the run offers to the model."""
+
+    def shout(self, text: str) -> str:
+        """Answer the text in capitals.
+
+        Args:
+            text: The text to answer.
+        """
+        return text.upper()
+
+    def tools(self) -> list[Tool[None]]:
+        return [Tool(self.shout, takes_ctx=False)]
+
+
+def test_the_alternatives_tools_run_in_the_same_agent_run() -> None:
+    """`investigate` runs any set of tools, not only refine's: the model calls the tool of the
+    set, and the run ends with the reply of its output type (#2650)."""
+    script = _Script(_call("shout", text="hello"), _SETTLED)
+
+    result = investigate(
+        script.model(), "Instructions.", "{}", _ShoutingTools(), RefinementProposal
+    )
+
+    assert (result, script.tool_returns(), script.tools_offered[0]) == (
+        _SETTLED,
+        ["HELLO"],
+        ["shout"],
+    )
+
+
+def test_a_web_search_adds_each_http_url_it_returns_and_cuts_its_answer(
+    stub_web: StubWeb,
+) -> None:
+    found = [
+        {"title": "Gitleaks", "url": "https://example.com/gitleaks", "description": "Scans."},
+        {"title": "Local", "url": "file:///etc/passwd", "description": "Not a web page."},
+    ]
+    stub_web.content(_FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": found}}).encode())
+    cited: set[str] = set()
+
+    answer = cited_web_search("gitleaks", "fc-test", cited, results=5)
+
+    assert (answer, cited) == (
+        "Gitleaks\nhttps://example.com/gitleaks\nScans.\n\nLocal\nfile:///etc/passwd\nNot a web page.",
+        {"https://example.com/gitleaks"},
+    )
+    assert json.loads(stub_web.sent[0].content) == {"query": "gitleaks", "limit": 5}
+
+
+def test_a_failed_web_search_answers_as_text(stub_web: StubWeb) -> None:
+    cited: set[str] = set()
+
+    answer = cited_web_search("gitleaks", "fc-test", cited, results=5)
+
+    assert (answer, cited) == ("The search failed: HTTPStatusError.", set())
