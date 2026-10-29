@@ -11,7 +11,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.config.constants import CONST_EXIT_FAILURE, CONST_GH_CLI
+from devops_cli.config.constants import (
+    CONST_EXIT_FAILURE,
+    CONST_GH_CLI,
+    CONST_GIT_NONINTERACTIVE_ENV,
+)
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
     DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
@@ -157,14 +161,22 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 # list, BASH_FUNC_x(), the export form of the patched bash of Red Hat, and two function names pin
 # the prefix rule. BASH_FUNC_git%% replaces the git command in a bash child. zsh reads its start-up
 # files from ZDOTDIR (zsh(1)), functions from FPATH and a command from NULLCMD and READNULLCMD
-# (zshparam(1)). git reads configuration values from GIT_CONFIG_COUNT with its numbered KEY and
-# VALUE pairs and from GIT_CONFIG_PARAMETERS, which `git -c` sets (git-config(1), git(1)). It reads
-# a configuration file from GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM (git-config(1)), starts the
-# program of GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, GIT_EDITOR, GIT_SEQUENCE_EDITOR, GIT_PAGER and
-# GIT_EXTERNAL_DIFF (git(1)) and of GIT_PROXY_COMMAND (git-config(1)), and runs the git commands
-# of GIT_EXEC_PATH (git(1)) and the hooks of GIT_TEMPLATE_DIR (git-init(1)). With no GIT_EDITOR
-# and no GIT_PAGER it falls back to VISUAL, EDITOR and PAGER (git-var(1)). The Python, Node.js,
-# Perl, Ruby and Java keys name a file, a module, a directory or an option that makes the
+# (zshparam(1)). The guard refuses each GIT_ key but the five that devops-cli callers set and
+# that run no program (git(1)). git reads configuration values from GIT_CONFIG_COUNT with its
+# numbered KEY and VALUE pairs and from GIT_CONFIG_PARAMETERS, which `git -c` sets, and a
+# configuration file from GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM (git-config(1), git(1)). It starts
+# the program of GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, GIT_EDITOR, GIT_SEQUENCE_EDITOR, GIT_PAGER
+# and GIT_EXTERNAL_DIFF (git(1)) and of GIT_PROXY_COMMAND (git-config(1)). It runs the git
+# commands of GIT_EXEC_PATH (git(1)) and the hooks of GIT_TEMPLATE_DIR (git-init(1)), and it
+# enables the ext:: transport with GIT_ALLOW_PROTOCOL (git(1)). With no GIT_EDITOR and no GIT_PAGER
+# it falls back to VISUAL, EDITOR and PAGER (git-var(1)), and less runs the filter of LESSOPEN
+# and LESSCLOSE (less(1)). The source of git runs the program of GIT_TEST_FSMONITOR
+# (fsmonitor-settings.c) and GIT_TEST_MAINT_SCHEDULER (builtin/gc.c), and the script
+# git-difftool--helper runs GIT_DIFFTOOL_EXTCMD. The script git-mergetool--lib reads a shell file
+# from MERGE_TOOLS_DIR. GIT_TRACE, GIT_TRACE2 and GIT_TRACE_CURL append to a file that the caller
+# names (git(1)). GIT_SSH_VARIANT, GIT_CONFIG_NOSYSTEM and GIT_EXAMPLE_KEY, which no page lists
+# as a program, pin the rule that a GIT_ key is refused unless the guard names it. The Python,
+# Node.js, Perl, Ruby and Java keys name a file, a module, a directory or an option that makes the
 # interpreter load code (python(1), node(1), perlrun(1), ruby(1), java(1), the JVM TI
 # specification). The default env_delete table of sudo lists each zsh and interpreter key but
 # PYTHONPLATLIBDIR, PYTHONPYCACHEPREFIX, NODE_COMPILE_CACHE, NODE_REPL_EXTERNAL_MODULE and
@@ -214,9 +226,22 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "GIT_PROXY_COMMAND",
     "GIT_EXEC_PATH",
     "GIT_TEMPLATE_DIR",
+    "GIT_ALLOW_PROTOCOL",
+    "GIT_TEST_FSMONITOR",
+    "GIT_TEST_MAINT_SCHEDULER",
+    "GIT_DIFFTOOL_EXTCMD",
+    "GIT_TRACE",
+    "GIT_TRACE2",
+    "GIT_TRACE_CURL",
+    "GIT_SSH_VARIANT",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_EXAMPLE_KEY",
+    "MERGE_TOOLS_DIR",
     "EDITOR",
     "VISUAL",
     "PAGER",
+    "LESSOPEN",
+    "LESSCLOSE",
     "PYTHONPATH",
     "PYTHONHOME",
     "PYTHONSTARTUP",
@@ -300,25 +325,40 @@ def test_a_caller_override_outside_the_refused_families_reaches_the_child(
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
-def test_a_git_key_that_runs_no_program_reaches_the_child(isolate_env: bool) -> None:
-    """The author and committer keys, `GIT_TERMINAL_PROMPT`, `GIT_CONFIG_NOSYSTEM` and
-    `GIT_SSH_VARIANT` run no program, and two names that only contain a refused git name are not
-    refused, so all of them reach the child with their values (#2483)."""
+def test_a_git_key_that_devops_cli_sets_reaches_the_child(isolate_env: bool) -> None:
+    """The five git keys that callers set and that run no program, a key of git that has no
+    underscore after `GIT`, a key that only contains a refused git name, and `XDG_CONFIG_HOME`,
+    which `devops openspec` sets, reach the child with their values (#2483)."""
     override = {
+        "GIT_TERMINAL_PROMPT": "0",
         "GIT_AUTHOR_NAME": "Example Author",
         "GIT_AUTHOR_EMAIL": "author@example.com",
         "GIT_COMMITTER_NAME": "Example Committer",
         "GIT_COMMITTER_EMAIL": "committer@example.com",
-        "GIT_TERMINAL_PROMPT": "0",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_SSH_VARIANT": "ssh",
-        "GIT_CONFIGURATION": "example",
+        "GITHUB_STEP_SUMMARY": "/tmp/example-summary",
         "EXAMPLE_GIT_SSH_COMMAND": "example",
+        "XDG_CONFIG_HOME": "/tmp/example-config",
     }
 
     env = build_subprocess_env(env=override, isolate_env=isolate_env)
 
     assert {key: env.get(key) for key in override} == override
+
+
+def test_the_git_environment_of_devops_cli_passes_the_guard() -> None:
+    """The environment that devops-cli gives its own git children passes the guard (#2483)."""
+    env = build_subprocess_env(env=CONST_GIT_NONINTERACTIVE_ENV)
+
+    assert {
+        key: env.get(key) for key in CONST_GIT_NONINTERACTIVE_ENV
+    } == CONST_GIT_NONINTERACTIVE_ENV
+
+
+@pytest.mark.parametrize("key", sorted(DEFAULT_ALLOWED_ENV_VARS))
+def test_no_key_of_the_ambient_allowlist_is_refused_from_a_caller(key: str) -> None:
+    """A key that an isolated child gets from the environment is not one that the guard refuses,
+    so a key added to the allowlist that a refused pattern matches fails here (#2483)."""
+    assert build_subprocess_env(env={key: "example"})[key] == "example"
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
