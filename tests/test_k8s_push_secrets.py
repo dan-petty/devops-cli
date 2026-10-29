@@ -33,7 +33,7 @@ from devops_cli.config.os_keyring import set_keyring_edge
 from devops_cli.config.settings import TelemetryConfig
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
-    DEVOPS_CACHE_VALKEY_PASSWORD_KEY,
+    DEVOPS_CACHE_VALKEY_AUTH_KEY,
     LLM_GATEWAY_MASTER_KEY,
     KeyringSource,
     SecretGenerator,
@@ -66,7 +66,7 @@ FULL_KEYRING = {
     "qdrant_api_key": QDRANT_KEY,
     "runs_index_password": RUNS_PASSWORD,
     "valkey_password": CACHE_PASSWORD,
-    DEVOPS_CACHE_VALKEY_PASSWORD_KEY: DEVOPS_CACHE_PASSWORD,
+    DEVOPS_CACHE_VALKEY_AUTH_KEY: DEVOPS_CACHE_PASSWORD,
     "cloudflare_tunnel_token": TUNNEL_TOKEN,
     "service_github_app_private_key": APP_KEY,
 }
@@ -342,7 +342,7 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
         True,
         True,
         frozenset(),
-        frozenset({LLM_GATEWAY_MASTER_KEY, DEVOPS_CACHE_VALKEY_PASSWORD_KEY}),
+        frozenset({LLM_GATEWAY_MASTER_KEY, DEVOPS_CACHE_VALKEY_AUTH_KEY}),
     )
 
 
@@ -621,7 +621,7 @@ def test_a_generated_value_is_stored_in_the_keyring_before_the_apply(
             LLM_GATEWAY_MASTER_KEY,
             "qdrant_api_key",
             "runs_index_password",
-            DEVOPS_CACHE_VALKEY_PASSWORD_KEY,
+            DEVOPS_CACHE_VALKEY_AUTH_KEY,
             "valkey_password",
         ],
     )
@@ -638,7 +638,7 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
         0,
         {
             LLM_GATEWAY_MASTER_KEY: "sk-live-gateway-0001",
-            DEVOPS_CACHE_VALKEY_PASSWORD_KEY: "live-devops-cache-0001",
+            DEVOPS_CACHE_VALKEY_AUTH_KEY: "live-devops-cache-0001",
         },
         {
             APP_KEY_ENTRY: APP_KEY,
@@ -824,7 +824,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             LLM_GATEWAY_MASTER_KEY,
             "service_webhook_secrets",
             "firecrawl_api_key",
-            DEVOPS_CACHE_VALKEY_PASSWORD_KEY,
+            DEVOPS_CACHE_VALKEY_AUTH_KEY,
         },
         [],
         APP_KEY,

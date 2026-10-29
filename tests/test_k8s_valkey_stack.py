@@ -431,7 +431,11 @@ def test_the_cluster_jobs_name_the_devops_cache_valkey_and_get_its_password_from
     carries the password under the variable that `valkey.password` reads, from the keyring entry
     of Secret valkey-devops-auth, and adopts the live value when the keyring lacks it (#1655)."""
     from devops_cli.config.env import credential
-    from devops_cli.k8s.cluster_secrets import KeyringSource, SecretKeyRef
+    from devops_cli.k8s.cluster_secrets import (
+        DEVOPS_CACHE_VALKEY_AUTH_KEY,
+        KeyringSource,
+        SecretKeyRef,
+    )
 
     template = yaml.safe_load(DEVOPS_CONFIGMAP_TEMPLATE.read_text(encoding="utf-8"))
     config = yaml.safe_load(template["data"]["devops-cli.yaml"])
@@ -445,13 +449,13 @@ def test_the_cluster_jobs_name_the_devops_cache_valkey_and_get_its_password_from
     assert (
         config["valkey"],
         [k for k in _keys(config) if "password" in k.lower()],
-        isinstance(entry.source, KeyringSource),
-        entry.source == llm_entry.source,
+        entry.source,
+        llm_entry.source,
         entry.adopt_from,
     ) == (
         {"url": DEVOPS_CACHE_URL},
         [],
-        True,
-        True,
+        KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY),
+        KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY),
         SecretKeyRef("llm", secret, key),
     )
