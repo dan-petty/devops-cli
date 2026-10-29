@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.18.0](https://github.com/dan-petty/devops-cli/compare/v0.17.0...v0.18.0) (2026-10-29)
+
+
+### Features
+
+* **roadmap:** add devops roadmap stage for Ready items ([#2686](https://github.com/dan-petty/devops-cli/issues/2686)) ([abd016d](https://github.com/dan-petty/devops-cli/commit/abd016db346186326e9af30ff0d603406f9192e2)), closes [#2654](https://github.com/dan-petty/devops-cli/issues/2654)
+* **roadmap:** add the devops roadmap implement command ([#2684](https://github.com/dan-petty/devops-cli/issues/2684)) ([11b7cb5](https://github.com/dan-petty/devops-cli/commit/11b7cb538cb3d38c95a48273649e6866af77be52)), closes [#2664](https://github.com/dan-petty/devops-cli/issues/2664)
+
 ## [0.17.0](https://github.com/dan-petty/devops-cli/compare/v0.16.7...v0.17.0) (2026-10-29)
 
 
