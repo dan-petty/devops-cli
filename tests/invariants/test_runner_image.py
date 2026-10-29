@@ -82,6 +82,20 @@ def test_the_runner_stage_runs_as_user_1000_and_starts_devops() -> None:
     )
 
 
+def test_uv_run_finds_an_interpreter_in_the_runner_image() -> None:
+    """Verify that `uv run` in a worktree can find a Python in the runner image.
+
+    The image forbids a Python download (`UV_PYTHON_DOWNLOADS=never`), and `.python-version` of a
+    checkout can name a patch release that the digest-pinned base image does not have. So the
+    stage names the base image's interpreter in `UV_PYTHON`, which uv then uses for any version
+    of that minor release.
+    """
+    env = env_of(_stages()["runner"])
+    wanted = (REPO_ROOT / ".python-version").read_text(encoding="utf-8").strip()
+
+    assert (env.get("UV_PYTHON"), wanted.count(".")) == ("/usr/local/bin/python3", 2)
+
+
 def test_the_runner_stage_comes_before_service_so_that_the_default_build_is_the_service() -> None:
     """Verify that `service` is still the last stage, which a build with no `--target` makes."""
     names = list(_stages())
@@ -169,6 +183,15 @@ def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> 
         ["steps.image_changes.outputs.changed == 'true'"] * 3,
         None,
     )
+
+
+def test_the_smoke_test_runs_uv_in_a_copy_of_the_checkout() -> None:
+    """Verify that the smoke test runs `uv run --locked ruff --version` in a copy of the checkout,
+    on a read-only root as the Job does: the step and the job run `uv run` in a worktree."""
+    run = _step(_workflow("ci.yml")["jobs"]["runner-image"], RUNNER_STEPS[1])["run"]
+    lines = [line for line in run.splitlines() if "uv run --locked ruff --version" in line]
+
+    assert (len(lines), "--read-only" in lines[0], ".git" in lines[0]) == (1, True, True)
 
 
 def test_the_smoke_test_of_the_runner_image_is_the_same_in_ci_and_in_the_release() -> None:

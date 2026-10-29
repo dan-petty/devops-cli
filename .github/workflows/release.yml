@@ -520,6 +520,8 @@ jobs:
           docker run --rm --entrypoint pytest "$IMAGE" --version
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
+          # The job and its steps run `uv run` in a worktree: the checkout's .python-version names a patch release that the base image can lack.
+          docker run --rm --read-only --tmpfs /home/devops:uid=1000,gid=1000,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && uv run --locked ruff --version'
 
       - name: Scan Runner Image for Vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

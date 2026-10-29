@@ -496,6 +496,7 @@ def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
 ) -> None:
     """No git configuration, helper or key of the user's home reaches a shell command."""
     monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+    monkeypatch.delenv("UV_PYTHON", raising=False)
 
     env = shell_environment(tmp_path / "home")
 
@@ -506,6 +507,18 @@ def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
     }
+
+
+def test_the_shell_gets_the_interpreter_that_uv_is_told_to_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`uv run` in a step finds no interpreter in the runner image unless `UV_PYTHON` reaches it:
+    the image forbids a Python download and its Python can be older than `.python-version`."""
+    monkeypatch.setenv("UV_PYTHON", "/usr/local/bin/python3")
+
+    env = shell_environment(tmp_path / "home")
+
+    assert env["UV_PYTHON"] == "/usr/local/bin/python3"
 
 
 def test_the_agent_of_a_step_runs_its_shell_in_that_environment(

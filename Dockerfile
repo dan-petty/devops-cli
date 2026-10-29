@@ -60,8 +60,11 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
     git config --system credential.https://gist.github.com.helper '!gh auth git-credential'
 
 # `uv run` in a worktree builds the worktree's own venv, from the cache below, which the Job's
-# home volume holds: the root filesystem of the Job is read-only.
+# home volume holds: the root filesystem of the Job is read-only. The builder forbids a Python
+# download, and the `.python-version` of a checkout can name a patch release that this base image
+# lacks, so `UV_PYTHON` names the image's own interpreter, which uv uses for that minor release.
 ENV HOME=/home/devops \
+    UV_PYTHON=/usr/local/bin/python3 \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     UV_CACHE_DIR=/home/devops/.cache/uv \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \

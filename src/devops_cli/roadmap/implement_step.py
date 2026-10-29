@@ -416,14 +416,19 @@ def shell_environment(home: Path) -> dict[str, str]:
     """The variables a shell command gets on top of the workspace's own: a scratch `home` in place
     of the user's, so that no git configuration, credential helper or key of the user reaches the
     agent, no system git configuration, no prompt for a password, and the cache of `uv` where the
-    user keeps it, so that `uv run` finds its packages."""
-    return {
+    user keeps it, so that `uv run` finds its packages. `UV_PYTHON` goes on when the process has
+    it: the runner image sets it, as it forbids a Python download and `uv run` finds no
+    interpreter without it."""
+    env = {
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"),
     }
+    if interpreter := os.environ.get("UV_PYTHON"):
+        env["UV_PYTHON"] = interpreter
+    return env
 
 
 def _tune(
