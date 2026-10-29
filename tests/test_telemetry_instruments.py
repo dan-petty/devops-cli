@@ -122,13 +122,25 @@ def test_the_devops_cli_dashboards_are_found_by_their_queries() -> None:
     assert {"devops-cli.json", "ai-spend.json", "project-metrics.json"} <= names
 
 
+# The AI spend dashboard also reads the gateway's request and token series, which count every
+# caller's calls (#1668). tests/test_stack_dashboards.py checks them against the LiteLLM capture.
+_GATEWAY_SERIES_DASHBOARDS: frozenset[str] = frozenset({"ai-spend.json"})
+GATEWAY_SERIES_NAME = re.compile(r"\blitellm_[a-z0-9_]+")
+
+
 @pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
 def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) -> None:
-    """Verify each query reads a counter or histogram series devops-cli sends over OTLP."""
+    """Verify each query reads a counter or histogram series devops-cli sends over OTLP, or, on
+    the AI spend dashboard, a series of the gateway."""
     queries = _queries(dashboard)
+    reads_gateway = dashboard.name in _GATEWAY_SERIES_DASHBOARDS
 
     unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
-    unnamed = [q for q in queries if not SERIES_NAME.search(q)]
+    unnamed = [
+        q
+        for q in queries
+        if not SERIES_NAME.search(q) and not (reads_gateway and GATEWAY_SERIES_NAME.search(q))
+    ]
 
     assert (len(queries) > 0, sorted(unsent), unnamed) == (True, [], [])
 
@@ -566,11 +578,14 @@ def _skew(queries: str) -> str:
 
 
 def _missing_limits(panel: dict[str, Any]) -> list[str]:
-    """The limits a panel's description should state and does not."""
+    """The limits a panel's description should state and does not.
+
+    The limits are those of devops-cli's delta series. A panel that reads only the gateway's
+    series reads counters that Prometheus scrapes whole, so it has none of them (#1668).
+    """
     queries = _panel_queries(panel)
-    required = (
-        ["approximate", "two samples", "#792", _skew(queries)] if "increase(" in queries else []
-    )
+    counts_deltas = "increase(" in queries and SERIES_NAME.search(queries) is not None
+    required = ["approximate", "two samples", "#792", _skew(queries)] if counts_deltas else []
     if "devops_cli_findings_total" in queries:
         required.append("#791")
     description = panel.get("description", "").lower()

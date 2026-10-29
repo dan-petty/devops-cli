@@ -167,6 +167,12 @@ litellm_settings:
   # Ollama nodes export no metrics of their own, so this is how their load is seen.
   callbacks: ["prometheus"]
   require_auth_for_metrics_endpoint: false
+  # Write the end-user id that a request names as the `end_user` label of the request and token
+  # series. Every caller sends the master key, so this label is how the AI spend dashboard tells
+  # callers apart (#1668). devops-cli names its OTel service name in `x-litellm-end-user-id`.
+  # Open WebUI names no end user: it sends a `user` field only to a pipeline, as an object, which
+  # LiteLLM drops, so no person's id reaches a label.
+  enable_end_user_cost_tracking_prometheus_only: true
   drop_params: true
   telemetry: false
   # A streamed chat reply with no data for this many seconds gets an SSE comment (": ping"),

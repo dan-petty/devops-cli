@@ -14,13 +14,10 @@ ollama:
 pipelines:
   enabled: false
 
-# Connections to Ollama's native API, through the speed Services of two serving tiers
-# (k8s/README.md, GPU Placement): ollama-fast and ollama-standard. A speed Service names no VRAM
-# size, so a host change moves its selector in profiles/services.yaml, not these URLs. Applies on
-# first start, as the gateway connection below does.
-ollamaUrls:
-  - http://ollama-fast.llm.svc.cluster.local:11434
-  - http://ollama-standard.llm.svc.cluster.local:11434
+# No connection to Ollama's native API: with no `ollamaUrls` and no bundled Ollama, the chart sets
+# ENABLE_OLLAMA_API=False, so every model call of Open WebUI goes through the gateway and is on
+# the gateway's series that the AI spend dashboard reads (#1668). Open WebUI keeps the setting in
+# its database after its first start, so the Admin Panel turns the live Ollama connection off.
 
 # OpenAI-compatible connection to the LiteLLM gateway (Ollama models by virtual name),
 # authenticated with the gateway master key. Applies on first start; Open WebUI persists

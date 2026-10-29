@@ -31,7 +31,7 @@ The matrix systematically maps GPU hardware configurations across counts `[1, 2,
 
 Services defined in [`services.yaml`](services.yaml): one ClusterIP Service per Ollama tier (`ollama-16gib`, `ollama-24gib`, `ollama-32gib`, `ollama-48gib`, `ollama-64gib`, `ollama-72gib`, `ollama-96gib`, `ollama-128gib`), each selecting pods labelled `llm.devops.io/provider: ollama` and `llm.devops.io/vram-gib: <n>gib` on port 11434; the gateway's model-to-tier mapping lives in `../gateway/config.yaml`.
 
-The speed Services `ollama-fast`, `ollama-standard` and `ollama-slow` name no VRAM size. Clients of Ollama's native API use them: the `ollama-ingress` backend, the CLI's default Service and Open WebUI. The GPU Placement section of [`k8s/README.md`](../../README.md) records which tiers serve, and a test holds every client to a Service that selects a serving tier.
+The speed Services `ollama-fast`, `ollama-standard` and `ollama-slow` name no VRAM size. Clients of Ollama's native API use them: the `ollama-ingress` backend and the CLI's default Service. The GPU Placement section of [`k8s/README.md`](../../README.md) records which tiers serve, and a test holds every client to a Service that selects a serving tier.
 
 ---
 

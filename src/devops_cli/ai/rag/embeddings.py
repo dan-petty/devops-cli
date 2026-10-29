@@ -30,6 +30,7 @@ from pydantic_ai.usage import RequestUsage
 if TYPE_CHECKING:
     from devops_cli.ai.agents.embeddings import Embedder
 
+from devops_cli.ai.client.network import gateway_caller_headers
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_PROVIDERS,
@@ -452,8 +453,12 @@ class EmbeddingsEngine:
 
         The URLs come from that configuration: loopback, or private when `ai.allow_private_network`
         is set. The connect checks each address, and refuses one that the level does not admit.
+        A client for the gateway names devops-cli and its service as the caller (#1668).
         """
-        return new_http_client(level=configured_level(self.ai_config), timeout=timeout)
+        level = configured_level(self.ai_config)
+        if self._is_gateway_provider():
+            return new_http_client(level=level, timeout=timeout, headers=gateway_caller_headers())
+        return new_http_client(level=level, timeout=timeout)
 
     def _get_http_client(self) -> httpx2.Client:
         """The one HTTP client of the engine's batches, made at the first request.

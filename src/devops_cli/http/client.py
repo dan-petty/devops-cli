@@ -20,6 +20,7 @@ from typing import Any, TypedDict, Unpack
 import httpcore2
 import httpx2
 
+from devops_cli.config.constants import CONST_APP_NAME
 from devops_cli.config.defaults import (
     DEFAULT_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS,
@@ -44,6 +45,13 @@ class ClientOptions(TypedDict, total=False):
     max_redirects: int
     event_hooks: Mapping[str, list[Callable[..., Any]]]
     base_url: str
+
+
+def user_agent() -> str:
+    """devops-cli's User-Agent: its name and the installed release."""
+    from devops_cli import __version__
+
+    return f"{CONST_APP_NAME}/{__version__}"
 
 
 def request_timeout(
@@ -197,4 +205,5 @@ __all__ = [
     "new_async_http_client",
     "new_http_client",
     "request_timeout",
+    "user_agent",
 ]

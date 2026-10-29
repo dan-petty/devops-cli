@@ -1413,6 +1413,12 @@ def _process_exporter(telemetry: TelemetryConfig) -> tuple[OtlpExporter, bool]:
         return RefusedExporter(endpoint, str(exc)), False
 
 
+def otel_service_name() -> str:
+    """The process's OTel `service.name`: `OTEL_SERVICE_NAME`, which a workload sets, else
+    devops-cli's own. The LLM gateway reads it as the caller of each call (#1668)."""
+    return os.getenv("OTEL_SERVICE_NAME", CONST_OTEL_SERVICE_NAME)
+
+
 def get_tracer() -> OTelTelemetryClient:
     """Retrieve or lazily initialize the singleton OTelTelemetryClient instance."""
     global _GLOBAL_TRACER
@@ -1425,7 +1431,7 @@ def get_tracer() -> OTelTelemetryClient:
             exporter, enabled = _process_exporter(telemetry)
             _GLOBAL_TRACER = OTelTelemetryClient(
                 endpoint=exporter.endpoint,
-                service_name=os.getenv("OTEL_SERVICE_NAME", CONST_OTEL_SERVICE_NAME),
+                service_name=otel_service_name(),
                 enabled=enabled,
                 capture_command_args=telemetry.capture_command_args,
                 capture_llm_content=telemetry.capture_llm_content,
