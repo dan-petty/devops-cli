@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0](https://github.com/dan-petty/devops-cli/compare/v0.11.3...v0.12.0) (2026-10-29)
+
+
+### Features
+
+* **ai:** constrain structured replies on the openai and claude providers ([#2550](https://github.com/dan-petty/devops-cli/issues/2550)) ([4f7390a](https://github.com/dan-petty/devops-cli/commit/4f7390ac3e34b449e7ef6b4eadfef907c475d5e9))
+* **argo:** retire the Helm release records of the charts that Argo CD renders ([#2568](https://github.com/dan-petty/devops-cli/issues/2568)) ([cabfcd4](https://github.com/dan-petty/devops-cli/commit/cabfcd433784100d0e5e437107ff8f32b3537cc3))
+* **k8s:** devops k8s tunnel keeps the cloudflared forward to k8s.&lt;domain&gt; running ([#2567](https://github.com/dan-petty/devops-cli/issues/2567)) ([f9493fa](https://github.com/dan-petty/devops-cli/commit/f9493fa48a5e3866192d627f02fb8f508f6069de)), closes [#1641](https://github.com/dan-petty/devops-cli/issues/1641)
+* **monitoring:** alert when the otel collector fails to export spans, metric points or log records ([#2565](https://github.com/dan-petty/devops-cli/issues/2565)) ([4fc8ff7](https://github.com/dan-petty/devops-cli/commit/4fc8ff758580e1b8d59a089c97efdd82c5724ee6))
+* **telemetry:** the roadmap Service counts its GitHub writes, budget holds, Firecrawl searches and own deliveries, and caps refine's comments on one item ([#2556](https://github.com/dan-petty/devops-cli/issues/2556)) ([9819877](https://github.com/dan-petty/devops-cli/commit/981987792e60b08519ced8bf1c0317a294df432f)), closes [#2475](https://github.com/dan-petty/devops-cli/issues/2475)
+
+
+### Bug Fixes
+
+* **git:** report a worktree that a run in parallel removed as removed, not a failed reclaim ([#2557](https://github.com/dan-petty/devops-cli/issues/2557)) ([a556984](https://github.com/dan-petty/devops-cli/commit/a556984b700ecc235d421da7d70f61a71728e084)), closes [#2408](https://github.com/dan-petty/devops-cli/issues/2408)
+* **k8s:** the devops perimeter opens only the collector's OTLP/HTTP port, 4318 ([#2549](https://github.com/dan-petty/devops-cli/issues/2549)) ([d156ce7](https://github.com/dan-petty/devops-cli/commit/d156ce7e6860140701fd9e88ac33c9565e6dce54))
+* **sandbox:** devops sandbox logs reads each line with its stream from a real engine ([#2546](https://github.com/dan-petty/devops-cli/issues/2546)) ([e7216d5](https://github.com/dan-petty/devops-cli/commit/e7216d5f8a0d6cd9677a1cb9ff3e06fd92ec4c6a)), closes [#2520](https://github.com/dan-petty/devops-cli/issues/2520)
+* **service:** the webhook route refuses an unsigned or oversized delivery before it reads the body, and a rate limit guards it ([#2553](https://github.com/dan-petty/devops-cli/issues/2553)) ([40efcd4](https://github.com/dan-petty/devops-cli/commit/40efcd4baf6bf9916e00096560bf6538e907e6a3)), closes [#2476](https://github.com/dan-petty/devops-cli/issues/2476)
+
+
+### Performance Improvements
+
+* **ai:** price a request with one load of the settings ([#2555](https://github.com/dan-petty/devops-cli/issues/2555)) ([5d86538](https://github.com/dan-petty/devops-cli/commit/5d86538a6100414df1aa3bc4f0450010ddb0ff1f)), closes [#1420](https://github.com/dan-petty/devops-cli/issues/1420)
+
+
+### Code Refactoring
+
+* **config:** a default that backs a settings field is read only through the settings ([#2561](https://github.com/dan-petty/devops-cli/issues/2561)) ([0702d13](https://github.com/dan-petty/devops-cli/commit/0702d13328e746bb288469bd3048024665fe8738))
+* **exceptions:** each exception class declares its error_code and exit_code ([#2558](https://github.com/dan-petty/devops-cli/issues/2558)) ([410dece](https://github.com/dan-petty/devops-cli/commit/410dece30f87519df0941eb8587dcbd822efd495))
+* **review:** render the review report from one input, outside the orchestrator ([#2563](https://github.com/dan-petty/devops-cli/issues/2563)) ([9e73e6d](https://github.com/dan-petty/devops-cli/commit/9e73e6d0250b57bfb464115e4f7acd753bd03623)), closes [#1008](https://github.com/dan-petty/devops-cli/issues/1008)
+* **security:** src has no unreviewed Bandit findings, and the gate scans src at low severity ([#2560](https://github.com/dan-petty/devops-cli/issues/2560)) ([45261dd](https://github.com/dan-petty/devops-cli/commit/45261dde210b03b2ee658b87accaab7037fd7a69)), closes [#1538](https://github.com/dan-petty/devops-cli/issues/1538)
+* **security:** the scanners stop looking for mocks, and their tests run on the scanner fake ([#2551](https://github.com/dan-petty/devops-cli/issues/2551)) ([2b7f37a](https://github.com/dan-petty/devops-cli/commit/2b7f37a7c549fa9a6a167ee31024eaa5904846ce))
+
 ## [0.11.3](https://github.com/dan-petty/devops-cli/compare/v0.11.2...v0.11.3) (2026-10-28)
 
 
