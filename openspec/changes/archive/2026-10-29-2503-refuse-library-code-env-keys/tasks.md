@@ -16,7 +16,7 @@
 
 ## 3. Archive
 
-- [ ] 3.1 Archive the change
+- [x] 3.1 Archive the change
   - Verification: `uv run devops openspec archive 2503-refuse-library-code-env-keys`
 
 ## Workflow follow-up
