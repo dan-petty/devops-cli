@@ -719,7 +719,7 @@ def test_a_private_address_without_the_flag_fails_the_check_and_keeps_the_stored
     and the refusal is a failed check with its cause.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
-    scripted_resolver(monkeypatch, {"grafana.example.com": [["10.0.0.1"]]})
+    scripted_resolver(monkeypatch, {"grafana.example.com": [["192.0.2.10"]]})
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_token"] = "stored-token"
 

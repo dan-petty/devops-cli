@@ -311,7 +311,7 @@ def test_a_refused_grafana_address_ends_the_dashboard_sync_with_the_refusal(
         (tmp_path / f"{uid}.json").write_text(
             json.dumps({"uid": uid, "title": f"Dashboard {uid}", "panels": []}), encoding="utf-8"
         )
-    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
     recorder = record_connects(monkeypatch, [])
 
     result = cli(

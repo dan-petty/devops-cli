@@ -550,7 +550,7 @@ def test_a_refused_address_in_the_argocd_token_mint_ends_the_command_with_the_ca
     connect of the mint refuses the private answer without the flag, and the mint fails with the
     refusal as its cause. Before, the mint error came out of the command with a traceback.
     """
-    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
     recorder = record_connects(monkeypatch, [])
 
     result = cli(
