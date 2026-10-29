@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -23,7 +24,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.binaries import check_binary
-from devops_cli.core.repo import nearest_checkout
+from devops_cli.core.repo import nearest_checkout, resolve_data_path
 from devops_cli.dry_run import state as dry_run_state
 from devops_cli.exceptions.sandbox import SandboxUnavailableError
 from devops_cli.security.sanitizer import mask_secrets
@@ -502,6 +503,18 @@ class ToolCacheDir(NamedTuple):
     directory: Path
 
 
+def tree_cache_dir(name: str, tree: Path) -> Path:
+    """The directory of the data cache directory that holds the cache `name` of a tool for `tree`.
+
+    The reviews of one tree read the entries of the reviews before. The directory of each tree is
+    its own, so no tree writes the cache of another (#972).
+    """
+    from devops_cli.config.settings import load_settings
+
+    key = hashlib.sha256(str(tree.resolve()).encode()).hexdigest()[:16]
+    return resolve_data_path(load_settings().data.cache_dir) / name / key
+
+
 class ScannerConfigFile(NamedTuple):
     """A config or ignore file devops-cli hands a scanner, and the flag that names it."""
 
@@ -605,6 +618,18 @@ class BaseSecurityScanner(ABC):
         named in the request as writable."""
         return ()
 
+    def tool_env(self) -> dict[str, str]:
+        """The variables that the tool needs besides those of its data and cache directories: none
+        by default. golangci-lint names the `go` command that it starts and keeps it from fetching
+        (#2129)."""
+        return {}
+
+    def coverage_gap(self, proc: subprocess.CompletedProcess[str], target_path: Any) -> str | None:
+        """Why the run of the tool left its targets unscanned for a cause outside the tool, or None:
+        none by default. A run with a reason is a coverage gap with no findings, not a failure,
+        such as a golangci-lint run whose modules are not in the module cache (#2129)."""
+        return None
+
     def tool_network(self, **kwargs: Any) -> KubeApiNetwork | None:
         """The network profile that the tool of a scan with `kwargs` selects: none by default.
 
@@ -675,6 +700,7 @@ class BaseSecurityScanner(ABC):
             env={
                 **{directory.variable: str(directory.directory) for directory in data},
                 **{cache.variable: str(cache.directory) for cache in caches},
+                **self.tool_env(),
             },
             limits=ToolLimits.for_tool(cmd[0], wall_seconds=timeout),
             network=network,
@@ -741,11 +767,14 @@ class BaseSecurityScanner(ABC):
     def _outcome_of(
         self, cmd: list[str], result: ToolResult, target_path: Any, timeout: float
     ) -> ScanOutcome:
-        """The outcome of a scan whose tool ended as `result`, from its exit code and its output."""
+        """The outcome of a scan whose tool ended as `result`, from its exit code and its output. A
+        run that `coverage_gap` gives a reason for is a coverage gap with no findings (#2129)."""
         if result.timed_out:
             timed_out = f"timed out after {timeout:g} s"
             return self._failed_run(target_path, timed_out, f"{timed_out}; used built-in patterns")
         proc = subprocess.CompletedProcess(cmd, result.exit_code, result.stdout, result.stderr)
+        if (gap := self.coverage_gap(proc, target_path)) is not None:
+            return ScanOutcome("coverage_gap", [], gap)
         is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
         if not is_valid_json:
             return _handle_non_json_output(self, proc, target_path)

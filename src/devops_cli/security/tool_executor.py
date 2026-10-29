@@ -33,7 +33,9 @@ The sandbox shows the tool only the system directories, the tree and what the re
 binds the program of the tool: the virtualenv that holds it in its `bin`, else the program file. A
 read-only bind that is a virtualenv also binds the Python installation that its `python` links to,
 behind the guard of `HostSandbox`. A request names the directories that its tool writes, such as
-the caches of mypy and Ruff, in `writable_dirs`, and the sandbox binds them read-write.
+the caches of mypy and Ruff, in `writable_dirs`, and the sandbox binds them read-write. The request
+of golangci-lint also names the Go toolchain and the module cache of the host read-only, its Go
+caches read-write, and a `go` command that fetches nothing (#2129).
 
 Before its first run, the executor checks that the host can start the sandbox. A host without
 bubblewrap or prlimit, or one whose kernel refuses bubblewrap a user namespace, fails closed: each

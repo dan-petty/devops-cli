@@ -708,6 +708,27 @@ CONST_MYPY_CANARY_CACHE_DIR_NAME: Final[str] = "mypy_cache"
 # (Ruff 0.16.8, measured 2026-10-24, #2096).
 CONST_RUFF_CACHE_DIR_NAME: Final[str] = "ruff"
 CONST_RUFF_CACHE_DIR_ENV: Final[str] = "RUFF_CACHE_DIR"
+# golangci-lint loads packages through the `go` command (#2129). In the sandbox it has no network,
+# so the `go` command reads modules only from the module cache of the host and runs only the
+# toolchain that the sandbox binds. `go env` names both, from the Go variables of the host here.
+CONST_GO_ENV_ARGS: Final[tuple[str, ...]] = ("env", "-json", "GOROOT", "GOMODCACHE")
+CONST_GO_ENV_TIMEOUT_SECONDS: Final[float] = 30.0
+CONST_GO_HOST_ENV_VARIABLES: Final[frozenset[str]] = frozenset(
+    {"GOROOT", "GOPATH", "GOMODCACHE", "GOENV", "XDG_CONFIG_HOME"}
+)
+CONST_GO_NO_FETCH_ENV: Final[tuple[tuple[str, str], ...]] = (
+    ("GOPROXY", "off"),
+    ("GOTOOLCHAIN", "local"),
+)
+CONST_GOROOT_ENV: Final[str] = "GOROOT"
+CONST_GOMODCACHE_ENV: Final[str] = "GOMODCACHE"
+# The Go build cache and the golangci-lint cache of each reviewed tree, in the data cache directory.
+CONST_GOLANGCI_LINT_CACHE_DIR_NAME: Final[str] = "golangci-lint"
+CONST_GO_BUILD_CACHE_ENV: Final[str] = "GOCACHE"
+CONST_GOLANGCI_LINT_CACHE_ENV: Final[str] = "GOLANGCI_LINT_CACHE"
+# The error of the `go` command for a module that is in no module cache when GOPROXY=off
+# (`errProxyOff`, cmd/go/internal/modfetch/proxy.go).
+CONST_GO_PROXY_OFF_ERROR: Final[str] = "module lookup disabled by GOPROXY=off"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
