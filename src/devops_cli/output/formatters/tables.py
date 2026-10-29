@@ -210,13 +210,13 @@ def format_network_references_table(refs: list[Any]) -> TablePayload:
         is_local = getattr(network_reference, "is_local", False)
         scope_str = "[dim]Local[/dim]" if is_local else "[bold cyan]External[/bold cyan]"
         status_val = getattr(network_reference, "security_status", "Safe")
-        color = (
-            "red"
-            if "⚠️" in str(status_val)
-            or "RISK" in str(status_val).upper()
-            or "MALICIOUS" in str(status_val).upper()
-            else "green"
-        )
+        status_text = str(status_val).upper()
+        if "⚠️" in status_text or "RISK" in status_text or "MALICIOUS" in status_text:
+            color = "red"
+        elif "UNCHECKED" in status_text:
+            color = "yellow"
+        else:
+            color = "green"
         target = getattr(network_reference, "target", str(network_reference))
         ref_type = getattr(network_reference, "reference_type", "url")
         loc_str = getattr(network_reference, "location", "-")

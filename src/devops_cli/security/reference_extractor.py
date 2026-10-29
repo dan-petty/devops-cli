@@ -610,11 +610,14 @@ def _network_security_severity_rank(status: str) -> int:
         return 1
     if "MEDIUM" in s or "SUSPICIOUS" in s or "WARNING" in s:
         return 2
-    if "LOW" in s:
+    # No lookup checked it, so it outranks every safe status (#2504).
+    if "UNCHECKED" in s:
         return 3
-    if "SAFE" in s or "CLEAN" in s:
+    if "LOW" in s:
         return 4
-    return 5
+    if "SAFE" in s or "CLEAN" in s:
+        return 5
+    return 6
 
 
 _REF_TYPE_RANKS = {"url": 1, "ip": 2}
