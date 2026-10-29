@@ -65,6 +65,7 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     Milestone,
+    RepositoryFacts,
     RoadmapStore,
     already_closed,
     as_utc,
@@ -272,10 +273,30 @@ class _CommitPayload(BaseModel):
     committed_at: datetime = Field(validation_alias=AliasPath("commit", "committer", "date"))
 
 
+class _RepositoryPayload(BaseModel):
+    """A repository as `repos/<owner>/<name>` gives it, with the keys `RepositoryFacts` keeps."""
+
+    full_name: str
+    html_url: str
+    license: str | None = Field(default=None, validation_alias=AliasPath("license", "spdx_id"))
+    archived: bool = False
+    pushed_at: datetime | None = None
+    stargazers_count: int = 0
+
+
+class _ReleasePayload(BaseModel):
+    """A release as `releases/latest` gives it."""
+
+    tag_name: str
+    published_at: datetime | None = None
+
+
 _MILESTONE = TypeAdapter(_MilestonePayload)
 _ISSUE = TypeAdapter(_IssuePayload)
 _EVENT = TypeAdapter(_EventPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
+_REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
+_RELEASE = TypeAdapter(_ReleasePayload)
 _COMMENT = TypeAdapter(_CommentPayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
@@ -424,6 +445,17 @@ def path_commits_args(repo: str, path: str) -> list[str]:
     """The `gh` arguments that read the newest commit on the default branch that changed
     `path`: the commits listing gives the newest first, and one a page."""
     return ["api", f"repos/{repo}/commits?path={_segment(path)}&per_page=1"]
+
+
+def repository_args(full_name: str) -> list[str]:
+    """The `gh` arguments that read the repository `full_name`."""
+    return ["api", f"repos/{full_name}"]
+
+
+def latest_release_args(full_name: str) -> list[str]:
+    """The `gh` arguments that read the latest release of the repository `full_name`; GitHub
+    answers 404 for a repository with none."""
+    return ["api", f"repos/{full_name}/releases/latest"]
 
 
 def is_private_args(repo: str) -> list[str]:
@@ -697,6 +729,28 @@ class GitHubRoadmapStore(RoadmapStore):
         return self._read(
             is_private_args(self._repo), _IS_PRIVATE, f"{self._repo} visibility"
         ).is_private
+
+    def repository_facts(self, full_name: str) -> RepositoryFacts | None:
+        """The facts of the repository `full_name`: one read of the repository, and one of its
+        latest release when it exists. None when GitHub has no such repository (#2650)."""
+        repository = self._read_or_none(
+            repository_args(full_name), _REPOSITORY_PAYLOAD, f"the repository {full_name}"
+        )
+        if repository is None:
+            return None
+        release = self._read_or_none(
+            latest_release_args(full_name), _RELEASE, f"the latest release of {full_name}"
+        )
+        return RepositoryFacts(
+            full_name=repository.full_name,
+            url=repository.html_url,
+            license=repository.license,
+            archived=repository.archived,
+            pushed_at=repository.pushed_at,
+            stars=repository.stargazers_count,
+            latest_release=release.tag_name if release else None,
+            released_at=release.published_at if release else None,
+        )
 
     # ── Writes ──
 

@@ -278,6 +278,22 @@ class Closure(BaseModel):
     duplicate_of: int | None = None
 
 
+class RepositoryFacts(BaseModel):
+    """What GitHub says of a repository that an item might use as a tool (#2650): its license,
+    when it was last pushed to, whether it is archived, its stars, and its latest release."""
+
+    model_config = ConfigDict(frozen=True)
+
+    full_name: str
+    url: str
+    license: str | None = None
+    archived: bool = False
+    pushed_at: datetime | None = None
+    stars: int = 0
+    latest_release: str | None = None
+    released_at: datetime | None = None
+
+
 class Evidence(BaseModel):
     """A piece of evidence for a P0: its kind and the value that names it."""
 
@@ -670,6 +686,10 @@ class RoadmapStore(Protocol):
         """Whether GitHub confirms the evidence: the advisory exists, the run of this repository
         failed, or the commit exists in this repository."""
 
+    def repository_facts(self, full_name: str) -> RepositoryFacts | None:
+        """The facts of the repository `full_name` (`owner/name`), which need not be this one,
+        or None when GitHub has no such repository (#2650). A read that cannot complete raises."""
+
 
 def get_roadmap_store(repo: str, *, runner: GhRunner | None = None) -> RoadmapStore:
     """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given.
@@ -701,6 +721,7 @@ __all__ = [
     "JobRecord",
     "Milestone",
     "RefineRecordKey",
+    "RepositoryFacts",
     "RoadmapStore",
     "as_utc",
     "decode_job_record",

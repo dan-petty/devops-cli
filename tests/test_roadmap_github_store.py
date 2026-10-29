@@ -49,6 +49,7 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     RefineRecordKey,
+    RepositoryFacts,
     RoadmapStore,
 )
 from tests.roadmap_github_fake import GitHubFake
@@ -1289,3 +1290,59 @@ def test_the_visibility_read_and_the_issue_write_send_their_arguments() -> None:
 def test_repository_is_private_github_store() -> None:
     store, _ = recorded_store({"isPrivate": {"data": {"repository": {"isPrivate": True}}}})
     assert store.repository_is_private() is True
+
+
+def test_repository_facts_read_the_repository_and_its_latest_release() -> None:
+    """One REST read of the repository and one of its latest release, with the license, the last
+    push and the star count (#2650)."""
+    repository = {
+        "full_name": "example/tool",
+        "html_url": "https://github.com/example/tool",
+        "license": {"spdx_id": "MIT"},
+        "archived": False,
+        "pushed_at": "2026-10-29T15:04:03Z",
+        "stargazers_count": 7,
+    }
+    release = {"tag_name": "v2.0.0", "published_at": "2026-10-28T00:55:47Z"}
+    store, runner = recorded_store({"/releases/latest": release, "repos/example/tool": repository})
+    assert (store.repository_facts("example/tool"), [args for args, _ in runner.calls]) == (
+        RepositoryFacts(
+            full_name="example/tool",
+            url="https://github.com/example/tool",
+            license="MIT",
+            pushed_at=datetime(2026, 10, 29, 15, 4, 3, tzinfo=UTC),
+            stars=7,
+            latest_release="v2.0.0",
+            released_at=datetime(2026, 10, 28, 0, 55, 47, tzinfo=UTC),
+        ),
+        [["api", "repos/example/tool"], ["api", "repos/example/tool/releases/latest"]],
+    )
+
+
+def test_repository_facts_of_a_repository_with_no_release_or_license() -> None:
+    repository = {
+        "full_name": "example/tool",
+        "html_url": "https://github.com/example/tool",
+        "license": None,
+        "archived": True,
+        "pushed_at": None,
+        "stargazers_count": 0,
+    }
+    gone = (1, "gh: Not Found (HTTP 404)")
+    store, _ = recorded_store({"/releases/latest": gone, "repos/example/tool": repository})
+    facts = store.repository_facts("example/tool")
+    assert facts is not None
+    assert (
+        facts.license,
+        facts.archived,
+        facts.pushed_at,
+        facts.latest_release,
+    ) == (None, True, None, None)
+
+
+def test_repository_facts_of_a_missing_repository_are_none_and_a_failed_read_raises() -> None:
+    missing, _ = recorded_store({"repos/example/none": (1, "gh: Not Found (HTTP 404)")})
+    broken, _ = recorded_store({"repos/example/tool": (1, "gh: Server Error (HTTP 502)")})
+    assert missing.repository_facts("example/none") is None
+    with pytest.raises(GitHubOperationError, match=r"Could not read the repository example/tool"):
+        broken.repository_facts("example/tool")

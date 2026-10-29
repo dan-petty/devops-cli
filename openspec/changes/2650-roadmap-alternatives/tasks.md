@@ -2,8 +2,8 @@
 
 ## 1. The store reads the facts of a repository
 
-- [ ] 1.1 Write a contract test for `repository_facts` in `tests/test_roadmap_store_contract.py` (both adapters: a repository with a release, a repository with no release, a missing repository) and a GitHub adapter test in `tests/test_roadmap_github_store.py` (the two `gh` arguments), and verify that `uv run devops ci test tests/test_roadmap_store_contract.py tests/test_roadmap_github_store.py` fails because the store has no `repository_facts`
-- [ ] 1.2 Add `RepositoryFacts` and `RoadmapStore.repository_facts` in `src/devops_cli/roadmap/store.py`, the GitHub adapter and its argument builders in `src/devops_cli/roadmap/github_store.py`, the in-memory adapter with `seed_repository` in `src/devops_cli/roadmap/memory_store.py`, and the fake's routes in `tests/roadmap_github_fake.py`, and verify that `uv run devops ci test tests/test_roadmap_store_contract.py tests/test_roadmap_github_store.py` passes
+- [x] 1.1 Write a contract test for `repository_facts` in `tests/test_roadmap_store_contract.py` (both adapters: a repository with a release, a repository with no release, a missing repository) and a GitHub adapter test in `tests/test_roadmap_github_store.py` (the two `gh` arguments), and verify that `uv run devops ci test tests/test_roadmap_store_contract.py tests/test_roadmap_github_store.py` fails because the store has no `repository_facts`
+- [x] 1.2 Add `RepositoryFacts` and `RoadmapStore.repository_facts` in `src/devops_cli/roadmap/store.py`, the GitHub adapter and its argument builders in `src/devops_cli/roadmap/github_store.py`, the in-memory adapter with `seed_repository` in `src/devops_cli/roadmap/memory_store.py`, and the fake's routes in `tests/roadmap_github_fake.py`, and verify that `uv run devops ci test tests/test_roadmap_store_contract.py tests/test_roadmap_github_store.py` passes
 
 ## 2. Both jobs share the agent run
 
