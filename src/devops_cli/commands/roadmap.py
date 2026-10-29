@@ -198,6 +198,41 @@ def _intake(
         raise_for_failed_placements(applied)
 
 
+@app.command("intake-eval", help=HELP.roadmap.intake_eval)
+def intake_eval_cmd(
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help=HELP.roadmap.intake_eval_dry_run)
+    ] = False,
+) -> None:
+    """Score intake's duplicate judgement against the evaluation set."""
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.roadmap import duplicate_eval
+    from devops_cli.roadmap.intake_model import GatewayIntakeModel, gateway_address
+
+    cases = duplicate_eval.load_cases()
+    settings = load_settings()
+    gateway = gateway_address(settings.ai)
+    if dry_run or is_dry_run():
+        write_stdout(duplicate_eval.render_duplicate_dry_run(cases, gateway=gateway))
+        return
+    labels = duplicate_eval.checkout_labels()
+    meter = SpendMeter()
+    intake_model = GatewayIntakeModel(
+        settings.ai, api_key=get_ai_api_key(settings), embedder=duplicate_eval.SameVector()
+    )
+    score = duplicate_eval.evaluate_duplicates(cases, meter.model(intake_model), labels)
+    model = settings.ai.for_task("analysis").model
+    spend = meter.spend()
+    spent = MESSAGES.roadmap.intake_eval_spent.format(
+        calls=spend.model_calls, github=spend.rest + spend.search + spend.graphql
+    )
+    report = duplicate_eval.render_duplicate_score(score, model=model, gateway=gateway, spend=spent)
+    write_stdout(report)
+    if score.failed:
+        print_error(MESSAGES.roadmap.intake_eval_failed.format(failed=score.failed))
+        raise typer.Exit(1)
+
+
 @app.command("refine", help=HELP.roadmap.refine)
 def refine_cmd(
     repo: RepoOption = None,

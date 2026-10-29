@@ -6342,6 +6342,20 @@ devops roadmap intake [OPTIONS]
 | `--plan` | `boolean` | - | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes on GitHub. |
 
+### `devops roadmap intake-eval`
+
+**Run the intake duplicate evaluation set against the configured analysis model and print the score of each case. For each case intake plans the candidate in a roadmap that holds the case's item and nothing else, and writes nothing. The run makes one analysis call for each case, one at a time, and no embedding or GitHub request; it reads the type labels from .github/labels.yml of this checkout. It prints whether intake agrees with the person's verdict for each case, and the precision and the recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case could not run.**
+
+```bash
+devops roadmap intake-eval [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the analysis call that a run makes for each. |
+
 ### `devops roadmap refine`
 
 **Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code and documentation. When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it with tools that read the code and, for a public repository with a Firecrawl key, search the web. A design question gets the best-practice option with the options it compared, and only a decision that a person must make waits on a person. The plan says when web search is off. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, then the backlog's other New items, each place by priority. Only --limit stops a run. The number of Ready items does not stop it. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. An item that an account other than the owner, a member or a collaborator opened waits on a person, and only --item refines it. An item on which refine wrote 2 comments in the last 24 hours also waits on a person and takes no place under --limit, and only --item refines it until the older comment is 24 hours old. An item refine cannot set to Ready gets one comment with its next step. The step is the questions a person answers, the split a person makes, or the open items it waits on. Refine looks at the item again after a reply, a body edit or the close of those items, or after a commit on the default branch changes a file that the block cites. The report groups every item by its next step. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**

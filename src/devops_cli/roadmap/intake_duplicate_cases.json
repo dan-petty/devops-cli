@@ -1,0 +1,264 @@
+{
+  "about": "The evaluation set of intake's duplicate judgement (#1755, #1989). Each case is a candidate, the item it was compared with, and whether a person judged the candidate a duplicate of the item. `devops roadmap intake-eval` runs each case against the configured intake model. A case may also hold `answer`, the model's recorded reply for that pair, which the tests replay: in an answer, the item's number stands for the item, and a test seeds the item and puts the seeded number in its place. The answers of the cases from 2026-10-20 that are not duplicates are the replies of those intake runs, which #1755 records, in the reply schema of that day: each names the item as the original and names no shared change. The answers of the duplicates are written for this set, in the current reply schema, from the comment of the person who closed the candidate. The cases from 2026-10-24 have no recorded reply. The bodies are short excerpts of the issues; a candidate that has no issue has a short body written from its title.",
+  "cases": [
+    {
+      "name": "the-ci-time-budget-is-not-the-recorded-scanner-results",
+      "duplicate": false,
+      "source": "#1725 folded into #1666 on 2026-10-20; the model's reason was not recorded",
+      "candidate": {
+        "title": "perf(ci): the gate finishes in 2 minutes and pull-request CI in 3, with no test over 5 seconds and none touching the network, real tools or localhost services",
+        "body": "The gate and pull-request CI are slower than the owner's budget. The targets: `uv run devops ci` takes at most 2 minutes on a quiet host, pull-request CI at most 3 minutes, no test takes over 5 seconds without a recorded reason, and no test touches the network, real tools or localhost services."
+      },
+      "item": {
+        "number": 1666,
+        "title": "test(ci): the suite's slowest tests run on recorded scanner and installer results, not real semgrep, gitleaks, bandit, uv audit, uv pip sync or sudo",
+        "body": "The slowest tests in every full run start real external tools. Several of them reach the network from a child process, which the in-process network guard does not see. These tests run on the recorded results of each tool."
+      },
+      "answer": {
+        "duplicate_of": 1666,
+        "duplicate_reason": ""
+      }
+    },
+    {
+      "name": "bandit-once-in-static-analysis-is-not-the-gate-workers",
+      "duplicate": false,
+      "source": "folded into #1734 on 2026-10-20, filed again by hand as #1746",
+      "candidate": {
+        "title": "perf(ci): the Static Analysis job runs Bandit once",
+        "body": "The Static Analysis CI job runs Bandit twice on every push: once in `devops ci --skip test,outdated` and again in `devops scan report`. Run Bandit once in the job and give its result to both consumers. Bandit's targets and threshold are unchanged."
+      },
+      "item": {
+        "number": 1734,
+        "title": "perf(ci): the gate's test workers finish together and bandit stops competing with the test row",
+        "body": "Split from #1725 (CI time budget). The gate's test row is its critical path. The slowest xdist worker finishes 47s after the median, and bandit takes 21s alone but 61s beside pytest. Balance the workers with `--dist worksteal`, and run bandit where it does not compete with the test row."
+      },
+      "answer": {
+        "duplicate_of": 1734,
+        "duplicate_reason": "Both items address CI performance issues…"
+      }
+    },
+    {
+      "name": "one-parse-of-the-source-tree-is-not-the-ci-time-budget",
+      "duplicate": false,
+      "source": "folded into #1725 on 2026-10-20, filed again by hand as #1749",
+      "candidate": {
+        "title": "perf(tests): the invariant tests share one parse of the source tree",
+        "body": "Split from #1725 (CI time budget). The architectural and invariant tests each parse the whole source tree again, and several take over 5 seconds, against the limit of #1725. The invariant tests share one parse of the source tree."
+      },
+      "item": {
+        "number": 1725,
+        "title": "perf(ci): the gate finishes in 2 minutes and pull-request CI in 3, with no test over 5 seconds and none touching the network, real tools or localhost services",
+        "body": "The gate and pull-request CI are slower than the owner's budget. The targets: `uv run devops ci` takes at most 2 minutes on a quiet host, pull-request CI at most 3 minutes, no test takes over 5 seconds without a recorded reason, and no test touches the network, real tools or localhost services."
+      },
+      "answer": {
+        "duplicate_of": 1725,
+        "duplicate_reason": "addresses the same performance issue as #1725, … reducing test run times"
+      }
+    },
+    {
+      "name": "a-review-dry-run-that-starts-no-process-is-not-the-request-preview",
+      "duplicate": false,
+      "source": "folded into #1430 on 2026-10-20, added again by hand as a comment on #1430; it has no issue, so its body is written from its title",
+      "candidate": {
+        "title": "fix(review): a review dry run starts no gh, and no child of a test reaches the real session bus",
+        "body": "A review dry run makes no request. Today it starts gh, and a child process of a test can reach the real session bus. The dry run starts no gh, and the test floor keeps every child off the session bus."
+      },
+      "item": {
+        "number": 1430,
+        "title": "fix(review): the review dry run shows the request the model client would send, built by that client",
+        "body": "`--dry-run` must send nothing and return the requests a real run would send (#412). The review's preview is a separate hand-written copy of each provider's request, and it no longer matches what the client sends."
+      },
+      "answer": {
+        "duplicate_of": 1430,
+        "duplicate_reason": "Both items address the issue of dry-run functionality…"
+      }
+    },
+    {
+      "name": "the-openspec-evaluation-is-not-the-one-pull-request-per-issue-decision",
+      "duplicate": false,
+      "source": "folded into #1750 on 2026-10-20, filed again by hand as #1753",
+      "candidate": {
+        "title": "docs(adr): evaluate OpenSpec as the spec and change-proposal layer",
+        "body": "How a change is specified, planned and recorded is spread across issue bodies, per-task files, AGENTS.md rules and refine comments. Evaluate OpenSpec as the spec and change-proposal layer: its health, its fit, and the cost to adopt it."
+      },
+      "item": {
+        "number": 1750,
+        "title": "docs(adr): decide one pull request per issue and which change records live in the repository",
+        "body": "One issue takes days to deliver. The change workflow adds process steps and shared files that conflict and wait. Decide one pull request per issue, and which change records live in the repository."
+      },
+      "answer": {
+        "duplicate_of": 1750,
+        "duplicate_reason": "Both items address workflow friction…"
+      }
+    },
+    {
+      "name": "a-test-that-fails-first-in-its-process-is-the-tracer-uname-fix",
+      "duplicate": true,
+      "source": "#1411, closed by a person as a duplicate of #1418",
+      "candidate": {
+        "title": "fix(tests): test_each_identity_keeps_its_own_quota_and_response_cache passes alone and in a serial run, not only under xdist",
+        "body": "`test_each_identity_keeps_its_own_quota_and_response_cache` fails when it runs alone or in a serial run with `KeyError: 'env'`, and passes under xdist. A `subprocess.run` call that an earlier test warms up reaches the test's assertion without an `env` keyword."
+      },
+      "item": {
+        "number": 1418,
+        "title": "fix(telemetry): building the tracer starts uname -p through platform.platform(), so tests fail when they run first in their process",
+        "body": "`Tracer.__init__` sets `os.description` from `platform.platform()`, which runs `uname -p` through `subprocess` the first time a process asks. A fake that replaces `subprocess.run` receives that argv, so `test_each_identity_keeps_its_own_quota_and_response_cache` fails when it runs first in its process."
+      },
+      "answer": {
+        "shared_change": "the tracer starts no uname child, so test_each_identity_keeps_its_own_quota_and_response_cache passes when it runs first in its process",
+        "duplicate_of": 1418,
+        "duplicate_reason": "#1418 found the cause of this failure, and its fix makes the test pass alone, serially and under xdist."
+      }
+    },
+    {
+      "name": "a-cache-that-ignores-cache-enabled-false-is-the-response-cache-fix",
+      "duplicate": true,
+      "source": "#1375, closed by a person as a duplicate of #1014",
+      "candidate": {
+        "title": "fix(ai): response cache singleton ignores cache_enabled=False from later clients",
+        "body": "`get_llm_response_cache` creates the process-wide cache once and returns it unchanged, whatever `enabled` a later caller passes. So `LLMClient(..., cache_enabled=False)` still reads and writes an enabled cache."
+      },
+      "item": {
+        "number": 1014,
+        "title": "fix(security): the response cache writes only inside its own directory and is never read from the tree under review",
+        "body": "The response cache trusts the files in its directory. Acceptance criterion: `status` and `clear` see the clients' cache, which is built once from settings, and a `cache_enabled=False` client neither reads nor writes it."
+      },
+      "answer": {
+        "shared_change": "a client built with cache_enabled=False neither reads nor writes the response cache",
+        "duplicate_of": 1014,
+        "duplicate_reason": "#1014 has the criterion that a cache_enabled=False client neither reads nor writes the cache, for the same callers."
+      }
+    },
+    {
+      "name": "a-secret-lost-with-no-keyring-is-the-in-container-keyring",
+      "duplicate": true,
+      "source": "#454, closed by a person as a duplicate of #452",
+      "candidate": {
+        "title": "fix(config): secrets report 'stored in keyring' when no keyring backend is available",
+        "body": "`devops config set ai.api_key <value>` says that the secret is stored in the keyring and exits 0 even when no usable keyring backend exists. The secret is lost when the command exits."
+      },
+      "item": {
+        "number": 452,
+        "title": "feat(security): in-container keyring scoped to the home-volume identity",
+        "body": "The devcontainer runs no Secret Service, so Python `keyring` resolves to `keyring.backends.fail.Keyring` and `devops` cannot persist secrets. The container gets its own keyring, scoped to the home-volume identity."
+      },
+      "answer": {
+        "shared_change": "a usable keyring in the container, so a secret that devops config set stores persists",
+        "duplicate_of": 452,
+        "duplicate_reason": "#452 tracks the missing in-container keyring, and the false success is its symptom."
+      }
+    },
+    {
+      "name": "the-roadmap-tests-on-the-git-fake-are-not-the-data-dir-tests",
+      "duplicate": false,
+      "source": "intake judged #2178 a duplicate of #2174 with `devops roadmap intake --plan` on 2026-10-24 (owner comment on #1989); each names other test files and gives its own pull request",
+      "candidate": {
+        "title": "test(roadmap): the roadmap refine, run and intake tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_roadmap_refine.py` (59 tests), `tests/test_roadmap_run.py` (10) and `tests/test_roadmap_intake.py` (7) to the git fake, so that they start no git."
+      },
+      "item": {
+        "number": 2174,
+        "title": "test(core): the data directory, run store and gitignore tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_data_dir_worktrees.py` (88 tests), `tests/test_gitignore_evaluation.py` (22), `tests/test_run_store.py` (18) and `tests/test_run_comparison.py` (14) to the git fake, so that they start no git."
+      }
+    },
+    {
+      "name": "the-ci-tests-on-the-git-fake-are-not-the-data-dir-tests",
+      "duplicate": false,
+      "source": "intake judged #2179 a duplicate of #2174 with `devops roadmap intake --plan` on 2026-10-24 (owner comment on #1989); each names other test files and gives its own pull request",
+      "candidate": {
+        "title": "test(ci): the devops ci, devops test and fail-to-pass tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_ci.py` (18 tests), `tests/test_fail_to_pass.py` (21), `tests/test_test_runner.py` (17), `tests/test_ci_cache_fingerprint.py` (16), `tests/test_ci_mutate.py` (11), `tests/test_ci_cache.py` (6), `tests/test_ci_build_index.py` (3) and `tests/test_uv.py` (1) to the git fake, so that they start no git."
+      },
+      "item": {
+        "number": 2174,
+        "title": "test(core): the data directory, run store and gitignore tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_data_dir_worktrees.py` (88 tests), `tests/test_gitignore_evaluation.py` (22), `tests/test_run_store.py` (18) and `tests/test_run_comparison.py` (14) to the git fake, so that they start no git."
+      }
+    },
+    {
+      "name": "the-review-tests-on-the-git-fake-are-not-the-data-dir-tests",
+      "duplicate": false,
+      "source": "intake judged #2180 a duplicate of #2174 with `devops roadmap intake --plan` on 2026-10-24 (owner comment on #1989); each names other test files and gives its own pull request",
+      "candidate": {
+        "title": "test(review): the review tests start no git and reach git through the git fake",
+        "body": "Move the review tests that start git to the git fake: `tests/test_review_tool_runs.py` (43 tests), `tests/test_review_untrusted_tree.py` (21), `tests/test_review_project_conventions.py` (9), `tests/test_review_path_routing.py` (7) and eleven other review test files."
+      },
+      "item": {
+        "number": 2174,
+        "title": "test(core): the data directory, run store and gitignore tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_data_dir_worktrees.py` (88 tests), `tests/test_gitignore_evaluation.py` (22), `tests/test_run_store.py` (18) and `tests/test_run_comparison.py` (14) to the git fake, so that they start no git."
+      }
+    },
+    {
+      "name": "the-scanner-tests-on-the-git-fake-are-not-the-data-dir-tests",
+      "duplicate": false,
+      "source": "intake judged #2181 a duplicate of #2174 with `devops roadmap intake --plan` on 2026-10-24 (owner comment on #1989); each names other test files and gives its own pull request",
+      "candidate": {
+        "title": "test(security): the analyze, ai tooling and security scanner tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_analyze.py` (11 tests), the AI tooling tests (repomap, diagram, outlines, tree-sitter) and the security scanner tests (Semgrep, the tool executor, secops, osv-scanner, Bandit) to the git fake, so that they start no git."
+      },
+      "item": {
+        "number": 2174,
+        "title": "test(core): the data directory, run store and gitignore tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_data_dir_worktrees.py` (88 tests), `tests/test_gitignore_evaluation.py` (22), `tests/test_run_store.py` (18) and `tests/test_run_comparison.py` (14) to the git fake, so that they start no git."
+      }
+    },
+    {
+      "name": "the-k8s-gate-tests-on-the-git-fake-are-not-the-data-dir-tests",
+      "duplicate": false,
+      "source": "intake judged #2182 a duplicate of #2174 with `devops roadmap intake --plan` on 2026-10-24 (owner comment on #1989); each names other test files and gives its own pull request",
+      "candidate": {
+        "title": "test(k8s): the kubernetes and argo cd gate tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_k8s.py` (21 tests), `tests/test_k8s_argocd_gate.py` (9), `tests/test_k8s_argocd_overrides.py` (5), `tests/test_k8s_argocd_apps.py` (2) and `tests/test_k8s_devops_runtime.py` (1) to the git fake, so that they start no git."
+      },
+      "item": {
+        "number": 2174,
+        "title": "test(core): the data directory, run store and gitignore tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_data_dir_worktrees.py` (88 tests), `tests/test_gitignore_evaluation.py` (22), `tests/test_run_store.py` (18) and `tests/test_run_comparison.py` (14) to the git fake, so that they start no git."
+      }
+    },
+    {
+      "name": "the-repos-tests-on-the-git-fake-are-not-the-data-dir-tests",
+      "duplicate": false,
+      "source": "intake judged #2183 a duplicate of #2174 with `devops roadmap intake --plan` on 2026-10-24 (owner comment on #1989); each names other test files and gives its own pull request",
+      "candidate": {
+        "title": "test(repos): the repos, branches, github, ssh, devcontainer, tf and openspec tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_repos.py` (20 tests), `tests/test_repos_worktrees.py` (6), `tests/test_openspec_command.py` (12), `tests/test_tf.py` (8), `tests/test_ssh.py` (5), `tests/test_devcontainer.py` (4) and the branches and GitHub tests to the git fake, so that they start no git."
+      },
+      "item": {
+        "number": 2174,
+        "title": "test(core): the data directory, run store and gitignore tests start no git and reach git through the git fake",
+        "body": "Move the tests of `tests/test_data_dir_worktrees.py` (88 tests), `tests/test_gitignore_evaluation.py` (22), `tests/test_run_store.py` (18) and `tests/test_run_comparison.py` (14) to the git fake, so that they start no git."
+      }
+    },
+    {
+      "name": "a-git-seam-with-recorded-transcripts-is-not-the-testing-rule-docs",
+      "duplicate": false,
+      "source": "intake judged #2146 a duplicate of #2143 on 2026-10-24 (owner comment on #1989); #2143 changes only documents, and #2146 changes code under the rule that #2143 states",
+      "candidate": {
+        "title": "test(git): one git seam answers tests from recorded git transcripts, with a contract suite that replays them",
+        "body": "devops-cli has no git fake to move tests to. git is reached through the process runner and through GitPython, whose starts the process fake does not see. One git seam answers tests from recorded git transcripts, and a contract suite replays them."
+      },
+      "item": {
+        "number": 2143,
+        "title": "docs(testing): adr 0007 and docs/testing.md say that a test of src starts no program, and real processes stay in the process runner's contract suite",
+        "body": "The owner decided on 2026-10-24 that a test of the owner's `src/` code starts no system program and does not read the host. ADR 0007 and `docs/TESTING.md` state that rule, and real processes stay in the process runner's contract suite. This item changes only documents."
+      }
+    },
+    {
+      "name": "the-sandbox-on-the-process-fake-is-not-the-testing-rule-docs",
+      "duplicate": false,
+      "source": "intake judged #2149 a duplicate of #2143 on 2026-10-24 (owner comment on #1989); #2143 changes only documents, and #2149 changes code under the rule that #2143 states",
+      "candidate": {
+        "title": "test(sandbox): the host sandbox and the sandbox tool executor are tested through the process fake on every runner, src detects no mock, and the real bwrap cases are an opt-in contract suite",
+        "body": "The host sandbox's own I/O loop never runs in CI, and product code detects test doubles to keep it out of tests. Test the host sandbox and the sandbox tool executor through the process fake, remove the mock detection from src, and keep the real bwrap cases as an opt-in contract suite."
+      },
+      "item": {
+        "number": 2143,
+        "title": "docs(testing): adr 0007 and docs/testing.md say that a test of src starts no program, and real processes stay in the process runner's contract suite",
+        "body": "The owner decided on 2026-10-24 that a test of the owner's `src/` code starts no system program and does not read the host. ADR 0007 and `docs/TESTING.md` state that rule, and real processes stay in the process runner's contract suite. This item changes only documents."
+      }
+    }
+  ]
+}
