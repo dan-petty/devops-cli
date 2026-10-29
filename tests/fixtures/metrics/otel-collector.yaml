@@ -1,20 +1,22 @@
 # Metric families the deployed OpenTelemetry Collector serves about itself (#693): names,
 # types and label names, never label values. tests/test_stack_dashboards.py checks
-# otel-collector.json against them.
+# otel-collector.json against them, and tests/test_k8s_monitoring_alerting.py checks the
+# otel-collector alert rules (#1642).
 #
 # `families` lists every family exactly as its `# TYPE` line printed it, with its type and
 # the label names its samples carried. A family without `labels` printed its `# TYPE` line
 # but no sample, so its labels could not be read from the capture.
-# `from_source` gives the families the dashboard uses that the OTel SDK does not print at all
-# until their first event, with their labels read from the collector's source at the deployed
-# version.
+# `from_source` gives the families the dashboard or an alert rule uses that the OTel SDK does
+# not print at all until their first event, with their labels read from the collector's source
+# at the deployed version. The collector runs at the default telemetry level, so a failed send
+# carries the attributes of its sent counter, without `error.type` and `error.permanent`.
 exporter: OpenTelemetry Collector internal telemetry
-image: otel/opentelemetry-collector-contrib:0.159.0
-chart: open-telemetry/opentelemetry-collector 0.174.0
-captured: "2026-10-01"
+image: otel/opentelemetry-collector-contrib:0.161.0
+chart: open-telemetry/opentelemetry-collector 0.175.0
+captured: "2026-10-28"
 taken_from: >-
   The collector pod's port 8888 /metrics on the homelab cluster, read through the
-  Kubernetes API service proxy. It answers in the plain text format (version 0.0.4) even
+  Kubernetes API proxy to the pod. It answers in the plain text format (version 0.0.4) even
   when OpenMetrics is asked for, as the server's scrape does, so counters keep the names
   below, without `_total`.
 scraped_by: >-
@@ -25,7 +27,7 @@ scraped_by: >-
   pod).
 target_labels: [app_kubernetes_io_instance, app_kubernetes_io_name, cluster, component, instance, job, namespace, node, pod, pod_template_hash]
 families:
-  otelcol_deltatocumulative_datapoints: {type: counter, labels: []}
+  otelcol_deltatocumulative_datapoints: {type: counter, labels: [error]}
   otelcol_deltatocumulative_streams_limit: {type: gauge, labels: []}
   otelcol_deltatocumulative_streams_max_stale: {type: gauge, labels: []}
   otelcol_deltatocumulative_streams_tracked: {type: gauge, labels: []}
@@ -35,7 +37,7 @@ families:
   otelcol_exporter_prometheusremotewrite_translated_time_series: {type: counter, labels: [endpoint, exporter]}
   otelcol_exporter_queue_capacity: {type: gauge, labels: [data_type, exporter]}
   otelcol_exporter_queue_size: {type: gauge, labels: [data_type, exporter]}
-  otelcol_exporter_send_failed_metric_points: {type: counter, labels: [exporter]}
+  otelcol_exporter_sent_log_records: {type: counter, labels: [exporter, server_address, server_port, url_path]}
   otelcol_exporter_sent_metric_points: {type: counter, labels: [exporter]}
   otelcol_exporter_sent_spans: {type: counter, labels: [exporter, server_address, server_port]}
   otelcol_process_cpu_seconds: {type: counter, labels: []}
@@ -48,19 +50,31 @@ families:
   otelcol_processor_batch_metadata_cardinality: {type: gauge, labels: [processor]}
   otelcol_processor_batch_timeout_trigger_send: {type: counter, labels: [processor]}
   otelcol_processor_incoming_items: {type: counter, labels: [otel_signal, processor]}
+  otelcol_processor_memory_limiter_accepted_log_records: {type: counter, labels: [processor]}
   otelcol_processor_memory_limiter_accepted_metric_points: {type: counter, labels: [processor]}
   otelcol_processor_memory_limiter_accepted_spans: {type: counter, labels: [processor]}
   otelcol_processor_outgoing_items: {type: counter, labels: [otel_signal, processor]}
+  otelcol_receiver_accepted_log_records: {type: counter, labels: [receiver, transport]}
   otelcol_receiver_accepted_metric_points: {type: counter, labels: [receiver, transport]}
   otelcol_receiver_accepted_spans: {type: counter, labels: [receiver, transport]}
+  otelcol_receiver_failed_log_records: {type: counter, labels: [receiver, transport]}
   otelcol_receiver_failed_metric_points: {type: counter, labels: [receiver, transport]}
   otelcol_receiver_failed_spans: {type: counter, labels: [receiver, transport]}
+  otelcol_receiver_refused_log_records: {type: counter, labels: [receiver, transport]}
   otelcol_receiver_refused_metric_points: {type: counter, labels: [receiver, transport]}
   otelcol_receiver_refused_spans: {type: counter, labels: [receiver, transport]}
   promhttp_metric_handler_errors_total: {type: counter, labels: [cause]}
   target_info: {type: gauge, labels: [host_name, k8s_namespace_name, k8s_node_ip, k8s_node_name, k8s_pod_ip, k8s_pod_name, service_instance_id, service_name, service_version]}
 from_source:
+  otelcol_exporter_send_failed_log_records:
+    type: counter
+    labels: [exporter, server_address, server_port, url_path]
+    source: https://github.com/open-telemetry/opentelemetry-collector/blob/v0.161.0/exporter/exporterhelper/internal/obs_report_sender.go#L67-L101
+  otelcol_exporter_send_failed_metric_points:
+    type: counter
+    labels: [exporter]
+    source: https://github.com/open-telemetry/opentelemetry-collector/blob/v0.161.0/exporter/exporterhelper/internal/obs_report_sender.go#L67-L101
   otelcol_exporter_send_failed_spans:
     type: counter
     labels: [exporter, server_address, server_port]
-    source: https://github.com/open-telemetry/opentelemetry-collector/blob/v0.159.0/exporter/exporterhelper/internal/obs_report_sender.go#L67-L94
+    source: https://github.com/open-telemetry/opentelemetry-collector/blob/v0.161.0/exporter/exporterhelper/internal/obs_report_sender.go#L67-L101
