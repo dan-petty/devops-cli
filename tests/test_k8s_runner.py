@@ -76,8 +76,8 @@ def test_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> None
         RUNNER_IMAGE,
         "IfNotPresent",
         {
-            "requests": {"cpu": "2", "memory": "4Gi"},
-            "limits": {"cpu": "2", "memory": "4Gi"},
+            "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "2Gi"},
+            "limits": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "6Gi"},
         },
     )
 
@@ -129,6 +129,17 @@ def test_the_runner_home_is_an_empty_dir_of_4_gi_and_the_data_dir_lives_in_it() 
         env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops/"),
         {"home", "tmp"} <= {m["name"] for m in container["volumeMounts"]},
     ) == ({"sizeLimit": "4Gi"}, {"home": "/home/devops"}, True, True)
+
+
+def test_every_volume_of_the_runner_has_a_size_limit_inside_the_ephemeral_storage_limit() -> None:
+    """A step can write as much as it wants into `/tmp`. Without a limit one Job fills the disk
+    of its node (#2667), so each volume has a limit and the container has a storage limit that
+    covers them both."""
+    pod = _cronjob_pod("devops-cli-runner")
+    limits = {v["name"]: v["emptyDir"].get("sizeLimit") for v in pod["volumes"] if "emptyDir" in v}
+    storage = _runner_container()["resources"]["limits"]["ephemeral-storage"]
+
+    assert (limits, storage) == ({"tmp": "1Gi", "home": "4Gi"}, "6Gi")
 
 
 def test_the_service_has_its_own_account_and_mounts_a_token_that_expires_in_an_hour() -> None:

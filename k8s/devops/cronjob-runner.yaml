@@ -76,15 +76,20 @@ spec:
                   mountPath: /config
                   readOnly: true
               resources:
+                # The storage limit covers both volumes below (4 Gi and 1 Gi) and the log, so a
+                # step cannot fill the disk of the node.
                 requests:
                   cpu: "2"
                   memory: 4Gi
+                  ephemeral-storage: 2Gi
                 limits:
                   cpu: "2"
                   memory: 4Gi
+                  ephemeral-storage: 6Gi
           volumes:
             - name: tmp
-              emptyDir: {}
+              emptyDir:
+                sizeLimit: 1Gi
             - name: home
               emptyDir:
                 sizeLimit: 4Gi
