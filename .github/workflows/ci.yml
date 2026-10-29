@@ -119,7 +119,8 @@ jobs:
 
       # Changed-line coverage against the pull request's own base branch (#850). The job fails
       # when under 90% of the changed lines are covered (#2356); the global floor is
-      # `fail_under` in pyproject.toml.
+      # `fail_under` in pyproject.toml. The gate writes no XML report, so the step writes
+      # .data/coverage.xml from the combined data that the gate keeps (#1743).
       # diff-cover truncates its output file, so it writes first and the pragma list
       # is appended after it. The step keeps diff-cover's status, so the list is in the summary
       # when the figure fails, and exits with that status last.
@@ -129,6 +130,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags origin "$BASE_REF"
+          uv run coverage xml -q
           status=0
           uv run diff-cover .data/coverage.xml --compare-branch="origin/${BASE_REF}" --fail-under 90 --format "markdown:${GITHUB_STEP_SUMMARY}" || status=$?
           {

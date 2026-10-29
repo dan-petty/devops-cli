@@ -1132,7 +1132,6 @@ def test_the_full_gate_collects_the_test_module_ban(pytestconfig: pytest.Config)
             f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
             "--cov=src",
             "--cov-report=term-missing",
-            "--cov-report=xml",
         ],
         [
             *("-n", "logical", "--dist", "worksteal"),

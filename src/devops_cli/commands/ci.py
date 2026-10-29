@@ -419,7 +419,11 @@ def _unlink_coverage_path(path: Path, *, force: bool) -> None:
 
 
 def _clean_coverage_artifacts(*, force: bool = False) -> None:
-    """Clean up residual temporary .coverage.* worker files from the checked tree and .data/."""
+    """Clean up residual `.coverage.*` worker files from the checked tree and .data/.
+
+    The combined `.data/.coverage` stays: `devops ci coverage --build-index` and CI's
+    `coverage xml` read it after the gate (#1743).
+    """
     if is_dry_run():
         return
     if not force and os.getenv("PYTEST_CURRENT_TEST"):
@@ -433,14 +437,8 @@ def _clean_coverage_artifacts(*, force: bool = False) -> None:
 
     for target_dir in (current_root, current_root / ".data"):
         if target_dir.exists():
-            for path in target_dir.glob(".coverage*"):
+            for path in target_dir.glob(".coverage.*"):
                 _unlink_coverage_path(path, force=force)
-    root_coverage_xml = current_root / "coverage.xml"
-    if root_coverage_xml.exists():
-        try:
-            root_coverage_xml.unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def _format_process_output(raw: str | bytes | None) -> str:
@@ -642,7 +640,11 @@ def _gate_slot(needed: bool) -> Iterator[None]:
 
 
 def _resolve_pytest_cmd() -> list[str]:
-    """Construct check command line arguments for the pytest and coverage row."""
+    """Construct check command line arguments for the pytest and coverage row.
+
+    The row prints the term report and writes no XML report: only CI's changed-line coverage
+    step reads `coverage.xml`, and it writes the file from the combined data (#1743).
+    """
     return [
         "uv",
         "run",
@@ -650,7 +652,6 @@ def _resolve_pytest_cmd() -> list[str]:
         f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
         "--cov=src",
         "--cov-report=term-missing",
-        "--cov-report=xml",
     ]
 
 
