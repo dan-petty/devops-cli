@@ -18,7 +18,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2000-argocd-notifier-app-secret`
 - Pending a person: store the values and push the Secret: `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>`, `devops config set argocd.github_app_private_key --from-file <key.pem>`, then `devops k8s push-secrets --only argocd/argocd-notifications-secret`.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
