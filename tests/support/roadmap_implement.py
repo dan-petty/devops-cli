@@ -353,6 +353,29 @@ def docs_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(call.argv, 0, stdout="generated\n")
 
 
+def move_main_when(
+    world: JobWorld,
+    matches: Callable[[ProcessCall], bool],
+    effect: Callable[[ProcessCall], subprocess.CompletedProcess[str]],
+) -> None:
+    """Make `main` gain a commit that conflicts with the branch, at the first call that `matches`.
+    The call itself has the `effect` that it has without this move."""
+    moved: list[bool] = []
+
+    def move(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if not moved:
+            moved.append(True)
+            path = world.repo.clone / "src" / "devops_cli"
+            path.mkdir(parents=True, exist_ok=True)
+            (path / "shout.py").write_text('"""Main shouts."""\n', encoding="utf-8")
+            world.repo.git("add", "-A")
+            world.repo.git("commit", "-q", "-m", "main also adds the shout")
+            world.repo.git("push", "-q", "origin", "main")
+        return effect(call)
+
+    world.programs.answer(matches, ProcessAnswer(side_effect=move))
+
+
 @dataclass
 class JobWorld:
     """A Staged item, its repository, GitHub and the process edge, ready for a run."""

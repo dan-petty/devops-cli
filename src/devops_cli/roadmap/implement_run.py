@@ -244,11 +244,12 @@ class _ItemRun:
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
-        self._sync()
+        self._sync(push_on_conflict=False)
 
-    def _sync(self) -> None:
-        """Fetch the default branch and rebase onto it. A conflict aborts the rebase and stops the
-        item with nothing to push."""
+    def _sync(self, *, push_on_conflict: bool = True) -> None:
+        """Fetch the default branch and rebase onto it. A conflict aborts the rebase, which puts the
+        branch back on its tip, and stops the item. The stop pushes the commits that passed, unless
+        `push_on_conflict` is false: at the start of the run there is nothing new to push."""
         self._git("fetch", "-q", "origin", self.default)
         try:
             self._git("rebase", f"origin/{self.default}")
@@ -263,7 +264,7 @@ class _ItemRun:
             reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
             if aborted.returncode != 0:
                 reason += texts.implement_stop_abort_failed.format(output=_tail(aborted.stderr))
-            raise _StopError(self.step, reason, push=False) from exc
+            raise _StopError(self.step, reason, push=push_on_conflict) from exc
 
     def _groups(self) -> None:
         change = self._active_change()

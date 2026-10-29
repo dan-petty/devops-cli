@@ -29,8 +29,10 @@ from tests.support.roadmap_implement import (
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
+    docs_effect,
     group_one_calls,
     group_two_calls,
+    move_main_when,
     push_staged_branch,
     route_pull_status,
     seed_staged,
@@ -327,6 +329,30 @@ def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobW
     assert "conflict" in job_world.issue_comments()[0].lower()
     assert job_world.repo.git("worktree", "list").count("\n") == 0
     assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
+def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed(
+    job_world: JobWorld,
+) -> None:
+    move_main_when(
+        job_world,
+        lambda call: command_text(call).startswith("uv run devops docs generate"),
+        docs_effect,
+    )
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Ready", "push")
+    assert job_world.origin_log() == [
+        "fix(roadmap): plan",
+        "The first group (#1)",
+        "The second group (#1)",
+        "docs: regenerate the documentation (#1)",
+        "docs(openspec): archive the change (#1)",
+    ]
+    assert job_world.pull.ready_calls == []
+    assert "conflict" in job_world.issue_comments()[0].lower()
 
 
 def test_a_step_that_stops_does_not_stop_the_next_item(job_world: JobWorld) -> None:

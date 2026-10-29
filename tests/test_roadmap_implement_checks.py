@@ -3,6 +3,8 @@ that follow the push (#2665). The checks of the pull request are scripted for ea
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from tests.support.fakes.process import ProcessAnswer
@@ -16,6 +18,7 @@ from tests.support.roadmap_implement import (
     RUNNING,
     JobWorld,
     a_fix,
+    move_main_when,
     two_groups,
 )
 
@@ -51,6 +54,27 @@ def test_a_check_that_fails_once_gets_one_fix_step_with_its_log_and_then_passes(
     ]
     assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", "example/roadmap")]
     assert _item(job_world)[0] == "In Review"
+
+
+def test_a_conflict_on_the_rebase_after_the_fix_pushes_the_fix_commit(job_world: JobWorld) -> None:
+    job_world.pull.runs = [[FAIL], [PASS]]
+    move_main_when(
+        job_world,
+        lambda call: call.argv[1:3] == ("run", "view"),
+        lambda call: subprocess.CompletedProcess(call.argv, 0, stdout=job_world.pull.log),
+    )
+
+    applied = job_world.run(two_groups(*a_fix()))
+
+    status, record = _item(job_world)
+    assert (applied.ready, applied.stopped, status, record.get("implement.stopped")) == (
+        (),
+        (1,),
+        "Ready",
+        "push",
+    )
+    assert job_world.origin_log()[-1] == f"Make check {CHECK} pass (#1)"
+    assert job_world.pull.ready_calls == []
 
 
 def test_a_check_that_fails_twice_stops_the_item_and_leaves_the_draft(
