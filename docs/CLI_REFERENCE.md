@@ -6409,6 +6409,25 @@ devops roadmap refine [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request and change no git ref: print what refine would plan and run, with placeholders. |
 | `--confirm` | `boolean` | - | Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only. |
 
+### `devops roadmap alternatives`
+
+**Check open items for an open, maintained tool or library that already covers their need, in whole or in part. For each item, one agent run searches the web with Firecrawl and reads the facts of each candidate from GitHub and PyPI: its license, its last activity and whether it is archived. The verdict is covers, partly, none or not-applicable. With --confirm, a check posts one comment, replaces the block `devops-roadmap-alternatives` in the item's body, and records the check in the job record. It changes no label and closes no issue. A person decides what a tool means for the item. The run takes open New and Ready items that a person with write access opened: first the items with no check, lowest number first, then the items whose check is older than roadmap.alternatives.recheck_days or whose text changed since. The check is off, and the plan says why, for a private repository or with no Firecrawl key. An item whose model call fails or whose reply cites a URL that no tool returned is skipped and reported; the others are written, and the command then exits 1.**
+
+```bash
+devops roadmap alternatives [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--item` | `integer` | - | Specific issue number to check instead of selecting. Alternatives checks it when it is open, whoever opened it and whatever its status, even when its check is current. |
+| `--limit` | `integer` | `5` | Maximum number of items to check in this run (default 5). |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
+| `--plan` | `boolean` | - | Run the checks and print them, and write nothing. This is the default. |
+| `--confirm` | `boolean` | - | Write each check to GitHub: its comment, its body block and its job record. |
+
 ### `devops roadmap run`
 
 **Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**

@@ -106,6 +106,10 @@ _Avoid_: research
 Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
+**Alternative**:
+An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none or not-applicable. A person decides what an alternative means for the item.
+_Avoid_: competitor, substitute
+
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker

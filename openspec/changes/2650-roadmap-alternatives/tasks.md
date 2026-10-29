@@ -22,7 +22,7 @@
 
 ## 5. Documentation
 
-- [ ] 5.1 Add the term "Alternative" to `CONTEXT.md`, regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 5.1 Add the term "Alternative" to `CONTEXT.md`, regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 - [ ] 5.2 Run `uv run devops ci` once, fix any failure at its cause, and verify that it passes
 
 ## Workflow follow-up
