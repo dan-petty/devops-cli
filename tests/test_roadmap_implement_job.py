@@ -15,8 +15,9 @@ from pathlib import Path
 import pytest
 
 from devops_cli.exceptions import RoadmapImplementError
+from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
-from devops_cli.roadmap.implement_run import apply_implement
+from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
 from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.implement_step import WINDOW, command_text
@@ -377,3 +378,26 @@ def test_the_plan_alone_runs_nothing(job_world: JobWorld) -> None:
     assert job_world.pull.ready_calls == []
     assert job_world.origin_log() == ["fix(roadmap): plan"]
     assert _item(job_world)[0] == "Ready"
+
+
+def test_an_item_whose_worktree_cannot_be_made_is_reported_and_left_alone(
+    job_world: JobWorld,
+) -> None:
+    plan = job_world.plan()
+    worktree_directory(1, job_world.repo.clone).mkdir(parents=True)
+    script = two_groups()
+
+    applied = apply_implement(
+        job_world.store, plan, source=job_world.repo.clone, model=script.model(), window=WINDOW
+    )
+
+    assert (applied.ready, applied.stopped, [f.number for f in applied.failed]) == ((), (), [1])
+    assert applied.failed[0].error == "GitOperationError"
+    assert (script.seen, _item(job_world)[0]) == ([], "Ready")
+    with pytest.raises(RoadmapImplementError) as raised:
+        raise_for_failed(applied.failed)
+    assert "1 item(s) failed: #1 (GitOperationError" in str(raised.value)
+
+
+def test_a_run_with_no_failure_raises_nothing() -> None:
+    raise_for_failed(())
