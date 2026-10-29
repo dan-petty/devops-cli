@@ -1,13 +1,13 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **76 operational and architectural manuals**
+The bundled Knowledge Base provides **77 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
 
 ## Division 1: DevOps CLI Information (`devops_cli/`)
 
-**Total Articles**: 38 manuals covering internals, configuration, tasks, and libraries.
+**Total Articles**: 39 manuals covering internals, configuration, tasks, and libraries.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -29,6 +29,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `libraries` | [`pathspec.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/pathspec.md) | Pathspec |
 | `libraries` | [`pydantic.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/pydantic.md) | Pydantic |
 | `libraries` | [`pydantic_ai.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/pydantic_ai.md) | Pydantic Ai |
+| `libraries` | [`pydantic_ai_harness.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/pydantic_ai_harness.md) | Pydantic Ai Harness |
 | `libraries` | [`pyyaml_jinja2.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/pyyaml_jinja2.md) | Pyyaml Jinja2 |
 | `libraries` | [`qdrant_client.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/qdrant_client.md) | Qdrant Client |
 | `libraries` | [`rich.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/rich.md) | Rich |

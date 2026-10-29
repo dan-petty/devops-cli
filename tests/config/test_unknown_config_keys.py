@@ -92,6 +92,7 @@ def test_the_sections_that_refuse_an_unknown_key_are_ai_its_tasks_and_each_task(
         ("ai", "tasks", "verification"),
         ("ai", "tasks", "compose"),
         ("ai", "tasks", "embedding"),
+        ("ai", "tasks", "implement"),
     ]
 
 

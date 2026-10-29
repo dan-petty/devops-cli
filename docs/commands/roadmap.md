@@ -106,6 +106,28 @@ devops roadmap run [OPTIONS]
 
 ---
 
+## `devops roadmap implement`
+
+**Run one task group of the change of an item, in one bounded context. The agent is pydantic-ai's Coder on the model of ai.tasks.implement, in the checkout --source. Its inputs are the item's title, problem and acceptance criteria, the change's proposal, design and tasks, the group, and the files the group names. The command refuses to start when they do not fit the window of the task, or when the checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and mypy, with a scratch home. When the agent returns, the command runs the verification commands of the group and ruff and mypy on the changed Python files, and checks that every task of the group is ticked, no other group changed and the agent made no commit. When every check passes, it commits the checkout as '<group title> (#\<item\>)'. Otherwise it resets the checkout to the commit where the step started, reports the step as stopped with the reason, and exits 1. It writes nothing to GitHub.**
+
+```bash
+devops roadmap implement [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--item` | `integer` | - | The issue number of the item whose change holds the group. |
+| `--group` | `integer` | - | The number of the group in the tasks.md of the change. |
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--source` | `path` | `.` | Path to the git checkout that holds the change (defaults to the current directory). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Make no request and start no run: print the requests a step makes, with placeholders. |
+
+---
+
 ## `devops roadmap return`
 
 **Return an item to New with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. The item gets the label status/new in place of its other status/* label.**

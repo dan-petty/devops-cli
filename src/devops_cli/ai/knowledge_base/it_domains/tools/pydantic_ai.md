@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/pydantic-ai@2.54.*"
+  - "pkg:pypi/pydantic-ai@2.59.*"
 sources:
   - "https://ai.pydantic.dev/"
   - "https://github.com/pydantic/pydantic-ai"

@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/pydantic-ai@2.54.*"
+  - "pkg:pypi/pydantic-ai@2.59.*"
 sources:
   - "https://ai.pydantic.dev/"
   - "https://github.com/pydantic/pydantic-ai"
@@ -19,7 +19,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [ai.pydantic.dev](https://ai.pydantic.dev/) |
 | **Public Git Repository** | [github.com/pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) |
-| **Official PyPI Package** | [pypi.org/project/pydantic-ai](https://pypi.org/project/pydantic-ai/) (`2.54.0`) |
+| **Official PyPI Package** | [pypi.org/project/pydantic-ai](https://pypi.org/project/pydantic-ai/) (`2.59.0`) |
 | **DevOps CLI Integration** | [`src/devops_cli/ai/agents/`](../../../../../../src/devops_cli/ai/agents/) • [`src/devops_cli/ai/review/`](../../../../../../src/devops_cli/ai/review/) |
 
 ---

@@ -116,7 +116,7 @@ from devops_cli.ai.review_schema import Finding
 ### 3. Agentic AI, LLM Client & Semantic Search
 
 #### `pydantic-ai` ([Dedicated Manual](libraries/pydantic_ai.md))
-- **Pinned Version**: `pydantic-ai==2.54.0`
+- **Pinned Version**: `pydantic-ai==2.59.0`
 - **Ecosystem Role**: Multi-agent framework enabling type-safe tool execution, dynamic instructions, structured output validation, model overrides, and sub-agent delegation.
 - **Codebase Integration**:
   - `devops_cli.ai.agents.agent.PydanticAgent`: High-level agent abstraction managing toolsets, usage tracking (`AgentUsage`), and async lifecycles (`async with agent:`).
@@ -146,6 +146,12 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 - **Ecosystem Role**: Fast BPE (Byte-Pair Encoding) tokenizer developed by OpenAI for token counting and context window management.
 - **Codebase Integration**:
   - `devops_cli.ai.context_budget`: Accurately counts tokens in diffs, prompts, and knowledge base files, preventing LLM context window overflows and optimizing cost.
+
+#### `pydantic-ai-harness` ([Dedicated Manual](libraries/pydantic_ai_harness.md))
+- **Pinned Version**: `pydantic-ai-harness[coder]==0.59.0`
+- **Ecosystem Role**: Capabilities for pydantic-ai agents. `Coder` gives an agent the file and shell tools of a coding agent.
+- **Codebase Integration**:
+  - `devops_cli.roadmap.implement_step`: Runs one task group of a staged change in one bounded agent run (`devops roadmap implement`).
 
 #### `json-repair` ([Dedicated Manual](libraries/json_repair.md))
 - **Pinned Version**: `json-repair==0.63.4`

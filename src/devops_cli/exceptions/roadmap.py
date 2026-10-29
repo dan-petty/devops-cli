@@ -37,6 +37,15 @@ class RoadmapRunError(DevOpsCLIError):
         return isinstance(cause, ConfigurationError)
 
 
+class RoadmapImplementError(DevOpsCLIError):
+    """Raised when `devops roadmap implement` refuses to start a step, or cannot read its inputs.
+
+    A refused step has made no model request and changed nothing in the checkout.
+    """
+
+    error_code = "ROADMAP_IMPLEMENT_REFUSED"
+
+
 class RoadmapItemChangedError(GitHubOperationError):
     """Raised before a job's field write that would revert a change made since it read the Item.
 

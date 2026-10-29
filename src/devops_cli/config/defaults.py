@@ -82,6 +82,10 @@ DEFAULT_THINKING_TAGS: Final[tuple[str, str]] = ("<think>", "</think>")
 DEFAULT_AI_TEMPERATURE: float = 0.1
 DEFAULT_AI_TOP_P: float = 0.95
 DEFAULT_AI_CONTEXT_WINDOW: int = 32768
+# The gateway group that serves one step of `devops roadmap implement` (#2664): qwen3-coder on a
+# tier whose context length is 128000 tokens. A step builds its inputs to fit this window.
+DEFAULT_AI_IMPLEMENT_MODEL: str = "devops-coder"
+DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW: int = 128000
 DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS: float = 2.0
