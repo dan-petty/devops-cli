@@ -313,6 +313,33 @@ def test_the_help_of_audit_keys_and_unset_name_the_command_that_removes_a_leak(
     assert "set `DEVOPS_CLI_CONFIG` to its path" in unset_help
 
 
+@pytest.mark.parametrize("name_is_in_a_leak", [True, False])
+def test_config_audit_keys_prints_each_alert_for_a_name_that_holds_markup(
+    name_is_in_a_leak: bool,
+    cli: Callable[..., Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Text such as `[/x]` is markup for the terminal, and without a guard it stops the alert with
+    a `MarkupError`. A section name holds it in a leak. A directory name holds it in the path of
+    a file that the audit cannot read."""
+    if name_is_in_a_leak:
+        (tmp_path / "config.yaml").write_text(
+            "'[/x]':\n  grafana.token: FAKE-2513-value\n", encoding="utf-8"
+        )
+        shown = "[/x].grafana.token"
+    else:
+        unreadable = tmp_path / "[" / "x]" / "config.yaml"
+        unreadable.parent.mkdir(parents=True)
+        unreadable.write_text(_UNPARSABLE_CONFIG, encoding="utf-8")
+        monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(unreadable))
+        shown = "[/x]/config.yaml"
+
+    result = cli("config", "audit-keys")
+
+    assert (result.exit_code, shown in result.output) == (1, True)
+
+
 _LOADER_CREDENTIAL = "FAKE-2426-value"
 
 

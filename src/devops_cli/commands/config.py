@@ -793,12 +793,17 @@ def audit_keys_cmd(
     )
 
     if plaintext_leaks:
-        print_error(MESSAGES.config.plaintext_alert.format(leaks=plaintext_leaks), prefix=False)
+        print_error(
+            MESSAGES.config.plaintext_alert.format(leaks=plaintext_leaks),
+            prefix=False,
+            safe=True,
+        )
     if unaudited_files:
         print_error(
             f"Unaudited: could not read or parse {', '.join(str(p) for p in unaudited_files)}; "
             "fix the file and re-run 'devops config audit-keys'.",
             prefix=False,
+            safe=True,
         )
     if not is_overall_compliant:
         raise typer.Exit(1)
