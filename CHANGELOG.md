@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.1](https://github.com/dan-petty/devops-cli/compare/v0.13.0...v0.13.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **roadmap:** import refine at module level to avoid deadlock ([#2535](https://github.com/dan-petty/devops-cli/issues/2535)) ([#2599](https://github.com/dan-petty/devops-cli/issues/2599)) ([3731dff](https://github.com/dan-petty/devops-cli/commit/3731dff0080a40b9e81ddfd928d20454d266f6be))
+
+
+### Code Refactoring
+
+* **review:** retire the unread review guards file ([#2595](https://github.com/dan-petty/devops-cli/issues/2595)) ([6ae7123](https://github.com/dan-petty/devops-cli/commit/6ae7123d8e94647906d55c5fabe85240204787cd)), closes [#1916](https://github.com/dan-petty/devops-cli/issues/1916)
+
 ## [0.13.0](https://github.com/dan-petty/devops-cli/compare/v0.12.0...v0.13.0) (2026-10-29)
 
 
