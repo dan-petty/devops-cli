@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1822-sandbox-seccomp-profile`
 - Pending a person: run a sandbox with `--seccomp-profile` on a Podman engine, which this host does not have, and check that the container starts and refuses a call that the profile does not allow.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
