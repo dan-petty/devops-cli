@@ -169,7 +169,7 @@ def test_an_urgent_fix_turns_on_auto_merge_of_the_release_pull_request() -> None
             "GH_TOKEN": "${{ steps.app.outputs.token }}",
             "REPOSITORY": "${{ github.repository }}",
             "PUSHED_SHA": "${{ github.sha }}",
-            "RELEASE_PR": "${{ fromJSON(steps.release.outputs.pr).number }}",
+            "RELEASE_PR": "${{ steps.release.outputs.pr }}",
         },
         True,
         [],

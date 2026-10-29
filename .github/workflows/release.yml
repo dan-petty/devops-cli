@@ -70,7 +70,7 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           REPOSITORY: ${{ github.repository }}
           PUSHED_SHA: ${{ github.sha }}
-          RELEASE_PR: ${{ fromJSON(steps.release.outputs.pr).number }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
         run: |
           pr=$(gh api "repos/$REPOSITORY/commits/$PUSHED_SHA/pulls" \
             --jq 'map(select(.merged_at != null)) | first | .number // empty')
@@ -100,6 +100,11 @@ jobs:
             exit 0
           fi
           echo "Pull request #$pr is an urgent fix. The release pull request merges when its checks pass."
+          RELEASE_PR=$(jq -r '.number // empty' <<< "$RELEASE_PR")
+          if [ -z "$RELEASE_PR" ]; then
+            echo "The release pull request could not be read. A person merges the release pull request."
+            exit 0
+          fi
           gh pr merge "$RELEASE_PR" --repo "$REPOSITORY" --auto --squash
 
   assets:

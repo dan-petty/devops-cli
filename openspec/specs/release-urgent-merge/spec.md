@@ -10,7 +10,7 @@ After `Run release-please`, the `release-please` job of `.github/workflows/relea
 
 #### Scenario: The step and its labels
 - **WHEN** `.github/workflows/release.yml` is read
-- **THEN** the step comes after `Run release-please`, its `RELEASE_PR` is `${{ fromJSON(steps.release.outputs.pr).number }}`, and its script names the four labels and runs `gh pr merge "$RELEASE_PR" --repo "$REPOSITORY" --auto --squash`
+- **THEN** the step comes after `Run release-please`, its `RELEASE_PR` is `${{ steps.release.outputs.pr }}`, and its script names the four labels and runs `gh pr merge "$RELEASE_PR" --repo "$REPOSITORY" --auto --squash`
 
 ### Requirement: The release App token turns on the auto-merge, and only for an update
 The step SHALL use the release App token, so the merge starts the `Release` run that creates the release. It SHALL not run in the run of a release merge or when release-please returned no release pull request.
