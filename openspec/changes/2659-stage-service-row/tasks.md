@@ -2,9 +2,9 @@
 
 ## 1. The Service image runs the pinned OpenSpec
 
-- [ ] 1.1 Add the three tests of the service stage to `tests/invariants/test_service_image.py` (OpenSpec from the lockfile on `PATH`, telemetry off, Node of the major in `.node-version`), and verify that `uv run devops ci test tests/invariants/test_service_image.py` fails on the base
-- [ ] 1.2 Add the `node` stage, the install in the builder stage, the copies and the environment to `Dockerfile`, and the `openspec --version` line to the smoke test in `.github/workflows/ci.yml`, and verify that `uv run devops ci test tests/invariants/test_service_image.py` passes and that `docker build --target service .` runs `openspec --version` as user 1000
-- [ ] 1.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 1.1 Add the three tests of the service stage to `tests/invariants/test_service_image.py` (OpenSpec from the lockfile on `PATH`, telemetry off, Node of the major in `.node-version`), and verify that `uv run devops ci test tests/invariants/test_service_image.py` fails on the base
+- [x] 1.2 Add the `node` stage, the install in the builder stage, the copies and the environment to `Dockerfile`, and the `openspec --version` line to the smoke test in `.github/workflows/ci.yml` and `.github/workflows/release.yml`, and verify that `uv run devops ci test tests/invariants/test_service_image.py` passes and that `docker build --target service .` runs `openspec --version` as user 1000
+- [x] 1.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 2. The settings of the stage job
 
