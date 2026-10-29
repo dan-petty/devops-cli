@@ -52,7 +52,9 @@ from devops_cli.telemetry.instruments import (
 logger = logging.getLogger(__name__)
 
 _PR_NUMBER_RE = re.compile(r"\(#(\d+)\)")
-_CLOSING_REF_RE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)", re.IGNORECASE)
+_CLOSING_REF_RE = re.compile(
+    r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)", re.IGNORECASE
+)
 """A closing keyword of GitHub and the issue it closes, as a commit footer writes it."""
 
 
