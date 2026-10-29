@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1966-release-urgent-auto-merge`
 - Pending a person: run `devops gh labels sync` after the merge, so the label `release-now` exists in the repository.
 - Pending a person: at the first urgent fix, check in the `Release` run that the step turned on auto-merge, and that the merge of the release pull request started the run that created the release.
