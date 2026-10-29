@@ -6,11 +6,12 @@ They read only committed files, so they need no network, no image build and no s
 from __future__ import annotations
 
 import re
-import shlex
 from pathlib import Path
 
 from packaging.version import Version
 
+from tests.support.dockerfile import env_of as _env_of
+from tests.support.dockerfile import stages as _stages
 from tests.support.paths import REPO_ROOT
 
 # A gh release URL, wherever it stands in the Dockerfile text: bare, in quotes or after `=`. Its
@@ -50,7 +51,7 @@ def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
         if cmd == "FROM":
             if len(tokens) >= 4 and tokens[2].upper() == "AS":
                 stage_names.add(tokens[3])
-            if "@sha256:" not in tokens[1]:
+            if "@sha256:" not in tokens[1] and tokens[1] not in stage_names:
                 unpinned.append(line)
         elif cmd == "COPY" and _check_copy_from_ref(tokens, stage_names):
             unpinned.append(line)
@@ -58,7 +59,8 @@ def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
 
 
 def test_service_dockerfile_base_images_pinned_by_digest() -> None:
-    """Every FROM and COPY --from= image in Dockerfile carries @sha256: (stage names exempt)."""
+    """Every FROM and COPY --from= image in Dockerfile carries @sha256: (stage names exempt, also
+    as the base of another stage: the runner stage is built from `builder`)."""
     unpinned = _unpinned_dockerfile_images(REPO_ROOT / "Dockerfile")
     assert unpinned == []
 
@@ -138,38 +140,8 @@ def test_trivyignore_ignores_no_go_finding_that_the_pinned_gh_fixes() -> None:
     assert ignored & GH_GO_FINDINGS_FIXED_IN_THE_PIN == set()
 
 
-def _stages(dockerfile: str) -> dict[str, list[list[str]]]:
-    """Each stage of a Dockerfile by name, with its instructions as shell-split words.
-
-    A backslash at the end of a line joins it to the next; a comment line and a blank line are
-    dropped. The words of `COPY --from=node ...` are `["COPY", "--from=node", ...]`.
-    """
-    stages: dict[str, list[list[str]]] = {}
-    stage: list[list[str]] = []
-    joined = dockerfile.replace("\\\n", " ")
-    for raw_line in joined.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        words = shlex.split(line)
-        if words[0].upper() == "FROM":
-            stage = stages.setdefault(words[-1] if words[-2].upper() == "AS" else words[1], [])
-        stage.append(words)
-    return stages
-
-
 def _service_stage() -> list[list[str]]:
     return _stages((REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"))["service"]
-
-
-def _env_of(stage: list[list[str]]) -> dict[str, str]:
-    """The variables the ENV instructions of a stage set."""
-    return dict(
-        word.partition("=")[::2]
-        for words in stage
-        if words[0].upper() == "ENV"
-        for word in words[1:]
-    )
 
 
 def _install_tools_target(stage: list[list[str]]) -> str:

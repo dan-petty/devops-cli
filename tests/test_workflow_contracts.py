@@ -132,7 +132,9 @@ def test_release_please_makes_every_release_on_a_push_to_main() -> None:
             "tag_name": "${{ steps.release.outputs.tag_name }}",
             "sha": "${{ steps.release.outputs.sha }}",
         },
-        dict.fromkeys(("assets", "devcontainer-image", "service-image"), _RELEASE_CREATED),
+        dict.fromkeys(
+            ("assets", "devcontainer-image", "service-image", "runner-image"), _RELEASE_CREATED
+        ),
     )
     assert [name for name in jobs if name != "release-please" and not _gated(jobs, name)] == []
 
@@ -192,7 +194,7 @@ def test_every_publish_job_checks_out_the_commit_release_please_tagged() -> None
         if any(s.get("name") == "Check out repository" for s in job.get("steps", []))
     }
     assert checkouts == dict.fromkeys(
-        ("assets", "devcontainer-image", "devcontainer-smoke", "service-image"),
+        ("assets", "devcontainer-image", "devcontainer-smoke", "service-image", "runner-image"),
         (True, {"ref": "${{ needs.release-please.outputs.sha }}", "persist-credentials": False}),
     )
 
@@ -300,6 +302,7 @@ def test_release_workflow_attest_build_provenance_contract() -> None:
     ] == [
         ("devcontainer", "ghcr.io/${{ github.repository }}/devcontainer"),
         ("service-image", "ghcr.io/${{ github.repository }}/service"),
+        ("runner-image", "ghcr.io/${{ github.repository }}/runner"),
     ]
 
 
@@ -326,7 +329,12 @@ def test_every_trivy_scan_runs_the_trivy_tools_lock_pins() -> None:
         for job_id, step in _extract_steps_with_action(
             _load_workflow(path), "aquasecurity/trivy-action"
         )
-    ] == [("ci.yml", "service-image", pinned), ("release.yml", "service-image", pinned)]
+    ] == [
+        ("ci.yml", "service-image", pinned),
+        ("ci.yml", "runner-image", pinned),
+        ("release.yml", "service-image", pinned),
+        ("release.yml", "runner-image", pinned),
+    ]
 
 
 def assert_audit_workflow_contract(workflow: dict[str, Any]) -> None:

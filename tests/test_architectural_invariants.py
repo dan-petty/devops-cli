@@ -995,6 +995,7 @@ def _ci_image_content_paths(workflow: Path, job_name: str = "devcontainer") -> s
     [
         ("devcontainer", ".devcontainer/Dockerfile"),
         ("service-image", "Dockerfile"),
+        ("runner-image", "Dockerfile"),
     ],
 )
 def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_rel: str) -> None:

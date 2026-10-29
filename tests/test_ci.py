@@ -1162,10 +1162,11 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
     jobs = ci["jobs"]
 
-    assert {"static", "test", "devcontainer", "service-image"}.issubset(jobs.keys())
+    assert {"static", "test", "devcontainer", "service-image", "runner-image"}.issubset(jobs.keys())
     # No `needs:` between them, so they start concurrently rather than in sequence.
     assert all(
-        not jobs[name].get("needs") for name in ("static", "test", "devcontainer", "service-image")
+        not jobs[name].get("needs")
+        for name in ("static", "test", "devcontainer", "service-image", "runner-image")
     )
 
 
@@ -2639,6 +2640,11 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Detect Image Content Changes",
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
+        (
+            "runner-image",
+            "Detect Image Content Changes",
+        ): "Git diff to check changed runner image sources",
+        ("runner-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
         (
             "test",
             "Changed-Line Coverage",

@@ -2,9 +2,9 @@
 
 ## 1. The runner image and its publication
 
-- [ ] Add failing tests that read `Dockerfile`, `release.yml` and `ci.yml`: the stage, its place, the pinned bases, the release job and the pull request job
+- [x] Add failing tests that read `Dockerfile`, `release.yml` and `ci.yml`: the stage, its place, the pinned bases, the release job and the pull request job
   - Verification: `uv run devops ci test tests/invariants/test_runner_image.py`
-- [ ] Add the `runner` stage, the `runner-image` job of the release, and the `runner-image` job of CI
+- [x] Add the `runner` stage, the `runner-image` job of the release, and the `runner-image` job of CI
   - Verification: `uv run devops ci test tests/invariants/test_runner_image.py tests/test_workflow_contracts.py tests/invariants/test_service_image.py`
 
 ## 2. The Job template and the run-job option
