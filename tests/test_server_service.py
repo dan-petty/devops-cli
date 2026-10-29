@@ -46,6 +46,7 @@ from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.github.project_read import GraphQLBudget, require_budget
 from devops_cli.server.json_logs import JsonLogFormatter
 from devops_cli.server.routes.webhooks import (
+    DeliveryLRUCache,
     HmacSha256,
     WebhookConsumer,
     create_webhook_router,
@@ -272,6 +273,25 @@ def test_webhook_authentication_rejections(caplog: pytest.LogCaptureFixture) -> 
             res_unmanaged.status_code,
             res_nosecret.status_code,
         ) == (401, 401, 401, 401, 401)
+
+
+def test_the_replay_guard_refuses_a_seen_id_and_drops_the_least_recently_used_at_capacity() -> None:
+    """A seen delivery id is refused and becomes the most recent; the oldest id leaves when full."""
+    guard = DeliveryLRUCache(capacity=2)
+
+    first_sightings = [guard.check_and_add(delivery) for delivery in ("a", "b")]
+    repeat_of_a = guard.check_and_add("a")
+    insert_of_c = guard.check_and_add("c")
+    b_after_eviction = guard.check_and_add("b")
+    c_still_held = guard.check_and_add("c")
+
+    assert (first_sightings, repeat_of_a, insert_of_c, b_after_eviction, c_still_held) == (
+        [False, False],
+        True,
+        False,
+        False,
+        True,
+    )
 
 
 def test_webhook_duplicate_and_ignored_deliveries() -> None:
