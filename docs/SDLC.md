@@ -20,7 +20,7 @@ flowchart LR
 
 ### The Seven Pillars of DevOps CLI Engineering
 1. **Test-Driven Specification (TDD as Living Contract)**: Implementation code is never written without pre-existing executable tests establishing functional expectations, interfaces, and boundary conditions.
-2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, Nesting Depth $\le 5$ (< 6 indentation levels), standardized domain exceptions, and $\ge 90\%$ line code coverage.
+2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, at most 4 nested blocks, standardized domain exceptions, and $\ge 90\%$ line code coverage.
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
 4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit`, and the `package-lock.json` of each Node tool in `tools.lock` audited by `npm audit`, in every `devops ci` run, hash-pinned tool downloads (`tools.lock`; `npm ci` checks the sha512 of every package of a Node tool), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
 5. **Automated Code Review & Fact Grounding**: Tool-anchored code review pipeline evaluates all changes across static security analyzers, vulnerability audits, and secret scanning, with bounded model analysis for admitted finding groups.
@@ -108,7 +108,7 @@ Implementation code must satisfy pre-authored tests while adhering to modern Pyt
 ```mermaid
 graph TD
     A[Implementation Code in src/] --> B[Cyclomatic Complexity <= 10]
-    A --> C[Nesting Depth <= 5]
+    A --> C[At Most 4 Nested Blocks]
     A --> D[Standardized Domain Exceptions]
     A --> E[Pydantic v2 Models & Strict Types]
     A --> F[Canonical Location Formatting]
@@ -116,10 +116,10 @@ graph TD
 ```
 
 #### Invariant Gates & Engineering Rules
-1. **Cyclomatic Complexity $\le 10$ & Nesting Depth $\le 5$**:
-   - Every function, method, and code block must maintain cyclomatic complexity $\le 10$ and nesting depth $\le 5$ (< 6 indentation levels).
+1. **Cyclomatic Complexity $\le 10$ & At Most 4 Nested Blocks**:
+   - Every function and method must keep cyclomatic complexity $\le 10$ and at most 4 nested blocks.
    - Decompose multi-step branching into pure predicate helpers, table-driven dispatch dictionaries, or functional pipelines (`functools`, `itertools`, `pathlib`).
-   - Complexity is Ruff `C901` (standard McCabe) at 10, set in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. Nesting is enforced by the `structural-invariants` pre-commit hook and `test_the_source_tree_keeps_its_structural_invariants`. `devops scan complexity` reports Ruff `C901`'s McCabe count and does not gate.
+   - Complexity is Ruff `C901` (standard McCabe) at 10, set in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. Nesting is Ruff `PLR1702` at `max-nested-blocks = 4`, a preview rule that `pyproject.toml` turns on with `explicit-preview-rules`; the same `ruff check` runs it. `devops scan complexity` reports Ruff `C901`'s McCabe count and does not gate.
 2. **Standardized Domain Exception Taxonomy**:
    - Raising bare Python built-ins (`ValueError`, `RuntimeError`, `TypeError`, `Exception`) in domain logic is strictly prohibited.
    - All domain errors must inherit from `DevOpsCLIError` under `src/devops_cli/exceptions/`, and declare their codes as [CONTRIBUTING.md](../CONTRIBUTING.md) says.
@@ -152,9 +152,8 @@ flowchart TD
         H4[check-merge-conflict]
         H5[check-yaml / toml / json]
         H6[ruff check & format]
-        H7[structural-invariants]
-        H8[ast-grep scan & test]
-        H9[openspec gate]
+        H7[ast-grep scan & test]
+        H8[openspec gate]
     end
 
     subgraph PrePush["Git Pre-Push Hook (fast static checks)"]
@@ -190,8 +189,7 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `detect-private-key`: Scans staged files for RSA, SSH, and EC private keys (excluding the synthetic keys in `tests/test_review_prompt_guardrails.py` and `tests/test_security_gitleaks.py`).
 - `check-merge-conflict`: Blocks accidental commits containing unresolved conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`).
 - `check-yaml`, `check-toml`, `check-json`: Validates configuration syntax across all structured files.
-- `ruff`: Enforces lint rules and code formatting.
-- `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
+- `ruff`: Enforces lint rules, among them the complexity cap (`C901`) and the nesting cap of 4 blocks (`PLR1702`), and code formatting.
 - `ast-grep-scan` and `ast-grep-test`: Run the ast-grep rules over `src` and `tests`, and the tests of the rules.
 - `openspec-gate`: Runs `devops ci --only openspec` when a commit changes `openspec/` or the committed skills.
 - A commit runs no tests. The `Tests & Coverage` check of CI runs the full suite, and so does `uv run devops ci` by hand (#2086).

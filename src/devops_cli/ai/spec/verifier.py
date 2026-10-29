@@ -9,8 +9,6 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_SPECS_DIR_PATH
-from devops_cli.config.defaults import DEFAULT_MAX_NESTING_DEPTH
-from devops_cli.core.code_metrics import measure_tree
 from devops_cli.core.repo import find_repo_root, list_repo_files
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.telemetry.tracer import trace_span
@@ -22,7 +20,7 @@ class SpecContractRule(BaseModel):
     """A single architectural invariant rule defined in a spec."""
 
     name: str
-    rule_type: str  # "max_indentation", "forbidden_import", "strict_typing"
+    rule_type: str  # "forbidden_import"
     target_path: str
     passed: bool
     details: str = ""
@@ -63,41 +61,10 @@ def _verify_source_file(
         logger.warning("Failed to parse %s for architectural verification: %s", rel_path, exc)
         return []
 
-    rules: list[SpecContractRule] = []
-
-    # Rule 1: Max Indentation
-    indent_violations = [
-        fn for fn in measure_tree(tree) if fn.max_nesting_depth > DEFAULT_MAX_NESTING_DEPTH
-    ]
-    if indent_violations:
-        for fn in indent_violations:
-            rules.append(
-                SpecContractRule(
-                    name=f"Indentation Limit ({fn.name})",
-                    rule_type="max_indentation",
-                    target_path=f"{rel_path}:{fn.name}",
-                    passed=False,
-                    details=(
-                        f"Function depth {fn.max_nesting_depth} exceeds limit "
-                        f"{DEFAULT_MAX_NESTING_DEPTH}."
-                    ),
-                )
-            )
-    else:
-        rules.append(
-            SpecContractRule(
-                name="Indentation Limit Check",
-                rule_type="max_indentation",
-                target_path=rel_path,
-                passed=True,
-                details="Compliant with <6 indentation levels.",
-            )
-        )
-
-    # Rule 2: Forbidden Imports
+    # Nesting depth is Ruff's PLR1702 (#1876), so the one rule here is the forbidden imports.
     bad_imports = _check_forbidden_imports(tree, forbidden_modules)
     if bad_imports:
-        rules.append(
+        return [
             SpecContractRule(
                 name="Forbidden Imports",
                 rule_type="forbidden_import",
@@ -105,9 +72,16 @@ def _verify_source_file(
                 passed=False,
                 details=f"Contains deprecated/forbidden import(s): {', '.join(bad_imports)}",
             )
+        ]
+    return [
+        SpecContractRule(
+            name="Forbidden Imports Check",
+            rule_type="forbidden_import",
+            target_path=rel_path,
+            passed=True,
+            details="Imports no forbidden module.",
         )
-
-    return rules
+    ]
 
 
 def verify_architecture_spec(
@@ -118,11 +92,11 @@ def verify_architecture_spec(
     """Verify repository code against architectural contracts in markdown specs."""
     if dry_run or is_dry_run():
         mock_rule = SpecContractRule(
-            name="Indentation Limit Check (<6 levels)",
-            rule_type="max_indentation",
+            name="Forbidden Imports Check",
+            rule_type="forbidden_import",
             target_path="src/devops_cli",
             passed=True,
-            details="[DRY-RUN] All functions comply with architectural indentation limits (<6).",
+            details="[DRY-RUN] No module imports a forbidden module.",
         )
         report = ArchitectureSpecReport(
             spec_name="architecture_invariants.spec.md",

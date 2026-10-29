@@ -50,7 +50,8 @@ repos:
     rev: v0.16.8
     hooks:
       # `--config pyproject.toml` makes this file the only Ruff configuration, so a nested
-      # ruff.toml cannot outrank the complexity cap of 10 (C901).
+      # ruff.toml cannot outrank the complexity cap of 10 (C901) or the nesting cap of 4
+      # blocks (PLR1702).
       - id: ruff-check
         args: [--config, pyproject.toml, --fix]
         stages: [pre-commit]
@@ -59,22 +60,6 @@ repos:
 
   - repo: local
     hooks:
-      # Stdlib AST walk over the staged files, the same metric the whole-tree test and
-      # `devops scan complexity` read (devops_cli.core.code_metrics). Invoking the file
-      # directly via `python3 -P` keeps it pure stdlib: no package inits, no venv sync,
-      # and no OSV malware query at commit time. The cap arrives as an argument and a
-      # test pins it to DEFAULT_MAX_NESTING_DEPTH. Blocks on nesting depth, the function
-      # body being depth 1. Complexity is not checked here: it is Ruff's C901, run by
-      # the ruff-check hook above.
-      - id: structural-invariants
-        name: AST structural invariants (nesting depth)
-        entry: python3 -P src/devops_cli/core/code_metrics.py
-        args: [--max-depth, "5"]
-        language: system
-        stages: [pre-commit]
-        types: [python]
-        require_serial: true
-
       - id: ast-grep-scan
         name: ast-grep scan (network constructs and working-directory reads in src, elapsed-time bounds in tests)
         entry: uv run ast-grep scan --error=unused-suppression --error=no-suppress-all src tests

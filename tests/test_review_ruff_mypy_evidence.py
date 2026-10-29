@@ -40,14 +40,12 @@ def test_complexity_delta_hardcoded_function_going_from_3_to_12_and_unchanged() 
     fn_changing_base = FunctionComplexity(
         name="calculate_metrics",
         cyclomatic_complexity=3,
-        max_nesting_depth=1,
         line_number=10,
         end_line_number=20,
     )
     fn_changing_head = FunctionComplexity(
         name="calculate_metrics",
         cyclomatic_complexity=12,
-        max_nesting_depth=3,
         line_number=10,
         end_line_number=35,
     )
@@ -65,14 +63,12 @@ def test_complexity_delta_hardcoded_function_going_from_3_to_12_and_unchanged() 
     fn_unchanged_base = FunctionComplexity(
         name="helper_func",
         cyclomatic_complexity=5,
-        max_nesting_depth=2,
         line_number=40,
         end_line_number=50,
     )
     fn_unchanged_head = FunctionComplexity(
         name="helper_func",
         cyclomatic_complexity=5,
-        max_nesting_depth=2,
         line_number=40,
         end_line_number=50,
     )

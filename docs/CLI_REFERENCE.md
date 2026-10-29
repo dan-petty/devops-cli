@@ -3269,7 +3269,7 @@ devops scan sast [OPTIONS] <target>
 
 ### `devops scan complexity`
 
-**Run AST-based cyclomatic complexity and indentation depth analysis.**
+**Run AST-based cyclomatic complexity analysis.**
 
 ```bash
 devops scan complexity [OPTIONS] <target>
@@ -3286,7 +3286,6 @@ devops scan complexity [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--max-complexity`, `-c` | `integer` | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
-| `--max-indent`, `-i` | `integer` | `5` | Maximum acceptable indentation / nesting depth (default 5). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |

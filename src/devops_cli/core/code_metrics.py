@@ -1,37 +1,18 @@
-"""Nesting depth and McCabe complexity of Python functions, and the commit hook built on them.
+"""McCabe complexity of Python functions.
 
-The one copy of the metric. `devops scan complexity`, the inspection hotspots, the architecture
-spec verifier, the whole-tree test and the structural-invariants pre-commit hook all read it.
-Stdlib only and no `devops_cli` import, so the hook (`python3 -P src/devops_cli/core/code_metrics.py`)
-loads no scanner: its cap arrives as `--max-depth`.
-
-- **Nesting**: the function body is depth 1, and each If, While, For, AsyncFor, ExceptHandler,
-  With, AsyncWith, Assert or Match opens one more level. A nested def is measured on its own.
-- **Complexity**: Ruff's C901 count (standard McCabe), so the scanner flags what `ruff check`
-  flags. `assert`, `with`, conditional expressions and boolean operands add nothing; a closure
-  adds 1 plus its own count to the function that defines it and is reported on its own too.
+The one copy of the metric. `devops scan complexity` and the inspection hotspots read it. It counts
+as Ruff's C901 does (standard McCabe), so the scanner flags what `ruff check` flags. `assert`,
+`with`, conditional expressions and boolean operands add nothing; a closure adds 1 plus its own
+count to the function that defines it and is reported on its own too. Ruff's PLR1702 caps nesting
+in `ruff check` (#1876), so this module measures no nesting depth.
 """
 
 from __future__ import annotations
 
-import argparse
 import ast
-import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 
-_NESTING = (
-    ast.If,
-    ast.While,
-    ast.For,
-    ast.AsyncFor,
-    ast.ExceptHandler,
-    ast.With,
-    ast.AsyncWith,
-    ast.Assert,
-    ast.Match,
-)
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 # Only statements hold statements, so the walks never descend into an expression: a lambda or
 # comprehension can hold no def and no nesting block.
@@ -46,28 +27,7 @@ class FunctionComplexity:
     line_number: int
     end_line_number: int
     cyclomatic_complexity: int
-    max_nesting_depth: int
     is_method: bool = False
-
-
-def nesting_depth(func: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
-    """Return one function's deepest nesting, its body being depth 1.
-
-    A nesting block's own test, target or items sit one level in, so the block reaches one
-    level deeper than itself. The walk keeps its own stack rather than recursing (#586).
-    """
-    deepest = 1
-    pending: list[tuple[ast.AST, int]] = [(func, 1)]
-    while pending:
-        current, depth = pending.pop()
-        inner = depth + isinstance(current, _NESTING)
-        deepest = max(deepest, inner)
-        pending.extend(
-            (child, inner)
-            for child in ast.iter_child_nodes(current)
-            if isinstance(child, _BLOCKS) and not isinstance(child, _FUNCTIONS)
-        )
-    return deepest
 
 
 def mccabe_complexity(func: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
@@ -155,53 +115,5 @@ def _measure_function(
         line_number=func.lineno,
         end_line_number=func.end_lineno or func.lineno,
         cyclomatic_complexity=mccabe_complexity(func),
-        max_nesting_depth=nesting_depth(func),
         is_method=is_method,
     )
-
-
-def breaches(path: Path, max_depth: int) -> list[str]:
-    """Report every function in one file nested deeper than the cap."""
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError, RecursionError, MemoryError) as exc:
-        # The parser itself overflows on a deep enough expression: a RecursionError, or a
-        # MemoryError ("Parser stack overflowed") for a long unary chain.
-        return [f"{path}: could not parse ({exc})"]
-
-    return [
-        f"{path}:{func.lineno}: {func.name} nesting {depth} > {max_depth}"
-        for func, _ in _functions(tree)
-        if (depth := nesting_depth(func)) > max_depth
-    ]
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    """Check the Python files pre-commit passes, reporting every breach before failing."""
-    parser = argparse.ArgumentParser(
-        prog="python -m devops_cli.core.code_metrics",
-        description="Fail when a function in the given Python files nests deeper than the cap.",
-    )
-    parser.add_argument("--max-depth", type=int, required=True, help="deepest nesting allowed")
-    parser.add_argument("files", nargs="*", type=Path, help="Python files to check")
-    args = parser.parse_args(argv)
-
-    found = [
-        line
-        for path in args.files
-        if path.suffix == ".py" and path.is_file()
-        for line in breaches(path, args.max_depth)
-    ]
-    for line in found:
-        print(line, file=sys.stderr)
-    if found:
-        print(
-            f"\n{len(found)} nesting breach(es). CONTRIBUTING.md caps nesting depth at "
-            f"{args.max_depth}; decompose the block into a helper.",
-            file=sys.stderr,
-        )
-    return 1 if found else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

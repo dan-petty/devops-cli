@@ -1007,6 +1007,31 @@ def _stream_interactive_chat_turn(
 # =============================================================================
 
 
+def _run_interactive_chat_turn(
+    client: Any,
+    agent: Any,
+    thinking: bool,
+    effective_prompt: str,
+    *,
+    stream: bool,
+) -> None:
+    """Send one interactive chat turn and print its reply: streamed, or whole after the agent run."""
+    from devops_cli.ai.thinking_stream import strip_think_blocks
+
+    if stream:
+        _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
+        return
+    agent_res = agent.run(
+        effective_prompt,
+        enable_thinking=thinking,
+        on_thought=_print_chat_thought if thinking else None,
+        on_tool_call=_print_chat_tool,
+    )
+    reply = strip_think_blocks(agent_res.content)
+    if reply.strip():
+        render_chat_response(reply.strip())
+
+
 @app.command()
 def chat(  # noqa: C901
     persona: Annotated[
@@ -1143,22 +1168,9 @@ def chat(  # noqa: C901
                     f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
                 )
                 sys.stdout.flush()
-
-                from devops_cli.ai.thinking_stream import strip_think_blocks
-
-                if stream and not tools:
-                    _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
-                else:
-                    agent_res = agent.run(
-                        effective_prompt,
-                        enable_thinking=thinking,
-                        on_thought=_print_chat_thought if thinking else None,
-                        on_tool_call=_print_chat_tool,
-                    )
-
-                    reply = strip_think_blocks(agent_res.content)
-                    if reply.strip():
-                        render_chat_response(reply.strip())
+                _run_interactive_chat_turn(
+                    client, agent, thinking, effective_prompt, stream=stream and not tools
+                )
 
             except KeyboardInterrupt:
                 print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)

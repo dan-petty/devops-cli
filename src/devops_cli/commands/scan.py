@@ -491,10 +491,6 @@ def scan_complexity(
         int,
         typer.Option("--max-complexity", "-c", help=HELP.scan.max_complexity),
     ] = 10,
-    max_indent: Annotated[
-        int,
-        typer.Option("--max-indent", "-i", help=HELP.scan.max_indent),
-    ] = 5,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -508,19 +504,15 @@ def scan_complexity(
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> CommandDryRunResult | None:
-    """Run AST-based cyclomatic complexity and indentation depth analysis."""
+    """Run AST-based cyclomatic complexity analysis."""
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
     resolved = resolve_format(output_format, json_output=json_output)
     if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
-        print_muted(f"Analyzing code complexity and indentation depth in {target_abs}...")
+        print_muted(f"Analyzing code complexity in {target_abs}...")
 
-    findings = run_complexity_scan(
-        target_path=target_abs,
-        max_complexity=max_complexity,
-        max_nesting_depth=max_indent,
-    )
+    findings = run_complexity_scan(target_path=target_abs, max_complexity=max_complexity)
 
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
@@ -535,7 +527,7 @@ def scan_complexity(
         return None
 
     if not findings:
-        print_success("Code complexity and indentation depth within standard limits.")
+        print_success("Code complexity within standard limits.")
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan complexity {target}",

@@ -272,18 +272,24 @@ def _lookup_uv_lock_version(name: str) -> list[str]:
     """Look up a package version from the root uv.lock file if available."""
     global _UV_LOCK_CACHE
     if _UV_LOCK_CACHE is None:
-        _UV_LOCK_CACHE = {}
         uv_path = Path("uv.lock")
-        if uv_path.is_file():
-            try:
-                data = tomllib.loads(uv_path.read_text(encoding="utf-8"))
-                for pkg in data.get("package", []):
-                    if p_name := pkg.get("name"):
-                        _UV_LOCK_CACHE[p_name.lower().replace("_", "-")] = pkg.get("version", "")
-            except (OSError, tomllib.TOMLDecodeError) as exc:
-                logger.debug("Failed reading uv.lock for KB version lookup: %s", exc)
+        _UV_LOCK_CACHE = _read_uv_lock_versions(uv_path) if uv_path.is_file() else {}
     ver = _UV_LOCK_CACHE.get(name.lower().replace("_", "-"))
     return [ver] if ver else []
+
+
+def _read_uv_lock_versions(uv_path: Path) -> dict[str, str]:
+    """Map the name of each package in a uv.lock file, in lower case with `-`, to its version."""
+    try:
+        data = tomllib.loads(uv_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        logger.debug("Failed reading uv.lock for KB version lookup: %s", exc)
+        return {}
+    return {
+        p_name.lower().replace("_", "-"): pkg.get("version", "")
+        for pkg in data.get("package", [])
+        if (p_name := pkg.get("name"))
+    }
 
 
 def _version_matches_pattern(ver: str, pattern: str) -> bool:

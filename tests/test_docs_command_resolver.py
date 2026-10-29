@@ -73,6 +73,12 @@ STACK = ArgvPlaceholder(expression="stack", single_token=True)
             _finding(CommandReferenceDefect.UNKNOWN_COMMAND, "devops scan", "gitleaks"),
         ),
         (
+            ["scan", "complexity", TARGET, "--max-indent", NUMBER],
+            _finding(
+                CommandReferenceDefect.UNKNOWN_OPTION, "devops scan complexity", "--max-indent"
+            ),
+        ),
+        (
             ["scan", "complexity", "--max-nesting-depth", "--help"],
             _finding(
                 CommandReferenceDefect.UNKNOWN_OPTION,
@@ -93,7 +99,7 @@ def test_a_defective_command_line_is_named_where_it_breaks(
     "tokens",
     [
         ["argo", "cd", "apps", "list"],
-        ["scan", "complexity", TARGET, "--max-complexity", NUMBER, "--max-indent", NUMBER],
+        ["scan", "complexity", TARGET, "--max-complexity", NUMBER],
         ["ai", "benchmark", "--models", TARGET, "--dry-run"],
         ["ai", "benchmark", "--type", "embedding", "--samples", NUMBER],
         ["repos", "sync"],

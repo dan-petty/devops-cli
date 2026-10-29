@@ -1,4 +1,7 @@
-"""Findings for functions over the complexity or nesting cap, from `core.code_metrics`."""
+"""Findings for functions over the complexity cap, from `core.code_metrics`.
+
+Ruff's PLR1702 caps nesting in `ruff check` (#1876), so the scanner reports no nesting depth.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import CONST_COMPLEXITY_SOURCE
-from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY, DEFAULT_MAX_NESTING_DEPTH
+from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY
 from devops_cli.core.code_metrics import FunctionComplexity, measure_tree
 from devops_cli.core.repo import find_worktree_root, list_repo_files
 
@@ -17,9 +20,8 @@ def _evaluate_function_findings(
     fn: FunctionComplexity,
     rel_path: str,
     max_complexity: int,
-    max_nesting_depth: int,
 ) -> list[Finding]:
-    """Generate Finding objects for functions violating complexity or nesting limits."""
+    """Generate Finding objects for functions violating the complexity limit."""
     findings: list[Finding] = []
     loc = f"{rel_path}:{fn.line_number}-{fn.end_line_number}"
 
@@ -37,19 +39,6 @@ def _evaluate_function_findings(
             )
         )
 
-    if fn.max_nesting_depth > max_nesting_depth:
-        findings.append(
-            Finding(
-                severity="HIGH" if fn.max_nesting_depth > max_nesting_depth + 2 else "MEDIUM",
-                location=loc,
-                title=f"Excessive Nesting Depth in `{fn.name}` ({fn.max_nesting_depth} > {max_nesting_depth})",
-                description=(
-                    f"Function `{fn.name}` reaches a nesting depth of {fn.max_nesting_depth}, "
-                    f"exceeding the strict limit of {max_nesting_depth} levels."
-                ),
-                fix="Flatten nested loops and branches using guard clauses or early returns.",
-            )
-        )
     return findings
 
 
@@ -57,9 +46,8 @@ def run_complexity_scan(
     target_path: Path,
     *,
     max_complexity: int = DEFAULT_MAX_COMPLEXITY,
-    max_nesting_depth: int = DEFAULT_MAX_NESTING_DEPTH,
 ) -> list[Finding]:
-    """Scan a target path (file or directory) for complexity and nesting violations."""
+    """Scan a target path (file or directory) for complexity violations."""
     findings: list[Finding] = []
     target = target_path.resolve()
 
@@ -87,9 +75,7 @@ def run_complexity_scan(
             rel_path = py_file.name
 
         for fn in measure_tree(tree):
-            findings.extend(
-                _evaluate_function_findings(fn, rel_path, max_complexity, max_nesting_depth)
-            )
+            findings.extend(_evaluate_function_findings(fn, rel_path, max_complexity))
 
     return findings
 

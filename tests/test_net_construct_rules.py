@@ -171,17 +171,24 @@ def test_ruff_tid251_detects_banned_socket_apis(tmp_path: Path) -> None:
     )
 
     res = subprocess.run(
-        ["ruff", "check", "--select", "TID251", str(scratch)],
+        ["ruff", "check", "--select", "TID251", "--output-format", "json", str(scratch)],
         capture_output=True,
         text=True,
         check=False,
     )
-    assert res.returncode != 0
-    output = res.stdout + res.stderr
-    assert "TID251" in output
-    assert "Parse and format addresses with ipaddress.ip_address." in output
-    assert "socket.inet_aton" in output
-    assert "socket.inet_pton" in output
+    # JSON keeps the rule code: with lint preview on (#1876), the text output names the rule.
+    findings = sorted(
+        (finding["code"], finding["location"]["row"], finding["message"])
+        for finding in json.loads(res.stdout)
+    )
+    advice = "Parse and format addresses with ipaddress.ip_address."
+    assert (res.returncode, findings) == (
+        1,
+        [
+            ("TID251", 2, f"`socket.inet_pton` is banned: {advice}"),
+            ("TID251", 3, f"`socket.inet_aton` is banned: {advice}"),
+        ],
+    )
 
 
 def test_ci_constructs_row_matches_constants() -> None:

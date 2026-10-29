@@ -119,7 +119,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`sandbox_status`](#sandbox-status) | `true` | Inspect status of deployed sandbox containers. |
 | [`sandbox_stop`](#sandbox-stop) | `false` | Gracefully stop and tear down a sandbox container. |
 | [`scan_aibom`](#scan-aibom) | `true` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
-| [`scan_complexity`](#scan-complexity) | `true` | Run AST-based cyclomatic complexity and indentation depth analysis. |
+| [`scan_complexity`](#scan-complexity) | `true` | Run AST-based cyclomatic complexity analysis. |
 | [`scan_fix`](#scan-fix) | `false` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
 | [`scan_injection`](#scan-injection) | `true` | Scan target files for prompt-injection smuggling vectors and canary tokens. |
 | [`scan_sast`](#scan-sast) | `true` | Run static application security testing (SAST) via Semgrep. |
@@ -1984,7 +1984,7 @@ Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates
 
 ### `scan_complexity`
 
-Run AST-based cyclomatic complexity and indentation depth analysis.
+Run AST-based cyclomatic complexity analysis.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1994,7 +1994,6 @@ Run AST-based cyclomatic complexity and indentation depth analysis.
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory or Python file to analyze for complexity. |
 | `max_complexity` | `integer` | No | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
-| `max_indent` | `integer` | No | `5` | Maximum acceptable indentation / nesting depth (default 5). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |

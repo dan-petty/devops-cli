@@ -154,15 +154,24 @@ def detect_trust_remote_code(target_dir: Path) -> bool:  # noqa: C901
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", SyntaxWarning)
                 tree = ast.parse(resolved_py.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.keyword) and node.arg == "trust_remote_code":
-                    if isinstance(node.value, ast.Constant) and bool(node.value.value):
-                        return True
+            if _passes_true_trust_remote_code(tree):
+                return True
         except (OSError, SyntaxError, UnicodeDecodeError) as exc:
             logger.debug("Failed to parse AST for remote code in %s: %s", py_file, exc)
             continue
 
     return False
+
+
+def _passes_true_trust_remote_code(tree: ast.AST) -> bool:
+    """Whether a parsed module passes `trust_remote_code` a true constant."""
+    return any(
+        isinstance(node, ast.keyword)
+        and node.arg == "trust_remote_code"
+        and isinstance(node.value, ast.Constant)
+        and bool(node.value.value)
+        for node in ast.walk(tree)
+    )
 
 
 def _classify_license(license_str: str) -> tuple[ModelLicenseType, str]:

@@ -1609,19 +1609,23 @@ def similar_config_keys(key: str) -> list[str]:
 
 def _coerce_setting_value(new_value: Any, is_list_field: bool) -> Any:
     """Split comma-separated strings for list fields, leaving other values for Pydantic validation."""
-    if is_list_field:
-        if isinstance(new_value, str):
-            trimmed = new_value.strip()
-            if trimmed.startswith("[") and trimmed.endswith("]"):
-                try:
-                    parsed = json.loads(trimmed)
-                    if isinstance(parsed, list):
-                        return [str(item) for item in parsed if item]
-                except json.JSONDecodeError:
-                    pass
-            return [v.strip() for v in trimmed.split(",") if v.strip()]
+    if not (is_list_field and isinstance(new_value, str)):
         return new_value
-    return new_value
+    trimmed = new_value.strip()
+    if trimmed.startswith("[") and trimmed.endswith("]"):
+        parsed = _json_list(trimmed)
+        if parsed is not None:
+            return [str(item) for item in parsed if item]
+    return [v.strip() for v in trimmed.split(",") if v.strip()]
+
+
+def _json_list(text: str) -> list[Any] | None:
+    """The JSON array that `text` holds, or None when it holds no JSON or no array."""
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, list) else None
 
 
 def dotted_set(settings: Settings, key: str, value: Any) -> None:

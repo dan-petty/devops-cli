@@ -1416,11 +1416,10 @@ class ScanCommandHelp:
         "a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of "
         "devops-cli runs with it."
     )
-    complexity: str = "Run AST-based cyclomatic complexity and indentation depth analysis."
+    complexity: str = "Run AST-based cyclomatic complexity analysis. Ruff's PLR1702 caps nesting."
     sbom: str = "Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."
     target_complexity: str = "Target directory or Python file to analyze for complexity."
     max_complexity: str = "Maximum acceptable cyclomatic complexity per function (default 10)."
-    max_indent: str = "Maximum acceptable indentation / nesting depth (default 5)."
     sbom_format: str = "SBOM format output (cyclonedx, spdx, json)."
     sbom_output: str = "Destination file path for generated SBOM document."
     aibom: str = "Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates."
