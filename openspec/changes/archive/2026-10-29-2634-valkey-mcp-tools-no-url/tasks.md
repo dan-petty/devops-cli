@@ -18,7 +18,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2634-valkey-mcp-tools-no-url`
 
 ## Workflow follow-up
