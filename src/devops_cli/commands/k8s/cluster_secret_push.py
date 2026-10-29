@@ -15,6 +15,7 @@ import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.commands.k8s.networking import VALID_STACKS
+from devops_cli.config.constants import CONST_K8S_ALL_STACKS
 from devops_cli.config.os_keyring import SecretStorageError, require_persistent_keyring
 from devops_cli.dry_run import is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterSecretPushError, ClusterSecretWriteError
@@ -44,8 +45,6 @@ from devops_cli.k8s.secret_push import (
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_warning
 
-ALL_STACKS = "all"
-
 
 def _push_stacks() -> tuple[str, ...]:
     """The stacks `--stack` accepts: the table's, deploy-stack's and `all`."""
@@ -73,7 +72,7 @@ def _select(stack: str, only: Sequence[str]) -> tuple[ClusterSecret, ...]:
             safe=True,
         )
         raise typer.Exit(2)
-    return CLUSTER_SECRETS if stack == ALL_STACKS else secrets_for_stacks([stack])
+    return CLUSTER_SECRETS if stack == CONST_K8S_ALL_STACKS else secrets_for_stacks([stack])
 
 
 def _render(plan: PushPlan, options: PushOptions, *, preview: bool) -> None:
@@ -181,7 +180,9 @@ def push_for_stacks(stacks: Sequence[str], context: str | None) -> None:
 
 
 def push_secrets(
-    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.push_stack)] = ALL_STACKS,
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help=HELP.k8s.push_stack)
+    ] = CONST_K8S_ALL_STACKS,
     only: Annotated[
         list[str] | None, typer.Option("--only", help=HELP.k8s.push_only, metavar="NS/NAME")
     ] = None,

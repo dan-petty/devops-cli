@@ -8,13 +8,9 @@ import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
-from devops_cli.commands.k8s.networking import VALID_STACKS as NET_VALID_STACKS
-from devops_cli.commands.k8s.networking import _resolve_stacks
+from devops_cli.commands.k8s.networking import VALID_STACKS, _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import (
     _MANIFESTS_BY_STACK,
-)
-from devops_cli.commands.k8s.stack_lifecycle import (
-    VALID_STACKS as LIFE_VALID_STACKS,
 )
 from devops_cli.dry_run import set_dry_run
 from tests.support.paths import REPO_ROOT
@@ -29,12 +25,10 @@ _GITHUB_APP = "  github_app:\n    app_id: 1001\n    installation_id: 42\n    slu
 def test_devops_stack_registration_and_resolution() -> None:
     """Verify devops stack is registered and resolved in stack all and stack devops."""
     assert (
-        "devops" in NET_VALID_STACKS,
-        "devops" in LIFE_VALID_STACKS,
+        "devops" in VALID_STACKS,
         _resolve_stacks("devops"),
         _resolve_stacks("all"),
     ) == (
-        True,
         True,
         ["devops"],
         ["infra", "llm", "logging", "devops", "gitea"],

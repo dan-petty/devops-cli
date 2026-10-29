@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from devops_cli.config.constants import CONST_K8S_VALID_STACKS
+from devops_cli.config.constants import (
+    CONST_K8S_ALL_STACKS,
+    CONST_K8S_STACKS,
+    CONST_K8S_VALID_STACKS,
+)
 
 
 @dataclass(frozen=True)
@@ -327,14 +331,21 @@ class K8sCommandHelp:
     apply_manifest: str = "Apply Kubernetes manifest file or directory."
     logs: str = "Fetch container logs for a pod."
     bootstrap: str = "Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress."
-    deploy_stack: str = "Deploy application stacks (infra, llm, all) via Helm/Kustomize."
+    deploy_stack: str = (
+        f"Deploy one stack ({', '.join(CONST_K8S_STACKS)}) or {CONST_K8S_ALL_STACKS} of them to "
+        "Kubernetes with Helm and Kustomize.\n\n"
+        "Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every "
+        "detached stack whose namespace exists (`devops k8s push-secrets`), before anything that "
+        "reads them. A locked or missing keyring stops it before it applies anything."
+    )
     push_secrets: str = (
         "Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the "
         "reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones "
         "nobody types, and never replaces a live value without --rotate."
     )
     push_stack: str = (
-        "Push the Secrets of one stack: base, infra, llm, logging, devops, gitea, or all (default)."
+        f"Push the Secrets of one stack: base, {', '.join(CONST_K8S_STACKS)}, or "
+        f"{CONST_K8S_ALL_STACKS} (default)."
     )
     push_only: str = "Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack."
     push_rotate: str = "Replace live values that differ from the keyring's."
@@ -807,7 +818,7 @@ class DevcontainerCommandHelp:
     run_post_start: str = "Execute post-start lifecycle tasks."
     run_all: str = "Execute all DevContainer lifecycle tasks."
     bootstrap_k8s: str = "Execute Minikube startup in the background."
-    stack: str = "Kubernetes stack to deploy (e.g. infra, llm, monitoring, all)."
+    stack: str = f"Kubernetes stack to deploy: {' | '.join(CONST_K8S_VALID_STACKS)}."
 
 
 @dataclass(frozen=True)

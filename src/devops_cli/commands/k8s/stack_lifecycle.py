@@ -32,7 +32,6 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
     CONST_K8S_OLLAMA_PROFILES_PATH,
-    CONST_K8S_VALID_STACKS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
@@ -285,8 +284,6 @@ _POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
     "llm": (Path("llm", "gateway", "servicemonitor.yaml"),),
 }
-
-VALID_STACKS: tuple[str, ...] = CONST_K8S_VALID_STACKS
 
 
 def _recover_stuck_helm_release(
@@ -1256,12 +1253,7 @@ def deploy_stack(
     ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.deploy_dry_run)] = False,
 ) -> None:
-    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
-
-    Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every
-    detached stack whose namespace exists (`devops k8s push-secrets`), before anything that
-    reads them. A locked or missing keyring stops it before it applies anything.
-    """
+    """Deploy the selected stacks to Kubernetes; `HELP.k8s.deploy_stack` is its help."""
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")

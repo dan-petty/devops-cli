@@ -9,11 +9,11 @@ import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
+from devops_cli.commands.k8s.networking import VALID_STACKS
 from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_RELEASES_BY_STACK,
     _HELM_REPOS_BY_STACK,
     _MANIFESTS_BY_STACK,
-    VALID_STACKS,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from tests.support.fakes.kubernetes import FakeCluster

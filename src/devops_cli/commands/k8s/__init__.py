@@ -51,6 +51,7 @@ from devops_cli.commands.k8s.diagnostics import (
 from devops_cli.commands.k8s.gpu_matrix import gpu_matrix_cmd
 from devops_cli.commands.k8s.image_pins import k8s_image_pins
 from devops_cli.commands.k8s.networking import (
+    VALID_STACKS,
     _detect_service_url,
     _extract_first_node_ip,
     _parse_minikube_service_url,
@@ -78,7 +79,6 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_REPOS,
     _HELM_REPOS_BY_STACK,
     _MANIFESTS_BY_STACK,
-    VALID_STACKS,
     _bootstrap_openwebui_account,
     _recover_stuck_helm_release,
     _require_helm_version,
@@ -108,7 +108,7 @@ app.command()(render)
 app.command()(logs)
 app.command("bootstrap", help=HELP.k8s.bootstrap)(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
-app.command("deploy-stack")(deploy_stack)
+app.command("deploy-stack", help=HELP.k8s.deploy_stack)(deploy_stack)
 app.command("sync-secrets")(sync_secrets)
 app.command("push-secrets", help=HELP.k8s.push_secrets)(push_secrets)
 app.command("run-job", help=HELP.k8s.run_job)(run_job)
