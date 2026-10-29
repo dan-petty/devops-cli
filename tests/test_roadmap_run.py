@@ -49,7 +49,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.config.settings import ServiceConfig
-from devops_cli.exceptions import ConfigurationError, GitOperationError, RoadmapRunError
+from devops_cli.exceptions import (
+    ConfigurationError,
+    GitOperationError,
+    RoadmapRefineError,
+    RoadmapRunError,
+)
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import store as roadmap_store_module
@@ -113,29 +118,35 @@ PLACED = {ItemField.PRIORITY: "P2-Medium"}
 runner = CliRunner()
 
 
-def test_the_refine_import_is_at_module_level_not_lazy_in_the_adapter(
-    parsed_source_trees: dict[Path, ast.Module],
+@pytest.mark.parametrize(
+    ("module", "adapter_name"),
+    [
+        ("devops_cli.roadmap.refine", "_run_refine_adapter"),
+        ("devops_cli.roadmap.stage", "_run_stage_adapter"),
+    ],
+)
+def test_the_model_job_imports_are_at_module_level_not_lazy_in_the_adapter(
+    parsed_source_trees: dict[Path, ast.Module], module: str, adapter_name: str
 ) -> None:
-    """The refine adapter imports `devops_cli.roadmap.refine` at module level, so the Service's
-    main thread imports pydantic_ai before its worker threads start, and two workers never import
-    it for the first time at once and deadlock on the Python 3.14 import lock (#2535)."""
+    """The refine and stage adapters import their modules at module level, so the Service's main
+    thread imports pydantic_ai before its worker threads start, and two workers never import it
+    for the first time at once and deadlock on the Python 3.14 import lock (#2535, #2659)."""
     tree = parsed_source_trees[REPO_ROOT / "src" / "devops_cli" / "roadmap" / "run.py"]
 
     module_level = [
         node
         for node in tree.body
-        if isinstance(node, ast.ImportFrom) and (node.module or "") == "devops_cli.roadmap.refine"
+        if isinstance(node, ast.ImportFrom) and (node.module or "") == module
     ]
     adapter = next(
         node
         for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_run_refine_adapter"
+        if isinstance(node, ast.FunctionDef) and node.name == adapter_name
     )
     local = [
         node
         for node in ast.walk(adapter)
-        if isinstance(node, ast.ImportFrom)
-        and (node.module or "").startswith("devops_cli.roadmap.refine")
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(module)
     ]
 
     assert (len(module_level), local) == (1, [])
@@ -309,16 +320,14 @@ def _poll_round(
 # ── The due table ─────────────────────────────────────────────────────────────
 
 
-def test_the_table_runs_metrics_then_intake_refine_and_alternatives_and_names_no_release_job() -> (
-    None
-):
-    """The status lane's metrics row runs first, then the model lane's intake, refine and
-    alternatives; no row closes items, cuts or starts a release (#1360, #2652)."""
+def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
+    """The status lane's metrics row runs first, then the model lane's intake, refine, stage and
+    alternatives; no row closes items, cuts or starts a release (#1360, #2652, #2659)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS),
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
-    ) == (["metrics", "intake", "refine", "alternatives"], True, ["issues"])
+    ) == (["metrics", "intake", "refine", "stage", "alternatives"], True, ["issues"])
 
 
 def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
@@ -468,6 +477,85 @@ def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
     )
 
 
+def test_stage_is_due_an_hour_after_its_last_success_on_a_first_run_and_the_dry_run_lists_it(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stage row is due 60 min after its last success, not at 59, and on a first run; the
+    CLI's dry run lists it after refine (#2659)."""
+    table = build_stub_table(include_refine=True, include_stage=True)
+
+    def due(stage_age: timedelta | None) -> tuple[str, ...]:
+        ages = {"intake": NOW - timedelta(minutes=59), "refine": NOW - timedelta(minutes=59)}
+        _stamp(tmp_path, **ages, **({} if stage_age is None else {"stage": NOW - stage_age}))
+        return run_due_jobs(
+            REPO, seeded_store, table=table, data_dir=tmp_path, dry_run=True, now=NOW
+        )
+
+    at_60, at_59, first = due(timedelta(minutes=60)), due(timedelta(minutes=59)), due(None)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", table):
+        cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+
+    assert (at_60, at_59, first, cli.exit_code, "Due: intake, refine, stage\n" in cli.output) == (
+        ("stage",),
+        (),
+        ("stage",),
+        0,
+        True,
+    )
+
+
+def test_stage_is_due_in_a_round_where_refine_set_an_item_ready(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """Five minutes after its last success the stage row is due in the round where refine set an
+    item Ready, and not in a round where refine set none (#2659)."""
+    t61 = NOW - timedelta(minutes=61)
+
+    def round_with(refine: JobOutcome) -> tuple[str, ...]:
+        _stamp(
+            tmp_path,
+            intake=NOW - timedelta(minutes=5),
+            refine=t61,
+            stage=NOW - timedelta(minutes=5),
+        )
+        table = build_stub_table({"refine": lambda **_: refine}, include_stage=True)
+        return _poll_round(seeded_store, tmp_path, table=table)
+
+    assert (round_with(JobOutcome(set_ready=True)), round_with(JobOutcome())) == (
+        ("refine", "stage"),
+        ("refine",),
+    )
+
+
+def test_stage_is_due_in_a_round_where_refine_set_an_item_ready_and_failed_another(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """A refine round that fails an item after it set another Ready still makes the stage row
+    due in that round, and the round still fails for refine (#2659)."""
+    _stamp(
+        tmp_path,
+        intake=NOW - timedelta(minutes=5),
+        refine=NOW - timedelta(minutes=61),
+        stage=NOW - timedelta(minutes=5),
+    )
+    ran: list[str] = []
+
+    def failing_refine(**_: Any) -> JobOutcome:
+        raise RoadmapRefineError("refine failed", failed_items=[7], readied_count=1)
+
+    def stage(**_: Any) -> JobOutcome:
+        ran.append("stage")
+        return JobOutcome()
+
+    table = build_stub_table({"refine": failing_refine, "stage": stage}, include_stage=True)
+
+    with pytest.raises(RoadmapRunError) as raised:
+        _poll_round(seeded_store, tmp_path, table=table)
+
+    assert (raised.value.failed_jobs, ran) == (("refine",), ["stage"])
+
+
 def test_failure_isolation_and_cli_exit(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -554,7 +642,12 @@ def test_idle_records_zero_or_one_store_calls(
     """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
     recent = NOW - timedelta(minutes=5)
     _stamp(
-        tmp_path, intake=HALF_HOUR_AGO, refine=HALF_HOUR_AGO, metrics=recent, alternatives=recent
+        tmp_path,
+        intake=HALF_HOUR_AGO,
+        refine=HALF_HOUR_AGO,
+        stage=HALF_HOUR_AGO,
+        metrics=recent,
+        alternatives=recent,
     )
     spy_idle = StoreSpy(seeded_store)
     res_idle = run_due_jobs(REPO, spy_idle, batch={}, data_dir=tmp_path, now=NOW)
@@ -649,7 +742,7 @@ def test_service_wiring(
             (REPO, STATUS_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
-        [["metrics"], ["intake", "refine", "alternatives"]],
+        [["metrics"], ["intake", "refine", "stage", "alternatives"]],
     )
 
 
@@ -1601,8 +1694,8 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A model-lane round records intake, refine and alternatives while a status-lane round is
-    running metrics, which had read `schedule.json` before them: metrics' success keeps theirs."""
+    """A model-lane round records intake, refine, stage and alternatives while a status-lane round
+    is running metrics, which had read `schedule.json` before them: metrics' success keeps theirs."""
     later = NOW + timedelta(seconds=1)
 
     def metrics(**_: Any) -> JobOutcome:
@@ -1614,7 +1707,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             data_dir=tmp_path,
             now=later,
         )
-        assert model_round == ("intake", "refine", "alternatives")
+        assert model_round == ("intake", "refine", "stage", "alternatives")
         return JobOutcome()
 
     ran = run_due_jobs(
@@ -1630,6 +1723,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         {
             "intake": later.isoformat(),
             "refine": later.isoformat(),
+            "stage": later.isoformat(),
             "alternatives": later.isoformat(),
             "metrics": NOW.isoformat(),
         },
@@ -2036,7 +2130,8 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
 ) -> None:
     """The row is due on a first run, 24 hours after its last success and not before, and a
     webhook hint that makes intake due makes it due no sooner (#2652)."""
-    recent = {"intake": NOW - timedelta(minutes=5), "refine": NOW - timedelta(minutes=5)}
+    five_minutes_ago = NOW - timedelta(minutes=5)
+    recent = {"intake": five_minutes_ago, "refine": five_minutes_ago, "stage": five_minutes_ago}
 
     def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
         _stamp(tmp_path, **stamps)
@@ -2048,7 +2143,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
     assert (first, too_soon, a_day, hinted) == (
-        ("intake", "refine", "alternatives"),
+        ("intake", "refine", "stage", "alternatives"),
         (),
         ("alternatives",),
         ("intake",),
@@ -2064,7 +2159,7 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
 
-    assert (cli.exit_code, "Due: metrics, intake, refine, alternatives\n" in cli.output) == (
+    assert (cli.exit_code, "Due: metrics, intake, refine, stage, alternatives\n" in cli.output) == (
         0,
         True,
     )

@@ -31,7 +31,7 @@ jobs:
     name: Fail-to-Pass Check
     # The titles that CONST_DEFECT_TITLE_PATTERN reads as a fix. startsWith ignores case.
     if: ${{ startsWith(github.event.pull_request.title, 'fix(') || startsWith(github.event.pull_request.title, 'fix:') || startsWith(github.event.pull_request.title, 'fix!') }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:

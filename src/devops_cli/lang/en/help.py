@@ -1371,9 +1371,12 @@ class RoadmapCommandHelp:
     stage_filter: str = (
         "A label filter in the form family=value, over the families status, priority, type, "
         "value and effort. Repeat the option: the values of one family are alternatives, and "
-        "the families all apply."
+        "the families all apply. The default is the setting roadmap.stage.filter."
     )
-    stage_limit: str = "Maximum number of items to stage in this run (default 3)."
+    stage_limit: str = (
+        "Maximum number of items to stage in this run. The default is the setting "
+        "roadmap.stage.limit."
+    )
     stage_step_tokens: str = (
         "Most tokens that the inputs of one implementation step may hold. The default is the "
         "setting roadmap.stage.step_tokens."

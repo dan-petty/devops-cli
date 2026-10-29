@@ -352,7 +352,7 @@ def assert_audit_workflow_contract(workflow: dict[str, Any]) -> None:
     assert "audit-hardening" in jobs, "Workflow must contain job 'audit-hardening'"
     job = jobs["audit-hardening"]
     assert isinstance(job, dict)
-    assert job.get("runs-on") == "ubuntu-24.04", "Job must run on ubuntu-24.04"
+    assert job.get("runs-on") == "ubuntu-26.04", "Job must run on ubuntu-26.04"
 
     job_if = str(job.get("if", ""))
     assert (

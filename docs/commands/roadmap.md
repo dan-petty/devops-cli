@@ -103,8 +103,8 @@ devops roadmap stage [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--source` | `path` | - | Path to a clone of the repository at its default branch. Without it, the job clones the repository into its own model clone, updates it, and uses it. |
 | `--item` | `integer` | - | Stage the one issue this number names, when it is open and Ready, and ignore the filter and the limit. |
-| `--filter` | `string` | - | A label filter in the form family=value, over the families status, priority, type, value and effort. Repeat the option: the values of one family are alternatives, and the families all apply. |
-| `--limit` | `integer` | `3` | Maximum number of items to stage in this run (default 3). |
+| `--filter` | `string` | - | A label filter in the form family=value, over the families status, priority, type, value and effort. Repeat the option: the values of one family are alternatives, and the families all apply. The default is the setting roadmap.stage.filter. |
+| `--limit` | `integer` | - | Maximum number of items to stage in this run. The default is the setting roadmap.stage.limit. |
 | `--step-tokens` | `integer` | - | Most tokens that the inputs of one implementation step may hold. The default is the setting roadmap.stage.step_tokens. |
 | `--dry-run` | `boolean` | - | Make no request: print the requests and the git commands that a run makes, with placeholders. |
 | `--plan` | `boolean` | - | Read GitHub and call the model, and write nothing: print the changes that --confirm writes. This is the mode when no flag is given. |

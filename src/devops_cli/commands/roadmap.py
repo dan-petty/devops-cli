@@ -28,7 +28,6 @@ import typer
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
-    DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
@@ -341,8 +340,8 @@ def stage_cmd(
         list[str] | None, typer.Option("--filter", help=HELP.roadmap.stage_filter)
     ] = None,
     limit: Annotated[
-        int, typer.Option("--limit", min=1, help=HELP.roadmap.stage_limit)
-    ] = DEFAULT_ROADMAP_STAGE_LIMIT,
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.stage_limit)
+    ] = None,
     step_tokens: Annotated[
         int | None, typer.Option("--step-tokens", min=1000, help=HELP.roadmap.stage_step_tokens)
     ] = None,
@@ -355,6 +354,7 @@ def stage_cmd(
     from devops_cli.roadmap.stage import (
         apply_stage,
         dry_run_stage,
+        emit_stage_results,
         parse_filters,
         plan_stage,
         raise_for_failed,
@@ -389,6 +389,7 @@ def stage_cmd(
     if confirm:
         with _exit_on_failure("Could not stage"):
             applied = apply_stage(store, plan, source=clone)
+        emit_stage_results(plan, applied)
         print_success(
             MESSAGES.roadmap.stage_applied.format(
                 staged=len(applied.staged),
