@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -67,6 +66,7 @@ from devops_cli.exceptions import (
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapStageError,
+    ToolExecutionError,
     ValidationError,
 )
 from devops_cli.git.branch_form import branch_name
@@ -80,7 +80,7 @@ from devops_cli.git.worktree_inventory import git_message
 from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
-from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec, output_of
+from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
@@ -94,6 +94,7 @@ from devops_cli.roadmap.stage_change import (
     safe_text,
     write_change_files,
 )
+from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 
@@ -351,8 +352,6 @@ _SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
 _DEFAULT_WINDOW: Final[int] = 8192
-# The most characters of a validation problem that goes back to the model or to a report.
-_PROBLEM_CHARS: Final[int] = 2000
 
 
 @dataclass(frozen=True)
@@ -561,14 +560,11 @@ class _Planner:
         return proposal, files, measured
 
     def _validate(self, change: str, files: Mapping[str, str]) -> str | None:
-        """The output of a failed `openspec validate <change> --strict` on `files` in a scratch
-        directory, or None when it passes or the tool is not installed."""
+        """The problems that `openspec validate` finds in `files`, or None when it finds none or
+        the tool is not installed."""
         if self._tool is None:
             return None
-        with tempfile.TemporaryDirectory(prefix="stage-") as scratch:
-            write_change_files(Path(scratch), files)
-            run = self._tool.run(["validate", change, "--strict"], Path(scratch))
-        return None if run.returncode == 0 else output_of(run)[:_PROBLEM_CHARS]
+        return validate_change(self._tool, self._source, change, files)
 
 
 def _title_of(target: StageTarget, proposal: StageProposal) -> str:
@@ -596,13 +592,17 @@ def _openspec_tool() -> Iterator[OpenSpecTool | None]:
         yield tool
 
 
-def _failure_of(target: StageTarget, exc: AIClientError | RoadmapStageError) -> StageFailure:
+def _failure_of(
+    target: StageTarget, exc: AIClientError | RoadmapStageError | ToolExecutionError
+) -> StageFailure:
     """The failure that `exc` made of the item. A model's error says its class and the count of
     schema violations, never the reply."""
     if isinstance(exc, StructuredOutputValidationError):
         reason = MESSAGES.roadmap.stage_violations.format(count=exc.violations)
+    elif isinstance(exc, AIClientError):
+        reason = ""
     else:
-        reason = str(exc) if isinstance(exc, RoadmapStageError) else ""
+        reason = mask_secrets(str(exc))
     return StageFailure(target.item.number, target.item.title, type(exc).__name__, reason)
 
 
@@ -617,7 +617,7 @@ def _plan_each(
             outcome = planner.plan(target)
         except AICredentialsError:
             raise
-        except (AIClientError, RoadmapStageError) as exc:
+        except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
             failed.append(_failure_of(target, exc))
             continue
         if isinstance(outcome, OverBudget):

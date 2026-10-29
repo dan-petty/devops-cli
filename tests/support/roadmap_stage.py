@@ -8,6 +8,7 @@ commits as the identity `STAGE_EMAIL`.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,8 @@ from devops_cli.roadmap.store import ItemField
 STAGE_REPO = "example/roadmap"
 STAGE_NAME = "devops-roadmap[bot]"
 STAGE_EMAIL = "1+devops-roadmap[bot]@users.noreply.github.com"
+# What `openspec validate <change> --strict --json` prints for a valid change.
+VALID_REPORT = json.dumps({"items": [{"id": "x", "valid": True, "issues": []}]})
 SAMPLE_SOURCE = "def keep(comments):\n    return comments[:-1]\n"
 
 
@@ -109,3 +112,14 @@ def write_big_file(repo: StageRepo, name: str = "src/devops_cli/big.py") -> None
     """A Python file in the clone that is far over a budget of a few thousand tokens."""
     lines = [f"def function_{i}(value):\n    return value + {i}\n" for i in range(1500)]
     (repo.clone / name).write_text("\n".join(lines), encoding="utf-8")
+
+
+def validate_args(change: str) -> tuple[str, ...]:
+    """The arguments of the validation the stage job runs on `change`."""
+    return ("validate", change, "--strict", "--json")
+
+
+def validation_report(*issues: tuple[str, str], valid: bool = True) -> str:
+    """What `openspec validate --json` prints for a change with these (level, message) issues."""
+    found = [{"level": level, "path": "cap/spec.md", "message": text} for level, text in issues]
+    return json.dumps({"items": [{"id": "x", "valid": valid, "issues": found}]})

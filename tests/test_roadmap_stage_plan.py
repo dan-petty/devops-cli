@@ -24,12 +24,16 @@ from devops_cli.roadmap.stage_change import (
     closing_keyword_in,
     render_change,
 )
+from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import (
     STAGE_REPO,
+    VALID_REPORT,
     StageRepo,
     run_git,
     seed_stageable,
+    validate_args,
+    validation_report,
     write_big_file,
 )
 
@@ -42,8 +46,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 CHANGE = "1-the-job-drops-a-comment"
-VALIDATE = ("validate", CHANGE, "--strict")
-VALID = (0, "Change '1-the-job-drops-a-comment' is valid\n")
+VALIDATE = validate_args(CHANGE)
+VALID = (0, VALID_REPORT)
 TODAY = datetime(2026, 10, 29, 12, 0, tzinfo=UTC)
 
 
@@ -372,7 +376,7 @@ def test_a_model_call_that_fails_skips_its_item_and_plans_the_others(
     openspec: OpenSpecFake,
 ) -> None:
     second = seed_stageable(store, "fix(roadmap): the job drops a label")
-    openspec.script_sequence(("validate", "2-the-job-drops-a-label", "--strict"), VALID)
+    openspec.script_sequence(validate_args("2-the-job-drops-a-label"), VALID)
     model_fake.route_error(_about(item), AIClientError("the model is down"))
     model_fake.route(_about(second), make_stage_proposal())
 
@@ -453,6 +457,47 @@ def test_a_second_failed_validation_stops_the_item(
     assert "ERROR: first" not in failure.reason
 
 
+def test_a_note_of_openspec_on_a_valid_change_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    refusal = 'cap-a MODIFIED failed for header "### Requirement: Invented name" - not found'
+    openspec.script_sequence(
+        VALIDATE,
+        (0, validation_report(("INFO", f"Archive would refuse this delta: {refusal}"))),
+        VALID,
+    )
+    model_fake.answer(make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    assert refusal in _requests(model_fake)[1]["problem"]
+    assert len(plan.ready) == 1
+    assert model_fake.call_count == 2
+
+
+def test_a_validation_that_times_out_fails_its_item_and_the_others_are_planned(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    second = seed_stageable(store, "fix(roadmap): the job drops a label")
+    openspec.hang(VALIDATE)
+    openspec.script_sequence(validate_args("2-the-job-drops-a-label"), VALID)
+    model_fake.answer(make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    (failure,) = plan.failed
+    assert (failure.number, failure.error) == (item, "ToolExecutionError")
+    assert [change.target.item.number for change in plan.ready] == [second]
+
+
 def test_without_the_openspec_binary_the_plan_says_it_did_not_validate(
     store: InMemoryRoadmapStore,
     item: int,
@@ -501,3 +546,46 @@ def test_the_files_of_a_plan_pass_openspec_validate(tmp_path: Path) -> None:
         run = tool.run(["validate", "1-the-job-drops-a-comment", "--strict"], tmp_path)
 
     assert (run.returncode, run.stderr) == (0, "")
+
+
+@pytest.mark.live("openspec")
+@pytest.mark.parametrize(
+    ("heading", "name", "expected"),
+    [
+        ("MODIFIED", "Invented name", "Invented name"),
+        ("MODIFIED", "Real name", None),
+        ("ADDED", "Fresh name", None),
+    ],
+)
+def test_openspec_refuses_a_modified_requirement_that_the_base_spec_lacks(
+    tmp_path: Path, heading: str, name: str, expected: str | None
+) -> None:
+    source = tmp_path / "source"
+    base = source / "openspec" / "specs" / "cap-a" / "spec.md"
+    base.parent.mkdir(parents=True)
+    base.write_text(
+        "## Purpose\nThe base spec of a capability, long enough to pass.\n\n## Requirements\n\n"
+        "### Requirement: Real name\nThe system SHALL do a thing.\n\n#### Scenario: Thing\n"
+        "- **WHEN** a\n- **THEN** b\n",
+        encoding="utf-8",
+    )
+    files = {
+        "openspec/config.yaml": "schema: spec-driven\n",
+        "openspec/changes/2-x/proposal.md": (
+            "## Why\nBecause.\n\n## What Changes\n- A change.\n\n## Capabilities\n\n"
+            "### Modified Capabilities\n- `cap-a`: x\n\n## Impact\n- None.\n"
+        ),
+        "openspec/changes/2-x/specs/cap-a/spec.md": (
+            f"## {heading} Requirements\n\n### Requirement: {name}\nThe system SHALL act.\n\n"
+            "#### Scenario: Thing\n- **WHEN** a\n- **THEN** b\n"
+        ),
+    }
+
+    with isolated_openspec() as tool:
+        problem = validate_change(tool, source, "2-x", files)
+
+    if expected is None:
+        assert problem is None
+    else:
+        assert problem is not None
+        assert expected in problem

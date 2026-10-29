@@ -1965,6 +1965,9 @@ class RoadmapMessages:
         "The title or the body of the pull request has the closing keyword {keyword} before an "
         "issue reference. A pull request that plans an item closes no issue."
     )
+    stage_validate_unreadable: str = (
+        "OpenSpec exited with 0 and printed no report that the stage job can read."
+    )
     stage_secret: str = "The reply has text that looks like a secret, in {path}."
     stage_violations: str = "{count} schema violation(s)"
     stage_git_failed: str = "`git {command}` failed: {reason}"

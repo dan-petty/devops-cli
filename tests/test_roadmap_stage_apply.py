@@ -17,8 +17,10 @@ from tests.support.fakes.github import API, github_json
 from tests.support.roadmap_stage import (
     STAGE_EMAIL,
     STAGE_REPO,
+    VALID_REPORT,
     StageRepo,
     seed_stageable,
+    validate_args,
     write_big_file,
 )
 
@@ -52,7 +54,7 @@ def opened(github_api: GitHubApiFake) -> GitHubApiFake:
 @pytest.fixture(autouse=True)
 def valid_openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
     for name in ("1-the-job-drops-a-comment", "2-the-job-drops-a-label"):
-        openspec_fake.script_sequence(("validate", name, "--strict"), (0, "valid\n"))
+        openspec_fake.script_sequence(validate_args(name), (0, VALID_REPORT))
     return openspec_fake
 
 

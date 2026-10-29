@@ -12,7 +12,13 @@ from devops_cli.roadmap.stage import dry_run_stage
 from devops_cli.roadmap.store import StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
-from tests.support.roadmap_stage import STAGE_REPO, StageRepo, seed_stageable
+from tests.support.roadmap_stage import (
+    STAGE_REPO,
+    VALID_REPORT,
+    StageRepo,
+    seed_stageable,
+    validate_args,
+)
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -27,7 +33,7 @@ Cli = Callable[..., Any]
 @pytest.fixture(autouse=True)
 def valid_openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
     for name in ("1-the-job-drops-a-comment", "2-the-job-drops-a-label"):
-        openspec_fake.script_sequence(("validate", name, "--strict"), (0, "valid\n"))
+        openspec_fake.script_sequence(validate_args(name), (0, VALID_REPORT))
     return openspec_fake
 
 
