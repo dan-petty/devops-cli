@@ -9,6 +9,7 @@ On 2026-10-23 the owner decided to keep agents as far from the release workflow 
 ## Decision
 
 - **The tool makes every release.** `.github/workflows/release.yml` runs `googleapis/release-please-action` on each push to `main`, in manifest mode with the `python` release type. It opens or updates one release pull request. A person merges that pull request. The run of that merge creates the GitHub release and its tag.
+- **An urgent fix merges the release pull request** (amended on 2026-10-29 for [#1966](https://github.com/dan-petty/devops-cli/issues/1966), as the owner asked on 2026-10-23: "implement this functionality as recommended using logical labeling and rules"). When the pull request of the pushed commit has the label `release-now`, or closes an issue labeled `priority/p0-critical`, or `type/security` with `priority/p1-high`, the release workflow turns on GitHub auto-merge of the release pull request with the App token. GitHub merges it when its required checks pass. An agent never merges it, and never sets `release-now`.
 - **The same run publishes.** When the action reports a new release, later jobs upload the wheel, the sdist and `SHA256SUMS.txt` to that release. Other jobs build, smoke-test, attest and tag the two images with the release tag and `latest`. There is no draft release and no extra publish order.
 - **A GitHub App token runs the action.** A pull request that `GITHUB_TOKEN` opens starts no workflow, so the release pull request needs the App token to run its checks. The token has contents, issues and pull requests write. The `release` environment holds the App client ID and private key.
 - **The version comes from the tool.** `release-please-config.json` sets `bump-minor-pre-major` and sets nothing else that steers a version. No code, test, document or setting in this repository predicts, computes or checks a future version.
@@ -21,7 +22,7 @@ On 2026-10-23 the owner decided to keep agents as far from the release workflow 
 
 ## Consequences
 
-- A person releases by merging the release pull request. There is no schedule. [`RELEASE_CYCLE.md`](../../RELEASE_CYCLE.md) is the procedure.
+- A person releases by merging the release pull request, and GitHub merges it for an urgent fix. There is no schedule. [`RELEASE_CYCLE.md`](../../RELEASE_CYCLE.md) is the procedure.
 - A person keeps the repository settings that the tool needs: the App, the `release` environment, the squash title and body, and the required checks ([#1864](https://github.com/dan-petty/devops-cli/issues/1864)).
 - The changelog holds titles only. The long entries of the old fragments are not kept.
 - Because Argo CD tracks `main`, a tag deploys nothing. A tag ruleset is optional.
