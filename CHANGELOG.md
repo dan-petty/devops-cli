@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.1](https://github.com/dan-petty/devops-cli/compare/v0.15.0...v0.15.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **k8s:** delete loki-ingress, blocked by the logging network policy ([#2624](https://github.com/dan-petty/devops-cli/issues/2624)) ([7c956e3](https://github.com/dan-petty/devops-cli/commit/7c956e300814bfe96f0919b462fb2fc3ef00666a)), closes [#2439](https://github.com/dan-petty/devops-cli/issues/2439)
+
 ## [0.15.0](https://github.com/dan-petty/devops-cli/compare/v0.14.0...v0.15.0) (2026-10-29)
 
 
