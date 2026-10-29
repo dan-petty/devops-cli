@@ -72,6 +72,7 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         ),
         "required": frozenset(),
     },
+    ("vault", "status"): {"allowed": frozenset({"dry_run"}), "required": frozenset()},
 }
 
 

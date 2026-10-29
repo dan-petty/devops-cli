@@ -134,7 +134,7 @@ class VaultSecretBroker:
         resolved_addr = vault_addr or os.getenv("VAULT_ADDR") or os.getenv("DEVOPS_CLI_VAULT_ADDR")
         if not resolved_addr:
             raise VaultConfigurationError(
-                "No Vault address configured. Set VAULT_ADDR, DEVOPS_CLI_VAULT_ADDR, or pass --vault-addr."
+                "No Vault address configured. Set VAULT_ADDR or DEVOPS_CLI_VAULT_ADDR."
             )
         self.vault_addr = resolved_addr.rstrip("/")
         parsed = urlsplit(self.vault_addr)
@@ -149,6 +149,12 @@ class VaultSecretBroker:
             error_cls=VaultConfigurationError,
             label="Vault address",
         )
+        if "?" in self.vault_addr or "#" in self.vault_addr:
+            raise VaultConfigurationError(
+                "Invalid Vault address: it cannot have a query or fragment, because that text "
+                "changes the path of each request. Use a scheme, a host, a port and an optional "
+                "path."
+            )
 
         self.vault_namespace = vault_namespace or os.getenv("VAULT_NAMESPACE") or None
         self.vault_token, self.token_source = self._resolve_token(vault_token)
