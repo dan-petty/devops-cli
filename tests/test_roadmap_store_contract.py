@@ -404,6 +404,47 @@ def test_a_write_to_a_pull_request_or_an_issue_that_does_not_exist_raises(world:
     assert world.writes() == 0
 
 
+# ── Closing an issue with a reason (#1658) ────────────────────────────────────
+
+
+def _closed_as(world: World, number: int) -> tuple[GitHubState, str | None]:
+    """The state of issue `number` and the reason it was closed for, as a read gives them now."""
+    found = next(issue for issue in world.store.issues() if issue.number == number)
+    return found.state, found.state_reason
+
+
+def test_a_close_posts_its_comment_and_closes_the_issue_for_its_reason(world: World) -> None:
+    number = world.seed("superseded")
+    world.store.close(number, CloseReason.NOT_PLANNED, comment="Superseded by #2399.")
+    assert (
+        [comment.body for comment in world.store.comments_on(number)],
+        _closed_as(world, number),
+        world.writes(),
+    ) == (["Superseded by #2399."], (GitHubState.CLOSED, "not_planned"), 2)
+
+
+def test_a_close_with_no_comment_only_closes(world: World) -> None:
+    number = world.seed("done")
+    world.store.close(number, CloseReason.COMPLETED)
+    assert (world.store.comments_on(number), _closed_as(world, number), world.writes()) == (
+        [],
+        (GitHubState.CLOSED, "completed"),
+        1,
+    )
+
+
+def test_a_close_of_no_open_issue_raises_and_writes_nothing(world: World) -> None:
+    """A pull request, a number that names nothing and a closed issue get no comment and no
+    close: GitHub ignores a reason when the state does not change."""
+    pull = world.seed("a pull request", pull_request=True)
+    closed = world.seed("closed", state=GitHubState.CLOSED)
+    refused = ((pull, "is not an issue"), (99, "is not an issue"), (closed, "already closed"))
+    for number, says in refused:
+        with pytest.raises(GitHubOperationError, match=says):
+            world.store.close(number, CloseReason.NOT_PLANNED, comment="Superseded.")
+    assert world.writes() == 0
+
+
 # ── The in-memory adapter: milestones, issues and changes ─────────────────────
 
 

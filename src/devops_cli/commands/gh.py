@@ -8,8 +8,9 @@ import logging
 import urllib.parse
 from collections.abc import Iterator
 from contextlib import contextmanager
+from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, TextIO
 
 import typer
 
@@ -32,6 +33,7 @@ from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
     load_branch_protection_policies,
@@ -100,7 +102,8 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.store import GitHubState
+from devops_cli.roadmap.request_plan import StoreRequests
+from devops_cli.roadmap.store import CloseReason, GitHubState
 
 logger = logging.getLogger(__name__)
 
@@ -1141,6 +1144,59 @@ def edit_issue_cmd(  # noqa: C901
         print_error(f"Failed to edit issue #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode or 1)
     print_success(f"Issue #{number} updated successfully.")
+
+
+class IssueCloseReason(StrEnum):
+    """The reasons `devops gh issues close` takes, as the command line names them."""
+
+    COMPLETED = "completed"
+    NOT_PLANNED = "not-planned"
+
+    @property
+    def state_reason(self) -> CloseReason:
+        """The reason as GitHub's `state_reason` names it."""
+        return CloseReason(self.value.replace("-", "_"))
+
+
+def _close_comment(comment_file: TextIO | None) -> str | None:
+    """The text of the comment file, `-` read from standard input, refusing an empty one."""
+    if comment_file is None:
+        return None
+    text = comment_file.read().strip()
+    if not text:
+        raise ValidationError(MESSAGES.issues.close_empty_comment, field="comment_file")
+    return text
+
+
+@issues_app.command("close", help=HELP.gh.issues_close)
+def issues_close_cmd(
+    number: Annotated[int, typer.Argument(min=1, help=HELP.gh.issues_close_number)],
+    reason: Annotated[IssueCloseReason, typer.Option("--reason", help=HELP.gh.issues_close_reason)],
+    comment_file: Annotated[
+        typer.FileText | None,
+        typer.Option("--comment-file", help=HELP.gh.issues_close_comment_file),
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.gh.issues_close_dry_run)] = False,
+) -> None:
+    """Close an issue with its reason, after an optional comment (#1658)."""
+    comment = _close_comment(comment_file)
+    target_repo = repo or _resolve_repo()
+    state_reason = reason.state_reason
+    if dry_run or is_dry_run():
+        requests = StoreRequests(target_repo).close(
+            f"#{number}", state_reason, comment=comment is not None
+        )
+        heading = "\n\n".join(
+            [
+                MESSAGES.issues.close_dry_run_title.format(repo=target_repo),
+                MESSAGES.roadmap.plan_dry_run,
+            ]
+        )
+        render_request_plan(heading, requests, MESSAGES.roadmap.plan_dry_run_notes, described=True)
+        return
+    roadmap_store.get_roadmap_store(target_repo).close(number, state_reason, comment=comment)
+    print_success(MESSAGES.issues.closed.format(number=number, reason=reason.value))
 
 
 # =============================================================================

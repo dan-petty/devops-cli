@@ -25,6 +25,7 @@ from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import github_store as gh
+from devops_cli.roadmap.store import CloseReason
 
 _GH = "gh"
 Requests = list[PlannedRequest]
@@ -214,6 +215,12 @@ class StoreRequests:
     def comment(self, subject: str) -> Requests:
         args = gh.comment_args(self.repo, _number(subject), _p("comment"))
         return [self.gh(args, "comment", subject=subject)]
+
+    def close(self, subject: str, reason: CloseReason, *, comment: bool) -> Requests:
+        """The issue, which a close refuses when it is no open issue, then its comment when one
+        is given, then one `PATCH` that closes it for `reason` (#1658)."""
+        edit = self._edit(subject, "close", gh.issue_close(reason), reason=reason.value)
+        return [*self.issue(subject), *(self.comment(subject) if comment else []), edit]
 
     def label_issue(self, subject: str) -> Requests:
         args = gh.label_args(self.repo, _number(subject), _p("label"))

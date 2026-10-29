@@ -55,6 +55,7 @@ from devops_cli.roadmap.store import (
     Candidate,
     Change,
     ChangeKind,
+    CloseReason,
     Closure,
     Evidence,
     EvidenceKind,
@@ -65,6 +66,7 @@ from devops_cli.roadmap.store import (
     ItemField,
     Milestone,
     RoadmapStore,
+    already_closed,
     as_utc,
     decode_job_record,
     encode_job_record,
@@ -372,6 +374,11 @@ def issue_edit(*, labels: Sequence[str] | None = None, body: str | None = None) 
     return json.dumps(fields)
 
 
+def issue_close(reason: CloseReason) -> str:
+    """The stdin of an `issue_edit_args` write that closes the issue for `reason`."""
+    return json.dumps({"state": GitHubState.CLOSED.value, "state_reason": reason.value})
+
+
 def repository_issue_events_endpoint(repo: str) -> str:
     """The REST listing of every issue event of `repo`, newest first."""
     return f"repos/{repo}/issues/events"
@@ -611,6 +618,27 @@ class GitHubRoadmapStore(RoadmapStore):
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
         self._write(comment_args(self._repo, number, body), f"comment on #{number}")
+
+    def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
+        """Read issue `number`, post `comment` on it when given, then close it for `reason` in
+        one `PATCH` (#1658). A pull request, a missing issue and a closed issue are refused
+        before any write."""
+        issue = self._require_issue(number, "roadmap.issue.close")
+        if issue.state is GitHubState.CLOSED:
+            raise already_closed(number, {"repo": self._repo[:256], "number": number})
+        if comment is None:
+            self._send_edit(number, issue_close(reason))
+            return
+        self.comment(number, comment)
+        try:
+            self._send_edit(number, issue_close(reason))
+        except GitHubOperationError as exc:
+            raise GitHubOperationError(
+                f"{exc} The comment is on #{number}, and #{number} is still open. Close it "
+                "again with no comment.",
+                operation="roadmap.issue.close",
+                details={"repo": self._repo[:256], "number": number},
+            ) from exc
 
     # ── What intake reads and writes ──
 

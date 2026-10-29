@@ -97,6 +97,17 @@ class CloseReason(StrEnum):
     DUPLICATE = "duplicate"
 
 
+def already_closed(number: int, details: dict[str, object]) -> GitHubOperationError:
+    """The error of a close of issue `number`, which is closed now: GitHub ignores a reason
+    unless the state changes, so the close is refused before any write (#1658)."""
+    return GitHubOperationError(
+        f"#{number} is already closed, and GitHub ignores a reason unless the state changes. "
+        f"Reopen it first with `devops gh issues edit {number} --state open`.",
+        operation="roadmap.issue.close",
+        details=details,
+    )
+
+
 class EvidenceKind(StrEnum):
     """What a piece of evidence for a P0 is (#742): a GitHub security advisory, a failed Actions
     run of this repository, or the commit of this repository that introduced a regression."""
@@ -618,6 +629,12 @@ class RoadmapStore(Protocol):
 
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
+
+    def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
+        """Close the open issue `number` for `reason`, after `comment` is posted on it when
+        given, so a failed close leaves the comment. It raises before any write when `number` is
+        no open issue of this repository: GitHub ignores a reason unless the state changes, so
+        a closed issue is refused (#1658)."""
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""

@@ -1091,6 +1091,21 @@ class GHCommandHelp:
     )
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
+    issues_close: str = (
+        "Close an open issue with its reason, completed or not planned. With --comment-file, the "
+        "command posts the comment first, then closes the issue, so a failed close leaves the "
+        "comment. It refuses a pull request and an issue that is already closed, because GitHub "
+        "ignores a reason unless the state changes."
+    )
+    issues_close_number: str = "Number of the issue to close."
+    issues_close_reason: str = (
+        "Why the issue closes: completed, or not-planned for a rejected or superseded issue."
+    )
+    issues_close_comment_file: str = (
+        "File with the comment to post before the close, such as the evidence for a not-planned close. "
+        "Give - to read it from standard input."
+    )
+    issues_close_dry_run: str = "Make no request: print the requests a run makes, in order."
     branch_protection_app: str = (
         "Manage classic branch protection policies; does not cover rulesets."
     )
@@ -1134,7 +1149,8 @@ class RoadmapCommandHelp:
         "candidate. Each gets a type, a status/new label, Value and Effort labels and a reason "
         "comment, then its priority label last, and goes to the backlog. A label a person set "
         "stays. Intake sets no milestone: a person plans the milestones, and a milestone an "
-        "issue has stays. Close an issue as not planned to keep it off the roadmap. A candidate "
+        "issue has stays. Close an issue as not planned to keep it off the roadmap: devops gh "
+        "issues close <number> --reason not-planned. A candidate "
         "an agent files with --title and --body-file is labeled "
         "source/agent, and intake files it, a possible duplicate too, unless a run that stopped "
         "after filing left an open issue with its title and body, which intake then places; a "

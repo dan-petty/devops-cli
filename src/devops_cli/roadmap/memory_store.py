@@ -46,6 +46,7 @@ from devops_cli.roadmap.store import (
     ItemField,
     Milestone,
     RoadmapStore,
+    already_closed,
     as_utc,
     decode_job_record,
     encode_job_record,
@@ -346,6 +347,17 @@ class InMemoryRoadmapStore(RoadmapStore):
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
         return list(self._roadmap.comments.get(number, []))
+
+    def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
+        """Post `comment` on issue `number` when given, then close it for `reason`. A pull
+        request, a missing issue and a closed issue are refused before any write."""
+        issue = self._require_issue(number, "roadmap.issue.close")
+        if issue.state is GitHubState.CLOSED:
+            raise already_closed(number, {"number": number})
+        if comment is not None:
+            self.comment(number, comment)
+        self._close(self._roadmap.issues[number], reason)
+        self._log("close", number, value=reason.value)
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit `seed_commit` recorded for `path` was made, or None."""

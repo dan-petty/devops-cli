@@ -1310,7 +1310,7 @@ async def test_pr_and_issue_numbers_publish_a_positive_bound() -> None:
             for branch in _branches(prop)
         )
     )
-    assert (len(numbers), unbounded) == (13, [])
+    assert (len(numbers), unbounded) == (14, [])
 
 
 async def test_every_published_keyword_is_one_a_refusal_can_describe() -> None:

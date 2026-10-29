@@ -42,6 +42,7 @@ from devops_cli.roadmap.github_store import (
 )
 from devops_cli.roadmap.store import (
     ChangeKind,
+    CloseReason,
     Evidence,
     EvidenceKind,
     GitHubState,
@@ -1118,6 +1119,37 @@ def test_comment_posts_one_comment() -> None:
             "body=Status set to Ready.",
         ]
     ]
+
+
+def test_a_close_reads_the_issue_then_comments_then_patches_its_state_and_reason() -> None:
+    """The read refuses a pull request or a closed issue before any write; the comment comes
+    before the close, so a failed close leaves the evidence (#1658)."""
+    closed = issue_payload(740, state="closed", state_reason="not_planned")
+    store, runner = recorded_store(
+        {"-X POST": {}, "-X PATCH": closed, "issues/740": issue_payload(740)}
+    )
+    store.close(740, CloseReason.NOT_PLANNED, comment="Superseded by #2399.")
+    issue = f"repos/{REPO}/issues/740"
+    assert [(args, kwargs.get("input")) for args, kwargs in runner.calls] == [
+        (["api", issue], None),
+        (["api", "-X", "POST", f"{issue}/comments", "-f", "body=Superseded by #2399."], None),
+        (
+            ["api", "-X", "PATCH", issue, "--input", "-"],
+            json.dumps({"state": "closed", "state_reason": "not_planned"}),
+        ),
+    ]
+
+
+def test_a_refused_close_after_its_comment_says_the_comment_is_on_the_open_issue() -> None:
+    store, _ = recorded_store(
+        {
+            "-X POST": {},
+            "-X PATCH": (1, "gh: Validation Failed (HTTP 422)"),
+            "issues/740": issue_payload(740),
+        }
+    )
+    with pytest.raises(GitHubOperationError, match=r"comment is on #740.*still open"):
+        store.close(740, CloseReason.NOT_PLANNED, comment="Superseded.")
 
 
 # ── What intake reads and writes (#742) ───────────────────────────────────────
