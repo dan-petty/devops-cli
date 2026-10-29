@@ -9,9 +9,10 @@ lands with the item that adds the Secret's consumer.
 from __future__ import annotations
 
 import secrets
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.parse import quote
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
@@ -79,7 +80,38 @@ class LiteralSource:
         return "literal"
 
 
-SecretSource = KeyringSource | SettingSource | LiteralSource
+PlainSource = KeyringSource | SettingSource | LiteralSource
+
+
+@dataclass(frozen=True)
+class DerivedSource:
+    """A value built from other values of the same push, and never stored on its own.
+
+    `template` is a `str.format` template whose fields name `inputs`. The push resolves every
+    entry that is not derived first, so an input reads the value the push adopts or generates.
+    Each input's value fills its field quoted with `urllib.parse.quote(..., safe="")`, so a
+    credential in a URL keeps its own characters.
+    """
+
+    template: str
+    inputs: Mapping[str, PlainSource] = field(hash=False)
+
+    @property
+    def label(self) -> str:
+        """How output names the source: its inputs, never their values."""
+        return "derived from " + ", ".join(source.label for source in self.inputs.values())
+
+    def build(self, values: Mapping[str, str]) -> str:
+        """The value, from the value of each input."""
+        return self.template.format_map(
+            {name: quote(values[name], safe="") for name in self.inputs}
+        )
+
+
+SecretSource = PlainSource | DerivedSource
+# The Secret types the table writes. Kubernetes takes any other type as a custom one, so a
+# typo would reach the cluster unseen; a row that needs another built-in type adds it here.
+SecretType = Literal["Opaque", "kubernetes.io/basic-auth"]
 
 
 @dataclass(frozen=True)
@@ -114,7 +146,8 @@ class SecretEntry:
 
     A keyring value the keyring lacks is adopted from the live `adopt_from` key (the entry's
     own key when None), else made by `generator`; otherwise a required entry fails and an
-    optional one is skipped. Every value must start with `value_prefix`.
+    optional one is skipped. A derived value is never adopted or generated. Every value must
+    start with `value_prefix`.
     """
 
     key: str
@@ -138,7 +171,9 @@ class Workload:
 
 @dataclass(frozen=True)
 class ClusterSecret:
-    """A Secret the cluster needs, the stack it belongs to and the workloads that read it."""
+    """A Secret the cluster needs, its type, the stack it belongs to and the workloads that
+    read it. Kubernetes cannot change the type of a Secret, so a row names it before its first
+    push."""
 
     namespace: str
     name: str
@@ -147,6 +182,7 @@ class ClusterSecret:
     restarts: tuple[Workload, ...] = ()
     labels: dict[str, str] = field(default_factory=dict)
     change_note: str = ""
+    secret_type: SecretType = "Opaque"
 
     @property
     def ref(self) -> str:
@@ -382,11 +418,19 @@ def table_stacks(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> tuple[str,
     return tuple(dict.fromkeys(secret.stack for secret in table))
 
 
+def keyring_sources(entry: SecretEntry) -> tuple[KeyringSource, ...]:
+    """The keyring entries an entry reads: its own source, or the inputs of a derived one."""
+    source = entry.source
+    sources = source.inputs.values() if isinstance(source, DerivedSource) else (source,)
+    return tuple(s for s in sources if isinstance(s, KeyringSource))
+
+
 def keyring_only_keys(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> frozenset[str]:
     """The keyring keys the table declares that no Settings option reads."""
     return frozenset(
-        entry.source.key
+        source.key
         for secret in table
         for entry in secret.entries
-        if isinstance(entry.source, KeyringSource) and entry.source.option is None
+        for source in keyring_sources(entry)
+        if source.option is None
     )

@@ -167,7 +167,7 @@ devops devcontainer bootstrap-k8s [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
-| `--stack`, `-s` | `string` | `infra` | Kubernetes stack to deploy (e.g. infra, llm, monitoring, all). |
+| `--stack`, `-s` | `string` | `infra` | Kubernetes stack to deploy: infra | llm | logging | devops | gitea | all. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

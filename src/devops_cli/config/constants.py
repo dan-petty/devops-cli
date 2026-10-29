@@ -1023,15 +1023,16 @@ CONST_K8S_KUSTOMIZATION_NAMES: Final[tuple[str, ...]] = (
     "Kustomization",
 )
 """The standard file names Kustomize recognizes for a directory overlay."""
-CONST_K8S_VALID_STACKS: Final[tuple[str, ...]] = (
-    "infra",
-    "llm",
-    "logging",
-    "devops",
-    "gitea",
-    "all",
-)
-"""The valid stack identifiers accepted by Kubernetes stack commands (#2157)."""
+CONST_K8S_STACKS: Final[tuple[str, ...]] = ("infra", "llm", "logging", "devops", "gitea")
+"""The stacks of the Kubernetes stack commands, in deploy order: the one declaration of a stack
+name. `_resolve_stacks` and every help text that lists stacks read it (#2008)."""
+CONST_K8S_ALL_STACKS: Final[str] = "all"
+"""The `--stack` value that selects every stack of `CONST_K8S_STACKS`."""
+CONST_K8S_VALID_STACKS: Final[tuple[str, ...]] = (*CONST_K8S_STACKS, CONST_K8S_ALL_STACKS)
+"""Every `--stack` value the Kubernetes stack commands accept (#2157)."""
+CONST_K8S_MATTERMOST_URL: Final[str] = "http://mattermost.mattermost.svc.cluster.local:8065"
+"""Mattermost's base URL inside the cluster, which the derived hook URLs of the push table start
+with (#1391, #1392, #1393)."""
 CONST_K8S_ARGOCD_APPLICATION_DIRS: Final[tuple[Path, ...]] = (
     Path("k8s/argocd/apps"),
     Path("k8s/argocd/bootstrap"),

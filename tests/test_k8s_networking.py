@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -690,3 +691,33 @@ def test_k8s_stack_help_names_every_valid_stack(cli: Any) -> None:
         assert result.exit_code == 0
         for stack in VALID_STACKS:
             assert stack in result.output
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z]+", text))
+
+
+def _stack_option_help(output: str) -> str:
+    """The help cell of the `--stack` option, up to its default."""
+    match = re.search(r"--stack.*?\[default", output, re.S)
+    assert match is not None, output
+    return match.group(0)
+
+
+def test_every_help_text_that_lists_stacks_names_each_stack_and_all(cli: Any) -> None:
+    """The deploy-stack summary and the --stack help of push-secrets and bootstrap-k8s name every
+    stack of the one declaration and `all` (#2008)."""
+    from devops_cli.config.constants import CONST_K8S_VALID_STACKS
+
+    deploy = cli("k8s", "deploy-stack", "--help").output
+    summary = deploy.split("[OPTIONS]", 1)[1].split("Options", 1)[0]
+    push = _stack_option_help(cli("k8s", "push-secrets", "--help").output)
+    bootstrap = _stack_option_help(cli("devcontainer", "bootstrap-k8s", "--help").output)
+    stacks = set(CONST_K8S_VALID_STACKS)
+    assert (
+        stacks - _words(summary),
+        stacks - _words(push),
+        "base" in _words(push),
+        stacks - _words(bootstrap),
+        "monitoring" in _words(bootstrap),
+    ) == (set(), set(), True, set(), False)

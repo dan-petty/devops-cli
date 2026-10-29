@@ -18,7 +18,9 @@ from devops_cli.config.constants import (
     CONST_ADDRESSING_NODEPORT,
     CONST_ADDRESSING_PROXY,
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_K8S_ALL_STACKS,
     CONST_K8S_INGRESS_SERVICE_PATTERNS,
+    CONST_K8S_STACKS,
     CONST_K8S_VALID_STACKS,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_PLACEHOLDER_NODE,
@@ -68,9 +70,9 @@ VALID_STACKS: tuple[str, ...] = CONST_K8S_VALID_STACKS
 
 def _resolve_stacks(stack: str) -> list[str]:
     s = stack.strip().lower()
-    if s == "all":
-        return ["infra", "llm", "logging", "devops", "gitea"]
-    if s in ("infra", "llm", "logging", "devops", "gitea"):
+    if s == CONST_K8S_ALL_STACKS:
+        return list(CONST_K8S_STACKS)
+    if s in CONST_K8S_STACKS:
         return [s]
     print_error(
         f"Invalid stack: {stack!r}. Supported stacks: {', '.join(VALID_STACKS)}",

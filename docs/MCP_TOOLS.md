@@ -77,7 +77,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress. |
 | [`k8s_chaos`](#k8s-chaos) | `false` | Run resilience and chaos experiments against Kubernetes workloads. |
 | [`k8s_create_tls_secret`](#k8s-create-tls-secret) | `false` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
-| [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.  Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything. |
+| [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy one stack (infra, llm, logging, devops, gitea) or all of them to Kubernetes with Helm and Kustomize.  Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything. |
 | [`k8s_diff_helm`](#k8s-diff-helm) | `true` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
 | [`k8s_doctor`](#k8s-doctor) | `false` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
 | [`k8s_enable_tls`](#k8s-enable-tls) | `false` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
@@ -1239,11 +1239,9 @@ Create or update a kubernetes.io/tls secret from certificate and private key fil
 
 ### `k8s_deploy_stack`
 
-Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
+Deploy one stack (infra, llm, logging, devops, gitea) or all of them to Kubernetes with Helm and Kustomize.
 
-Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every
-detached stack whose namespace exists (`devops k8s push-secrets`), before anything that
-reads them. A locked or missing keyring stops it before it applies anything.
+Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything.
 
 **Annotations:** `readOnlyHint: false`
 

@@ -179,13 +179,11 @@ devops k8s bootstrap-openwebui [OPTIONS]
 
 ## `devops k8s deploy-stack`
 
-**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
+**Deploy one stack (infra, llm, logging, devops, gitea) or all of them to Kubernetes with Helm and Kustomize.**
 
-Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
+Deploy one stack (infra, llm, logging, devops, gitea) or all of them to Kubernetes with Helm and Kustomize.
 
-Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every
-detached stack whose namespace exists (`devops k8s push-secrets`), before anything that
-reads them. A locked or missing keyring stops it before it applies anything.
+Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything.
 
 ```bash
 devops k8s deploy-stack [OPTIONS]

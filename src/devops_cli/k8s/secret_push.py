@@ -38,12 +38,14 @@ from devops_cli.exceptions.k8s import ClusterSecretPushError, ClusterSecretWrite
 from devops_cli.k8s.cluster_secrets import (
     FIELD_MANAGER,
     ClusterSecret,
+    DerivedSource,
     KeyringSource,
     LiteralSource,
+    PlainSource,
     SecretEntry,
     SecretKeyRef,
-    SecretSource,
     SettingSource,
+    keyring_sources,
 )
 
 # Names and resource versions only: the applied objects carry the values.
@@ -312,7 +314,7 @@ class _Sources:
     def __init__(self) -> None:
         self._keyring: dict[str, str | None] = {}
 
-    def read(self, source: SecretSource) -> tuple[str | None, str]:
+    def read(self, source: PlainSource) -> tuple[str | None, str]:
         """The source's value, or None and why it has none."""
         match source:
             case KeyringSource(key=key):
@@ -339,6 +341,15 @@ def _setting(option: str) -> str | None:
     return str(value) if value not in (None, "") else None
 
 
+def _store_hint(source: PlainSource) -> str:
+    """The command that gives a source its value, when a command does."""
+    if isinstance(source, KeyringSource) and source.option:
+        return f"; store it with `devops config set {source.option}`"
+    if isinstance(source, SettingSource):
+        return f"; set it with `devops config set {source.option}`"
+    return ""
+
+
 def _missing_hint(secret: ClusterSecret, entry: SecretEntry, reason: str) -> str:
     """Why a value is missing, naming where it would come from."""
     source = entry.source
@@ -346,23 +357,19 @@ def _missing_hint(secret: ClusterSecret, entry: SecretEntry, reason: str) -> str
         return f"{secret.ref} {entry.key}: {reason}"
     if isinstance(source, KeyringSource):
         adopt = entry.adopt_from or SecretKeyRef(secret.namespace, secret.name, entry.key)
-        store = f"; store it with `devops config set {source.option}`" if source.option else ""
         return (
             f"{secret.ref} {entry.key}: keyring {source.key} is empty and {adopt} holds no "
-            f"value{store}"
+            f"value{_store_hint(source)}"
         )
     if isinstance(source, SettingSource):
-        return (
-            f"{secret.ref} {entry.key}: {source.label} has no value; set it with "
-            f"`devops config set {source.option}`"
-        )
+        return f"{secret.ref} {entry.key}: {source.label} has no value{_store_hint(source)}"
     return f"{secret.ref} {entry.key}: {source.label} has no value"
 
 
-def _absent(secret: ClusterSecret, entry: SecretEntry, reason: str) -> EntryPlan:
+def _absent(entry: SecretEntry, problem: str) -> EntryPlan:
     """A value no source holds: a required entry fails, an optional one is skipped."""
     state = EntryState.MISSING if entry.required else EntryState.SKIPPED
-    return EntryPlan(entry, state, problem=_missing_hint(secret, entry, reason))
+    return EntryPlan(entry, state, problem=problem)
 
 
 def _compare(
@@ -388,6 +395,26 @@ def _compare(
     return EntryPlan(entry, EntryState.DIFFERS, problem=f"{secret.ref} {entry.key}")
 
 
+def _plan_derived(
+    secret: ClusterSecret,
+    entry: SecretEntry,
+    source: DerivedSource,
+    live_value: str | None,
+    sources: _Sources,
+    rotate: bool,
+) -> EntryPlan:
+    """Build a derived value from its inputs as the push has resolved them. Nothing adopts,
+    generates or stores it, and an input with no value makes it absent."""
+    values: dict[str, str] = {}
+    for name, input_source in source.inputs.items():
+        value, reason = sources.read(input_source)
+        if value is None:
+            why = reason or f"derived from {input_source.label}, which has no value"
+            return _absent(entry, f"{secret.ref} {entry.key}: {why}{_store_hint(input_source)}")
+        values[name] = value
+    return _compare(secret, entry, source.build(values), live_value, rotate, origin=source.label)
+
+
 def _plan_entry(
     secret: ClusterSecret,
     entry: SecretEntry,
@@ -396,13 +423,17 @@ def _plan_entry(
     lives: _LiveSecrets,
     rotate: bool,
 ) -> EntryPlan:
-    """Resolve one key: the source's value, else adopt the live one, else generate, else fail."""
-    value, reason = sources.read(entry.source)
+    """Resolve one key: the source's value, else adopt the live one, else generate, else fail.
+    A derived key is built from its inputs."""
+    source = entry.source
     live_value = live.data.get(entry.key) if live else None
+    if isinstance(source, DerivedSource):
+        return _plan_derived(secret, entry, source, live_value, sources, rotate)
+    value, reason = sources.read(source)
     if value is not None:
-        return _compare(secret, entry, value, live_value, rotate, origin=entry.source.label)
-    if not isinstance(entry.source, KeyringSource):
-        return _absent(secret, entry, reason)
+        return _compare(secret, entry, value, live_value, rotate, origin=source.label)
+    if not isinstance(source, KeyringSource):
+        return _absent(entry, _missing_hint(secret, entry, reason))
     adopt_ref = entry.adopt_from or SecretKeyRef(secret.namespace, secret.name, entry.key)
     adopted, state, origin = lives.value(adopt_ref), EntryState.ADOPTED, f"live {adopt_ref}"
     if adopted is not None and not _is_text(adopted):
@@ -411,12 +442,12 @@ def _plan_entry(
     if adopted is None and entry.generator is not None:
         adopted, state, origin = entry.generator.generate(), EntryState.GENERATED, "generated"
     if adopted is None:
-        return _absent(secret, entry, reason)
+        return _absent(entry, _missing_hint(secret, entry, reason))
     planned = _compare(secret, entry, adopted, live_value, rotate, origin=origin)
     if planned.state in BLOCKING_STATES:
         return planned
-    sources.plan_store(entry.source.key, adopted)
-    return EntryPlan(entry, state, adopted, store_key=entry.source.key)
+    sources.plan_store(source.key, adopted)
+    return EntryPlan(entry, state, adopted, store_key=source.key)
 
 
 def _present(
@@ -438,20 +469,27 @@ def plan_push(selected: Sequence[ClusterSecret], options: PushOptions) -> PushPl
     """Resolve every selected Secret in memory, writing nothing anywhere.
 
     The keyring is checked before anything is read, and namespaces before any source, so a
-    Secret skipped for its namespace has its sources neither read nor required.
+    Secret skipped for its namespace has its sources neither read nor required. Derived entries
+    are resolved after every other entry of every Secret, so each input reads the value that
+    the push adopts or generates for it, whatever the order of the table.
     """
     require_persistent_keyring()
     present, skipped = _present(selected, options)
     sources = _Sources()
     lives = _LiveSecrets(options.context)
-    plans: list[SecretPlan] = []
-    for secret in present:
-        live = lives.get(secret.namespace, secret.name)
-        entries = [
-            _plan_entry(secret, entry, live, sources, lives, options.rotate)
-            for entry in secret.entries
-        ]
-        plans.append(SecretPlan(secret, live, entries))
+    plans = [SecretPlan(secret, None, []) for secret in present]
+    resolved: dict[tuple[str, str], EntryPlan] = {}
+    for derived in (False, True):
+        for plan in plans:
+            if not derived:
+                plan.live = lives.get(plan.secret.namespace, plan.secret.name)
+            for entry in plan.secret.entries:
+                if isinstance(entry.source, DerivedSource) is derived:
+                    resolved[plan.secret.ref, entry.key] = _plan_entry(
+                        plan.secret, entry, plan.live, sources, lives, options.rotate
+                    )
+    for plan in plans:
+        plan.entries = [resolved[plan.secret.ref, entry.key] for entry in plan.secret.entries]
     return PushPlan(plans, skipped)
 
 
@@ -477,7 +515,7 @@ def _secret_manifest(secret: ClusterSecret, data: dict[str, str]) -> dict[str, A
     return {
         "apiVersion": "v1",
         "kind": "Secret",
-        "type": "Opaque",
+        "type": secret.secret_type,
         "metadata": {
             "name": secret.name,
             "namespace": secret.namespace,
@@ -712,10 +750,21 @@ def _plan_reads(requests: _RequestPlan, secret: ClusterSecret, present: tuple[st
                     (*present, f"keyring {key} is empty"),
                     once=True,
                 )
-            case SettingSource() | LiteralSource():
+            case SettingSource() | LiteralSource() | DerivedSource():
                 pass
             case _:
                 assert_never(entry.source)
+
+
+def _plan_derived_reads(
+    requests: _RequestPlan, secret: ClusterSecret, present: tuple[str, ...]
+) -> None:
+    """The keyring reads of a Secret's derived inputs, which `plan_push` makes after the
+    entries of every Secret."""
+    for entry in secret.entries:
+        if isinstance(entry.source, DerivedSource):
+            for source in keyring_sources(entry):
+                requests.keyring("read", source.key, present)
 
 
 def _plan_writes(requests: _RequestPlan, selected: Sequence[ClusterSecret]) -> None:
@@ -775,5 +824,7 @@ def dry_run_push(selected: Sequence[ClusterSecret], options: PushOptions) -> Pus
         requests.kubectl(_namespace_args(namespace), f"namespace {namespace}")
     for secret in selected:
         _plan_reads(requests, secret, _when_present(secret, options))
+    for secret in selected:
+        _plan_derived_reads(requests, secret, _when_present(secret, options))
     _plan_writes(requests, selected)
     return PushResult(PushMode.DRY_RUN, requests=tuple(requests.requests))

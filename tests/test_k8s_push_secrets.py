@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from urllib.parse import quote, unquote, urlsplit
 
 import pytest
 import typer
@@ -336,13 +337,13 @@ def test_a_reference_without_a_row_fails_the_guard(tmp_path: Path) -> None:
 
 
 def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
-    from devops_cli.k8s.cluster_secrets import keyring_only_keys
+    from devops_cli.k8s.cluster_secrets import keyring_only_keys, keyring_sources
 
     sources = [
-        entry.source
+        source
         for secret in CLUSTER_SECRETS
         for entry in secret.entries
-        if isinstance(entry.source, KeyringSource)
+        for source in keyring_sources(entry)
     ]
     managed = set(keyring_names().values())
     assert (
@@ -1349,3 +1350,246 @@ def test_plan_lists_the_workloads_a_changed_secret_would_restart(
         "password (keyring runs_index_password) unchanged; would restart: none" in output,
         {tuple(c[:2]) for c in (call.argv for call in cluster.calls)},
     ) == (0, True, True, {("kubectl", "get")})
+
+
+# ── Derived entries and Secret types (#2008) ─────────────────────────────────
+
+DB_KEY = "example_db_password"
+DB_USER = "app/user"
+DSN_TEMPLATE = "postgres://{user}:{password}@db.example.com:5432/app?sslmode=require"
+
+
+def _db_row(*, dsn_first: bool = False) -> Any:
+    """A basic-auth database Secret whose `DSN` is derived from its user and its password."""
+    from devops_cli.k8s.cluster_secrets import (
+        ClusterSecret,
+        DerivedSource,
+        LiteralSource,
+        SecretEntry,
+    )
+
+    password_source = KeyringSource(DB_KEY)
+    dsn = SecretEntry(
+        "DSN",
+        DerivedSource(DSN_TEMPLATE, {"user": LiteralSource(DB_USER), "password": password_source}),
+    )
+    username = SecretEntry("username", LiteralSource(DB_USER))
+    password = SecretEntry("password", password_source, generator=SecretGenerator("urlsafe", 32))
+    entries = (dsn, username, password) if dsn_first else (username, password, dsn)
+    return ClusterSecret(
+        "devops", "example-db", "devops", entries, secret_type="kubernetes.io/basic-auth"
+    )
+
+
+def _hook_row(hook: KeyringSource, *, required: bool = True) -> Any:
+    """A Secret whose `url` is derived from a hook ID in the keyring."""
+    from devops_cli.config.constants import CONST_K8S_MATTERMOST_URL
+    from devops_cli.k8s.cluster_secrets import ClusterSecret, DerivedSource, SecretEntry
+
+    url = DerivedSource(f"{CONST_K8S_MATTERMOST_URL}/hooks/{{hook}}", {"hook": hook})
+    return ClusterSecret(
+        "devops", "example-hook", "devops", (SecretEntry("url", url, required=required),)
+    )
+
+
+def _token_row() -> Any:
+    from devops_cli.k8s.cluster_secrets import ClusterSecret, SecretEntry
+
+    return ClusterSecret(
+        "devops", "example-token", "devops", (SecretEntry("token", KeyringSource("example_token")),)
+    )
+
+
+def _entry_states(plan: Any) -> list[tuple[str, str]]:
+    return [(entry.entry.key, entry.state.value) for entry in plan.secrets[0].entries]
+
+
+def test_a_derived_connection_string_quotes_a_literal_user_and_a_generated_password(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The push generates and stores the password, then builds the connection string from it
+    and the literal user. It parses back, and the keyring holds no copy of it."""
+    from devops_cli.k8s.secret_push import PushOptions, execute_push, plan_push
+
+    backend = _install(monkeypatch, cluster, values={})
+    options = PushOptions(context="test-ctx")
+    plan = plan_push([_db_row()], options)
+    execute_push(plan, options)
+    live = cluster.live_data("devops", "example-db")
+    dsn = urlsplit(live["DSN"])
+    assert (
+        [(e.entry.key, e.state.value, e.store_key) for e in plan.secrets[0].entries],
+        (unquote(dsn.username or ""), unquote(dsn.password or ""), dsn.hostname, dsn.port),
+        (dsn.path, dsn.query),
+        backend.writes,
+    ) == (
+        [
+            ("username", "created", None),
+            ("password", "generated", DB_KEY),
+            ("DSN", "created", None),
+        ],
+        (DB_USER, live["password"], "db.example.com", 5432),
+        ("/app", "sslmode=require"),
+        {DB_KEY: live["password"]},
+    )
+
+
+def test_a_derived_entry_before_its_input_is_built_from_the_adopted_value(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Derived entries are resolved after every other entry, so a connection string listed
+    first is built from the password that the push adopts, quoted as it is live."""
+    from devops_cli.k8s.secret_push import PushOptions, plan_push
+
+    password = "p@ss:w/rd?#%"
+    live_dsn = DSN_TEMPLATE.format(user=quote(DB_USER, safe=""), password=quote(password, safe=""))
+    _install(monkeypatch, cluster, values={})
+    cluster.add_secret(
+        "devops",
+        "example-db",
+        {"username": DB_USER, "password": password, "DSN": live_dsn},
+        manager="devops-cli",
+    )
+    plan = plan_push([_db_row(dsn_first=True)], PushOptions(context="test-ctx"))
+    assert _entry_states(plan) == [
+        ("DSN", "unchanged"),
+        ("username", "unchanged"),
+        ("password", "adopted"),
+    ]
+
+
+def test_a_derived_hook_url_is_skipped_until_its_managed_input_has_a_value(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An optional derived entry with an empty input is left out with the command that stores
+    the input; with a value, the URL is the in-cluster Mattermost address and the quoted ID."""
+    from devops_cli.k8s.secret_push import PushOptions, plan_push
+
+    # Any managed credential stands in for a hook option.
+    hook = KeyringSource.for_credential("firecrawl.api_key")
+    row = _hook_row(hook, required=False)
+    backend = _install(monkeypatch, cluster, values={})
+    options = PushOptions(context="test-ctx")
+    before = plan_push([row], options).secrets[0].entries[0]
+    backend.values[hook.key] = "hook id 0001"
+    after = plan_push([row], options).secrets[0].entries[0]
+    assert ((before.state.value, before.problem), (after.state.value, after.value)) == (
+        (
+            "skipped",
+            "devops/example-hook url: derived from keyring firecrawl_api_key, which has no "
+            "value; store it with `devops config set firecrawl.api_key`",
+        ),
+        ("created", "http://mattermost.mattermost.svc.cluster.local:8065/hooks/hook%20id%200001"),
+    )
+
+
+def test_the_plan_and_the_dry_run_name_a_derived_entry_with_no_value(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--plan` names the source as derived from its inputs; the dry run makes no request,
+    shows a placeholder and the row's type, and lists no keyring write for the entry."""
+    from devops_cli.k8s.secret_push import PushOptions, dry_run_push, plan_push, secret_line
+
+    db_value = "keyring-db-value-0001"
+    _install(monkeypatch, cluster, values={DB_KEY: db_value})
+    requests = dry_run_push([_db_row()], PushOptions()).requests
+    calls_of_the_dry_run = list(cluster.calls)
+    line = secret_line(plan_push([_db_row()], PushOptions()).secrets[0], preview=True)
+    applied = json.loads(next(r.stdin for r in requests if r.stdin) or "{}")["items"][0]
+    text = "\n".join(f"{r.line()}\n{r.stdin or ''}" for r in requests)
+    assert (
+        calls_of_the_dry_run,
+        line,
+        (applied["type"], applied["data"]["DSN"]),
+        [r.target for r in requests if r.method == "keyring write"],
+        db_value in line + text,
+    ) == (
+        [],
+        "devops/example-db: username (literal) would create, password (keyring "
+        "example_db_password) would create, DSN (derived from literal, keyring "
+        "example_db_password) would create; would restart: none",
+        (
+            "kubernetes.io/basic-auth",
+            "<base64 of derived from literal, keyring example_db_password>",
+        ),
+        ["devops-cli/example_db_password"],
+        False,
+    )
+
+
+def test_the_dry_run_lists_the_derived_reads_where_the_push_makes_them(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A derived input is read after the entries of every row, in the dry run as in the push,
+    though its row comes first."""
+    from devops_cli.k8s.secret_push import PushOptions, dry_run_push, execute_push, plan_push
+
+    rows = [_hook_row(KeyringSource("example_hook")), _token_row()]
+    backend = _install(
+        monkeypatch,
+        cluster,
+        values={"example_hook": "hook-value-0001", "example_token": "token-value-0001"},
+    )
+    options = PushOptions(context="test-ctx", strict_namespaces=True)
+    requests = dry_run_push(rows, options).requests
+    planned = [r for r in requests if r.condition in ("", "every selected namespace exists")]
+    execute_push(plan_push(rows, options), options)
+    assert (
+        [_context_free(r.argv) for r in planned if r.argv],
+        [r.target for r in planned if r.method == "keyring read"],
+    ) == (
+        [call.argv for call in cluster.calls],
+        [f"devops-cli/{key}" for key in backend.reads],
+    )
+    assert backend.reads[-2:] == ["example_token", "example_hook"]
+
+
+def test_a_differing_derived_value_needs_rotate(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.k8s.secret_push import PushOptions, plan_push
+
+    _install(monkeypatch, cluster, values={DB_KEY: "db-value-0001"})
+    cluster.add_secret(
+        "devops",
+        "example-db",
+        {"username": DB_USER, "password": "db-value-0001", "DSN": "postgres://old.example.com"},
+        manager="devops-cli",
+    )
+    states = [
+        _entry_states(plan_push([_db_row()], PushOptions(context="test-ctx", rotate=rotate)))
+        for rotate in (False, True)
+    ]
+    assert states == [
+        [("username", "unchanged"), ("password", "unchanged"), ("DSN", "differs")],
+        [("username", "unchanged"), ("password", "unchanged"), ("DSN", "rotated")],
+    ]
+
+
+def test_a_pushed_manifest_carries_the_secret_type_of_its_row(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row of type basic-auth is applied with that type, and a row that names none as Opaque,
+    in the push and in the dry run's manifest."""
+    from devops_cli.k8s.secret_push import PushOptions, dry_run_push, execute_push, plan_push
+
+    _install(monkeypatch, cluster, values={DB_KEY: "db-value-0001", "example_token": "t-0001"})
+    rows = [_db_row(), _token_row()]
+    options = PushOptions(context="test-ctx")
+    dry_run = dry_run_push(rows, options).requests
+    shown = json.loads(next(r.stdin for r in dry_run if r.stdin) or "{}")["items"]
+    execute_push(plan_push(rows, options), options)
+    assert (
+        {item["metadata"]["name"]: item["type"] for item in cluster.applied_items()},
+        {item["metadata"]["name"]: item["type"] for item in shown},
+    ) == (
+        {"example-db": "kubernetes.io/basic-auth", "example-token": "Opaque"},
+        {"example-db": "kubernetes.io/basic-auth", "example-token": "Opaque"},
+    )
+
+
+def test_keyring_only_keys_count_the_keyring_inputs_of_a_derived_entry() -> None:
+    from devops_cli.k8s.cluster_secrets import keyring_only_keys
+
+    rows = [_db_row(), _hook_row(KeyringSource("example_hook"))]
+    assert keyring_only_keys(rows) == frozenset({DB_KEY, "example_hook"})
