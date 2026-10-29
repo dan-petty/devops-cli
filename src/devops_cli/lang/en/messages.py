@@ -1951,6 +1951,9 @@ class RoadmapMessages:
     implement_stop_tasks_edited: str = (
         "The tasks of group {group} changed. A step may only tick them."
     )
+    implement_stop_fix_tasks_changed: str = "The tasks changed. A fix step changes no task."
+    implement_fix_title: str = "Make check {check} pass"
+    implement_fix_task: str = "[ ] Make check `{check}` pass"
     implement_stop_unticked: str = "A task of the group is not ticked: {task}"
     implement_stop_group_changed: str = (
         "Group {group} changed. A step may change only its own group."

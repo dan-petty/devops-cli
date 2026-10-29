@@ -57,6 +57,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
+    CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
@@ -247,6 +249,29 @@ def named_files(source: Path, group: TaskGroup) -> list[Path]:
 
 
 @dataclass(frozen=True)
+class FixRequest:
+    """A failed check for a fix step (#2665): its name, and its log. The step reads the last
+    `CONST_ROADMAP_IMPLEMENT_LOG_CHARS` characters of the log."""
+
+    check: str
+    log: str
+
+
+def fix_group(fix: FixRequest, groups: Sequence[TaskGroup]) -> TaskGroup:
+    """The group of a fix step: one task that names the check, with the verification commands of
+    every group of the change, and the number `CONST_ROADMAP_IMPLEMENT_FIX_GROUP`."""
+    title = MESSAGES.roadmap.implement_fix_title.format(check=fix.check)
+    task = MESSAGES.roadmap.implement_fix_task.format(check=fix.check)
+    commands = tuple(dict.fromkeys(c for group in groups for c in group.verification_commands))
+    return TaskGroup(
+        number=CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
+        title=title,
+        tasks=(GroupTask(text=task, ticked=False, verification=commands),),
+        text=f"## {CONST_ROADMAP_IMPLEMENT_FIX_GROUP}. {title}\n\n- {task}",
+    )
+
+
+@dataclass(frozen=True)
 class StepInputs:
     """What one step gives the model: the instructions, the user message, and their tokens.
     `change` is the change folder, and `groups` are the groups of its `tasks.md` before the
@@ -258,6 +283,7 @@ class StepInputs:
     instructions: str
     message: str
     tokens: int
+    fix: FixRequest | None = None
 
 
 def _files_section(source: Path, group: TaskGroup) -> str:
@@ -269,10 +295,42 @@ def _files_section(source: Path, group: TaskGroup) -> str:
     return "# Files the group names (signatures only)\n\n" + "\n\n".join(parts) if parts else ""
 
 
+def _chosen_group(
+    groups: Sequence[TaskGroup], group: int, fix: FixRequest | None, change: Path
+) -> TaskGroup:
+    """The group the step runs: the synthetic group of a fix, else group `group` of the change."""
+    if fix is not None:
+        return fix_group(fix, groups)
+    chosen = next((candidate for candidate in groups if candidate.number == group), None)
+    if chosen is None:
+        raise RoadmapImplementError(
+            MESSAGES.roadmap.implement_no_group.format(
+                change=change.name,
+                group=group,
+                groups=", ".join(str(candidate.number) for candidate in groups) or "none",
+            )
+        )
+    return chosen
+
+
+def _log_section(fix: FixRequest | None) -> str:
+    """The last characters of the log of a failed check, under their heading."""
+    if fix is None:
+        return ""
+    return f"# The log of the failed check\n\n{fix.log[-CONST_ROADMAP_IMPLEMENT_LOG_CHARS:]}"
+
+
 def build_step_inputs(
-    store: RoadmapStore, *, item: int, group: int, source: Path, window: int
+    store: RoadmapStore,
+    *,
+    item: int,
+    group: int,
+    source: Path,
+    window: int,
+    fix: FixRequest | None = None,
 ) -> StepInputs:
-    """The inputs of group `group` of item `item`, read from the checkout `source`.
+    """The inputs of group `group` of item `item`, read from the checkout `source`. With `fix`,
+    the group is the fix of that failed check and `group` is not read.
 
     Raises `RoadmapImplementError` for an issue that is no Item, a change that is not in the
     checkout, a group the change lacks, and inputs that measure more than `window` minus
@@ -284,19 +342,12 @@ def build_step_inputs(
     change = find_change(source, item)
     documents = {name: (change / name).read_text(encoding="utf-8") for name in _CHANGE_DOCUMENTS}
     groups = parse_task_groups(documents["tasks.md"])
-    chosen = next((candidate for candidate in groups if candidate.number == group), None)
-    if chosen is None:
-        raise RoadmapImplementError(
-            MESSAGES.roadmap.implement_no_group.format(
-                change=change.name,
-                group=group,
-                groups=", ".join(str(candidate.number) for candidate in groups) or "none",
-            )
-        )
+    chosen = _chosen_group(groups, group, fix, change)
     sections = [
         issue_inputs(held),
         *(f"# {name} of the change\n\n{text.strip()}" for name, text in documents.items()),
         f"# Your group\n\n{chosen.text}",
+        _log_section(fix),
         _files_section(source, chosen),
     ]
     message = "\n\n".join(section for section in sections if section)
@@ -319,6 +370,7 @@ def build_step_inputs(
         instructions=instructions,
         message=message,
         tokens=tokens,
+        fix=fix,
     )
 
 
@@ -534,16 +586,30 @@ def _whole(group: TaskGroup | None) -> tuple[str, tuple[GroupTask, ...]] | None:
     return None if group is None else (group.title, group.tasks)
 
 
+def _fix_tasks_failure(inputs: StepInputs, after: dict[int, TaskGroup]) -> str | None:
+    """The rule of the tasks that a fix step broke: any change to any task, checkboxes too."""
+    before = {g.number: g for g in inputs.groups}
+    if any(_whole(before.get(n)) != _whole(after.get(n)) for n in before.keys() | after.keys()):
+        return MESSAGES.roadmap.implement_stop_fix_tasks_changed
+    return None
+
+
 def _tasks_failure(inputs: StepInputs) -> str | None:
     """The first rule of the tasks that the run broke: the group changed beyond its checkboxes,
-    a task of the group is not ticked, or another group changed."""
+    a task of the group is not ticked, or another group changed. A fix step may change no task."""
     texts = MESSAGES.roadmap
     number = inputs.group.number
     try:
         tasks_md = (inputs.change / "tasks.md").read_text(encoding="utf-8")
     except OSError, UnicodeDecodeError:
-        return texts.implement_stop_tasks_edited.format(group=number)
+        return (
+            texts.implement_stop_fix_tasks_changed
+            if inputs.fix
+            else texts.implement_stop_tasks_edited.format(group=number)
+        )
     after = {g.number: g for g in parse_task_groups(tasks_md)}
+    if inputs.fix is not None:
+        return _fix_tasks_failure(inputs, after)
     mine = after.get(number)
     if mine is None or _shape(mine) != _shape(inputs.group):
         return texts.implement_stop_tasks_edited.format(group=number)
@@ -675,16 +741,24 @@ def _attempt(
 
 
 def run_step(
-    store: RoadmapStore, *, item: int, group: int, source: Path, model: Any, window: int
+    store: RoadmapStore,
+    *,
+    item: int,
+    group: int,
+    source: Path,
+    model: Any,
+    window: int,
+    fix: FixRequest | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
     The step commits the group as `<group title> (#<item>)` when every exit check passes, and
     otherwise resets the checkout to the commit it started at, also when the agent made commits or the run raises. It reads the
     item once and writes nothing to GitHub. Raises `RoadmapImplementError` for a step it
-    refuses to start, and the client error of a failed model call.
+    refuses to start, and the client error of a failed model call. With `fix`, the step makes the
+    failed check pass and ticks no task (`run_fix_step`).
     """
-    inputs = build_step_inputs(store, item=item, group=group, source=source, window=window)
+    inputs = build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix)
     _require_clean(source)
     start = _head(source)
     done = False
@@ -695,6 +769,23 @@ def run_step(
     finally:
         if not done:
             _reset(source, start)
+
+
+def run_fix_step(
+    store: RoadmapStore, *, item: int, fix: FixRequest, source: Path, model: Any, window: int
+) -> StepOutcome:
+    """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
+    whose group is "Make check <name> pass". It commits as `<that title> (#<item>)` when the
+    exit checks pass, and `tasks.md` is as it was."""
+    return run_step(
+        store,
+        item=item,
+        group=CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
+        source=source,
+        model=model,
+        window=window,
+        fix=fix,
+    )
 
 
 # ── The report and the dry run ────────────────────────────────────────────────────────────

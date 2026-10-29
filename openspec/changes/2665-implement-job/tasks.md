@@ -9,9 +9,9 @@
 
 ## 2. The fix step
 
-- [ ] Add failing tests: the inputs of a fix step with a cut log, its exit checks, its commit title, and a `tasks.md` that it changes
+- [x] Add failing tests: the inputs of a fix step with a cut log, its exit checks, its commit title, and a `tasks.md` that it changes
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Add `FixRequest` and the fix mode of `build_step_inputs` and `run_step`, and the instructions of the fix
+- [x] Add `FixRequest` and the fix mode of `build_step_inputs` and `run_step`, and the instructions of the fix
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_ai_task_implement.py`
 
 ## 3. The selection and the plan
