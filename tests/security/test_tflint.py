@@ -89,11 +89,12 @@ def test_a_tflint_issue_becomes_a_finding_with_its_rule_and_message(
     ]
 
 
-def test_a_scan_starts_tflint_with_json_output_and_the_config_file(
+def test_a_scan_starts_tflint_recursive_with_json_output_and_the_config_file(
     tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
-    """tflint takes no path argument: it starts in the directory of the target, with its report
-    as JSON and the config file that the caller names."""
+    """tflint takes no path argument: it starts in the directory of the target, lints each
+    directory below it (`--recursive`), writes its report as JSON, and reads the config file that
+    the caller names (#2427)."""
     scanner_fake.script("tflint", ToolAnswer(stdout=_report()))
     config_file = tmp_path / ".tflint.hcl"
     config_file.write_text("config {}", encoding="utf-8")
@@ -102,9 +103,31 @@ def test_a_scan_starts_tflint_with_json_output_and_the_config_file(
 
     [run] = scanner_fake.runs
     assert (run.argv[1:], run.cwd) == (
-        ["--format", "json", "--config", str(config_file)],
+        ["--format", "json", "--recursive", "--config", str(config_file)],
         str(tmp_path),
     )
+
+
+def test_a_tree_whose_tf_files_are_in_sub_directories_is_linted_there(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
+    """A target with no `.tf` file of its own, such as a repository with a `tf/` directory, is
+    linted in its sub-directories: the command asks for the recursive run, and the finding is at
+    the file in the sub-directory (#2427). The report is scripted, in the shape of the source."""
+    module = tmp_path / "tf" / "network"
+    module.mkdir(parents=True)
+    (module / "main.tf").write_text('variable "unused" {}\n', encoding="utf-8")
+    issue = _issue("terraform_unused_declarations", "warning", "unused", "tf/network/main.tf", 1)
+    scanner_fake.script("tflint", ToolAnswer(exit_code=2, stdout=_report(issue)))
+
+    outcome = run_tflint_scan(tmp_path)
+
+    [run] = scanner_fake.runs
+    assert (
+        "--recursive" in run.argv,
+        outcome.status,
+        [finding.location for finding in outcome.findings],
+    ) == (True, "ran", ["tf/network/main.tf:1"])
 
 
 def test_a_clean_report_is_a_scan_that_ran_with_no_finding(
