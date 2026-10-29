@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.0](https://github.com/dan-petty/devops-cli/compare/v0.16.7...v0.17.0) (2026-10-29)
+
+
+### Features
+
+* **repos:** worktrees add takes over a staged branch ([#2675](https://github.com/dan-petty/devops-cli/issues/2675)) ([03eadec](https://github.com/dan-petty/devops-cli/commit/03eadecf24a85d28ebcc6d88a1b80b511ea73fb2)), closes [#2657](https://github.com/dan-petty/devops-cli/issues/2657)
+* **roadmap:** check open items for open alternative tools ([#2681](https://github.com/dan-petty/devops-cli/issues/2681)) ([4f993dc](https://github.com/dan-petty/devops-cli/commit/4f993dce369bc587b174d5fa3e6fa6fcb898f39c)), closes [#2650](https://github.com/dan-petty/devops-cli/issues/2650)
+
+
+### Bug Fixes
+
+* **security:** refuse the library keys that load a module ([#2682](https://github.com/dan-petty/devops-cli/issues/2682)) ([e681884](https://github.com/dan-petty/devops-cli/commit/e6818847e96b9c111068d93ed31f3715ee8a334a)), closes [#2503](https://github.com/dan-petty/devops-cli/issues/2503)
+
 ## [0.16.7](https://github.com/dan-petty/devops-cli/compare/v0.16.6...v0.16.7) (2026-10-29)
 
 
