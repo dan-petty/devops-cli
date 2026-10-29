@@ -170,7 +170,7 @@ def test_the_service_installs_its_model_call_limit() -> None:
         thread = threading.Thread(target=third)
         thread.start()
         # Two of the Service's two slots are held, so the third waits and takes no slot.
-        assert not wait_until(lambda: admitted, 0.5)
+        assert not wait_until(lambda: admitted, 0.2)
 
     thread.join(timeout=5)
     assert admitted

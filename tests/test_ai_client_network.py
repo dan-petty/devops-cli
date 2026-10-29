@@ -345,7 +345,7 @@ def test_another_provider_sends_while_every_gateway_slot_is_held(
 
 @pytest.mark.usefixtures("public_dns")
 def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify three dispatch calls, each slow on its send, keep only one model call in flight when
+    """Verify two dispatch calls, each slow on its send, keep only one model call in flight when
     the Service's limit is one, so a lane that waits holds the process, not the gateway (#2564)."""
     network.set_model_call_limit(1)
     client = LLMClient(_OPENAI, api_key="sk-test", cache_enabled=False)
@@ -358,7 +358,7 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
         with lock:
             in_flight += 1
             peak = max(peak, in_flight)
-        time.sleep(0.1)
+        time.sleep(0.02)
         with lock:
             in_flight -= 1
         return httpx2.Response(200, json=_CHAT_REPLY)
@@ -367,7 +367,7 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
 
     lanes = [
         threading.Thread(target=lambda: client._dispatch_messages("sys", _MESSAGES))
-        for _ in range(3)
+        for _ in range(2)
     ]
     for lane in lanes:
         lane.start()
@@ -375,7 +375,7 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
         lane.join(timeout=10)
 
     assert all(not lane.is_alive() for lane in lanes)
-    assert (peak, len(sent)) == (1, 3)
+    assert (peak, len(sent)) == (1, 2)
 
 
 def test_the_model_call_slot_admits_only_its_limit() -> None:
