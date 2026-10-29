@@ -66,25 +66,30 @@ def _parse_server_list(servers: str | None) -> list[str] | None:
     """Parse comma-separated Ollama server URLs, each checked as `ai.ollama_urls` checks a URL.
 
     The check reads the URL only. The client of each benchmark call checks the address at the
-    connect.
+    connect. An error names the entry by its position and its `host[:port]`, never by its userinfo.
     """
     if not servers:
         return None
     from pydantic import TypeAdapter
     from pydantic import ValidationError as PydanticValidationError
 
+    from devops_cli.ai.benchmark.labels import server_label
     from devops_cli.config.settings import HttpUrlStr
 
     url_type = TypeAdapter(HttpUrlStr)
     server_list: list[str] = []
-    for entry in (s.strip() for s in servers.split(",")):
+    for position, raw in enumerate(servers.split(","), 1):
+        entry = raw.strip()
         if not entry:
             continue
         try:
             server_list.append(url_type.validate_python(entry))
         except PydanticValidationError as exc:
             raise ValidationError(
-                ERRORS.ai.benchmark_server_url.format(url=entry), field="servers"
+                ERRORS.ai.benchmark_server_url.format(
+                    position=position, server=server_label(entry)
+                ),
+                field="servers",
             ) from exc
     return server_list or None
 

@@ -301,8 +301,9 @@ class EmbeddingBenchmarkRunner:
                 resolved_provider = "gateway"
             elif self.provider == "gateway":
                 raise ValidationError(
-                    f"Embedding benchmark endpoint '{endpoint}' does not match configured gateway_url "
-                    f"'{self.settings.ai.gateway_url}'. Specify --provider to benchmark an explicit endpoint under another provider."
+                    f"Embedding benchmark endpoint '{server_label(endpoint)}' does not match "
+                    f"configured gateway_url '{server_label(self.settings.ai.gateway_url or '')}'. "
+                    "Specify --provider to benchmark an explicit endpoint under another provider."
                 )
 
         allow_priv = self.settings.ai.allow_private_network
@@ -324,7 +325,8 @@ class EmbeddingBenchmarkRunner:
         except PydanticValidationError as exc:
             reason = exc.errors()[0]["msg"]
             raise ValidationError(
-                f"Embedding benchmark endpoint '{endpoint}' cannot be used: {reason}",
+                f"Embedding benchmark endpoint '{server_label(endpoint or '')}' "
+                f"cannot be used: {reason}",
                 field="endpoint",
             ) from exc
         return EmbeddingsEngine(cfg, api_key=_key_for_endpoint(self.settings, cfg))

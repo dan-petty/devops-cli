@@ -780,22 +780,33 @@ def test_an_unknown_benchmark_type_is_refused(benchmark_type: str) -> None:
     assert (res.exit_code != 0, tasks.called, embedding.called) == (True, False, False)
 
 
-def test_a_server_url_that_is_not_http_is_refused_before_the_run() -> None:
+@pytest.mark.parametrize(
+    ("entry", "shown"),
+    [
+        ("ftp://example.com:2121", "example.com:2121"),
+        (f"ftp://bench-user:{_SERVER_SECRET}@example.com:2121", "example.com:2121"),
+        (f"ftp://{_SERVER_SECRET}@example.com:2121", "example.com:2121"),
+        (f"bench-user:{_SERVER_SECRET}@example.com:11434", "unknown"),
+        (f"{_SERVER_SECRET}@example.com:11434", "unknown"),
+    ],
+    ids=["no-userinfo", "password", "user-name-only", "schemeless-password", "schemeless-user"],
+)
+def test_a_server_url_that_is_not_http_is_refused_before_the_run(entry: str, shown: str) -> None:
     """Verify `--servers` takes only http and https URLs, checked as `ai.ollama_urls` checks one.
 
     The check reads the URL only: the client of each benchmark call checks the address at the
     connect (#2422). Before, the settings copy did not validate the URLs, so this check is the
-    only early error for the option. The command stops at the check, so no benchmark starts.
+    only early error for the option. The command stops at the check, so no benchmark starts. The
+    error names the entry by its position and its `host[:port]`, never by its userinfo (#2481).
     """
-    res = runner.invoke(
-        ai_app, ["benchmark", "--servers", "http://example.com:11434,ftp://example.com:21"]
-    )
+    res = runner.invoke(ai_app, ["benchmark", "--servers", f"http://example.com:11434,{entry}"])
 
     assert (
         res.exit_code,
-        "--servers holds 'ftp://example.com:21', which is not an http or https URL." in res.output,
+        f"--servers entry 2 ({shown}) is not an http or https URL." in res.output,
+        _SERVER_SECRET in res.output,
         "Starting AI Model Benchmark" in res.output,
-    ) == (1, True, False)
+    ) == (1, True, False, False)
 
 
 def test_a_dry_run_benchmark_names_each_server_by_host_and_port(

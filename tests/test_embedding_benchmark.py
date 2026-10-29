@@ -1063,8 +1063,7 @@ def test_an_endpoint_that_ollama_urls_cannot_hold_fails_the_run_of_that_model() 
 
     assert (
         result.failed,
-        "Embedding benchmark endpoint 'ftp://example.com:21' cannot be used"
-        in (result.error or ""),
+        "Embedding benchmark endpoint 'example.com' cannot be used" in (result.error or ""),
     ) == (True, True)
 
 
@@ -1137,15 +1136,25 @@ def test_an_embedding_server_with_no_origin_is_named_unknown() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("userinfo", "credentials"),
+    [
+        ("bench-user:" + _SERVER_SECRET, "bench-user:" + _SERVER_SECRET),
+        (_SERVER_SECRET, _SERVER_SECRET + ":"),
+    ],
+    ids=["password", "user-name-only"],
+)
 def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_host_and_port(
     tmp_path: Path,
     stub_web: StubWeb,
     capsys: pytest.CaptureFixture[str],
     caplog: pytest.LogCaptureFixture,
+    userinfo: str,
+    credentials: str,
 ) -> None:
     """Verify a run that the server answers with an error sends the userinfo as Basic
-    authentication, and names the server by `host[:port]` in the result, the output, the log and
-    the saved report (#2481)."""
+    authentication, and names the server by `host[:port]` in the result, its error, the output,
+    the log and the saved report. A user name alone, such as a token, is userinfo too (#2481)."""
 
     def answer(request: httpx2.Request) -> httpx2.Response | None:
         if request.url.path != "/api/embed":
@@ -1155,7 +1164,7 @@ def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_hos
     stub_web.serve(answer)
     bench = EmbeddingBenchmarkRunner(
         models=["m"],
-        servers=[_SERVER_WITH_USERINFO],
+        servers=[f"http://{userinfo}@example.com:11434"],
         is_dry_run=False,
         code_path=_source_tree(tmp_path),
         concurrency=1,
@@ -1164,14 +1173,54 @@ def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_hos
     report = bench.run()
     shown = capsys.readouterr()
 
-    basic = "Basic " + base64.b64encode(f"bench-user:{_SERVER_SECRET}".encode()).decode()
+    basic = "Basic " + base64.b64encode(credentials.encode()).decode()
     assert (
         [(result.server, result.failed) for result in report.models],
+        report.models[0].error,
         {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
         "m on example.com:11434" in shown.out,
         _SERVER_SECRET
         in shown.out + shown.err + caplog.text + report.model_dump_json() + _saved_benchmark_text(),
-    ) == ([("example.com:11434", True)], {basic}, True, False)
+    ) == (
+        [("example.com:11434", True)],
+        "Embedding model m produced no embeddings: "
+        'http://example.com:11434/api/embed answered HTTP 500: {"error":"model failed"}',
+        {basic},
+        True,
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    "userinfo", ["bench-user:" + _SERVER_SECRET, _SERVER_SECRET], ids=["password", "user-name-only"]
+)
+def test_an_embedding_endpoint_error_names_the_endpoint_by_host_and_port(userinfo: str) -> None:
+    """Verify the errors that the benchmark writes for an endpoint it refuses, a `model@endpoint`
+    that ollama_urls cannot hold or one that is not the gateway, name each URL by `host[:port]`
+    and never by its userinfo (#2481)."""
+    settings = load_settings()
+    settings.ai.gateway_url = f"https://{userinfo}@example.com:4000/v1"
+    ollama = EmbeddingBenchmarkRunner(
+        models=["m"], settings=settings, provider="ollama", is_dry_run=False
+    )
+    gateway = EmbeddingBenchmarkRunner(
+        models=["m"], settings=settings, provider="gateway", is_dry_run=False
+    )
+
+    other_scheme = ollama.evaluate_model(f"m@ftp://{userinfo}@example.com:2121", [], ["probe"])
+    other_server = gateway.evaluate_model(f"m@http://{userinfo}@example.com:11434", [], ["probe"])
+
+    assert (
+        other_scheme.error,
+        (other_server.error or "").split(". Specify")[0],
+        _SERVER_SECRET in (other_scheme.error or "") + (other_server.error or ""),
+    ) == (
+        "Embedding benchmark endpoint 'example.com:2121' cannot be used: "
+        "URL scheme should be 'http' or 'https'",
+        "Embedding benchmark endpoint 'example.com:11434' does not match configured gateway_url "
+        "'example.com:4000'",
+        False,
+    )
 
 
 @pytest.mark.parametrize("flag", ["--servers", "--models"])

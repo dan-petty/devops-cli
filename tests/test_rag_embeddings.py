@@ -99,6 +99,34 @@ def test_ollama_raises_after_every_node_fails(monkeypatch: pytest.MonkeyPatch) -
     )
 
 
+@pytest.mark.parametrize("userinfo", ["bench-user:FAKE-2481-value", "FAKE-2481-value"])
+def test_an_embedding_error_names_its_endpoint_without_the_userinfo_of_the_url(
+    monkeypatch: pytest.MonkeyPatch, userinfo: str
+) -> None:
+    """The endpoint that an error names is the URL without its userinfo, which the client sends
+    as Basic authentication: a password and a user name alone, such as a token, stay out (#2481)."""
+
+    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        if httpx2.URL(url).port == 11434:
+            return httpx2.Response(500, json={"error": "model failed"})
+        raise httpx2.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    engine = _ollama_engine(
+        monkeypatch, [f"http://{userinfo}@example.com:11434", "http://example.com:11435"]
+    )
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_texts(["first chunk"])
+
+    assert (raised.value.message, "FAKE-2481-value" in repr(raised.value.details)) == (
+        "Embedding model bge-m3 produced no embeddings: "
+        'http://example.com:11434/api/embed answered HTTP 500: {"error":"model failed"}; '
+        "http://example.com:11435/api/embed failed: ConnectError: connection refused",
+        False,
+    )
+
+
 def test_ollama_parallel_batches_raise_when_one_fails_everywhere(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
