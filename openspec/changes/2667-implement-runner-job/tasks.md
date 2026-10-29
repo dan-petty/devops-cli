@@ -37,7 +37,7 @@
 
 ## 6. The documentation
 
-- [ ] Describe the runner, the Job, the Role and the guarantees in `k8s/README.md` and `docs/ROUTINE_TASKS.md`, the publication in `RELEASE_CYCLE.md`, the term in `CONTEXT.md`, and regenerate the documents
+- [x] Describe the runner, the Job, the Role and the guarantees in `k8s/README.md` and `docs/ROUTINE_TASKS.md`, the publication in `RELEASE_CYCLE.md`, the term in `CONTEXT.md`, and regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 7. Archive

@@ -256,7 +256,7 @@ devops k8s push-secrets [OPTIONS]
 
 ## `devops k8s run-job`
 
-**Run a devops command as a Job in namespace devops, from CronJob devops-cli's template with only its arguments changed, follow its log and exit with its exit code.**
+**Run a devops command as a Job in namespace devops, from the template of a CronJob with only its arguments changed, follow its log and exit with its exit code.**
 
 ```bash
 devops k8s run-job [OPTIONS] <args>
@@ -273,6 +273,7 @@ devops k8s run-job [OPTIONS] <args>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--template` | `choice (default|runner)` | `default` | The CronJob whose template makes the Job: default is CronJob devops-cli, runner is CronJob devops-cli-runner, the pod of the implement job (it sets roadmap.implement.in_runner). |
 | `--wait` / `--no-wait` | `boolean` | `True` | Follow the Job's log and exit with its exit code; --no-wait prints the Job's name. |
 | `--start-timeout` | `float` | `120.0` | Seconds to wait for the Job's pod to leave Pending. |
 | `--dry-run` | `boolean` | - | Make no request, not even the CronJob read: print the kubectl requests a run would make, in order, with the Job's template parts as placeholders. |
