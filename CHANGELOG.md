@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.2](https://github.com/dan-petty/devops-cli/compare/v0.16.1...v0.16.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* **security:** refuse the git keys that make git run a program ([#2641](https://github.com/dan-petty/devops-cli/issues/2641)) ([b4b1277](https://github.com/dan-petty/devops-cli/commit/b4b127710f3f99a551b47a7a315c24209b993a8b)), closes [#2483](https://github.com/dan-petty/devops-cli/issues/2483)
+
 ## [0.16.1](https://github.com/dan-petty/devops-cli/compare/v0.16.0...v0.16.1) (2026-10-29)
 
 
