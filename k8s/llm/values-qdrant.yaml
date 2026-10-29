@@ -1,4 +1,5 @@
-# Qdrant Helm values — minimal dev-mode configuration for minikube.
+# Qdrant Helm values. Argo CD's Application `qdrant` installs them on the k3s homelab, and
+# `devops k8s deploy-stack --stack llm` installs them on either cluster.
 # Chart: qdrant/qdrant
 # Repo:  https://qdrant.github.io/qdrant-helm
 
@@ -26,9 +27,9 @@ env:
         key: api-key
 
 service:
-  # Zero-trust perimeter: ClusterIP restricts network access to the cluster network.
-  # For local minikube direct access from the workstation host without port-forwarding,
-  # override with type: NodePort.
+  # Zero-trust perimeter: ClusterIP keeps the API on the cluster network. On the homelab, Ingress
+  # llm/qdrant-ingress (k8s/ingress/ingress-routes.yaml) routes qdrant.<domain> to it. On minikube,
+  # use `kubectl -n llm port-forward svc/qdrant 6333:6333`.
   type: ClusterIP
 
 persistence:

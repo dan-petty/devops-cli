@@ -1,6 +1,11 @@
 # k8s/ — Local Kubernetes Infrastructure & LLM Stacks
 
-Kustomize + Helm-based configurations for deploying infrastructure management (`infra`) and local AI/LLM (`llm`) stacks to the devcontainer's minikube cluster.
+Kustomize + Helm-based configurations for deploying infrastructure management (`infra`) and local AI/LLM (`llm`) stacks to two clusters:
+
+- the k3s homelab, which Argo CD keeps in line with `main` ([GitOps](#gitops));
+- the devcontainer's minikube cluster, which `devops devcontainer post-start` starts.
+
+`devops k8s deploy-stack` deploys the same configurations to either cluster.
 
 ## Stacks Overview
 
@@ -8,7 +13,7 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | :--- | :--- | :--- | :--- |
 | **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo | `argocd`, `argo-workflows`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM), Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
-| **`logging`** | Loki, Fluent Bit (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
+| **`logging`** | Loki (pod and journal logs shipped by the `infra` stack's Alloy `alloy-logs` DaemonSet) | `logging` | `3100` (Loki) |
 | **`gitea`** | Gitea: the internal forge and container registry ([Gitea](#gitea)) | `gitea` | `3000` (Gitea HTTP, in the cluster) |
 | **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops` | All ports above |
 
@@ -16,9 +21,14 @@ Register each manifest, Helm release and post-Helm step that runs in the cluster
 
 ## Prerequisites
 
-- minikube running (`minikube status` or auto-started by `devops devcontainer post-start`)
+- A cluster:
+  - the k3s homelab: its nodes run k3s with the bundled local-path storage turned off (`--disable local-storage`);
+  - or minikube running (`minikube status`, or started by `devops devcontainer post-start`).
 - kubectl and helm on PATH (installed by devcontainer features)
 - standard Kubernetes context configuration (the CLI uses `$KUBECONFIG` or defaults to `~/.kube/config`)
+- A storage layer that serves the `local-path` StorageClass, which the claims of the stacks use:
+  - On the homelab, the storage layer comes from the dan-petty/homelab repository: its `make storage` applies `k8s/manifests/local-path-storage.yaml`. That manifest holds namespace `local-path-storage`, the local-path provisioner (`rancher/local-path-provisioner` v0.0.28), the default StorageClass `local-path` (reclaim policy `Delete`) and the StorageClass `fast-nvme` (reclaim policy `Retain`). This repository does not deploy them. [Local-Path Volume Placement](#local-path-volume-placement) tells where the provisioner keeps a volume.
+  - On minikube, the default `storage-provisioner` addon serves only the class `standard`. The class `local-path` comes from the `storage-provisioner-rancher` addon: `minikube addons enable storage-provisioner-rancher`. `devops devcontainer` does not enable it, so without it the claims that name `local-path` stay `Pending`.
 
 Kubernetes supports `kubectl` within one minor version of the API server. The `tools.lock` file tracks a current `kubectl` release. The homelab cluster runs Kubernetes 1.31 (`v1.31.4+k3s1`), which stays outside the supported skew range until dan-petty/homelab#3 lands. We do not pin `kubectl` to 1.31 or 1.32, because both versions are end of life and the devcontainer minikube runs a current release.
 
@@ -40,9 +50,11 @@ devops k8s deploy-stack --stack all
 
 ## Accessing Stack Services
 
+On the homelab, each UI and API below has an Ingress host under the configured domain (`ingress/ingress-routes.yaml`, [Cloudflare Wildcard Tunnel & Ingress Routing](#cloudflare-wildcard-tunnel--ingress-routing)). On minikube, `minikube service` prints a URL for a Service. A `minikube service` command works only on minikube. `kubectl port-forward` works on both clusters.
+
 ### Infrastructure Stack (`infra`)
 ```bash
-# ArgoCD UI
+# ArgoCD UI. Homelab: https://argocd.<domain> (Ingress argocd/argocd-ingress). Minikube only:
 minikube service argocd-server -n argocd --url
 # Shell in a pod from the UI: open its Application, select the pod, then the Terminal tab
 
@@ -50,8 +62,9 @@ minikube service argocd-server -n argocd --url
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d; echo
 
-# Monitoring Stack (Alloy Metrics & Scrapes)
-minikube service k8s-monitoring-alloy-metrics -n monitoring --url
+# Monitoring Stack (Alloy Metrics & Scrapes). Homelab: https://alloy.<domain> (Ingress monitoring/alloy-metrics-ingress).
+# The Service is a ClusterIP, so on minikube use a port-forward:
+kubectl -n monitoring port-forward svc/k8s-monitoring-alloy-metrics 12345:12345
 
 # Pyroscope Continuous Profiling UI
 kubectl -n monitoring port-forward svc/pyroscope 4040:4040
@@ -62,22 +75,24 @@ kubectl -n monitoring port-forward svc/pyroscope 4040:4040
 # Ollama REST API of the fast tier (a speed Service; see GPU Placement: Ollama tiers)
 kubectl -n llm port-forward svc/ollama-fast 11434:11434
 
-# Open-WebUI Web Interface
+# Open-WebUI Web Interface. Homelab: https://chat.<domain> (Ingress llm/open-webui-ingress). Minikube only:
 minikube service open-webui -n llm --url
 
 # Qdrant Vector Database HTTP API. It requires the key of llm/qdrant-api-key (see Cluster Secrets).
-minikube service qdrant -n llm --url
+# Homelab: https://qdrant.<domain> (Ingress llm/qdrant-ingress). The Service is a ClusterIP, so on minikube use a port-forward:
+kubectl -n llm port-forward svc/qdrant 6333:6333
 
 # Valkey In-Memory Cache: Open WebUI's state. It requires the password of llm/valkey-auth (see Cluster Secrets).
 kubectl -n llm exec -it svc/valkey -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli ping'
 
-# Valkey Run Index (deployed by deploy-stack; see Cluster Secrets for its password):
+# Valkey Run Index (Argo CD's `llm` Application deploys it on the homelab; `devops k8s deploy-stack --stack llm` deploys it on either cluster; see Cluster Secrets for its password):
 # benchmark and evaluation runs shared by workstations. Its password Secret comes from the keyring (see Cluster Secrets),
 # then point devops-cli at it through its NodePort.
 devops k8s push-secrets --only llm/valkey-runs-auth
 devops ai runs connect
 
-# LLM Gateway: authenticated OpenAI-compatible API for every Ollama model
+# LLM Gateway: authenticated OpenAI-compatible API for every Ollama model.
+# Homelab: https://ai.<domain> (Ingress llm/llm-gateway-ingress), or its NodePort (below). Minikube only:
 minikube service llm-gateway -n llm --url
 ```
 
@@ -258,7 +273,7 @@ Logs and metrics are kept for 30 days:
 
 Logs leave Loki only by age: `limits_config.deletion_mode: disabled` closes the log delete API, which would otherwise accept requests without credentials while `auth_enabled` is false.
 
-Both volumes use the `local-path` class. It keeps a volume on its node's root filesystem, does not hold the volume to its claimed size, and cannot expand a claim in place. Loki's claim comes from its StatefulSet's `volumeClaimTemplates`, which Kubernetes does not let an upgrade change, so a new `singleBinary.persistence.size` needs the StatefulSet deleted with `--cascade=orphan` and the volume rebound to the new claim before the upgrade.
+Both volumes use the `local-path` class. It keeps a volume in a directory on one node ([Local-Path Volume Placement](#local-path-volume-placement)), does not hold the volume to its claimed size, and cannot expand a claim in place. Loki's claim comes from its StatefulSet's `volumeClaimTemplates`, which Kubernetes does not let an upgrade change, so a new `singleBinary.persistence.size` needs the StatefulSet deleted with `--cascade=orphan` and the volume rebound to the new claim before the upgrade.
 
 Two alerts in `serverFiles.alerting_rules.yml` (`monitoring/prometheus-values.yaml`) warn before a volume fills:
 
@@ -293,7 +308,7 @@ kubectl -n monitoring get pvc alloy-wal-k8s-monitoring-alloy-metrics-0
 
 ## Local-Path Volume Placement
 
-The StorageClasses `local-path` and `fast-nvme` use the local-path provisioner. It keeps a volume in a directory on the root filesystem of one node, and it binds the volume on the node where the first pod of the claim runs (`WaitForFirstConsumer`). The volume then keeps each later pod of the claim on that node. The root disk of the control-plane node is the smallest in the cluster, and it also holds the model store of the slow Ollama tier (GPU Placement, above). So each pod that mounts a claim has this required node affinity:
+The StorageClasses `local-path` and `fast-nvme` use the local-path provisioner ([Prerequisites](#prerequisites)). It keeps a volume in a directory on one node, and it binds the volume on the node where the first pod of the claim runs (`WaitForFirstConsumer`). The volume then keeps each later pod of the claim on that node. The root disk of the control-plane node is the smallest in the cluster, and it also holds the model store of the slow Ollama tier (GPU Placement, above). So each pod that mounts a claim has this required node affinity:
 
 ```yaml
 affinity:
@@ -309,7 +324,9 @@ Kubernetes puts the label `node-role.kubernetes.io/control-plane` on each contro
 
 `tests/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It also fails when an Argo CD Application installs a chart that the test does not know, because each chart keeps its claims and its affinity at different values. A pod that must stay on the control-plane node is in `_CONTROL_PLANE_CLAIM_EXEMPTIONS` of the test, with its reason. Grafana (claim `grafana`), the Prometheus server (`prometheus-server`) and Loki (`storage-loki-0`) are in it, because their volumes are on the control-plane node, and with the affinity their pods cannot start. Move each volume as below, then remove its exemption and add the affinity to its values in one pull request.
 
-`LocalPathNodeDiskHigh` (Alerting, below) warns when the root filesystem of a node that runs a pod on a `local-path` claim is over 85% used. At 85% the kubelet starts to delete unused images. Under DiskPressure it evicts pods, and a pod on a local-path volume cannot start on another node.
+On the homelab, the provisioner's config (ConfigMap `local-path-config` in namespace `local-path-storage`) gives each node two base directories, one under `/var` and one under `/mnt`. Neither StorageClass names one of them (`parameters.nodePath`), so the provisioner (v0.0.28, `getPathOnNode`) puts each new volume under one of the two at random. Thus `fast-nvme` differs from `local-path` only by its reclaim policy, `Retain`: it does not keep a volume on a faster disk.
+
+`LocalPathNodeDiskHigh` (Alerting, below) warns when the root filesystem of a node that runs a pod on a `local-path` claim is over 85% used. At 85% the kubelet starts to delete unused images. Under DiskPressure it evicts pods, and a pod on a local-path volume cannot start on another node. The alert reads only the root filesystem (`mountpoint="/"`). When the `/mnt` base directory is on another filesystem, `HostFilesystemSpaceLow` watches that filesystem.
 
 ### Move a volume to another node
 
