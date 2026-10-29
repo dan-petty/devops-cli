@@ -59,7 +59,7 @@ The job SHALL set `maintained` from the facts that a tool read, and the model SH
 - **THEN** the check records the tool as not maintained
 
 ### Requirement: The job refuses a reply with a source no tool returned
-The job SHALL refuse a reply whose `sources` or `tool` cite a URL that no tool returned in this run, and a `covers` or `partly` verdict with no tool, or with a tool whose facts no tool read. It SHALL skip that item and write nothing for it, write the checks of the other items, and then fail with an error that names each skipped item and its reason.
+The job SHALL refuse a reply whose `sources` or `tool_url` cite a URL that no tool returned in this run, and a `covers` or `partly` verdict with no tool, or with a tool whose facts no tool read. It SHALL skip that item and write nothing for it, write the checks of the other items, and then fail with an error that names each skipped item and its reason.
 
 #### Scenario: A made-up URL
 - **WHEN** a reply cites `https://example.com/invented` and no tool returned that URL

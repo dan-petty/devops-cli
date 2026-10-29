@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
 from pydantic_ai import Tool
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
@@ -25,10 +24,9 @@ from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
     ToolCallPart,
-    ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
@@ -54,6 +52,7 @@ from devops_cli.roadmap.refine_investigation import (
     investigate,
 )
 from devops_cli.roadmap.store import ItemField
+from tests.support.scripted_model import Script, call
 from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -133,73 +132,8 @@ class _FirstPhase:
         return self.proposal
 
 
-class _Script:
-    """A `FunctionModel` callback that answers the nth request with the nth response, and the
-    last response after that, or `without_tools` once the request offers no function tool. A
-    pydantic model answers as the call of the output tool. It keeps the messages of each request
-    and the names of the function tools each one offered."""
-
-    def __init__(
-        self,
-        *responses: ModelResponse | BaseModel | Exception,
-        without_tools: BaseModel | None = None,
-    ) -> None:
-        self.responses = responses
-        self.without_tools = without_tools
-        self.seen: list[list[ModelMessage]] = []
-        self.tools_offered: list[list[str]] = []
-
-    def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        self.seen.append(list(messages))
-        self.tools_offered.append([tool.name for tool in info.function_tools])
-        answer = self.responses[min(len(self.seen), len(self.responses)) - 1]
-        if self.without_tools is not None and not info.function_tools:
-            answer = self.without_tools
-        if isinstance(answer, Exception):
-            raise answer
-        if isinstance(answer, BaseModel) and not isinstance(answer, ModelResponse):
-            output_tool = info.output_tools[0].name
-            return ModelResponse(
-                parts=[ToolCallPart(tool_name=output_tool, args=answer.model_dump())]
-            )
-        return answer
-
-    async def stream(
-        self, messages: list[ModelMessage], info: AgentInfo
-    ) -> AsyncIterator[str | DeltaToolCalls]:
-        """The same answer as a stream, as the investigation asks for it."""
-        for index, part in enumerate(self(messages, info).parts):
-            if isinstance(part, ToolCallPart):
-                yield {
-                    index: DeltaToolCall(
-                        name=part.tool_name,
-                        json_args=part.args_as_json_str(),
-                        tool_call_id=part.tool_call_id,
-                    )
-                }
-            elif isinstance(part, TextPart):
-                yield part.content
-
-    def model(self) -> FunctionModel:
-        """A `FunctionModel` that answers through this script, streamed or not."""
-        return FunctionModel(self, stream_function=self.stream)
-
-    def tool_returns(self) -> list[str]:
-        """The text of each tool return the model saw, in order."""
-        return [
-            str(part.content)
-            for message in self.seen[-1]
-            for part in getattr(message, "parts", ())
-            if isinstance(part, ToolReturnPart)
-        ]
-
-
-def _call(tool: str, **args: Any) -> ModelResponse:
-    return ModelResponse(parts=[ToolCallPart(tool_name=tool, args=args)])
-
-
 def _round(
-    store: InMemoryRoadmapStore, git_repo: Path, first: RefinementProposal, script: _Script
+    store: InMemoryRoadmapStore, git_repo: Path, first: RefinementProposal, script: Script
 ) -> Any:
     return plan_refine(
         store,
@@ -215,7 +149,7 @@ def test_a_fact_that_a_file_read_settles_makes_the_item_ready(
 ) -> None:
     """The investigation reads the file the fact is about, cites its line, and the revised
     proposal validates with no open question."""
-    script = _Script(_call("read_file", path="src/sample.py"), _SETTLED)
+    script = Script(call("read_file", path="src/sample.py"), _SETTLED)
 
     plan = _round(store, git_repo, _FIRST, script)
 
@@ -236,7 +170,7 @@ def test_a_fact_that_a_file_read_settles_makes_the_item_ready(
 def test_the_investigation_request_names_the_open_questions(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
-    script = _Script(_SETTLED)
+    script = Script(_SETTLED)
 
     _round(store, git_repo, _FIRST, script)
 
@@ -253,7 +187,7 @@ def test_the_investigation_request_names_the_open_questions(
 def test_a_proposal_with_nothing_open_runs_no_investigation(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
-    script = _Script(_SETTLED)
+    script = Script(_SETTLED)
 
     plan = _round(store, git_repo, _SETTLED, script)
 
@@ -266,7 +200,7 @@ def test_the_function_tools_go_when_the_budget_is_nearly_spent(
     """A model that keeps calling tools gets no function tool once the budget has room for no
     more than its answer, and its next reply, the proposal, ends the run inside the budget. The
     refused path starts no git."""
-    script = _Script(_call("read_file", path="../outside.py"), without_tools=_SETTLED)
+    script = Script(call("read_file", path="../outside.py"), without_tools=_SETTLED)
 
     plan = _round(store, git_repo, _FIRST, script)
 
@@ -286,7 +220,7 @@ def test_a_turn_whose_calls_pass_the_budget_keeps_the_first_proposal(
         ToolCallPart(tool_name="read_file", args={"path": "../outside.py"})
         for _ in range(CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS + 1)
     ]
-    script = _Script(ModelResponse(parts=calls))
+    script = Script(ModelResponse(parts=calls))
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
         plan = _round(store, git_repo, _FIRST, script)
@@ -361,7 +295,7 @@ def test_web_search_adds_each_url_and_stops_at_its_cap(git_repo: Path, stub_web:
     )
 
 
-def _investigate(git_repo: Path, script: _Script, model: Any = None) -> Any:
+def _investigate(git_repo: Path, script: Script, model: Any = None) -> Any:
     tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO))
     return investigate(model or script.model(), "Instructions.", "{}", tools, RefinementProposal)
 
@@ -375,7 +309,7 @@ def test_a_failed_model_call_becomes_refines_own_error(
     git_repo: Path, answer: Exception, raised: type[AIClientError]
 ) -> None:
     with pytest.raises(AIClientError) as caught:
-        _investigate(git_repo, _Script(answer))
+        _investigate(git_repo, Script(answer))
 
     assert type(caught.value) is raised
 
@@ -384,7 +318,7 @@ def test_a_failed_model_call_becomes_refines_own_error(
     ("answer", "reason"),
     [
         (ModelResponse(parts=[TextPart(content="not json")]), "UnexpectedModelBehavior"),
-        (_call("read_file", path=["not", "a", "path"]), "UnexpectedModelBehavior"),
+        (call("read_file", path=["not", "a", "path"]), "UnexpectedModelBehavior"),
     ],
     ids=["never-an-answer", "tool-arguments-never-valid"],
 )
@@ -393,13 +327,13 @@ def test_a_model_that_breaks_the_rules_past_its_retries_stops_the_run(
 ) -> None:
     """A model that never answers through the output tool, or never sends valid tool arguments,
     stops the run with no proposal; refine then keeps its first proposal."""
-    assert _investigate(git_repo, _Script(answer)) == InvestigationStopped(reason)
+    assert _investigate(git_repo, Script(answer)) == InvestigationStopped(reason)
 
 
 def test_a_stopped_run_keeps_the_first_proposal(
     git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
 ) -> None:
-    script = _Script(ModelResponse(parts=[TextPart(content="not json")]))
+    script = Script(ModelResponse(parts=[TextPart(content="not json")]))
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
         plan = _round(store, git_repo, _FIRST, script)
@@ -421,7 +355,7 @@ def test_a_stopped_run_keeps_the_first_proposal(
 
 def test_each_request_of_the_run_streams(git_repo: Path) -> None:
     """The run streams each model request, so a long reply keeps the gateway tunnel open."""
-    script = _Script(_call("list_files", directory="src"), _SETTLED)
+    script = Script(call("list_files", directory="src"), _SETTLED)
     streamed: list[int] = []
 
     async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[Any]:
@@ -469,7 +403,7 @@ def test_the_function_tools_go_when_too_few_tool_calls_are_left(
     six = ModelResponse(
         parts=[ToolCallPart(tool_name="read_file", args={"path": "../x"}) for _ in range(6)]
     )
-    script = _Script(six, without_tools=_SETTLED)
+    script = Script(six, without_tools=_SETTLED)
 
     plan = _round(store, git_repo, _FIRST, script)
 
@@ -502,8 +436,8 @@ def test_a_round_on_a_public_repository_with_a_key_settles_a_fact_from_the_web(
         _FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": [result]}}).encode()
     )
     sourced = _OPEN_FACT.model_copy(update={"answer": "Yes.", "sources": [url]})
-    script = _Script(
-        _call("search_web", query="gitleaks scan a directory"),
+    script = Script(
+        call("search_web", query="gitleaks scan a directory"),
         _FIRST.model_copy(update={"key_questions": [sourced]}),
     )
 
@@ -530,7 +464,7 @@ def _spend_rows(ledger: SpendLedger) -> Sequence[tuple[Any, ...]]:
 def test_the_runs_usage_reaches_the_spend_ledger_once(
     git_repo: Path, spend_ledger: SpendLedger
 ) -> None:
-    _investigate(git_repo, _Script(_call("list_files", directory="src"), _SETTLED))
+    _investigate(git_repo, Script(call("list_files", directory="src"), _SETTLED))
 
     assert _spend_rows(spend_ledger) == [("agent_run", "analysis", "function", "unknown", 1, 1)]
 
@@ -540,7 +474,7 @@ def test_a_gateway_models_run_is_recorded_under_the_gateway(
 ) -> None:
     """A model the bridge sends to a gateway carries the gateway's URL, and its record names the
     provider `gateway` and the gateway's host, as `LLMClient`'s records do."""
-    script = _Script(_SETTLED)
+    script = Script(_SETTLED)
     model = script.model()
     setattr(model, "served_by", "http://example.com:4000/v1")
 
@@ -569,7 +503,7 @@ class _ShoutingTools:
 def test_the_alternatives_tools_run_in_the_same_agent_run() -> None:
     """`investigate` runs any set of tools, not only refine's: the model calls the tool of the
     set, and the run ends with the reply of its output type (#2650)."""
-    script = _Script(_call("shout", text="hello"), _SETTLED)
+    script = Script(call("shout", text="hello"), _SETTLED)
 
     result = investigate(
         script.model(), "Instructions.", "{}", _ShoutingTools(), RefinementProposal

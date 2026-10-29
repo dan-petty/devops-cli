@@ -1831,6 +1831,69 @@ class RoadmapMessages:
         "the model call failed for {count} item(s), and refine skipped them: {items}"
     )
     refine_failed_item: str = "#{number} ({error}, {violations} schema violation(s))"
+    # `devops roadmap alternatives` (#2650).
+    alternatives_title: str = "# Alternatives check for {repo}"
+    alternatives_off: str = "The check is off: {reason}."
+    alternatives_none: str = "No items to check."
+    alternatives_checked_heading: str = "## Checked"
+    alternatives_check_line: str = "- #{number} {title}: {verdict}"
+    alternatives_current_heading: str = "## Checked lately"
+    alternatives_current_line: str = "- #{number} {title}: checked on {date}, the text is unchanged"
+    alternatives_skipped_heading: str = "## Skipped"
+    alternatives_skipped_line: str = "- #{number} {title}: skipped, {reason}"
+    alternatives_applied: str = "Checked {count} item(s) for open alternatives."
+    alternatives_failed: str = (
+        "the check failed for {count} item(s), and the others were written: {items}"
+    )
+    alternatives_failed_item: str = "#{number} ({reason})"
+    alternatives_reason_stopped: str = "the model's run stopped ({reason})"
+    alternatives_reason_error: str = "the model call failed ({error})"
+    alternatives_reason_url: str = "the reply cites a URL that no tool returned: {url}"
+    alternatives_reason_no_facts: str = "the reply names a tool whose facts no tool read: {url}"
+    alternatives_reason_no_tool: str = "the reply gives the verdict {verdict} with no tool"
+    # What the tools of the check answer.
+    alternatives_search_limit: str = "The search limit for this item is reached."
+    alternatives_fact_limit: str = "The fact read limit for this item is reached."
+    alternatives_bad_repository: str = "Give the repository as owner/name."
+    alternatives_bad_package: str = "Give the package name as PyPI spells it."
+    alternatives_no_repository: str = "GitHub has no repository {name}."
+    alternatives_no_package: str = "PyPI has no package {name}."
+    alternatives_read_failed: str = "The read failed: {error}."
+    alternatives_fact_license: str = "License: {license}"
+    alternatives_fact_push: str = "Last push: {date}"
+    alternatives_fact_archived: str = "Archived: {answer}"
+    alternatives_fact_stars: str = "Stars: {stars}"
+    alternatives_fact_release: str = "Latest release: {release}"
+    alternatives_fact_version: str = "Latest version: {version}"
+    alternatives_fact_upload: str = "Latest upload: {date}"
+    alternatives_not_stated: str = "not stated"
+    alternatives_never: str = "never"
+    alternatives_no_release: str = "none"
+    alternatives_yes: str = "yes"
+    alternatives_no: str = "no"
+    # The comment and the body block the check writes.
+    alternatives_comment_heading: str = "## Alternatives check: {verdict}"
+    alternatives_comment_tool: str = "Tool: {name} ({url})"
+    alternatives_comment_no_tool: str = "Tool: none found"
+    alternatives_comment_license: str = "- License: {license}"
+    alternatives_comment_activity: str = "- Last activity: {date}"
+    alternatives_comment_maintained: str = "- Maintained: {answer}"
+    alternatives_comment_covers: str = "Covers:"
+    alternatives_comment_lacks: str = "Lacks:"
+    alternatives_comment_queries: str = "Searches run:"
+    alternatives_comment_sources: str = "Sources:"
+    alternatives_comment_item: str = "- {text}"
+    alternatives_comment_footer: str = (
+        "Checked on {date}. A person decides what this means for the item. "
+        "The check changes no label and closes no issue."
+    )
+    alternatives_block_verdict: str = "Alternatives check of {date}: {verdict}."
+    alternatives_block_tool: str = (
+        "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
+    )
+    alternatives_block_no_tool: str = "Tool: none found."
+    alternatives_maintained: str = "maintained"
+    alternatives_not_maintained: str = "not maintained"
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
@@ -1859,6 +1922,9 @@ class RoadmapMessages:
             "original_id": "<original node id>",
             "evidence": "<evidence>",
             "field": "<field>",
+            "query": "<search query>",
+            "repository": "<owner/name>",
+            "package": "<package>",
             "item": "<item>",
             "blocker": "<blocking item>",
             "path": "<cited path>",
@@ -1880,6 +1946,12 @@ class RoadmapMessages:
             "workflow_run": "the workflow run {subject} cites",
             "commit": "the commit {subject} cites",
             "path_change": "the newest commit on the default branch that changed {subject}",
+            "visibility": "whether the repository is private",
+            "web_search": "a Firecrawl web search for {subject}",
+            "repository_facts": "the repository {subject}",
+            "latest_release": "the latest release of {subject}",
+            "pypi_package": "the PyPI record of the package {subject}",
+            "model_run": "the model's run on {subject}",
             "record": "the job record of {subject}, in its body",
             "set_field": "set {field} on {subject}: its labels and its job record, in one write",
             "body": "the body of {subject}, its job record kept",
@@ -1889,9 +1961,18 @@ class RoadmapMessages:
             "close": "close {subject} with the reason {reason}",
         }
     )
+    # The requests of a dry run that no `gh` command makes (#2650).
+    plan_methods: dict[str, str] = field(
+        default_factory=lambda: {
+            "search": "Firecrawl search",
+            "pypi": "PyPI read",
+            "model": "model call",
+        }
+    )
     plan_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "posted": "the change posts a comment",
+            "check_on": "the repository is public and a Firecrawl key is set",
             "issues_unread": "the run has not read every issue yet",
             "still_waiting": "no comment follows refine's last comment on the waiting item",
             "capped": (
@@ -1907,6 +1988,9 @@ class RoadmapMessages:
             "blocker": "for each open item a blocked item waits on",
             "block_path": "for each path the block of a waiting item cites, once a run",
             "evidence": "for each piece of evidence the model cites",
+            "alternatives_item": "for each item the run checks, at most --limit",
+            "search": "for each search the model asks for, at most {limit} for an item",
+            "fact": "for each fact read the model asks for, at most {limit} for an item",
         }
     )
     # `devops roadmap intake` (#742).

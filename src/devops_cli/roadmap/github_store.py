@@ -72,6 +72,7 @@ from devops_cli.roadmap.store import (
     decode_job_record,
     encode_job_record,
     find_milestone,
+    is_repository_name,
     item_of,
     milestone_edits,
     milestone_order,
@@ -732,7 +733,14 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def repository_facts(self, full_name: str) -> RepositoryFacts | None:
         """The facts of the repository `full_name`: one read of the repository, and one of its
-        latest release when it exists. None when GitHub has no such repository (#2650)."""
+        latest release when it exists. None when GitHub has no such repository (#2650). A name
+        that is not `owner/name` is refused before any request."""
+        if not is_repository_name(full_name):
+            raise GitHubOperationError(
+                f"{full_name[:80]} is not a repository name.",
+                operation="roadmap.read",
+                details={"name": full_name[:256]},
+            )
         repository = self._read_or_none(
             repository_args(full_name), _REPOSITORY_PAYLOAD, f"the repository {full_name}"
         )

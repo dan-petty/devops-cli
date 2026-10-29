@@ -310,11 +310,13 @@ class RefineApplied:
 # ── Parsing & Hashes ──────────────────────────────────────────────────────────
 
 
-def extract_section_and_outside(body: str) -> tuple[str, str | None]:
-    """Returns (body_outside_section, section_inside_markers_or_none)."""
-    start_marker = CONST_ROADMAP_REFINE_START_MARKER
-    end_marker = CONST_ROADMAP_REFINE_END_MARKER
-
+def extract_section_and_outside(
+    body: str,
+    start_marker: str = CONST_ROADMAP_REFINE_START_MARKER,
+    end_marker: str = CONST_ROADMAP_REFINE_END_MARKER,
+) -> tuple[str, str | None]:
+    """Returns (body_outside_section, section_inside_markers_or_none). The section is the one
+    between the two markers, refine's by default; another job's block (#2650) has its own."""
     start_idx = body.find(start_marker)
     if start_idx == -1:
         return body, None
@@ -1186,14 +1188,18 @@ def _recorded_block_paths(item: Item) -> list[str]:
     return [path for path in recorded.split(",") if path.strip()]
 
 
+def replies_after_marker(
+    comments: Sequence[IssueComment], marker: str
+) -> list[IssueComment] | None:
+    """The comments after the last comment that holds `marker`, oldest first, or None when no
+    comment holds it. A job marks its own comments, so what follows is a person's reply."""
+    marked = [index for index, comment in enumerate(comments) if marker in comment.body]
+    return list(comments[marked[-1] + 1 :]) if marked else None
+
+
 def replies_since_refine(comments: Sequence[IssueComment]) -> list[IssueComment] | None:
     """The comments after refine's last comment, oldest first, or None when refine left none."""
-    marked = [
-        index
-        for index, comment in enumerate(comments)
-        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body
-    ]
-    return list(comments[marked[-1] + 1 :]) if marked else None
+    return replies_after_marker(comments, CONST_ROADMAP_REFINE_COMMENT_MARKER)
 
 
 def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
@@ -1915,6 +1921,7 @@ __all__ = [
     "raise_for_failed_items",
     "render_proposal_section",
     "render_refine_plan",
+    "replies_after_marker",
     "replies_since_refine",
     "sanitize_text",
     "select_candidates",

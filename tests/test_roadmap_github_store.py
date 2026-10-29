@@ -1346,3 +1346,13 @@ def test_repository_facts_of_a_missing_repository_are_none_and_a_failed_read_rai
     assert missing.repository_facts("example/none") is None
     with pytest.raises(GitHubOperationError, match=r"Could not read the repository example/tool"):
         broken.repository_facts("example/tool")
+
+
+@pytest.mark.parametrize("name", ["scanner", "a/b/c", "../user", "example/..", "a b/c"])
+def test_repository_facts_refuses_a_name_that_is_no_repository_name_before_any_request(
+    name: str,
+) -> None:
+    store, runner = recorded_store({})
+    with pytest.raises(GitHubOperationError, match="is not a repository name"):
+        store.repository_facts(name)
+    assert runner.calls == []

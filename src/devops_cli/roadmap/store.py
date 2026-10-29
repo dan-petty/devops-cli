@@ -146,7 +146,18 @@ class RefineRecordKey(StrEnum):
     CAPPED_AFTER = "refine.capped_after"
 
 
-JobRecord = dict[ItemField | RefineRecordKey, str | None]
+class AlternativesRecordKey(StrEnum):
+    """What `devops roadmap alternatives` records in an Item's job record (#2650): when the check
+    ran, the hash of the body it read outside its own block and the refine section, its verdict,
+    and the URL of the tool it found, if any."""
+
+    CHECKED_AT = "alternatives.checked_at"
+    BODY_HASH = "alternatives.body_hash"
+    VERDICT = "alternatives.verdict"
+    TOOL = "alternatives.tool"
+
+
+JobRecord = dict[ItemField | RefineRecordKey | AlternativesRecordKey, str | None]
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -278,6 +289,20 @@ class Closure(BaseModel):
     duplicate_of: int | None = None
 
 
+def is_name_segment(text: str) -> bool:
+    """Whether `text` is one name as GitHub and PyPI spell one: ASCII letters, digits, `-`, `_`
+    and `.`, and not `.` or `..`. Such a text is one safe segment of a URL path (#2650)."""
+    return text not in {"", ".", ".."} and all(
+        char.isascii() and (char.isalnum() or char in "-_.") for char in text
+    )
+
+
+def is_repository_name(text: str) -> bool:
+    """Whether `text` is `owner/name`, each part a name (`is_name_segment`)."""
+    parts = text.split("/")
+    return len(parts) == 2 and all(is_name_segment(part) for part in parts)
+
+
 class RepositoryFacts(BaseModel):
     """What GitHub says of a repository that an item might use as a tool (#2650): its license,
     when it was last pushed to, whether it is archived, its stars, and its latest release."""
@@ -368,7 +393,9 @@ _BODY_MARKDOWN: Final = MarkdownIt("commonmark")
 _RECORD_SEPARATORS = ("\r\n\r\n", "\n\n")
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are another version's, kept as they are.
-_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *RefineRecordKey))
+_JOB_RECORD_KEYS = frozenset(
+    key.value for key in (*ItemField, *RefineRecordKey, *AlternativesRecordKey)
+)
 
 
 def _record_block_span(body: str) -> tuple[int, int] | None:
@@ -706,6 +733,7 @@ def get_roadmap_store(repo: str, *, runner: GhRunner | None = None) -> RoadmapSt
 
 __all__ = [
     "FIELD_VALUES",
+    "AlternativesRecordKey",
     "Candidate",
     "Change",
     "ChangeKind",
@@ -731,6 +759,8 @@ __all__ = [
     "field_values",
     "find_milestone",
     "get_roadmap_store",
+    "is_name_segment",
+    "is_repository_name",
     "item_of",
     "milestone_edits",
     "milestone_order",

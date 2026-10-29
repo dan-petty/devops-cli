@@ -83,6 +83,29 @@ class RoadmapRefineError(DevOpsCLIError):
         )
 
 
+class RoadmapAlternativesError(DevOpsCLIError):
+    """Raised after an alternatives run in which the check of one or more items failed.
+
+    The job skipped each such item and wrote the others first (#2650). The message names each
+    skipped item with its reason, never the model's text.
+    """
+
+    error_code = "ROADMAP_ALTERNATIVES_FAILED"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_items: Sequence[int] = (),
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.failed_items = tuple(failed_items)
+        super().__init__(
+            message,
+            details={"failed_items": list(self.failed_items), **(details or {})},
+        )
+
+
 class RoadmapIntakeError(DevOpsCLIError):
     """Raised after an intake round in which the writes failed for one or more candidates.
 
