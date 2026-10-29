@@ -6,12 +6,12 @@
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 - [x] 1.2 Add tests: an isolated child holds no refused key from the environment. The keys that load no module reach the child. `run_subprocess` starts no program for a refused key
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
-- [ ] 1.3 Add the block of `OPENSSL*`, `KRB5*`, `GSS_MECH_CONFIG`, `SASL_PATH`, `PYTHONEXECUTABLE` and `__PYVENV_LAUNCHER__` to `CONST_CODE_LOADING_ENV_PATTERNS`, with the pages above them. Keep the comment of the constant at 25 words
+- [x] 1.3 Add the block of `OPENSSL*`, `KRB5*`, `GSS_MECH_CONFIG`, `SASL_PATH`, `PYTHONEXECUTABLE` and `__PYVENV_LAUNCHER__` to `CONST_CODE_LOADING_ENV_PATTERNS`, with the pages above them. Keep the comment of the constant at 25 words
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_review_rules_pack.py`
 
 ## 2. Documentation
 
-- [ ] 2.1 Write the child environment bullets of `ARCHITECTURE.md` and the purpose of the `subprocess-environment` spec for the library keys
+- [x] 2.1 Write the child environment bullets of `ARCHITECTURE.md` and the purpose of the `subprocess-environment` spec for the library keys
   - Verification: `uv run devops docs check` and `uv run devops openspec check`
 
 ## 3. Archive

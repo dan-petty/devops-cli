@@ -1606,6 +1606,19 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "JDK_JAVA_OPTIONS",
     "_JAVA_OPTIONS",
     "CLASSPATH",
+    # The keys that make a library or Python load a module of the caller (#2503)
+    # openssl-env(7): each key. OPENSSL_CONF, OPENSSL_CONF_INCLUDE, OPENSSL_MODULES and
+    # OPENSSL_ENGINES name a configuration, a provider directory or an engine directory
+    "OPENSSL*",
+    # kerberos(7), krb5.conf(5): each key. KRB5_CONFIG names the file with the plug-in modules
+    "KRB5*",
+    # kerberos(7): the file that lists the GSS-API mechanism libraries
+    "GSS_MECH_CONFIG",
+    # lib/common.c of Cyrus SASL (_sasl_get_default_path): the plug-in directory
+    "SASL_PATH",
+    # Modules/getpath.py of CPython: the virtual environment that Python starts from
+    "PYTHONEXECUTABLE",
+    "__PYVENV_LAUNCHER__",
 )
 # uv's exit status for a check that ran and failed; it exits 2 when it could not run.
 CONST_UV_EXIT_FAILURE: int = 1

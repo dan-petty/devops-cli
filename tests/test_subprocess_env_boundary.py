@@ -424,20 +424,17 @@ def test_no_key_of_the_ambient_allowlist_is_refused_from_a_caller(key: str) -> N
     assert build_subprocess_env(env={key: "example"})[key] == "example"
 
 
-# Each of these variables makes a library of the child load a module from a place that the caller
-# chooses, or makes Python start from a virtual environment of the caller (#2503). OpenSSL reads
-# the configuration file that OPENSSL_CONF names, which can name a provider or an engine. It reads
-# the directory of OPENSSL_CONF_INCLUDE for the files that the configuration includes, the
-# directory of OPENSSL_MODULES for the providers and the directory of OPENSSL_ENGINES for the
-# engines. openssl-env(7) calls these four security-sensitive. OPENSSL_SEC_MEM, OPENSSL_ia32cap
-# and OPENSSL_EXAMPLE_KEY load no module. They pin the rule that the guard refuses each OPENSSL
-# key, also one that OpenSSL adds later. MIT Kerberos loads the plug-in modules that the file of
-# KRB5_CONFIG names (krb5.conf(5)), and sudo removes KRB5_CONFIG* and KRB5_KTNAME. The other
-# KRB5 keys of kerberos(7) pin the same rule for Kerberos. The GSS-API library loads the
-# mechanism libraries that the file of GSS_MECH_CONFIG lists (kerberos(7)). Cyrus SASL loads the
-# plug-ins in the directory of SASL_PATH. Python takes sys.executable from PYTHONEXECUTABLE or
-# __PYVENV_LAUNCHER__ and then reads the pyvenv.cfg and the .pth files of that environment
-# (Modules/getpath.py of CPython).
+# Each of these keys makes a library of the child load a module that the caller chooses, or
+# makes Python start from a virtual environment of the caller (#2503). OpenSSL reads a
+# configuration from OPENSSL_CONF, included files from OPENSSL_CONF_INCLUDE, providers from
+# OPENSSL_MODULES and engines from OPENSSL_ENGINES. openssl-env(7) calls these four
+# security-sensitive. OPENSSL_SEC_MEM, OPENSSL_ia32cap and OPENSSL_EXAMPLE_KEY load no module.
+# They pin the rule that the guard refuses each OPENSSL key. The KRB5 keys of kerberos(7) pin the
+# same rule for Kerberos. MIT Kerberos loads the plug-in modules that the file of KRB5_CONFIG
+# names (krb5.conf(5)). The GSS-API library loads the libraries that the file of GSS_MECH_CONFIG
+# lists (kerberos(7)). Cyrus SASL loads the plug-ins in the directory of SASL_PATH. Python takes
+# sys.executable from PYTHONEXECUTABLE or __PYVENV_LAUNCHER__, then reads the pyvenv.cfg and the
+# .pth files of that environment (Modules/getpath.py of CPython).
 REFUSED_LIBRARY_KEYS: tuple[str, ...] = (
     "OPENSSL_CONF",
     "OPENSSL_CONF_INCLUDE",
@@ -501,10 +498,8 @@ def test_an_isolated_child_gets_no_library_key_from_the_environment(
 def test_a_library_key_that_loads_no_module_reaches_the_child(
     isolate_env: bool, tmp_path: Path
 ) -> None:
-    """A key that names a certificate file or directory, a locale or message directory, a log
-    level or a configuration directory of a library loads no module. It reaches the child with its
-    value, as does a key that only contains a refused name or starts with a refused name
-    without its separator (#2503)."""
+    """A key that names certificate data, a locale or message directory, a log level or a
+    configuration directory of a library loads no module, so it reaches the child (#2503)."""
     override = {
         "SSL_CERT_FILE": str(tmp_path / "ca.pem"),
         "SSL_CERT_DIR": str(tmp_path / "certs"),
@@ -517,6 +512,20 @@ def test_a_library_key_that_loads_no_module_reaches_the_child(
         "P11_KIT_DEBUG": "none",
         "SASL_CONF_PATH": str(tmp_path / "sasl"),
         "LDAPCONF": str(tmp_path / "ldap.conf"),
+    }
+
+    env = build_subprocess_env(env=override, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in override} == override
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_a_key_that_only_looks_like_a_refused_library_key_reaches_the_child(
+    isolate_env: bool,
+) -> None:
+    """A key matches the OpenSSL and Kerberos families only when it starts with the family name.
+    It matches another refused key only when it is that key (#2503)."""
+    override = {
         "EXAMPLE_OPENSSL_CONF": "example.cnf",
         "EXAMPLE_KRB5_CONFIG": "example.conf",
         "GSS_MECH_CONFIGURATION": "example",
