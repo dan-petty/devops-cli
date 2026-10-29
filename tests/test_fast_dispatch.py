@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import devops_cli.core
 import devops_cli.dry_run
 from devops_cli.dry_run.state import (
     format_command,

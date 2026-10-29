@@ -3,7 +3,25 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from devops_cli.ai.benchmark.embedding_runner import (
+        EmbeddingBenchmarkRunner,
+    )
+    from devops_cli.ai.benchmark.embedding_tasks import (
+        EMBEDDING_DISTRACTORS,
+        EMBEDDING_EVAL_PAIRS,
+        EmbeddingEvalPair,
+        get_embedding_eval_dataset,
+    )
+    from devops_cli.ai.benchmark.runner import (
+        BenchmarkRunner,
+    )
+    from devops_cli.ai.benchmark.tasks import (
+        BENCHMARK_TASKS,
+        get_benchmark_tasks,
+    )
 
 __all__ = [
     "BENCHMARK_TASKS",

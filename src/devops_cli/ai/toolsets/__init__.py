@@ -7,8 +7,6 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import (
     Any,
-    Generic,
-    TypeVar,
     cast,
 )
 
@@ -27,10 +25,8 @@ from devops_cli.ai.tools import Tool
 
 logger = logging.getLogger(__name__)
 
-DepsT = TypeVar("DepsT", default=Any)
 
-
-class AbstractToolset(BaseModel, NativeAbstractToolset[DepsT], Generic[DepsT]):
+class AbstractToolset[DepsT = Any](BaseModel, NativeAbstractToolset[DepsT]):
     """Abstract base class for modular agent toolsets.
 
     Bridges native Pydantic AI asynchronous toolset execution with workstation
@@ -104,7 +100,7 @@ class AbstractToolset(BaseModel, NativeAbstractToolset[DepsT], Generic[DepsT]):
         return list(sync_inst) if isinstance(sync_inst, (list, tuple)) else []
 
 
-class FunctionToolset(NativeFunctionToolset[DepsT], Generic[DepsT]):
+class FunctionToolset[DepsT = Any](NativeFunctionToolset[DepsT]):
     """Bundles local functions, tools, and domain instructions into a reusable toolset.
 
     Subclasses native pydantic_ai.toolsets.FunctionToolset while maintaining dual

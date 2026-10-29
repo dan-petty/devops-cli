@@ -5,7 +5,20 @@ suite that holds it to the real edge's behaviour (#1312).
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import (
+        ModelAnswer,
+        ModelCall,
+        ModelFake,
+        deterministic_embedding,
+    )
+    from tests.support.fakes.process import (
+        ProcessAnswer,
+        ProcessCall,
+        ProcessFake,
+    )
 
 __all__ = [
     "ModelAnswer",
