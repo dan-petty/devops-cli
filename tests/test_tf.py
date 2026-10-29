@@ -281,6 +281,7 @@ def test_tf_subcommands_dry_run(temp_tf_dir: Path) -> None:
 def test_tf_lint_command(temp_tf_dir: Path) -> None:
     """Verify devops tf lint subcommand."""
     from devops_cli.ai.review_schema import Finding
+    from devops_cli.security.base import ScanOutcome
 
     mock_finding = Finding(
         severity="HIGH",
@@ -295,7 +296,10 @@ def test_tf_lint_command(temp_tf_dir: Path) -> None:
     assert res_dry.exit_code == 0
 
     # With findings and JSON
-    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=[mock_finding]):
+    with patch(
+        "devops_cli.security.tflint.run_tflint_scan",
+        return_value=ScanOutcome("ran", [mock_finding]),
+    ):
         res_json = runner.invoke(app, ["lint", str(temp_tf_dir), "--json"])
         assert res_json.exit_code == 0
         assert "Unused variable" in res_json.output
@@ -304,10 +308,34 @@ def test_tf_lint_command(temp_tf_dir: Path) -> None:
         assert res_table.exit_code == 0
 
     # Clean
-    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=[]):
+    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=ScanOutcome("ran")):
         res_clean = runner.invoke(app, ["lint", str(temp_tf_dir)])
         assert res_clean.exit_code == 0
         assert "No Terraform" in res_clean.output
+
+
+@pytest.mark.parametrize("output_args", [[], ["--json"]], ids=["table", "json"])
+def test_a_lint_that_did_not_run_says_so_and_fails(
+    temp_tf_dir: Path, output_args: list[str]
+) -> None:
+    """With no tflint on PATH, the command says that the lint did not run and why, says no pass,
+    prints no findings list, and exits 1, in each output format (#2427)."""
+    from devops_cli.security.base import ScanOutcome
+
+    outcome = ScanOutcome("unavailable", [], "Binary 'tflint' not found on PATH")
+
+    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=outcome):
+        result = runner.invoke(app, ["lint", str(temp_tf_dir), *output_args])
+
+    assert (result.exit_code, "No Terraform" in result.output, "[]" in result.output) == (
+        1,
+        False,
+        False,
+    )
+    assert (
+        "TFLint lint unavailable: Binary 'tflint' not found on PATH. tflint linted no file, so "
+        "the check did not pass."
+    ) in " ".join(result.output.split())
 
 
 def test_deploy_cloud_targets_the_nested_worktrees_configuration(

@@ -125,6 +125,5 @@ The Knowledge Base is divided into two primary structural divisions:
 | **tiktoken** | Fast BPE Tokenizer | [openai/tiktoken](https://github.com/openai/tiktoken) | [PyPI tiktoken](https://pypi.org/project/tiktoken/) | [tiktoken.md](it_domains/tools/tiktoken.md) |
 | **PydanticAI** | Typed Agent Framework | [pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) | [PyPI pydantic-ai](https://pypi.org/project/pydantic-ai/) | [pydantic_ai.md](it_domains/tools/pydantic_ai.md) |
 | **TFLint** | Cloud Provider Terraform Linter | [terraform-linters/tflint](https://github.com/terraform-linters/tflint) | [TFLint Releases](https://github.com/terraform-linters/tflint/releases) | [tflint.md](it_domains/tools/tflint.md) |
-| **Dive** | Container Layer Efficiency | [wagoodman/dive](https://github.com/wagoodman/dive) | [Dive Releases](https://github.com/wagoodman/dive/releases) | [dive.md](it_domains/tools/dive.md) |
 | **Kubeconform** | OpenAPI Manifest Validator | [yannh/kubeconform](https://github.com/yannh/kubeconform) | [Kubeconform Releases](https://github.com/yannh/kubeconform/releases) | [kubeconform.md](it_domains/tools/kubeconform.md) |
 | **Valkey** | In-Memory Store & Cache | [valkey-io/valkey](https://github.com/valkey-io/valkey) | [valkey/valkey (Docker Hub)](https://hub.docker.com/r/valkey/valkey) | [valkey.md](it_domains/tools/valkey.md) |

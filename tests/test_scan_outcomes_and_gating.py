@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.security.bandit import BanditScanner
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, merge_outcomes
-from devops_cli.security.dive import DiveScanner
 from devops_cli.security.pipeline import build_report
 from devops_cli.security.popeye import PopeyeScanner
 from devops_cli.security.registry import ScannerRegistry
@@ -94,38 +93,18 @@ def test_merged_outcomes_keep_the_earliest_start_and_latest_end_times() -> None:
     )
 
 
-def test_dive_and_popeye_applicability_preflight(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Dive and Popeye determine applicability before binary presence check."""
-    dive = DiveScanner()
+def test_popeye_applicability_preflight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Popeye determines applicability before the binary presence check."""
     popeye = PopeyeScanner()
 
-    dive_dir_res = dive.is_applicable(tmp_path)
-    dive_img_res = dive.is_applicable(tmp_path, image="alpine:latest")
     pop_no_ctx = popeye.is_applicable(tmp_path)
     pop_with_ctx = popeye.is_applicable(tmp_path, context="test-cluster")
 
-    assert (
-        dive_dir_res[0],
-        dive_img_res,
-        pop_no_ctx[0],
-        pop_with_ctx,
-    ) == (
-        False,
-        (True, ""),
-        False,
-        (True, ""),
-    )
+    assert (pop_no_ctx[0], pop_with_ctx) == (False, (True, ""))
 
     monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
-    dive_outcome = dive.scan(tmp_path)
-    popeye_outcome = popeye.scan(tmp_path)
 
-    assert (dive_outcome.status, popeye_outcome.status) == (
-        "not_applicable",
-        "not_applicable",
-    )
+    assert popeye.scan(tmp_path).status == "not_applicable"
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
@@ -168,14 +147,14 @@ def test_single_scanner_commands_not_run_when_unavailable_or_failed(
         ) == (0, True)
 
 
-def test_scan_report_gating_dive_findings(tmp_path: Path) -> None:
-    """Dive container efficiency findings are non-gating and do not trip --fail-on."""
-    dive_finding = Finding(
+def test_scan_report_gating_non_gating_findings(tmp_path: Path) -> None:
+    """zizmor workflow findings are non-gating and do not trip --fail-on."""
+    zizmor_finding = Finding(
         severity="MEDIUM",
-        location=f"{tmp_path}:efficiency",
-        title="[DIVE:layer-inefficiency] Efficiency Score 0.85",
-        description="Wasted bytes in container layers",
-        fix="Combine RUN commands",
+        location=f"{tmp_path}/.github/workflows/ci.yml:10",
+        title="[zizmor:template-injection] Code injection via template expansion",
+        description="A template expansion in a run step holds untrusted input",
+        fix="Pass the value through an environment variable",
     )
     bandit_finding = Finding(
         severity="MEDIUM",
@@ -185,16 +164,16 @@ def test_scan_report_gating_dive_findings(tmp_path: Path) -> None:
         fix="Replace with conditional",
     )
 
-    dive_report = build_report(
-        {"dive": ScanOutcome("ran", [dive_finding])},
+    zizmor_report = build_report(
+        {"zizmor": ScanOutcome("ran", [zizmor_finding])},
         tmp_path,
     )
     assert (
-        dive_report.findings[0].gating,
-        dive_report.highest_severity(gating_only=True),
-        dive_report.highest_severity(gating_only=False),
-        dive_report.exceeds("LOW"),
-        dive_report.exceeds("MEDIUM"),
+        zizmor_report.findings[0].gating,
+        zizmor_report.highest_severity(gating_only=True),
+        zizmor_report.highest_severity(gating_only=False),
+        zizmor_report.exceeds("LOW"),
+        zizmor_report.exceeds("MEDIUM"),
     ) == (
         False,
         None,
@@ -205,7 +184,7 @@ def test_scan_report_gating_dive_findings(tmp_path: Path) -> None:
 
     combined_report = build_report(
         {
-            "dive": ScanOutcome("ran", [dive_finding]),
+            "zizmor": ScanOutcome("ran", [zizmor_finding]),
             "bandit": ScanOutcome("ran", [bandit_finding]),
         },
         tmp_path,

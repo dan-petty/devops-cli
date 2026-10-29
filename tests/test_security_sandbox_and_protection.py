@@ -227,37 +227,6 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(
         pass
 
 
-# 13. Dive binary symlink rejection (Finding 11)
-def test_dive_analysis_refuses_symlink_binary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify run_dive_analysis refuses to execute if dive executable in PATH is a symlink."""
-    from devops_cli.core.process import reset_process_runner, set_process_runner
-    from devops_cli.security.dive import run_dive_analysis
-
-    real_bin = tmp_path / "real_bin.sh"
-    real_bin.write_text("#!/bin/sh\necho dive", encoding="utf-8")
-    real_bin.chmod(0o755)
-    sym_bin = tmp_path / "dive"
-    sym_bin.symlink_to(real_bin)
-    monkeypatch.setenv("PATH", str(tmp_path))
-    # The runner seam takes every run, and `shutil.which` stays real, so PATH finds the symlink.
-    runner = ProcessFake()
-    set_process_runner(runner)
-    try:
-        res = run_dive_analysis(image_name="test-image:latest")
-    finally:
-        reset_process_runner()
-
-    # Refused without running it, and reported as such rather than as an analysis
-    assert (res.status, res.layers, "symlink" in res.reason, runner.calls) == (
-        "unavailable",
-        [],
-        True,
-        [],
-    )
-
-
 # 14. Provider base_url validation (Finding 12)
 def test_create_pydantic_ai_provider_never_reads_a_file_base_url() -> None:
     """Verify a provider on a `file://` base URL reads no file.
@@ -317,28 +286,6 @@ def test_complexity_scan_skips_symlinks(tmp_path: Path) -> None:
         findings = run_complexity_scan(scan_dir)
         # Should not crash and should skip symlink
         assert findings == []
-    except OSError:
-        pass
-
-
-# 17. TFLint fallback skips external symlinks (Finding 15)
-def test_tflint_fallback_skips_symlinks(tmp_path: Path) -> None:
-    """Verify _run_native_fallback_tf_lint skips symlinks pointing outside target."""
-    from devops_cli.security.tflint import _run_native_fallback_tf_lint
-
-    outside_tf = tmp_path / "outside.tf"
-    outside_tf.write_text(
-        'resource "aws_security_group" "open" { cidr_blocks = ["0.0.0.0/0"] }', encoding="utf-8"
-    )
-
-    scan_dir = tmp_path / "scan_tf"
-    scan_dir.mkdir()
-    sym_tf = scan_dir / "sym.tf"
-    try:
-        sym_tf.symlink_to(outside_tf)
-        findings = _run_native_fallback_tf_lint(scan_dir)
-        # External symlink should be ignored
-        assert len(findings) == 0
     except OSError:
         pass
 

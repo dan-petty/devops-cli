@@ -1,6 +1,6 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **77 operational and architectural manuals**
+The bundled Knowledge Base provides **76 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
@@ -55,14 +55,13 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 
 ## Division 2: Information Technology Domain-Specific (`it_domains/`)
 
-**Total Articles**: 38 manuals covering 10 IT topics and 28 tool references.
+**Total Articles**: 37 manuals covering 10 IT topics and 27 tool references.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
 | `tools` | [`actionlint.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/actionlint.md) | Actionlint |
 | `tools` | [`argocd.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/argocd.md) | Argocd |
 | `tools` | [`bandit.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/bandit.md) | Bandit |
-| `tools` | [`dive.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/dive.md) | Dive |
 | `tools` | [`docker.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/docker.md) | Docker |
 | `tools` | [`fastapi_uvicorn.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/fastapi_uvicorn.md) | Fastapi Uvicorn |
 | `tools` | [`github_cli.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/github_cli.md) | Github Cli |

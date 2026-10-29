@@ -21,6 +21,7 @@ import platform
 import shutil
 import tarfile
 import tempfile
+import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -138,11 +139,26 @@ def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
     dest.chmod(CONST_PERM_EXEC)
 
 
+def _extract_zip_member(data: bytes, member: str, dest: Path) -> None:
+    """Copy the verified archive's `member`, the one the lock names, to the new file `dest`."""
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        try:
+            f = zf.open(member)
+        except KeyError:
+            raise ToolExecutionError(f"Archive member '{member}' is not in the archive") from None
+        with f, dest.open("wb") as out:
+            shutil.copyfileobj(f, out)
+    dest.chmod(CONST_PERM_EXEC)
+
+
 # Writes a verified build's executable to its destination, by the lock's `format`.
 _UNPACKERS: Final[dict[str, Callable[[bytes, Artifact, Path], None]]] = {
     "binary": lambda data, artifact, dest: _write_binary(data, dest),
     "gzip": lambda data, artifact, dest: _write_binary(gzip.decompress(data), dest),
     "tar.gz": lambda data, artifact, dest: _extract_tar_member(
+        data, artifact.member or dest.name, dest
+    ),
+    "zip": lambda data, artifact, dest: _extract_zip_member(
         data, artifact.member or dest.name, dest
     ),
 }

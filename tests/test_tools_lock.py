@@ -61,7 +61,7 @@ def test_the_packaged_lock_holds_every_tool_install_tools_installs() -> None:
 
 def test_every_binary_build_is_an_https_url_with_a_sha256() -> None:
     """Each platform build is fetched over https and checked against a 32-byte SHA-256, and a
-    tar.gz build names the archive member that is the tool."""
+    tar.gz or zip build names the archive member that is the tool."""
     builds = [
         (name, tool.format_of(artifact), artifact)
         for name, tool in load_tools_lock().binary.items()
@@ -73,8 +73,29 @@ def test_every_binary_build_is_an_https_url_with_a_sha256() -> None:
         for name, archive_format, artifact in builds
         if urlsplit(artifact.url).scheme != "https"
         or len(bytes.fromhex(artifact.sha256)) != 32
-        or (artifact.member is not None) != (archive_format == "tar.gz")
+        or (artifact.member is not None) != (archive_format in {"tar.gz", "zip"})
     ] == []
+
+
+def test_the_lock_pins_tflint_as_four_zip_builds() -> None:
+    """tflint publishes zip archives of one file, `tflint`, for each platform (#2427)."""
+    tflint = load_tools_lock().binary["tflint"]
+    release = "https://github.com/terraform-linters/tflint/releases/download/v0.65.0/"
+
+    assert (
+        tflint.version,
+        tflint.format,
+        sorted(tflint.platforms),
+        [
+            (artifact.url.startswith(release), artifact.member)
+            for artifact in tflint.platforms.values()
+        ],
+    ) == (
+        "0.65.0",
+        "zip",
+        ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"],
+        [(True, "tflint")] * 4,
+    )
 
 
 def test_every_python_tool_pins_itself_in_its_hashed_requirements() -> None:

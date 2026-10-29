@@ -1009,6 +1009,9 @@ class TfMessages:
     deploy_cloud_confirm_empty_state: str = "Deploy from empty state anyway?"
     tflint_executing: str = "Executing TFLint static analysis on '{target}'..."
     tflint_passed: str = "✓ No Terraform / OpenTofu lint issues detected."
+    tflint_not_run: str = (
+        "TFLint lint {status}: {reason}. tflint linted no file, so the check did not pass."
+    )
     table_title_status: str = "OpenTofu Status — {name}"
     table_title_tflint: str = "TFLint Findings: {target}"
 
@@ -1574,12 +1577,6 @@ class DockerMessages:
     pushing_image: str = "Pushing [dim]{image}[/dim]..."
     pushed_success: str = "Pushed."
     pruned_success: str = "Pruned. Space reclaimed: {mb} MB"
-    analyzing_layers: str = "Analyzing container image layers for '{image}' via Dive..."
-    layer_analysis_not_run: str = "Dive layer analysis {status}: {reason}"
-    efficiency_summary: str = (
-        "Efficiency: {eff:.1f}% | Size: {size:.1f} MB | Wasted: {wasted:.1f} MB"
-    )
-    table_title_layers: str = "Container Layer Efficiency: {image}"
     table_title_build_cache: str = "BuildKit Layer Cache"
     build_cache_summary: str = (
         "Cache: {total} total | {reclaimable} reclaimable | {reuse:.1f}% reused "

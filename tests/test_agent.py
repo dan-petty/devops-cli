@@ -166,6 +166,18 @@ def test_get_persona_tools_selection() -> None:
     assert "branches_list" in pm_tools
 
 
+def test_no_agent_tool_analyzes_image_layers() -> None:
+    """dive is gone (#2427): neither the default tools nor the tools of a persona analyze layers."""
+    from devops_cli.ai.personas import Persona
+    from devops_cli.ai.tools import get_default_tools, get_persona_tools
+
+    names = {t.__name__ for t in get_default_tools()}
+    for persona in Persona:
+        names |= {t.__name__ for t in get_persona_tools(persona)}
+
+    assert "docker_analyze_layers" not in names
+
+
 def test_multi_agent_pipeline_empty_history_sends_only_current_prompt() -> None:
     """Verify message_history=[] keeps an agent's earlier runs out of the next request."""
     from devops_cli.ai.agents.agent import PydanticAgent

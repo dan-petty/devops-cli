@@ -15,9 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 def _create_default_scanners() -> list[BaseSecurityScanner]:
-    """Instantiate the 14 built-in security scanners."""
+    """Instantiate the 13 built-in security scanners."""
     from devops_cli.security.bandit import BanditScanner
-    from devops_cli.security.dive import DiveScanner
     from devops_cli.security.gitleaks import GitleaksScanner
     from devops_cli.security.golangci_lint import GolangciLintScanner
     from devops_cli.security.kubeconform import KubeconformScanner
@@ -32,7 +31,6 @@ def _create_default_scanners() -> list[BaseSecurityScanner]:
 
     return [
         BanditScanner(),
-        DiveScanner(),
         GitleaksScanner(),
         GolangciLintScanner(),
         KubeconformScanner(),
@@ -57,7 +55,7 @@ class ScannerRegistry:
             self._load_defaults()
 
     def _load_defaults(self) -> None:
-        """Register the default 11 built-in scanners."""
+        """Register the built-in scanners."""
         for scanner in _create_default_scanners():
             if scanner.name not in self._scanners:
                 self._scanners[scanner.name] = scanner

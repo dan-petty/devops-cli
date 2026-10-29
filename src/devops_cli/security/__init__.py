@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from devops_cli.security.bandit import BanditScanner, run_bandit_scan
     from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
-    from devops_cli.security.dive import DiveScanner, run_dive_analysis, run_dive_scan
     from devops_cli.security.gitleaks import GitleaksScanner, run_gitleaks_scan
     from devops_cli.security.kubeconform import (
         KubeconformScanner,
@@ -55,9 +54,6 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "run_bandit_scan": ("devops_cli.security.bandit", "run_bandit_scan"),
     "BaseSecurityScanner": ("devops_cli.security.base", "BaseSecurityScanner"),
     "ScanOutcome": ("devops_cli.security.base", "ScanOutcome"),
-    "DiveScanner": ("devops_cli.security.dive", "DiveScanner"),
-    "run_dive_analysis": ("devops_cli.security.dive", "run_dive_analysis"),
-    "run_dive_scan": ("devops_cli.security.dive", "run_dive_scan"),
     "GitleaksScanner": ("devops_cli.security.gitleaks", "GitleaksScanner"),
     "run_gitleaks_scan": ("devops_cli.security.gitleaks", "run_gitleaks_scan"),
     "KubeconformScanner": ("devops_cli.security.kubeconform", "KubeconformScanner"),
@@ -146,7 +142,6 @@ __all__ = [
     "BanditScanner",
     "BaseSecurityScanner",
     "CloudflareRadarClient",
-    "DiveScanner",
     "GitleaksScanner",
     "KubeconformScanner",
     "KubelinterScanner",
@@ -177,8 +172,6 @@ __all__ = [
     "mask_uri_credentials",
     "redact_text",
     "run_bandit_scan",
-    "run_dive_analysis",
-    "run_dive_scan",
     "run_gitleaks_scan",
     "run_kubeconform_validation",
     "run_kubelinter_scan",

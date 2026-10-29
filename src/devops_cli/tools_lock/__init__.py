@@ -32,7 +32,7 @@ class _LockEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-ArchiveFormat = Literal["binary", "gzip", "tar.gz"]
+ArchiveFormat = Literal["binary", "gzip", "tar.gz", "zip"]
 
 
 class Artifact(_LockEntry):
@@ -40,14 +40,14 @@ class Artifact(_LockEntry):
 
     url: str
     sha256: str
-    # The archive member that is the tool, for a tar.gz build.
+    # The archive member that is the tool, for a tar.gz or zip build.
     member: str | None = None
     # A build packed unlike the tool's others, such as cloudflared's macOS tar.gz.
     format: ArchiveFormat | None = None
 
 
 class BinaryTool(_LockEntry):
-    """A tool published as a binary, a gzip file or a tar.gz archive per platform."""
+    """A tool published as a binary, a gzip file, a tar.gz archive or a zip archive per platform."""
 
     version: str
     description: str

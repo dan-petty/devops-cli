@@ -26,7 +26,6 @@ from pydantic_ai.tools import (
 from devops_cli.ai.tools.builtin_tools import (
     argo_apps,
     check_threat_intel,
-    docker_analyze_layers,
     git_diff,
     git_status,
     k8s_pods,
@@ -298,7 +297,6 @@ __all__ = [
     "ToolDenied",
     "argo_apps",
     "check_threat_intel",
-    "docker_analyze_layers",
     "get_default_tools",
     "get_devops_mcp_toolset",
     "get_mcp_agent_tools",

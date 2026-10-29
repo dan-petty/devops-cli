@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import json
 import shutil
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 from devops_cli.review.canary import run_tool_canary
 from devops_cli.review.rules_pack import RULE_PACK_DIR
@@ -35,7 +37,7 @@ from devops_cli.security.tool_executor import DirectToolExecutor, ToolRequest
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.scanners import ScannerFake, ScannerRun
 from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer
-from tests.support.paths import FIXTURES
+from tests.support.paths import FIXTURES, REPO_ROOT
 
 ReviewScan = Callable[[Path, Path], ScanOutcome]
 
@@ -129,6 +131,25 @@ def test_a_registry_scan_whose_pinned_program_is_missing_runs_no_built_in_patter
     assert [
         name for name, outcome in outcomes.items() if outcome.status == "built-in patterns"
     ] == []
+
+
+def test_every_scanner_of_the_registry_has_a_pinned_program() -> None:
+    """A scanner's program is a command of a tool in `tools.lock`, or a dev dependency that
+    `pyproject.toml` pins, so no scanner of the registry names a program that nothing installs
+    at a known version (#2427)."""
+    pinned = {command for tool in load_tools_lock().tools().values() for command in tool.commands}
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dev_pins = {Requirement(pin).name for pin in pyproject["dependency-groups"]["dev"]}
+    registry = ScannerRegistry(auto_load_defaults=True)
+
+    unpinned = [
+        name
+        for name in registry.list_scanners()
+        if (scanner := registry.get(name)) is not None
+        and scanner.binary_name not in pinned | dev_pins
+    ]
+
+    assert unpinned == []
 
 
 def test_the_fake_finds_and_answers_only_the_recorded_scanners(

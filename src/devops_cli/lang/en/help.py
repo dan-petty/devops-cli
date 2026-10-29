@@ -846,7 +846,6 @@ class DockerCommandHelp:
         "unused volumes."
     )
     stats: str = "Display live container CPU, memory, and network I/O statistics."
-    analyze_layers: str = "Analyze container image layer efficiency and wasted space using Dive."
     cache: str = "Introspect BuildKit multi-stage layer cache occupancy and reuse."
     prune_cache: str = "Reclaim unused BuildKit build cache records after reporting."
     filter_name: str = "Filter by name."
@@ -854,7 +853,6 @@ class DockerCommandHelp:
     image_tag: str = "Image name[:tag] to push."
     remove_volumes: str = "Also remove unused volumes."
     skip_confirm: str = "Skip confirmation."
-    image_analyze: str = "Container image tag or ID to analyze."
     dockerfile: str = "Path to Dockerfile."
     image_name: str = "Docker image name or repository tag."
     name_filter: str = "Filter containers or images by name."
@@ -1575,7 +1573,6 @@ class ScanCommandHelp:
     kubelinter: str = "Run KubeLinter security audit on Kubernetes manifests."
     pluto: str = "Run Pluto Kubernetes deprecated API check."
     popeye: str = "Run Popeye Kubernetes cluster sanitizer."
-    dive: str = "Run Dive container image layer analysis."
     target: str = "Target directory, file, or repository to scan."
     target_secrets: str = "Target directory or file to scan for secrets."
     target_workflows: str = (

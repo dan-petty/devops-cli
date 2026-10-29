@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
 import typer
 
@@ -41,9 +41,6 @@ from devops_cli.output import (
     format_bytes as _format_bytes,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
-
-if TYPE_CHECKING:
-    from devops_cli.security.dive import DiveAnalysisResult
 
 app = new_typer(help=HELP.docker.app, no_args_is_help=True)
 
@@ -393,74 +390,6 @@ def build_cache(
     if prune:
         reclaimed = engine.prune_build_cache()
         print_success(MESSAGES.docker.build_cache_pruned.format(reclaimed=_format_bytes(reclaimed)))
-
-
-# =============================================================================
-# Command: devops docker analyze-layers
-# =============================================================================
-
-
-@app.command("analyze-layers")
-def analyze_layers(
-    image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
-    output_format: Annotated[
-        str,
-        typer.Option("--format", "-f", help=HELP.options.format_type),
-    ] = DEFAULT_TABLE_FORMAT,
-    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
-) -> None:
-    """Analyze container image layer efficiency and wasted space using Dive."""
-    from devops_cli.output import print_muted, print_warning
-    from devops_cli.security.dive import run_dive_analysis
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops docker analyze-layers {image}",
-            action="dive_layer_analysis",
-            target=image,
-        )
-        return
-
-    resolved = resolve_format(output_format, json_output=json_output)
-    if resolved == CONST_OUTPUT_FORMAT_TABLE:
-        print_muted(MESSAGES.docker.analyzing_layers.format(image=image), safe=True)
-    result = run_dive_analysis(image_name=image)
-
-    if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        emit_serialized(result.model_dump(), resolved)
-    elif result.status != "ran":
-        print_warning(
-            MESSAGES.docker.layer_analysis_not_run.format(
-                status=result.status, reason=result.reason
-            ),
-            safe=True,
-        )
-    else:
-        _print_layer_analysis(result)
-    # Without a dive run there is nothing to report, which must not pass for a clean image.
-    if result.status != "ran":
-        raise typer.Exit(1)
-
-
-def _print_layer_analysis(result: DiveAnalysisResult) -> None:
-    """Print dive's per-layer table and the image's efficiency summary.
-
-    A layer command is the image's history, written by whoever built it, so it is shown as text.
-    """
-    rows = [
-        [str(lyr.index), f"{lyr.size_bytes / (1024 * 1024):.2f}", escape_text(lyr.command[:80])]
-        for lyr in result.layers
-    ]
-    print_table(
-        title=MESSAGES.docker.table_title_layers.format(image=escape_text(result.image_name)),
-        columns=[("Layer", "right"), ("Size (MB)", "right"), "Command / Directive"],
-        rows=rows,
-    )
-    eff_pct = result.efficiency_score * 100
-    tot_mb = result.total_bytes / (1024 * 1024)
-    wst_mb = result.wasted_bytes / (1024 * 1024)
-    print_info(MESSAGES.docker.efficiency_summary.format(eff=eff_pct, size=tot_mb, wasted=wst_mb))
 
 
 # =============================================================================

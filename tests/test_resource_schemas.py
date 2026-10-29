@@ -40,8 +40,6 @@ from devops_cli.models.config import (
 )
 from devops_cli.models.docker import (
     ContainerStatEntry,
-    DockerLayerAnalysisRequest,
-    DockerLayerAnalysisResult,
     DockerPruneRequest,
     DockerPruneResult,
     DockerStatsRequest,
@@ -148,18 +146,6 @@ def test_docker_resource_models_roundtrip() -> None:
     stats_res = DockerStatsResult(containers=[c_stat], total_containers=1)
     assert stats_res.total_containers == 1
     assert stats_res.containers[0].name == "web-app"
-
-    layer_req = DockerLayerAnalysisRequest(image_tag="app:latest")
-    assert layer_req.image_tag == "app:latest"
-    layer_res = DockerLayerAnalysisResult(
-        image_tag="app:latest",
-        efficiency_score=0.95,
-        wasted_space_bytes=5000,
-        wasted_space_human="5KB",
-        layer_count=6,
-        passed=True,
-    )
-    assert layer_res.efficiency_score == 0.95
 
 
 def test_k8s_resource_models_roundtrip() -> None:
