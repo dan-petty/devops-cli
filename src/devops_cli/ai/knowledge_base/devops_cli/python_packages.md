@@ -147,6 +147,12 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 - **Codebase Integration**:
   - `devops_cli.ai.context_budget`: Accurately counts tokens in diffs, prompts, and knowledge base files, preventing LLM context window overflows and optimizing cost.
 
+#### `pydantic-ai-harness` ([Dedicated Manual](libraries/pydantic_ai_harness.md))
+- **Pinned Version**: `pydantic-ai-harness[coder]==0.54.0`
+- **Ecosystem Role**: Capabilities for pydantic-ai agents. `Coder` gives an agent the file and shell tools of a coding agent.
+- **Codebase Integration**:
+  - `devops_cli.roadmap.implement_step`: Runs one task group of a staged change in one bounded agent run (`devops roadmap implement`).
+
 #### `json-repair` ([Dedicated Manual](libraries/json_repair.md))
 - **Pinned Version**: `json-repair==0.63.4`
 - **Ecosystem Role**: Resilient JSON parser capable of repairing malformed, unclosed, or truncated JSON responses emitted by LLMs.

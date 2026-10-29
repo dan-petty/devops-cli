@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 from pydantic_ai.models import Model
-from pydantic_ai.models.function import FunctionModel
 
 from devops_cli.ai.client import factory
 from devops_cli.config.settings import load_settings
+from tests.support.model_script import ModelScript, say
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -37,11 +37,12 @@ def test_a_window_in_the_config_file_keeps_the_coder_model(config: Callable[...,
 def test_the_task_model_of_implement_is_a_pydantic_ai_model_named_for_the_route() -> None:
     model = factory.get_task_model("implement")
 
-    assert (isinstance(model, Model), model.model_name) == (True, "devops-coder")
+    assert model.model_name == "devops-coder"
+    assert isinstance(model, Model)
 
 
 def test_the_task_model_is_the_client_override_when_it_is_a_pydantic_ai_model() -> None:
-    fake = FunctionModel(lambda messages, info: None)  # type: ignore[arg-type,return-value]
+    fake = ModelScript(say("Done.")).model()
     factory.set_llm_client_override(fake)
 
     assert factory.get_task_model("implement") is fake

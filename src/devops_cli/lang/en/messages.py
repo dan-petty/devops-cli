@@ -1960,6 +1960,18 @@ class RoadmapMessages:
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_stop_no_change: str = "The agent changed no file."
     implement_stop_commit_failed: str = "The commit failed.\n{output}"
+    implement_title: str = "Implement step: item #{item}, group {group} ({title})"
+    implement_labels: dict[str, str] = field(
+        default_factory=lambda: {
+            "status": "Status",
+            "reason": "Reason",
+            "commit": "Commit",
+            "requests": "Model requests",
+            "input_tokens": "Input tokens",
+            "output_tokens": "Output tokens",
+            "last_message": "Last message of the agent",
+        }
+    )
     implement_dry_run_reason: str = "Dry run: no request was made and nothing ran."
     implement_model_request: str = "model request"
     implement_model_target: str = "{model} for group {group} of item #{item}"

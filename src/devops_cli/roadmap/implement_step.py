@@ -656,3 +656,61 @@ def run_step(
     finally:
         if not done:
             _reset(source)
+
+
+# ── The report and the dry run ────────────────────────────────────────────────────────────
+
+
+def dry_run_step(repo: str, *, item: int, group: int, model: str) -> StepOutcome:
+    """The outcome of a dry run: the requests a step makes, and no request made. A step reads the
+    item once, and then asks `model` up to `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` times."""
+    from devops_cli.dry_run.requests import PlannedRequest
+    from devops_cli.roadmap.request_plan import StoreRequests
+
+    texts = MESSAGES.roadmap
+    asked = PlannedRequest(
+        method=texts.implement_model_request,
+        target=texts.implement_model_target.format(model=model, group=group, item=item),
+        repeat=texts.implement_model_repeat.format(limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS),
+    )
+    planned = (*StoreRequests(repo).issue(f"#{item}"), asked)
+    return StepOutcome(
+        item=item,
+        group=group,
+        title="",
+        status=StepStatus.STOPPED,
+        reason=texts.implement_dry_run_reason,
+        dry_run=True,
+        planned_requests=tuple(request.line() for request in planned),
+    )
+
+
+def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
+    """Print the outcome in the format `fmt`: a table, or the model's fields as JSON or YAML."""
+    from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+    from devops_cli.output import print_key_values, write_stdout
+    from devops_cli.output.serialization import emit_serialized
+
+    if fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(outcome.model_dump(mode="json"), fmt)
+        return
+    texts = MESSAGES.roadmap
+    if outcome.dry_run:
+        heading = texts.plan_dry_run_title.format(job="implement", repo=repo)
+        numbered = (f"{number}. {line}" for number, line in enumerate(outcome.planned_requests, 1))
+        write_stdout("\n\n".join([heading, texts.plan_dry_run, "\n".join(numbered)]) + "\n")
+        return
+    labels = texts.implement_labels
+    rows = {
+        labels["status"]: outcome.status.value,
+        labels["reason"]: outcome.reason,
+        labels["commit"]: outcome.commit,
+        labels["requests"]: str(outcome.requests),
+        labels["input_tokens"]: str(outcome.input_tokens),
+        labels["output_tokens"]: str(outcome.output_tokens),
+        labels["last_message"]: outcome.last_message,
+    }
+    title = texts.implement_title.format(
+        item=outcome.item, group=outcome.group, title=outcome.title
+    )
+    print_key_values(title, rows)

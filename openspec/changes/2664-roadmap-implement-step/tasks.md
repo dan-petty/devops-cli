@@ -27,13 +27,13 @@
 
 ## 4. The command and the documentation
 
-- [ ] Add failing CLI tests: the table, the JSON, the exit code of a stopped step, the refusal output and the dry run
+- [x] Add failing CLI tests: the table, the JSON, the exit code of a stopped step, the refusal output and the dry run
   - Verification: `uv run devops ci test tests/test_roadmap_implement_command.py`
-- [ ] Add `devops roadmap implement`, its help and messages, and the dry-run plan
+- [x] Add `devops roadmap implement`, its help and messages, and the dry-run plan
   - Verification: `uv run devops ci test tests/test_roadmap_implement_command.py tests/test_roadmap_dry_runs.py`
-- [ ] Add the knowledge base note for the harness
+- [x] Add the knowledge base note for the harness
   - Verification: `uv run devops ci test tests/test_kb_manuals_metadata.py`
-- [ ] Regenerate the documentation
+- [x] Regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 5. Archive
