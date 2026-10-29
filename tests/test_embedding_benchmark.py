@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -35,6 +36,11 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
+
+# A server URL that holds userinfo is valid configuration: the client sends it as Basic
+# authentication. The secret must reach the server and nothing that the benchmark writes (#2481).
+_SERVER_SECRET = "FAKE-2481-value"
+_SERVER_WITH_USERINFO = f"http://bench-user:{_SERVER_SECRET}@example.com:11434"
 
 
 def test_cosine_similarity() -> None:
@@ -1059,3 +1065,104 @@ def test_an_endpoint_that_ollama_urls_cannot_hold_fails_the_run_of_that_model() 
         "Embedding benchmark endpoint 'ftp://example.com:21' cannot be used"
         in (result.error or ""),
     ) == (True, True)
+
+
+def _saved_benchmark_text() -> str:
+    """The text of every report file that a benchmark run saved in the benchmarks directory."""
+    from devops_cli.core.repo import resolve_data_path
+
+    base = resolve_data_path(load_settings().data.benchmarks_dir)
+    return "".join(path.read_text(encoding="utf-8") for path in sorted(base.rglob("*.json")))
+
+
+def test_a_dry_run_embedding_benchmark_names_each_server_by_host_and_port(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify the output, the report and the saved report name a server by `host[:port]`, never
+    by the URL that holds its userinfo: for a configured server and for a `model@endpoint`
+    (#2481)."""
+    bench = EmbeddingBenchmarkRunner(
+        models=["nomic-embed-text:latest", f"qwen3-embedding:0.6b@{_SERVER_WITH_USERINFO}"],
+        servers=[_SERVER_WITH_USERINFO, "http://example.com:11435"],
+        is_dry_run=True,
+    )
+
+    report = bench.run()
+    bench.print_report(report)
+    bench.print_report(report, format_type="markdown")
+    bench.print_report(report, format_type="json")
+    shown = capsys.readouterr()
+
+    assert (
+        sorted((result.model, result.server) for result in report.models),
+        sorted(summary.server for summary in report.server_benchmarks),
+        "on example.com:11434" in shown.out,
+        _SERVER_SECRET
+        in shown.out
+        + shown.err
+        + report.model_dump_json()
+        + bench.generate_markdown(report)
+        + _saved_benchmark_text(),
+    ) == (
+        [
+            ("nomic-embed-text:latest", "example.com:11434"),
+            ("nomic-embed-text:latest", "example.com:11435"),
+            ("qwen3-embedding:0.6b", "example.com:11434"),
+        ],
+        ["example.com:11434", "example.com:11435"],
+        True,
+        False,
+    )
+
+
+def test_an_embedding_server_with_no_origin_is_named_unknown() -> None:
+    """Verify a server URL that httpx2 reads no origin from shows as `unknown` in the result,
+    never as its own text (#2481)."""
+    report = EmbeddingBenchmarkRunner(
+        models=["nomic-embed-text:latest"], servers=["not-a-url"], is_dry_run=True
+    ).run()
+
+    assert (
+        [result.server for result in report.models],
+        "not-a-url" in report.model_dump_json(),
+    ) == (
+        ["unknown"],
+        False,
+    )
+
+
+def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_host_and_port(
+    tmp_path: Path,
+    stub_web: StubWeb,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify a run that the server answers with an error sends the userinfo as Basic
+    authentication, and names the server by `host[:port]` in the result, the output, the log and
+    the saved report (#2481)."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != "/api/embed":
+            return None
+        return httpx2.Response(500, json={"error": "model failed"})
+
+    stub_web.serve(answer)
+    bench = EmbeddingBenchmarkRunner(
+        models=["m"],
+        servers=[_SERVER_WITH_USERINFO],
+        is_dry_run=False,
+        code_path=_source_tree(tmp_path),
+        concurrency=1,
+    )
+
+    report = bench.run()
+    shown = capsys.readouterr()
+
+    basic = "Basic " + base64.b64encode(f"bench-user:{_SERVER_SECRET}".encode()).decode()
+    assert (
+        [(result.server, result.failed) for result in report.models],
+        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        "m on example.com:11434" in shown.out,
+        _SERVER_SECRET
+        in shown.out + shown.err + caplog.text + report.model_dump_json() + _saved_benchmark_text(),
+    ) == ([("example.com:11434", True)], {basic}, True, False)

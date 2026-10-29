@@ -2,11 +2,11 @@
 
 ## 1. The benchmarks name each server by host and port
 
-- [ ] 1.1 Write the failing tests for a dry run, a CLI run through a stubbed Ollama, a failed embedding run, a `model@endpoint` embedding run and a server with no origin
+- [x] 1.1 Write the failing tests for a dry run, a CLI run through a stubbed Ollama, a failed embedding run, a `model@endpoint` embedding run and a server with no origin
   - Verification: `uv run devops ci test tests/test_ai_benchmark.py tests/test_embedding_benchmark.py`
-- [ ] 1.2 Add `server_label` in `src/devops_cli/ai/benchmark/server_label.py`, and use it in both runners and in the setup of the kept run
+- [x] 1.2 Add `server_label` in `src/devops_cli/ai/benchmark/server_label.py`, and use it in both runners and in the setup of the kept run
   - Verification: `uv run devops ci test tests/test_ai_benchmark.py tests/test_embedding_benchmark.py tests/test_embedding_benchmark_failure.py`
-- [ ] 1.3 Say in the help of `--servers` that a report names a server by `host[:port]`, and regenerate the documents
+- [x] 1.3 Say in the help of `--servers` that a report names a server by `host[:port]`, and regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme`
 
 ## 2. Archive

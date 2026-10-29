@@ -1605,7 +1605,8 @@ class BenchmarkCommandHelp:
     )
     ollama_urls: str = (
         "Comma-separated Ollama server URLs for concurrent execution "
-        "(e.g. 'http://node1:11434,http://node2:11434')."
+        "(e.g. 'http://node1:11434,http://node2:11434'). The output and the reports name each "
+        "server by host[:port]. The userinfo of a URL goes only to that server."
     )
     tasks: str = "Filter specific task categories or IDs (e.g. 'security,kubernetes')."
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
