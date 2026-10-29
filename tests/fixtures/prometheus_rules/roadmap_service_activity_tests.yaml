@@ -55,6 +55,19 @@ tests:
               summary: "The roadmap Service sent 360 GitHub writes in the last hour"
               description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (k8s/README.md, Roadmap service)."
 
+  - name: Requests of a series with no method label do not count as writes
+    interval: 1m
+    input_series:
+      # A pod built before the method label sends its requests with no method label (#2574).
+      # PromQL reads an absent label as the empty string, so only a matcher that names the
+      # write methods keeps these reads out of the count.
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", repo="example/app", row="refine"}'
+        values: '0+6x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubWritesHigh
+        exp_alerts: []
+
   - name: 240 writes in an hour stay quiet
     interval: 1m
     input_series:

@@ -27,6 +27,7 @@ import pytest
 import yaml
 
 from devops_cli.config.constants import (
+    CONST_GH_MUTATION_HTTP_METHODS,
     CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
@@ -878,8 +879,8 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
         "RoadmapServiceGitHubWritesHigh",
         "sum( "
         + _window_count(
-            'devops_cli_github_requests_total{job="roadmap-service", method!="GET", '
-            'resource!="graphql"}',
+            'devops_cli_github_requests_total{job="roadmap-service", '
+            'method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}',
             "1h",
         )
         + " ) > 300",
@@ -911,6 +912,8 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
 ]
 # A series selector and the matchers in its braces.
 _SELECTOR_MATCHERS = re.compile(r"([A-Za-z_:][\w:]*)\{([^}]*)\}")
+# The regular expression of a `method=~` matcher.
+_METHOD_REGEX_MATCHER = re.compile(r'method=~"([^"]*)"')
 
 
 def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_volume() -> None:
@@ -961,6 +964,24 @@ def test_the_roadmap_service_activity_rules_watch_writes_own_deliveries_and_web_
         (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
         for rule in _group(ROADMAP_SERVICE_ACTIVITY_GROUP)
     ] == ROADMAP_SERVICE_ACTIVITY_RULES
+
+
+def test_the_write_rule_names_each_write_method_of_the_request_classifier() -> None:
+    """`RoadmapServiceGitHubWritesHigh` counts the methods that `is_write_request` calls a REST
+    write, each by name, and no other (#2574).
+
+    PromQL reads an absent label as the empty string, so a negative matcher such as
+    `method!="GET"` counts each request of a series with no `method` label as a write. A matcher
+    that names the write methods counts none of them, and must name each write the code sends.
+    """
+    (rule,) = [
+        rule
+        for rule in _group(ROADMAP_SERVICE_ACTIVITY_GROUP)
+        if rule["alert"] == "RoadmapServiceGitHubWritesHigh"
+    ]
+    assert [
+        frozenset(methods.split("|")) for methods in _METHOD_REGEX_MATCHER.findall(rule["expr"])
+    ] == [CONST_GH_MUTATION_HTTP_METHODS] * 3
 
 
 @pytest.mark.parametrize("group", ROADMAP_SERVICE_GROUPS)
