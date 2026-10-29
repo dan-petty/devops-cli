@@ -16,7 +16,7 @@ The proposal request and the investigation request of an item SHALL hold the key
 - **THEN** the request holds `alternatives` null
 
 ### Requirement: A covers verdict is a question that only a person answers
-When the recorded check of an item has the verdict `covers`, refine SHALL add the question to adopt the tool or to keep the item with a reason. While no comment of a person follows the job's latest comment, the question SHALL be open with the mark of a question for a person. A comment of refine or of the job is no comment of a person. An item with an open question has the next step `PERSON`, and the Ready check SHALL NOT set it Ready. A `partly` or `none` check SHALL add no question.
+When the recorded check of an item has the verdict `covers`, refine SHALL add the question to adopt the tool or to keep the item with a reason. While no comment of a person follows the job's latest comment, the question SHALL be open with the mark of a question for a person. A comment of a roadmap job is no comment of a person. An item with an open question has the next step `PERSON`, and the Ready check SHALL NOT set it Ready. A `partly` or `none` check SHALL add no question.
 
 #### Scenario: No reply yet
 - **WHEN** refine plans a New item with a `covers` check and no comment of a person after the job's comment, and the model answers every other question
@@ -41,9 +41,24 @@ When the recorded check of an item has the verdict `covers`, refine SHALL add th
 ### Requirement: A reply to a covers question is answered by the proposal
 After a comment of a person follows the job's latest comment, the `covers` question SHALL join the numbered key questions of the request. It SHALL be open until an answer names its number, and an answer of kind `person` SHALL leave it open.
 
+#### Scenario: The job left no comment
+- **WHEN** the item holds a `covers` record and block, no comment of the job, and a person replied
+- **THEN** the question is answered, and a `decision` answer that names it closes the question
+
+#### Scenario: A comment of another job
+- **WHEN** only a comment of the stage job or of intake follows the job's comment
+- **THEN** the question is not answered
+
 #### Scenario: A person answer
 - **WHEN** a person replied after the job's comment and the model gives an answer of kind `person` that names the question
 - **THEN** the question is open and the next step is `PERSON`
+
+### Requirement: The request carries the replies that answer a covers question
+The `alternatives` key SHALL hold `answers`: for a `covers` check, the replies of persons since the check (the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to `CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS`), and for any other check an empty list.
+
+#### Scenario: Refine commented after the reply
+- **WHEN** a person answered the `covers` question, refine commented again, and a person made a later comment
+- **THEN** the request holds the first reply in `alternatives.answers` and only the later comment in `replies`, and a `decision` answer closes the question
 
 ### Requirement: A new covering tool brings an item back to refine
 Refine SHALL record the URL of the covering tool it asked about as `refine.alternatives_asked`, and SHALL clear the key when the recorded check does not cover. An open New or Ready item whose job record holds a `covers` verdict with a tool URL that differs from the key SHALL be selected in the next round, though its body is unchanged, and without a read of its comments. A Ready item so selected SHALL go back to New when the question stays open.

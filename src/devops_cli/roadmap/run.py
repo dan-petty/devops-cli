@@ -1,6 +1,6 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's row, metrics, before the model lane's, intake and refine,
+The due table runs the status lane's row, metrics, before the model lane's, intake, refine and alternatives,
 so a burst of candidates never holds back the metrics (#1360). `devops roadmap run` runs the
 whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes

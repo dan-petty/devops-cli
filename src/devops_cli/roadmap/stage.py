@@ -54,6 +54,7 @@ from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
     CONST_GIT_CLI,
     CONST_ROADMAP_PRIORITY_VALUES,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
@@ -743,8 +744,6 @@ def dry_run_stage(repo: str, *, item: int | None = None, limit: int | None = Non
 
 # ── The writes ────────────────────────────────────────────────────────────────
 
-# Every comment of the stage job starts with this marker.
-_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 _GIT_OPERATION: Final[str] = "roadmap.stage"
 
@@ -851,7 +850,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
     store.comment(
         target.item.number,
         texts.stage_comment_staged.format(
-            marker=_COMMENT_MARKER,
+            marker=CONST_ROADMAP_STAGE_COMMENT_MARKER,
             branch=target.branch,
             pull=pull.number,
             budget=change.budget,
@@ -871,7 +870,7 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
     store.comment(
         number,
         texts.stage_comment_over_budget.format(
-            marker=_COMMENT_MARKER,
+            marker=CONST_ROADMAP_STAGE_COMMENT_MARKER,
             title=safe_text(worst.group.title),
             tokens=worst.tokens,
             budget=stopped.budget,

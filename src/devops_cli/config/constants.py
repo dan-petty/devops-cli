@@ -2998,6 +2998,15 @@ CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug"
 # `devops roadmap intake` (#742). Its reason comment carries this marker, so a run that finds it
 # posts no second reason comment.
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
+# The stage job's comment marker (#2654).
+CONST_ROADMAP_STAGE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
+# The marker of every roadmap job's comment: a comment that holds none of them is a person's.
+CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+    CONST_ROADMAP_INTAKE_REASON_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+)
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
 CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
 CONST_ROADMAP_PRIORITY_LABEL_PREFIX: Final[str] = "priority/"

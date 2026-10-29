@@ -19,6 +19,7 @@
 
 - [x] 4.1 Name the row in `CONTEXT.md` (Lane) and in `k8s/README.md` (Roadmap service), regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 - [x] 4.2 Run `uv run devops ci` once, fix each failure at its cause, and verify that it passes
+- [x] 4.3 Fix the review findings test-first in `tests/test_roadmap_refine.py` (no job comment, a reply that refine's later comment hides, a comment of another job) and verify that `uv run devops ci test tests/test_roadmap_refine.py` passes
 
 ## Workflow follow-up
 

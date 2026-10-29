@@ -2920,10 +2920,15 @@ _LACKS = "No SARIF output."
 
 
 def _record_check(
-    store: InMemoryRoadmapStore, number: int, verdict: str, *, tool: str | None = _SCANNER
+    store: InMemoryRoadmapStore,
+    number: int,
+    verdict: str,
+    *,
+    tool: str | None = _SCANNER,
+    comment: bool = True,
 ) -> None:
     """What the alternatives job leaves on item `number`: its block in the body, its keys in the
-    job record, and its comment."""
+    job record, and its comment, unless `comment` is false (a comment that failed or was deleted)."""
     body = store.read_issue_body(number)
     block = (
         f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
@@ -2947,11 +2952,12 @@ def _record_check(
             AlternativesRecordKey.TOOL: tool,
         },
     )
-    store.comment(
-        number,
-        f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\n## Alternatives check: {verdict}\n"
-        f"\nLacks:\n- {_LACKS}",
-    )
+    if comment:
+        store.comment(
+            number,
+            f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\n## Alternatives check: {verdict}\n"
+            f"\nLacks:\n- {_LACKS}",
+        )
 
 
 def _alternatives_sent(model_fake: ModelFake) -> Any:
@@ -3140,6 +3146,81 @@ def test_a_reply_without_an_answer_to_the_covers_question_leaves_it_open(
         1,
         False,
     )
+
+
+def test_a_reply_answers_the_covers_question_when_the_jobs_comment_is_missing(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The job writes its comment last: a failed or deleted comment leaves the record and the
+    block, and every comment of a person follows the check."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    _record_check(store, number, "covers", comment=False)
+    store.as_actor("alice").comment(number, "Keep it: the tool has no SARIF output.")
+    model_fake.answer(_with_questions(_adopt_or_keep("Adopt the tool?")))
+
+    plan = _refine_round(store, git_repo)
+
+    sent = json.loads(model_fake.calls[-1].prompt)
+    assert (
+        [q["number"] for q in sent["body_questions"]],
+        sent["alternatives"]["answers"],
+        [(r.next_step.value, r.open_questions) for r in plan.refined_items],
+    ) == ([1], ["Keep it: the tool has no SARIF output."], [("ready", [])])
+
+
+def test_the_model_reads_the_answer_to_the_covers_question_after_refine_commented_again(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """Refine comments between the answer and a later round: the answer is no more in `replies`,
+    so the request carries it in `alternatives.answers` and the round can close the question."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    _record_check(store, number, "covers")
+    store.as_actor("alice").comment(number, "Keep it: the tool has no SARIF output.")
+    model_fake.answer(_with_questions())
+    _refine_round(store, git_repo)
+    store.as_actor("bob").comment(number, "Thanks, I read the plan.")
+    model_fake.answer(_with_questions(_adopt_or_keep("Adopt the tool?")))
+
+    plan = _refine_round(store, git_repo)
+
+    sent = json.loads(model_fake.calls[-1].prompt)
+    assert (
+        sent["replies"],
+        sent["alternatives"]["answers"],
+        [(r.next_step.value, r.open_questions) for r in plan.refined_items],
+    ) == (
+        ["Thanks, I read the plan."],
+        ["Keep it: the tool has no SARIF output.", "Thanks, I read the plan."],
+        [("ready", [])],
+    )
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        constants.CONST_ROADMAP_STAGE_COMMENT_MARKER,
+        constants.CONST_ROADMAP_INTAKE_REASON_MARKER,
+    ],
+)
+def test_a_comment_of_another_job_is_no_answer_to_the_covers_question(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, marker: str
+) -> None:
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    _record_check(store, number, "covers")
+    store.comment(number, f"{marker}\nA job wrote this.")
+    model_fake.answer(_with_questions(_adopt_or_keep("Adopt the tool?")))
+
+    plan = _refine_round(store, git_repo)
+
+    sent = json.loads(model_fake.calls[-1].prompt)
+    assert (
+        sent["replies"],
+        sent["alternatives"]["answers"],
+        [(r.next_step.value, len(r.open_questions)) for r in plan.refined_items],
+    ) == ([], [], [("person", 1)])
 
 
 @pytest.mark.parametrize("verdict", ["partly", "none"])

@@ -96,6 +96,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_CRITICAL_PRIORITY,
+    CONST_ROADMAP_JOB_COMMENT_MARKERS,
     CONST_ROADMAP_P0_PRIORITY,
     CONST_ROADMAP_P1_PRIORITY,
     CONST_ROADMAP_P2_PRIORITY,
@@ -388,10 +389,12 @@ class RecordedCheck:
 class CoversQuestion:
     """The question a `covers` verdict puts to a person: adopt the tool, or keep the item with a
     reason. `answered` is set when a person replied after the job's latest comment, and then the
-    proposal must answer the question."""
+    proposal must answer the question. `answers` holds those replies (the newest ones, each cut to
+    its token cap): the request carries them, as `replies` loses them once refine comments again."""
 
     text: str
     answered: bool
+    answers: tuple[str, ...] = ()
 
 
 def recorded_check(item: Item, body: str) -> RecordedCheck | None:
@@ -433,10 +436,11 @@ def _latest_check_comment(comments: Sequence[IssueComment]) -> IssueComment | No
 
 
 def _alternatives_request(
-    check: RecordedCheck | None, comments: Sequence[IssueComment]
+    check: RecordedCheck | None, comments: Sequence[IssueComment], covers: CoversQuestion | None
 ) -> dict[str, Any] | None:
     """The `alternatives` key of a request: the recorded check with the job's latest comment,
-    which lists what the tool covers and lacks, or None when the item holds no check."""
+    which lists what the tool covers and lacks, and the replies of persons that answer a `covers`
+    question, or None when the item holds no check."""
     if check is None:
         return None
     latest = _latest_check_comment(comments)
@@ -449,6 +453,7 @@ def _alternatives_request(
             if latest
             else None
         ),
+        "answers": list(covers.answers) if covers is not None else [],
     }
 
 
@@ -456,15 +461,22 @@ def covers_question(
     check: RecordedCheck | None, comments: Sequence[IssueComment]
 ) -> CoversQuestion | None:
     """The question that a `covers` check puts to a person, or None for any other check. It is
-    answered when a comment of a person follows the job's latest comment: a comment of refine or
-    of the job is none."""
+    answered when a comment of a person follows the job's latest comment, or any comment of a
+    person when the job left none: a comment of a roadmap job is none."""
     if check is None or check.verdict is not Verdict.COVERS or not check.tool:
         return None
-    after_check = replies_after_marker(comments, CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER) or []
-    markers = (CONST_ROADMAP_REFINE_COMMENT_MARKER, CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER)
-    answered = any(not any(marker in c.body for marker in markers) for c in after_check)
+    after_check = replies_after_marker(comments, CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER)
+    persons = _comments_without(
+        comments if after_check is None else after_check, CONST_ROADMAP_JOB_COMMENT_MARKERS
+    )
+    answers = tuple(
+        truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+        for reply in persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
+    )
     return CoversQuestion(
-        MESSAGES.roadmap.refine_alternatives_question.format(url=check.tool), answered
+        MESSAGES.roadmap.refine_alternatives_question.format(url=check.tool),
+        bool(persons),
+        answers,
     )
 
 
@@ -1353,13 +1365,24 @@ def replies_after_marker(
 
 def replies_since_refine(comments: Sequence[IssueComment]) -> list[IssueComment] | None:
     """The comments after refine's last comment, oldest first, or None when refine left none. A
-    comment of the alternatives job (#2650) is no reply of a person, so it is left out."""
+    comment of another roadmap job (#2650) is no reply of a person, so it is left out."""
     replies = replies_after_marker(comments, CONST_ROADMAP_REFINE_COMMENT_MARKER)
-    return None if replies is None else _without_alternatives_comments(replies)
+    return None if replies is None else _without_other_jobs_comments(replies)
 
 
-def _without_alternatives_comments(comments: Sequence[IssueComment]) -> list[IssueComment]:
-    return [c for c in comments if CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER not in c.body]
+def _comments_without(
+    comments: Sequence[IssueComment], markers: Sequence[str]
+) -> list[IssueComment]:
+    """The comments that hold none of `markers`, oldest first."""
+    return [c for c in comments if not any(marker in c.body for marker in markers)]
+
+
+def _without_other_jobs_comments(comments: Sequence[IssueComment]) -> list[IssueComment]:
+    """The comments that no roadmap job but refine wrote: those of persons and of refine."""
+    others = [
+        m for m in CONST_ROADMAP_JOB_COMMENT_MARKERS if m != CONST_ROADMAP_REFINE_COMMENT_MARKER
+    ]
+    return _comments_without(comments, others)
 
 
 def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
@@ -1399,8 +1422,8 @@ def _still_waiting(
     replies = replies_since_refine(comments)
     if replies is None or replies:
         return None
-    # No reply: the last comment that is not the alternatives job's is refine's own.
-    last = _without_alternatives_comments(comments)[-1]
+    # No reply: the last comment that is not another job's is refine's own.
+    last = _without_other_jobs_comments(comments)[-1]
     if _cited_code_changed(store, item, last.created_at):
         return None
     return WaitingItem(item, step, details)
@@ -1441,7 +1464,7 @@ def _comment_cap(item: Item, comments: Sequence[IssueComment]) -> WaitingItem | 
     )
     if count < CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM:
         return None
-    newest = _without_alternatives_comments(comments)[-1].created_at.isoformat()
+    newest = _without_other_jobs_comments(comments)[-1].created_at.isoformat()
     stopped_before = item.job_record.get(RefineRecordKey.CAPPED_AFTER) == newest
     detail = MESSAGES.roadmap.refine_comment_cap.format(
         count=count, hours=hours, number=item.number
@@ -1618,7 +1641,7 @@ def refine_one_item(
         "title": item.title,
         "body": current_body,
         "replies": _replies_for_model(comments),
-        "alternatives": _alternatives_request(check, comments),
+        "alternatives": _alternatives_request(check, comments, covers),
         "context": ctx,
         "body_questions": [
             {"number": number, "question": asked}
@@ -1764,7 +1787,7 @@ def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
     when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
     cap (#1758)."""
     replies = replies_since_refine(comments)
-    persons = _without_alternatives_comments(comments) if replies is None else replies
+    persons = _without_other_jobs_comments(comments) if replies is None else replies
     kept = persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     return [
         truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
