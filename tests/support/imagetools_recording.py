@@ -25,8 +25,6 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from devops_cli.k8s.image_pins import inspect_command
-
 RECORDED_IMAGES = (
     "cloudflare/cloudflared:2026.10.4",
     "ghcr.io/berriai/litellm:v1.103.0",
@@ -67,6 +65,10 @@ def load_recorded_runs() -> tuple[str, dict[str, RecordedRun]]:
 
 def record_runs(destination: Path | None = None) -> None:
     """Resolve each recorded image with the real tool and write the record."""
+    # Imported here, so a replay of the new tests on a base without the module still loads this
+    # support module as a plugin.
+    from devops_cli.k8s.image_pins import inspect_command
+
     version = subprocess.run(
         ["docker", "buildx", "version"], capture_output=True, text=True, check=True
     ).stdout.split()[1]
