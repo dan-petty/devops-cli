@@ -49,6 +49,25 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         ),
         "required": frozenset(),
     },
+    ("ai", "benchmark"): {
+        "allowed": frozenset(
+            {
+                "models",
+                "provider",
+                "benchmark_type",
+                "tasks_filter",
+                "concurrency",
+                "output",
+                "format_type",
+                "dry_run",
+                "explain",
+                "document",
+                "code",
+                "samples",
+            }
+        ),
+        "required": frozenset(),
+    },
     ("ai", "gateway", "status"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "routes"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "probe-backend"): {
@@ -268,6 +287,22 @@ def _check_sandbox_preconditions(path: tuple[str, ...], kwargs: dict[str, Any]) 
         _validate_mcp_sandbox_workspace(str(ws))
 
 
+def _check_model_endpoints(path: tuple[str, ...], kwargs: dict[str, Any]) -> None:
+    """Refuse a `model@url` entry of the benchmark tool before any command runs.
+
+    The command reads `model@url` as the server that gets that model's requests. A person types it.
+    A model that calls the tool must not choose a server, so the tool takes model names only (#2638).
+    """
+    if path != ("ai", "benchmark") or not (models := kwargs.get("models")):
+        return
+    from devops_cli.ai.benchmark.model_spec import parse_model_list, parse_model_spec
+    from devops_cli.exceptions import ValidationError
+    from devops_cli.lang import ERRORS
+
+    if any(parse_model_spec(entry)[1] is not None for entry in parse_model_list(str(models))):
+        raise ValidationError(ERRORS.mcp.model_names_endpoint, field="models")
+
+
 def _extract_extra_env(path: tuple[str, ...], kwargs: dict[str, Any]) -> dict[str, str] | None:
     """Extract environment variables for sensitive parameters passed out-of-band."""
     if path == ("docker", "sign") and (token := kwargs.get("oidc_token")):
@@ -367,6 +402,7 @@ def _create_tool_function(
         bound = sig.bind(*args, **kwargs)
         bound.apply_defaults()
         _check_sandbox_preconditions(path, bound.arguments)
+        _check_model_endpoints(path, bound.arguments)
         argv = _build_command_argv(path, click_cmd, format_json, bound.arguments)
         extra_env = _extract_extra_env(path, bound.arguments)
         if extra_env is not None:

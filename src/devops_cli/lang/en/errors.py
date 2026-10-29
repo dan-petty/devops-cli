@@ -243,9 +243,9 @@ class MCPErrorMessages:
     integer_above_maximum: str = "Invalid value for '{name}': {value}. Must be <= {max_val}."
     unknown_provider: str = "Invalid value for 'provider': use one of {choices}."
     model_names_endpoint: str = (
-        "Invalid value for 'model': a model name with '@' or '://' names the server the "
-        "benchmark sends requests and the AI key to, which only the command line may choose. "
-        "Name the model alone; it runs on the configured servers."
+        "Invalid value for 'models': an entry with '@' names the server that gets the "
+        "requests of the benchmark, which only the command line may choose. "
+        "Name each model alone; it runs on the configured servers."
     )
     conflicting_symbol_and_pattern: str = (
         "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
