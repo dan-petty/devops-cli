@@ -226,6 +226,27 @@ class QdrantClient:
         self._verified_collections: dict[str, int] = {}
         self._dim_mismatch_warned: set[str] = set()
 
+    def _server_span_attributes(self) -> dict[str, Any]:
+        """`server.address` and `server.port` of the Qdrant server that a span names.
+
+        The configured URL can hold userinfo, which the client sends as Basic authentication, and a
+        path. A span names the server by host and port only. An `http` or `https` URL gives the
+        host and port of its httpx2 origin. A `k8s://` address names a Service, so its span names
+        the in-cluster DNS name `<service>.<namespace>`, and the port when it is a number. The
+        httpx2 origin of that address is the namespace, with no port.
+        """
+        from devops_cli.ai.client.models import origin_span_attributes
+        from devops_cli.http.urls import get_url_origin
+        from devops_cli.k8s.service_proxy import is_service_url, parse_service_url
+
+        if not is_service_url(self.base_url):
+            return origin_span_attributes(get_url_origin(self.base_url))
+        service = parse_service_url(self.base_url)
+        attributes: dict[str, Any] = {"server.address": f"{service.service}.{service.namespace}"}
+        if service.port.isdecimal():
+            attributes["server.port"] = int(service.port)
+        return attributes
+
     def _get_client(self, force_refresh: bool = False) -> NativeQdrantClient:
         with self._client_lock:
             if self._client is None or force_refresh:
@@ -492,7 +513,7 @@ class QdrantClient:
                 "db.operation": "upsert_points",
                 "db.collection.name": name,
                 "collection": name,
-                "server.address": str(self.base_url),
+                **self._server_span_attributes(),
                 "points_count": len(points),
             },
         ):
