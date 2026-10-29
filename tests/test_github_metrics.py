@@ -715,3 +715,27 @@ def test_get_repository_traffic_metrics_success_and_fallback(
         [],
         [],
     )
+
+
+def test_get_git_tag_entries_when_git_runs_out_of_time(
+    process_fake: ProcessFake, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A `git` read that runs out of time gives no tags, and the warning says so (#1538)."""
+    process_fake.answer(
+        "git", ProcessAnswer(side_effect=subprocess.TimeoutExpired(cmd=["git", "tag"], timeout=15))
+    )
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
+        entries = _get_git_tag_entries(tmp_path)
+
+    assert (entries, "git tag timed out" in caplog.text) == ([], True)
+
+
+def test_extract_commits_and_prs_counts_one_commit_for_a_count_git_does_not_give(
+    process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """A commit count that is not a number counts as one commit, as a failed read does (#1538)."""
+    process_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="not-a-number\n"))
+    process_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
+
+    assert _extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21") == (1, 0)

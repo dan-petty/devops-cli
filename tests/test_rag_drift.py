@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -273,3 +274,19 @@ def test_drift_without_git_has_no_head_commit_and_logs_the_missing_program(
         None,
         True,
     )
+
+
+def test_drift_has_no_head_commit_when_git_runs_out_of_time(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """A `git` read that runs out of time gives no head commit (#1538)."""
+    process_fake.answer(
+        "git",
+        ProcessAnswer(side_effect=subprocess.TimeoutExpired(cmd=["git", "rev-parse"], timeout=5)),
+    )
+
+    report = RAGDriftDetector(root_dir=tmp_path).detect_drift(
+        current_cache={}, last_indexed_commit="abc123"
+    )
+
+    assert report.current_head_commit is None
