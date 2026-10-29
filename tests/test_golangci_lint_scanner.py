@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -159,23 +158,21 @@ def test_golangci_lint_missing_go_records_failed(
     assert "go" in outcome.reason
 
 
-def test_golangci_lint_typecheck_failure_records_failed(tmp_path: Path) -> None:
+def test_golangci_lint_typecheck_failure_records_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
+) -> None:
     """Typecheck or package loading error records failed state."""
     (tmp_path / "go.mod").write_text("module example.com/test\ngo 1.23\n", encoding="utf-8")
     (tmp_path / "main.go").write_text("package main\n", encoding="utf-8")
+    scanner_fake.script(
+        BIN_GOLANGCI_LINT,
+        ToolAnswer(exit_code=1, stderr="typechecking error: expected declaration, found 'EOF'"),
+    )
+    scanner_fake.script("go", ToolAnswer())
+    # golangci-lint and go are installed: PATH holds only the fake's programs.
+    monkeypatch.setenv("PATH", str(scanner_fake.bin_dir))
 
-    fake_proc = MagicMock()
-    fake_proc.returncode = 1
-    fake_proc.stdout = ""
-    fake_proc.stderr = "typechecking error: expected declaration, found 'EOF'"
-
-    scanner = GolangciLintScanner()
-    with (
-        patch("devops_cli.security.golangci_lint.check_binary", return_value=True),
-        patch.object(scanner, "_check_binary", return_value=True),
-        patch.object(scanner, "_run_tool", return_value=fake_proc),
-    ):
-        outcome = scanner.scan(tmp_path)
+    outcome = GolangciLintScanner().scan(tmp_path)
 
     assert isinstance(outcome, ScanOutcome)
     assert outcome.status == "failed"

@@ -354,23 +354,26 @@ def _record(tool: str = "gitleaks", version: str = "8.21.2", **changes: Any) -> 
     return ToolRun(**fields)
 
 
+def _run_of(document: dict[str, Any], tool: str) -> dict[str, Any]:
+    return next(run for run in document["runs"] if run["tool"]["driver"]["name"] == tool)
+
+
 def test_the_run_of_a_tool_holds_each_record_of_that_tool_in_its_property_bag() -> None:
     """A consumer of the document reads which binary, config and ruleset gave a result. Each
     record goes in the run of its tool with the field names of `ToolRun`, in the order of the
-    runs. The record holds nothing that an invocation, an artifact or `versionControlProvenance`
-    requires, so the run holds none of these."""
+    runs. A record that its caller did not settle holds nothing that an invocation requires, and
+    no record holds what an artifact or `versionControlProvenance` requires."""
     first = _record(targets_digest="1111111111111111")
     second = _record(targets_digest="2222222222222222", commit=None)
     document = to_sarif(
         [make_normalized_finding(tool="gitleaks", rule_id="aws-access-key-id")],
         tool_runs=[first, _record(tool="bandit", version="1.8.6"), second],
     )
-    [run] = document["runs"]
+    run = _run_of(document, "gitleaks")
     assert (
-        run["tool"]["driver"]["name"],
         [ToolRun.model_validate(record) for record in run["properties"]["tool_runs"]],
         sorted(set(run) - {"tool", "results", "properties"}),
-    ) == ("gitleaks", [first, second], [])
+    ) == ([first, second], [])
     _assert_valid_sarif(document)
 
 
@@ -395,13 +398,97 @@ def test_the_driver_names_the_version_of_its_records_when_no_result_names_one(
     _assert_valid_sarif(document)
 
 
-def test_a_tool_with_records_and_no_result_gets_no_run() -> None:
-    """A record does not say that the tool succeeded. A run with no results says that the tool
-    looked and found nothing (SARIF 2.1.0, 3.14.23), and it closes the open alerts of the tool."""
-    document = to_sarif(
-        [make_normalized_finding(tool="gitleaks")], tool_runs=[_record(tool="bandit")]
+@pytest.mark.parametrize(
+    ("settled", "results"),
+    [
+        ([(0, True), (0, True)], []),
+        ([(0, True), (2, False)], None),
+        ([(0, True), (None, None)], None),
+    ],
+    ids=["every-run-succeeded", "a-run-failed", "a-run-not-settled"],
+)
+def test_a_tool_with_records_and_no_result_has_a_run_that_says_how_it_ended(
+    settled: list[tuple[int | None, bool | None]], results: list[Any] | None
+) -> None:
+    """A run with an empty results array says that the tool looked and found nothing. It is true
+    only when every run of the tool succeeded. Otherwise the run has no results, which SARIF reads
+    as null: the tool did not finish its analysis (SARIF 2.1.0, 3.14.23)."""
+    records = [
+        _record(tool="bandit", exit_code=exit_code, success=success)
+        for exit_code, success in settled
+    ]
+
+    document = to_sarif([make_normalized_finding(tool="gitleaks")], tool_runs=records)
+
+    assert (_drivers(document), _run_of(document, "bandit").get("results")) == (
+        ["bandit", "gitleaks"],
+        results,
     )
-    assert (_drivers(document), "properties" in document["runs"][0]) == (["gitleaks"], False)
+    _assert_valid_sarif(document)
+
+
+def test_each_settled_record_is_one_invocation_of_the_run_of_its_tool() -> None:
+    """An invocation says if the tool succeeded, and the exit code alone does not say it: Gitleaks
+    exits with 1 when it finds a secret (SARIF 2.1.0, 3.20.14). The command line is the template
+    of the record, in the order of the runs. A record that its caller did not settle has no
+    invocation, and a run that timed out has no exit code of its own (3.20.9)."""
+    document = to_sarif(
+        [make_normalized_finding(tool="gitleaks")],
+        tool_runs=[
+            _record(exit_code=1, success=True),
+            _record(),
+            _record(exit_code=2, success=False),
+            _record(exit_code=None, success=False),
+        ],
+    )
+
+    command = "gitleaks detect --config {config} {targets}"
+    assert _run_of(document, "gitleaks")["invocations"] == [
+        {"commandLine": command, "executionSuccessful": True, "exitCode": 1},
+        {"commandLine": command, "executionSuccessful": False, "exitCode": 2},
+        {"commandLine": command, "executionSuccessful": False},
+    ]
+    _assert_valid_sarif(document)
+
+
+def test_the_command_line_quotes_each_argument_for_a_shell_but_a_placeholder() -> None:
+    """A consumer can split the command line as a POSIX shell does. A placeholder stands as it
+    is, so that it is the same string as its redaction token (SARIF 2.1.0, 3.5.2)."""
+    record = _record(
+        tool="semgrep",
+        argv_template=("semgrep", "--exclude", "a b", "--json", "{ruleset}", "{targets}"),
+        exit_code=0,
+        success=True,
+    )
+
+    document = to_sarif([], tool_runs=[record])
+
+    [invocation] = _run_of(document, "semgrep")["invocations"]
+    assert invocation["commandLine"] == "semgrep --exclude 'a b' --json {ruleset} {targets}"
+
+
+@pytest.mark.parametrize(
+    ("templates", "tokens"),
+    [
+        (
+            [("gitleaks", "--config", "{config}", "{targets}"), ("gitleaks", "{ruleset}")],
+            ["{targets}", "{config}", "{ruleset}"],
+        ),
+        ([("gitleaks", "detect", "{targets}")], ["{targets}"]),
+        ([("gitleaks", "version")], None),
+    ],
+    ids=["three-placeholders", "targets-only", "no-placeholder"],
+)
+def test_the_placeholders_of_the_command_lines_are_the_redaction_tokens_of_the_run(
+    templates: list[tuple[str, ...]], tokens: list[str] | None
+) -> None:
+    """A placeholder stands for a path of the host, so a command line from the template is a
+    redacted string, and its run names each token (SARIF 2.1.0, 3.14.28)."""
+    records = [_record(argv_template=template, exit_code=0, success=True) for template in templates]
+
+    document = to_sarif([make_normalized_finding(tool="gitleaks")], tool_runs=records)
+
+    assert _run_of(document, "gitleaks").get("redactionTokens") == tokens
     _assert_valid_sarif(document)
 
 

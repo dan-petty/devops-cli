@@ -222,6 +222,23 @@ def test_a_run_answers_the_exit_code_and_the_output_of_the_tool(
     )
 
 
+@pytest.mark.parametrize("success", [True, False])
+def test_the_settled_record_of_a_run_holds_its_exit_code_and_the_success_its_caller_decided(
+    executor: ToolExecutor, scenario: Scenario, success: bool
+) -> None:
+    """The executor builds the record before the tool starts, so the record of its answer says
+    nothing of how the run ended. An executor that keeps no records changes nothing on a settle."""
+    result = executor.run(scenario.request())
+
+    executor.settle(result, success=success)
+
+    assert (result.run.exit_code, result.run.success, result.settled(success=success)) == (
+        None,
+        None,
+        result.run.model_copy(update={"exit_code": 3, "success": success}),
+    )
+
+
 def test_a_run_records_the_tool_the_files_it_read_and_the_commit(
     executor: ToolExecutor, scenario: Scenario
 ) -> None:

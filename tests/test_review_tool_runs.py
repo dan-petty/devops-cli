@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_CANARY_WORKDIR_PREFIX,
     CONST_REVIEW_SARIF_FILENAME,
     CONST_REVIEW_SCAN_BANDIT_INI,
+    CONST_SANDBOX_TIMEOUT_EXIT_CODE,
 )
 from devops_cli.exceptions.sandbox import SandboxValidationError
 from devops_cli.review.anchors import ToolAnchor
@@ -611,7 +612,7 @@ def test_the_report_shows_a_row_for_each_distinct_record_and_counts_its_runs(
     """Gitleaks scans one file at a time, so a review of many files runs it many times with one
     record. The report holds one row for a record and counts its runs. `profile.json` keeps each.
     A row names the tool, its version, how it ran, the short digest of its binary, the digests of
-    its config and ruleset, the commit and the command."""
+    its config and ruleset, the commit, the command, the exit code and the success."""
     executor = orchestrator.tool_executor
     run_gitleaks_scan([tree / "app.py", tree / "other.py"], isolated=True, tool_executor=executor)
     run_bandit_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
@@ -621,22 +622,24 @@ def test_the_report_shows_a_row_for_each_distinct_record_and_counts_its_runs(
 
     section = report.split("## Tool Runs\n", 1)[1].split("\n\n", 1)[0].splitlines()
     assert section == [
-        "| Tool | Version | Executor | Binary | Config | Ruleset | Commit | Command | Runs |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Tool | Version | Executor | Binary | Config | Ruleset | Commit | Command | Exit code "
+        "| Succeeded | Runs |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
         section[2],
         f"| bandit | {bandit.version} | fake | `{bandit.binary_sha256[:16]}` | "
         f"`{bandit.config_digest}` | `{bandit.ruleset_digest}` | `{bandit.commit}` | "
-        f"`{' '.join(bandit.argv_template)}` | 1 |",
+        f"`{' '.join(bandit.argv_template)}` | 0 | yes | 1 |",
     ]
     assert section[2].startswith("| gitleaks | ")
     assert section[2].endswith(" | 2 |")
 
 
-def test_the_sarif_of_a_review_holds_the_records_of_each_tool_that_gave_a_result(
+def test_the_sarif_of_a_review_holds_a_run_with_the_records_of_each_tool_that_ran(
     tree: Path, orchestrator: ReviewPipelineOrchestrator
 ) -> None:
-    """`findings.sarif` holds the records of Gitleaks in the run of Gitleaks, each in full. Bandit
-    gave no result, and its records do not say that it succeeded, so it gets no run (#1983)."""
+    """`findings.sarif` holds the records of Gitleaks in the run of Gitleaks, each in full and each
+    with its invocation. Bandit gave no result and its run succeeded, so its run says that it
+    looked and found nothing (#2100)."""
     executor = orchestrator.tool_executor
     run_gitleaks_scan([tree / "app.py", tree / "other.py"], isolated=True, tool_executor=executor)
     run_bandit_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
@@ -658,14 +661,19 @@ def test_the_sarif_of_a_review_holds_the_records_of_each_tool_that_gave_a_result
 
     sarif = orchestrator.session.staging / CONST_REVIEW_SARIF_FILENAME
     document = json.loads(sarif.read_text(encoding="utf-8"))
-    [run] = document["runs"]
+    bandit, run = document["runs"]
     gitleaks = [record for record in executor.runs if record.tool == "gitleaks"]
+    assert (
+        bandit["tool"]["driver"]["name"],
+        bandit["results"],
+        [invocation["executionSuccessful"] for invocation in bandit["invocations"]],
+    ) == ("bandit", [], [True])
     assert (
         run["tool"]["driver"]["name"],
         run["tool"]["driver"]["version"],
         [ToolRun.model_validate(record) for record in run["properties"]["tool_runs"]],
-        len(gitleaks),
-    ) == ("gitleaks", gitleaks[0].version, gitleaks, 2)
+        [invocation["executionSuccessful"] for invocation in run["invocations"]],
+    ) == ("gitleaks", gitleaks[0].version, gitleaks, [True, True])
     schema = json.loads((FIXTURES / "sarif-schema-2.1.0.json").read_text(encoding="utf-8"))
     jsonschema.validators.validator_for(schema)(schema).validate(document)
 
@@ -710,3 +718,107 @@ def test_a_request_that_the_executor_refuses_leaves_no_record(
         recorder.run(request)
 
     assert recorder.runs == ()
+
+
+# How a run ended: the code that ran the tool settles its record (#2100).
+
+_GITLEAKS_FINDING = '[{"RuleID": "aws-access-key-id", "File": "app.py", "StartLine": 1}]'
+
+
+@pytest.mark.parametrize(
+    ("answer", "settled"),
+    [
+        (ToolAnswer(exit_code=1, stdout=_GITLEAKS_FINDING), (1, True)),
+        (ToolAnswer(), (0, True)),
+        (ToolAnswer(exit_code=2, stdout="panic: no config", stderr="bad"), (2, False)),
+        (ToolAnswer(exit_code=CONST_SANDBOX_TIMEOUT_EXIT_CODE, timed_out=True), (None, False)),
+        (ToolAnswer(exit_code=-9), (None, False)),
+    ],
+    ids=["found", "clean", "not-json", "timed-out", "signal"],
+)
+def test_a_scan_settles_its_run_with_the_exit_code_and_the_success_of_its_outcome(
+    answer: ToolAnswer,
+    settled: tuple[int | None, bool],
+    tree: Path,
+    tool_executor_fake: ToolExecutorFake,
+) -> None:
+    """Gitleaks exits with 1 when it finds a secret, so the exit code does not tell success. The
+    scan decides from the exit code and the output together. A run that timed out, or that a
+    signal ended, has no exit code of its own (SARIF 2.1.0, 3.20.9)."""
+    tool_executor_fake.script("gitleaks", answer)
+    recorder = RecordingToolExecutor(tool_executor_fake)
+
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tool_executor=recorder)
+
+    [run] = recorder.runs
+    assert (run.exit_code, run.success) == settled
+
+
+@pytest.mark.parametrize(("exit_code", "success"), [(0, True), (1, True), (2, False)])
+def test_mypy_settles_its_run_as_succeeded_when_it_finished_its_check(
+    exit_code: int, success: bool, tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """mypy exits with 1 when it finds an error, and with 2 when it cannot check the files."""
+    tool_executor_fake.script("mypy", ToolAnswer(exit_code=exit_code))
+    recorder = RecordingToolExecutor(tool_executor_fake)
+
+    run_mypy_scan([tree / "app.py"], tree=tree, checkout_root=tree, tool_executor=recorder)
+
+    [run] = recorder.runs
+    assert (run.exit_code, run.success) == (exit_code, success)
+
+
+def test_the_recorder_keeps_the_settled_record_in_the_place_of_the_run(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """The records stay in the order the runs started. A run that its caller has not settled yet
+    has no exit code and no success."""
+    recorder = RecordingToolExecutor(tool_executor_fake)
+    request = ToolRequest(tool="gitleaks", workdir=tree, targets=(tree / "app.py",))
+    first = recorder.run(request)
+    recorder.run(request.model_copy(update={"tool": "bandit"}))
+
+    recorder.settle(first, success=True)
+
+    assert [(run.tool, run.exit_code, run.success) for run in recorder.runs] == [
+        ("gitleaks", 0, True),
+        ("bandit", None, None),
+    ]
+    assert recorder.runs[0] == first.run.model_copy(update={"exit_code": 0, "success": True})
+
+
+def test_the_recorder_refuses_a_result_that_is_settled_or_that_it_did_not_start(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """A second settle of one result is a defect of its caller, so the first settle stays."""
+    recorder = RecordingToolExecutor(tool_executor_fake)
+    request = ToolRequest(tool="gitleaks", workdir=tree, targets=(tree / "app.py",))
+    result = recorder.run(request)
+    recorder.settle(result, success=True)
+
+    with pytest.raises(ValueError, match="gitleaks"):
+        recorder.settle(result, success=False)
+    with pytest.raises(ValueError, match="gitleaks"):
+        recorder.settle(tool_executor_fake.run(request), success=True)
+
+    assert [run.success for run in recorder.runs] == [True]
+
+
+def test_the_report_shows_a_row_for_each_way_that_the_runs_of_a_record_ended(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """Two runs that read the same files and ended in different ways make two rows. Without the
+    exit code and the success, the two rows would read the same."""
+    recorder = RecordingToolExecutor(tool_executor_fake)
+    tool_executor_fake.script("gitleaks", ToolAnswer(exit_code=1, stdout=_GITLEAKS_FINDING))
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tool_executor=recorder)
+    tool_executor_fake.script("gitleaks", ToolAnswer(exit_code=2, stdout="panic"))
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tool_executor=recorder)
+
+    rows = tool_runs_section(recorder.runs)[3:-1]
+
+    ended = [re.split(r"(?<!\\)\|", row.strip("|"))[-3:-1] for row in rows]
+    assert (TOOL_RUNS_COLUMNS[-3:], ended) == (
+        ("Exit code", "Succeeded", "Runs"),
+        [[" 1 ", " yes "], [" 2 ", " no "]],
+    )

@@ -44,6 +44,11 @@ There is no limit on the number of processes. RLIMIT_NPROC counts every process 
 limit set inside the sandbox would starve the shells and servers of the host.
 `_run_sandbox_process` in `sandbox/host.py` gives the reason in full.
 
+The code that runs a tool decides if the run succeeded, from the exit code and the output together,
+and settles the run with `ToolExecutor.settle`. `RecordingToolExecutor` then keeps the settled
+record, which holds `exit_code` and `success` (`ToolResult.settled`). The other executors keep no
+records, so their settle does nothing.
+
 The SARIF export of a review (`devops_cli.security.sarif.to_sarif`) writes the records of a tool in
 the SARIF 2.1.0 run of that tool:
 
@@ -52,14 +57,14 @@ the SARIF 2.1.0 run of that tool:
   name one version.
 - The property bag of the run holds each record under `tool_runs`, with the field names of
   `ToolRun`.
+- Each settled record is one `invocation` of the run. `success` is `executionSuccessful` (section
+  3.20.14), and `exit_code` is `exitCode` (section 3.20.9). `argv_template` is `commandLine` (section
+  3.20.2), with each argument quoted for a POSIX shell. Each placeholder of the template that a
+  command line holds is a redaction token of the run (sections 3.5.2 and 3.14.28).
 
-SARIF has a name for three more fields. SARIF requires a value there that the record does not hold,
+SARIF has a name for two more fields. SARIF requires a value there that the record does not hold,
 so the export does not write these names:
 
-- `argv_template` is the `commandLine` of an `invocation`. An invocation must tell in
-  `executionSuccessful` if the tool succeeded (section 3.20.14). The record does not tell this, and
-  the exit code of a tool does not tell it either. Each placeholder of the template is then a
-  redaction token of the run (sections 3.5.2 and 3.14.28).
 - `binary_sha256` is the `sha-256` hash of an artifact with the role `driver`. A top-level artifact
   must have a location (section 3.24.2), and the record holds no path of the binary.
 - `commit` is the `revisionId` of `versionControlProvenance`. This object must have a
@@ -261,6 +266,12 @@ class ToolRun(_Frozen):
     neither has a checkout that holds no commit yet. The sandbox executor refuses a checkout that
     git cannot read. The direct executor records no commit for it, because a scan must not fail
     for a record.
+
+    `exit_code` and `success` say how the run ended. An executor builds the record before the tool
+    starts, so the record of its answer holds neither. The code that ran the tool decides from the
+    exit code and the output together if the run succeeded, and settles the run
+    (`ToolExecutor.settle`). The settled record (`ToolResult.settled`) holds both. It holds no exit
+    code when the run timed out or a signal ended it: the process of the tool did not exit.
     """
 
     tool: str
@@ -273,6 +284,8 @@ class ToolRun(_Frozen):
     argv_template: tuple[str, ...]
     targets_digest: str
     commit: str | None
+    exit_code: int | None = None
+    success: bool | None = None
 
 
 class ToolResult(_Frozen):
@@ -294,12 +307,31 @@ class ToolResult(_Frozen):
             )
         return self
 
+    def settled(self, *, success: bool) -> ToolRun:
+        """The record of this run with how it ended: its exit code, and `success` as the code
+        that ran the tool decided it.
+
+        The exit code 124 of a timeout is the executor's, and a negative exit code is the signal
+        that ended the process. So the record of such a run holds no exit code.
+        """
+        exited = not self.timed_out and self.exit_code >= 0
+        return self.run.model_copy(
+            update={"exit_code": self.exit_code if exited else None, "success": success}
+        )
+
 
 class ToolExecutor(Protocol):
-    """The seam: runs a review tool and answers how it ended and what ran."""
+    """The seam: runs a review tool and answers how it ended and what ran.
+
+    The code that calls `run` decides if each run succeeded, and settles the run one time with
+    `settle`.
+    """
 
     def run(self, request: ToolRequest) -> ToolResult:
         """Run the tool of `request`; a request that cannot run safely raises `SandboxError`."""
+
+    def settle(self, result: ToolResult, *, success: bool) -> None:
+        """Keep that the run of `result` succeeded or failed, when the executor keeps records."""
         ...
 
 
@@ -593,6 +625,9 @@ class DirectToolExecutor:
             env=request.env or None,
         )
 
+    def settle(self, result: ToolResult, *, success: bool) -> None:
+        """Do nothing: this executor keeps no records."""
+
 
 class SandboxToolExecutor:
     """Runs each tool in a bubblewrap sandbox, under `prlimit`, through `run_subprocess`.
@@ -784,14 +819,18 @@ class SandboxToolExecutor:
                 run, command, cwd=request.workdir, wall_seconds=request.limits.wall_seconds
             )
 
+    def settle(self, result: ToolResult, *, success: bool) -> None:
+        """Do nothing: this executor keeps no records."""
+
 
 class RecordingToolExecutor:
     """Passes each request to another executor and keeps the record of each run that started.
 
     A review gives its scanners one of these, so that the review can show what ran. A scanner
     reads the answer of the wrapped executor, unchanged. A request that the wrapped executor
-    refuses starts no run, so it leaves no record. Scans may run on several threads. Appending a
-    record to a list is atomic.
+    refuses starts no run, so it leaves no record. When the scanner settles a run, the settled
+    record takes the place of the record of the run. Scans may run on several threads. Appending a
+    record to a list, and setting one item of it, are atomic.
     """
 
     def __init__(self, executor: ToolExecutor) -> None:
@@ -808,6 +847,21 @@ class RecordingToolExecutor:
         result = self._executor.run(request)
         self._runs.append(result.run)
         return result
+
+    def settle(self, result: ToolResult, *, success: bool) -> None:
+        """Keep the settled record of `result` in the place of the record of its run.
+
+        The record of the run is found by identity: two runs of one tool over one file can have
+        equal records. A result that this executor did not start, or that is already settled, has
+        no record here, and raises `ValueError`: its caller has a defect.
+        """
+        index = next((i for i, run in enumerate(self._runs) if run is result.run), None)
+        if index is None:
+            raise ValueError(
+                f"The run of {result.run.tool} did not start here, or it is already settled"
+            )
+        self._executor.settle(result, success=success)
+        self._runs[index] = result.settled(success=success)
 
 
 __all__ = [
