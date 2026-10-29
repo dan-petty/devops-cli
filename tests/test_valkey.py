@@ -964,3 +964,118 @@ def test_ai_runs_connect_brackets_ipv6_host(
     res = runner.invoke(ai_runs_app, ["connect"])
     assert res.exit_code == 0
     assert connected_urls == ["valkey://[2001:db8::1]:30379"]
+
+
+# =============================================================================
+# 3. MCP tools: the server is the configured one, never a URL that the model gives (#2634)
+# =============================================================================
+
+VALKEY_TOOL_PARAMETERS: dict[str, list[str]] = {
+    "valkey_ping": [],
+    "valkey_stats": [],
+    "valkey_info": ["section"],
+    "valkey_get": ["key"],
+    "valkey_set": ["key", "value", "ex", "dry_run"],
+    "valkey_flush": ["all_databases", "dry_run"],
+}
+"""Each Valkey tool and the parameters that it publishes. None of them is a URL."""
+
+VALKEY_TOOL_CALLS: dict[str, tuple[dict[str, object], list[list[str]]]] = {
+    "valkey_ping": ({}, [["PING"]]),
+    "valkey_stats": ({}, [["INFO"], ["DBSIZE"]]),
+    "valkey_info": ({"section": "memory"}, [["INFO", "memory"]]),
+    "valkey_get": ({"key": "k"}, [["GET", "k"]]),
+    "valkey_set": ({"key": "k", "value": "v"}, [["SET", "k", "v"]]),
+    "valkey_flush": ({}, [["FLUSHDB"]]),
+}
+"""Each Valkey tool, arguments that it accepts, and the commands that it sends to the server."""
+
+_VALKEY_REPLIES = {
+    "PING": b"+PONG\r\n",
+    "INFO": bulk_reply(b"# Server\r\nvalkey_version:8.0.0\r\nuptime_in_seconds:3600\r\n"),
+    "DBSIZE": b":3\r\n",
+    "GET": bulk_reply(b"v"),
+}
+_PASSWORD = "FAKE-2634-value"
+
+
+async def _call_valkey_tool(tool: str, arguments: dict[str, object]) -> tuple[bool, str]:
+    """Call a tool the way an MCP client does: whether the call failed, and its reply."""
+    from fastmcp import Client
+
+    from devops_cli.ai.mcp.server import mcp
+
+    async with Client(mcp) as client:
+        await client.call_tool("hydrate_tool_domain", {"domain": "valkey"})
+        result = await client.call_tool(tool, arguments, raise_on_error=False)
+    return bool(result.is_error), "\n".join(getattr(block, "text", "") for block in result.content)
+
+
+@pytest.mark.usefixtures("keyring_store")
+class TestValkeyToolsTakeNoUrlFromTheModel:
+    """The MCP Valkey tools dial the server of `valkey.url`, never a URL that the calling model
+    gives, so the Valkey password goes only to the configured server (#2634)."""
+
+    async def test_the_tools_publish_no_url_parameter(self) -> None:
+        """The schema of each tool holds its own options and no URL."""
+        from fastmcp import Client
+
+        from devops_cli.ai.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            await client.call_tool("hydrate_tool_domain", {"domain": "valkey"})
+            tools = await client.list_tools()
+
+        assert {
+            tool.name: list(tool.input_schema["properties"])
+            for tool in tools
+            if tool.name.startswith("valkey_")
+        } == VALKEY_TOOL_PARAMETERS
+
+    @pytest.mark.parametrize("tool", list(VALKEY_TOOL_CALLS))
+    async def test_a_url_argument_is_refused_and_opens_no_connection(
+        self, monkeypatch: pytest.MonkeyPatch, tool: str
+    ) -> None:
+        """A call that gives a URL fails, and the server at that URL gets no connection.
+
+        On `origin/main` the server at the URL received `AUTH <password>` and then the command of
+        the tool, so `valkey_set` and `valkey_flush` also wrote to it.
+        """
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PASSWORD", _PASSWORD)
+        arguments, _commands = VALKEY_TOOL_CALLS[tool]
+        with serving_valkey(_VALKEY_REPLIES) as (port, received):
+            failed, reply = await _call_valkey_tool(
+                tool, {**arguments, "url": f"valkey://127.0.0.1:{port}/0"}
+            )
+
+        assert (
+            failed,
+            "1. Parameter: `url`\n   Kind: HALLUCINATED_PARAM\n" in reply,
+            received,
+        ) == (True, True, [])
+
+    @pytest.mark.parametrize("tool", list(VALKEY_TOOL_CALLS))
+    async def test_each_tool_dials_the_configured_server_with_the_password(
+        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path], tool: str
+    ) -> None:
+        """The password still reaches the server that the configuration names."""
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PASSWORD", _PASSWORD)
+        arguments, commands = VALKEY_TOOL_CALLS[tool]
+        with serving_valkey(_VALKEY_REPLIES) as (port, received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            failed, _reply = await _call_valkey_tool(tool, arguments)
+
+        assert (failed, received) == (False, [["AUTH", _PASSWORD], *commands])
+
+    def test_the_url_option_of_a_command_sends_the_password_to_the_host_that_a_person_types(
+        self, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+    ) -> None:
+        """A person types `--url`, and no model gives it, so the password goes to that host."""
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PASSWORD", _PASSWORD)
+        with serving_valkey(_VALKEY_REPLIES) as (port, received):
+            result = cli("valkey", "ping", "--url", f"valkey://127.0.0.1:{port}/3")
+
+        assert (result.exit_code, received) == (
+            0,
+            [["AUTH", _PASSWORD], ["SELECT", "3"], ["PING"]],
+        )

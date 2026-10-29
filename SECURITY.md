@@ -31,6 +31,8 @@ All code authored in or evaluated by DevOps CLI must strictly adhere to the foll
 10. **Bounded Error Detail**: Cap each external value in an exception `details` dictionary or a structured log at 256 characters (CWE-209, CWE-400).
 11. **MCP Tool Inputs**: A URL or host that a model gives to an MCP tool is untrusted input, not configuration. A tool publishes no option for it, and queries the service that the configuration names. `_PATH_PARAM_RESTRICTIONS` in `src/devops_cli/ai/mcp/generator.py` sets the options that a tool publishes. A credential goes only to the origin that the configuration names, whatever the egress level is. `_key_for` in `src/devops_cli/ai/gateway.py` applies this rule to the AI API key. A tool that publishes such an option is a defect.
 
+   The `--url` option of the `devops valkey` commands is an accepted case. A person types it, and no model gives the URL. So `valkey.password` goes to the host that the person names. Those commands are not MCP tools.
+
 ---
 
 ## Reporting a Vulnerability
