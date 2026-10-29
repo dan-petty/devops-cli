@@ -20,7 +20,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1879-fail-to-pass-fix-only`
 - Pending a person: if `Fail-to-Pass Check` ever becomes a required check of `main`, move the path scope from the workflow's `paths:` into the job's `if:`, because a workflow that a path filter skips leaves a required check Pending.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
