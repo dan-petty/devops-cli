@@ -517,7 +517,6 @@ def _radar_reply(domain: str) -> str:
     if rep.outcome in ("unavailable", "failed"):
         return (
             f"Cloudflare Radar Intelligence for Domain {domain}:\n"
-            f"- Threat Categories: None\n"
             f"- Reputation Summary: {rep.reputation_summary}"
         )
     return (
