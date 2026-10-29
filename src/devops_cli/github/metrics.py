@@ -4,7 +4,7 @@ Provides analysis and aggregations for:
 - Release frequency and cadence (intervals in days between releases).
 - Commits and merged pull requests per release.
 - CI quality gate checks and workflow run pass rates.
-- Roadmap Items counted by milestone, state, type and priority.
+- Roadmap Items counted by release, state, type and priority.
 - Open issues grouped by taxonomy label (type, scope).
 - OpenTelemetry instrumentation for Prometheus export and Grafana visualization.
 """
@@ -17,7 +17,7 @@ import logging
 import re
 import subprocess
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.github.client import GhCliClient, parse_paginated_json
 from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap.store import GitHubState, RoadmapStore
 from devops_cli.telemetry.instruments import (
     PROJECT_CI_RUNS,
     PROJECT_COMMITS,
@@ -52,6 +52,8 @@ from devops_cli.telemetry.instruments import (
 logger = logging.getLogger(__name__)
 
 _PR_NUMBER_RE = re.compile(r"\(#(\d+)\)")
+_CLOSING_REF_RE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)", re.IGNORECASE)
+"""A closing keyword of GitHub and the issue it closes, as a commit footer writes it."""
 
 
 class ReleaseCadenceMetric(BaseModel):
@@ -87,13 +89,13 @@ class MilestoneMetric(BaseModel):
 
 
 class ItemCountMetric(BaseModel):
-    """The roadmap Items that share a milestone, a state, a type and a priority.
+    """The roadmap Items that share a release, a state, a type and a priority.
 
-    A value is empty when the Item has none: no milestone or no `type/*` label. Every Item holds
-    a Priority.
+    A value is empty when the Item has none: no release closed it, or it has no `type/*` label.
+    Every Item holds a Priority.
     """
 
-    milestone: str = ""
+    release: str = ""
     state: str
     type: str = ""
     priority: str = ""
@@ -231,6 +233,24 @@ def _extract_commits_and_prs(root: Path, prev_tag: str | None, tag: str) -> tupl
     effective_commits = max(commit_count, bullet_count)
     prs = set(_PR_NUMBER_RE.findall(body))
     return effective_commits, len(prs)
+
+
+def get_item_releases(root: Path) -> dict[int, str]:
+    """The first `v*` tag whose commits close each issue with a closing keyword (#2702).
+
+    release-please copies the `Closes #<issue>` footer of each squash commit into the release
+    commit of the tag, so the tag ranges of the git repository at `root` give the release of
+    each closed issue with no GitHub call. A commit after the last tag releases no issue.
+    """
+    releases: dict[int, str] = {}
+    prev_tag: str | None = None
+    for tag, _ in _get_git_tag_entries(root):
+        rev_range = f"{prev_tag}..{tag}" if prev_tag else tag
+        body = _git_output(root, "log", "--format=%B", rev_range, timeout=15) or ""
+        for number in _CLOSING_REF_RE.findall(body):
+            releases.setdefault(int(number), tag)
+        prev_tag = tag
+    return releases
 
 
 def get_release_cadence_metrics(root: Path, limit: int = 10) -> list[ReleaseCadenceMetric]:
@@ -387,19 +407,28 @@ def _item_type(labels: Iterable[str]) -> str:
 
 
 def get_item_metrics(
-    store: RoadmapStore, milestone_filter: str | None = None
+    store: RoadmapStore,
+    releases: Mapping[int, str] | None = None,
+    milestone_filter: str | None = None,
 ) -> list[ItemCountMetric]:
-    """Count the Items of `store`, open and closed, by milestone, state, type and priority
-    (#2263): the issues that hold a `priority/*` label. Raises when the issues cannot be read,
-    so a failed read is no empty roadmap."""
+    """Count the Items of `store`, open and closed, by release, state, type and priority
+    (#2263, #2702): the issues that hold a `priority/*` label. `releases` maps an issue number
+    to the tag that closed it (`get_item_releases`); an open Item has no release. Raises when
+    the issues cannot be read, so a failed read is no empty roadmap."""
+    released = releases or {}
     counts = Counter(
-        (item.milestone or "", item.state.value, _item_type(item.labels), item.priority or "")
+        (
+            released.get(item.number, "") if item.state is GitHubState.CLOSED else "",
+            item.state.value,
+            _item_type(item.labels),
+            item.priority or "",
+        )
         for item in store.items()
         if milestone_filter is None or item.milestone == milestone_filter
     )
     return [
-        ItemCountMetric(milestone=milestone, state=state, type=kind, priority=priority, count=count)
-        for (milestone, state, kind, priority), count in sorted(counts.items())
+        ItemCountMetric(release=release, state=state, type=kind, priority=priority, count=count)
+        for (release, state, kind, priority), count in sorted(counts.items())
     ]
 
 
@@ -555,7 +584,9 @@ def collect_project_metrics_report(
     now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     roadmap = store if store is not None else roadmap_store.get_roadmap_store(target_repo)
-    items = get_item_metrics(roadmap, milestone_filter=milestone_filter)
+    items = get_item_metrics(
+        roadmap, get_item_releases(project_root), milestone_filter=milestone_filter
+    )
     releases = get_release_cadence_metrics(project_root, limit=release_limit)
     workflow_runs = get_ci_workflow_metrics(target_repo, limit=ci_limit)
     milestones = get_milestone_metrics(target_repo, milestone_filter=milestone_filter)
@@ -657,6 +688,7 @@ __all__ = [
     "emit_project_metrics_telemetry",
     "get_ci_workflow_metrics",
     "get_item_metrics",
+    "get_item_releases",
     "get_label_taxonomy_metrics",
     "get_milestone_metrics",
     "get_release_cadence_metrics",

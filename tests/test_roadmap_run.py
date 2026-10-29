@@ -1134,7 +1134,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         ("metrics",),
         True,
         [({}, 2.0)],
-        [({"milestone": "", "state": "open", "type": "feature", "priority": "P2-Medium"}, 1.0)],
+        [({"release": "", "state": "open", "type": "feature", "priority": "P2-Medium"}, 1.0)],
         [],
     )
 
