@@ -140,6 +140,9 @@ devops config get github.default_org
 # Audit configuration for unencrypted plaintext credentials
 devops config audit-keys
 
+# Remove a plaintext credential from the file that the audit names
+DEVOPS_CLI_CONFIG=<file> devops config unset <key>
+
 # Store a credential in the OS keyring; omit the value to type it at a hidden prompt
 devops config set ai.api_key
 

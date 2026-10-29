@@ -320,6 +320,14 @@ class ConfigMessages:
     from_file_empty: str = "The input holds no value."
     unset_success: str = "Removed {key} from {path}:{line}."
     unset_backup: str = "The file before the change is in {backup}."
+    plaintext_alert: str = (
+        "Security Alert: Found plaintext secrets stored in config files: {leaks}. "
+        "Each entry reads <file>:<key>. "
+        "First, store a credential in the OS keyring: 'devops config set <key>'. "
+        "Then remove the plaintext value from its file: "
+        "'DEVOPS_CLI_CONFIG=<file> devops config unset <key>'. "
+        "A key that is not a config option needs only the second command."
+    )
 
 
 @dataclass(frozen=True)

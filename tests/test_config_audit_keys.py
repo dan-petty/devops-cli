@@ -32,8 +32,8 @@ def _audit_in_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def write_global_config() -> Iterator[Callable[[bytes], Path]]:
     """Write the global config file of the settings, which is in the isolated HOME of the worker.
 
-    The teardown removes the file, and the config directory when the test made it, so the
-    worker-home tripwire finds no state that stays.
+    The teardown removes the file, the copies that a write of it made, and the config directory
+    when the test made it, so the worker-home tripwire finds no state that stays.
     """
     config_dir_existed = CONST_CONFIG_DIR.exists()
 
@@ -44,6 +44,8 @@ def write_global_config() -> Iterator[Callable[[bytes], Path]]:
 
     yield write
     CONST_CONFIG_PATH.unlink(missing_ok=True)
+    for copy in CONST_CONFIG_DIR.glob(f"{CONST_CONFIG_PATH.name}.bak-*"):
+        copy.unlink()
     if not config_dir_existed and CONST_CONFIG_DIR.exists():
         CONST_CONFIG_DIR.rmdir()
 
@@ -247,6 +249,68 @@ def test_config_audit_keys_table_names_the_path_of_the_global_config_file_that_h
     assert result.exit_code == 1
     alert = result.output[result.output.index("Security Alert") :]
     assert f"'{global_config_with_a_secret.resolve()}:ai.api_key'" in alert
+
+
+_UNSET_COMMAND = "DEVOPS_CLI_CONFIG=<file> devops config unset <key>"
+
+
+def _words(text: str) -> str:
+    """The text with each run of white space as one space, so a wrap of a line does not matter."""
+    return " ".join(text.split())
+
+
+@pytest.mark.parametrize("leak_is_in_the_global_file", [True, False])
+def test_config_audit_keys_alert_names_a_command_that_removes_the_leak_from_its_file(
+    leak_is_in_the_global_file: bool,
+    cli: Callable[..., Any],
+    write_global_config: Callable[[bytes], Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The file of the leak is not the active file, so a plain `devops config unset <key>` cannot
+    remove the value (#2513). The alert names the command that does: `DEVOPS_CLI_CONFIG` names
+    the file of the leak. The command removes the key, and the next audit passes.
+
+    The leak is in the global file while the directory walk finds a project file, or it is in the
+    `config.yaml` of the current directory while `DEVOPS_CLI_CONFIG` names another file.
+    """
+    if leak_is_in_the_global_file:
+        write_global_config(b"ai:\n  api_key: FAKE-2513-value\n")
+        project_file = tmp_path / ".devcontainer" / "config.yaml"
+        project_file.parent.mkdir()
+        project_file.write_text("log_level: INFO\n", encoding="utf-8")
+        monkeypatch.delenv("DEVOPS_CLI_CONFIG")
+    else:
+        (tmp_path / "config.yaml").write_text(
+            "grafana:\n  token: FAKE-2513-value\n", encoding="utf-8"
+        )
+
+    table = cli("config", "audit-keys")
+    alert = _words(table.output[table.output.index("Security Alert") :])
+    (leak,) = json.loads(cli("config", "audit-keys", "--json").stdout)["plaintext_leaks"]
+    leak_file, _, key = leak.rpartition(":")
+    plain_unset = cli("config", "unset", key)
+    removal = cli("config", "unset", key, env={"DEVOPS_CLI_CONFIG": leak_file})
+    audit = cli("config", "audit-keys", "--json")
+
+    assert table.exit_code == 1
+    assert f"'{_UNSET_COMMAND}'" in alert
+    assert "'devops config set <key>'" in alert
+    assert plain_unset.exit_code == 1
+    assert removal.exit_code == 0
+    assert (audit.exit_code, json.loads(audit.stdout)["plaintext_leaks"]) == (0, [])
+
+
+def test_the_help_of_audit_keys_and_unset_name_the_command_that_removes_a_leak(
+    cli: Callable[..., Any],
+) -> None:
+    """The help of `audit-keys` names the command that its alert names. The help of `unset` says
+    that `DEVOPS_CLI_CONFIG` names the file that the command edits."""
+    audit_help = _words(cli("config", "audit-keys", "--help").output)
+    unset_help = _words(cli("config", "unset", "--help").output)
+
+    assert f"`{_UNSET_COMMAND}`" in audit_help
+    assert "set `DEVOPS_CLI_CONFIG` to its path" in unset_help
 
 
 _LOADER_CREDENTIAL = "FAKE-2426-value"
