@@ -29,6 +29,7 @@ from tests.copilot_review_payloads import (
     copilot_review,
     work_started,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
@@ -347,28 +348,12 @@ _CHECK_RUNS = f"/repos/{_REPO}/commits/{_HEAD}/check-runs?per_page=100"
 _APPROVAL = {"id": 1, "user": {"login": "maintainer"}, "state": "APPROVED", "commit_id": _HEAD}
 
 
-class _Clock:
-    """`time` as `monitor_pr` reads it, where a sleep moves the clock on and takes no time."""
-
-    def __init__(self) -> None:
-        self.now = 0.0
-
-    def monotonic(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.now += seconds
-
-
 @pytest.fixture
-def monitored(github: _GitHub, monkeypatch: pytest.MonkeyPatch) -> _GitHub:
+def monitored(github: _GitHub, clock: ClockFake) -> _GitHub:
     """PR #335 as the monitor reads it: approved at its head, with no Copilot event, on a clock
     that a poll interval moves on at once."""
-    from devops_cli.github import pr_monitor
-
     github.api.route("GET", _REVIEWS, github_json([_APPROVAL]))
     github.api.route("GET", _TIMELINE, github_json([]))
-    monkeypatch.setattr(pr_monitor, "time", _Clock())
     return github
 
 

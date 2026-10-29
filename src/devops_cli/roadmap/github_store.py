@@ -230,9 +230,14 @@ class _IsPrivatePayload(BaseModel):
 class _CommentPayload(BaseModel):
     body: str = ""
     created_at: datetime
+    author_association: str | None = None
 
     def comment(self) -> IssueComment:
-        return IssueComment(body=self.body, created_at=self.created_at)
+        return IssueComment(
+            body=self.body,
+            created_at=self.created_at,
+            author_association=self.author_association,
+        )
 
 
 class _TimelineNodePayload(BaseModel):

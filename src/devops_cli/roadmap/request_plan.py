@@ -486,6 +486,92 @@ def stage_requests(
     return tuple(reads), tuple(writes)
 
 
+def implement_requests(
+    repo: str,
+    *,
+    item: int | None = None,
+    limit: int | None = None,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap implement` reads, in order, and the writes `--confirm` makes after
+    them (#2665). The run updates its clone, reads every issue, the comments of an item with a
+    stop, the branches of `origin`, and for each candidate the commit authors of its branch and
+    the state of its pull request. The writes are, for each item, the worktree, the Status, the
+    rebase, one model step for each task group, the documentation and the archive, the push, the
+    body and the comment of the pull request, the watch of its checks, one fix step when a check
+    fails, `gh pr ready`, the Status and the record, and the comment on the issue. `limit` and
+    `item` change no request: they change how many items the run repeats them for."""
+    del limit
+    store = StoreRequests(repo)
+    texts = MESSAGES.roadmap
+    req, cond, rep = texts.implement_requests, texts.implement_request_conditions, texts.plan_repeat
+    clone, tree, branch = "<model-clone>", "<worktree>", _p("branch")
+    each_item, each_group = rep["implement_item"], rep["implement_group"]
+    pulls = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{_p('pull')}"
+    issues = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/issues"
+    target = f"#{item}" if item is not None else _p("item")
+
+    def git(
+        key: str, cwd: str, *args: str, when: str = "", repeat: str = each_item
+    ) -> PlannedRequest:
+        return PlannedRequest(
+            "git", req[key], argv=("git", "-C", cwd, *args), condition=when, repeat=repeat
+        )
+
+    def other(
+        method: str, key: str, *argv: str, when: str = "", repeat: str = each_item
+    ) -> PlannedRequest:
+        return PlannedRequest(method, req[key], argv=argv, condition=when, repeat=repeat)
+
+    reads = [
+        PlannedRequest(
+            "git",
+            req["update_clone"],
+            argv=("git", "-C", clone, "fetch", "--prune", "origin"),
+        ),
+        *store.every_issue(),
+        *(store.issue(target) if item is not None else []),
+        *within(store.comments_on(target), cond["comments"], repeat=each_item),
+        PlannedRequest(
+            "git", req["remote_heads"], argv=("git", "-C", clone, "ls-remote", "--heads", "origin")
+        ),
+        git("fetch_branch", clone, "fetch", "-q", "origin", branch),
+        git("authors", clone, "log", "--format=%an", f"origin/main..origin/{branch}"),
+        other("GET", "pull_status", "GET", pulls),
+    ]
+    writes = [
+        git(
+            "worktree", clone, "worktree", "add", "--track", "-b", branch, tree, f"origin/{branch}"
+        ),
+        *within(store.set_field(target, "Status"), repeat=each_item),
+        *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
+        git("rebase", tree, "rebase", "origin/main"),
+        other("model", "model_step", "model", repeat=each_group),
+        git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),
+        other("process", "docs", "uv", "run", "devops", "docs", "generate", "--sync-readme"),
+        git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
+        other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
+        git("commit", tree, "commit", "-m", _p("title")),
+        git(
+            "push",
+            tree,
+            "push",
+            f"--force-with-lease={branch}:{_p('remote_tip')}",
+            "origin",
+            branch,
+        ),
+        other("REST write", "body", "PATCH", pulls),
+        other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),
+        other("process", "watch", "gh", "pr", "checks", _p("pull")),
+        other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
+        other("model", "model_fix", "model", when=cond["model_fix"]),
+        other("process", "ready", "gh", "pr", "ready", _p("pull"), when=cond["ready"]),
+        *within(store.set_field(target, "Status"), repeat=each_item),
+        *within(store.comment(target), repeat=each_item),
+        git("remove_worktree", clone, "worktree", "remove", "--force", tree),
+    ]
+    return tuple(reads), tuple(writes)
+
+
 def render_dry_run(
     job: str,
     repo: str,
@@ -509,6 +595,7 @@ def render_dry_run(
 __all__ = [
     "StoreRequests",
     "alternatives_requests",
+    "implement_requests",
     "is_page_repeat",
     "planned_gh",
     "planned_session_read",

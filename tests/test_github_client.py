@@ -728,3 +728,50 @@ def test_a_pull_request_is_closed_with_a_state_change(
 
     assert github_api.requested == [f"PATCH {API}/repos/octocat/Hello-World/pulls/9"]
     assert json.loads(github_api.sent[0].content) == {"state": "closed"}
+
+
+@pytest.mark.parametrize(
+    ("payload", "open_draft"),
+    [
+        ({"state": "open", "draft": True, "merged": False}, True),
+        ({"state": "open", "draft": False, "merged": False}, False),
+        ({"state": "closed", "draft": True, "merged": False}, False),
+        ({"state": "closed", "draft": False, "merged": True}, False),
+    ],
+)
+def test_a_pull_request_status_says_whether_it_is_an_open_draft(
+    github_api: GitHubApiFake, pin_github_session: str, payload: dict[str, Any], open_draft: bool
+) -> None:
+    github_api.route("GET", "/repos/octocat/Hello-World/pulls/9", github_json(payload))
+
+    status = _client().get_pull_status("octocat/Hello-World", 9)
+
+    assert (status.state, status.merged, status.is_open_draft) == (
+        payload["state"],
+        payload["merged"],
+        open_draft,
+    )
+
+
+def test_a_pull_request_body_is_set_with_a_patch(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    github_api.route("PATCH", "/repos/octocat/Hello-World/pulls/9", github_json({"number": 9}))
+
+    _client().update_pull_body("octocat/Hello-World", 9, "Closes #1")
+
+    assert github_api.requested == [f"PATCH {API}/repos/octocat/Hello-World/pulls/9"]
+    assert json.loads(github_api.sent[0].content) == {"body": "Closes #1"}
+
+
+def test_a_comment_on_a_pull_request_goes_to_its_issue(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    github_api.route(
+        "POST", "/repos/octocat/Hello-World/issues/9/comments", github_json({"id": 1}, status=201)
+    )
+
+    _client().comment_on_pull("octocat/Hello-World", 9, "Step 1 passed.")
+
+    assert github_api.requested == [f"POST {API}/repos/octocat/Hello-World/issues/9/comments"]
+    assert json.loads(github_api.sent[0].content) == {"body": "Step 1 passed."}

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from collections.abc import Callable, Iterable
 from typing import Any, NamedTuple, cast
 
@@ -18,6 +17,7 @@ from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
+from devops_cli.core import clock
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.check_verdict import CheckBucket, PRCheckItem
@@ -633,12 +633,12 @@ def monitor_pr(
     valid_timeout = max(1, timeout)
     valid_settle = max(0, settle_timeout)
 
-    start_time = time.monotonic()
+    start_time = clock.monotonic()
     settle_deadline = start_time + valid_settle
     max_deadline = start_time + valid_timeout
 
     while True:
-        now = time.monotonic()
+        now = clock.monotonic()
         elapsed = int(now - start_time)
         latest_status = get_pr_monitoring_status(
             owner, repo, pr_number, require_reviews=require_reviews
@@ -652,11 +652,11 @@ def monitor_pr(
         ):
             return _settled_result(latest_status, pr_number)
 
-        time_left = max_deadline - time.monotonic()
+        time_left = max_deadline - clock.monotonic()
         if time_left <= 0:
             return _build_monitor_timeout_result(latest_status, pr_number, elapsed)
 
-        time.sleep(min(float(valid_interval), time_left))
+        clock.sleep(min(float(valid_interval), time_left))
 
 
 def sort_prs_oldest_first(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:

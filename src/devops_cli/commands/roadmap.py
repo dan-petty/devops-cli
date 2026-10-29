@@ -1,11 +1,13 @@
 """`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
-refine readies items, stage makes a Ready item Staged, and return sends an item back to New.
+refine readies items, stage makes a Ready item Staged, implement takes a Staged item to a ready
+pull request, and return sends an item back to New.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
-`.github/labels.yml` at `--ref`. `intake`, `refine`, `stage` and `return` write GitHub state only
-with `--confirm`; only `stage` also writes git, a branch with one commit, and never to the default
-branch. A person plans the milestones; no command sets one.
+`.github/labels.yml` at `--ref`. `intake`, `refine`, `stage`, `implement` and `return` write
+GitHub state only with `--confirm`; `stage` and `implement` also write git, only to the staged
+branch of an item and never to the default branch. `implement --confirm` runs only in a runner
+pod. A person plans the milestones; no command sets one.
 
 Every job's `--dry-run` makes no request at all (#412, #1125): it returns the job's result type
 marked as a dry run and prints the requests a run makes, each with its exact `gh` command.
@@ -24,6 +26,7 @@ from typing import Annotated, NoReturn
 import typer
 
 from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
     DEFAULT_TABLE_FORMAT,
 )
@@ -428,29 +431,22 @@ def run_cmd(
         raise typer.Exit(1) from exc
 
 
-@app.command("implement", help=HELP.roadmap.implement)
-def implement_cmd(
-    item: Annotated[int, typer.Option("--item", help=HELP.roadmap.implement_item)],
-    group: Annotated[int, typer.Option("--group", help=HELP.roadmap.implement_group)],
-    repo: RepoOption = None,
-    source: Annotated[Path, typer.Option("--source", help=HELP.roadmap.implement_source)] = Path(
-        "."
-    ),
-    output_format: Annotated[
-        str, typer.Option("--format", "-f", help=HELP.options.format_type)
-    ] = DEFAULT_TABLE_FORMAT,
-    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help=HELP.roadmap.implement_dry_run)
-    ] = False,
+def _implement_step(
+    repo: str | None,
+    source: Path | None,
+    item: int | None,
+    group: int,
+    fmt: str,
+    *,
+    dry_run: bool,
 ) -> None:
     """Run one task group of an item's change in a checkout, and commit it or reset it."""
-    from devops_cli.output.serialization import resolve_format
-
-    fmt = resolve_format(output_format, json_output=json_output)
-    target = repo or get_repo_origin_name(source)
+    checkout = source or Path(".")
+    target = repo or get_repo_origin_name(checkout)
     if not target or "/" not in target:
         _refuse("Cannot resolve the repository; pass --repo owner/name.")
+    if item is None:
+        _refuse(MESSAGES.roadmap.implement_step_needs_item)
 
     from devops_cli.config.settings import load_settings
     from devops_cli.roadmap import implement_step
@@ -469,13 +465,128 @@ def implement_cmd(
             store,
             item=item,
             group=group,
-            source=source,
+            source=checkout,
             model=get_task_model("implement"),
             window=task.context_window,
         )
     implement_step.render_outcome(outcome, target, fmt)
     if outcome.status is implement_step.StepStatus.STOPPED:
         raise typer.Exit(1)
+
+
+def _implement_job(
+    repo: str | None,
+    source: Path | None,
+    item: int | None,
+    filters: list[str] | None,
+    limit: int,
+    *,
+    dry_run: bool,
+    plan_only: bool,
+    confirm: bool,
+) -> None:
+    """Take the Staged items that the filter names to a ready pull request."""
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    from devops_cli.roadmap.implement import (
+        dry_run_implement,
+        parse_implement_filters,
+        plan_implement,
+        render_implement_plan,
+    )
+    from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed, require_runner
+
+    with _exit_on_failure("Could not read the options"):
+        parsed = parse_implement_filters(filters or ())
+    target = _target(repo)
+    if dry_run or is_dry_run():
+        planned = dry_run_implement(target, item=item, limit=limit)
+        render_dry_run("implement", target, planned.requests, planned.write_requests)
+        return
+    if confirm:
+        with _exit_on_failure("Could not run the job"):
+            require_runner()
+    elif not plan_only:
+        print_info(MESSAGES.roadmap.implement_job_plain_note)
+    from devops_cli.roadmap.run import model_clone
+
+    with _exit_on_failure("Could not plan the job"):
+        _, store = _open_store(target)
+        clone = source or model_clone(target)
+        plan = plan_implement(
+            store, repo=target, source=clone, filters=parsed, item_number=item, limit=limit
+        )
+    write_stdout(render_implement_plan(plan) + "\n")
+    if not confirm:
+        print_info(MESSAGES.roadmap.preview_only)
+        return
+
+    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.config.settings import load_settings
+
+    with _exit_on_failure("Could not run the job"):
+        applied = apply_implement(
+            store,
+            plan,
+            source=clone,
+            model=get_task_model("implement"),
+            window=load_settings().ai.for_task("implement").context_window,
+        )
+    print_success(
+        MESSAGES.roadmap.implement_job_applied.format(
+            ready=len(applied.ready), stopped=len(applied.stopped)
+        )
+    )
+    with _exit_on_failure("The job is incomplete"):
+        raise_for_failed(applied.failed)
+
+
+@app.command("implement", help=HELP.roadmap.implement)
+def implement_cmd(
+    repo: RepoOption = None,
+    source: Annotated[
+        Path | None, typer.Option("--source", help=HELP.roadmap.implement_source)
+    ] = None,
+    item: Annotated[
+        int | None, typer.Option("--item", min=1, help=HELP.roadmap.implement_item)
+    ] = None,
+    group: Annotated[int | None, typer.Option("--group", help=HELP.roadmap.implement_group)] = None,
+    filters: Annotated[
+        list[str] | None, typer.Option("--filter", help=HELP.roadmap.implement_filter)
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=1, help=HELP.roadmap.implement_limit)
+    ] = DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help=HELP.roadmap.implement_dry_run)
+    ] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.implement_plan)] = False,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help=HELP.roadmap.implement_confirm)
+    ] = False,
+) -> None:
+    """Run one task group of a Staged item's change (--group), or the job that implements Staged items."""
+    if group is None:
+        _implement_job(
+            repo,
+            source,
+            item,
+            filters,
+            limit,
+            dry_run=dry_run,
+            plan_only=plan_only,
+            confirm=confirm,
+        )
+        return
+    if filters or plan_only or confirm:
+        _refuse(MESSAGES.roadmap.implement_step_job_options)
+    from devops_cli.output.serialization import resolve_format
+
+    fmt = resolve_format(output_format, json_output=json_output)
+    _implement_step(repo, source, item, group, fmt, dry_run=dry_run)
 
 
 def _resolve_comment(comment: str, comment_file: Path | None) -> str:

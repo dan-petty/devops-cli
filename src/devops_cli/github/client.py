@@ -62,6 +62,19 @@ class PullRequest(BaseModel):
     base: CommitRef
 
 
+class PullStatus(BaseModel):
+    """Whether a pull request is open, a draft, or merged (#2665)."""
+
+    state: str
+    draft: bool = False
+    merged: bool = False
+
+    @property
+    def is_open_draft(self) -> bool:
+        """Whether the pull request is open and still a draft."""
+        return self.state == "open" and self.draft
+
+
 class PullRequestFile(BaseModel):
     """One file a pull request changes; `previous_filename` is set for a renamed file only."""
 
@@ -220,6 +233,22 @@ class GitHubClient:
         path = _repo_path(repo, "pulls")
         payload = {"title": title, "body": body, "head": head, "base": base, "draft": True}
         return _read_as(CreatedPull, self._session.rest("POST", path, body=payload), path=path)
+
+    def get_pull_status(self, repo: str, number: int) -> PullStatus:
+        """The state, the draft flag and the merge flag of the pull request `number` (#2665)."""
+        path = _repo_path(repo, f"pulls/{number}")
+        return _read_as(PullStatus, self._session.rest("GET", path), path=path)
+
+    def update_pull_body(self, repo: str, number: int, body: str) -> None:
+        """Set the body of the pull request `number` (#2665)."""
+        path = _repo_path(repo, f"pulls/{number}")
+        self._session.rest("PATCH", path, body={"body": body})
+
+    def comment_on_pull(self, repo: str, number: int, body: str) -> None:
+        """Comment `body` on the pull request `number`. GitHub keeps the comments of a pull
+        request on its issue (#2665)."""
+        path = _repo_path(repo, f"issues/{number}/comments")
+        self._session.rest("POST", path, body={"body": body})
 
     def close_pull(self, repo: str, number: int) -> None:
         """Close the pull request `number` without a merge."""

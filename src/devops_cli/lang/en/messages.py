@@ -1951,6 +1951,9 @@ class RoadmapMessages:
     implement_stop_tasks_edited: str = (
         "The tasks of group {group} changed. A step may only tick them."
     )
+    implement_stop_fix_tasks_changed: str = "The tasks changed. A fix step changes no task."
+    implement_fix_title: str = "Make check {check} pass"
+    implement_fix_task: str = "[ ] Make check `{check}` pass"
     implement_stop_unticked: str = "A task of the group is not ticked: {task}"
     implement_stop_group_changed: str = (
         "Group {group} changed. A step may change only its own group."
@@ -1984,6 +1987,103 @@ class RoadmapMessages:
     implement_model_request: str = "model request"
     implement_model_target: str = "{model} for group {group} of item #{item}"
     implement_model_repeat: str = "up to {limit} times"
+    # `devops roadmap implement` as a job (#2665): why it leaves an item out, and its plan.
+    implement_left_not_item: str = "It is not an item of the roadmap."
+    implement_left_closed: str = "It is closed."
+    implement_left_not_ready: str = "Its Status is {status}, not Ready."
+    implement_left_not_staged: str = (
+        "It is not Staged: its record holds no staged branch or pull request."
+    )
+    implement_left_stopped: str = (
+        "A step stopped it at {stopped}. A person fixes the cause and comments `implement: retry`."
+    )
+    implement_left_author: str = (
+        "Its author is {association}, not the owner, a member or a collaborator."
+    )
+    implement_left_no_app: str = (
+        "No GitHub App slug is set in service.github_app.slug, so the author of a commit "
+        "cannot be judged."
+    )
+    implement_left_no_branch: str = "Its staged branch `{branch}` is not on origin."
+    implement_left_foreign: str = "Its branch has a commit by {author}, not by {bot}."
+    implement_left_pull: str = "Its pull request #{pull} is not an open draft."
+    implement_job_title: str = "# Implement plan for {repo}"
+    implement_job_nothing: str = "No item to implement."
+    implement_job_heading_ready: str = "## To implement"
+    implement_job_heading_left: str = "## Left out"
+    implement_job_ready_line: str = (
+        "- #{number} {title}: branch `{branch}`, pull request #{pull}{retry}"
+    )
+    implement_job_retry_note: str = " (a retry: the stop on record is cleared first)"
+    implement_job_left_line: str = "- #{number} {title}: {reason}"
+    implement_job_runner_refused: str = (
+        "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
+        "true there. The shell of the agent is no security boundary, so the runner is the "
+        "sandbox, with a narrow token and no other credential. This process ran no step."
+    )
+    implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
+    implement_job_failed_item: str = "#{number} ({error}{reason})"
+    implement_job_failed: str = "{count} item(s) failed: {items}"
+    implement_step_group: str = "group {group}"
+    implement_step_fix: str = "fix"
+    implement_step_names: dict[str, str] = field(
+        default_factory=lambda: {
+            "rebase": "rebase",
+            "docs": "docs",
+            "archive": "archive",
+            "push": "push",
+            "pull_request": "pull request",
+            "checks": "checks",
+            "ready": "ready",
+            "commit": "commit",
+        }
+    )
+    implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
+    implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
+    implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
+    implement_stop_program_timeout: str = "{command} ran out of time after {seconds} s."
+    implement_stop_checks_timeout: str = (
+        "The checks of the pull request did not finish in {seconds} s."
+    )
+    implement_stop_old_head: str = (
+        "GitHub did not show the commit {head} as the head of the pull request."
+    )
+    implement_stop_check_failed: str = "The check {name} failed."
+    implement_stop_checks_unread: str = "GitHub could not say whether the checks passed."
+    implement_stop_threads: str = "The pull request has {count} unresolved review thread(s)."
+    implement_stop_conflict: str = "The pull request has a merge conflict with the default branch."
+    implement_stop_merged: str = "The pull request was merged or closed while the job ran."
+    implement_stop_ready_failed: str = "`gh pr ready` failed.\n{output}"
+    implement_stop_error: str = "{error}: {message}"
+    implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
+    implement_comment_stopped: str = (
+        "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
+        "{last}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
+        "Then comment `implement: retry`.{note}"
+    )
+    implement_comment_last_none: str = "none."
+    implement_comment_finished: str = (
+        "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
+        "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
+        "tokens."
+    )
+    implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
+    implement_pull_comment_line: str = (
+        "- {step} ({title}): {status}, {requests} model requests{commit}"
+    )
+    implement_pull_comment_commit: str = ", commit `{commit}`"
+    implement_pull_body: str = (
+        "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
+    )
+    implement_step_needs_item: str = "A step needs --item with --group."
+    implement_step_job_options: str = (
+        "--filter, --plan and --confirm are options of the job. With --group, the command runs "
+        "one step and takes only --item, --source, --format and --dry-run."
+    )
+    implement_job_plain_note: str = (
+        "Implement without a mode flag runs as --plan: it reads GitHub and git, and writes "
+        "nothing. --dry-run makes no request."
+    )
     # `devops roadmap stage` (#2654): the filter, and why the job leaves an item out.
     stage_filter_family: str = (
         "'{option}' is not a filter entry: '{family}' is not a label family to filter on. "
@@ -2027,7 +2127,7 @@ class RoadmapMessages:
     )
     stage_secret: str = "The reply has text that looks like a secret, in {path}."
     stage_violations: str = "{count} schema violation(s)"
-    stage_git_failed: str = "`git {command}` failed: {reason}"
+    git_failed: str = "`git {command}` failed: {reason}"
     # The comments of the stage job; each starts with its marker.
     stage_comment_staged: str = (
         "{marker}\nStaged: branch `{branch}`, draft pull request #{pull}. The pull request "
@@ -2110,6 +2210,40 @@ class RoadmapMessages:
             "delete_branch": "only the identity of the session wrote to the branch",
         }
     )
+    implement_requests: dict[str, str] = field(
+        default_factory=lambda: {
+            "update_clone": "update the model clone of the repository",
+            "remote_heads": "the branches of origin",
+            "fetch_branch": "the staged branch of an item",
+            "authors": "the authors of the commits of the staged branch",
+            "pull_status": "the state of the draft pull request of the item",
+            "worktree": "the worktree on the staged branch, which the job takes over",
+            "rebase": "rebase the staged branch onto the fetched default branch",
+            "model_step": "the implement model runs one task group",
+            "commit": "commit the files of the task group",
+            "docs": "regenerate the documentation of the change",
+            "archive": "archive the change",
+            "push": "push the branch with a lease on its remote tip",
+            "body": "set the body of the pull request to close the issue",
+            "pull_comment": "comment the outcome of each step on the pull request",
+            "run_log": "read the log of the failed check",
+            "model_fix": "the implement model fixes the failed check, once",
+            "watch": "read the pull request and its checks until they settle",
+            "ready": "mark the pull request ready for review",
+            "remove_worktree": "remove the worktree and the local branch",
+        }
+    )
+    implement_request_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "comments": "the item holds a stop",
+            "clear_stop": "a retry comment clears the stop",
+            "docs_commit": "the documentation changes",
+            "run_log": "a check fails",
+            "model_fix": "a check fails, for the first time",
+            "ready": "the checks pass",
+            "stop": "a step stops the item",
+        }
+    )
     stage_none: str = "None."
     stage_fits_one_pr: str = "The change fits one pull request."
     stage_pending_review: str = (
@@ -2175,6 +2309,7 @@ class RoadmapMessages:
             "branch": "<branch>",
             "change": "<change>",
             "pull": "<pull request>",
+            "remote_tip": "<remote tip>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -2240,6 +2375,8 @@ class RoadmapMessages:
             "fact": "for each fact read the model asks for, at most {limit} for an item",
             "stage_item": "for each item the run stages, up to the limit",
             "stage_closed": "for each closed item whose record holds a staged branch",
+            "implement_item": "for each item the run implements, up to the limit",
+            "implement_group": "for each task group that has an unticked task",
         }
     )
     # `devops roadmap intake` (#742).

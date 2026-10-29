@@ -37,7 +37,7 @@ from tests.support.fakes.github import API
 
 REPO = "dan-petty/devops-cli"
 runner = CliRunner()
-JOBS = ("intake", "refine", "alternatives", "stage")
+JOBS = ("intake", "refine", "alternatives", "stage", "implement")
 
 
 # ── No request ────────────────────────────────────────────────────────────────
@@ -112,6 +112,7 @@ def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> N
         ("refine", "--confirm"),
         ("alternatives", "--plan"),
         ("stage", "--plan"),
+        ("implement", "--plan"),
     ],
 )
 def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:
@@ -368,3 +369,16 @@ def test_the_alternatives_dry_run_names_no_project_board() -> None:
         or any(word in " ".join(request.argv) for word in ("projectV2", "roadmap.toml"))
     ]
     assert named == []
+
+
+def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_job_uses() -> None:
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes = implement_requests(REPO)
+
+    comment = next(request for request in writes if request.argv[:1] == ("POST",))
+    push = next(request for request in writes if request.argv[3:4] == ("push",))
+    assert (comment.argv[1], push.argv[4:]) == (
+        f"{API}/repos/{REPO}/issues/<pull request>/comments",
+        ("--force-with-lease=<branch>:<remote tip>", "origin", "<branch>"),
+    )

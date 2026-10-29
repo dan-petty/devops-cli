@@ -8,6 +8,8 @@ Work in this order:
 4. Tick each task of your group in the `tasks.md` of the change when its work is done. Change `- [ ]` to `- [x]` and change nothing else in that file.
 5. Run the verification command of each task. Stop when every one of them passes.
 
+Your group can be "Make check <name> pass". Then the user message also holds the end of the log of a check that failed on the pull request. Read the log. Find the cause of the failure. Fix the cause in the code, the tests or the documents. Do not tick a task, and do not change `tasks.md` at all. Run the verification commands, and run the command that the log shows failing, when you can run it with your shell.
+
 The files in the user message show signatures only. Read a file with your tool before you change it.
 
 Keep these rules of the project:

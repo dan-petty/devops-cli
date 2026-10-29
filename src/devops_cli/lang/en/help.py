@@ -1289,26 +1289,59 @@ class RoadmapCommandHelp:
         "Make no request: print the requests a run makes, with placeholders."
     )
     implement: str = (
-        "Run one task group of the change of an item, in one bounded context. The agent is "
-        "pydantic-ai's Coder on the model of ai.tasks.implement, in the checkout --source. Its "
-        "inputs are the item's title, problem and acceptance criteria, the change's proposal, "
-        "design and tasks, the group, and the files the group names. The command refuses to "
-        "start when they do not fit the window of the task, or when the checkout has "
-        "uncommitted changes. The shell of the agent runs only git, uv, ruff and mypy, with a "
-        "scratch home. When the agent returns, the command runs the verification commands of the "
-        "group and ruff and mypy on the changed Python files, and checks that every task of "
-        "the group is ticked, no other group changed and the agent made no commit. When every "
-        "check passes, it commits the checkout as '<group title> (#<item>)'. Otherwise it "
-        "resets the checkout to the commit where the step started, reports "
-        "the step as stopped with the reason, and exits 1. It writes nothing to GitHub."
+        "Implement a Staged item, in bounded steps. With --group it runs one task group of the "
+        "change of an item in the checkout --source: the agent is pydantic-ai's Coder on the model "
+        "of ai.tasks.implement. Its inputs are the item's title, problem and acceptance criteria, "
+        "the change's proposal, design and tasks, the group, and the files the group names. The "
+        "command refuses to start when they do not fit the window of the task, or when the "
+        "checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and "
+        "mypy, with a scratch home. When the agent returns, the command runs the verification "
+        "commands of the group and ruff and mypy on the changed Python files, and checks that "
+        "every task of the group is ticked, no other group changed and the agent made no commit. "
+        "When every check passes, it commits the checkout as '<group title> (#<item>)'. "
+        "Otherwise it resets the checkout to the commit where the step started, reports the step "
+        "as stopped with the reason, and exits 1. It writes nothing to GitHub. "
+        "Without --group it is the job. It takes each Staged item that a label filter names "
+        "(default: status=ready, priority=p0-critical, priority=p1-high, type=bug, effort=low), "
+        "rebases its staged branch, runs a step for each task group that has an unticked task, "
+        "regenerates the documentation, archives the change, pushes, sets the body of the pull "
+        "request to close the issue, watches the checks, runs one fix step for a failed check, "
+        "and marks the pull request ready. A step that fails stops the item: the job comments why, "
+        "sets the Status to Ready, and runs the item again only after a comment 'implement: "
+        "retry'. The job never merges. --confirm runs steps only when the setting "
+        "roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell "
+        "of the agent is no security boundary."
     )
-    implement_item: str = "The issue number of the item whose change holds the group."
-    implement_group: str = "The number of the group in the tasks.md of the change."
+    implement_item: str = (
+        "The issue number of an item. With --group, the item whose change holds the group. "
+        "Without it, the one item the job takes when it is Staged, ignoring the filter and the "
+        "limit."
+    )
+    implement_group: str = (
+        "Run this one task group (the number in the tasks.md of the change) as a step, and not "
+        "the job."
+    )
     implement_source: str = (
-        "Path to the git checkout that holds the change (defaults to the current directory)."
+        "Path to a git checkout. For a step it holds the change (default: the current "
+        "directory). For the job it is a clone of the repository (default: the model clone)."
     )
+    implement_filter: str = (
+        "A label filter for the job, in the form family=value, over the families status, "
+        "priority, type, value and effort. Repeat the option: the values of one family are "
+        "alternatives, and the families all apply."
+    )
+    implement_limit: str = "Maximum number of items the job takes in this run (default 1)."
     implement_dry_run: str = (
-        "Make no request and start no run: print the requests a step makes, with placeholders."
+        "Make no request and start no run: print the requests a step or a job makes, with "
+        "placeholders."
+    )
+    implement_plan: str = (
+        "Read GitHub and git, and write nothing: print the items the job takes and those it "
+        "leaves out. This is the mode when no flag is given."
+    )
+    implement_confirm: str = (
+        "Plan as --plan does, then run the items. It refuses unless roadmap.implement.in_runner "
+        "is true."
     )
     stage: str = (
         "Make Ready items Staged: for each item that a label filter names, make the branch "

@@ -23,6 +23,7 @@ from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS
 from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
@@ -30,11 +31,13 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.roadmap.implement_step import (
+    FixRequest,
     StepOutcome,
     StepStatus,
     build_agent,
     build_step_inputs,
     parse_task_groups,
+    run_fix_step,
     run_step,
     shell_environment,
 )
@@ -723,4 +726,124 @@ def test_the_spend_of_a_step_is_one_record_in_the_ledger(
         [("agent_run", "implement", 1, 1)],
         2,
         True,
+    )
+
+
+# ── The fix step (#2665) ──────────────────────────────────────────────────────────────────
+
+FIX_TITLE = "Make check Static Analysis pass"
+
+
+def _fix(
+    store: InMemoryRoadmapStore, checkout: Path, script: ModelScript, log: str = "E501 line"
+) -> StepOutcome:
+    return run_fix_step(
+        store,
+        item=1,
+        fix=FixRequest(check="Static Analysis", log=log),
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+    )
+
+
+def test_the_inputs_of_a_fix_step_hold_the_log_of_the_check_under_a_group_that_names_it(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    fix = FixRequest(check="Static Analysis", log="E501 line too long")
+
+    inputs = build_step_inputs(store, item=1, group=0, source=checkout, window=WINDOW, fix=fix)
+
+    assert (
+        inputs.group.number,
+        inputs.group.title,
+        inputs.group.verification_commands,
+        "# The log of the failed check\n\nE501 line too long" in inputs.message,
+        "Make check `Static Analysis` pass" in inputs.message,
+    ) == (
+        0,
+        FIX_TITLE,
+        ("uv run devops ci test tests/test_sample.py", "uv run devops docs check"),
+        True,
+        True,
+    )
+
+
+def test_the_log_of_a_fix_step_is_cut_to_its_last_characters(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    long_log = "FIRST" + "x" * CONST_ROADMAP_IMPLEMENT_LOG_CHARS + "LAST"
+    fix = FixRequest(check="Static Analysis", log=long_log)
+
+    inputs = build_step_inputs(store, item=1, group=0, source=checkout, window=WINDOW, fix=fix)
+
+    assert ("LAST" in inputs.message, "FIRST" in inputs.message) == (True, False)
+
+
+def test_a_fix_step_commits_the_fix_with_the_tasks_as_they_were(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    before = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(tool_calls(write_call("src/sample.py", SHOUT_CODE)), say("Fixed."))
+
+    outcome = _fix(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.group,
+        outcome.title,
+        outcome.reason,
+        git(checkout, "rev-parse", "HEAD~1"),
+        git(checkout, "log", "-1", "--format=%s"),
+        git(checkout, "show", "--name-only", "--format=", "HEAD"),
+    ) == (
+        StepStatus.DONE,
+        0,
+        FIX_TITLE,
+        "",
+        before,
+        f"{FIX_TITLE} (#1)",
+        "src/sample.py",
+    )
+
+
+def test_a_fix_step_runs_the_verification_commands_of_every_group_of_the_change(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    _fix(
+        store,
+        checkout,
+        ModelScript(tool_calls(write_call("src/sample.py", SHOUT_CODE)), say("Ok.")),
+    )
+
+    uv = [command_text(call) for call in programs.calls if call.argv[0] == "uv"]
+    assert uv[:2] == ["uv run devops ci test tests/test_sample.py", "uv run devops docs check"]
+
+
+def test_a_fix_step_that_ticks_a_task_stops_and_resets_the_checkout(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(
+        tool_calls(write_call("src/sample.py", SHOUT_CODE), write_call(TASKS_PATH, TICKED)),
+        say("Fixed."),
+    )
+
+    outcome = _fix(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "The tasks changed. A fix step changes no task.",
+        True,
+    )
+
+
+def test_a_fix_step_that_changes_no_file_stops(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    outcome = _fix(store, checkout, ModelScript(say("Nothing to fix.")))
+
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        "The agent changed no file.",
     )

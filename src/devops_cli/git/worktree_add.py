@@ -100,7 +100,7 @@ def _require_origin(repo_root: Path) -> None:
         raise _failure(MESSAGES.repos.worktrees_add_no_origin)
 
 
-def _local_holder(repo_root: Path, issue: int, directory: Path) -> str | None:
+def local_holder(repo_root: Path, issue: int, directory: Path) -> str | None:
     """Who holds `issue` in this repository, as a sentence: a worktree on a branch for it, or the
     standard directory of its worktree; None when nobody does. A local branch with no worktree
     holds nothing, since `prune` leaves such a branch after a merge."""
@@ -326,7 +326,7 @@ def add_worktree(
     reclaim = reclaim or ReclaimResult()
     directory = worktree_directory(issue, repo_root)
     _require_origin(repo_root)
-    if (held := _local_holder(repo_root, issue, directory)) is not None:
+    if (held := local_holder(repo_root, issue, directory)) is not None:
         raise _failure(held)
     if dry_run:
         branch = _new_branch(issue, type_, slug)
@@ -362,7 +362,7 @@ def issue_holder(repo_root: Path, issue: int, remote_heads: str) -> str | None:
     worktree, or a branch of `origin` that `remote_heads` lists; None when nobody does. A caller
     that judges an issue before it adds a worktree leaves a held issue alone (#2654); `add_worktree`
     itself takes over a staged branch."""
-    held = _local_holder(repo_root, issue, worktree_directory(issue, repo_root))
+    held = local_holder(repo_root, issue, worktree_directory(issue, repo_root))
     if held is not None:
         return held
     pushed = _pushed_branches(remote_heads, issue)
