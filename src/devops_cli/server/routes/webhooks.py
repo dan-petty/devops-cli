@@ -7,11 +7,11 @@ import hashlib
 import hmac
 import logging
 import threading
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
+from cachetools import LRUCache
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -167,19 +167,16 @@ class DeliveryLRUCache:
     """Thread-safe LRU cache for tracking recent delivery IDs to eliminate duplicate replays."""
 
     def __init__(self, capacity: int = CONST_SERVICE_DELIVERY_LRU_CAPACITY) -> None:
-        self._capacity = capacity
-        self._cache: OrderedDict[str, None] = OrderedDict()
+        self._seen: LRUCache[str, bool] = LRUCache(maxsize=capacity)
         self._lock = threading.Lock()
 
     def check_and_add(self, delivery_id: str) -> bool:
-        """Return True if delivery_id is already seen (duplicate), False otherwise."""
+        """Return True if delivery_id is already seen (duplicate), False otherwise. A seen id
+        becomes the most recent; at capacity, a new id drops the least recently used one."""
         with self._lock:
-            if delivery_id in self._cache:
-                self._cache.move_to_end(delivery_id)
+            if self._seen.get(delivery_id, False):
                 return True
-            self._cache[delivery_id] = None
-            if len(self._cache) > self._capacity:
-                self._cache.popitem(last=False)
+            self._seen[delivery_id] = True
             return False
 
 

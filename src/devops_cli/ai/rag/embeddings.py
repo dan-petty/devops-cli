@@ -10,7 +10,6 @@ import os
 import secrets
 import threading
 import time
-from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
@@ -18,6 +17,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 import httpx2
+from cachetools import LRUCache
 from pydantic_ai.embeddings import (
     EmbeddingModel,
     EmbeddingSettings,
@@ -116,8 +116,7 @@ class _EmbeddingLRUCache:
     """Thread-safe in-memory LRU cache for embedding vectors, keyed by SHA-256 of (text + model)."""
 
     def __init__(self, maxsize: int = DEFAULT_RAG_EMBEDDING_CACHE_SIZE) -> None:
-        self._maxsize = max(1, maxsize)
-        self._store: OrderedDict[str, list[float]] = OrderedDict()
+        self._store: LRUCache[str, list[float]] = LRUCache(maxsize=max(1, maxsize))
         self._lock = threading.Lock()
         self.hits: int = 0
         self.misses: int = 0
@@ -130,10 +129,10 @@ class _EmbeddingLRUCache:
         """Return cached embedding vector or None on miss."""
         key = self._key(text, model, is_query=is_query)
         with self._lock:
-            if key in self._store:
-                self._store.move_to_end(key)
+            vector = self._store.get(key)
+            if vector is not None:
                 self.hits += 1
-                return self._store[key]
+                return vector
             self.misses += 1
             return None
 
@@ -141,14 +140,7 @@ class _EmbeddingLRUCache:
         """Insert or update a cache entry, evicting the LRU entry when at capacity."""
         key = self._key(text, model, is_query=is_query)
         with self._lock:
-            if key in self._store:
-                self._store[key] = vector
-                self._store.move_to_end(key)
-            else:
-                if len(self._store) >= self._maxsize:
-                    self._store.popitem(last=False)  # Evict LRU
-                self._store[key] = vector
-                self._store.move_to_end(key)
+            self._store[key] = vector
 
     @property
     def size(self) -> int:

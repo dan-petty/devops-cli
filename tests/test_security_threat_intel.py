@@ -280,3 +280,33 @@ def test_a_corrupt_threat_intel_entry_is_a_miss_and_keeps_the_l2_cache_on(
         ["Live"],
         ["Live"],
     )
+
+
+def test_a_radar_record_expires_from_the_memory_tier_after_the_ttl(clock: ClockFake) -> None:
+    """A record stays in memory for the client's TTL, and the lookup after it asks Radar again."""
+    client = CloudflareRadarClient(valkey_client=None, ttl=60)
+
+    with patch("httpx2.Client.get") as radar_get:
+        radar_get.return_value = _radar_reply("Live")
+        client.check_domain("ttl-target.org")
+        clock.shift(59)
+        client.check_domain("ttl-target.org")
+        asked_within_the_ttl = radar_get.call_count
+        clock.shift(1)
+        client.check_domain("ttl-target.org")
+
+    assert (asked_within_the_ttl, radar_get.call_count) == (1, 2)
+
+
+def test_a_full_radar_memory_tier_drops_the_least_recently_used_record() -> None:
+    """1,000 later records push the first record out, so Radar is asked about it again."""
+    client = CloudflareRadarClient(valkey_client=None)
+
+    with patch("httpx2.Client.get") as radar_get:
+        radar_get.return_value = _radar_reply("Live")
+        client.check_domain("first-target.org")
+        for index in range(1000):
+            client.check_domain(f"host{index}.example.com")
+        client.check_domain("first-target.org")
+
+    assert radar_get.call_count == 2
