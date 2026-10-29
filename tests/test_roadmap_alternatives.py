@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -42,6 +43,7 @@ from devops_cli.roadmap.alternatives import (
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.run import MODEL_LANE_ROWS, run_due_jobs
 from devops_cli.roadmap.store import (
     AlternativesRecordKey,
     CloseReason,
@@ -1177,4 +1179,126 @@ def test_the_command_checks_the_one_item_it_names(
         0,
         1,
         [],
+    )
+
+
+# ── The Service row ───────────────────────────────────────────────────────────
+
+
+def _alternatives_row() -> Any:
+    return next(row for row in MODEL_LANE_ROWS if row.name == "alternatives")
+
+
+def _answer_with(monkeypatch: pytest.MonkeyPatch, script: Script) -> None:
+    monkeypatch.setattr(
+        "devops_cli.roadmap.alternatives.get_task_model", lambda _task: script.model()
+    )
+
+
+def test_the_row_checks_at_most_the_limit_of_the_setting_and_the_command_uses_it_too(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    config: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    numbers = [_item(store, f"Item {n}") for n in range(4)]
+    config(roadmap={"alternatives": {"limit": 2}})
+    _answer_with(monkeypatch, Script(AlternativesReply(verdict=Verdict.NONE)))
+
+    planned = plan_alternatives(store, repo=REPO, now=NOW)
+    explicit = plan_alternatives(store, repo=REPO, limit=3, now=NOW)
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert (
+        [c.item.number for c in planned.checks],
+        [c.item.number for c in explicit.checks],
+        [n for n in numbers if store.comments_on(n)],
+    ) == (numbers[:2], numbers[:3], numbers[:2])
+
+
+def test_the_limit_setting_defaults_to_five_and_is_at_least_one(
+    config: Callable[..., Any],
+) -> None:
+    from pydantic import ValidationError
+
+    from devops_cli.config.settings import AlternativesConfig, load_settings
+
+    config()
+    with pytest.raises(ValidationError):
+        AlternativesConfig(limit=0)
+    assert load_settings().roadmap.alternatives.limit == 5
+
+
+def test_a_failed_check_fails_the_row_once_the_others_are_written(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    failing = _item(store, "Failing")
+    kept = _item(store, "Kept")
+    _answer_with(
+        monkeypatch,
+        _by_item(
+            {failing: ModelHTTPError(500, "m"), kept: AlternativesReply(verdict=Verdict.NONE)}
+        ),
+    )
+
+    with pytest.raises(RoadmapAlternativesError, match=rf"#{failing} "):
+        _alternatives_row().runner(store=store, repo=REPO)
+
+    assert (store.comments_on(failing), len(store.comments_on(kept))) == ([], 1)
+
+
+def test_a_round_off_for_want_of_a_key_runs_the_row_and_checks_nothing(
+    store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+) -> None:
+    for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    config()
+    number = _item(store)
+
+    outcome = _alternatives_row().runner(store=store, repo=REPO)
+
+    assert (outcome.placed_critical_or_p0, store.comments_on(number)) == (False, [])
+
+
+def test_the_row_runs_in_a_round_and_records_its_success_for_the_next_day(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    number = _item(store)
+    _answer_with(monkeypatch, Script(AlternativesReply(verdict=Verdict.NONE)))
+    table = (_alternatives_row(),)
+
+    def round_at(now: datetime) -> tuple[str, ...]:
+        return run_due_jobs(
+            REPO, store, batch={("poll", "", ""): 1}, table=table, data_dir=tmp_path, now=now
+        )
+
+    first = round_at(NOW)
+    soon = round_at(NOW + timedelta(hours=23))
+    next_day = round_at(NOW + timedelta(hours=24, minutes=1))
+
+    assert (first, soon, next_day, len(store.comments_on(number))) == (
+        ("alternatives",),
+        (),
+        ("alternatives",),
+        1,
+    )
+
+
+def test_the_commands_limit_option_has_no_default_of_its_own(
+    roadmap_store: InMemoryRoadmapStore,
+    web_key: None,
+    config: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    numbers = [_item(roadmap_store, f"Item {n}") for n in range(3)]
+    config(roadmap={"alternatives": {"limit": 1}})
+    _answer_with(monkeypatch, Script(AlternativesReply(verdict=Verdict.NONE)))
+
+    result = CliRunner().invoke(roadmap_app, ["alternatives", "--repo", REPO, "--confirm"])
+
+    assert (result.exit_code, [n for n in numbers if roadmap_store.comments_on(n)]) == (
+        0,
+        numbers[:1],
     )

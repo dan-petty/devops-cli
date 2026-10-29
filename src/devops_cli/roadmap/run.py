@@ -10,8 +10,9 @@ Each row is due by its interval, by a webhook hint in the batch, or by its due r
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first
-run, and in a round where intake placed a critical fix or a P0 item (#1515). Every clone tracks
-origin's default branch.
+run, and in a round where intake placed a critical fix or a P0 item (#1515). The alternatives
+row is due once a day and on a first run, and checks at most `roadmap.alternatives.limit` items
+(#2652). Every clone tracks origin's default branch.
 
 A subscribed webhook event runs the update scoped to it at once (`run_scoped_update`, ADR 0017):
 `issues` opened, edited or reopened runs intake of that one issue on the model lane. A scoped
@@ -53,12 +54,14 @@ from devops_cli.config.constants import (
     CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import (
     is_forbidden_system_path,
     safe_resolve_subpath,
@@ -69,6 +72,13 @@ from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityEr
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
+
+# `alternatives` imports pydantic_ai too: import it here for the same reason (#2535).
+from devops_cli.roadmap.alternatives import (
+    apply_alternatives,
+    plan_alternatives,
+    raise_for_failed_checks,
+)
 from devops_cli.roadmap.intake import (
     IntakeApplied,
     IntakePlan,
@@ -152,7 +162,6 @@ def _resolve_data_dir(data_dir: Path | str | None = None) -> Path:
     """Resolve data directory path defensively: `data_dir`, else `data.dir` of the loaded
     settings, which its variable or the config file sets (#2447)."""
     if data_dir is None:
-        from devops_cli.config.settings import load_settings
         from devops_cli.core.repo import resolve_data_path
 
         data_dir = resolve_data_path(load_settings().data.dir)
@@ -471,6 +480,20 @@ def _run_refine_adapter(
     return JobOutcome()
 
 
+def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
+    """Check at most `roadmap.alternatives.limit` open items for an open tool that covers them
+    (#2652). The check writes the others when one fails, and then the job fails naming it. A
+    repository the check is off for, such as a private one, costs a visibility read and nothing
+    else."""
+    plan = plan_alternatives(store, repo=repo, limit=load_settings().roadmap.alternatives.limit)
+    if plan.off_reason:
+        logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
+    if plan.has_writes:
+        apply_alternatives(store, plan)
+    raise_for_failed_checks(plan)
+    return JobOutcome()
+
+
 def _run_metrics_adapter(
     store: RoadmapStore,
     repo: str = "",
@@ -542,8 +565,15 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
         cross_job_predicate=_refine_cross_job,
     ),
+    JobRow(
+        name="alternatives",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES),
+        runner=_run_alternatives_adapter,
+        first_run_due=True,
+    ),
 )
-"""The rows that call the model, which answers one call at a time."""
+"""The rows that call the model, which answers one call at a time: intake, refine and the
+daily check for alternative tools (#2652)."""
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS)
 """Every row, the status lane's first: what `devops roadmap run` runs in one round."""
@@ -606,13 +636,17 @@ def build_stub_table(
     needs_clone: bool = False,
     include_refine: bool | None = None,
     include_metrics: bool | None = None,
+    include_alternatives: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: intake,
-    plus metrics and refine when asked for or given a stub."""
+    plus metrics, refine and alternatives when asked for or given a stub."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
-    kept = {"metrics": add_metrics, "refine": add_refine}
+    add_alternatives = (
+        include_alternatives if include_alternatives is not None else ("alternatives" in r)
+    )
+    kept = {"metrics": add_metrics, "refine": add_refine, "alternatives": add_alternatives}
     return tuple(
         replace(
             row,

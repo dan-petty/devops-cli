@@ -1275,7 +1275,9 @@ class RoadmapCommandHelp:
         "Specific issue number to check instead of selecting. Alternatives checks it when it "
         "is open, whoever opened it and whatever its status, even when its check is current."
     )
-    alternatives_limit: str = "Maximum number of items to check in this run (default 5)."
+    alternatives_limit: str = (
+        "Maximum number of items to check in this run (default: roadmap.alternatives.limit, 5)."
+    )
     alternatives_plan: str = (
         "Run the checks and print them, and write nothing. This is the default."
     )

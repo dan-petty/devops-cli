@@ -2,8 +2,8 @@
 
 ## 1. The Service runs the check once a day
 
-- [ ] 1.1 Write the tests for the Service row in `tests/test_roadmap_run.py` (the row follows `refine`, a first run, the interval, no webhook hint, the limit of the setting, a failed check, the dry run's `Due:` line) and for the setting and the command's default limit in `tests/test_roadmap_alternatives.py`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_alternatives.py` fails because the row and the setting do not exist
-- [ ] 1.2 Add `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` in `src/devops_cli/config/defaults.py`, the setting `roadmap.alternatives.limit` in `src/devops_cli/config/settings.py`, the row and its runner in `src/devops_cli/roadmap/run.py` (with `include_alternatives` in `build_stub_table`), and the default of `--limit` in `src/devops_cli/commands/roadmap.py` and `plan_alternatives`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_alternatives.py` passes
+- [x] 1.1 Write the tests for the Service row in `tests/test_roadmap_run.py` (the row follows `refine`, a first run, the interval, no webhook hint, the limit of the setting, a failed check, the dry run's `Due:` line) and for the setting and the command's default limit in `tests/test_roadmap_alternatives.py`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_alternatives.py` fails because the row and the setting do not exist
+- [x] 1.2 Add `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` in `src/devops_cli/config/defaults.py`, the setting `roadmap.alternatives.limit` in `src/devops_cli/config/settings.py`, the row and its runner in `src/devops_cli/roadmap/run.py` (with `include_alternatives` in `build_stub_table`), and the default of `--limit` in `src/devops_cli/commands/roadmap.py` and `plan_alternatives`, and verify that `uv run devops ci test tests/test_roadmap_run.py tests/test_roadmap_alternatives.py` passes
 
 ## 2. The metric
 

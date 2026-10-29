@@ -63,7 +63,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_PYPI_PACKAGE_URL,
     DEFAULT_PYPI_TIMEOUT_SECONDS,
-    DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
@@ -721,19 +720,24 @@ def plan_alternatives(
     *,
     repo: str,
     item_number: int | None = None,
-    limit: int = DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+    limit: int | None = None,
     now: datetime | None = None,
     investigator: Any = None,
 ) -> AlternativesPlan:
-    """Plans the checks of the selected items without writing anything. `investigator` is the
-    pydantic-ai model of the runs, the `analysis` task's by default."""
+    """Plans the checks of the selected items without writing anything. `limit` is
+    `roadmap.alternatives.limit` by default. `investigator` is the pydantic-ai model of the runs,
+    the `analysis` task's by default."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
     if web.key is None:
         return AlternativesPlan(repo=repo, off_reason=web.off_reason)
-    recheck_days = load_settings().roadmap.alternatives.recheck_days
+    config = load_settings().roadmap.alternatives
     selection = select_items(
-        store, item_number=item_number, limit=limit, recheck_days=recheck_days, now=moment
+        store,
+        item_number=item_number,
+        limit=config.limit if limit is None else limit,
+        recheck_days=config.recheck_days,
+        now=moment,
     )
     if not selection.selected:
         return AlternativesPlan(repo=repo, current=selection.current)

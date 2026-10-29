@@ -24,7 +24,6 @@ from typing import Annotated, NoReturn
 import typer
 
 from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_TABLE_FORMAT,
@@ -296,8 +295,8 @@ def alternatives_cmd(
         int | None, typer.Option("--item", min=1, help=HELP.roadmap.alternatives_item)
     ] = None,
     limit: Annotated[
-        int, typer.Option("--limit", min=1, help=HELP.roadmap.alternatives_limit)
-    ] = DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.alternatives_limit)
+    ] = None,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.alternatives_dry_run)
     ] = False,
