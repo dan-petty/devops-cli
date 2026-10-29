@@ -62,6 +62,12 @@ class DockerDaemonUnavailableError(DockerEngineError):
         )
 
 
+class RegistryReadError(DockerError):
+    """Raised when an image registry gives no digest for a tag: no anonymous pull, or no tag."""
+
+    error_code = "DOCKER_REGISTRY_READ_ERROR"
+
+
 class CosignError(DockerError):
     """Raised when Sigstore Cosign image signing fails."""
 

@@ -33,7 +33,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_resume`](#ai-resume) | `false` | Clear the constellation quiesce or failover flag. |
 | [`ai_test_gen`](#ai-test-gen) | `true` | Generate failing pytest unit test scaffolds for functions or source files. |
 | [`argo_cd_apps_list`](#argo-cd-apps-list) | `true` | List all ArgoCD applications. |
-| [`argo_cd_apps_status`](#argo-cd-apps-status) | `true` | Show sync and health status for an ArgoCD application. |
+| [`argo_cd_apps_status`](#argo-cd-apps-status) | `true` | Show the sync and health of an Argo CD application, and check each image it pins.  An image the application pins as `<image>:<tag>@<digest>` in its kustomize images is checked against the digest its tag names in the registry now. Without --watch, the command exits 1 when the status cannot be read, a tag names another digest, or a registry gives no digest. |
 | [`argo_fleet_sync`](#argo-fleet-sync) | `false` | Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency. |
 | [`argo_rollouts_analyze`](#argo-rollouts-analyze) | `false` | Evaluate metric rollback gates and trigger automated rollback on threshold violation. |
 | [`branches_list`](#branches-list) | `true` | List branches across all repos. |
@@ -588,7 +588,11 @@ List all ArgoCD applications.
 
 ### `argo_cd_apps_status`
 
-Show sync and health status for an ArgoCD application.
+Show the sync and health of an Argo CD application, and check each image it pins.
+
+An image the application pins as `<image>:<tag>@<digest>` in its kustomize images is checked
+against the digest its tag names in the registry now. Without --watch, the command exits 1
+when the status cannot be read, a tag names another digest, or a registry gives no digest.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -599,6 +603,7 @@ Show sync and health status for an ArgoCD application.
 | `name` | `string` | Yes | - | Application name. |
 | `watch` | `boolean` | No | `False` | Watch application status changes live. |
 | `interval` | `number` | No | `3.0` | Auto-refresh polling interval in seconds. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `argo_fleet_sync`
 

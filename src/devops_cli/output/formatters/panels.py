@@ -120,8 +120,12 @@ def format_argo_app_status_panel(
     health_status: str,
     revision: str,
     error: str | None = None,
+    images: list[tuple[bool, str]] | None = None,
 ) -> PanelPayload:
-    """Build a structured PanelPayload for ArgoCD application status."""
+    """Build a structured PanelPayload for ArgoCD application status.
+
+    `images` holds one line for each image the Application pins, with whether it is in step.
+    """
     if error:
         err_msg = MESSAGES.output.argo_error_fetching.format(error=escape_text(error))
         return PanelPayload(content=f"[red]{err_msg}[/red]", title=escape_text(name))
@@ -136,4 +140,10 @@ def format_argo_app_status_panel(
         f"  [bold]{MESSAGES.output.argo_health_label}[/bold]   [{health_c}]{esc_health}[/{health_c}]",
         f"  [bold]{MESSAGES.output.argo_revision_label}[/bold] {esc_rev}",
     ]
+    for in_step, text in images or []:
+        colour = "green" if in_step else "red"
+        lines.append(
+            f"  [bold]{MESSAGES.output.argo_image_label}[/bold]    "
+            f"[{colour}]{escape_text(text)}[/{colour}]"
+        )
     return PanelPayload(content="\n".join(lines), title=f"[bold cyan]{esc_name}[/bold cyan]")

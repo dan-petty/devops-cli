@@ -24,6 +24,7 @@ from devops_cli.argo.helm_records import (
     plan_helm_record_retirement,
     retire_helm_records,
 )
+from devops_cli.argo.image_pins import PinCheck, check_pins, kustomize_image_pins
 from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.constants import (
     CONST_ARGO_DEFAULT_LOG_CONTAINER,
@@ -48,7 +49,7 @@ from devops_cli.dry_run import dry_run_command, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.argo import ArgoError
 from devops_cli.http.client import new_http_client
-from devops_cli.http.egress import configured_level
+from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.urls import service_base_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState, ArgoWorkflowState
@@ -302,15 +303,30 @@ def cd_apps_sync(
 
 
 @cd_apps_app.command("status")
+@dry_run_command(
+    command="devops argo cd apps status",
+    action="show_argocd_app_status",
+    target_param="name",
+    detail_params=["watch"],
+)
 def cd_apps_status(
     name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
     interval: Annotated[float, typer.Option("--interval", "-i", help=HELP.argo.interval)] = 3.0,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
-    """Show sync and health status for an ArgoCD application."""
+    """Show the sync and health of an Argo CD application, and check each image it pins.
+
+    An image the application pins as `<image>:<tag>@<digest>` in its kustomize images is checked
+    against the digest its tag names in the registry now. Without --watch, the command exits 1
+    when the status cannot be read, a tag names another digest, or a registry gives no digest.
+    """
     _validate_k8s_name(name, "application name")
 
-    def _build_status_panel() -> PanelPayload:
+    def _build_status_panel() -> tuple[PanelPayload, bool]:
         settings = load_settings()
         base, headers = _argocd(settings)
         try:
@@ -321,28 +337,66 @@ def cd_apps_status(
                     timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
                 )
                 resp.raise_for_status()
-            app_info = ArgoCDApp.from_api_item(resp.json())
+            item = resp.json()
+            app_info = ArgoCDApp.from_api_item(item)
         except Exception as exc:
-            return format_argo_app_status_panel(
+            panel = format_argo_app_status_panel(
                 name=name, sync_status="", health_status="", revision="", error=str(exc)
             )
-        return format_argo_app_status_panel(
+            return panel, False
+        checks = _check_image_pins(item)
+        panel = format_argo_app_status_panel(
             name=app_info.name,
             sync_status=app_info.sync_status,
             health_status=app_info.health_status,
             revision=app_info.revision,
+            images=[_pin_check_line(check) for check in checks],
         )
+        return panel, all(check.in_step for check in checks)
 
     if watch:
         from devops_cli.watchers.live_resource import LiveResourceWatcher
 
         LiveResourceWatcher(
-            lambda: _build_status_panel().render(),
+            lambda: _build_status_panel()[0].render(),
             interval_seconds=interval,
             name="argo_app_status",
         ).watch()
+        return
+    panel, ok = _build_status_panel()
+    print(panel)
+    if not ok:
+        raise typer.Exit(1)
+
+
+def _check_image_pins(item: dict[str, Any]) -> list[PinCheck]:
+    """Check each image the application pins against its public registry; none, no request."""
+    pins = kustomize_image_pins(item)
+    if not pins:
+        return []
+    with new_http_client(level=EgressLevel.PUBLIC) as client:
+        return check_pins(pins, client, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
+
+
+def _short_digest(digest: str) -> str:
+    algorithm, _, value = digest.partition(":")
+    return f"{algorithm}:{value[:12]}" if value else digest
+
+
+def _pin_check_line(check: PinCheck) -> tuple[bool, str]:
+    """The panel line of one pin check, with whether it is in step."""
+    pinned = _short_digest(check.pin.digest)
+    if check.error is not None:
+        text = MESSAGES.output.argo_image_unread.format(
+            image=check.pin.image, pinned=pinned, error=check.error
+        )
+    elif check.in_step:
+        text = MESSAGES.output.argo_image_in_step.format(image=check.pin.image, digest=pinned)
     else:
-        print(_build_status_panel())
+        text = MESSAGES.output.argo_image_moved.format(
+            image=check.pin.image, pinned=pinned, current=_short_digest(check.current or "")
+        )
+    return check.in_step, text
 
 
 # =============================================================================
