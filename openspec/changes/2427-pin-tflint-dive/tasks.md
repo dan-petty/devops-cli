@@ -16,5 +16,4 @@
 ## Workflow follow-up
 
 - Pending a person: record the run of the pinned tflint that `tests/fixtures/scanner_runs/runs_with_findings.json` needs, with the command of the adapter, and have the contract test read its version. `design.md` gives the commands.
-- tflint lints the `.tf` files of its starting directory only, so the adapter misses sub-directories. `--recursive` needs the recorded run first.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

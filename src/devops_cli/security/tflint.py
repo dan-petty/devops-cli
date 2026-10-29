@@ -48,8 +48,8 @@ class TflintScanner(BaseSecurityScanner):
         config_file: Path | None = None,
         **kwargs: Any,
     ) -> list[str]:
-        """Build argument command list for invoking TFLint."""
-        cmd = [self.binary_name, "--format", "json"]
+        """Build the command: tflint lints the working directory only unless `--recursive` is set."""
+        cmd = [self.binary_name, "--format", "json", "--recursive"]
         if config_file and config_file.exists():
             cmd.extend(["--config", str(config_file)])
         return cmd

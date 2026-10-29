@@ -22,7 +22,7 @@ The adapter keeps no `fallback_scan` and no `has_builtin_patterns`. With no tfli
 
 The facts and where they were read are in the proposal's Feasibility. The parser keeps its mapping: `error` is HIGH, `warning` is MEDIUM and `info` is LOW, each upper-cased. The scanner base already treats exit 2 with issues as a scan that ran, and exit 1 with no issue as a failed scan, so the adapter needs no code for the exit codes. The tests give the adapter reports in the shape of `formatter/json.go`, with lower-case severities. The earlier tests gave upper-case severities, which tflint does not write.
 
-Not done: `--recursive`. tflint lints the `.tf` files of its starting directory only, so a target with `.tf` files in sub-directories is linted at its top level only. The recursive mode starts tflint as child processes and prints the issues of all of them in one report. A change that adds it needs a recorded run to check that report, and the run needs a person to approve it.
+The command is `tflint --format json --recursive`. Without `--recursive`, tflint lints the `.tf` files of its starting directory only, so a target with `.tf` files in sub-directories only, such as `tf/` of a repository, would lint no file and read as clean. The deleted fallback read each `.tf` file below the target, so `--recursive` keeps that reach. The flag comes from the upstream source (`cmd/option.go`, `cmd/cli.go`, `cmd/inspect_parallel.go`; see Feasibility). The report has the same shape with it. The adapter starts tflint once and reads one report. The real run is still unrecorded, and it must confirm that a file name in a recursive report reads `<directory>/<file>`.
 
 ## dive goes
 
@@ -38,9 +38,8 @@ A test reads `binary_name` of each scanner of the default registry and requires 
 
 ## Out of scope
 
-- `--recursive` for tflint (above).
 - A run of tflint recorded in `tests/fixtures/scanner_runs/runs_with_findings.json`, with its version held to `tools.lock` by `test_each_run_with_findings_is_of_the_version_the_tools_lock_pins`. It needs a run of the downloaded tflint, which the owner has not approved. A person records it so:
   1. In a scratch directory `<scratch>`, set `HOME=<scratch>/home` and run `uv run devops install-tools --tool tflint --target-dir <scratch>/bin`. The installer checks the build against the `sha256` of the lock. `<scratch>/bin/tflint --version` must print `0.65.0`.
-  2. In `<scratch>/tree`, write a `main.tf` with `variable "unused" {}`. From `<scratch>/tree`, run `<scratch>/bin/tflint --format json`, which is the command of the adapter. Keep its exit code, stdout and stderr. The exit code must be 2, and the report must hold one issue or more. Where the report has none, add a `.tf` line that the bundled `terraform` ruleset flags, such as `x = "${var.a}"`.
-  3. Add the key `tflint` to `runs_with_findings.json` with `version` `0.65.0`, `argv` `["tflint", "--format", "json"]`, `cwd` `{tree}`, `returncode`, `stdout` and `stderr`, with the path of `<scratch>/tree` replaced by `{tree}`.
+  2. In `<scratch>/tree`, write a `main.tf` with `variable "unused" {}`. From `<scratch>/tree`, run `<scratch>/bin/tflint --format json --recursive`, which is the command of the adapter. Write a second `.tf` file in `<scratch>/tree/modules/network` and keep the file names that the report gives for it. Keep its exit code, stdout and stderr. The exit code must be 2, and the report must hold one issue or more. Where the report has none, add a `.tf` line that the bundled `terraform` ruleset flags, such as `x = "${var.a}"`.
+  3. Add the key `tflint` to `runs_with_findings.json` with `version` `0.65.0`, `argv` `["tflint", "--format", "json", "--recursive"]`, `cwd` `{tree}`, `returncode`, `stdout` and `stderr`, with the path of `<scratch>/tree` replaced by `{tree}`.
   4. Add a test to `tests/security/test_tflint.py` that scripts the run with `scanner_fake.script_run_with_findings("tflint", tree=tmp_path)` and asserts the findings that `run_tflint_scan` gives. `test_each_run_with_findings_is_of_the_version_the_tools_lock_pins` then holds the recording to the locked version.

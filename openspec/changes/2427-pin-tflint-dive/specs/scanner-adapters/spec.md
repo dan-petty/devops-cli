@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: The tflint adapter reads the report that tflint writes
-The tflint adapter SHALL run `tflint --format json`, with `--config <file>` when the caller names an existing config file, in the directory of the target. It SHALL give one finding for each item of `issues` in the one JSON object that tflint writes, with the severity `error` as HIGH, `warning` as MEDIUM and `info` as LOW. A run that exits 2 with issues SHALL be a scan that ran. A run that exits 1 with no issue SHALL be a failed scan.
+The tflint adapter SHALL run `tflint --format json --recursive`, with `--config <file>` when the caller names an existing config file, in the directory of the target, so that tflint lints each directory below it. It SHALL give one finding for each item of `issues` in the one JSON object that tflint writes, with the severity `error` as HIGH, `warning` as MEDIUM and `info` as LOW. A run that exits 2 with issues SHALL be a scan that ran. A run that exits 1 with no issue SHALL be a failed scan.
 
 #### Scenario: tflint reports an issue of each severity
 - **WHEN** tflint exits 2 and writes a report with one issue of severity `error`, one of `warning` and one of `info`
 - **THEN** the scan ran, and its findings are one HIGH, one MEDIUM and one LOW finding, in the order of the report, each at `<file>:<line>` of its range
+
+#### Scenario: The Terraform files are in sub-directories
+- **WHEN** the adapter scans a directory that has `.tf` files in its sub-directories only
+- **THEN** the command of the run is `tflint --format json --recursive`, started in that directory, and the findings are at the files of the sub-directories
 
 #### Scenario: tflint reports an error and no issue
 - **WHEN** tflint exits 1 and writes `{"issues": [], "errors": [{"severity": "error", "message": "boom"}]}`
