@@ -40,7 +40,7 @@
 
 ## 5. Archive
 
-- [ ] 5.1 Archive the change
+- [x] 5.1 Archive the change
   - Verification: `uv run devops openspec archive 2714-planned-items`
 
 ## Workflow follow-up
