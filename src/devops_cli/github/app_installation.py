@@ -7,7 +7,8 @@ gidgethub signs a JWT with the key, and the process exchanges it for an installa
 `POST /app/installations/<id>/access_tokens`, over the session's client, so the request goes to
 GitHub's API origin only. The request asks for `CONST_GITHUB_APP_TOKEN_PERMISSIONS` only, the
 permissions the roadmap jobs use, so the token carries no other permission that the installation
-grants (#2473). `gidgethub.apps.get_installation_access_token` sends no body, so the process
+grants (#2473). A runner Job also sets `service.github_app.token_repository`, and then the request
+names that one repository, so a step cannot push to another one (#2667). `gidgethub.apps.get_installation_access_token` sends no body, so the process
 posts the request through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
 every gh and git child and mints a new one before it expires. The App's login is its bot's,
 `<slug>[bot]`: an installation token cannot read `GET /user`.
@@ -43,6 +44,7 @@ class GitHubApp:
     installation_id: int
     slug: str
     private_key: str = field(repr=False)
+    token_repository: str | None = None
 
     @property
     def bot_login(self) -> str:
@@ -81,6 +83,7 @@ def configured_app() -> GitHubApp:
         installation_id=config.installation_id,
         slug=config.slug,
         private_key=os.environ.get(CONST_GITHUB_APP_PRIVATE_KEY_ENV, ""),
+        token_repository=config.token_repository,
     )
 
 
@@ -163,7 +166,8 @@ def _token_failed(app: GitHubApp, reason: str) -> str:
 
 def _exchange(app: GitHubApp) -> dict[str, Any]:
     """GitHub's answer to the exchange of the App's JWT for an installation token that carries
-    only `CONST_GITHUB_APP_TOKEN_PERMISSIONS`.
+    only `CONST_GITHUB_APP_TOKEN_PERMISSIONS` and, when `service.github_app.token_repository` is
+    set, names only that repository (#2667).
 
     gidgethub signs the JWT with the App's ID and key. The exchange runs on a loop of its own, so
     a caller on any thread, an event loop's included, can wait for it.
@@ -172,6 +176,10 @@ def _exchange(app: GitHubApp) -> dict[str, Any]:
     from gidgethub.httpx import GitHubAPI
 
     from devops_cli.github.session_transport import session_client
+
+    body: dict[str, Any] = {"permissions": dict(CONST_GITHUB_APP_TOKEN_PERMISSIONS)}
+    if app.token_repository:
+        body["repositories"] = [app.token_repository.partition("/")[2]]
 
     async def exchange() -> dict[str, Any]:
         async with session_client() as client:
@@ -182,9 +190,7 @@ def _exchange(app: GitHubApp) -> dict[str, Any]:
                 app_id=str(app.app_id),
                 private_key=app.private_key,
             )
-            answer: dict[str, Any] = await api.post(
-                _token_path(app), data={"permissions": dict(CONST_GITHUB_APP_TOKEN_PERMISSIONS)}
-            )
+            answer: dict[str, Any] = await api.post(_token_path(app), data=body)
             return answer
 
     with start_blocking_portal() as portal:

@@ -834,6 +834,15 @@ class GitHubAppConfig(BaseModel):
         min_length=1,
         description="Slug of the GitHub App; its bot's login is `<slug>[bot]`",
     )
+    token_repository: Annotated[str | None, Variable()] = Field(
+        default=None,
+        pattern=r"^[\w.-]+/[\w.-]+$",
+        description=(
+            "owner/name of the one repository that an installation token may name. Set on a "
+            "runner Job by the Service, so a step cannot push to another repository. With it "
+            "unset, a token covers every repository of the installation"
+        ),
+    )
 
     @property
     def bot_login(self) -> str | None:

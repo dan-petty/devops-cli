@@ -23,9 +23,9 @@
 
 ## 4. The token of one repository and the process of the job
 
-- [ ] Add failing tests: the request body with and without `service.github_app.token_repository`, a bad value, and a child that reads the environment of a non-dumpable parent
+- [x] Add failing tests: the request body with and without `service.github_app.token_repository`, a bad value, and a child that reads the environment of a non-dumpable parent
   - Verification: `uv run devops ci test tests/test_github_app_identity.py tests/test_process_hardening.py`
-- [ ] Add the setting, the `repositories` of the request, and `core/process_hardening.py` with its call in `apply_implement`
+- [x] Add the setting, the `repositories` of the request, and `core/process_hardening.py` with its call in `apply_implement`
   - Verification: `uv run devops ci test tests/test_github_app_identity.py tests/test_process_hardening.py tests/test_roadmap_implement_job.py tests/test_config_declarations.py`
 
 ## 5. The Service row

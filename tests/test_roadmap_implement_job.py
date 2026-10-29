@@ -85,6 +85,45 @@ def test_the_job_runs_no_step_unless_it_is_in_a_runner(
 # ── The run to a ready pull request ───────────────────────────────────────────────────────
 
 
+def test_the_job_makes_its_process_unreadable_before_it_does_any_work(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A step runs as the same user as the job, so the job clears its dumpable flag first, and
+    only in a runner (#2667). The spy replaces the kernel call, which would change the test run."""
+    seen: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.deny_environment_reads",
+        lambda: seen.append((len(job_world.api.requested), len(job_world.programs.calls))),
+    )
+    plan = job_world.plan()
+    before = (len(job_world.api.requested), len(job_world.programs.calls))
+
+    applied = apply_implement(
+        job_world.store,
+        plan,
+        source=job_world.repo.clone,
+        model=two_groups().model(),
+        window=WINDOW,
+    )
+
+    assert (seen, applied.ready) == ([before], (1,))
+
+
+def test_a_job_outside_a_runner_does_not_touch_its_process(
+    job_world: JobWorld, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config(roadmap={"implement": {"in_runner": False}})
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.deny_environment_reads", lambda: seen.append("called")
+    )
+
+    with pytest.raises(RoadmapImplementError):
+        job_world.run(two_groups())
+
+    assert seen == []
+
+
 def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pull_request(
     job_world: JobWorld,
 ) -> None:

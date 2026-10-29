@@ -21,8 +21,10 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from pydantic import ValidationError
 
 from devops_cli.config.constants import CONST_GH_CLI, CONST_GITHUB_APP_PRIVATE_KEY_ENV
+from devops_cli.config.settings import GitHubAppConfig, load_settings
 from devops_cli.core.process import github_token, run_subprocess
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
@@ -129,6 +131,34 @@ def test_the_token_request_asks_only_for_the_permissions_the_roadmap_jobs_use(
     app_identity.route("POST", MINT, _installation_token("ghs_first", timedelta(hours=1)))
     github_token()
     assert json.loads(app_identity.sent[0].content) == {"permissions": ROADMAP_PERMISSIONS}
+
+
+def test_a_runner_job_asks_for_a_token_that_names_one_repository(
+    app_identity: GitHubApiFake, config: Callable[..., Path]
+) -> None:
+    """A Job holds the setting `service.github_app.token_repository`, so its token names the
+    repository by name and a step cannot push to another one (#2667)."""
+    config(service={"github_app": {**APP_SETTINGS, "token_repository": "example-org/app"}})
+    reset_github_session()
+    app_identity.route("POST", MINT, _installation_token("ghs_first", timedelta(hours=1)))
+    github_token()
+    assert json.loads(app_identity.sent[0].content) == {
+        "permissions": ROADMAP_PERMISSIONS,
+        "repositories": ["app"],
+    }
+
+
+def test_the_variable_of_the_job_sets_the_repository_of_the_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY", "example-org/app")
+    assert load_settings().service.github_app.token_repository == "example-org/app"
+
+
+@pytest.mark.parametrize("value", ["app", "a/b/c", "/app", "example-org/", "has space/app"])
+def test_a_token_repository_that_is_not_owner_slash_name_is_refused(value: str) -> None:
+    with pytest.raises(ValidationError):
+        GitHubAppConfig(token_repository=value)
 
 
 def test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_names(

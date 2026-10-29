@@ -3,7 +3,8 @@ to a ready pull request, and the stop of an item that cannot get there.
 
 **Where it runs.** The job runs a step only when `roadmap.implement.in_runner` is true. The
 step's shell checks the first word of a command and is no security boundary, so the pod of a
-runner Job is the sandbox. Every `git` command, every GitHub call and every `gh` call of the job
+runner Job is the sandbox, and the job clears the dumpable flag of its own process so that the
+shell, a child of the same user, cannot read the job's environment (#2667). Every `git` command, every GitHub call and every `gh` call of the job
 runs in this process, never in the agent's shell; the process runner gives a `git` or `gh` child
 the session's token, and any other child (`uv`, `ruff`) none.
 
@@ -47,6 +48,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.process_hardening import deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
@@ -484,8 +486,10 @@ def apply_implement(
     """Run each selected item of the plan, one after the other. A stopped item does not stop the
     run, and an item whose writes fail is reported while the others still run. Rejected GitHub or
     model credentials stop the run. Raises `RoadmapImplementError` before anything runs unless
-    `roadmap.implement.in_runner` is true."""
+    `roadmap.implement.in_runner` is true. It then makes its own process unreadable by the shell
+    of an agent, which runs as the same user (`deny_environment_reads`)."""
     require_runner()
+    deny_environment_reads()
     checkout = Path(source)
     ready: list[int] = []
     stopped: list[int] = []

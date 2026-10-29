@@ -440,9 +440,12 @@ def job_world(
     config: Callable[..., Path],
     clock: ClockFake,
     roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> JobWorld:
     """The job in a runner: a Staged item, pull request 5 as a draft whose checks pass, and the
-    process edge, where git runs for real and the project's own commands are answered."""
+    process edge, where git runs for real and the project's own commands are answered. The kernel
+    call that makes the job's process unreadable is answered too: it would change the test run."""
+    monkeypatch.setattr("devops_cli.core.process_hardening._prctl", lambda *_args: 0)
     api, programs = github_api_and_gh
     # A watch that waits out the monitor's timeout moves the clock past the reset of the quota.
     for resource in ("core", "graphql"):

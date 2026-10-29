@@ -2016,6 +2016,10 @@ class RoadmapMessages:
     )
     implement_job_retry_note: str = " (a retry: the stop on record is cleared first)"
     implement_job_left_line: str = "- #{number} {title}: {reason}"
+    implement_hardening_failed: str = (
+        "The implement job could not make its process unreadable by its own shell "
+        "(prctl PR_SET_DUMPABLE): {reason}. It runs no step."
+    )
     implement_job_runner_refused: str = (
         "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
         "true there. The shell of the agent is no security boundary, so the runner is the "
