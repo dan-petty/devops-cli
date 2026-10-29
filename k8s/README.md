@@ -1036,18 +1036,14 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
    devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443
    ```
    `k8s/cloudflared/networkpolicy.yaml` lets cloudflared reach the API server on 6443.
-2. On the workstation, install `cloudflared` from `tools.lock` and open the local end of the route. The first connection prints an Access login URL to open.
+2. On the workstation, install `cloudflared` from `tools.lock`, set the hostname of the route, and start the forward. `devops k8s tunnel start` runs `cloudflared access login` first: it opens a browser for the Access login or prints the login URL, and stores the token without printing it. Then it starts `cloudflared access tcp` in the background on `127.0.0.1:16443` (`--port` sets another port), records it under the data directory and waits until the port accepts connections. When a forward already runs, it reports that forward and starts no other. `--context` adds or updates the kubeconfig cluster and context `<cluster>-tunnel`, with the cluster, the user and the CA data of the home context (`k8s.context`, or `--from-context`), the server `https://127.0.0.1:16443` and the TLS server name `kubernetes.default.svc`.
    ```bash
    devops install-tools --tool cloudflared
-   cloudflared access tcp --hostname k8s.<domain> --url 127.0.0.1:16443
-   ```
-3. Add a context that reaches the API server through it, with the credentials and CA of the cluster entry you use at home (`<cluster>` and `<user>` in `kubectl config view`):
-   ```bash
-   kubectl config set-cluster <cluster>-tunnel --server=https://127.0.0.1:16443 --tls-server-name=kubernetes.default.svc
-   kubectl config set clusters.<cluster>-tunnel.certificate-authority-data "$(kubectl config view --raw -o jsonpath='{.clusters[?(@.name=="<cluster>")].cluster.certificate-authority-data}')"
-   kubectl config set-context <cluster>-tunnel --cluster=<cluster>-tunnel --user=<user>
+   devops config set k8s.tunnel_host k8s.<domain>
+   devops k8s tunnel start --context
    kubectl --context <cluster>-tunnel get nodes
    ```
+3. `devops k8s tunnel status` shows the forward, whether its port accepts connections, and whether the API server of the tunnel context answers. A 401 or a 403 counts as an answer, because the request reached the API server. `devops k8s tunnel stop` stops the forward and its process group. `devops k8s switch-context <cluster>-tunnel` makes the tunnel context the one that `devops k8s` commands use.
 
 ## Directory Structure
 

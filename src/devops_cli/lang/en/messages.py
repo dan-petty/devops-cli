@@ -506,6 +506,25 @@ class K8sMessages:
     switched_context: str = "✓ Switched to Kubernetes context: [bold green]{context}[/bold green]"
     no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."
     cluster_not_reachable: str = "Kubernetes cluster is not reachable."
+    tunnel_started: str = (
+        "Forwarding {host} to {listener} (pid {pid}). cloudflared writes its log to {log}."
+    )
+    tunnel_already_running: str = "A forward to {host} already runs on {listener} (pid {pid})."
+    tunnel_context_written: str = (
+        "Wrote the kubeconfig context {context}. Use it with 'kubectl --context {context}' or "
+        "'devops k8s switch-context {context}'."
+    )
+    tunnel_stopped: str = "Stopped the forward to {host} (pid {pid})."
+    tunnel_none_running: str = "No tunnel forward runs."
+    tunnel_forward: str = "Forward: pid {pid}, {host} to {listener}, started {started}."
+    tunnel_none_recorded: str = "No tunnel forward is recorded."
+    tunnel_port_listening: str = "Port {listener}: listening."
+    tunnel_port_closed: str = "Port {listener}: not listening."
+    tunnel_api_answers: str = "API server (context {context}): answers."
+    tunnel_api_silent: str = "API server (context {context}): does not answer."
+    tunnel_api_unchecked: str = (
+        "API server: not checked. Give --context, or start the forward with --context."
+    )
     proxy_service_unreachable: str = (
         "Did not write {key}: the API server cannot reach {address}. A NetworkPolicy can admit "
         "only pods, and then the API server reaches only the pods on its own node. Use "

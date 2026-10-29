@@ -147,6 +147,7 @@ Kubernetes context, ingress domain, and service addressing settings.
 |---|---|---|---|---|
 | `context` | `str` | `minikube` | `DEVOPS_CLI_K8S_CONTEXT` | Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context) |
 | `domain` | `Union` | - | `DEVOPS_CLI_K8S_DOMAIN` | Base domain name for homelab ingress routes and tunnel services (e.g. example.com) |
+| `tunnel_host` | `Union` | - | `DEVOPS_CLI_K8S_TUNNEL_HOST` | Hostname of the Kubernetes API route through the Cloudflare tunnel, which 'devops k8s tunnel start' forwards to a local port (e.g. k8s.example.com) |
 | `addressing` | `Union` | - | - | Default addressing mode for cluster services: nodeport, proxy, or fqdn. |
 
 ## Cloudflare Configuration (`cloudflare`)

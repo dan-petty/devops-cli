@@ -231,6 +231,7 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 |  | `devops k8s security-stream [OPTIONS]` | Stream runtime security anomaly events from Kubernetes Falco eBPF probes. |
 |  | `devops k8s gpu-matrix [OPTIONS]` | Query traditional homelab GPU matrix and model service alias mappings. |
 |  | `devops k8s doctor [OPTIONS]` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
+|  | `devops k8s tunnel COMMAND [ARGS]...` | Keep the local end of the Kubernetes API route at k8s.\<domain\> running: one 'cloudflared access tcp' forward, for the tunnel kubeconfig context off the home network. |
 |  | `devops k8s volume COMMAND [ARGS]...` | Move a local-path claim to a volume on another node, and reclaim orphaned PersistentVolumes. |
 | [**kustomize**](docs/commands/kustomize.md) | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |

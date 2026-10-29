@@ -400,6 +400,10 @@ class KubernetesConfig(BaseModel):
         default=None,
         description="Base domain name for homelab ingress routes and tunnel services (e.g. example.com)",
     )
+    tunnel_host: Annotated[OptionalConfiguredDomain, Variable()] = Field(
+        default=None,
+        description="Hostname of the Kubernetes API route through the Cloudflare tunnel, which 'devops k8s tunnel start' forwards to a local port (e.g. k8s.example.com)",
+    )
     addressing: str | None = Field(
         default=None,
         description="Default addressing mode for cluster services: nodeport, proxy, or fqdn.",

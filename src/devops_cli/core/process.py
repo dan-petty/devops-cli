@@ -509,6 +509,22 @@ class ProcessRunner(Protocol):
         intent: str | None = None,
     ) -> subprocess.CompletedProcess[str]: ...
 
+    def spawn_detached(
+        self,
+        cmd: Sequence[str] | list[str],
+        *,
+        isolate_env: bool = True,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+    ) -> DetachedProcess: ...
+
+
+class DetachedProcess(Protocol):
+    """A child in a session of its own, which runs on after the command that started it ends."""
+
+    pid: int
+
+    def poll(self) -> int | None: ...
+
 
 class DefaultProcessRunner:
     """The default production process runner executing real system processes."""
@@ -516,6 +532,30 @@ class DefaultProcessRunner:
     def prepare_cmd(self, cmd: Sequence[str] | list[str]) -> list[str]:
         """Prepare command arguments list, injecting standardized uv preview features when starting uv."""
         return prepare_tool_cmd(cmd)
+
+    def spawn_detached(
+        self,
+        cmd: Sequence[str] | list[str],
+        *,
+        isolate_env: bool = True,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+    ) -> DetachedProcess:
+        """Start `cmd` in a session of its own, with no terminal and no pipes.
+
+        The child runs on after this process ends, and a SIGINT from the terminal does not reach
+        it. `terminate_process_group` with its pid stops it and its children.
+        """
+        sub_env = build_subprocess_env(
+            isolate_env=isolate_env, extra_allowed_keys=extra_allowed_env
+        )
+        return subprocess.Popen(
+            list(cmd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=sub_env,
+            start_new_session=True,
+        )
 
     def run(
         self,
@@ -860,6 +900,18 @@ def run_subprocess(
         extra_allowed_env=extra_allowed_env,
         local_read=local_read,
         intent=intent,
+    )
+
+
+def spawn_detached(
+    cmd: Sequence[str] | list[str],
+    *,
+    isolate_env: bool = True,
+    extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+) -> DetachedProcess:
+    """Start `cmd` detached, in a session of its own, through the active process runner."""
+    return get_process_runner().spawn_detached(
+        cmd, isolate_env=isolate_env, extra_allowed_env=extra_allowed_env
     )
 
 

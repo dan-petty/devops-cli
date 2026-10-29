@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from devops_cli.core.process import run_subprocess, run_subprocess_async
+from tests.support.fakes.process import EndedProcess
 from tests.support.hung_children import (
     SUMMARY_LINE,
     HungChildWatch,
@@ -526,6 +527,15 @@ def test_process_runner_seam() -> None:
             return subprocess.CompletedProcess(
                 args=["custom_async"], returncode=0, stdout="custom async"
             )
+
+        def spawn_detached(
+            self,
+            cmd: Sequence[str] | list[str],
+            *,
+            isolate_env: bool = True,
+            extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+        ) -> EndedProcess:
+            return EndedProcess()
 
     custom = CustomRunner()
     set_process_runner(custom)
