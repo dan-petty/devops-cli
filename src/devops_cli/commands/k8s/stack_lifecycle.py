@@ -241,6 +241,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "llm" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
         DEFAULT_K8S_DIR / "llm" / "valkey-runs.yaml",
+        DEFAULT_K8S_DIR / "llm" / "valkey-devops.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway",

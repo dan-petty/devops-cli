@@ -28,6 +28,11 @@ data:
           model: devops-background
         embedding:
           model: qwen3-embedding:0.6b
+    # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml): the embedding cache
+    # and the threat-intelligence cache. Its password reaches the pod from Secret devops-cli as
+    # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
+    valkey:
+      url: valkey://valkey-devops.llm.svc.cluster.local:6379/0
     telemetry:
       enabled: true
       endpoint: http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318

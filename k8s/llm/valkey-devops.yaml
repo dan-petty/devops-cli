@@ -1,0 +1,213 @@
+# Valkey that devops-cli's Service and cluster jobs in namespace devops use as their cache (#1655):
+# the embeddings of the texts they embed and their threat-intelligence reads. A settled roadmap
+# item then costs no embedding request on the next round, though each round and each job is a
+# new process with an empty memory cache.
+#
+# It holds caches only. It keeps no file, evicts the least recently used key at its bound, and
+# starts empty after a restart. The cache Valkey of Open WebUI (valkey.yaml) keeps its state with
+# noeviction, so it can't also hold a cache that must evict. Valkey requires a password, which
+# comes from the keyring: `devops k8s push-secrets --only llm/valkey-devops-auth --only
+# devops/devops-cli` writes it to Secret valkey-devops-auth and to Secret devops/devops-cli,
+# generating one the first time. The policy valkey-devops-perimeter admits only namespace devops
+# and the metrics scrapers.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-devops
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-devops
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-devops
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        k8s.grafana.com/metrics.container: redis-exporter
+      labels:
+        app.kubernetes.io/name: valkey-devops
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: valkey
+          image: valkey/valkey:9.1.2-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # The password goes into a config file on a memory volume rather than onto the command
+          # line, where it would show in the process list.
+          #
+          # Valkey keeps at most 96 MiB of data, three quarters of the 128Mi limit, as the other
+          # Valkeys of llm do (#711). One embedding of qwen3-embedding:0.6b is about 20 KB of JSON,
+          # so the bound holds about 4,800 of them, many times the open and closed issues that a
+          # roadmap run embeds. At the bound Valkey evicts the least recently used key: a key it
+          # evicts costs one more embedding request, not a lost state.
+          command:
+            - sh
+            - -c
+            - >-
+              umask 077 &&
+              printf 'requirepass "%s"\n' "$VALKEY_PASSWORD" > /run/valkey/auth.conf &&
+              exec valkey-server /run/valkey/auth.conf
+              --save ""
+              --appendonly no
+              --dir /data
+              --maxmemory 96mb
+              --maxmemory-policy allkeys-lru
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-devops-auth
+                  key: password
+          volumeMounts:
+            - name: valkey-data
+              mountPath: /data
+            - name: valkey-tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /run/valkey
+          ports:
+            - name: valkey
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+        - name: redis-exporter
+          image: ghcr.io/oliver006/redis_exporter:v1.93.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: REDIS_ADDR
+              value: redis://localhost:6379
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-devops-auth
+                  key: password
+            - name: REDIS_EXPORTER_WEB_LISTEN_ADDRESS
+              value: 0.0.0.0:9121
+          ports:
+            - name: metrics
+              containerPort: 9121
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: valkey-data
+          emptyDir: {}
+        - name: valkey-tmp
+          emptyDir: {}
+        - name: config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-devops
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-devops
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: valkey-devops
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-devops-perimeter
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-devops
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-devops
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # devops-cli's Service and cluster jobs are the only clients (k8s/devops/configmap.example.yaml).
+    # A namespace-selector-only peer with `ports:`, the shape kube-router enforces.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: devops
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Alloy scrapes the redis-exporter sidecar.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9121
+  # No egress: Valkey only answers, and the exporter reaches it on localhost.
+  egress: []

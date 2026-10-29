@@ -30,6 +30,9 @@ DETACHED_STACKS: tuple[str, ...] = ("devops",)
 
 # Generated values nobody types live under keyring-only keys; no Settings option reads them.
 LLM_GATEWAY_MASTER_KEY = "llm_gateway_master_key"
+# The password of devops-cli's cache Valkey in the cluster (#1655). A workstation's
+# `valkey.password` is the password of the Valkey that its own `valkey.url` names.
+DEVOPS_CACHE_VALKEY_PASSWORD_KEY = "valkey_devops_password"
 # LiteLLM refuses a master key without this prefix.
 LITELLM_KEY_PREFIX = "sk-"
 
@@ -156,6 +159,8 @@ class ClusterSecret:
 
 
 _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
+_DEVOPS_CACHE_VALKEY_PASSWORD = KeyringSource(DEVOPS_CACHE_VALKEY_PASSWORD_KEY)
+_DEVOPS_CACHE_VALKEY_GENERATOR = SecretGenerator("hex", 32)
 
 CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
     ClusterSecret(
@@ -222,6 +227,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "valkey"), Workload("statefulset", "open-webui")),
         labels={"app.kubernetes.io/name": "valkey"},
     ),
+    # The password of devops-cli's cache Valkey, which the Service and the cluster jobs send from
+    # Secret devops/devops-cli (#1655).
+    ClusterSecret(
+        namespace="llm",
+        name="valkey-devops-auth",
+        stack="llm",
+        entries=(
+            SecretEntry(
+                "password",
+                _DEVOPS_CACHE_VALKEY_PASSWORD,
+                generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
+            ),
+        ),
+        restarts=(Workload("deployment", "valkey-devops"),),
+        labels={"app.kubernetes.io/name": "valkey-devops"},
+    ),
     ClusterSecret(
         namespace="cloudflared",
         name="cloudflared-token",
@@ -262,6 +283,14 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 "DEVOPS_CLI_FIRECRAWL_API_KEY",
                 KeyringSource.for_credential("firecrawl.api_key"),
                 required=False,
+            ),
+            # `valkey.password` of the pods: the password of the cache Valkey that the ConfigMap's
+            # `valkey.url` names.
+            SecretEntry(
+                "DEVOPS_CLI_VALKEY_PASSWORD",
+                _DEVOPS_CACHE_VALKEY_PASSWORD,
+                generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
+                adopt_from=SecretKeyRef("llm", "valkey-devops-auth", "password"),
             ),
         ),
         restarts=(Workload("deployment", "roadmap-service"),),

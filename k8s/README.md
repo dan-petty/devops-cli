@@ -85,6 +85,10 @@ kubectl -n llm port-forward svc/qdrant 6333:6333
 # Valkey In-Memory Cache: Open WebUI's state. It requires the password of llm/valkey-auth (see Cluster Secrets).
 kubectl -n llm exec -it svc/valkey -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli ping'
 
+# devops-cli's cache Valkey: the embeddings and threat-intelligence reads of the Service and the cluster jobs.
+# It requires the password of llm/valkey-devops-auth (see Cluster Secrets).
+kubectl -n llm exec -it svc/valkey-devops -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli ping'
+
 # Valkey Run Index (Argo CD's `llm` Application deploys it on the homelab; `devops k8s deploy-stack --stack llm` deploys it on either cluster; see Cluster Secrets for its password):
 # benchmark and evaluation runs shared by workstations. Its password Secret comes from the keyring (see Cluster Secrets),
 # then point devops-cli at it through its NodePort.
@@ -182,6 +186,8 @@ The gateway's policy `llm-gateway-perimeter` (`llm/gateway/networkpolicy.yaml`) 
 The cache Valkey's policy `valkey-perimeter` (`llm/valkey.yaml`) admits Open WebUI on TCP 6379 and the `monitoring` namespace on the exporter port 9121. It allows no egress, and `llm-default-perimeter` leaves the Valkey pods out. Valkey requires the password of `llm/valkey-auth` (see Cluster Secrets). Open WebUI sends it in its Redis URL, and Valkey reads it from a quoted config line. A typed value must therefore use only letters, digits, `-`, `.`, `_` and `~`. The gateway and Portkey use no Valkey: the gateway config turns on no cache, and Portkey reads a cache only from `REDIS_CONNECTION_STRING`, which is not set.
 
 The cache Valkey keeps at most 1536 MiB of data (`--maxmemory`), three quarters of its 2048Mi limit. The rest of the limit holds fragmentation and Valkey's own overhead. At the bound, Valkey refuses writes and evicts no key (`--maxmemory-policy noeviction`). Open WebUI keeps its session pools and token revocations there, and an evicted revocation makes a signed-out token valid again. The run index (`llm/valkey-runs.yaml`) uses the same policy with a bound of 512 MiB.
+
+devops-cli's cache Valkey (`llm/valkey-devops.yaml`) holds the caches of the roadmap Service and the cluster jobs: the embeddings that `EmbeddingsEngine` writes, and the threat-intelligence reads. Each round of the Service and each job is a new process with an empty memory cache, so without it intake embeds every item of the roadmap again on each round. The devops ConfigMap names it in `valkey.url`, and its password reaches the pods from `devops/devops-cli` as `DEVOPS_CLI_VALKEY_PASSWORD`, the variable of `valkey.password`. Its policy `valkey-devops-perimeter` admits namespace `devops` on TCP 6379 and the `monitoring` namespace on the exporter port 9121, and allows no egress. `llm-default-perimeter` leaves its pods out, and `devops-default-perimeter` lets namespace `devops` reach namespace `llm` on 6379 beside the gateway's 4000. It keeps at most 96 MiB of data, three quarters of its 128Mi limit, writes no RDB or AOF, and at the bound evicts the least recently used key (`--maxmemory-policy allkeys-lru`): an evicted key costs one more embedding request. It can't share the cache Valkey, which must not evict Open WebUI's state.
 
 Qdrant requires the key of `llm/qdrant-api-key` (see Cluster Secrets) on every REST and gRPC request. Only `/`, `/healthz`, `/readyz`, `/livez` and the files of its web UI need no key. The qdrant container reads the key as `QDRANT__SERVICE__API_KEY` through `env` in `llm/values-qdrant.yaml`. Open WebUI is the only workload under `k8s/` that names the Qdrant Service, and it sends the key as `QDRANT_API_KEY`. Alloy scrapes `/metrics` with the key as a bearer token, and devops-cli sends keyring `qdrant_api_key`, which the push keeps equal to the Secret. `tests/test_k8s_qdrant_security.py` fails on a top-level key of `llm/values-qdrant.yaml` that the pinned chart (`tests/fixtures/charts/qdrant/`) does not declare, because Helm drops such a key with no error.
 
@@ -502,11 +508,13 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `llm/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | llm | `statefulset/qdrant`, `statefulset/open-webui` |
 | `llm/valkey-runs-auth` | `password` | keyring `runs_index_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-runs` |
 | `llm/valkey-auth` | `VALKEY_PASSWORD` | keyring `valkey_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey`, `statefulset/open-webui` |
+| `llm/valkey-devops-auth` | `password` | keyring `valkey_devops_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-devops` |
 | `cloudflared/cloudflared-token` | `token` | keyring `cloudflare_tunnel_token` | no | adopt the live value; else skip with a warning | base | `deployment/cloudflared` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` | keyring `service_github_app_private_key` | yes | adopt the live value; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_FIRECRAWL_API_KEY` | keyring `firecrawl_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_VALKEY_PASSWORD` | keyring `valkey_devops_password` | yes | adopt from `llm/valkey-devops-auth password`; else generate 64 hex | devops | `deployment/roadmap-service` |
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 | `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |

@@ -33,6 +33,7 @@ from devops_cli.config.os_keyring import set_keyring_edge
 from devops_cli.config.settings import TelemetryConfig
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
+    DEVOPS_CACHE_VALKEY_PASSWORD_KEY,
     LLM_GATEWAY_MASTER_KEY,
     KeyringSource,
     SecretGenerator,
@@ -58,12 +59,14 @@ GATEWAY_KEY = "sk-keyring-gateway-value-0001"
 QDRANT_KEY = "qdrant-keyring-value-0001"
 RUNS_PASSWORD = "runs-keyring-value-0001"
 CACHE_PASSWORD = "cache-keyring-value-0001"
+DEVOPS_CACHE_PASSWORD = "devops-cache-keyring-value-0001"
 TUNNEL_TOKEN = "tunnel-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
     "runs_index_password": RUNS_PASSWORD,
     "valkey_password": CACHE_PASSWORD,
+    DEVOPS_CACHE_VALKEY_PASSWORD_KEY: DEVOPS_CACHE_PASSWORD,
     "cloudflare_tunnel_token": TUNNEL_TOKEN,
     "service_github_app_private_key": APP_KEY,
 }
@@ -157,6 +160,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/valkey", "statefulset/open-webui"),
         ),
         (
+            "llm/valkey-devops-auth",
+            "password",
+            "llm",
+            True,
+            SecretGenerator("hex", 32),
+            None,
+            ("deployment/valkey-devops",),
+        ),
+        (
             "cloudflared/cloudflared-token",
             "token",
             "base",
@@ -199,6 +211,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             False,
             None,
             None,
+            ("deployment/roadmap-service",),
+        ),
+        (
+            "devops/devops-cli",
+            "DEVOPS_CLI_VALKEY_PASSWORD",
+            "devops",
+            True,
+            SecretGenerator("hex", 32),
+            "llm/valkey-devops-auth password",
             ("deployment/roadmap-service",),
         ),
         (
@@ -317,7 +338,12 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
         {s.key for s in sources if not s.option} == keyring_only_keys(),
         keyring_only_keys() & managed,
         keyring_only_keys(),
-    ) == (True, True, frozenset(), frozenset({LLM_GATEWAY_MASTER_KEY}))
+    ) == (
+        True,
+        True,
+        frozenset(),
+        frozenset({LLM_GATEWAY_MASTER_KEY, DEVOPS_CACHE_VALKEY_PASSWORD_KEY}),
+    )
 
 
 def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
@@ -329,6 +355,7 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
         "DEVOPS_CLI_AI_API_KEY": "ai.api_key",
         "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": "service.webhook_secrets",
         "DEVOPS_CLI_FIRECRAWL_API_KEY": "firecrawl.api_key",
+        "DEVOPS_CLI_VALKEY_PASSWORD": "valkey.password",
     }
 
 
@@ -486,8 +513,13 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
             "llm/qdrant-api-key": ["api-key"],
             "llm/valkey-runs-auth": ["password"],
             "llm/valkey-auth": ["VALKEY_PASSWORD"],
+            "llm/valkey-devops-auth": ["password"],
             "cloudflared/cloudflared-token": ["token"],
-            "devops/devops-cli": ["DEVOPS_CLI_AI_API_KEY", APP_KEY_ENTRY],
+            "devops/devops-cli": [
+                "DEVOPS_CLI_AI_API_KEY",
+                APP_KEY_ENTRY,
+                "DEVOPS_CLI_VALKEY_PASSWORD",
+            ],
         },
         [],
         {"devops-cli"},
@@ -507,7 +539,11 @@ def test_keyring_values_without_live_secrets_are_created_and_restart_nothing(
     ) == (
         0,
         True,
-        {APP_KEY_ENTRY: APP_KEY, "DEVOPS_CLI_AI_API_KEY": GATEWAY_KEY},
+        {
+            APP_KEY_ENTRY: APP_KEY,
+            "DEVOPS_CLI_AI_API_KEY": GATEWAY_KEY,
+            "DEVOPS_CLI_VALKEY_PASSWORD": DEVOPS_CACHE_PASSWORD,
+        },
         [],
     )
 
@@ -581,7 +617,13 @@ def test_a_generated_value_is_stored_in_the_keyring_before_the_apply(
         True,
         True,
         backend.writes[LLM_GATEWAY_MASTER_KEY],
-        [LLM_GATEWAY_MASTER_KEY, "qdrant_api_key", "runs_index_password", "valkey_password"],
+        [
+            LLM_GATEWAY_MASTER_KEY,
+            "qdrant_api_key",
+            "runs_index_password",
+            DEVOPS_CACHE_VALKEY_PASSWORD_KEY,
+            "valkey_password",
+        ],
     )
 
 
@@ -590,11 +632,19 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
 ) -> None:
     backend = _install(monkeypatch, cluster, values={"service_github_app_private_key": APP_KEY})
     cluster.add_secret("llm", "llm-gateway-secrets", {"master-key": "sk-live-gateway-0001"})
+    cluster.add_secret("llm", "valkey-devops-auth", {"password": "live-devops-cache-0001"})
     result = _push("--stack", "devops")
     assert (result.exit_code, backend.writes, cluster.live_data("devops", "devops-cli")) == (
         0,
-        {LLM_GATEWAY_MASTER_KEY: "sk-live-gateway-0001"},
-        {APP_KEY_ENTRY: APP_KEY, "DEVOPS_CLI_AI_API_KEY": "sk-live-gateway-0001"},
+        {
+            LLM_GATEWAY_MASTER_KEY: "sk-live-gateway-0001",
+            DEVOPS_CACHE_VALKEY_PASSWORD_KEY: "live-devops-cache-0001",
+        },
+        {
+            APP_KEY_ENTRY: APP_KEY,
+            "DEVOPS_CLI_AI_API_KEY": "sk-live-gateway-0001",
+            "DEVOPS_CLI_VALKEY_PASSWORD": "live-devops-cache-0001",
+        },
     )
 
 
@@ -774,6 +824,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             LLM_GATEWAY_MASTER_KEY,
             "service_webhook_secrets",
             "firecrawl_api_key",
+            DEVOPS_CACHE_VALKEY_PASSWORD_KEY,
         },
         [],
         APP_KEY,
@@ -953,7 +1004,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
         [call.argv for call in cluster.calls],
         [f"devops-cli/{key}" for key in stub_keyring.reads],
         [{**i, "data": sorted(i["data"])} for i in applied],
-        ["<>", "<>", "<>", "<>", "<>"],
+        ["<>", "<>", "<>", "<>", "<>", "<>"],
     )
 
 

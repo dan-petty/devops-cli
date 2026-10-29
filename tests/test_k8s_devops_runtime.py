@@ -216,7 +216,7 @@ def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
                 "to": [
                     {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "llm"}}}
                 ],
-                "ports": [{"protocol": "TCP", "port": 4000}],
+                "ports": [{"protocol": "TCP", "port": 4000}, {"protocol": "TCP", "port": 6379}],
             },
             {
                 "to": [

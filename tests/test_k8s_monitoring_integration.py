@@ -600,6 +600,7 @@ def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
 EXEMPT_PLAIN_SERVICES: dict[tuple[str, str], tuple[str, str]] = {
     ("llm", "valkey"): ("k8s/llm/valkey.yaml", "llm stack valkey manifest"),
     ("llm", "valkey-runs"): ("k8s/llm/valkey-runs.yaml", "llm stack valkey-runs manifest"),
+    ("llm", "valkey-devops"): ("k8s/llm/valkey-devops.yaml", "llm stack valkey-devops manifest"),
     ("llm", "llm-gateway"): ("k8s/llm/gateway/service.yaml", "llm stack gateway manifest"),
     ("llm", "portkey"): ("k8s/llm/portkey/service.yaml", "llm stack portkey manifest"),
     **{
