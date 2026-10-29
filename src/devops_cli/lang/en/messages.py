@@ -1962,7 +1962,7 @@ class RoadmapMessages:
     intake_eval_disagree: str = (
         "- DISAGREE: {name}: a person says {person}, intake says {intake}.{reason}"
     )
-    intake_eval_reason: str = " Intake's reason: `{reason}`"
+    intake_eval_reason: str = " Intake's reason: {reason}"
     intake_eval_error: str = "- ERROR: {name}: {error}"
     intake_eval_agreed: str = "Agree: {agreed} of {cases} case(s)."
     intake_eval_score: str = (
