@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.6](https://github.com/dan-petty/devops-cli/compare/v0.16.5...v0.16.6) (2026-10-29)
+
+
+### Bug Fixes
+
+* **ai:** the MCP prewarm tool takes no URL from the model ([#2677](https://github.com/dan-petty/devops-cli/issues/2677)) ([edf5325](https://github.com/dan-petty/devops-cli/commit/edf5325751d383b83e8b25673b7130670407118e)), closes [#2637](https://github.com/dan-petty/devops-cli/issues/2637)
+
 ## [0.16.5](https://github.com/dan-petty/devops-cli/compare/v0.16.4...v0.16.5) (2026-10-29)
 
 
