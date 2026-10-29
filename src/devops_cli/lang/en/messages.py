@@ -475,8 +475,13 @@ class RepoMessages:
     worktrees_add_dry_run_notes: tuple[str, ...] = (
         "A dry run reads local git only. Run without --dry-run to read origin and to create the "
         "worktree.",
+        "If origin holds a staged branch for the issue, the run reads its authors with the log "
+        "command and adds the worktree on that branch with --track.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
+    worktrees_add_took_over: str = (
+        "Took over the staged branch {branch} in worktree {path}. Commits by the App: {commits}."
+    )
     worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
     worktrees_add_no_origin: str = (
         "The repository has no remote named origin, so the branches of origin cannot be read. "
@@ -488,7 +493,31 @@ class RepoMessages:
     worktrees_add_held_by_directory: str = (
         "Issue {issue} is held by the directory {path}, where its worktree goes."
     )
-    worktrees_add_held_by_branch: str = "Issue {issue} is held by the branch origin/{branch}."
+    worktrees_add_held_by_author: str = (
+        "Issue {issue} is held by the branch origin/{branch}. It has a commit by {author}, not by "
+        "the App ({bot})."
+    )
+    worktrees_add_held_no_app: str = (
+        "Issue {issue} is held by the branch origin/{branch}. The setting "
+        "service.github_app.slug is not set, so no commit counts as a commit by the App."
+    )
+    worktrees_add_held_no_commits: str = (
+        "Issue {issue} is held by the branch origin/{branch}. It has no commit past "
+        "origin/main, so nothing shows that the App staged it."
+    )
+    worktrees_add_held_by_branches: str = (
+        "Issue {issue} is held by more than one branch of origin: {branches}."
+    )
+    worktrees_add_staged_differs: str = (
+        "Issue {issue} has the staged branch origin/{branch}. Its {option} is '{staged}', not "
+        "'{given}'. Use --{option} {staged}, or leave the option out."
+    )
+    worktrees_add_needs_branch_options: str = (
+        "No branch of origin holds issue {issue}. Give --type and --slug to name the new branch."
+    )
+    worktrees_add_dry_run_needs_options: str = (
+        "--dry-run cannot read the branches of origin. Give --type and --slug."
+    )
     worktrees_add_git_failed: str = "`git {command}` failed: {reason}"
     worktrees_add_bad_type: str = "'{type}' is not a branch type. Allowed types: {types}."
     worktrees_add_bad_slug: str = (

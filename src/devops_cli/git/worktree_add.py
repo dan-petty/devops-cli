@@ -1,17 +1,21 @@
 """Create the worktree of an issue, and refuse an issue that a worktree or a pushed branch holds
-(#2337).
+(#2337), or take over the staged branch that the App pushed (#2657).
 
 An issue is held when a worktree of the repository has a branch of the form
 `<type>/<issue>-<slug>` for it, when the standard directory of its worktree exists, or when
 `origin` has such a branch. The check reads `git worktree list` and `git ls-remote` and makes no
 GitHub request: a pull request of this repository always has a pushed head branch, and GitHub's
 list of the pull requests that close an issue also names the open release pull request.
+
+A pushed branch is not a hold when the App wrote every commit of it past `origin/main`: the author
+of each commit, read with `git log --format=%an`, is the bot login of `service.github_app.slug`.
+The run then adds the worktree on that branch.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -28,7 +32,7 @@ from devops_cli.core.repo import get_repo_origin_name, resolve_data_path
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitOperationError
-from devops_cli.git.branch_form import branch_name, issue_of_branch
+from devops_cli.git.branch_form import BranchParts, branch_name, issue_of_branch, parse_branch
 from devops_cli.git.worktree_inventory import (
     CONST_REFS_HEADS_PREFIX,
     WorktreePruneItem,
@@ -55,13 +59,15 @@ class ReclaimResult(BaseModel):
 
 class WorktreeAddReport(BaseModel):
     """What `add` did, or with `dry_run` what it would do. `requests` holds the requests and
-    commands that a dry run lists, and is empty after a real run. `reclaimed` and `reclaim_error`
+    commands that a dry run lists, and is empty after a real run. `commits` is the number of commits
+    by the App on a branch that the run took over. `reclaimed` and `reclaim_error`
     are the result of the reclaim of merged worktrees that comes first."""
 
     issue: int
     branch: str
     path: str
-    status: Literal["created", "would create"]
+    status: Literal["created", "took over", "would create"]
+    commits: int = 0
     requests: list[str] = Field(default_factory=list)
     reclaimed: list[WorktreePruneItem] = Field(default_factory=list)
     reclaim_error: str | None = None
@@ -109,26 +115,56 @@ def _local_holder(repo_root: Path, issue: int, directory: Path) -> str | None:
     return None
 
 
-def _remote_holder(ls_remote: str, issue: int) -> str | None:
-    """The branch of `origin` that names `issue` in the output of `git ls-remote --heads`."""
+class _Pushed(NamedTuple):
+    """A branch of `origin` that names an issue, with its parts."""
+
+    name: str
+    parts: BranchParts
+
+
+def _pushed_branches(ls_remote: str, issue: int) -> list[_Pushed]:
+    """The branches of `origin` that name `issue` in the output of `git ls-remote --heads`."""
+    found: list[_Pushed] = []
     for line in ls_remote.splitlines():
         _, _, ref = line.partition("\t")
-        branch = ref.removeprefix(CONST_REFS_HEADS_PREFIX)
-        if issue_of_branch(branch) == issue:
-            return branch
-    return None
+        name = ref.removeprefix(CONST_REFS_HEADS_PREFIX)
+        parts = parse_branch(name)
+        if parts is not None and parts.issue == issue:
+            found.append(_Pushed(name, parts))
+    return found
+
+
+def _staged_branch(ls_remote: str, issue: int) -> _Pushed | None:
+    """The one branch of `origin` for `issue`, or None; more than one holds the issue."""
+    found = _pushed_branches(ls_remote, issue)
+    if len(found) > 1:
+        names = ", ".join(f"origin/{pushed.name}" for pushed in found)
+        raise _failure(
+            MESSAGES.repos.worktrees_add_held_by_branches.format(issue=issue, branches=names)
+        )
+    return found[0] if found else None
+
+
+def _git(repo_root: Path) -> list[str]:
+    return [CONST_GIT_CLI, "-C", str(repo_root)]
+
+
+def _main_ref() -> str:
+    return f"{CONST_GIT_REMOTE_ORIGIN}/{CONST_GIT_MAIN_BRANCH}"
 
 
 def _commands(repo_root: Path, branch: str, directory: Path) -> list[list[str]]:
-    """The three git commands of a run, in order: read the branches of `origin`, fetch the main
-    branch, and create the worktree. `--no-track` leaves the branch with no upstream, so that a
-    plain `git push` cannot aim at `main`."""
-    git = [CONST_GIT_CLI, "-C", str(repo_root)]
-    base = f"{CONST_GIT_REMOTE_ORIGIN}/{CONST_GIT_MAIN_BRANCH}"
+    """The four git commands that a run can make, in order: read the branches of `origin`, fetch
+    the main branch, read the authors of the pushed branch past main, and create the worktree.
+    A run makes the third only when `origin` holds the branch, and then it takes the branch over
+    instead of the fourth (`_take_over`). `--no-track` leaves a new branch with no upstream, so
+    that a plain `git push` cannot aim at `main`."""
+    git = _git(repo_root)
     return [
         [*git, "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN],
         [*git, "fetch", CONST_GIT_REMOTE_ORIGIN, CONST_GIT_MAIN_BRANCH],
-        [*git, "worktree", "add", "--no-track", "-b", branch, str(directory), base],
+        [*git, "log", "--format=%an", f"{_main_ref()}..{CONST_GIT_REMOTE_ORIGIN}/{branch}"],
+        [*git, "worktree", "add", "--no-track", "-b", branch, str(directory), _main_ref()],
     ]
 
 
@@ -169,44 +205,78 @@ def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> Recla
     )
 
 
-def add_worktree(
-    repo_root: Path,
-    *,
-    issue: int,
-    type_: str,
-    slug: str,
-    dry_run: bool = False,
-    reclaim: ReclaimResult | None = None,
-) -> WorktreeAddReport:
-    """Create the worktree of `issue` on `<type>/<issue>-<slug>` at the fetched `origin/main`.
-
-    The run refuses an issue that a local worktree holds before it reads `origin`, and one that a
-    branch of `origin` holds before it fetches, so a refused run changes nothing. A dry run reads
-    the local worktrees only and lists the three commands. `reclaim` is the result of
-    `reclaim_merged_worktrees`, which the caller ran first; it goes into the report.
-    """
-    reclaim = reclaim or ReclaimResult()
-    branch = branch_name(issue, type_, slug)
-    directory = worktree_directory(issue, repo_root)
-    _require_origin(repo_root)
-    if (held := _local_holder(repo_root, issue, directory)) is not None:
-        raise _failure(held)
-    ls_remote, fetch, create = commands = _commands(repo_root, branch, directory)
-    if dry_run:
-        planned = [PlannedRequest("git", " ".join(argv[1:]), argv=tuple(argv)) for argv in commands]
-        return WorktreeAddReport(
-            issue=issue,
-            branch=branch,
-            path=str(directory),
-            status="would create",
-            requests=[*reclaim.requests, *(request.line() for request in planned)],
-            reclaimed=reclaim.removed,
-            reclaim_error=reclaim.error,
-        )
-    if (pushed := _remote_holder(_run(ls_remote), issue)) is not None:
+def _check_authors(issue: int, branch: str, authors: list[str]) -> None:
+    """Refuse the branch unless it has a commit and the App wrote every one."""
+    bot = load_settings().service.github_app.bot_login
+    messages = MESSAGES.repos
+    if not authors:
+        raise _failure(messages.worktrees_add_held_no_commits.format(issue=issue, branch=branch))
+    if bot is None:
+        raise _failure(messages.worktrees_add_held_no_app.format(issue=issue, branch=branch))
+    if (other := next((author for author in authors if author != bot), None)) is not None:
         raise _failure(
-            MESSAGES.repos.worktrees_add_held_by_branch.format(issue=issue, branch=pushed)
+            messages.worktrees_add_held_by_author.format(
+                issue=issue, branch=branch, author=other, bot=bot
+            )
         )
+
+
+def _check_names(issue: int, pushed: _Pushed, type_: str | None, slug: str | None) -> None:
+    """Refuse a `--type` or `--slug` that differs from the pushed branch."""
+    for option, given, staged in (
+        ("type", type_, pushed.parts.type),
+        ("slug", slug, pushed.parts.slug),
+    ):
+        if given is not None and given != staged:
+            raise _failure(
+                MESSAGES.repos.worktrees_add_staged_differs.format(
+                    issue=issue, branch=pushed.name, option=option, staged=staged, given=given
+                )
+            )
+
+
+def _take_over(
+    repo_root: Path, issue: int, pushed: _Pushed, directory: Path, reclaim: ReclaimResult
+) -> WorktreeAddReport:
+    """Add the worktree on the pushed branch when the App wrote every commit past main.
+
+    The fetch names the branch, so `origin/<branch>` exists whatever the fetch refspec of the
+    clone. The worktree tracks the pushed branch, so a plain `git push` goes to it.
+    """
+    git, branch = _git(repo_root), pushed.name
+    remote_branch = f"{CONST_GIT_REMOTE_ORIGIN}/{branch}"
+    _run(
+        [
+            *git,
+            "fetch",
+            CONST_GIT_REMOTE_ORIGIN,
+            CONST_GIT_MAIN_BRANCH,
+            f"+{CONST_REFS_HEADS_PREFIX}{branch}:refs/remotes/{remote_branch}",
+        ]
+    )
+    authors = _run([*git, "log", "--format=%an", f"{_main_ref()}..{remote_branch}"]).splitlines()
+    _check_authors(issue, branch, authors)
+    _run([*git, "worktree", "add", "--track", "-b", branch, str(directory), remote_branch])
+    return WorktreeAddReport(
+        issue=issue,
+        branch=branch,
+        path=str(directory),
+        status="took over",
+        commits=len(authors),
+        reclaimed=reclaim.removed,
+        reclaim_error=reclaim.error,
+    )
+
+
+def _create(
+    repo_root: Path,
+    issue: int,
+    branch: str,
+    directory: Path,
+    reclaim: ReclaimResult,
+) -> WorktreeAddReport:
+    """Add the worktree on the new `branch` at the fetched `origin/main`."""
+    _, fetch, _, create = _commands(repo_root, branch, directory)
     _run(fetch)
     _run(create)
     return WorktreeAddReport(
@@ -217,3 +287,58 @@ def add_worktree(
         reclaimed=reclaim.removed,
         reclaim_error=reclaim.error,
     )
+
+
+def _new_branch(issue: int, type_: str | None, slug: str | None) -> str:
+    """The name of the new branch; both parts are required when `origin` holds no branch."""
+    if type_ is None or slug is None:
+        raise _failure(MESSAGES.repos.worktrees_add_needs_branch_options.format(issue=issue))
+    return branch_name(issue, type_, slug)
+
+
+def add_worktree(
+    repo_root: Path,
+    *,
+    issue: int,
+    type_: str | None,
+    slug: str | None,
+    dry_run: bool = False,
+    reclaim: ReclaimResult | None = None,
+) -> WorktreeAddReport:
+    """Create the worktree of `issue`, or take over the staged branch that `origin` holds for it.
+
+    With no branch of `origin` for the issue, the worktree is on the new branch
+    `<type>/<issue>-<slug>` at the fetched `origin/main`, and `type_` and `slug` are required.
+    With a pushed branch, the App must have written every commit of it past main: the run takes
+    the branch over (`took over`), takes `type_` and `slug` from it, and refuses a value that
+    differs. The run refuses an issue that a local worktree holds before it reads `origin`, and
+    one that a branch of `origin` holds before it adds the worktree, so a refused run leaves no
+    worktree and no local branch. A dry run reads the local worktrees only and lists the four
+    commands. `reclaim` is the result of `reclaim_merged_worktrees`, which the caller ran first;
+    it goes into the report.
+    """
+    reclaim = reclaim or ReclaimResult()
+    directory = worktree_directory(issue, repo_root)
+    _require_origin(repo_root)
+    if (held := _local_holder(repo_root, issue, directory)) is not None:
+        raise _failure(held)
+    if dry_run:
+        branch = _new_branch(issue, type_, slug)
+        planned = [
+            PlannedRequest("git", " ".join(argv[1:]), argv=tuple(argv))
+            for argv in _commands(repo_root, branch, directory)
+        ]
+        return WorktreeAddReport(
+            issue=issue,
+            branch=branch,
+            path=str(directory),
+            status="would create",
+            requests=[*reclaim.requests, *(request.line() for request in planned)],
+            reclaimed=reclaim.removed,
+            reclaim_error=reclaim.error,
+        )
+    ls_remote = [*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN]
+    if (pushed := _staged_branch(_run(ls_remote), issue)) is None:
+        return _create(repo_root, issue, _new_branch(issue, type_, slug), directory, reclaim)
+    _check_names(issue, pushed, type_, slug)
+    return _take_over(repo_root, issue, pushed, directory, reclaim)

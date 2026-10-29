@@ -217,7 +217,7 @@ def test_the_dry_run_lists_the_reads_of_the_reclaim_and_removes_nothing(
     report = json.loads(result.stdout)
     assert (result.exit_code, merged.exists(), github_api.requested) == (0, True, [])
     assert report["requests"][0] == f"GET /repos/example-org/app/commits/{tip}/pulls"
-    assert len(report["requests"]) == 4
+    assert len(report["requests"]) == 5
     assert not new_dir.exists()
 
 
