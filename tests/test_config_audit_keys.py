@@ -301,16 +301,55 @@ def test_config_audit_keys_alert_names_a_command_that_removes_the_leak_from_its_
     assert (audit.exit_code, json.loads(audit.stdout)["plaintext_leaks"]) == (0, [])
 
 
-def test_the_help_of_audit_keys_and_unset_name_the_command_that_removes_a_leak(
-    cli: Callable[..., Any],
-) -> None:
-    """The help of `audit-keys` names the command that its alert names. The help of `unset` says
-    that `DEVOPS_CLI_CONFIG` names the file that the command edits."""
-    audit_help = _words(cli("config", "audit-keys", "--help").output)
-    unset_help = _words(cli("config", "unset", "--help").output)
+# A PEM-shaped value (RFC 7468) with a label that no secret scanner takes for a real private key.
+_PEM_SHAPED_SECRET = (
+    "-----BEGIN EXAMPLE KEY-----\nZmFrZS1rZXktYm9keQ==\n-----END EXAMPLE KEY-----\n"
+)
 
-    assert f"`{_UNSET_COMMAND}`" in audit_help
-    assert "set `DEVOPS_CLI_CONFIG` to its path" in unset_help
+
+def test_the_flow_that_the_alert_names_keeps_a_multi_line_credential_whole(
+    cli: Callable[..., Any],
+    keyring_store: Any,
+    write_global_config: Callable[[bytes], Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The prompt of `devops config set <key>` reads one line, so it keeps only the first line of
+    a PEM key. The alert names `--from-file` for this case. The flow of the alert then stores the
+    whole key in the keyring, removes the plaintext value, and the next audit passes."""
+    key = "argocd.github_app_private_key"
+    block = "".join(f"    {line}\n" for line in _PEM_SHAPED_SECRET.splitlines())
+    global_file = write_global_config(f"argocd:\n  github_app_private_key: |\n{block}".encode())
+    project_file = tmp_path / ".devcontainer" / "config.yaml"
+    project_file.parent.mkdir()
+    project_file.write_text("log_level: INFO\n", encoding="utf-8")
+    monkeypatch.delenv("DEVOPS_CLI_CONFIG")
+    pem_file = tmp_path / "app.pem"
+    pem_file.write_text(_PEM_SHAPED_SECRET, encoding="utf-8")
+
+    table = cli("config", "audit-keys")
+    alert = _words(table.output[table.output.index("Security Alert") :])
+    store = cli("config", "set", key, "--from-file", str(pem_file))
+    removal = cli("config", "unset", key, env={"DEVOPS_CLI_CONFIG": str(global_file)})
+    audit = cli("config", "audit-keys", "--json")
+
+    assert (table.exit_code, "--from-file <path>" in alert) == (1, True)
+    assert (store.exit_code, list(keyring_store.writes.values())) == (0, [_PEM_SHAPED_SECRET])
+    assert (removal.exit_code, audit.exit_code) == (0, 0)
+
+
+def test_config_audit_keys_alert_says_to_quote_the_values_and_to_delete_the_copy(
+    cli: Callable[..., Any], global_config_with_a_secret: Path
+) -> None:
+    """A section name can hold shell syntax, so the alert says to quote the file and the key. The
+    removal keeps a copy of the file that still holds the value, and the audit does not scan the
+    copy, so the alert says to delete it (#2645)."""
+    result = cli("config", "audit-keys")
+
+    alert = _words(result.output[result.output.index("Security Alert") :])
+    assert "Quote <file> and <key> for the shell." in alert
+    assert "keeps a copy of the file, <file>.bak-<time>, that still holds the value" in alert
+    assert "Delete the copy by hand." in alert
 
 
 @pytest.mark.parametrize("name_is_in_a_leak", [True, False])
@@ -338,6 +377,20 @@ def test_config_audit_keys_prints_each_alert_for_a_name_that_holds_markup(
     result = cli("config", "audit-keys")
 
     assert (result.exit_code, shown in result.output) == (1, True)
+
+
+def test_the_help_of_audit_keys_and_unset_name_the_command_that_removes_a_leak(
+    cli: Callable[..., Any],
+) -> None:
+    """The help of `audit-keys` names the command that its alert names. The help of `unset` says
+    that `DEVOPS_CLI_CONFIG` names the file that the command edits."""
+    audit_help = _words(cli("config", "audit-keys", "--help").output)
+    unset_help = _words(cli("config", "unset", "--help").output)
+
+    assert f"`{_UNSET_COMMAND}`" in audit_help
+    assert "Add `--from-file <path>` for a multi-line credential" in audit_help
+    assert "set `DEVOPS_CLI_CONFIG` to its path" in unset_help
+    assert "or with `--from-file <path>` for a multi-line one" in unset_help
 
 
 _LOADER_CREDENTIAL = "FAKE-2426-value"

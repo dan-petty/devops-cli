@@ -903,13 +903,17 @@ class DocGenerator:
             "`devops config unset <key>` removes a key and its value from the same file, with the "
             "same copy and audit record. It edits the file and loads no settings, and "
             "`--dry-run` prints the change, with the lines of its unified diff, and writes "
-            "nothing. To edit another file, such as a file that `devops config audit-keys` names "
-            "for a plaintext secret, run `DEVOPS_CLI_CONFIG=<file> devops config unset <key>`. "
-            "The `ai` section "
+            "nothing. The `ai` section "
             "and each section under it refuse a key that they do not declare. Such a key stops "
             "every command that loads the settings, with an error that names the full dotted "
             "key, its file and line, the release that removed the key when devops-cli knows it, "
             "and the `devops config unset` command that removes it.",
+            "",
+            "To edit another file, run `DEVOPS_CLI_CONFIG=<file> devops config unset <key>`. "
+            "`devops config audit-keys` names this command for each plaintext secret that it "
+            "finds. Store a credential before you remove it: use `devops config set <key>`, with "
+            "`--from-file <path>` for a multi-line one. The copy of the file holds the removed "
+            "value, so delete it for a secret.",
             "",
             "`devops config set` takes a key that names a settings field with a value, or a "
             "credential. For any other key, it exits 1 with `Unknown config key: '<key>'` before "

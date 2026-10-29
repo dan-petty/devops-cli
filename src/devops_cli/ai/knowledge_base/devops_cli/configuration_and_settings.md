@@ -140,7 +140,9 @@ devops config get github.default_org
 # Audit configuration for unencrypted plaintext credentials
 devops config audit-keys
 
-# Remove a plaintext credential from the file that the audit names
+# Remove a plaintext credential from the file that the audit names: store it in the keyring
+# first, with --from-file <path> for a multi-line one, and delete the .bak copy of the file after
+devops config set <key>
 DEVOPS_CLI_CONFIG=<file> devops config unset <key>
 
 # Store a credential in the OS keyring; omit the value to type it at a hidden prompt

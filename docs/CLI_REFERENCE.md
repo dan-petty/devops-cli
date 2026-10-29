@@ -2677,11 +2677,12 @@ devops config set [OPTIONS] <key> <value>
 
 Remove a key from the config file, also a key that stops the settings from loading.
 
-The command edits the active config file and loads no settings. To edit another config file,
-such as the file that `devops config audit-keys` names, set `DEVOPS_CLI_CONFIG` to its path
-for the command. It keeps the other lines and comments, and it copies the file to
-`<name>.bak-<YYYYMMDD-HHMMSS>` before the change. A key that the file does not hold exits 1.
-A credential in the OS keyring stays.
+The command edits the active config file and loads no settings. To edit another file, set
+`DEVOPS_CLI_CONFIG` to its path for the command. It keeps the other lines and comments, and
+it copies the file to `<name>.bak-<YYYYMMDD-HHMMSS>` before the change. The copy holds the
+removed value, so delete it for a secret. A key that the file does not hold exits 1. A
+credential in the OS keyring stays. Store a credential before you remove it, with
+`devops config set <key>`, or with `--from-file <path>` for a multi-line one.
 
 ```bash
 devops config unset [OPTIONS] <key>
@@ -2786,7 +2787,7 @@ devops config audit-stream <destination>
 
 ### `devops config audit-keys`
 
-**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. The audit scans each config file that the settings merge: the global config file and the project config file. It also scans config.yaml and .devops/config.yaml in the current directory. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit. The alert of a leak names the command that removes the value from the file of the leak: `DEVOPS_CLI_CONFIG=<file> devops config unset <key>`.**
+**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. The audit scans each config file that the settings merge: the global config file and the project config file. It also scans config.yaml and .devops/config.yaml in the current directory. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit. The alert of a leak names two commands. `devops config set <key>` stores a credential in the keyring. Add `--from-file <path>` for a multi-line credential, such as a PEM key. `DEVOPS_CLI_CONFIG=<file> devops config unset <key>` removes the value from the file of the leak. The removal keeps a copy of the file that still holds the value.**
 
 ```bash
 devops config audit-keys [OPTIONS]

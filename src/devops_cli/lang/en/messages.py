@@ -322,11 +322,16 @@ class ConfigMessages:
     unset_backup: str = "The file before the change is in {backup}."
     plaintext_alert: str = (
         "Security Alert: Found plaintext secrets stored in config files: {leaks}. "
-        "Each entry reads <file>:<key>. "
-        "First, store a credential in the OS keyring: 'devops config set <key>'. "
-        "Then remove the plaintext value from its file: "
+        "Each entry reads <file>:<key>.\n"
+        "To remove a leak, do these steps for each entry:\n"
+        "1. Store a credential in the OS keyring: 'devops config set <key>'. "
+        "For a multi-line credential, such as a PEM key, add '--from-file <path>'.\n"
+        "2. Remove the plaintext value from its file: "
         "'DEVOPS_CLI_CONFIG=<file> devops config unset <key>'. "
-        "A key that is not a config option needs only the second command."
+        "Quote <file> and <key> for the shell.\n"
+        "A key that is not a config option needs only step 2. "
+        "Step 2 keeps a copy of the file, <file>.bak-<time>, that still holds the value. "
+        "Delete the copy by hand."
     )
 
 
