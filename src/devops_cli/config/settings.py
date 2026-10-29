@@ -875,7 +875,7 @@ class AlternativesConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
-    recheck_days: Annotated[int, Variable()] = Field(
+    recheck_days: int = Field(
         description="Days after which an item's check for an open alternative tool is old and the item is checked again",
         default=DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
         ge=1,

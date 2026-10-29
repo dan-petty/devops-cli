@@ -84,7 +84,6 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_QDRANT_TIMEOUT` | `qdrant.timeout` | No | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
 | `DEVOPS_CLI_QDRANT_URL` | `qdrant.url` | No | Qdrant vector database server URL |
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
-| `DEVOPS_CLI_ROADMAP_ALTERNATIVES_RECHECK_DAYS` | `roadmap.alternatives.recheck_days` | No | Days after which an item's check for an open alternative tool is old and the item is checked again |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 | `DEVOPS_CLI_SANDBOX_EXCLUDE_HOME_DIR` | `sandbox.exclude_home_dir` | No | Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*) |

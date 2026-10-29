@@ -23,7 +23,7 @@
 ## 5. Documentation
 
 - [x] 5.1 Add the term "Alternative" to `CONTEXT.md`, regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-- [ ] 5.2 Run `uv run devops ci` once, fix any failure at its cause, and verify that it passes
+- [x] 5.2 Run `uv run devops ci` once, fix each failure at its cause (the MCP exclusion list, and the setting that needs no environment variable), and verify that `uv run devops ci test tests/test_mcp.py tests/test_config_declarations.py tests/test_roadmap_alternatives.py`, `uv run devops ci docs`, `uv run devops ci lint`, `uv run devops ci format` and `uv run devops ci typecheck` pass
 
 ## Workflow follow-up
 
