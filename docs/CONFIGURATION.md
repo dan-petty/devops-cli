@@ -163,7 +163,7 @@ Cloudflare API token and zone settings.
 | `account_id` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID |
 | `zone_id` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | Cloudflare Zone ID |
 | `public_ip_bypass` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_PUBLIC_IP_BYPASS` | Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication |
-| `access` | `CloudflareAccessConfig` | `enabled=False allowed_emails=[] idp='google' bypass_ips=[] public_ip_bypass=None` | - | Cloudflare Zero Trust Access application and policy configuration |
+| `access` | `CloudflareAccessConfig` | `allowed_emails=[] bypass_ips=[] public_ip_bypass=None` | - | Cloudflare Zero Trust Access application and policy configuration |
 
 ## Sandbox Configuration (`sandbox`)
 
