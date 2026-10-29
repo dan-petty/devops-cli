@@ -11,6 +11,25 @@
   "argocd": {
     "managerFilePatterns": ["/^k8s/argocd/apps/.+\\.ya?ml$/"]
   },
+  "customDatasources": {
+    "grafana_plugins": {
+      "defaultRegistryUrlTemplate": "https://grafana.com/api/plugins/{{packageName}}/versions",
+      "format": "json",
+      "transformTemplates": [
+        "{ \"releases\": [items.{ \"version\": version, \"releaseTimestamp\": createdAt, \"isDeprecated\": status != \"active\" }] }"
+      ]
+    }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Grafana plugins that Grafana preinstalls, pinned as <id>@<version> in the plugins value (#2022).",
+      "managerFilePatterns": ["/^k8s/monitoring/grafana-values\\.yaml$/"],
+      "matchStrings": ["-\\s+(?<depName>[a-z0-9][a-z0-9-]*)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "datasourceTemplate": "custom.grafana_plugins",
+      "versioningTemplate": "semver"
+    }
+  ],
   "packageRules": [
     {
       "matchManagers": ["pep621", "pip_requirements", "pip-compile", "setup-cfg"],
@@ -37,6 +56,15 @@
       "matchManagers": ["argocd"],
       "matchDatasources": ["git-tags"],
       "enabled": false
+    },
+    {
+      "description": "Each Grafana plugin release names the Grafana it needs as grafanaDependency, which Renovate cannot read. A minor release can need a newer Grafana minor, so each plugin gets its own pull request, held to the major that the running Grafana major needs.",
+      "matchDatasources": ["custom.grafana_plugins"],
+      "allowedVersions": "<4.0.0",
+      "labels": ["type/chore", "scope/infra"],
+      "prBodyNotes": [
+        "Before the merge, check that the Grafana image of the `grafana` chart meets the `grafanaDependency` of this release: https://grafana.com/api/plugins/{{{depName}}}/versions/{{{newVersion}}}. Grafana installs the pinned version at start."
+      ]
     },
     {
       "matchManagers": ["github-actions"],

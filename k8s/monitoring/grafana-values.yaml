@@ -53,7 +53,8 @@ grafana.ini:
 # 3.x release needs Grafana 13.1.0 or later. The chart sets `[plugins] preinstall_auto_update` to
 # false, and Grafana auto-updates no plugin to a new major version, so an unpinned app stays at
 # the version on the volume. The chart writes this list to `GF_PLUGINS_PREINSTALL_SYNC`, and at
-# start Grafana installs each `<id>@<version>` that is not the installed version (#2022).
+# start Grafana installs each `<id>@<version>` that is not the installed version (#2022). Renovate
+# proposes each new release of a plugin in its own pull request, held to this major (#2054).
 plugins:
   - grafana-lokiexplore-app@3.0.0
   - grafana-metricsdrilldown-app@3.0.0

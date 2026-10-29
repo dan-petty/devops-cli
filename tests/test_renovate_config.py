@@ -108,3 +108,84 @@ def test_argocd_updates_carry_the_infra_label_and_leave_the_git_sources_alone() 
             {"matchManagers": ["argocd"], "matchDatasources": ["git-tags"], "enabled": False},
         )
     )
+
+
+_GRAFANA_VALUES = "k8s/monitoring/grafana-values.yaml"
+_GRAFANA_PLUGIN_VERSIONS_URL = "https://grafana.com/api/plugins/{{packageName}}/versions"
+
+
+def _grafana_plugin_pins() -> list[tuple[str, str]]:
+    """Each `<id>@<version>` entry of the `plugins` value that Grafana preinstalls (#2022)."""
+    values = yaml.safe_load((REPO_ROOT / _GRAFANA_VALUES).read_text(encoding="utf-8"))
+    return [tuple(entry.split("@", 1)) for entry in values["plugins"]]
+
+
+def _python_pattern(js_pattern: str) -> re.Pattern[str]:
+    """A Renovate match string as a Python pattern: JavaScript writes a named group `(?<n>…)`."""
+    return re.compile(js_pattern.replace("(?<", "(?P<"))
+
+
+def _grafana_plugin_manager() -> dict[str, Any]:
+    (manager,) = [
+        manager
+        for manager in _renovate().get("customManagers", [])
+        if any(
+            re.compile(p.strip("/")).search(_GRAFANA_VALUES)
+            for p in manager.get("managerFilePatterns", [])
+        )
+    ]
+    return manager
+
+
+def test_a_custom_manager_reads_each_grafana_plugin_pin_and_nothing_else() -> None:
+    """Renovate has no manager for Grafana plugins, so a regex manager reads the pins (#2054). It
+    matches each entry of the `plugins` list, and no other text of the values file."""
+    manager = _grafana_plugin_manager()
+    text = (REPO_ROOT / _GRAFANA_VALUES).read_text(encoding="utf-8")
+    found = [
+        (match["depName"], match["currentValue"])
+        for pattern in manager["matchStrings"]
+        for match in _python_pattern(pattern).finditer(text)
+    ]
+
+    assert (manager["customType"], found) == ("regex", _grafana_plugin_pins())
+
+
+def test_the_grafana_plugin_datasource_reads_the_versions_that_grafana_com_publishes() -> None:
+    """The manager's datasource reads `grafana.com/api/plugins/<id>/versions` and maps its `items`
+    to Renovate releases with a JSONata transform."""
+    manager = _grafana_plugin_manager()
+    kind, _, name = manager["datasourceTemplate"].partition(".")
+    datasource = _renovate()["customDatasources"][name]
+
+    assert (
+        kind,
+        manager["versioningTemplate"],
+        datasource["defaultRegistryUrlTemplate"],
+        datasource["format"],
+        len(datasource["transformTemplates"]),
+        "items." in datasource["transformTemplates"][0],
+    ) == ("custom", "semver", _GRAFANA_PLUGIN_VERSIONS_URL, "json", 1, True)
+
+
+def test_grafana_plugin_updates_stay_on_the_pinned_major_one_plugin_a_pull_request() -> None:
+    """Each release names the Grafana it needs as `grafanaDependency`, which Renovate cannot read.
+    A plugin's minor release can need a newer Grafana minor than the next plugin's, so each plugin
+    gets its own pull request, held to the pinned major, with a note that links the release's
+    record. The infra label and the chore prefix follow the manifest updates."""
+    manager = _grafana_plugin_manager()
+    (rule,) = [
+        rule
+        for rule in _renovate()["packageRules"]
+        if rule.get("matchDatasources") == [manager["datasourceTemplate"]]
+    ]
+    majors = {int(version.split(".", 1)[0]) for _, version in _grafana_plugin_pins()}
+
+    assert (
+        len(majors),
+        rule["allowedVersions"],
+        rule["labels"],
+        "groupName" in rule,
+        any("grafanaDependency" in note for note in rule["prBodyNotes"]),
+        any("{{{depName}}}/versions/{{{newVersion}}}" in note for note in rule["prBodyNotes"]),
+    ) == (1, f"<{max(majors) + 1}.0.0", ["type/chore", "scope/infra"], False, True, True)
