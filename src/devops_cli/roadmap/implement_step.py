@@ -182,7 +182,7 @@ def parse_task_groups(tasks_md: str) -> list[TaskGroup]:
     return groups
 
 
-def _section(body: str, titles: frozenset[str]) -> str:
+def section_text(body: str, titles: frozenset[str]) -> str:
     """The text of each section of `body` whose heading is one of `titles`, heading included.
     A section ends at the next heading of its level or a higher one."""
     tokens = _MARKDOWN.parse(body)
@@ -207,16 +207,20 @@ def issue_inputs(item: Item) -> str:
     """The title of the item, then its problem and its acceptance criteria. An issue that holds
     neither section gives its whole body."""
     wanted = CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS | CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS
-    text = _section(item.body, wanted) or item.body.strip()
+    text = section_text(item.body, wanted) or item.body.strip()
     return f"# Item #{item.number}: {item.title}\n\n{text}"
 
 
-def find_change(source: Path, item: int) -> Path:
-    """The one folder `openspec/changes/<item>-*/` of the checkout."""
+def find_change(source: Path, item: int, *, archived: bool = False) -> Path:
+    """The one folder `openspec/changes/<item>-*/` of the checkout. With `archived`, a change that
+    `openspec archive` moved is found too, at `openspec/changes/archive/<date>-<item>-*/`: a fix
+    step runs after the archive."""
     pattern = f"{item}-*"
-    found = sorted(
-        path for path in (source / CONST_OPENSPEC_CHANGES_DIR).glob(pattern) if path.is_dir()
-    )
+    changes = source / CONST_OPENSPEC_CHANGES_DIR
+    found = sorted(path for path in changes.glob(pattern) if path.is_dir())
+    if archived and not found:
+        dated = f"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-{pattern}"
+        found = sorted(path for path in (changes / "archive").glob(dated) if path.is_dir())
     if not found:
         raise RoadmapImplementError(MESSAGES.roadmap.implement_no_change.format(pattern=pattern))
     if len(found) > 1:
@@ -339,7 +343,7 @@ def build_step_inputs(
     held = store.item(item)
     if held is None:
         raise RoadmapImplementError(MESSAGES.roadmap.implement_not_item.format(number=item))
-    change = find_change(source, item)
+    change = find_change(source, item, archived=fix is not None)
     documents = {name: (change / name).read_text(encoding="utf-8") for name in _CHANGE_DOCUMENTS}
     groups = parse_task_groups(documents["tasks.md"])
     chosen = _chosen_group(groups, group, fix, change)

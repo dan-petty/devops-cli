@@ -103,7 +103,9 @@ def test_the_highest_priority_goes_first_and_the_limit_caps_the_run(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:
     seed_staged(store)
-    urgent = seed_staged(store, priority="P0-Critical")
+    push_staged_branch(staged_repo, number=2)
+    route_pull_status(api, pull=6)
+    urgent = seed_staged(store, priority="P0-Critical", pull=6)
 
     plan = _plan(store, staged_repo)
 

@@ -2016,6 +2016,65 @@ class RoadmapMessages:
     )
     implement_job_retry_note: str = " (a retry: the stop on record is cleared first)"
     implement_job_left_line: str = "- #{number} {title}: {reason}"
+    implement_job_runner_refused: str = (
+        "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
+        "true there. The shell of the agent is no security boundary, so the runner is the "
+        "sandbox, with a narrow token and no other credential. This process ran no step."
+    )
+    implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
+    implement_job_failed_item: str = "#{number} ({error}{reason})"
+    implement_job_failed: str = "{count} item(s) failed: {items}"
+    implement_step_group: str = "group {group}"
+    implement_step_fix: str = "fix"
+    implement_step_names: dict[str, str] = field(
+        default_factory=lambda: {
+            "rebase": "rebase",
+            "docs": "docs",
+            "archive": "archive",
+            "push": "push",
+            "pull_request": "pull request",
+            "checks": "checks",
+            "ready": "ready",
+            "commit": "commit",
+        }
+    )
+    implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
+    implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
+    implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
+    implement_stop_program_timeout: str = "{command} ran out of time after {seconds} s."
+    implement_stop_checks_timeout: str = (
+        "The checks of the pull request did not finish in {seconds} s."
+    )
+    implement_stop_old_head: str = (
+        "GitHub did not show the commit {head} as the head of the pull request."
+    )
+    implement_stop_check_failed: str = "The check {name} failed."
+    implement_stop_checks_unread: str = "GitHub could not say whether the checks passed."
+    implement_stop_threads: str = "The pull request has {count} unresolved review thread(s)."
+    implement_stop_conflict: str = "The pull request has a merge conflict with the default branch."
+    implement_stop_merged: str = "The pull request was merged or closed while the job ran."
+    implement_stop_ready_failed: str = "`gh pr ready` failed.\n{output}"
+    implement_stop_error: str = "{error}: {message}"
+    implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
+    implement_comment_stopped: str = (
+        "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
+        "{last}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
+        "Then comment `implement: retry`.{note}"
+    )
+    implement_comment_last_none: str = "none."
+    implement_comment_finished: str = (
+        "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
+        "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
+        "tokens."
+    )
+    implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
+    implement_pull_comment_line: str = (
+        "- {step} ({title}): {status}, {requests} model requests{commit}"
+    )
+    implement_pull_comment_commit: str = ", commit `{commit}`"
+    implement_pull_body: str = (
+        "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
+    )
     implement_job_plain_note: str = (
         "Implement without a mode flag runs as --plan: it reads GitHub and git, and writes "
         "nothing. --dry-run makes no request."

@@ -23,16 +23,16 @@
 
 ## 4. The run of one item
 
-- [ ] Add failing tests: the refusal outside a runner, two groups to a ready pull request, a done group skipped, a conflict on the rebase, a stopped step, and the records
+- [x] Add failing tests: the refusal outside a runner, two groups to a ready pull request, a done group skipped, a conflict on the rebase, a stopped step, and the records
   - Verification: `uv run devops ci test tests/test_roadmap_implement_job.py`
-- [ ] Add `roadmap/implement_run.py` and `roadmap/implement_pull.py`: the worktree, the rebase, the group loop, the documentation and archive commits, the push with a lease, the body and the comments, the stop, and the finish
+- [x] Add `roadmap/implement_run.py` and `roadmap/implement_pull.py`: the worktree, the rebase, the group loop, the documentation and archive commits, the push with a lease, the body and the comments, the stop, and the finish
   - Verification: `uv run devops ci test tests/test_roadmap_implement_job.py`
 
 ## 5. The checks and the fix
 
-- [ ] Add failing tests: a check that fails once, a check that fails twice, an old head, a timeout, an open thread and a conflict
+- [x] Add failing tests: a check that fails once, a check that fails twice, an old head, a timeout, an open thread and a conflict
   - Verification: `uv run devops ci test tests/test_roadmap_implement_checks.py`
-- [ ] Add the watch, the log of a failed check, the one fix step, and the ready call
+- [x] Add the watch, the log of a failed check, the one fix step, and the ready call
   - Verification: `uv run devops ci test tests/test_roadmap_implement_checks.py tests/test_roadmap_implement_job.py`
 
 ## 6. The command and the documentation

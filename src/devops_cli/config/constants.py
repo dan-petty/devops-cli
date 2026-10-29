@@ -2923,8 +2923,8 @@ CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 6000
 CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS: Final[int] = 1000
 CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500
 CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
-# After a push, GitHub can show the checks of the old head, or none. The job reads this many
-# times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the checks of the pushed commit.
+# After a push, GitHub can still show the old head of the pull request. The job reads this many
+# times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.
 CONST_ROADMAP_IMPLEMENT_HEAD_POLLS: Final[int] = 20
 # The comment of a person that clears the stop of an item, and the marker that heads every
 # comment of the job on an item.

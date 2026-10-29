@@ -84,8 +84,8 @@ When the settled checks of the pull request hold a failed one, the job SHALL run
 - **THEN** the item is stopped with the step `checks`, the pull request stays a draft, and no second fix step runs
 
 #### Scenario: The watch sees the old head
-- **WHEN** the first read after a push still shows the previous head commit, or no check
-- **THEN** the job reads again, and judges only a status of the pushed commit that holds a check
+- **WHEN** the first read after a push still shows the previous head commit of the pull request
+- **THEN** the job reads again, and judges only a status whose head is the pushed commit
 
 ### Requirement: A pull request that passes its checks is marked ready
 When every check passed and no review thread is open, the job SHALL run `gh pr ready`, set Status to In Review, record `implement.group`, `implement.sha`, `implement.pr` and `implement.spend`, and post one comment on the issue with the pull request and the spend. The job SHALL NOT merge.
