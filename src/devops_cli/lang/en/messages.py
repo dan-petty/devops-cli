@@ -1812,6 +1812,10 @@ class RoadmapMessages:
     refine_requirement_keyword: str = (
         "The requirement must contain SHALL or MUST, as an OpenSpec requirement does."
     )
+    refine_alternatives_question: str = (
+        "The alternatives check found that {url} covers this item. Adopt the tool, or keep the "
+        "item and give the reason."
+    )
     refine_set_back_by_person: str = (
         "A person set the item back to New after refine set it to Ready. A reply that tells "
         "why makes refine look at it again."

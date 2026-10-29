@@ -30,7 +30,6 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from typing import Any
 from urllib.parse import quote
 
@@ -89,6 +88,7 @@ from devops_cli.roadmap.store import (
     IssueComment,
     Item,
     RoadmapStore,
+    Verdict,
     is_name_segment,
     is_repository_name,
 )
@@ -99,16 +99,6 @@ logger = logging.getLogger(__name__)
 _PROMPT = "roadmap_alternatives.md"
 
 # ── The reply ─────────────────────────────────────────────────────────────────
-
-
-class Verdict(StrEnum):
-    """What a check found: `COVERS` one tool covers the whole need, `PARTLY` one covers a part,
-    `NONE` the search found no tool, `NOT_APPLICABLE` the item asks for no tool."""
-
-    COVERS = "covers"
-    PARTLY = "partly"
-    NONE = "none"
-    NOT_APPLICABLE = "not-applicable"
 
 
 _TOOL_VERDICTS = frozenset({Verdict.COVERS, Verdict.PARTLY})
