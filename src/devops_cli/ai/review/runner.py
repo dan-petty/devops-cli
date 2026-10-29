@@ -1139,12 +1139,11 @@ def _materialize_pr_head(
 ) -> int:
     """Write PR head's version of changed files, and base conventions, under `dest`."""
     from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
-    from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
 
     head_repo = pull.head.repository or repo
     base_repo = pull.base.repository or repo
     changed = [f.filename for f in pr_files if f.status != "removed"]
-    convention_files = set(_TARGET_CONVENTIONS_CANDIDATES) | {CONST_REVIEW_CONVENTIONS_FILE}
+    convention_files = set(_TARGET_CONVENTIONS_CANDIDATES)
     root = dest.resolve()
     written = 0
 

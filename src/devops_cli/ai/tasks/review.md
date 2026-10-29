@@ -4,7 +4,7 @@ Work through grounding, inspection, falsification, and formulation before report
 
 ### 1. Ground the review in the target
 
-- Judge against universal engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the conventions the target itself declares (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.devops/review.md`). Those conventions decide what is intended in that project; never impose one project's rules on another.
+- Judge against universal engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the conventions the target itself declares (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`). Those conventions decide what is intended in that project; never impose one project's rules on another.
 - Lockfiles (`uv.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) record exact versions. Dependency advisories come from the scanners; do not report one yourself.
 - Separate production code from tests, mocks, fixtures, golden datasets, documentation and templates (`*.example.*`). Dummy keys, documentation placeholders (`ghp_your_personal_access_token`) and `example.com` addresses are not secrets or production vulnerabilities.
 - Plain `http://` between services inside a cluster or private network (`http://*.svc.cluster.local`) is not plaintext exposure.

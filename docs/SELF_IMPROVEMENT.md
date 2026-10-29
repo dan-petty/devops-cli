@@ -180,7 +180,7 @@ follow those steps, and the calibration records under step 3 are what each sessi
 
 ### 1. Ground the Review in the Target
 
-- Judge against universal standards (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target's own conventions (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.devops/review.md`); one project's rules are never imposed on another (`ai/tasks/review.md:7`).
+- Judge against universal standards (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target's own conventions (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`); one project's rules are never imposed on another (`ai/tasks/review.md:7`).
 - Lockfiles record exact versions. Dependency advisories come from the scanners; a reviewer never cites a CVE or GHSA identifier from memory (`ai/tasks/review.md:8`).
 - Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`). A finding about a test itself is a test that cannot fail, while a real credential or a genuine vulnerability in a test file is still a finding. Changelogs, change folders, specs and decision records get no findings.
 - The threat model is the project's when its conventions state one. Otherwise `review.md` gives every persona a default (`ai/tasks/review.md:36`), and the DevSecOps persona states its own (`ai/personas/devsecops/prompt.md:1-5`): network and fetched content, model output, PR and issue text, repositories under review, Kubernetes and cloud API data, server requests and MCP or tool-call arguments are untrusted; the operator, their config, environment and arguments, and values the code builds are trusted. A vulnerability is a path the reviewer can quote: the untrusted source, the sink and the missing check between them. When it cannot quote them, it returns no finding.
@@ -571,8 +571,8 @@ Before altering implementation code in `src/`:
   no later review.
 - A false positive that recurs belongs in a reviewed `[[suppressions]]` entry in
   `.devops/review.toml`, with a rule, a path, a reason and an expiry, or in the tool's own
-  configuration or a rule-pack rule, changed by a commit; a rule true only of this repository
-  belongs in `.devops/review.md`.
+  configuration or a rule-pack rule, changed by a commit. No review stage reads a file of
+  project rules for the model: tools originate the findings (ADR 0005).
 
 ---
 

@@ -239,6 +239,16 @@ def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Pat
     ) == ([], len(CONST_AGENTS_MD_ROUTES) + 1, [], ["learn a `devops` command"])
 
 
+def test_a_generated_agents_md_routes_no_task_to_a_review_guards_file(tmp_path: Path) -> None:
+    """`devops ai agents` names no `.devops/review.md`, also in a project that keeps one, because
+    no review stage reads such a file (#1916)."""
+    (tmp_path / ".devops").mkdir()
+    (tmp_path / ".devops" / "review.md").write_text("# Review guards\n", encoding="utf-8")
+    scaffold_agent_instructions(tmp_path)
+
+    assert ".devops/review.md" not in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+
+
 # ── The test conventions and the documents that point to them (#1308) ───────────────────────
 
 _TESTING_MD = REPO_ROOT / "docs" / "TESTING.md"
@@ -419,7 +429,6 @@ _AGENT_INSTRUCTION_GLOBS = (
     ".github/copilot-instructions.md",
     ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/*.yml",
-    ".devops/review.md",
     "ARCHITECTURE.md",
     "CONTRIBUTING.md",
     "RELEASE_CYCLE.md",

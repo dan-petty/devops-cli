@@ -155,7 +155,6 @@ def test_pr_review_conventions_loaded_from_base_ref(
         PullRequestFile(filename=name, status=status, additions=1, changes=1)
         for name, status in (
             ("AGENTS.md", "modified"),
-            (".devops/review.md", "added"),
             ("src/foo.py", "modified"),
         )
     ]
@@ -165,10 +164,7 @@ def test_pr_review_conventions_loaded_from_base_ref(
 
     _materialize_pr_head(get_github_session().client, "org/repo", pull, dest_dir, pr_files)
 
-    assert (
-        (dest_dir / "AGENTS.md").read_text(encoding="utf-8"),
-        (dest_dir / ".devops/review.md").exists(),
-    ) == ("BASE CONVENTIONS", False)
+    assert (dest_dir / "AGENTS.md").read_text(encoding="utf-8") == "BASE CONVENTIONS"
 
 
 # =============================================================================
