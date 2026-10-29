@@ -189,7 +189,8 @@ def test_a_planned_item_that_a_pushed_branch_holds_is_left_out_with_the_holder(
 
     assert plan.selected == ()
     assert _reasons(plan) == {
-        number: f"Issue {number} is held by a pushed branch: origin/fix/{number}-someone-elses-work."
+        number: f"Issue {number} is held by a pushed branch: "
+        f"origin/fix/{number}-someone-elses-work."
     }
 
 
@@ -235,6 +236,27 @@ def test_a_planned_item_with_every_task_ticked_is_left_out_and_the_reason_says_s
         number: f"Every task of its change `{number}-the-job-drops-a-comment` is ticked, so no "
         "group is left to run."
     }
+
+
+def test_a_planned_item_whose_change_has_no_tasks_is_left_out_and_the_next_is_selected(
+    store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    broken = seed_staged(store, record=False)
+    merge_plan(repo, broken)
+    repo.git("rm", "-q", f"openspec/changes/{broken}-the-job-drops-a-comment/tasks.md")
+    repo.git("commit", "-q", "-m", "fix: delete tasks")
+    repo.git("push", "-q", "origin", "main")
+    valid = seed_staged(store, record=False)
+    merge_plan(repo, valid)
+
+    plan = _plan(store, repo, limit=2)
+
+    assert [n for n, _, _ in _targets(plan)] == [valid]
+    reason = _reasons(plan)[broken]
+    assert reason.startswith(
+        f"Its change `{broken}-the-job-drops-a-comment` has no readable tasks.md on main: "
+    )
+    assert "does not exist" in reason
 
 
 def test_a_planned_item_with_one_group_ticked_is_selected(
