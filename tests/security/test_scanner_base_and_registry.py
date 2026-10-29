@@ -241,6 +241,13 @@ ALL_EXPECTED_SCANNER_NAMES = [
 ]
 
 
+def test_the_default_registry_holds_13_scanners_and_no_dive() -> None:
+    """dive is gone (#2427): the default registry holds the 13 scanners that remain."""
+    registry = ScannerRegistry(auto_load_defaults=True)
+
+    assert (len(registry.list_scanners()), registry.get("dive")) == (13, None)
+
+
 def test_all_11_scanners_registered_in_global_registry() -> None:
     """Verify 100% of all 11 security scanners are registered in global_scanner_registry."""
     registered = global_scanner_registry.list_scanners()

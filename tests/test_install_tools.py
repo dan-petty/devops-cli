@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -59,6 +60,14 @@ def _tar_gz(members: dict[str, bytes]) -> bytes:
             info = tarfile.TarInfo(name=name)
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+def _zip(members: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w") as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
     return buffer.getvalue()
 
 
@@ -171,10 +180,11 @@ def test_a_build_whose_bytes_differ_from_the_lock_is_refused(
         ("binary", EXECUTABLE, None),
         ("gzip", gzip.compress(EXECUTABLE), None),
         ("tar.gz", _tar_gz({"README.md": b"docs", "dist/mytool": EXECUTABLE}), "dist/mytool"),
+        ("zip", _zip({"LICENSE": b"licence", "mytool": EXECUTABLE}), "mytool"),
     ],
     # The archives' gzip headers carry the time they were built, so the bytes cannot name a test
     # that each xdist worker collects alike.
-    ids=["binary", "gzip", "tar.gz"],
+    ids=["binary", "gzip", "tar.gz", "zip"],
 )
 def test_each_archive_format_unpacks_to_the_tool(
     stub_web: StubWeb,
@@ -184,7 +194,8 @@ def test_each_archive_format_unpacks_to_the_tool(
     artifact: bytes,
     member: str | None,
 ) -> None:
-    """A bare binary, a gzip file and a tar.gz member all become the same executable."""
+    """A bare binary, a gzip file, a tar.gz member and a zip member all become the same
+    executable."""
     stub_web.content(ASSET_URL, artifact)
 
     install_binary(
@@ -194,6 +205,40 @@ def test_each_archive_format_unpacks_to_the_tool(
     )
 
     assert (tmp_path / "bin" / "mytool").read_bytes() == EXECUTABLE
+
+
+def test_a_zip_build_unpacks_to_an_executable_file(
+    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """tflint publishes zip archives: the member that the lock names gets the execute bit (#2427)."""
+    artifact = _zip({"mytool": EXECUTABLE})
+    stub_web.content(ASSET_URL, artifact)
+
+    install_binary(
+        "mytool", _binary_entry(artifact, archive_format="zip", member="mytool"), tmp_path
+    )
+
+    assert os.access(tmp_path / "mytool", os.X_OK)
+
+
+def test_a_zip_build_without_the_locked_member_is_refused_and_leaves_no_file(
+    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A verified zip that lacks the member of the lock fails with the member's name, and neither
+    the version directory nor the link stays (#2427)."""
+    artifact = _zip({"LICENSE": b"licence"})
+    stub_web.content(ASSET_URL, artifact)
+    target = tmp_path / "bin"
+
+    with pytest.raises(ToolExecutionError, match="mytool"):
+        install_binary(
+            "mytool", _binary_entry(artifact, archive_format="zip", member="mytool"), target
+        )
+
+    assert (
+        list((isolate_user_data_root / "tools" / "mytool").iterdir()),
+        os.path.lexists(target / "mytool"),
+    ) == ([], False)
 
 
 def test_a_build_packed_unlike_the_tools_others_unpacks_by_its_own_format(

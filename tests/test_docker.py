@@ -124,6 +124,13 @@ def test_docker_stats_sdk_table(docker_engine: Any, docker_client: Any) -> None:
     assert _format_bytes(5_242_880) == "5.0 MB"
 
 
+def test_docker_has_no_analyze_layers_command() -> None:
+    """dive is gone (#2427), and no command in its place analyzes the layers of an image."""
+    result = runner.invoke(docker_app, ["analyze-layers", "alpine:latest"])
+
+    assert (result.exit_code, "No such command" in result.output) == (2, True)
+
+
 def test_docker_analyze_layers() -> None:
     """Test docker analyze-layers subcommand."""
     mock_result = DiveAnalysisResult(
