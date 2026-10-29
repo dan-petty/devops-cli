@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1729-skip-tool-bootstrap-switch`
 
 ## Workflow follow-up
