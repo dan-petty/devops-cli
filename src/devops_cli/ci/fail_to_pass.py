@@ -5,17 +5,15 @@ modified `tests/**/test_*.py` files, checks out the base tree as a detached git 
 temporary directory (#2197) with the head's `tests/` overlaid, and runs those test files with
 the current pytest (`-o addopts=`, `-p no:cacheprovider`, `--continue-on-collection-errors`,
 `--junitxml`), so a test file that cannot be collected on base is reported as errored and the others still run.
-A defect PR exits non-zero unless at least one changed test fails in the call phase on base,
-or the PR body declares `Fail-to-pass: not applicable: <reason>`. A replay whose pytest was
-interrupted, stopped with an internal or usage error, or wrote no complete JUnit report could
-not run on base, and fails any PR without that line (#1669). A changed test file that cannot be
-collected on base is reported as errored.
+The run exits non-zero unless at least one changed test fails in the call phase on base. The
+workflow runs it only for a fix pull request that changes `src/` (#1879), so the command reads no
+title, label or body. A replay whose pytest was interrupted, stopped with an internal or usage
+error, or wrote no complete JUnit report could not run on base, and fails (#1669). A changed test
+file that cannot be collected on base is reported as errored.
 """
 
 from __future__ import annotations
 
-import json
-import re
 import shutil
 import sys
 import tarfile
@@ -28,7 +26,6 @@ from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES,
-    CONST_FAIL_TO_PASS_ESCAPE_PATTERN,
     CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG,
     CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS,
     CONST_FAIL_TO_PASS_PYTEST_FLAGS,
@@ -41,45 +38,9 @@ from devops_cli.config.constants import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError
 from devops_cli.git.operations import list_changed_files, resolve_merge_base
-from devops_cli.github.defect_classifier import is_defect_pr
 from devops_cli.lang import MESSAGES
 
-_ESCAPE_RE = re.compile(CONST_FAIL_TO_PASS_ESCAPE_PATTERN)
 _DELETED = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
-
-
-def extract_escape_reason(body: str | None) -> str | None:
-    """Return the reason from a `Fail-to-pass: not applicable: <reason>` line, or None."""
-    match = _ESCAPE_RE.search(body or "")
-    return match.group(1).strip() if match else None
-
-
-def _parse_json_labels(raw: str) -> list[str] | None:
-    """Parse a JSON array of label names or label objects when `raw` starts with `[`."""
-    if not raw.startswith("["):
-        return None
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return None
-    if not isinstance(parsed, list):
-        return None
-    names = [
-        str(item.get("name", "") if isinstance(item, dict) else item).strip() for item in parsed
-    ]
-    return [name for name in names if name]
-
-
-def parse_pr_labels(raw: str | Sequence[str] | None) -> list[str]:
-    """Normalize PR labels from a JSON array string, comma-separated string, or sequence."""
-    if not raw:
-        return []
-    if not isinstance(raw, str):
-        return [item.strip() for item in raw if item.strip()]
-    stripped = raw.strip()
-    if (json_labels := _parse_json_labels(stripped)) is not None:
-        return json_labels
-    return [part.strip() for part in re.split(r"[,\n]", stripped) if part.strip()]
 
 
 class TestCaseOutcome(BaseModel):
@@ -116,8 +77,6 @@ class FailToPassReport(BaseModel):
     head: str
     changed_test_files: tuple[str, ...]
     outcomes: tuple[TestCaseOutcome, ...]
-    is_defect: bool
-    escape_reason: str | None = None
     could_not_run: ReplayCouldNotRun | None = None
 
     @property
@@ -137,13 +96,9 @@ class FailToPassReport(BaseModel):
 
     @property
     def satisfied(self) -> bool:
-        """Whether the fail-to-pass gate is satisfied: the not-applicable line always is, a
-        replay that could not run never is, and a defect needs a changed test failing on base."""
-        if self.escape_reason is not None:
-            return True
-        if self.could_not_run is not None:
-            return False
-        return not self.is_defect or self.failed_count > 0
+        """Whether the fail-to-pass gate is satisfied: a replay that could not run never is, and
+        otherwise at least one changed test fails on base."""
+        return self.could_not_run is None and self.failed_count > 0
 
 
 class _JUnitHTMLParser(HTMLParser):
@@ -316,43 +271,12 @@ def _run_pytest_on_base(
     return outcomes or (), ReplayCouldNotRun(exit_status=result.returncode, output_tail=output)
 
 
-def _is_enforced_defect(title: str | None, labels: Sequence[str] | None) -> bool:
-    """Classify whether the run enforces the defect fail-to-pass gate."""
-    clean_title = (title or "").strip()
-    clean_labels = list(labels or ())
-    if not clean_title and not clean_labels:
-        return True
-    return is_defect_pr(clean_title, clean_labels)
-
-
-def run_fail_to_pass(
-    root: Path,
-    *,
-    base: str,
-    head: str = "HEAD",
-    title: str | None = None,
-    labels: Sequence[str] | None = None,
-    body: str | None = None,
-) -> FailToPassReport:
+def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPassReport:
     """Replay changed `tests/**/test_*.py` files against the merge-base tree."""
-    is_defect = _is_enforced_defect(title, labels)
-    if (escape_reason := extract_escape_reason(body)) is not None:
-        return FailToPassReport(
-            merge_base=base,
-            head=head,
-            changed_test_files=(),
-            outcomes=(),
-            is_defect=is_defect,
-            escape_reason=escape_reason,
-        )
     merge_base, files = changed_test_files(root, base, head)
     if not files:
         return FailToPassReport(
-            merge_base=merge_base,
-            head=head,
-            changed_test_files=(),
-            outcomes=(),
-            is_defect=is_defect,
+            merge_base=merge_base, head=head, changed_test_files=(), outcomes=()
         )
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -368,7 +292,6 @@ def run_fail_to_pass(
         head=head,
         changed_test_files=files,
         outcomes=outcomes,
-        is_defect=is_defect,
         could_not_run=could_not_run,
     )
 
@@ -385,8 +308,6 @@ def _could_not_run_lines(could_not_run: ReplayCouldNotRun, files: str) -> list[s
 
 def format_fail_to_pass_report(report: FailToPassReport) -> str:
     """Format a human-readable per-test and summary report for `devops ci fail-to-pass`."""
-    if report.escape_reason is not None:
-        return MESSAGES.ci.fail_to_pass_not_applicable.format(reason=report.escape_reason)
     lines = [
         MESSAGES.ci.fail_to_pass_test_line.format(
             status=outcome.status,

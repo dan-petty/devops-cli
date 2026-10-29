@@ -772,14 +772,6 @@ class CICommandHelp:
         "tests fail unpatched."
     )
     fail_to_pass_head: str = "Head git revision supplying the overlaid tests/ tree."
-    fail_to_pass_title: str = (
-        "Pull request title used to classify defect PRs (defaults to PR_TITLE)."
-    )
-    fail_to_pass_labels: str = "Comma-separated or JSON list of PR labels (defaults to PR_LABELS)."
-    fail_to_pass_body: str = (
-        "Pull request body checked for a 'Fail-to-pass: not applicable: <reason>' line "
-        "(defaults to PR_BODY)."
-    )
 
 
 @dataclass(frozen=True)

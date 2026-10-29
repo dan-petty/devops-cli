@@ -46,8 +46,7 @@
       "description": "A base image update of the service image is a fix, so release-please releases it. Other updates stay chore and release nothing alone.",
       "matchManagers": ["dockerfile"],
       "matchFileNames": ["Dockerfile"],
-      "commitMessagePrefix": "fix(deps):",
-      "prBodyNotes": ["Fail-to-pass: not applicable: a base image update changes no test."]
+      "commitMessagePrefix": "fix(deps):"
     }
   ]
 }

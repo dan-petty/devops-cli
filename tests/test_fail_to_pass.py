@@ -14,11 +14,9 @@ from devops_cli.ai.instruction_generator import ProjectMetadata, generate_agents
 from devops_cli.ci.fail_to_pass import TestCaseOutcome as CaseOutcome
 from devops_cli.ci.fail_to_pass import (
     changed_test_files,
-    extract_escape_reason,
     format_fail_to_pass_report,
     materialise_base_with_head_tests,
     parse_junit_xml,
-    parse_pr_labels,
     pytest_replay_argv,
     run_fail_to_pass,
 )
@@ -167,8 +165,6 @@ def _replay_report(
         "head": "HEAD",
         "changed_test_files": ("tests/test_mod.py",),
         "outcomes": outcomes,
-        "is_defect": False,
-        "escape_reason": None,
         "could_not_run": could_not_run,
     }
 
@@ -204,7 +200,7 @@ def test_fail_to_pass_failing_test_on_base_exits_0(monkeypatch: pytest.MonkeyPat
     calls = _mock_replay_repo(monkeypatch, JUNIT_ONE_FAILURE)
     result = runner.invoke(
         app,
-        ["fail-to-pass", "--base", "main", "--title", "fix(ci): handle regression"],
+        ["fail-to-pass", "--base", "main"],
     )
     assert (
         result.exit_code,
@@ -221,7 +217,7 @@ def test_fail_to_pass_passing_test_on_base_exits_1_and_names_test(
     _mock_replay_repo(monkeypatch, JUNIT_ALL_PASS)
     result = runner.invoke(
         app,
-        ["fail-to-pass", "--base", "main", "--title", "fix(ci): missing regression test"],
+        ["fail-to-pass", "--base", "main"],
     )
     assert (
         result.exit_code,
@@ -237,7 +233,7 @@ def test_fail_to_pass_collection_error_does_not_satisfy_check(
     _mock_replay_repo(monkeypatch, JUNIT_COLLECTION_ERROR)
     result = runner.invoke(
         app,
-        ["fail-to-pass", "--base", "main", "--labels", "type/bug"],
+        ["fail-to-pass", "--base", "main"],
     )
     assert (
         result.exit_code,
@@ -246,54 +242,31 @@ def test_fail_to_pass_collection_error_does_not_satisfy_check(
     ) == (1, True, True)
 
 
-def test_fail_to_pass_not_applicable_line_exits_0_and_prints_reason(
+def test_no_title_label_or_body_changes_the_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A PR body with 'Fail-to-pass: not applicable: <reason>' exits 0 and echoes the reason."""
+    """The replay reads no pull request title, label or body (#1879): the workflow runs it only
+    for a fix, so a run whose changed tests all pass on base fails, whatever the environment says,
+    and the options that took a title, labels or a body are gone."""
     summary_file = tmp_path / "step_summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
-    calls = _mock_replay_repo(monkeypatch, JUNIT_ALL_PASS)
-    result = runner.invoke(
-        app,
-        [
-            "fail-to-pass",
-            "--base",
-            "main",
-            "--title",
-            "fix(deps): bump runtime dependency",
-            "--body",
-            "Closes #844\n\nFail-to-pass: not applicable: dependency bump errors on base\n",
-        ],
-    )
-    assert (
-        result.exit_code,
-        calls,
-        "Fail-to-pass: not applicable: dependency bump errors on base" in result.output,
-        "Fail-to-pass: not applicable: dependency bump errors on base"
-        in summary_file.read_text(encoding="utf-8"),
-    ) == (0, [], True, True)
-
-
-def test_fail_to_pass_non_defect_pr_exits_0(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-defect PR gets the report and exits 0 even when all changed tests pass on base."""
+    monkeypatch.setenv("PR_TITLE", "feat(ci): add a check")
+    monkeypatch.setenv("PR_LABELS", '["type/feature"]')
+    monkeypatch.setenv("PR_BODY", "Fail-to-pass: not applicable: the tests pass on base\n")
     _mock_replay_repo(monkeypatch, JUNIT_ALL_PASS)
-    result = runner.invoke(
-        app,
-        [
-            "fail-to-pass",
-            "--base",
-            "main",
-            "--title",
-            "feat(ci): add new subcommand",
-            "--labels",
-            '["type/feature", "scope/cli"]',
-        ],
-    )
+
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
+    old_options = [
+        runner.invoke(app, ["fail-to-pass", "--base", "main", option, "x"]).exit_code
+        for option in ("--title", "--labels", "--body")
+    ]
+
     assert (
         result.exit_code,
         "0 failed on base" in result.output,
-        "tests.test_sample::test_unchanged_passes" in result.output,
-    ) == (0, True, True)
+        "not applicable" in result.output,
+        old_options,
+    ) == (1, True, False, [2, 2, 2])
 
 
 def test_fail_to_pass_materialises_base_and_overlays_head_tests(
@@ -360,7 +333,7 @@ def test_a_new_module_s_test_that_cannot_import_on_base_leaves_the_other_tests_c
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "--quiet", "-m", "fix")
 
-    report = run_fail_to_pass(tmp_path, base="main", title="fix(mod): value is 2")
+    report = run_fail_to_pass(tmp_path, base="main")
 
     assert (report.failed_count, report.errored_count, report.satisfied) == (1, 1, True)
 
@@ -390,7 +363,7 @@ def test_a_test_that_runs_git_ls_files_passes_on_base_in_the_replay(
     (tmp_path / "tests" / "test_git.py").write_text(test_text + "\n# changed\n", encoding="utf-8")
     git(tmp_path, "commit", "--quiet", "-am", "change the test")
 
-    report = run_fail_to_pass(tmp_path, base="main", title="fix(mod): list files")
+    report = run_fail_to_pass(tmp_path, base="main")
 
     assert (report.passed_count, report.failed_count, report.could_not_run) == (1, 0, None)
 
@@ -402,7 +375,7 @@ def test_the_replay_leaves_no_worktree_behind(
     repo = _branch_changing_a_test(tmp_path, git)
     _replayed_pytest(monkeypatch, exit_status=0, junit_xml=JUNIT_ALL_PASS)
 
-    run_fail_to_pass(repo, base="main", title="fix(mod): value")
+    run_fail_to_pass(repo, base="main")
 
     listed = subprocess.run(
         ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
@@ -414,7 +387,7 @@ def test_the_replay_leaves_no_worktree_behind(
 
 
 def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
-    """`uv run devops ci` gains no stage, and helpers parse labels, XML, and instructions."""
+    """`uv run devops ci` gains no stage, and the helpers parse XML and instructions."""
     outcomes = parse_junit_xml(JUNIT_ONE_FAILURE)
     argv = pytest_replay_argv(tmp_path / "j.xml", ["tests/test_a.py"])
     agents_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -428,18 +401,12 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
     )
     assert (
         "fail-to-pass" in {spec.name for spec in get_check_specs()},
-        parse_pr_labels('[{"name": "type/bug"}, "scope/cli"]'),
-        parse_pr_labels("type/security, scope/ci"),
-        extract_escape_reason("Body\nFail-to-pass: not applicable: harness change"),
         [(o.test_id, o.status) for o in outcomes],
         ("-o" in argv and "addopts=" in argv and "-p" in argv and "no:cacheprovider" in argv),
         "devops ci fail-to-pass" in agents_md,
         "devops ci fail-to-pass" in generated_md,
     ) == (
         False,
-        ["type/bug", "scope/cli"],
-        ["type/security", "scope/ci"],
-        "harness change",
         [
             ("tests.test_sample::test_regression_fails", "failed"),
             ("tests.test_sample::test_existing_passes", "passed"),
@@ -451,7 +418,7 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
 
 
 def test_fail_to_pass_dry_run_and_no_changed_tests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Dry-run exits 0 without git calls, and a defect PR with no changed tests exits 1."""
+    """Dry-run exits 0 without git calls, and a fix with no changed tests exits 1."""
     dry_res = runner.invoke(app, ["fail-to-pass", "--base", "main", "--dry-run"])
     monkeypatch.setattr(
         "devops_cli.ci.fail_to_pass.changed_test_files",
@@ -459,12 +426,12 @@ def test_fail_to_pass_dry_run_and_no_changed_tests(monkeypatch: pytest.MonkeyPat
     )
     empty_defect = runner.invoke(
         app,
-        ["fail-to-pass", "--base", "main", "--title", "fix(ci): no tests changed"],
+        ["fail-to-pass", "--base", "main"],
     )
     assert (
         dry_res.exit_code,
         empty_defect.exit_code,
-        "modifies no tests/**/test_*.py files" in empty_defect.output,
+        "The fix changes no tests/**/test_*.py file." in empty_defect.output,
     ) == (0, 1, True)
 
 
@@ -475,24 +442,19 @@ def test_fail_to_pass_outcome_model_properties() -> None:
     assert (grouped.test_id, ungrouped.test_id) == ("tests.test_x::test_one", "tests.test_x")
 
 
-@pytest.mark.parametrize(
-    "title",
-    ["feat(test): add support plugins", "fix(test): replay the support plugins"],
-    ids=["feature", "defect"],
-)
-def test_a_replay_pytest_could_not_start_fails_the_check_for_any_pull_request(
-    title: str,
+def test_a_replay_pytest_could_not_start_fails_the_check(
     tmp_path: Path,
     git: Callable[..., None],
     monkeypatch: pytest.MonkeyPatch,
     snapshot: SnapshotAssertion,
 ) -> None:
     """A replay whose pytest stops with an internal error and writes no JUnit report fails the
-    check for a feature as for a defect, naming the exit status and the replay (#1669)."""
+    check, names the exit status and the replay, and tells the author to merge the harness change
+    first in a pull request that is not a fix (#1669, #1879)."""
     monkeypatch.chdir(_branch_changing_a_test(tmp_path, git))
     _replayed_pytest(monkeypatch, exit_status=3, stderr=INTERNAL_ERROR_OUTPUT)
 
-    result = runner.invoke(app, ["fail-to-pass", "--base", "main", "--title", title])
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
 
     assert result.exit_code == 1
     assert result.output.replace(str(tmp_path.resolve()), "<tmp_path>") == snapshot
@@ -517,7 +479,7 @@ def test_a_replay_that_could_not_run_prints_pytest_s_output_as_it_is(
     monkeypatch.chdir(_branch_changing_a_test(tmp_path, git))
     _replayed_pytest(monkeypatch, exit_status=exit_status, junit_xml=junit_xml, stderr=stderr)
 
-    result = runner.invoke(app, ["fail-to-pass", "--base", "main", "--title", "feat(ci): a check"])
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
 
     assert (result.exit_code, result.output.endswith(f"pytest's last output: {stderr}")) == (
         1,
@@ -602,7 +564,7 @@ def test_a_replay_that_stopped_or_wrote_no_report_could_not_run(
         monkeypatch, exit_status=exit_status, junit_xml=junit_xml, stdout=stdout, stderr=stderr
     )
 
-    report = run_fail_to_pass(repo, base="main", title="feat(ci): add a check")
+    report = run_fail_to_pass(repo, base="main")
 
     assert (report.satisfied, report.model_dump()) == (False, expected)
     assert format_fail_to_pass_report(report) == snapshot
@@ -637,18 +599,17 @@ def test_a_replay_that_could_not_run_keeps_the_last_whole_lines_within_the_bound
     expected = _replay_report(repo, could_not_run={"exit_status": 3, "output_tail": output_tail})
     _replayed_pytest(monkeypatch, exit_status=3, stderr=stderr)
 
-    report = run_fail_to_pass(repo, base="main", title="feat(ci): add a check")
+    report = run_fail_to_pass(repo, base="main")
 
     assert report.model_dump() == expected
 
 
 @pytest.mark.parametrize(
-    ("exit_status", "junit_xml", "title", "satisfied", "text"),
+    ("exit_status", "junit_xml", "satisfied", "text"),
     [
         (
             1,
             JUNIT_ONE_FAILURE,
-            "fix(mod): value is 2",
             True,
             "  failed on base: tests.test_sample::test_regression_fails"
             " (AssertionError: expected 2)\n"
@@ -658,19 +619,19 @@ def test_a_replay_that_could_not_run_keeps_the_last_whole_lines_within_the_bound
         (
             0,
             JUNIT_ALL_PASS,
-            "feat(mod): add a value",
-            True,
+            False,
             "  passed on base: tests.test_sample::test_unchanged_passes\n"
-            "0 failed on base (0 failed and 1 passed in tests/test_mod.py; 0 errored).",
+            "0 failed on base (0 failed and 1 passed in tests/test_mod.py; 0 errored).\n"
+            "A fix needs at least one changed test that fails in the call phase on base "
+            "(tests.test_sample::test_unchanged_passes).",
         ),
         (
             1,
             JUNIT_COLLECTION_ERROR,
-            "fix(mod): value is 2",
             False,
             "  errored on base: tests.test_sample (collection failure)\n"
             "0 failed on base (0 failed and 0 passed in tests/test_mod.py; 1 errored).\n"
-            "Defect PR requires at least one changed test to fail in the call phase on base "
+            "A fix needs at least one changed test that fails in the call phase on base "
             "(tests.test_sample).",
         ),
     ],
@@ -679,7 +640,6 @@ def test_a_replay_that_could_not_run_keeps_the_last_whole_lines_within_the_bound
 def test_a_replay_that_collects_and_runs_reports_its_outcomes(
     exit_status: int,
     junit_xml: str,
-    title: str,
     satisfied: bool,
     text: str,
     tmp_path: Path,
@@ -690,70 +650,24 @@ def test_a_replay_that_collects_and_runs_reports_its_outcomes(
     repo = _branch_changing_a_test(tmp_path, git)
     _replayed_pytest(monkeypatch, exit_status=exit_status, junit_xml=junit_xml)
 
-    report = run_fail_to_pass(repo, base="main", title=title)
+    report = run_fail_to_pass(repo, base="main")
 
     assert (report.satisfied, format_fail_to_pass_report(report)) == (satisfied, text)
 
 
-@pytest.mark.parametrize(
-    ("title", "satisfied", "text"),
-    [
-        (
-            "feat(mod): add a value",
-            True,
-            "0 failed on base (0 failed and 0 passed in tests/test_mod.py; 0 errored).",
-        ),
-        (
-            "fix(mod): value is 2",
-            False,
-            "0 failed on base (0 failed and 0 passed in tests/test_mod.py; 0 errored).\n"
-            "Defect PR requires at least one changed test to fail in the call phase on base "
-            "(tests/test_mod.py).",
-        ),
-    ],
-    ids=["feature", "defect"],
-)
 def test_a_replay_that_collects_no_tests_is_an_empty_replay(
-    title: str,
-    satisfied: bool,
-    text: str,
-    tmp_path: Path,
-    git: Callable[..., None],
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """pytest's exit 5, no tests collected, is an empty replay, not one that could not run."""
+    """pytest's exit 5, no tests collected, is an empty replay, not one that could not run, and
+    an empty replay does not satisfy the check."""
     repo = _branch_changing_a_test(tmp_path, git)
     _replayed_pytest(monkeypatch, exit_status=5, junit_xml=JUNIT_NO_TESTS, stdout="no tests ran")
 
-    report = run_fail_to_pass(repo, base="main", title=title)
+    report = run_fail_to_pass(repo, base="main")
 
-    assert (report.satisfied, format_fail_to_pass_report(report)) == (satisfied, text)
-
-
-def test_the_not_applicable_line_wins_over_a_replay_that_could_not_run(
-    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A pull request declaring 'Fail-to-pass: not applicable: <reason>' passes the check
-    without replaying, even when its tests could not run against its base."""
-    monkeypatch.chdir(_branch_changing_a_test(tmp_path, git))
-    started = _replayed_pytest(monkeypatch, exit_status=3, stderr=INTERNAL_ERROR_OUTPUT)
-
-    result = runner.invoke(
-        app,
-        [
-            "fail-to-pass",
-            "--base",
-            "main",
-            "--title",
-            "feat(test): add support plugins",
-            "--body",
-            "Fail-to-pass: not applicable: the tests import support the base lacks",
-        ],
-    )
-
-    assert (result.exit_code, started, result.output) == (
-        0,
-        [],
-        f"ℹ Quality gate root: {tmp_path.resolve()}\n"
-        "Fail-to-pass: not applicable: the tests import support the base lacks\n",
+    assert (report.satisfied, format_fail_to_pass_report(report)) == (
+        False,
+        "0 failed on base (0 failed and 0 passed in tests/test_mod.py; 0 errored).\n"
+        "A fix needs at least one changed test that fails in the call phase on base "
+        "(tests/test_mod.py).",
     )

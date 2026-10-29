@@ -1,18 +1,8 @@
 # serializer version: 1
-# name: test_a_replay_pytest_could_not_start_fails_the_check_for_any_pull_request[defect]
+# name: test_a_replay_pytest_could_not_start_fails_the_check
   '''
   ℹ Quality gate root: <tmp_path>
-  The fail-to-pass replay could not run on base: pytest exited with status 3 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
-  pytest's last output: INTERNALERROR> Traceback (most recent call last):
-  INTERNALERROR>   File "tests/support/bootstrap.py", line 9, in pytest_configure
-  INTERNALERROR> ImportError: cannot import name 'defines_fixture_or_hook'
-  
-  '''
-# ---
-# name: test_a_replay_pytest_could_not_start_fails_the_check_for_any_pull_request[feature]
-  '''
-  ℹ Quality gate root: <tmp_path>
-  The fail-to-pass replay could not run on base: pytest exited with status 3 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 3 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: INTERNALERROR> Traceback (most recent call last):
   INTERNALERROR>   File "tests/support/bootstrap.py", line 9, in pytest_configure
   INTERNALERROR> ImportError: cannot import name 'defines_fixture_or_hook'
@@ -22,7 +12,7 @@
 # name: test_a_replay_that_could_not_run_prints_pytest_s_output_as_it_is[emoji-codes]
   '''
   ℹ Quality gate root: <tmp_path>
-  The fail-to-pass replay could not run on base: pytest exited with status 3 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 3 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: INTERNALERROR> PATH=src:x:tests and a:b:c
   
   '''
@@ -30,7 +20,7 @@
 # name: test_a_replay_that_could_not_run_prints_pytest_s_output_as_it_is[markup-brackets]
   '''
   ℹ Quality gate root: <tmp_path>
-  The fail-to-pass replay could not run on base: pytest exited with status 4 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 4 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: ERROR: usage: __main__.py [options] [file_or_dir] [file_or_dir] [...]
   __main__.py: error: unrecognized arguments: --bogus
   
@@ -38,36 +28,36 @@
 # ---
 # name: test_a_replay_that_stopped_or_wrote_no_report_could_not_run[empty-report]
   '''
-  The fail-to-pass replay could not run on base: pytest exited with status 1 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 1 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: OSError: [Errno 27] File too large
   '''
 # ---
 # name: test_a_replay_that_stopped_or_wrote_no_report_could_not_run[internal-error-with-report]
   '''
     errored on base: pytest::internal (internal error)
-  The fail-to-pass replay could not run on base: pytest exited with status 3 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 3 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: INTERNALERROR> RuntimeError: boom
   '''
 # ---
 # name: test_a_replay_that_stopped_or_wrote_no_report_could_not_run[interrupted]
   '''
     passed on base: tests.test_sample::test_unchanged_passes
-  The fail-to-pass replay could not run on base: pytest exited with status 2 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 2 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: !!! KeyboardInterrupt !!!
   '''
 # ---
 # name: test_a_replay_that_stopped_or_wrote_no_report_could_not_run[killed-without-report]
-  "The fail-to-pass replay could not run on base: pytest exited with status -9 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body."
+  'The fail-to-pass replay could not run on base: pytest exited with status -9 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.'
 # ---
 # name: test_a_replay_that_stopped_or_wrote_no_report_could_not_run[truncated-report]
   '''
-  The fail-to-pass replay could not run on base: pytest exited with status 1 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 1 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: OSError: [Errno 28] No space left on device
   '''
 # ---
 # name: test_a_replay_that_stopped_or_wrote_no_report_could_not_run[usage-error]
   '''
-  The fail-to-pass replay could not run on base: pytest exited with status 4 replaying tests/test_mod.py. A pull request whose replay cannot run on its base can declare 'Fail-to-pass: not applicable: <reason>' in its body.
+  The fail-to-pass replay could not run on base: pytest exited with status 4 replaying tests/test_mod.py. Merge the change to the test harness or to the dependencies first, in a pull request that is not a fix. Then replay this fix against the new base.
   pytest's last output: no tests ran
   ERROR: usage: __main__.py [options] [file_or_dir] [file_or_dir] [...]
   __main__.py: error: unrecognized arguments: --bogus
