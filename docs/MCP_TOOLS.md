@@ -2360,7 +2360,6 @@ Flush and purge keys from current or all databases.
 |---|---|---|---|---|
 | `all_databases` | `boolean` | No | `False` | Flush all databases instead of just active one |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-| `url` | `string` | No | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `valkey_get`
 
@@ -2373,7 +2372,6 @@ Retrieve string value stored at key.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `key` | `string` | Yes | - | Key to retrieve |
-| `url` | `string` | No | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `valkey_info`
 
@@ -2386,7 +2384,6 @@ Inspect server configuration, memory allocation, and operational metrics.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `section` | `string` | No | - | Specific INFO section (server, memory, clients, stats) |
-| `url` | `string` | No | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `valkey_ping`
 
@@ -2394,11 +2391,7 @@ Test connection and measure round-trip latency to the Valkey server.
 
 **Annotations:** `readOnlyHint: true`
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `url` | `string` | No | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
+*No parameters required.*
 
 ### `valkey_set`
 
@@ -2414,7 +2407,6 @@ Set string value of key with optional expiration TTL.
 | `value` | `string` | Yes | - | Value to associate with key |
 | `ex` | `integer` | No | - | Expiration timeout in seconds |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-| `url` | `string` | No | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `valkey_stats`
 
@@ -2422,11 +2414,7 @@ Display quick diagnostic summary of server health, memory, and keys.
 
 **Annotations:** `readOnlyHint: true`
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `url` | `string` | No | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
+*No parameters required.*
 
 ### `vault_get`
 

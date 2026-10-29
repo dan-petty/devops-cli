@@ -31,6 +31,18 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         "allowed": frozenset({"trace_id"}),
         "required": frozenset({"trace_id"}),
     },
+    ("valkey", "ping"): {"allowed": frozenset(), "required": frozenset()},
+    ("valkey", "stats"): {"allowed": frozenset(), "required": frozenset()},
+    ("valkey", "info"): {"allowed": frozenset({"section"}), "required": frozenset()},
+    ("valkey", "get"): {"allowed": frozenset({"key"}), "required": frozenset()},
+    ("valkey", "set"): {
+        "allowed": frozenset({"key", "value", "ex", "dry_run"}),
+        "required": frozenset(),
+    },
+    ("valkey", "flush"): {
+        "allowed": frozenset({"all_databases", "dry_run"}),
+        "required": frozenset(),
+    },
     ("ai", "gateway", "status"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "routes"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "probe-backend"): {
