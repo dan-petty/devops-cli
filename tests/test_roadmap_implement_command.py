@@ -255,6 +255,20 @@ def test_confirm_outside_a_runner_exits_1_and_runs_nothing(
     assert (script.seen, job_world.programs.calls, job_world.api.requested) == ([], [], [])
 
 
+def test_confirm_without_a_token_for_the_one_repository_exits_1_and_runs_nothing(
+    cli: Callable[..., Any], job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(service={"github_app": {"token_repository": None}})
+    script = two_groups()
+    factory.set_llm_client_override(script.model())
+
+    result = _job(cli, job_world, "--confirm")
+
+    assert result.exit_code == 1
+    assert "service.github_app.token_repository" in " ".join(result.output.split())
+    assert (script.seen, job_world.programs.calls, job_world.api.requested) == ([], [], [])
+
+
 def test_confirm_in_a_runner_takes_the_item_to_a_ready_pull_request(
     cli: Callable[..., Any], job_world: JobWorld
 ) -> None:

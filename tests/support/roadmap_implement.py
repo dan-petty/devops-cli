@@ -446,13 +446,18 @@ def job_world(
     process edge, where git runs for real and the project's own commands are answered. The kernel
     call that makes the job's process unreadable is answered too: it would change the test run."""
     monkeypatch.setattr("devops_cli.core.process_hardening._prctl", lambda *_args: 0)
+    # The runner Job acts as the App, with a token for the one repository. The test mints no token.
+    monkeypatch.setattr("devops_cli.roadmap.implement_run.acts_as_github_app", lambda: True)
     api, programs = github_api_and_gh
     # A watch that waits out the monitor's timeout moves the clock past the reset of the quota.
     for resource in ("core", "graphql"):
         get_github_rate_limiter().update_quota(
             resource, remaining=5000, limit=5000, reset_epoch=time.time() + 86400.0
         )
-    config(roadmap={"implement": {"in_runner": True}})
+    config(
+        roadmap={"implement": {"in_runner": True}},
+        service={"github_app": {"token_repository": STAGE_REPO}},
+    )
     programs.answer("git", ProcessAnswer(side_effect=git_for_real))
     programs.answer(
         lambda call: command_text(call).startswith("uv run devops openspec archive"),

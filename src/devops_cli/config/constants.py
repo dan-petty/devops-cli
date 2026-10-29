@@ -1367,6 +1367,8 @@ CONST_GITHUB_APP_LEDGER_KEY: Final[str] = "app-installation-{installation_id}"
 # The permissions that each installation token of the App asks for: those the roadmap jobs use
 # (ADR 0015). The token carries only these, whatever the installation grants. GitHub refuses a
 # token with HTTP 422 when the installation does not grant one of them (#2473).
+# The setting that limits an installation token to one repository (#2667).
+CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING: Final[str] = "service.github_app.token_repository"
 CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "issues": "write",
     "pull_requests": "write",

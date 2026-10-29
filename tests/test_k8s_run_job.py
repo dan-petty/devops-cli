@@ -20,6 +20,9 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name
 from tests.support.paths import REPO_ROOT
 
+REPO = "example/roadmap"
+REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
+
 CRONJOB = yaml.safe_load(
     (REPO_ROOT / "k8s" / "devops" / "cronjob.yaml").read_text(encoding="utf-8")
 )
@@ -292,7 +295,9 @@ def test_an_env_name_that_the_template_sets_is_replaced_not_repeated() -> None:
 def test_the_runner_template_reads_its_own_cronjob_and_follows_its_container(
     jobs: FakeJobs,
 ) -> None:
-    result = _run("--template", "runner", "--", "roadmap", "implement", "--item", "7")
+    result = _run(
+        "--template", "runner", "--repo", REPO, "--", "roadmap", "implement", "--item", "7"
+    )
     name = jobs.created[0]["metadata"]["name"]
     (container,) = jobs.created[0]["spec"]["template"]["spec"]["containers"]
     exit_code_read = next(c for c in jobs.calls if "jsonpath" in c[-1] and "exitCode" in c[-1])
@@ -308,7 +313,7 @@ def test_the_runner_template_reads_its_own_cronjob_and_follows_its_container(
 
 def test_a_missing_runner_cronjob_names_it(jobs: FakeJobs) -> None:
     jobs.runner_cronjob = None
-    result = _run("--template", "runner", "--", "--version")
+    result = _run("--template", "runner", "--repo", REPO, "--", "--version")
     assert (result.exit_code, "CronJob devops/devops-cli-runner not found" in result.output) == (
         1,
         True,
@@ -316,7 +321,7 @@ def test_a_missing_runner_cronjob_names_it(jobs: FakeJobs) -> None:
 
 
 def test_the_dry_run_of_the_runner_template_names_its_cronjob() -> None:
-    result = _run("--template", "runner", "--dry-run", "--", "roadmap", "implement")
+    result = _run("--template", "runner", "--repo", REPO, "--dry-run", "--", "roadmap", "implement")
     assert (
         result.exit_code,
         "get cronjob devops-cli-runner" in result.output,
@@ -328,3 +333,52 @@ def test_the_dry_run_of_the_runner_template_names_its_cronjob() -> None:
 def test_an_unknown_template_is_refused() -> None:
     result = _run("--template", "other", "--", "--version")
     assert (result.exit_code, "runner" in result.output) == (2, True)
+
+
+def test_the_runner_template_scopes_the_token_of_the_job_to_the_repository(jobs: FakeJobs) -> None:
+    """A runner Job refuses to run unless its token names the one repository (#2667), so
+    `--repo` sets the variable that the Service sets on the Jobs it creates."""
+    result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
+
+    (container,) = jobs.created[0]["spec"]["template"]["spec"]["containers"]
+    assert (result.exit_code, {e["name"]: e["value"] for e in container["env"]}[REPO_ENV]) == (
+        0,
+        REPO,
+    )
+
+
+def test_the_runner_template_without_a_repository_is_refused_before_any_request(
+    jobs: FakeJobs,
+) -> None:
+    result = _run("--template", "runner", "--", "roadmap", "implement")
+
+    assert (result.exit_code, "--repo" in result.output, jobs.calls, jobs.created) == (
+        1,
+        True,
+        [],
+        [],
+    )
+
+
+def test_the_dry_run_of_the_runner_template_without_a_repository_is_refused() -> None:
+    result = _run("--template", "runner", "--dry-run", "--", "roadmap", "implement")
+
+    assert (result.exit_code, "--repo" in result.output) == (1, True)
+
+
+def test_the_dry_run_of_the_runner_template_shows_the_token_repository() -> None:
+    result = _run("--template", "runner", "--repo", REPO, "--dry-run", "--", "roadmap", "implement")
+
+    assert (result.exit_code, REPO_ENV in result.output, REPO in result.output) == (0, True, True)
+
+
+def test_a_repository_with_the_default_template_is_refused(jobs: FakeJobs) -> None:
+    result = _run("--repo", REPO, "--", "--version")
+
+    assert (result.exit_code, "--template runner" in result.output, jobs.created) == (1, True, [])
+
+
+def test_a_repository_that_is_not_owner_slash_name_is_refused(jobs: FakeJobs) -> None:
+    result = _run("--template", "runner", "--repo", "no-slash", "--", "--version")
+
+    assert (result.exit_code, jobs.created) == (2, [])

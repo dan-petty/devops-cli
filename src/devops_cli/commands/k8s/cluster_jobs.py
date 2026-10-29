@@ -12,14 +12,18 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any
 
 import typer
+from pydantic import ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
+from devops_cli.config.constants import CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.env import setting_variables
+from devops_cli.config.settings import GitHubAppConfig
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterJobError
@@ -165,7 +169,13 @@ def _follow(name: str, context: str | None, start_timeout: float, template: JobT
     return code
 
 
-def _job_preview(args: Sequence[str], template: JobTemplate) -> str:
+def _env_entries(env: Mapping[str, str] | None) -> list[dict[str, str]]:
+    return [{"name": name, "value": value} for name, value in (env or {}).items()]
+
+
+def _job_preview(
+    args: Sequence[str], template: JobTemplate, env: Mapping[str, str] | None = None
+) -> str:
     """The Job a run creates, with what it copies from the CronJob as placeholders."""
     copied = f"<from CronJob {JOB_NAMESPACE}/{template.cronjob}'s jobTemplate>"
     job = {
@@ -182,7 +192,14 @@ def _job_preview(args: Sequence[str], template: JobTemplate) -> str:
                 "metadata": {"labels": {"...": copied, JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE}},
                 "spec": {
                     "...": copied,
-                    "containers": [{"name": template.container, "...": copied, "args": list(args)}],
+                    "containers": [
+                        {
+                            "name": template.container,
+                            "...": copied,
+                            "args": list(args),
+                            **({"env": _env_entries(env)} if env else {}),
+                        }
+                    ],
                 },
             },
         },
@@ -197,6 +214,7 @@ def dry_run_job(
     wait: bool,
     start_timeout: float,
     template: JobTemplate = DEFAULT_TEMPLATE,
+    env: Mapping[str, str] | None = None,
 ) -> JobRun:
     """The requests a run would make, in order, making none: not even the CronJob is read."""
     name = _name_placeholder(template)
@@ -210,7 +228,7 @@ def dry_run_job(
         kubectl(
             _CREATE_ARGS,
             f"job {JOB_NAMESPACE}/{name}",
-            stdin=_job_preview(args, template),
+            stdin=_job_preview(args, template, env),
             condition=f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists",
         ),
     ]
@@ -245,6 +263,7 @@ def execute_job(
     wait: bool,
     start_timeout: float,
     template: JobTemplate = DEFAULT_TEMPLATE,
+    env: Mapping[str, str] | None = None,
 ) -> JobRun:
     """Create the Job from the CronJob's template and, with `wait`, follow it to its exit code.
 
@@ -254,11 +273,31 @@ def execute_job(
     if cronjob is None:
         raise ClusterJobError(MESSAGES.k8s.job_cronjob_missing.format(cronjob=template.cronjob))
     name = job_name(template=template)
-    job = build_job(cronjob, list(args), name, template=template)
+    job = build_job(cronjob, list(args), name, template=template, env=env)
     _kubectl(_CREATE_ARGS, context, stdin=json.dumps(job))
     if not wait:
         return JobRun(name)
     return JobRun(name, exit_code=_follow(name, context, start_timeout, template))
+
+
+def _runner_env(template: TemplateName, repo: str | None) -> dict[str, str] | None:
+    """The environment a runner Job gets so that its GitHub token names one repository: the
+    variable of `service.github_app.token_repository`, as the Service sets it on its Jobs. The
+    Job refuses to run without it (#2667), so a runner Job with no `--repo` is refused here, before
+    any request. Raises `typer.Exit` after it prints why."""
+    if template is not TemplateName.RUNNER:
+        if repo is not None:
+            print_error(MESSAGES.k8s.job_repo_needs_runner, prefix=False, safe=True)
+            raise typer.Exit(1)
+        return None
+    if repo is None:
+        print_error(MESSAGES.k8s.job_runner_needs_repo, prefix=False, safe=True)
+        raise typer.Exit(1)
+    try:
+        GitHubAppConfig.model_validate({"token_repository": repo})
+    except ValidationError as exc:
+        raise typer.BadParameter(str(repo), param_hint="--repo") from exc
+    return {setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo}
 
 
 def run_job(
@@ -269,6 +308,7 @@ def run_job(
     template: Annotated[
         TemplateName, typer.Option("--template", help=HELP.k8s.run_job_template)
     ] = TemplateName.DEFAULT,
+    repo: Annotated[str | None, typer.Option("--repo", help=HELP.k8s.run_job_repo)] = None,
     wait: Annotated[bool, typer.Option("--wait/--no-wait", help=HELP.k8s.run_job_wait)] = True,
     start_timeout: Annotated[
         float, typer.Option("--start-timeout", min=0, help=HELP.k8s.run_job_start_timeout)
@@ -276,6 +316,7 @@ def run_job(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.run_job_dry_run)] = False,
 ) -> None:
     """Run a devops command as a Job from a CronJob's template and follow it."""
+    env = _runner_env(template, repo)
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
@@ -286,6 +327,7 @@ def run_job(
             wait=wait,
             start_timeout=start_timeout,
             template=template.template,
+            env=env,
         )
         render_request_plan(
             MESSAGES.k8s.job_dry_run_heading,
@@ -300,6 +342,7 @@ def run_job(
             wait=wait,
             start_timeout=start_timeout,
             template=template.template,
+            env=env,
         )
     except ClusterJobError as exc:
         print_error(str(exc), prefix=False, safe=True)

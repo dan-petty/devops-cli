@@ -679,6 +679,14 @@ class K8sMessages:
         "source missing or invalid, and no live value differing without --rotate. "
         "--plan reads the keyring, gh and the cluster to show each key's state."
     )
+    job_runner_needs_repo: str = (
+        "A runner Job needs the repository it acts on. Pass --repo owner/name: the Job's GitHub "
+        "token then names only that repository. No Job was created."
+    )
+    job_repo_needs_runner: str = (
+        "--repo sets the repository of a runner Job. Use it with --template runner. No Job was "
+        "created."
+    )
     job_cronjob_missing: str = (
         "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"
@@ -2022,6 +2030,16 @@ class RoadmapMessages:
     implement_hardening_failed: str = (
         "The implement job could not make its process unreadable by its own shell "
         "(prctl PR_SET_DUMPABLE): {reason}. It runs no step."
+    )
+    implement_job_token_not_app: str = (
+        "The implement job runs only as the GitHub App, whose installation token a setting can "
+        "limit to one repository. This process does not hold the App's private key. It ran no "
+        "step."
+    )
+    implement_job_token_scope_refused: str = (
+        "The implement job for {repo} needs a token for that one repository. Set "
+        "service.github_app.token_repository to {repo}; it is now {scoped}. Without it the token "
+        "covers every repository of the installation. This process ran no step."
     )
     implement_job_runner_refused: str = (
         "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "

@@ -383,6 +383,10 @@ class K8sCommandHelp:
         "CronJob devops-cli-runner, the pod of the implement job (it sets "
         "roadmap.implement.in_runner)."
     )
+    run_job_repo: str = (
+        "owner/name of the one repository the runner Job may use. The Job's GitHub token names "
+        "only that repository. Required with --template runner, and used with no other template."
+    )
     run_job_args: str = "The devops arguments the Job runs, after `--`."
     run_job_wait: str = (
         "Follow the Job's log and exit with its exit code; --no-wait prints the Job's name."

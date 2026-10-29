@@ -82,6 +82,68 @@ def test_the_job_runs_no_step_unless_it_is_in_a_runner(
     assert job_world.origin_log() == ["fix(roadmap): plan"]
 
 
+def test_the_job_refuses_a_token_that_is_not_scoped_to_the_repository_of_the_plan(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    """A Job made by `devops k8s run-job` sets no token repository, so its installation token
+    would cover every repository of the App: the job runs no step then (#2667)."""
+    config(service={"github_app": {"token_repository": "example/other"}})
+    plan = job_world.plan()
+    requests_before = list(job_world.api.requested)
+    script = two_groups()
+
+    with pytest.raises(RoadmapImplementError) as raised:
+        apply_implement(
+            job_world.store,
+            plan,
+            source=job_world.repo.clone,
+            model=script.model(),
+            window=WINDOW,
+        )
+
+    assert "example/other" in str(raised.value)
+    assert (script.seen, job_world.api.requested) == ([], requests_before)
+    assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
+def test_the_job_refuses_a_token_with_no_repository_scope(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(service={"github_app": {"token_repository": None}})
+
+    with pytest.raises(RoadmapImplementError) as raised:
+        job_world.run(two_groups())
+
+    assert "service.github_app.token_repository" in str(raised.value)
+
+
+def test_the_job_refuses_to_run_when_it_does_not_act_as_the_app(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the App's key the token is the person's `gh` login, which no setting can scope."""
+    monkeypatch.setattr("devops_cli.roadmap.implement_run.acts_as_github_app", lambda: False)
+
+    with pytest.raises(RoadmapImplementError) as raised:
+        job_world.run(two_groups())
+
+    assert "GitHub App" in str(raised.value)
+
+
+def test_the_job_checks_the_token_scope_before_it_clears_its_dumpable_flag(
+    job_world: JobWorld, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config(service={"github_app": {"token_repository": None}})
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.deny_environment_reads", lambda: seen.append("called")
+    )
+
+    with pytest.raises(RoadmapImplementError):
+        job_world.run(two_groups())
+
+    assert seen == []
+
+
 # ── The run to a ready pull request ───────────────────────────────────────────────────────
 
 
