@@ -43,11 +43,14 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR,
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER,
     CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS,
     CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
+    CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -155,7 +158,30 @@ class _PyPIInfo(BaseModel):
     name: str
     version: str
     license_expression: str | None = None
+    license: str | None = None
+    classifiers: list[str] = Field(default_factory=list)
     package_url: str
+
+    @property
+    def license_name(self) -> str | None:
+        """The license the package states: its SPDX expression, else its `license` field when that
+        is a name and not a whole text, else the name in its first `License ::` classifier."""
+        if self.license_expression:
+            return self.license_expression
+        text = (self.license or "").strip()
+        if text and "\n" not in text and len(text) <= CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS:
+            return text
+        classifier = next(
+            (
+                c
+                for c in self.classifiers
+                if c.startswith(CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER)
+            ),
+            None,
+        )
+        if classifier is None:
+            return None
+        return classifier.rsplit(CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR, 1)[-1]
 
 
 class _PyPIFile(BaseModel):
@@ -303,7 +329,7 @@ class AlternativesTools:
             ToolFacts(
                 name=package.info.name,
                 url=_key(package.info.package_url),
-                license=package.info.license_expression,
+                license=package.info.license_name,
                 last_activity=package.last_upload,
             )
         )
@@ -311,7 +337,7 @@ class AlternativesTools:
             [
                 package.info.package_url,
                 texts.alternatives_fact_license.format(
-                    license=package.info.license_expression or texts.alternatives_not_stated
+                    license=package.info.license_name or texts.alternatives_not_stated
                 ),
                 texts.alternatives_fact_version.format(version=package.info.version),
                 texts.alternatives_fact_upload.format(date=_day(package.last_upload)),
@@ -500,8 +526,11 @@ def _request(item: Item, comments: Sequence[IssueComment]) -> str:
 
 def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
     """Why the job refuses `reply`, or None. A tool verdict needs a tool whose facts a tool read,
-    and every source must be a URL that a tool returned."""
+    `not-applicable` needs a run with no search and no fact read, and every source must be a URL
+    that a tool returned."""
     texts = MESSAGES.roadmap
+    if reply.verdict is Verdict.NOT_APPLICABLE and (tools.queries or tools.fact_reads):
+        return texts.alternatives_reason_not_applicable
     if reply.verdict in _TOOL_VERDICTS:
         if reply.tool_url is None:
             return texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
@@ -601,6 +630,18 @@ def _block_of(check: Check) -> str:
     )
 
 
+def _marker_problem(body: str) -> str | None:
+    """Why the job writes no block to `body`, or None: it holds a marker of the block with no
+    partner, so a write could replace a person's text between the two."""
+    _, inside = extract_section_and_outside(
+        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+    )
+    markers = (CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER)
+    if inside is None and any(marker in body for marker in markers):
+        return MESSAGES.roadmap.alternatives_reason_markers
+    return None
+
+
 def _with_block(body: str, block: str) -> str:
     """`body` with its block of the job replaced by `block`, or with `block` at its end."""
     _, inside = extract_section_and_outside(
@@ -619,7 +660,7 @@ def validate_reply(
     item: Item, reply: AlternativesReply, tools: AlternativesTools, now: datetime
 ) -> Check | CheckFailure:
     """The check that `reply` makes, or the failure when the job refuses it."""
-    refusal = _refusal(reply, tools)
+    refusal = _refusal(reply, tools) or _marker_problem(item.body)
     if refusal is not None:
         return CheckFailure(item, refusal)
     allowed = tools.allowed_urls

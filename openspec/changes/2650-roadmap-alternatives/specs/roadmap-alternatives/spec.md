@@ -36,6 +36,10 @@ The check of one item SHALL be one agent run with the tools `search_web`, `githu
 - **WHEN** the model calls `search_web` four times for one item
 - **THEN** three calls search and the fourth answers that the limit is reached
 
+#### Scenario: A PyPI package that states its license in a field other than the SPDX expression
+- **WHEN** the model calls `pypi_package` for a package whose `license_expression` is empty and whose `license` holds a short name
+- **THEN** the answer gives that name as the license, and when `license` holds a whole text or nothing, the name in the package's `License ::` classifier, and "not stated" only when none of the three holds a name
+
 #### Scenario: A repository with no release
 - **WHEN** the model calls `github_repository` for a repository that has no release
 - **THEN** the answer gives the license, the last push and the star count, and says that the repository has no release
@@ -65,6 +69,10 @@ The job SHALL refuse a reply whose `sources` or `tool_url` cite a URL that no to
 - **WHEN** a reply cites `https://example.com/invented` and no tool returned that URL
 - **THEN** the item is skipped, nothing is written for it, the other items are written, and the error names the item
 
+#### Scenario: Not-applicable after a tool ran
+- **WHEN** a reply gives the verdict `not-applicable` and the run made a search or a fact read
+- **THEN** the item is skipped with a named reason and nothing is written for it
+
 #### Scenario: A model call fails
 - **WHEN** the model call of one item fails and the call of another item succeeds
 - **THEN** the run writes the second item, then fails with an error that names the first
@@ -75,6 +83,14 @@ The job SHALL refuse a reply whose `sources` or `tool_url` cite a URL that no to
 
 ### Requirement: A check writes a comment, a block and a record
 With `--confirm`, a check SHALL post one comment with the marker `devops roadmap alternatives`, replace the block `devops-roadmap-alternatives:start` to `:end` in the body, or add it at the end, and record `alternatives.checked_at`, `alternatives.body_hash`, `alternatives.verdict` and `alternatives.tool` in the job record. The check SHALL NOT change a label and SHALL NOT close the issue.
+
+#### Scenario: A marker with no partner
+- **WHEN** the body holds the start marker of the block with no end marker, or the end marker with no start marker before it
+- **THEN** the item is skipped with a named reason, nothing is written for it, and the person's text is not changed
+
+#### Scenario: Refine ignores the job's writes
+- **WHEN** the job has written its block and its comment on an item that refine left waiting on a person
+- **THEN** refine hashes the body without the block, takes the comment as no reply, and the item still waits and no model call is made
 
 #### Scenario: A covering tool
 - **WHEN** a run with `--confirm` checks an item and the reply names a maintained covering tool whose facts were read

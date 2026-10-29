@@ -1851,6 +1851,10 @@ class RoadmapMessages:
     alternatives_reason_url: str = "the reply cites a URL that no tool returned: {url}"
     alternatives_reason_no_facts: str = "the reply names a tool whose facts no tool read: {url}"
     alternatives_reason_no_tool: str = "the reply gives the verdict {verdict} with no tool"
+    alternatives_reason_not_applicable: str = (
+        "the reply gives the verdict not-applicable after a tool ran"
+    )
+    alternatives_reason_markers: str = "the body holds a marker of the check with no partner"
     # What the tools of the check answer.
     alternatives_search_limit: str = "The search limit for this item is reached."
     alternatives_fact_limit: str = "The fact read limit for this item is reached."

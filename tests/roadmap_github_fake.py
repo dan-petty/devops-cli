@@ -61,6 +61,7 @@ class GitHubFake:
         self.commits = set(commits)
         self.issues: dict[int, dict[str, Any]] = {}
         self.comments: dict[int, list[str]] = {}
+        self.repositories: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
         self.calls: list[list[str]] = []
         self.stdins: list[str | None] = []
 
@@ -110,6 +111,13 @@ class GitHubFake:
                 "url": f"https://api.github.com/repos/{self.repo}/pulls/{number}",
                 "html_url": f"https://github.com/{self.repo}/pull/{number}",
             }
+
+    def seed_repository(
+        self, repository: dict[str, Any], release: dict[str, Any] | None = None
+    ) -> None:
+        """Another repository, by the `full_name` of its REST payload, and its latest release,
+        which GitHub answers 404 when there is none (#2650)."""
+        self.repositories[repository["full_name"]] = (repository, release)
 
     def labels(self, number: int) -> list[str]:
         """The labels issue `number` holds now."""
@@ -208,6 +216,9 @@ class GitHubFake:
         )
         url = urlsplit(path)
         query = {key: values[0] for key, values in parse_qs(url.query).items()}
+        other = self._other_repository(url.path)
+        if other is not None:
+            return other
         if url.path == f"repos/{self.repo}":
             open_issues = sum(issue["state"] == "open" for issue in self.issues.values())
             return {"stargazers_count": 0, "forks_count": 0, "open_issues_count": open_issues}
@@ -215,6 +226,18 @@ class GitHubFake:
         if "--paginate" in args:
             return self._paginate_rest(method, parts, query, fields, args)
         return self._route(method, parts, query, fields, args, stdin)
+
+    def _other_repository(self, path: str) -> Any:
+        """The answer for a repository seeded with `seed_repository`, or its latest release, or
+        None when `path` names neither."""
+        name = path.removeprefix("repos/")
+        if name in self.repositories:
+            return self.repositories[name][0]
+        name = name.removesuffix("/releases/latest")
+        if name != path.removeprefix("repos/") and name in self.repositories:
+            release = self.repositories[name][1]
+            return release if release is not None else (1, "gh: Not Found (HTTP 404)")
+        return None
 
     def _paginate_rest(
         self,

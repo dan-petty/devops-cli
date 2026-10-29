@@ -2875,6 +2875,11 @@ CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES: Final[int] = 3
 CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS: Final[int] = 6
 CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS: Final[int] = 5
 CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS: Final[int] = 365
+# A PyPI package states its license in `license_expression`, in `license` (a name when it is short,
+# else the whole text) or in a classifier that starts with the prefix.
+CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS: Final[int] = 100
+CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER: Final[str] = "License :: "
+CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
 # The longest body, in tokens, that reaches the model with an item.
 CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 4096
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"

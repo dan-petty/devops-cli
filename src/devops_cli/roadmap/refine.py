@@ -86,6 +86,9 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_P0_PRIORITY,
     CONST_ROADMAP_P1_PRIORITY,
@@ -335,7 +338,11 @@ def hash_text(text: str) -> str:
 
 
 def _body_hashes(body: str) -> tuple[str, str | None]:
-    """The hash of `body` outside its refine section, and the section's, None when it holds none."""
+    """The hash of `body` outside its refine section, and the section's, None when it holds none.
+    The block of the alternatives job (#2650) is no part of either: it is not a person's text."""
+    body, _ = extract_section_and_outside(
+        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+    )
     outside, inside = extract_section_and_outside(body)
     return hash_text(outside), (hash_text(inside) if inside else None)
 
@@ -1198,8 +1205,14 @@ def replies_after_marker(
 
 
 def replies_since_refine(comments: Sequence[IssueComment]) -> list[IssueComment] | None:
-    """The comments after refine's last comment, oldest first, or None when refine left none."""
-    return replies_after_marker(comments, CONST_ROADMAP_REFINE_COMMENT_MARKER)
+    """The comments after refine's last comment, oldest first, or None when refine left none. A
+    comment of the alternatives job (#2650) is no reply of a person, so it is left out."""
+    replies = replies_after_marker(comments, CONST_ROADMAP_REFINE_COMMENT_MARKER)
+    return None if replies is None else _without_alternatives_comments(replies)
+
+
+def _without_alternatives_comments(comments: Sequence[IssueComment]) -> list[IssueComment]:
+    return [c for c in comments if CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER not in c.body]
 
 
 def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
@@ -1237,8 +1250,11 @@ def _still_waiting(
             step, details = NextStep.PERSON, (MESSAGES.roadmap.refine_set_back_by_person,)
     comments = comments_on(item.number)
     replies = replies_since_refine(comments)
-    # No reply: the last comment is refine's own.
-    if replies is None or replies or _cited_code_changed(store, item, comments[-1].created_at):
+    if replies is None or replies:
+        return None
+    # No reply: the last comment that is not the alternatives job's is refine's own.
+    last = _without_alternatives_comments(comments)[-1]
+    if _cited_code_changed(store, item, last.created_at):
         return None
     return WaitingItem(item, step, details)
 
@@ -1278,7 +1294,7 @@ def _comment_cap(item: Item, comments: Sequence[IssueComment]) -> WaitingItem | 
     )
     if count < CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM:
         return None
-    newest = comments[-1].created_at.isoformat()
+    newest = _without_alternatives_comments(comments)[-1].created_at.isoformat()
     stopped_before = item.job_record.get(RefineRecordKey.CAPPED_AFTER) == newest
     detail = MESSAGES.roadmap.refine_comment_cap.format(
         count=count, hours=hours, number=item.number
@@ -1592,7 +1608,8 @@ def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
     when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
     cap (#1758)."""
     replies = replies_since_refine(comments)
-    kept = (comments if replies is None else replies)[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
+    persons = _without_alternatives_comments(comments) if replies is None else replies
+    kept = persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     return [
         truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
         for reply in kept

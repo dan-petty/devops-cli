@@ -25,6 +25,11 @@
 - [x] 5.1 Add the term "Alternative" to `CONTEXT.md`, regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 - [x] 5.2 Run `uv run devops ci` once, fix each failure at its cause (the MCP exclusion list, and the setting that needs no environment variable), and verify that `uv run devops ci test tests/test_mcp.py tests/test_config_declarations.py tests/test_roadmap_alternatives.py`, `uv run devops ci docs`, `uv run devops ci lint`, `uv run devops ci format` and `uv run devops ci typecheck` pass
 
+## 6. Review fixes
+
+- [x] 6.1 Write the tests for the four faults of the review (refine ends a wait after the job's writes, a PyPI license in `license` or a classifier, a marker with no partner, `not-applicable` after a tool ran) and a flow test on the GitHub store, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py tests/test_roadmap_refine.py` fails
+- [x] 6.2 Make refine ignore the job's block and comment in `src/devops_cli/roadmap/refine.py`, read the PyPI license from three fields, refuse a marker with no partner and `not-applicable` after a tool ran in `src/devops_cli/roadmap/alternatives.py`, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py tests/test_roadmap_refine.py` passes
+
 ## Workflow follow-up
 
 - The Service row on the model lane, the metric and refine's use of the recorded verdict are sub-issue 2 of #2648.

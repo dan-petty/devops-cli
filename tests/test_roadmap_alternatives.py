@@ -40,6 +40,7 @@ from devops_cli.roadmap.alternatives import (
     render_alternatives_plan,
     select_items,
 )
+from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import (
     AlternativesRecordKey,
@@ -48,6 +49,8 @@ from devops_cli.roadmap.store import (
     RepositoryFacts,
     RoadmapStore,
 )
+from tests.roadmap_github_fake import GitHubFake
+from tests.support.fakes.github import RunnerSession
 from tests.support.scripted_model import Script, call
 from tests.web_fakes import StubWeb
 
@@ -431,14 +434,21 @@ def test_the_two_fact_tools_share_one_read_limit(
 
 
 def _pypi(
-    stub_web: StubWeb, name: str, *, uploads: list[str], license_expression: str | None
+    stub_web: StubWeb,
+    name: str,
+    *,
+    uploads: list[str],
+    license_expression: str | None,
+    license_text: str | None = None,
+    classifiers: list[str] | None = None,
 ) -> None:
     payload = {
         "info": {
             "name": name,
             "version": "2.0.0",
-            "license": None,
+            "license": license_text,
             "license_expression": license_expression,
+            "classifiers": classifiers or [],
             "package_url": f"https://pypi.org/project/{name}/",
         },
         "urls": [{"upload_time_iso_8601": stamp} for stamp in uploads],
@@ -472,6 +482,45 @@ def test_a_pypi_read_answers_with_the_latest_upload_and_remembers_it(
         "Apache-2.0",
         datetime(2026, 10, 20, 1, 0, 30, tzinfo=UTC),
         False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("fields", "license_name"),
+    [
+        pytest.param(
+            {"license_expression": "MIT", "license_text": "Apache-2.0"}, "MIT", id="expression"
+        ),
+        pytest.param(
+            {"license_expression": None, "license_text": "Apache-2.0"}, "Apache-2.0", id="text"
+        ),
+        pytest.param(
+            {
+                "license_expression": None,
+                "license_text": "A long licence text.\n" * 20,
+                "classifiers": ["Topic :: Utilities", "License :: OSI Approved :: MIT License"],
+            },
+            "MIT License",
+            id="classifier-when-the-text-is-a-whole-licence",
+        ),
+        pytest.param(
+            {"license_expression": None, "license_text": "", "classifiers": []},
+            "not stated",
+            id="not-stated",
+        ),
+    ],
+)
+def test_a_pypi_read_gives_the_license_a_package_states_in_any_of_its_fields(
+    store: InMemoryRoadmapStore, stub_web: StubWeb, fields: dict[str, Any], license_name: str
+) -> None:
+    _pypi(stub_web, "scanner", uploads=[NOW.isoformat()], **fields)
+    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+
+    answer = tools.pypi_package("scanner")
+
+    assert f"License: {license_name}" in answer.splitlines()
+    assert tools.facts["https://pypi.org/project/scanner"].license == (
+        None if license_name == "not stated" else license_name
     )
 
 
@@ -674,6 +723,43 @@ def test_a_person_changing_the_body_after_the_plan_stops_its_write(
     assert any(f"#{number}" in record.getMessage() for record in caplog.records)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            f"Intro\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nPERSON TEXT\n", id="start-only"
+        ),
+        pytest.param(
+            f"Intro\nPERSON TEXT\n{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n", id="end-only"
+        ),
+        pytest.param(
+            f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\nPERSON TEXT\n"
+            f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n",
+            id="end-before-start",
+        ),
+    ],
+)
+def test_a_body_with_an_unpaired_marker_is_skipped_and_a_persons_text_is_kept(
+    store: InMemoryRoadmapStore, web_key: None, body: str
+) -> None:
+    number = _item(store, "Unpaired", body=body)
+
+    plan = _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    written = apply_alternatives(store, plan)
+
+    assert (
+        plan.checks,
+        [(f.item.number, f.reason) for f in plan.failures],
+        written,
+        store.read_issue_body(number),
+    ) == (
+        [],
+        [(number, "the body holds a marker of the check with no partner")],
+        0,
+        body,
+    )
+
+
 def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None) -> None:
     number = _item(store)
     reply = AlternativesReply(verdict=Verdict.NONE)
@@ -690,7 +776,30 @@ def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None
     ) == ("none", None, True)
 
 
-def test_a_not_applicable_verdict_runs_no_search(
+def test_a_not_applicable_verdict_after_a_search_or_a_fact_read_is_refused(
+    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+) -> None:
+    _firecrawl(stub_web, SEARCH_URL)
+    searched = _item(store, "Searched")
+    read = _item(store, "Read")
+    answer = AlternativesReply(verdict=Verdict.NOT_APPLICABLE)
+    script = _by_item(
+        {
+            searched: [call("search_web", query="scanner for a directory"), answer],
+            read: [call("github_repository", name="example/scanner"), answer],
+        }
+    )
+
+    plan = _plan(store, script)
+
+    reason = "the reply gives the verdict not-applicable after a tool ran"
+    assert (plan.checks, [(f.item.number, f.reason) for f in plan.failures]) == (
+        [],
+        [(searched, reason), (read, reason)],
+    )
+
+
+def test_a_not_applicable_verdict_with_no_tool_run_is_kept(
     store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
 ) -> None:
     _item(store, "A defect", body="The output has a typo.")
@@ -701,6 +810,59 @@ def test_a_not_applicable_verdict_runs_no_search(
     assert (plan.checks[0].verdict, plan.checks[0].queries, stub_web.sent) == (
         Verdict.NOT_APPLICABLE,
         (),
+        [],
+    )
+
+
+def test_a_covering_tool_is_written_through_the_github_store_over_its_process_edge(
+    web_key: None, stub_web: StubWeb
+) -> None:
+    """The whole flow on the GitHub store: the repository and its release are read with two `gh`
+    requests, and the run writes one comment, the marker block and the record in one body write."""
+    github = GitHubFake(REPO)
+    github.seed_repository(
+        {
+            "full_name": "example/scanner",
+            "html_url": TOOL_URL,
+            "license": {"spdx_id": "MIT"},
+            "archived": False,
+            "pushed_at": _days_ago(5).isoformat(),
+            "stargazers_count": 120,
+        },
+        {"tag_name": "v1.2.0", "published_at": _days_ago(9).isoformat()},
+    )
+    github.seed_issue(
+        7,
+        "Scan a directory",
+        labels=("priority/p2-medium", "status/new"),
+        body="The job needs a scanner.",
+    )
+    _firecrawl(stub_web, SEARCH_URL)
+    roadmap = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+
+    plan = _plan(roadmap, _search_then_read_then(_covers()))
+    written = apply_alternatives(roadmap, plan)
+    unchanged = _plan(roadmap, Script(AlternativesReply(verdict=Verdict.NONE)), now=NOW)
+
+    body = github.body(7)
+    (comment,) = github.comments[7]
+    assert (
+        written,
+        [call[-1] for call in github.calls if "repos/example/scanner" in call[-1]],
+        CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER in comment,
+        body.count(CONST_ROADMAP_ALTERNATIVES_START_MARKER),
+        TOOL_URL in body and "MIT" in body,
+        '"alternatives.verdict": "covers"' in body,
+        unchanged.checks,
+        github.project_calls(),
+    ) == (
+        1,
+        ["repos/example/scanner", "repos/example/scanner/releases/latest"],
+        True,
+        1,
+        True,
+        True,
+        [],
         [],
     )
 
