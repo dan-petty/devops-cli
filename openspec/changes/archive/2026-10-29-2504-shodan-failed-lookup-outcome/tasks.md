@@ -19,7 +19,7 @@
 
 ## 4. Archive
 
-- [ ] 4.1 Archive the change with `uv run devops openspec archive 2504-shodan-failed-lookup-outcome`.
+- [x] 4.1 Archive the change with `uv run devops openspec archive 2504-shodan-failed-lookup-outcome`.
 
 ## Workflow follow-up
 
