@@ -507,6 +507,7 @@ def implement_requests(
     clone, tree, branch = "<model-clone>", "<worktree>", _p("branch")
     each_item, each_group = rep["implement_item"], rep["implement_group"]
     pulls = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{_p('pull')}"
+    issues = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/issues"
     target = f"#{item}" if item is not None else _p("item")
 
     def git(
@@ -550,9 +551,16 @@ def implement_requests(
         git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
         other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
         git("commit", tree, "commit", "-m", _p("title")),
-        git("push", tree, "push", "--force-with-lease", "origin", branch),
+        git(
+            "push",
+            tree,
+            "push",
+            f"--force-with-lease={branch}:{_p('remote_tip')}",
+            "origin",
+            branch,
+        ),
         other("REST write", "body", "PATCH", pulls),
-        other("REST write", "pull_comment", "POST", f"{pulls}/comments"),
+        other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),
         other("process", "watch", "gh", "pr", "checks", _p("pull")),
         other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
         other("model", "model_fix", "model", when=cond["model_fix"]),

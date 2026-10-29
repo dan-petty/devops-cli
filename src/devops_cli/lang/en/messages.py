@@ -2308,6 +2308,7 @@ class RoadmapMessages:
             "branch": "<branch>",
             "change": "<change>",
             "pull": "<pull request>",
+            "remote_tip": "<remote tip>",
         }
     )
     plan_targets: dict[str, str] = field(

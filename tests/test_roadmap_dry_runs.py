@@ -369,3 +369,16 @@ def test_the_alternatives_dry_run_names_no_project_board() -> None:
         or any(word in " ".join(request.argv) for word in ("projectV2", "roadmap.toml"))
     ]
     assert named == []
+
+
+def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_job_uses() -> None:
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes = implement_requests(REPO)
+
+    comment = next(request for request in writes if request.argv[:1] == ("POST",))
+    push = next(request for request in writes if request.argv[3:4] == ("push",))
+    assert (comment.argv[1], push.argv[4:]) == (
+        f"{API}/repos/{REPO}/issues/<pull request>/comments",
+        ("--force-with-lease=<branch>:<remote tip>", "origin", "<branch>"),
+    )
