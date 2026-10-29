@@ -23,6 +23,10 @@ The job SHALL leave out an item that is not Ready, an item with the label `needs
 - **WHEN** the folder of item 7 is on `origin/main` and item 7 is closed
 - **THEN** the plan holds no reason for item 7, because the job reads open items only
 
+#### Scenario: A stale record and no plan on the default branch
+- **WHEN** the record of item 7 names a merged `stage.pr` and a branch that is gone, and `origin/main` holds no folder for item 7
+- **THEN** the plan stages item 7 again
+
 #### Scenario: Two planned items
 - **WHEN** `origin/main` holds the folders of items 7 and 8, and both are Ready bugs
 - **THEN** the plan leaves out both, each with its own reason

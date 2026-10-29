@@ -199,3 +199,18 @@ def test_a_round_reads_the_tree_once_for_many_items(
     _plan(store, stage_repo)
 
     assert len([call for call in process_fake.calls if "ls-tree" in call.argv]) == 1
+
+
+def test_a_stale_stage_record_with_no_plan_on_main_stages_the_item_again(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """A merged staging pull request was reverted: the record names a merged pull request and a
+    branch that is gone, and the change folder is not on the default branch. The plan is lost, so
+    staging the item again is correct (#2656 after the revert of #2697)."""
+    number = seed_stageable(store)
+    _merged_stage_record(store, number)
+
+    plan = _plan(store, stage_repo)
+
+    assert [change.target.item.number for change in plan.ready] == [number]
+    assert plan.left_out == ()
