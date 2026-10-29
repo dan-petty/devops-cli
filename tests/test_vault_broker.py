@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.os_keyring import get_keyring_secret, remember_secret
 from devops_cli.exceptions.vault import (
     VaultAuthenticationError,
+    VaultConfigurationError,
     VaultKeyError,
     VaultOperationError,
 )
@@ -201,6 +202,17 @@ def test_vault_broker_validates_address_scheme() -> None:
 
     with pytest.raises(ValueError, match=r"traversal|format|invalid"):
         VaultSecretBroker(vault_addr="http://example.com/../traversal")
+
+
+@pytest.mark.parametrize(
+    "vault_addr",
+    ["http://example.com:8200/some/path?x=", "http://example.com:8200/some/path#"],
+    ids=["query", "fragment"],
+)
+def test_vault_broker_refuses_an_address_that_changes_the_request_path(vault_addr: str) -> None:
+    """A query or a fragment in the address makes the caller's text the path of `sys/health`."""
+    with pytest.raises(VaultConfigurationError, match="query or fragment"):
+        VaultSecretBroker(vault_addr=vault_addr)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

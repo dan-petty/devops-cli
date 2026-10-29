@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterator
 from typing import Any
@@ -30,6 +31,7 @@ from devops_cli.models.vault import (
 )
 from devops_cli.security.secrets import reset_resolver
 from devops_cli.security.vault_broker import VaultStatus
+from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 
 def reset_lease_registry() -> None:
@@ -176,17 +178,128 @@ def test_vault_status_names_the_address_a_skipped_token_was_issued_for(
 
 @pytest.mark.parametrize("source", ["stored", "environment"])
 def test_mcp_vault_status_never_sends_a_token(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    """The MCP tool lets a client choose the address, so status sends no token to it."""
-    store_login(monkeypatch, vault_addr="https://example.com")
+    """The health request carries no token, whether it comes from the keyring or the environment."""
+    store_login(monkeypatch)
     if source == "environment":
         monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
 
     with patch(_REQUEST, return_value=reply(200, {"initialized": True})) as mock_request:
-        vault_status(vault_addr="https://example.com")
+        vault_status()
 
     assert [
         call.kwargs["headers"].get("X-Vault-Token") for call in mock_request.call_args_list
     ] == [None]
+
+
+HEALTH_ANSWER = json.dumps(
+    {"initialized": True, "sealed": False, "version": "1.15.2", "cluster_name": "cluster-2639"}
+)
+"""A `sys/health` answer that holds the two fields the tool prints."""
+
+
+async def _call_status_tool(arguments: dict[str, object]) -> tuple[bool, str]:
+    """Call `vault_status` the way an MCP client does: whether the call failed, and its reply."""
+    from fastmcp import Client
+
+    from devops_cli.ai.mcp.server import mcp
+
+    async with Client(mcp) as client:
+        await client.call_tool("hydrate_tool_domain", {"domain": "vault"})
+        result = await client.call_tool("vault_status", arguments, raise_on_error=False)
+    return bool(result.is_error), "\n".join(getattr(block, "text", "") for block in result.content)
+
+
+class TestStatusToolTakesNoAddressFromTheModel:
+    """The MCP tool `vault_status` reports the configured Vault, never an address that the calling
+    model gives (#2639)."""
+
+    async def test_the_tool_publishes_no_address_parameter(self) -> None:
+        """The schema holds `dry_run` and no Vault address."""
+        from fastmcp import Client
+
+        from devops_cli.ai.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            await client.call_tool("hydrate_tool_domain", {"domain": "vault"})
+            tools = await client.list_tools()
+
+        assert [
+            list(tool.input_schema["properties"]) for tool in tools if tool.name == "vault_status"
+        ] == [["dry_run"]]
+
+    async def test_an_address_argument_is_refused_and_reaches_no_socket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A call that gives an address fails and sends no request, and no answer comes back.
+
+        On `origin/main` the client dialled `127.0.0.1:8200`, wrote
+        `GET /some/path?x=/v1/sys/health`, and the reply held the `version` and `cluster_name`
+        values of the answer.
+        """
+        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        recorder = record_connects(monkeypatch, [http_response(200, HEALTH_ANSWER)] * 4)
+
+        failed, reply_text = await _call_status_tool(
+            {"vault_addr": "http://127.0.0.1:8200/some/path?x="}
+        )
+
+        assert (
+            failed,
+            "1. Parameter: `vault_addr`\n   Kind: HALLUCINATED_PARAM\n" in reply_text,
+            "cluster-2639" in reply_text,
+            [dial for dial in recorder.dialled if dial[1] == 8200],
+            recorder.written,
+        ) == (True, True, False, [], [])
+
+    async def test_a_call_with_no_address_asks_the_configured_vault(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The request goes to `VAULT_ADDR`, and its path is `/v1/sys/health`."""
+        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        monkeypatch.setenv("VAULT_ADDR", "http://example.com:8200")
+        recorder = record_connects(monkeypatch, [http_response(200, HEALTH_ANSWER)])
+
+        failed, reply_text = await _call_status_tool({})
+
+        vault = [
+            bytes(written).split(b" HTTP/1.1")[0]
+            for dialled, written in zip(recorder.dialled, recorder.written, strict=True)
+            if dialled == (PUBLIC_ADDRESS, 8200)
+        ]
+        assert (failed, vault, "cluster-2639" in reply_text) == (
+            False,
+            [b"GET /v1/sys/health"],
+            True,
+        )
+
+    async def test_a_call_with_no_configured_vault_names_the_settings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no `VAULT_ADDR` and no `DEVOPS_CLI_VAULT_ADDR`, the tool fails and names both."""
+        monkeypatch.delenv("VAULT_ADDR")
+        recorder = record_connects(monkeypatch, [http_response(200, HEALTH_ANSWER)])
+
+        failed, reply_text = await _call_status_tool({})
+
+        assert (
+            failed,
+            "VAULT_ADDR" in reply_text and "DEVOPS_CLI_VAULT_ADDR" in reply_text,
+            "--vault-addr" in reply_text,
+            [dial for dial in recorder.dialled if dial[1] == 8200],
+        ) == (True, True, False, [])
+
+
+def test_the_command_keeps_its_address_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A person who types `--addr` still names the Vault that the command asks."""
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    recorder = record_connects(monkeypatch, [http_response(200, HEALTH_ANSWER)])
+
+    res = runner.invoke(app, ["status", "--addr", "http://example.com:8201"])
+
+    assert (res.exit_code, [dial for dial in recorder.dialled if dial[0] == PUBLIC_ADDRESS]) == (
+        0,
+        [(PUBLIC_ADDRESS, 8201)],
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

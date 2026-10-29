@@ -1602,9 +1602,9 @@ def test_a_delegated_command_receives_the_end_of_options_marker(monkeypatch) -> 
     assert (result.exit_code, delegated) == (0, ["exec", "abc", "--", "--workdir", "/", "id"])
 
 
-def test_the_token_carrying_vault_tools_take_no_address() -> None:
-    """`vault_get`, `vault_set` and `vault_sync` act with the user's Vault token, so a client
-    must never choose where it is sent; only `vault_status`, which sends no token, takes one."""
+def test_the_vault_tools_take_no_address() -> None:
+    """A client must never choose which Vault a tool asks: `vault_get`, `vault_set` and
+    `vault_sync` send the user's Vault token there, and `vault_status` sends a request to it."""
     import inspect
 
     from devops_cli.ai.mcp import server
@@ -1617,5 +1617,5 @@ def test_the_token_carrying_vault_tools_take_no_address() -> None:
         "vault_addr" not in parameters["vault_get"],
         "vault_addr" not in parameters["vault_set"],
         "vault_addr" not in parameters["vault_sync"],
-        "vault_addr" in parameters["vault_status"],
+        "vault_addr" not in parameters["vault_status"],
     ) == (True, True, True, True)
