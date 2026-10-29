@@ -1339,7 +1339,6 @@ Stream pod logs or execute LogQL queries across cluster log streams.
 | `tail` | `integer` | No | `100` | Number of recent lines to display. |
 | `limit` | `integer` | No | `100` | Max lines for LogQL query |
 | `since` | `string` | No | `1h` | Time range for LogQL query |
-| `loki_url` | `string` | No | - | Loki service endpoint |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_pods`
