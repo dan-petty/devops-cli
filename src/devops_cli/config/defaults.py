@@ -726,6 +726,17 @@ DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
+# The labels of the items the stage job takes when no setting and no option names others: the Ready
+# P0 and P1 bugs (#2659).
+DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = (
+    "status=ready",
+    "priority=p0-critical",
+    "priority=p1-high",
+    "type=bug",
+)
+# How often the stage row is due on its own, besides its first run and its cross-job trigger
+# (#2659).
+DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 60
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
 # item, the change folder and the packed files of one task group. It leaves most of a 128k
 # window for tool output and the model's turns (#2654).

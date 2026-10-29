@@ -45,3 +45,16 @@ data:
         app_id: 1
         installation_id: 1
         slug: devops-cli-service
+    # The stage job of the Service (k8s/README.md, Roadmap service): it stages the Ready items
+    # that this filter names, at most `limit` in a round, in task groups that each fit
+    # `step_tokens`. A repository's ConfigMap changes the filter; an entry is `family=value` over
+    # status, priority, type, value or effort.
+    roadmap:
+      stage:
+        filter:
+          - status=ready
+          - priority=p0-critical
+          - priority=p1-high
+          - type=bug
+        limit: 3
+        step_tokens: 40000

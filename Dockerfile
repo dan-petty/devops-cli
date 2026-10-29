@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
 
+# The Node runtime of the pinned OpenSpec. Its major version is the one of `.node-version`.
+FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS node
+
 FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS builder
 ARG TARGETARCH=amd64
 
@@ -25,6 +28,17 @@ RUN tar -xzf "/tmp/gh_${TARGETARCH}.tar.gz" -C /tmp && \
     install -m 755 "/tmp/gh_2.102.1_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
     rm -rf /tmp/gh*
 
+# OpenSpec, as `devops install-tools` installs it: `npm ci` from the lockfile of
+# `src/devops_cli/tools_lock/openspec`, which checks the sha512 of every package. The tool goes to
+# /opt/devops-tools, and the service stage copies that directory to the same path. The installer
+# makes the version directory private to its user, so the chmod lets the Service user read it.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --tool openspec --target-dir /opt/devops-tools/bin && \
+    chmod -R a+rX /opt/devops-tools
+
 FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS service
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
@@ -33,7 +47,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
 
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder /usr/local/bin/gh /usr/local/bin/gh
+COPY --from=builder /opt/devops-tools /opt/devops-tools
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/.cache/tiktoken /app/.cache/tiktoken
 
@@ -46,7 +62,10 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
-    PATH=/app/.venv/bin:$PATH \
+    PATH=/app/.venv/bin:/opt/devops-tools/bin:$PATH \
+    DO_NOT_TRACK=1 \
+    OPENSPEC_TELEMETRY=0 \
+    OPENSPEC_NO_UPDATE_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     GH_PROMPT_DISABLED=1 \
     GH_NO_UPDATE_NOTIFIER=1

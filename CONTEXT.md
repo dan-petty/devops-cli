@@ -127,7 +127,7 @@ The long-running devops-cli deployment that runs the roadmap jobs when they are 
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's two paths for a repository's jobs, each running one round at a time: the model lane runs intake, refinement and the alternatives check, which call the model, and the other lane runs the metrics. Both get every trigger, and a round in one never waits for a round in the other.
+One of the Service's two paths for a repository's jobs, each running one round at a time: the model lane runs intake, refinement, staging and the alternatives check, which call the model, and the other lane runs the metrics. Both get every trigger, and a round in one never waits for a round in the other.
 _Avoid_: queue, track, worker
 
 ## Code review

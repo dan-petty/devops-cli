@@ -1,7 +1,7 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's row, metrics, before the model lane's, intake, refine and alternatives,
-so a burst of candidates never holds back the metrics (#1360). `devops roadmap run` runs the
+The due table runs the status lane's row, metrics, before the model lane's, intake, refine,
+stage and alternatives, so a burst of candidates never holds back the metrics (#1360). `devops roadmap run` runs the
 whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
 read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
@@ -10,9 +10,10 @@ Each row is due by its interval, by a webhook hint in the batch, or by its due r
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first
-run, and in a round where intake placed a critical fix or a P0 item (#1515). The alternatives
-row is due once a day and on a first run, and checks at most `roadmap.alternatives.limit` items
-(#2652). Every clone tracks origin's default branch.
+run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row after
+refine, is due every hour, on a first run, and in a round where refine set an item Ready (#2659).
+The alternatives row is due once a day and on a first run, and checks at most
+`roadmap.alternatives.limit` items (#2652). Every clone tracks origin's default branch.
 
 A subscribed webhook event runs the update scoped to it at once (`run_scoped_update`, ADR 0017):
 `issues` opened, edited or reopened runs intake of that one issue on the model lane. A scoped
@@ -59,6 +60,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
 from devops_cli.config.settings import load_settings
@@ -68,7 +70,12 @@ from devops_cli.core.paths import (
     validate_no_path_traversal,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
+from devops_cli.exceptions import (
+    GitOperationError,
+    RoadmapRefineError,
+    RoadmapRunError,
+    SecurityError,
+)
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
@@ -93,6 +100,16 @@ from devops_cli.roadmap.intake import (
 # import it for the first time together, so import it at module level, in the Service's main
 # thread, before any worker starts (#2535).
 from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
+
+# `stage` imports the model client, which imports pydantic_ai too: import it here for the same
+# reason (#2659).
+from devops_cli.roadmap.stage import (
+    apply_stage,
+    emit_stage_results,
+    parse_filters,
+    plan_stage,
+    raise_for_failed,
+)
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
@@ -127,9 +144,11 @@ def parse_due_tuple(output: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class JobOutcome:
-    """Outcome of running one roadmap job: whether it placed a critical fix or a P0 item."""
+    """Outcome of running one roadmap job: whether it placed a critical fix or a P0 item (intake),
+    and whether it set an item Ready (refine)."""
 
     placed_critical_or_p0: bool = False
+    set_ready: bool = False
 
 
 @dataclass(frozen=True)
@@ -369,6 +388,20 @@ def _refine_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
     return intake_outcome is not None and intake_outcome.placed_critical_or_p0
 
 
+def _stage_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
+    """Staging is due in a round where refine set an item Ready (#2659)."""
+    refine_outcome = outcomes.get("refine")
+    return refine_outcome is not None and refine_outcome.set_ready
+
+
+def _outcome_of_failure(exc: Exception) -> JobOutcome:
+    """What a failed job still did that a later row follows: a refine run that failed for one
+    item has set the others Ready, and the stage row is due in that round (#2659)."""
+    if isinstance(exc, RoadmapRefineError):
+        return JobOutcome(set_ready=exc.readied_count > 0)
+    return JobOutcome()
+
+
 def _places_critical_or_p0(plan: IntakePlan) -> bool:
     """Whether intake placed a critical fix or a P0 item (#1540). A round with a failed
     placement fails before it judges this."""
@@ -474,9 +507,26 @@ def _run_refine_adapter(
     model call failed for any item."""
     source = _job_clone("refine", clone_path)
     plan = plan_refine(store, repo=repo, source=source)
-    if plan.has_writes:
-        apply_refine(store, plan)
-    raise_for_failed_items(plan)
+    readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
+    raise_for_failed_items(plan, readied)
+    return JobOutcome(set_ready=readied > 0)
+
+
+def _run_stage_adapter(
+    store: RoadmapStore,
+    repo: str = "",
+    clone_path: Path | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Run the stage job as `devops roadmap stage --confirm` runs it, with the filter, the limit
+    and the step budget of the settings: stage the Ready items they name in the job's clone, count
+    each item by its result, and fail, once the other items are written, when an item failed
+    (#2659)."""
+    source = _job_clone("stage", clone_path)
+    plan = plan_stage(store, repo=repo, source=source, filters=parse_filters(()))
+    applied = apply_stage(store, plan, source=source)
+    emit_stage_results(plan, applied)
+    raise_for_failed([*plan.failed, *applied.failed])
     return JobOutcome()
 
 
@@ -566,13 +616,21 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         cross_job_predicate=_refine_cross_job,
     ),
     JobRow(
+        name="stage",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES),
+        runner=_run_stage_adapter,
+        needs_clone=True,
+        first_run_due=True,
+        cross_job_predicate=_stage_cross_job,
+    ),
+    JobRow(
         name="alternatives",
         interval=timedelta(minutes=DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES),
         runner=_run_alternatives_adapter,
         first_run_due=True,
     ),
 )
-"""The rows that call the model, which answers one call at a time: intake, refine and the
+"""The rows that call the model, which answers one call at a time: intake, refine, stage and the
 daily check for alternative tools (#2652)."""
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS)
@@ -637,16 +695,23 @@ def build_stub_table(
     include_refine: bool | None = None,
     include_metrics: bool | None = None,
     include_alternatives: bool | None = None,
+    include_stage: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: intake,
-    plus metrics, refine and alternatives when asked for or given a stub."""
+    plus metrics, refine, stage and alternatives when asked for or given a stub."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
+    add_stage = include_stage if include_stage is not None else ("stage" in r)
     add_alternatives = (
         include_alternatives if include_alternatives is not None else ("alternatives" in r)
     )
-    kept = {"metrics": add_metrics, "refine": add_refine, "alternatives": add_alternatives}
+    kept = {
+        "metrics": add_metrics,
+        "refine": add_refine,
+        "stage": add_stage,
+        "alternatives": add_alternatives,
+    }
     return tuple(
         replace(
             row,
@@ -924,6 +989,7 @@ def _execute_due_rows(
             failures.succeeded(repo, row.name)
         except Exception as exc:
             failed_jobs.append(row.name)
+            outcomes[row.name] = _outcome_of_failure(exc)
             _count_failure(failures, repo, row.name, current)
             if row.needs_clone and clone_path is None:
                 clone_error = exc

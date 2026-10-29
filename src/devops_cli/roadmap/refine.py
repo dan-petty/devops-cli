@@ -1898,8 +1898,9 @@ def _failed_item(item: Item, exc: AIClientError) -> RefineFailure:
     return failure
 
 
-def raise_for_failed_items(plan: RefinePlan) -> None:
+def raise_for_failed_items(plan: RefinePlan, readied_count: int = 0) -> None:
     """Fail a run in which the model call failed for any item, once the others are written.
+    The error carries `readied_count`, the items the run set Ready before it failed (#2659).
 
     The error names each skipped item with its error's class and schema violation count. It is
     raised outside the handler that caught the model's error and is not chained to it, so a
@@ -1916,6 +1917,7 @@ def raise_for_failed_items(plan: RefinePlan) -> None:
     raise RoadmapRefineError(
         MESSAGES.roadmap.refine_failed.format(count=len(plan.failed_items), items=items),
         failed_items=[failure.item.number for failure in plan.failed_items],
+        readied_count=readied_count,
     )
 
 
