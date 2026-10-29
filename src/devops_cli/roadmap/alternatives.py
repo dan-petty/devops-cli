@@ -30,7 +30,6 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from typing import Any
 from urllib.parse import quote
 
@@ -63,7 +62,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_PYPI_PACKAGE_URL,
     DEFAULT_PYPI_TIMEOUT_SECONDS,
-    DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
@@ -90,25 +88,17 @@ from devops_cli.roadmap.store import (
     IssueComment,
     Item,
     RoadmapStore,
+    Verdict,
     is_name_segment,
     is_repository_name,
 )
+from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
 _PROMPT = "roadmap_alternatives.md"
 
 # ── The reply ─────────────────────────────────────────────────────────────────
-
-
-class Verdict(StrEnum):
-    """What a check found: `COVERS` one tool covers the whole need, `PARTLY` one covers a part,
-    `NONE` the search found no tool, `NOT_APPLICABLE` the item asks for no tool."""
-
-    COVERS = "covers"
-    PARTLY = "partly"
-    NONE = "none"
-    NOT_APPLICABLE = "not-applicable"
 
 
 _TOOL_VERDICTS = frozenset({Verdict.COVERS, Verdict.PARTLY})
@@ -721,19 +711,24 @@ def plan_alternatives(
     *,
     repo: str,
     item_number: int | None = None,
-    limit: int = DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+    limit: int | None = None,
     now: datetime | None = None,
     investigator: Any = None,
 ) -> AlternativesPlan:
-    """Plans the checks of the selected items without writing anything. `investigator` is the
-    pydantic-ai model of the runs, the `analysis` task's by default."""
+    """Plans the checks of the selected items without writing anything. `limit` is
+    `roadmap.alternatives.limit` by default. `investigator` is the pydantic-ai model of the runs,
+    the `analysis` task's by default."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
     if web.key is None:
         return AlternativesPlan(repo=repo, off_reason=web.off_reason)
-    recheck_days = load_settings().roadmap.alternatives.recheck_days
+    config = load_settings().roadmap.alternatives
     selection = select_items(
-        store, item_number=item_number, limit=limit, recheck_days=recheck_days, now=moment
+        store,
+        item_number=item_number,
+        limit=config.limit if limit is None else limit,
+        recheck_days=config.recheck_days,
+        now=moment,
     )
     if not selection.selected:
         return AlternativesPlan(repo=repo, current=selection.current)
@@ -761,8 +756,9 @@ def _unchanged_since_read(store: RoadmapStore, check: Check) -> bool:
 
 
 def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
-    """Writes each check: the body block, the job record, then the comment. Returns how many
-    checks it wrote; a check whose body a person changed since the read is left for the next run."""
+    """Writes each check: the body block, the job record, then the comment, and counts it in
+    `devops_cli_roadmap_alternatives_total` by its verdict. Returns how many checks it wrote; a
+    check whose body a person changed since the read is left for the next run."""
     written = 0
     for check in plan.checks:
         if not _unchanged_since_read(store, check):
@@ -779,6 +775,7 @@ def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
             },
         )
         store.comment(number, check.comment)
+        emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": check.verdict.value})
         written += 1
     return written
 

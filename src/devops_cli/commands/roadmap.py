@@ -24,7 +24,6 @@ from typing import Annotated, NoReturn
 import typer
 
 from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_TABLE_FORMAT,
@@ -296,8 +295,8 @@ def alternatives_cmd(
         int | None, typer.Option("--item", min=1, help=HELP.roadmap.alternatives_item)
     ] = None,
     limit: Annotated[
-        int, typer.Option("--limit", min=1, help=HELP.roadmap.alternatives_limit)
-    ] = DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.alternatives_limit)
+    ] = None,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.alternatives_dry_run)
     ] = False,
@@ -407,7 +406,7 @@ def run_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.run_dry_run)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.run_confirm)] = False,
 ) -> None:
-    """Run the roadmap jobs that are due, in order: metrics, intake and refinement."""
+    """Run the roadmap jobs that are due, in order: metrics, intake, refinement and the alternatives check."""
     target, store = _open_store(repo)
     from devops_cli.roadmap.run import run_due_jobs
 

@@ -33,6 +33,12 @@ code causes the block (`block_paths`). Refine records those that the checkout ho
 `CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS`, and a later round looks at the waiting item again when a
 commit on the default branch changed one of them at or after refine's last comment (#2005). That
 costs one commit read for each recorded path of an item that still waits, once a round.
+The check of the alternatives job (#2650) is an input of both model calls (`alternatives`: its
+verdict, tool, block and latest comment). A `covers` verdict is a question that only a person
+answers: adopt the tool, or keep the item with a reason. It is open, and the item waits on a
+person, until a person replies after the job's comment and the proposal answers it (#2652). Refine
+records the covering tool it asked about (`RefineRecordKey.ALTERNATIVES_ASKED`); an open New or
+Ready item with another covering tool is refined again, though its body is unchanged.
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
 The proposal is one `chat_structured` call with `ai.for_task("analysis")`: its prompts are
 `roadmap_refine_proposal.md` and `roadmap_refine_reply.md`, the issue and the body's unanswered key
@@ -90,6 +96,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_CRITICAL_PRIORITY,
+    CONST_ROADMAP_JOB_COMMENT_MARKERS,
     CONST_ROADMAP_P0_PRIORITY,
     CONST_ROADMAP_P1_PRIORITY,
     CONST_ROADMAP_P2_PRIORITY,
@@ -123,6 +130,7 @@ from devops_cli.roadmap.refine_investigation import (
     investigate,
 )
 from devops_cli.roadmap.store import (
+    AlternativesRecordKey,
     GitHubState,
     IssueComment,
     Item,
@@ -130,6 +138,7 @@ from devops_cli.roadmap.store import (
     JobRecord,
     RefineRecordKey,
     RoadmapStore,
+    Verdict,
 )
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, emit
 
@@ -225,7 +234,11 @@ class RefinedItem:
     apply still records the hashes of the body refine saw, so the item reads as unchanged until
     its body changes (#1526). `next_step` is what the item waits on, with `step_details` (the
     questions, the split or the blockers) and the open items `blocked_by` (#1758), and
-    `block_paths` the paths whose code causes the block (#2005)."""
+    `block_paths` the paths whose code causes the block (#2005). `body_hash` is the hash of the
+    body without the alternatives job's block and refine's section, which the check for an
+    unchanged item compares; `read_hash` is the hash of the body without the section alone, which
+    the check before a write compares, so a block written since the read is not lost.
+    `alternatives_asked` is the URL of the covering tool that the round put to a person (#2652)."""
 
     item: Item
     proposal: RefinementProposal
@@ -240,6 +253,8 @@ class RefinedItem:
     step_details: tuple[str, ...] = ()
     blocked_by: tuple[int, ...] = ()
     block_paths: tuple[str, ...] = ()
+    alternatives_asked: str | None = None
+    read_hash: str = ""
     skip_reason: str | None = None
     record_only: bool = False
 
@@ -354,6 +369,122 @@ def _is_unchanged(item: Item, body: str) -> bool:
         item.job_record.get(RefineRecordKey.SECTION_HASH),
     )
     return _body_hashes(body) == recorded
+
+
+# ── The check of the alternatives job (#2652) ────────────────────────────────
+
+
+@dataclass(frozen=True)
+class RecordedCheck:
+    """The check of the alternatives job (#2650) that an item holds: its verdict and tool from the
+    job record, and its block from the body. A record with no block is no check, since a person
+    deleted the block."""
+
+    verdict: Verdict
+    tool: str | None
+    block: str
+
+
+@dataclass(frozen=True)
+class CoversQuestion:
+    """The question a `covers` verdict puts to a person: adopt the tool, or keep the item with a
+    reason. `answered` is set when a person replied after the job's latest comment, and then the
+    proposal must answer the question. `answers` holds those replies (the newest ones, each cut to
+    its token cap): the request carries them, as `replies` loses them once refine comments again."""
+
+    text: str
+    answered: bool
+    answers: tuple[str, ...] = ()
+
+
+def recorded_check(item: Item, body: str) -> RecordedCheck | None:
+    """The check of the alternatives job that `item` holds in its job record and in `body`, or
+    None when it holds none."""
+    _, block = extract_section_and_outside(
+        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+    )
+    recorded = item.job_record.get(AlternativesRecordKey.VERDICT)
+    if block is None or not recorded:
+        return None
+    try:
+        verdict = Verdict(recorded)
+    except ValueError:
+        return None
+    tool = item.job_record.get(AlternativesRecordKey.TOOL) or None
+    return RecordedCheck(verdict, tool, block.strip())
+
+
+def _covering_tool(item: Item) -> str | None:
+    """The URL of the tool that the item's recorded check found to cover it, or None."""
+    check = recorded_check(item, item.body)
+    return check.tool if check is not None and check.verdict is Verdict.COVERS else None
+
+
+def _needs_second_look(item: Item) -> bool:
+    """Whether the item holds a covering tool that no refine round put to a person: refine
+    looks at the item again, though its body is unchanged and it waits on a person or is Ready.
+    An item that waits on a body edit alone is left to that edit (#2652)."""
+    tool = _covering_tool(item)
+    asked = item.job_record.get(RefineRecordKey.ALTERNATIVES_ASKED)
+    return tool is not None and tool != asked and _recorded_step(item) is not NextStep.EDIT
+
+
+def _latest_check_comment(comments: Sequence[IssueComment]) -> IssueComment | None:
+    """The alternatives job's newest comment, or None when it left none."""
+    marked = [c for c in comments if CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER in c.body]
+    return marked[-1] if marked else None
+
+
+def _alternatives_request(
+    check: RecordedCheck | None, comments: Sequence[IssueComment], covers: CoversQuestion | None
+) -> dict[str, Any] | None:
+    """The `alternatives` key of a request: the recorded check with the job's latest comment,
+    which lists what the tool covers and lacks, and the replies of persons that answer a `covers`
+    question, or None when the item holds no check."""
+    if check is None:
+        return None
+    latest = _latest_check_comment(comments)
+    return {
+        "verdict": check.verdict.value,
+        "tool": check.tool,
+        "block": check.block,
+        "comment": (
+            truncate_to_token_limit(latest.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+            if latest
+            else None
+        ),
+        "answers": list(covers.answers) if covers is not None else [],
+    }
+
+
+def covers_question(
+    check: RecordedCheck | None, comments: Sequence[IssueComment]
+) -> CoversQuestion | None:
+    """The question that a `covers` check puts to a person, or None for any other check. It is
+    answered when a comment of a person follows the job's latest comment, or any comment of a
+    person when the job left none: a comment of a roadmap job is none."""
+    if check is None or check.verdict is not Verdict.COVERS or not check.tool:
+        return None
+    after_check = replies_after_marker(comments, CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER)
+    persons = _comments_without(
+        comments if after_check is None else after_check, CONST_ROADMAP_JOB_COMMENT_MARKERS
+    )
+    answers = tuple(
+        truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+        for reply in persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
+    )
+    return CoversQuestion(
+        MESSAGES.roadmap.refine_alternatives_question.format(url=check.tool),
+        bool(persons),
+        answers,
+    )
+
+
+def _asked_questions(body: str, covers: CoversQuestion | None) -> list[str]:
+    """The questions the request numbers: the body's unanswered key questions, then the `covers`
+    question once a person has replied to it."""
+    asked = body_questions(body)
+    return [*asked, covers.text] if covers is not None and covers.answered else asked
 
 
 # ── Git & Checkout Inspection ─────────────────────────────────────────────────
@@ -735,6 +866,7 @@ def validate_proposal(
     source: Path,
     sha: str,
     store: RoadmapStore,
+    covers: CoversQuestion | None = None,
 ) -> tuple[RefinementProposal, list[str]]:
     """Deterministically validates proposal sources, key questions, decisions and block paths.
     Returns (validated_proposal, open_questions).
@@ -743,7 +875,9 @@ def validate_proposal(
     so is each of the body's unanswered key questions whose number no answer names (#2398). The
     key questions and owner decisions are the person's, read from the body outside refine's
     own section, so a refined item's section never asks its own questions again (#1758). Only
-    the block paths that the checkout holds are kept (#2005).
+    the block paths that the checkout holds are kept (#2005). A `covers` question (#2652) is open
+    with the mark of a question for a person until a person replies; after that it is numbered
+    after the body's questions, and open until an answer names it.
     """
     open_questions: list[str] = []
     validated_qa: list[QuestionAnswer] = []
@@ -764,8 +898,12 @@ def validate_proposal(
 
     named = {qa.body_question for qa in proposal.key_questions}
     open_questions.extend(
-        asked for number, asked in enumerate(body_questions(body), start=1) if number not in named
+        asked
+        for number, asked in enumerate(_asked_questions(body, covers), start=1)
+        if number not in named
     )
+    if covers is not None and not covers.answered:
+        open_questions.append(f"{covers.text} {_A_PERSON_DECIDES}")
 
     all_known_issues: set[int] = (
         {item.number for item in store.items()} if hasattr(store, "items") else set()
@@ -1227,13 +1365,24 @@ def replies_after_marker(
 
 def replies_since_refine(comments: Sequence[IssueComment]) -> list[IssueComment] | None:
     """The comments after refine's last comment, oldest first, or None when refine left none. A
-    comment of the alternatives job (#2650) is no reply of a person, so it is left out."""
+    comment of another roadmap job (#2650) is no reply of a person, so it is left out."""
     replies = replies_after_marker(comments, CONST_ROADMAP_REFINE_COMMENT_MARKER)
-    return None if replies is None else _without_alternatives_comments(replies)
+    return None if replies is None else _without_other_jobs_comments(replies)
 
 
-def _without_alternatives_comments(comments: Sequence[IssueComment]) -> list[IssueComment]:
-    return [c for c in comments if CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER not in c.body]
+def _comments_without(
+    comments: Sequence[IssueComment], markers: Sequence[str]
+) -> list[IssueComment]:
+    """The comments that hold none of `markers`, oldest first."""
+    return [c for c in comments if not any(marker in c.body for marker in markers)]
+
+
+def _without_other_jobs_comments(comments: Sequence[IssueComment]) -> list[IssueComment]:
+    """The comments that no roadmap job but refine wrote: those of persons and of refine."""
+    others = [
+        m for m in CONST_ROADMAP_JOB_COMMENT_MARKERS if m != CONST_ROADMAP_REFINE_COMMENT_MARKER
+    ]
+    return _comments_without(comments, others)
 
 
 def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
@@ -1273,8 +1422,8 @@ def _still_waiting(
     replies = replies_since_refine(comments)
     if replies is None or replies:
         return None
-    # No reply: the last comment that is not the alternatives job's is refine's own.
-    last = _without_alternatives_comments(comments)[-1]
+    # No reply: the last comment that is not another job's is refine's own.
+    last = _without_other_jobs_comments(comments)[-1]
     if _cited_code_changed(store, item, last.created_at):
         return None
     return WaitingItem(item, step, details)
@@ -1315,7 +1464,7 @@ def _comment_cap(item: Item, comments: Sequence[IssueComment]) -> WaitingItem | 
     )
     if count < CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM:
         return None
-    newest = _without_alternatives_comments(comments)[-1].created_at.isoformat()
+    newest = _without_other_jobs_comments(comments)[-1].created_at.isoformat()
     stopped_before = item.job_record.get(RefineRecordKey.CAPPED_AFTER) == newest
     detail = MESSAGES.roadmap.refine_comment_cap.format(
         count=count, hours=hours, number=item.number
@@ -1349,7 +1498,7 @@ class _Selection:
         if outside is not None:
             self.waiting.append(outside)
             return
-        if _is_unchanged(item, item.body):
+        if _is_unchanged(item, item.body) and not _needs_second_look(item):
             waits = _still_waiting(self.store, item, self.comments_on)
             if waits is not None:
                 self.waiting.append(waits)
@@ -1376,13 +1525,17 @@ def _is_unrefined_ready(item: Item) -> bool:
 
 
 def _refinable(items: Sequence[Item], *, unrefined_ready: bool) -> list[Item]:
-    """`items`' open New items, and their unrefined Ready ones when `unrefined_ready`, highest
-    priority first."""
+    """`items`' open New items, their unrefined Ready ones when `unrefined_ready`, and the Ready
+    ones that hold a covering tool no round asked about (#2652), highest priority first."""
     picked = [
         it
         for it in items
         if it.state is GitHubState.OPEN
-        and (it.status == CONST_ROADMAP_STATUS_NEW or (unrefined_ready and _is_unrefined_ready(it)))
+        and (
+            it.status == CONST_ROADMAP_STATUS_NEW
+            or (unrefined_ready and _is_unrefined_ready(it))
+            or (it.status == CONST_ROADMAP_STATUS_READY and _needs_second_look(it))
+        )
     ]
     return sorted(picked, key=lambda it: _priority_rank(it.priority))
 
@@ -1480,15 +1633,19 @@ def refine_one_item(
     ctx = collect_context(source, sha, current_body, max_tokens=max_context_tokens)
 
     # Step 2: Proposal generation
+    comments = store.comments_on(item.number)
+    check = recorded_check(item, current_body)
+    covers = covers_question(check, comments)
     request: dict[str, Any] = {
         "number": item.number,
         "title": item.title,
         "body": current_body,
-        "replies": _replies_for_model(store.comments_on(item.number)),
+        "replies": _replies_for_model(comments),
+        "alternatives": _alternatives_request(check, comments, covers),
         "context": ctx,
         "body_questions": [
             {"number": number, "question": asked}
-            for number, asked in enumerate(body_questions(current_body), start=1)
+            for number, asked in enumerate(_asked_questions(current_body, covers), start=1)
         ],
     }
     raw_proposal: RefinementProposal = client.chat_structured(
@@ -1500,7 +1657,7 @@ def refine_one_item(
     # Step 3: Validation, and the investigation of what stays open (#2398)
     allowed_urls: set[str] = set()
     proposal, open_questions = validate_proposal(
-        raw_proposal, current_body, allowed_urls, source, sha, store
+        raw_proposal, current_body, allowed_urls, source, sha, store, covers
     )
     if needs_investigation(proposal, open_questions):
         tools = InvestigationTools(source=source, sha=sha, firecrawl_key=web.key)
@@ -1510,7 +1667,7 @@ def refine_one_item(
         if revised is not None:
             allowed_urls = tools.allowed_urls
             proposal, open_questions = validate_proposal(
-                revised, current_body, allowed_urls, source, sha, store
+                revised, current_body, allowed_urls, source, sha, store, covers
             )
     is_ready = check_ready(proposal, open_questions)
     needs_split = not proposal.fits_one_pr
@@ -1552,7 +1709,6 @@ def refine_one_item(
     # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515)
     comment = step_comment(item, step, details, sha, block_paths)
 
-    b_hash = hash_text(outside)
     s_hash = hash_text(
         rendered_section[
             len(CONST_ROADMAP_REFINE_START_MARKER) : -len(CONST_ROADMAP_REFINE_END_MARKER)
@@ -1567,12 +1723,14 @@ def refine_one_item(
         needs_split=needs_split,
         reason_comment=comment,
         new_body=new_body,
-        body_hash=b_hash,
+        body_hash=_body_hashes(current_body)[0],
         section_hash=s_hash,
         next_step=step,
         step_details=details,
         blocked_by=blocked_by,
         block_paths=block_paths,
+        alternatives_asked=check.tool if check and check.verdict is Verdict.COVERS else None,
+        read_hash=hash_text(outside),
     )
 
 
@@ -1629,7 +1787,7 @@ def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
     when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
     cap (#1758)."""
     replies = replies_since_refine(comments)
-    persons = _without_alternatives_comments(comments) if replies is None else replies
+    persons = _without_other_jobs_comments(comments) if replies is None else replies
     kept = persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     return [
         truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
@@ -1762,11 +1920,21 @@ def raise_for_failed_items(plan: RefinePlan) -> None:
 
 
 def _body_unchanged_since_read(store: RoadmapStore, number: int, body_hash: str) -> bool:
-    """Whether issue `number` still holds the text outside its section that `body_hash` hashes,
-    so what refine learned from the body it read still holds; a body a person changed since is
-    reported."""
+    """Whether issue `number` still holds the text that `body_hash` hashes, the body without
+    the alternatives job's block and refine's section, so what refine learned from the body it
+    read still holds; a body a person changed since is reported."""
+    if _body_hashes(store.read_issue_body(number))[0] == body_hash:
+        return True
+    logger.warning("Skipping #%d: the body changed between the read and the write.", number)
+    return False
+
+
+def _outside_unchanged_since_read(store: RoadmapStore, number: int, read_hash: str) -> bool:
+    """Whether issue `number` still holds the body outside its section that `read_hash` hashes,
+    the job's block included: a write of the new body would replace anything the job or a person
+    wrote since the read."""
     fresh_outside, _ = extract_section_and_outside(store.read_issue_body(number))
-    if hash_text(fresh_outside) == body_hash:
+    if hash_text(fresh_outside) == read_hash:
         return True
     logger.warning("Skipping #%d: the body changed between the read and the write.", number)
     return False
@@ -1840,7 +2008,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             continue
 
         # Race condition check: ensure body did not change between read and write
-        if not _body_unchanged_since_read(store, r.item.number, r.body_hash):
+        if not _outside_unchanged_since_read(store, r.item.number, r.read_hash):
             continue
 
         # Write body
@@ -1856,6 +2024,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             RefineRecordKey.NEXT_STEP: r.next_step.value,
             RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in r.blocked_by) or None,
             RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
+            RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,
         }
 
         # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)

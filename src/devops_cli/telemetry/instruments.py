@@ -204,8 +204,8 @@ GITHUB_REQUESTS_TOTAL = Instrument(
     "graphql or search. The method is the HTTP method; a GraphQL request is a POST, and a gh "
     "command other than gh api is a POST when it writes and a GET when it reads. The repo is the "
     "repository of the roadmap Service worker that sent the request, one of service.repos, and "
-    "the row is the job row that sent it, such as metrics, intake or refine; each is other "
-    "outside a worker or a row. A gh command and a request of the GitHub session both count",
+    "the row is the job row that sent it, such as metrics, intake, refine or alternatives; each is "
+    "other outside a worker or a row. A gh command and a request of the GitHub session both count",
 )
 GITHUB_THROTTLE_WAIT = Instrument(
     "devops_cli_github_throttle_wait_seconds",
@@ -237,6 +237,14 @@ ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL = Instrument(
     "count for each newest comment on an item that the cap left with no answer. The item waits "
     "on a person and takes no place under the round's limit. A later round that finds no newer "
     "comment on the item does not count it again",
+)
+ROADMAP_ALTERNATIVES_TOTAL = Instrument(
+    "devops_cli_roadmap_alternatives_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Checks of open items for an open tool that covers them, by verdict: covers, partly, none or "
+    "not-applicable. One count for each check that the alternatives job writes to an item. A "
+    "check that fails, or that the job skips because a person changed the item, counts nothing",
 )
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
@@ -437,6 +445,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     GITHUB_GRAPHQL_POINTS_TOTAL,
     FIRECRAWL_SEARCHES_TOTAL,
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
+    ROADMAP_ALTERNATIVES_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
@@ -547,6 +556,7 @@ __all__ = [
     "RAG_QUERY_DURATION",
     "RAG_STOPS_TOTAL",
     "REVIEW_DURATION",
+    "ROADMAP_ALTERNATIVES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "SUBCOMMAND_DURATION",
     "SUBPROCESS_DURATION",

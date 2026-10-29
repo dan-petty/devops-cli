@@ -86,6 +86,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
+    DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
     DEFAULT_RUNS_DATA_DIR,
@@ -904,9 +905,15 @@ class ServiceConfig(BaseModel):
 
 
 class AlternativesConfig(BaseModel):
-    """`devops roadmap alternatives` (#2650)."""
+    """`devops roadmap alternatives` (#2650) and the Service's row of it (#2652)."""
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    limit: int = Field(
+        description="Most items that one run of the alternatives check, or one Service round of it, checks",
+        default=DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+        ge=1,
+    )
 
     recheck_days: int = Field(
         description="Days after which an item's check for an open alternative tool is old and the item is checked again",

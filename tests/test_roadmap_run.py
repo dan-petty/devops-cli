@@ -309,14 +309,16 @@ def _poll_round(
 # ── The due table ─────────────────────────────────────────────────────────────
 
 
-def test_the_table_runs_metrics_then_intake_then_refine_and_names_no_release_job() -> None:
-    """The status lane's metrics row runs first, then the model lane's intake and refine; no
-    row closes items, cuts or starts a release (#1360)."""
+def test_the_table_runs_metrics_then_intake_refine_and_alternatives_and_names_no_release_job() -> (
+    None
+):
+    """The status lane's metrics row runs first, then the model lane's intake, refine and
+    alternatives; no row closes items, cuts or starts a release (#1360, #2652)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS),
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
-    ) == (["metrics", "intake", "refine"], True, ["issues"])
+    ) == (["metrics", "intake", "refine", "alternatives"], True, ["issues"])
 
 
 def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
@@ -550,7 +552,10 @@ def test_idle_records_zero_or_one_store_calls(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
     """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
-    _stamp(tmp_path, intake=HALF_HOUR_AGO, refine=HALF_HOUR_AGO, metrics=NOW - timedelta(minutes=5))
+    recent = NOW - timedelta(minutes=5)
+    _stamp(
+        tmp_path, intake=HALF_HOUR_AGO, refine=HALF_HOUR_AGO, metrics=recent, alternatives=recent
+    )
     spy_idle = StoreSpy(seeded_store)
     res_idle = run_due_jobs(REPO, spy_idle, batch={}, data_dir=tmp_path, now=NOW)
     spy_poll = StoreSpy(seeded_store)
@@ -644,7 +649,7 @@ def test_service_wiring(
             (REPO, STATUS_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
-        [["metrics"], ["intake", "refine"]],
+        [["metrics"], ["intake", "refine", "alternatives"]],
     )
 
 
@@ -1596,8 +1601,8 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A model-lane round records intake and refine while a status-lane round is running
-    metrics, which had read `schedule.json` before them: metrics' success keeps theirs."""
+    """A model-lane round records intake, refine and alternatives while a status-lane round is
+    running metrics, which had read `schedule.json` before them: metrics' success keeps theirs."""
     later = NOW + timedelta(seconds=1)
 
     def metrics(**_: Any) -> JobOutcome:
@@ -1609,7 +1614,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             data_dir=tmp_path,
             now=later,
         )
-        assert model_round == ("intake", "refine")
+        assert model_round == ("intake", "refine", "alternatives")
         return JobOutcome()
 
     ran = run_due_jobs(
@@ -1625,6 +1630,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         {
             "intake": later.isoformat(),
             "refine": later.isoformat(),
+            "alternatives": later.isoformat(),
             "metrics": NOW.isoformat(),
         },
     )
@@ -2023,3 +2029,66 @@ def test_a_scoped_update_keeps_the_entries_and_the_pending_flag_a_capped_round_l
         [1, 2, 3, 4, 5, 6],
         [titles[6]],
     )
+
+
+def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hint(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """The row is due on a first run, 24 hours after its last success and not before, and a
+    webhook hint that makes intake due makes it due no sooner (#2652)."""
+    recent = {"intake": NOW - timedelta(minutes=5), "refine": NOW - timedelta(minutes=5)}
+
+    def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
+        _stamp(tmp_path, **stamps)
+        return _poll_round(seeded_store, tmp_path, table=_lane(MODEL_LANE_ROWS), batch=batch)
+
+    first = ran({POLL_KEY: 1})
+    too_soon = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(hours=23, minutes=59))
+    a_day = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(hours=24))
+    hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
+
+    assert (first, too_soon, a_day, hinted) == (
+        ("intake", "refine", "alternatives"),
+        (),
+        ("alternatives",),
+        ("intake",),
+    )
+
+
+def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a first run every row is due, and the CLI's dry run lists the alternatives row last
+    (#2652)."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+
+    cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+
+    assert (cli.exit_code, "Due: metrics, intake, refine, alternatives\n" in cli.output) == (
+        0,
+        True,
+    )
+
+
+def test_the_alternatives_adapter_imports_the_job_at_module_level_not_lazily(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
+    """The job imports pydantic_ai, so the Service's main thread imports it before its worker
+    threads start, as it does for refine (#2535)."""
+    tree = parsed_source_trees[REPO_ROOT / "src" / "devops_cli" / "roadmap" / "run.py"]
+    wanted = "devops_cli.roadmap.alternatives"
+
+    module_level = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and (node.module or "") == wanted
+    ]
+    local = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "") == wanted
+        and node not in module_level
+    ]
+
+    assert (len(module_level), local) == (1, [])

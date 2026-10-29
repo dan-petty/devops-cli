@@ -134,7 +134,8 @@ class RefineRecordKey(StrEnum):
     validated was about (#1539), the next step the item waits on with the open items that
     block it (#1758), the repository paths whose code the proposal cites as the cause of
     the block (#2005), and the creation time of the newest comment that the cap on refine's
-    comments last left with no answer (#2475)."""
+    comments last left with no answer (#2475), and the URL of the covering tool that the
+    alternatives check found and refine put to a person (#2652)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -144,6 +145,18 @@ class RefineRecordKey(StrEnum):
     BLOCKED_BY = "refine.blocked_by"
     BLOCK_PATHS = "refine.block_paths"
     CAPPED_AFTER = "refine.capped_after"
+    ALTERNATIVES_ASKED = "refine.alternatives_asked"
+
+
+class Verdict(StrEnum):
+    """What an alternatives check found (#2650): `COVERS` one tool covers the whole need,
+    `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item asks
+    for no tool. The job records it, and refine reads it (#2652)."""
+
+    COVERS = "covers"
+    PARTLY = "partly"
+    NONE = "none"
+    NOT_APPLICABLE = "not-applicable"
 
 
 class AlternativesRecordKey(StrEnum):
@@ -764,6 +777,7 @@ __all__ = [
     "RepositoryFacts",
     "RoadmapStore",
     "StageRecordKey",
+    "Verdict",
     "as_utc",
     "decode_job_record",
     "encode_job_record",

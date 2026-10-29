@@ -81,7 +81,7 @@ devops roadmap alternatives [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--item` | `integer` | - | Specific issue number to check instead of selecting. Alternatives checks it when it is open, whoever opened it and whatever its status, even when its check is current. |
-| `--limit` | `integer` | `5` | Maximum number of items to check in this run (default 5). |
+| `--limit` | `integer` | - | Maximum number of items to check in this run (default: roadmap.alternatives.limit, 5). |
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
 | `--plan` | `boolean` | - | Run the checks and print them, and write nothing. This is the default. |
 | `--confirm` | `boolean` | - | Write each check to GitHub: its comment, its body block and its job record. |
@@ -114,7 +114,7 @@ devops roadmap stage [OPTIONS]
 
 ## `devops roadmap run`
 
-**Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+**Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due once a day and on a first run, and checks at most roadmap.alternatives.limit items. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
 
 ```bash
 devops roadmap run [OPTIONS]
