@@ -92,6 +92,7 @@ from devops_cli.roadmap.store import (
     is_name_segment,
     is_repository_name,
 )
+from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
@@ -765,8 +766,9 @@ def _unchanged_since_read(store: RoadmapStore, check: Check) -> bool:
 
 
 def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
-    """Writes each check: the body block, the job record, then the comment. Returns how many
-    checks it wrote; a check whose body a person changed since the read is left for the next run."""
+    """Writes each check: the body block, the job record, then the comment, and counts it in
+    `devops_cli_roadmap_alternatives_total` by its verdict. Returns how many checks it wrote; a
+    check whose body a person changed since the read is left for the next run."""
     written = 0
     for check in plan.checks:
         if not _unchanged_since_read(store, check):
@@ -783,6 +785,7 @@ def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
             },
         )
         store.comment(number, check.comment)
+        emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": check.verdict.value})
         written += 1
     return written
 

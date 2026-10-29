@@ -51,8 +51,10 @@ from devops_cli.roadmap.store import (
     RepositoryFacts,
     RoadmapStore,
 )
+from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.scripted_model import Script, call
 from tests.web_fakes import StubWeb
 
@@ -1302,3 +1304,51 @@ def test_the_commands_limit_option_has_no_default_of_its_own(
         0,
         numbers[:1],
     )
+
+
+# ── The metric ────────────────────────────────────────────────────────────────
+
+
+def test_each_written_check_counts_once_by_its_verdict(
+    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb, otlp: FakeCollector
+) -> None:
+    _firecrawl(stub_web, SEARCH_URL)
+    covering = _item(store, "Covering")
+    nothing = _item(store, "Nothing")
+    script = _by_item(
+        {
+            covering: [
+                call("search_web", query="scanner"),
+                call("github_repository", name="example/scanner"),
+                _covers(),
+            ],
+            nothing: AlternativesReply(verdict=Verdict.NONE),
+        }
+    )
+
+    plan = _plan(store, script)
+    planned_points = otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name)
+    apply_alternatives(store, plan)
+
+    assert (planned_points, sorted(otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name), key=str)) == (
+        [],
+        [({"verdict": "covers"}, 1.0), ({"verdict": "none"}, 1.0)],
+    )
+
+
+def test_a_check_skipped_because_the_body_changed_and_a_failed_check_count_nothing(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    edited = _item(store, "Edited")
+    failing = _item(store, "Failing")
+    script = _by_item(
+        {edited: AlternativesReply(verdict=Verdict.NONE), failing: ModelHTTPError(500, "m")}
+    )
+
+    plan = _plan(store, script)
+    store.write_issue_body(edited, "A person rewrote the item.")
+    written = apply_alternatives(store, plan)
+
+    assert (written, otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name)) == (0, [])

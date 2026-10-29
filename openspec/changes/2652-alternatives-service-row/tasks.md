@@ -7,8 +7,8 @@
 
 ## 2. The metric
 
-- [ ] 2.1 Write the tests for `devops_cli_roadmap_alternatives_total` in `tests/test_roadmap_alternatives.py` (one point for each written check by verdict, none for a plan, none for a skipped check) and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` fails because the instrument does not exist
-- [ ] 2.2 Add the instrument in `src/devops_cli/telemetry/instruments.py` and emit it in `apply_alternatives` in `src/devops_cli/roadmap/alternatives.py`, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py tests/test_metric_instruments.py` passes
+- [x] 2.1 Write the tests for `devops_cli_roadmap_alternatives_total` in `tests/test_roadmap_alternatives.py` (one point for each written check by verdict, none for a plan, none for a skipped check) and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` fails because the instrument does not exist
+- [x] 2.2 Add the instrument in `src/devops_cli/telemetry/instruments.py` and emit it in `apply_alternatives` in `src/devops_cli/roadmap/alternatives.py`, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py tests/test_metric_instruments.py` passes
 
 ## 3. Refine uses the recorded check
 
