@@ -350,11 +350,12 @@ PROJECT_ITEMS = Instrument(
     "devops_cli_project_items",
     InstrumentKind.GAUGE,
     "1",
-    "Roadmap items, the issues with a priority label, by milestone, state, type and "
+    "Roadmap items, the issues with a priority label, by release, state, type and "
     "priority. "
+    "The release is the first v* tag whose commits close the item. "
     "A label is empty when the item has no value for it",
 )
-PROJECT_ITEM_LABELS = ("milestone", "state", "type", "priority")
+PROJECT_ITEM_LABELS = ("release", "state", "type", "priority")
 """The labels of `PROJECT_ITEMS`, in the order the dashboard names them."""
 PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
     "devops_cli_project_release_interval_days",

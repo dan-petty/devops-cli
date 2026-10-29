@@ -37,6 +37,7 @@ from devops_cli.github.metrics import (
     emit_project_metrics_telemetry,
     get_ci_workflow_metrics,
     get_item_metrics,
+    get_item_releases,
     get_label_taxonomy_metrics,
     get_milestone_metrics,
     get_release_cadence_metrics,
@@ -321,7 +322,8 @@ def test_collect_project_metrics_report(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git: Callable[..., None]
 ) -> None:
     """The report takes its releases from the repository's tags and its milestones and open
-    issues' labels from GitHub, each read at its process edge."""
+    issues' labels from GitHub, each read at its process edge. An Item counts under the release
+    whose commits close it (#2702)."""
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "--quiet", "--initial-branch=main")
@@ -331,11 +333,13 @@ def test_collect_project_metrics_report(
         ("v0.2.25", "2026-10-01"),
     ):
         monkeypatch.setenv("GIT_COMMITTER_DATE", f"{day}T12:00:00+00:00")
-        git(root, "commit", "--quiet", "--allow-empty", "-m", f"release {tag}")
+        closes = "Closes #2" if tag == "v0.2.24" else "No issue"
+        git(root, "commit", "--quiet", "--allow-empty", "-m", f"release {tag}", "-m", closes)
         git(root, "tag", tag)
     milestone = {"title": "2026-10-01", "state": "closed", "open_issues": 1, "closed_issues": 3}
     github = GitHubFake("example/test-repo", milestones=[milestone])
     github.seed_issue(1, "feat: export", labels=("type/feature", "priority/p2-medium"))
+    github.seed_issue(2, "fix: import", state="closed", labels=("type/bug", "priority/p1-high"))
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
 
     report = collect_project_metrics_report(
@@ -354,37 +358,61 @@ def test_collect_project_metrics_report(
         2.5,
         [("2026-10-01", 75.0)],
         [("priority/p2-medium", 1), ("type/feature", 1)],
-        [ItemCountMetric(state="open", type="feature", priority="P2-Medium", count=1)],
+        [
+            ItemCountMetric(state="open", type="feature", priority="P2-Medium", count=1),
+            ItemCountMetric(
+                release="v0.2.24", state="closed", type="bug", priority="P1-High", count=1
+            ),
+        ],
     )
 
 
-def test_the_items_are_counted_by_milestone_state_type_and_priority() -> None:
-    """The Items are counted by milestone, state, type and priority (#2263); a milestone and a
-    type are empty when the Item has none. An open Item in no milestone is counted with an
-    empty milestone, and the open and closed Items of a milestone each have a count. An issue
-    with no priority label and a pull request are no Items (#2399)."""
-    assert get_item_metrics(_roadmap_store(_repository_with_items())) == [
+def test_the_items_are_counted_by_release_state_type_and_priority() -> None:
+    """The Items are counted by release, state, type and priority (#2263, #2702); a release and
+    a type are empty when the Item has none. An open Item has no release, and a closed Item has
+    the release that closed it. An issue with no priority label and a pull request are no Items
+    (#2399)."""
+    releases = {4: "v0.2.25", 6: "v0.2.25", 7: "v0.2.25"}
+    assert get_item_metrics(_roadmap_store(_repository_with_items()), releases) == [
         ItemCountMetric(state="open", priority="P3-Low", count=1),
         ItemCountMetric(state="open", type="bug", priority="P1-High", count=2),
+        ItemCountMetric(state="open", type="feature", priority="P2-Medium", count=1),
         ItemCountMetric(
-            milestone=PLANNED, state="closed", type="feature", priority="P2-Medium", count=1
-        ),
-        ItemCountMetric(
-            milestone=PLANNED, state="open", type="feature", priority="P2-Medium", count=1
+            release="v0.2.25", state="closed", type="feature", priority="P2-Medium", count=1
         ),
     ]
 
 
 def test_the_items_of_one_milestone_are_counted() -> None:
     """`--milestone` limits the item counts to the milestone, as it limits the milestones."""
-    assert get_item_metrics(_roadmap_store(_repository_with_items()), milestone_filter=PLANNED) == [
+    store = _roadmap_store(_repository_with_items())
+    assert get_item_metrics(store, {4: "v0.2.25"}, milestone_filter=PLANNED) == [
+        ItemCountMetric(state="open", type="feature", priority="P2-Medium", count=1),
         ItemCountMetric(
-            milestone=PLANNED, state="closed", type="feature", priority="P2-Medium", count=1
-        ),
-        ItemCountMetric(
-            milestone=PLANNED, state="open", type="feature", priority="P2-Medium", count=1
+            release="v0.2.25", state="closed", type="feature", priority="P2-Medium", count=1
         ),
     ]
+
+
+def test_each_issue_is_released_by_the_first_tag_whose_commits_close_it(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """An issue that a commit closes with a closing keyword belongs to the first `v*` tag that
+    holds the commit (#2702). A later commit that closes it again does not move it. A pull
+    request reference and a commit after the last tag release no issue."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "--quiet", "--initial-branch=main")
+    for message, tag in (
+        ("feat: export (#12)\n\nCloses #4", "v0.1.0"),
+        ("fix: export again\n\nfixes #4\nResolves: #9", "v0.2.0"),
+        ("fix: import\n\nCloses #7", None),
+    ):
+        git(root, "commit", "--quiet", "--allow-empty", "-m", message)
+        if tag:
+            git(root, "tag", tag)
+
+    assert get_item_releases(root) == {4: "v0.1.0", 9: "v0.2.0"}
 
 
 def test_issues_that_cannot_be_read_stop_the_collection(
@@ -476,7 +504,7 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
                 completion_rate=70.0,
             )
         ],
-        items=[ItemCountMetric(milestone="2026-10-01", state="open", type="bug", count=3)],
+        items=[ItemCountMetric(release="v0.2.25", state="closed", type="bug", count=3)],
         taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=2)],
         traffic=TrafficSummaryMetric(
             views_count=100,
@@ -527,19 +555,19 @@ def _sent_items(otlp: FakeCollector, already_read: int = 0) -> dict[tuple[str, .
 
 
 def test_the_items_gauge_is_sent_with_the_labels_of_its_description(otlp: FakeCollector) -> None:
-    """The gauge carries the labels that its instrument names, and an item in no milestone has
-    an empty `milestone`."""
+    """The gauge carries the labels that its instrument names, and an item in no release has
+    an empty `release`."""
     emit_project_metrics_telemetry(
         _snapshot(
             ItemCountMetric(state="open", type="bug", priority="P1-High", count=2),
-            ItemCountMetric(milestone=PLANNED, state="closed", type="feature", count=5),
+            ItemCountMetric(release="v0.2.25", state="closed", type="feature", count=5),
         )
     )
 
-    assert PROJECT_ITEM_LABELS == ("milestone", "state", "type", "priority")
+    assert PROJECT_ITEM_LABELS == ("release", "state", "type", "priority")
     assert _sent_items(otlp) == {
         ("", "open", "bug", "P1-High"): 2.0,
-        (PLANNED, "closed", "feature", ""): 5.0,
+        ("v0.2.25", "closed", "feature", ""): 5.0,
     }
 
 

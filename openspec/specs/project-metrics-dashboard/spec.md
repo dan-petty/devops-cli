@@ -33,21 +33,6 @@ After a snapshot, `emit_project_metrics_telemetry` SHALL send the value 0 for ea
 - **WHEN** a snapshot holds one open item of type `bug`, and the next snapshot holds that item as closed
 - **THEN** the next snapshot sends 0 for the open set and 1 for the closed set, and the snapshot after it sends neither the 0 nor the open set
 
-### Requirement: The panels that read the items gauge describe what it counts
-The panels "Items by Milestone" and "Active Items by State" SHALL group `devops_cli_project_items` only by labels that the gauge sends. The description of each panel and of the instrument SHALL name the labels, and the panel "Items by Milestone" SHALL show an item in no milestone as `none`.
-
-#### Scenario: A panel groups by a label that the gauge does not send
-- **WHEN** a query of the project dashboard groups `devops_cli_project_items` by a label that is not `milestone`, `state`, `type` or `priority`
-- **THEN** the dashboard invariant of `tests/test_telemetry_instruments.py` fails and names the query and the label
-
-#### Scenario: The items of each milestone
-- **WHEN** the panel "Items by Milestone" reads the items gauge
-- **THEN** its query is `label_replace(sum by (milestone, state) (last_over_time(devops_cli_project_items[$__range])), "milestone", "none", "milestone", "^$")`
-
-#### Scenario: The items of each state
-- **WHEN** the panel "Active Items by State" reads the items gauge
-- **THEN** its query is `sum by (state) (last_over_time(devops_cli_project_items[$__range]))`
-
 ### Requirement: A gauge reaches Prometheus through one path
 Each gauge that devops-cli sends SHALL reach Prometheus through one path: through OTLP export, or through a Prometheus scrape endpoint, and never through both. No gauge sent over OTLP SHALL be registered or recorded in an in-memory Prometheus metrics registry or exposed by a Prometheus scrape endpoint.
 
@@ -55,16 +40,35 @@ Each gauge that devops-cli sends SHALL reach Prometheus through one path: throug
 - **WHEN** an instrument sent over OTLP as a gauge has the same name as a gauge recorded in an in-memory Prometheus registry or exposed by a Prometheus scrape endpoint
 - **THEN** the telemetry invariant check fails and names the shared gauge names
 
-### Requirement: The items gauge counts the Items of the repository
-`devops_cli_project_items` SHALL count the Items of the repository, open and closed, with the labels `milestone`, `state`, `type` and `priority`. The `milestone` label SHALL be empty for an Item in no milestone. The `type` label SHALL be the `type/*` label of the issue without its prefix, empty when the issue has none, and the `priority` label SHALL be the Item's Priority.
+### Requirement: The panels that read the items gauge group them by release
+The panels "Items by Release" and "Active Items by State" SHALL group `devops_cli_project_items` only by labels that the gauge sends. The description of each panel and of the instrument SHALL name the labels, and the panel "Items by Release" SHALL show an item in no release as `unreleased`.
 
-#### Scenario: An open Item in no milestone
-- **WHEN** the repository holds two open issues with `type/bug` and `priority/p1-high` and no milestone
-- **THEN** the report has one item count with `milestone` empty, `state` `open`, `type` `bug`, `priority` `P1-High` and a count of 2
+#### Scenario: A panel groups by a label that the gauge does not send
+- **WHEN** a query of the project dashboard groups `devops_cli_project_items` by a label that is not `release`, `state`, `type` or `priority`
+- **THEN** the dashboard invariant of `tests/test_telemetry_instruments.py` fails and names the query and the label
 
-#### Scenario: Open and closed Items of a milestone
-- **WHEN** the repository holds one open Item and one closed Item in the milestone `2026-11-01`
-- **THEN** the report has one count for each state, and both name the milestone `2026-11-01`
+#### Scenario: The items of each release
+- **WHEN** the panel "Items by Release" reads the items gauge
+- **THEN** its query is `label_replace(sum by (release, state) (last_over_time(devops_cli_project_items[$__range])), "release", "unreleased", "release", "^$")`
+
+#### Scenario: The items of each state
+- **WHEN** the panel "Active Items by State" reads the items gauge
+- **THEN** its query is `sum by (state) (last_over_time(devops_cli_project_items[$__range]))`
+
+### Requirement: The items gauge counts the Items of the repository by release
+`devops_cli_project_items` SHALL count the Items of the repository, open and closed, with the labels `release`, `state`, `type` and `priority`. The `release` label SHALL be the first `v*` tag whose commits close the Item with a closing keyword, and empty for an open Item or a closed Item that no release holds. The `type` label SHALL be the `type/*` label of the issue without its prefix, empty when the issue has none, and the `priority` label SHALL be the Item's Priority.
+
+#### Scenario: An open Item
+- **WHEN** the repository holds two open issues with `type/bug` and `priority/p1-high`
+- **THEN** the report has one item count with `release` empty, `state` `open`, `type` `bug`, `priority` `P1-High` and a count of 2
+
+#### Scenario: A closed Item that a release closed
+- **WHEN** a commit in the range of the tag `v0.2.24` has the footer `Closes #2`, and issue 2 is a closed Item
+- **THEN** the report counts issue 2 with `release` `v0.2.24` and `state` `closed`
+
+#### Scenario: An issue closed again in a later release
+- **WHEN** a commit of `v0.1.0` has `Closes #4`, and a commit of `v0.2.0` has `fixes #4`
+- **THEN** the release of issue 4 is `v0.1.0`
 
 #### Scenario: A pull request or an issue that is not an Item
 - **WHEN** the repository has a pull request with `priority/p1-high`, and an issue with no `priority/*` label

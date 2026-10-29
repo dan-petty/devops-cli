@@ -282,12 +282,12 @@
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
       "id": 12,
-      "title": "Milestone & Taxonomy Tracking",
+      "title": "Release & Taxonomy Tracking",
       "type": "row"
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Roadmap items, the issues with a priority label, by milestone and state. An item in no milestone shows as none. It shows the latest value of each series in the time range, and no data when none was sent in it.",
+      "description": "Roadmap items, the issues with a priority label, by release and state. The release is the first v* tag whose commits close the item. An open item, or a closed item that no release holds, shows as unreleased. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -298,20 +298,20 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
       "id": 13,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Items by Milestone",
+      "title": "Items by Release",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (milestone, state) (last_over_time(devops_cli_project_items[$__range])), \"milestone\", \"none\", \"milestone\", \"^$\")",
-          "legendFormat": "{{milestone}} ({{state}})",
+          "expr": "label_replace(sum by (release, state) (last_over_time(devops_cli_project_items[$__range])), \"release\", \"unreleased\", \"release\", \"^$\")",
+          "legendFormat": "{{release}} ({{state}})",
           "refId": "A"
         }
       ]
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Open and closed roadmap items, the issues with a priority label, in all milestones and in none. It shows the latest value of each series in the time range, and no data when none was sent in it.",
+      "description": "Open and closed roadmap items, the issues with a priority label, in all releases and in none. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

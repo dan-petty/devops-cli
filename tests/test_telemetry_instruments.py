@@ -382,17 +382,18 @@ def test_the_items_panels_group_only_by_labels_the_gauge_sends() -> None:
     assert grouped - set(PROJECT_ITEM_LABELS) == set()
 
 
-def test_the_milestone_panel_shows_an_item_in_no_milestone_as_none() -> None:
-    """An item in no milestone has an empty `milestone`, which a legend shows as a blank."""
+def test_the_release_panel_shows_an_item_in_no_release_as_unreleased() -> None:
+    """An item that no release closed has an empty `release`, which a legend shows as a blank
+    (#2702)."""
     queries = {
         panel["title"]: _panel_queries(panel)
         for panel in _panels(DASHBOARDS / "project-metrics.json")
     }
 
-    assert queries["Items by Milestone"] == (
-        "label_replace(sum by (milestone, state) "
-        '(last_over_time(devops_cli_project_items[$__range])), "milestone", "none", '
-        '"milestone", "^$")'
+    assert queries["Items by Release"] == (
+        "label_replace(sum by (release, state) "
+        '(last_over_time(devops_cli_project_items[$__range])), "release", "unreleased", '
+        '"release", "^$")'
     )
     assert queries["Active Items by State"] == (
         "sum by (state) (last_over_time(devops_cli_project_items[$__range]))"
