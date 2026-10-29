@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.0](https://github.com/dan-petty/devops-cli/compare/v0.19.0...v0.20.0) (2026-10-29)
+
+
+### Features
+
+* **roadmap:** run the implement job as a cluster Job ([#2698](https://github.com/dan-petty/devops-cli/issues/2698)) ([b4669f6](https://github.com/dan-petty/devops-cli/commit/b4669f653ad74d16f66621783eb94277636286b0)), closes [#2667](https://github.com/dan-petty/devops-cli/issues/2667)
+
 ## [0.19.0](https://github.com/dan-petty/devops-cli/compare/v0.18.0...v0.19.0) (2026-10-29)
 
 
