@@ -2,7 +2,7 @@
 
 ## 1. The MCP tool k8s_logs publishes no Loki URL
 
-- [ ] Add failing tests: the schema of `k8s_logs` holds no `loki_url`. A call that gives a loopback or private `loki_url` fails, dials nothing and returns no answer text. A call with no URL sends the query to the default Loki. `devops k8s logs --loki-url` still dials the URL of the person
+- [x] Add failing tests: the schema of `k8s_logs` holds no `loki_url`. A call that gives a loopback or private `loki_url` fails, dials nothing and returns no answer text. A call with no URL sends the query to the default Loki. `devops k8s logs --loki-url` still dials the URL of the person
   - Verification: `uv run devops ci test tests/test_k8s_logql.py`
 - [ ] Give `("k8s", "logs")` an entry in `_PATH_PARAM_RESTRICTIONS` that leaves out `loki_url`
   - Verification: `uv run devops ci test tests/test_k8s_logql.py tests/test_mcp.py tests/test_fastmcp_contracts.py`
