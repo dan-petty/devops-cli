@@ -63,6 +63,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_LIMIT
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
@@ -439,6 +440,9 @@ class StagePlan:
     left_out: tuple[LeftOut, ...] = ()
     removals: tuple[Removal, ...] = ()
     kept: tuple[KeptBranch, ...] = ()
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
+    write_requests: tuple[PlannedRequest, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -728,6 +732,15 @@ def plan_stage(
     )
 
 
+def dry_run_stage(repo: str, *, item: int | None = None, limit: int | None = None) -> StagePlan:
+    """The plan a dry run returns, having made no request: the requests and the git commands that
+    a run makes, in order, and the writes that `--confirm` adds."""
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    reads, writes = stage_requests(repo, item=item, limit=limit)
+    return StagePlan(repo, dry_run=True, requests=reads, write_requests=writes)
+
+
 # ── The writes ────────────────────────────────────────────────────────────────
 
 # Every comment of the stage job starts with this marker.
@@ -930,6 +943,94 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     )
 
 
+# ── The report ────────────────────────────────────────────────────────────────
+
+
+def _section(heading: str, lines: Sequence[str]) -> list[str]:
+    return ["", heading, *lines] if lines else []
+
+
+def render_stage_plan(plan: StagePlan) -> str:
+    """The plan as the report of the command: the items to stage with their groups, the items
+    stopped on the budget, those left out and those that failed, and the staged branches to
+    remove or to keep."""
+    texts = MESSAGES.roadmap
+    lines = [
+        texts.stage_title.format(repo=plan.repo),
+        texts.stage_budget.format(budget=plan.budget),
+    ]
+    ready = [
+        texts.stage_ready_line.format(
+            number=c.target.item.number,
+            title=c.target.item.title,
+            branch=c.target.branch,
+            count=len(c.groups),
+            largest=max(g.tokens for g in c.groups),
+            note="" if c.validated else texts.stage_unvalidated,
+        )
+        for c in plan.ready
+    ]
+    over = [
+        texts.stage_over_line.format(
+            number=o.target.item.number,
+            title=o.target.item.title,
+            group=o.worst.group.title,
+            tokens=o.worst.tokens,
+        )
+        for o in plan.over_budget
+    ]
+    left = [
+        texts.stage_left_line.format(number=x.number, title=x.title, reason=x.reason)
+        for x in plan.left_out
+    ]
+    failed = [
+        texts.stage_failed_line.format(
+            number=f.number,
+            title=f.title,
+            error=f.error,
+            reason=f": {f.reason}" if f.reason else "",
+        )
+        for f in plan.failed
+    ]
+    removals = [
+        texts.stage_removal_line.format(
+            number=r.number, branch=r.branch, note=texts.stage_removal_gone if r.gone else ""
+        )
+        for r in plan.removals
+    ]
+    kept = [
+        texts.stage_kept_line.format(number=k.number, branch=k.branch, reason=k.reason)
+        for k in plan.kept
+    ]
+    lines += _section(texts.stage_heading_ready, ready)
+    lines += _section(texts.stage_heading_over, over)
+    lines += _section(texts.stage_heading_left, left)
+    lines += _section(texts.stage_heading_failed, failed)
+    lines += _section(texts.stage_heading_removals, removals)
+    lines += _section(texts.stage_heading_kept, kept)
+    if not (ready or over or left or failed or removals or kept):
+        lines += ["", texts.stage_nothing]
+    return "\n".join(lines)
+
+
+def raise_for_failed(failures: Sequence[StageFailure]) -> None:
+    """Fail the run after the other items are written, naming each item that failed with the
+    class of its error. The message holds no text of the model."""
+    if not failures:
+        return
+    texts = MESSAGES.roadmap
+    items = ", ".join(
+        texts.stage_failed_item.format(
+            number=f.number, error=f.error, reason=f": {f.reason}" if f.reason else ""
+        )
+        for f in failures
+    )
+    raise RoadmapStageError(
+        texts.stage_failed.format(count=len(failures), items=items),
+        failed_items=[f.number for f in failures],
+    )
+
+
 __all__ = [
     "KeptBranch",
     "LeftOut",
@@ -943,7 +1044,10 @@ __all__ = [
     "StageTarget",
     "StagedChange",
     "apply_stage",
+    "dry_run_stage",
     "parse_filters",
     "plan_stage",
+    "raise_for_failed",
+    "render_stage_plan",
     "select_stageable",
 ]

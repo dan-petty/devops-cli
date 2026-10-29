@@ -1285,6 +1285,50 @@ class RoadmapCommandHelp:
     alternatives_dry_run: str = (
         "Make no request: print the requests a run makes, with placeholders."
     )
+    stage: str = (
+        "Make Ready items Staged: for each item that a label filter names, make the branch "
+        "<type>/<issue>-<slug> at the fetched default branch, write the OpenSpec change of the "
+        "item in task groups that each fit the step budget, make one commit as the identity of "
+        "the session, push it, and open a draft pull request whose body starts with `Plans #<issue>` "
+        "and holds no closing keyword. The Status of the item stays Ready, and the job never marks "
+        "the pull request ready. One comment on the issue names the branch, the pull request and "
+        "the task groups with their measures. The default filter is status=ready, "
+        "priority=p0-critical, priority=p1-high and type=bug. The job leaves out an item that is "
+        "Blocked or started, an item with the label needs-split, an item that an account without "
+        "write access opened, an item that depends on an open issue, an item that a pushed branch "
+        "or a worktree holds, and an item whose text looks like a secret; the plan says why. A "
+        "task group over the budget goes back to the model once, and a group still over it stops "
+        "the item. An item whose model call fails is skipped and reported, the others are still "
+        "staged, and the command then exits 1. Each run also removes the draft and the branch of "
+        "a closed item when only the identity of the session wrote to them."
+    )
+    stage_source: str = (
+        "Path to a clone of the repository at its default branch. Without it, the job clones "
+        "the repository into its own model clone, updates it, and uses it."
+    )
+    stage_item: str = (
+        "Stage the one issue this number names, when it is open and Ready, and ignore the filter "
+        "and the limit."
+    )
+    stage_filter: str = (
+        "A label filter in the form family=value, over the families status, priority, type, "
+        "value and effort. Repeat the option: the values of one family are alternatives, and "
+        "the families all apply."
+    )
+    stage_limit: str = "Maximum number of items to stage in this run (default 3)."
+    stage_step_tokens: str = (
+        "Most tokens that the inputs of one implementation step may hold. The default is the "
+        "setting roadmap.stage.step_tokens."
+    )
+    stage_dry_run: str = (
+        "Make no request: print the requests and the git commands that a run makes, with "
+        "placeholders."
+    )
+    stage_plan: str = (
+        "Read GitHub and call the model, and write nothing: print the changes that --confirm "
+        "writes. This is the mode when no flag is given."
+    )
+    stage_confirm: str = "Plan as --plan does, then make the writes in git and on GitHub."
     return_item: str = (
         "Return an item to New with an evidence comment, handing it back to refinement when it "
         "cannot be built as specified or needs a refactor beyond its scope. The item gets the "

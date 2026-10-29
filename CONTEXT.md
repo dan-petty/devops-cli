@@ -109,6 +109,17 @@ _Avoid_: grooming, triage
 **Alternative**:
 An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none or not-applicable. A person decides what an alternative means for the item.
 _Avoid_: competitor, substitute
+**Staging**:
+Making a Ready item Staged: a branch, an OpenSpec change in task groups that each fit one step, and a draft pull request that plans the item and closes no issue.
+_Avoid_: scaffolding, pre-work
+
+**Staged**:
+A Ready item whose staging is done. Its Status stays Ready until a person or an agent starts the code. The draft pull request on its branch is the record.
+_Avoid_: prepared, queued
+
+**Step**:
+The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the item, the change folder and the packed files of the group.
+_Avoid_: chunk, phase
 
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.

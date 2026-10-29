@@ -1992,6 +1992,66 @@ class RoadmapMessages:
         "The branch holds {count} commit(s) by another author past the default branch, so the "
         "job keeps the branch and its draft."
     )
+    # The report of `devops roadmap stage`.
+    stage_title: str = "# Stage plan for {repo}"
+    stage_budget: str = "The budget of one step is {budget} tokens."
+    stage_nothing: str = "No item to stage."
+    stage_heading_ready: str = "## To stage"
+    stage_heading_over: str = "## Stopped: a task group is over the budget"
+    stage_heading_left: str = "## Left out"
+    stage_heading_failed: str = "## Failed"
+    stage_heading_removals: str = "## Staged branches to remove"
+    stage_heading_kept: str = "## Staged branches kept"
+    stage_ready_line: str = (
+        "- #{number} {title}: branch `{branch}`, {count} task group(s), the largest {largest} "
+        "tokens{note}"
+    )
+    stage_unvalidated: str = ", `openspec validate` did not run"
+    stage_over_line: str = '- #{number} {title}: the task group "{group}" holds {tokens} tokens'
+    stage_left_line: str = "- #{number} {title}: {reason}"
+    stage_failed_line: str = "- #{number} {title}: {error}{reason}"
+    stage_removal_line: str = "- #{number}: `{branch}`{note}"
+    stage_removal_gone: str = " is gone, and the job clears the record"
+    stage_kept_line: str = "- #{number}: `{branch}`: {reason}"
+    stage_applied: str = (
+        "Staged {staged} item(s), stopped {stopped} on the budget, removed {removed} staged "
+        "branch(es)."
+    )
+    stage_failed: str = "the stage job failed for {count} item(s): {items}"
+    stage_failed_item: str = "#{number} ({error}{reason})"
+    stage_plain_note: str = (
+        "Stage without a mode flag runs as --plan: it reads GitHub and calls the model, and "
+        "writes nothing. --dry-run makes no request."
+    )
+    # The requests of a stage run, as a dry run lists them.
+    stage_requests: dict[str, str] = field(
+        default_factory=lambda: {
+            "update_clone": "update the model clone of the repository",
+            "remote_heads": "the branches of origin",
+            "model_change": "the analysis model plans the change of the item",
+            "model_split": "the analysis model splits the task groups over the budget",
+            "model_correction": "the analysis model corrects a change that fails its checks",
+            "validate": "validate the change with OpenSpec in a scratch directory",
+            "fetch_branch": "the staged branch of a closed item",
+            "worktree": "the worktree of the item's branch at the fetched default branch",
+            "commit": "commit the change as the identity of the session",
+            "push": "push the branch of the item",
+            "pull": "open the draft pull request of the item",
+            "delete_failed": "delete the pushed branch when the pull request cannot open",
+            "close_pull": "close the draft pull request of a closed item",
+            "delete_branch": "delete the staged branch of a closed item",
+        }
+    )
+    stage_request_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "model_split": "a task group is over the budget",
+            "model_correction": "the change fails its checks",
+            "validate": "the openspec binary is on PATH",
+            "delete_failed": "GitHub refuses the pull request",
+            "close_pull": "only the identity of the session wrote to the branch",
+            "delete_branch": "only the identity of the session wrote to the branch",
+        }
+    )
     stage_none: str = "None."
     stage_fits_one_pr: str = "The change fits one pull request."
     stage_pending_review: str = (
@@ -2054,6 +2114,9 @@ class RoadmapMessages:
             "item": "<item>",
             "blocker": "<blocking item>",
             "path": "<cited path>",
+            "branch": "<branch>",
+            "change": "<change>",
+            "pull": "<pull request>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -2117,6 +2180,8 @@ class RoadmapMessages:
             "alternatives_item": "for each item the run checks, at most --limit",
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",
+            "stage_item": "for each item the run stages, up to the limit",
+            "stage_closed": "for each closed item whose record holds a staged branch",
         }
     )
     # `devops roadmap intake` (#742).

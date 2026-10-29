@@ -337,6 +337,12 @@ def ensure_checkout(
     return clone_dir
 
 
+def model_clone(repo: str) -> Path:
+    """The model lane's clone of `repo`, cloned or updated: the clone the stage job works in when
+    a person gives no `--source` (#2654)."""
+    return ensure_checkout(repo, _resolve_data_dir(), dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
+
+
 def _intake_due(check: DueCheck) -> bool:
     """Intake is due when an issue reopens, or when its last round left a fresh candidate. A
     record that can't be read makes it due, so its run raises, naming the record."""
@@ -1025,6 +1031,7 @@ __all__ = [
     "build_stub_table",
     "ensure_checkout",
     "identity_refused",
+    "model_clone",
     "parse_due_tuple",
     "run_due_jobs",
     "run_scoped_update",

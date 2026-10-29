@@ -825,12 +825,6 @@ class RoadmapStageConfig(BaseModel):
     )
 
 
-class RoadmapConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
-
-    stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
-
-
 class ServiceConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -903,6 +897,7 @@ class RoadmapConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     alternatives: AlternativesConfig = Field(default_factory=AlternativesConfig)
+    stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
 
 
 class DataConfig(BaseModel):
@@ -1023,7 +1018,6 @@ class Settings(BaseSettings):
     service: ServiceConfig = ServiceConfig()
     roadmap: RoadmapConfig = RoadmapConfig()
     firecrawl: FirecrawlConfig = FirecrawlConfig()
-    roadmap: RoadmapConfig = RoadmapConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)

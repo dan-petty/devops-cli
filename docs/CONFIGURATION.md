@@ -268,6 +268,7 @@ roadmap configuration settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
+| `alternatives` | `AlternativesConfig` | `recheck_days=30` | - | - |
 | `stage` | `RoadmapStageConfig` | `step_tokens=40000` | - | - |
 
 ## Firecrawl Configuration (`firecrawl`)
@@ -277,14 +278,6 @@ Firecrawl web search API authentication settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `api_key` | `Union` | - | `DEVOPS_CLI_FIRECRAWL_API_KEY` | - |
-
-## Roadmap Configuration (`roadmap`)
-
-roadmap configuration settings.
-
-| Option | Type | Default | Environment Variable | Description |
-|---|---|---|---|---|
-| `alternatives` | `AlternativesConfig` | `recheck_days=30` | - | - |
 
 ## Top-Level Settings
 

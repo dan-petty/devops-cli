@@ -1,10 +1,11 @@
 """`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
-refine readies items, and return sends an item back to New.
+refine readies items, stage makes a Ready item Staged, and return sends an item back to New.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
-`.github/labels.yml` at `--ref`. `intake`, `refine` and `return` write GitHub state only with
-`--confirm`, and never a commit. A person plans the milestones; no command sets one.
+`.github/labels.yml` at `--ref`. `intake`, `refine`, `stage` and `return` write GitHub state only
+with `--confirm`; only `stage` also writes git, a branch with one commit, and never to the default
+branch. A person plans the milestones; no command sets one.
 
 Every job's `--dry-run` makes no request at all (#412, #1125): it returns the job's result type
 marked as a dry run and prints the requests a run makes, each with its exact `gh` command.
@@ -25,6 +26,7 @@ import typer
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
+    DEFAULT_ROADMAP_STAGE_LIMIT,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
@@ -325,6 +327,77 @@ def alternatives_cmd(
         print_success(MESSAGES.roadmap.alternatives_applied.format(count=written))
     with _exit_on_failure("The check is incomplete"):
         job.raise_for_failed_checks(plan)
+
+
+@app.command("stage", help=HELP.roadmap.stage)
+def stage_cmd(
+    repo: RepoOption = None,
+    source: Annotated[Path | None, typer.Option("--source", help=HELP.roadmap.stage_source)] = None,
+    item: Annotated[int | None, typer.Option("--item", min=1, help=HELP.roadmap.stage_item)] = None,
+    filters: Annotated[
+        list[str] | None, typer.Option("--filter", help=HELP.roadmap.stage_filter)
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=1, help=HELP.roadmap.stage_limit)
+    ] = DEFAULT_ROADMAP_STAGE_LIMIT,
+    step_tokens: Annotated[
+        int | None, typer.Option("--step-tokens", min=1000, help=HELP.roadmap.stage_step_tokens)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.stage_dry_run)] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.stage_plan)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.stage_confirm)] = False,
+) -> None:
+    """Make Ready items Staged: a branch, an OpenSpec change in budgeted task groups, and a draft."""
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    from devops_cli.roadmap.stage import (
+        apply_stage,
+        dry_run_stage,
+        parse_filters,
+        plan_stage,
+        raise_for_failed,
+        render_stage_plan,
+    )
+
+    with _exit_on_failure("Could not read the options"):
+        parsed = parse_filters(filters or ())
+    target = _target(repo)
+    if dry_run or is_dry_run():
+        planned = dry_run_stage(target, item=item, limit=limit)
+        render_dry_run("stage", target, planned.requests, planned.write_requests)
+        return
+    if not (plan_only or confirm):
+        print_info(MESSAGES.roadmap.stage_plain_note)
+    from devops_cli.roadmap.run import model_clone
+
+    with _exit_on_failure("Could not plan staging"):
+        _, store = _open_store(target)
+        clone = source or model_clone(target)
+        plan = plan_stage(
+            store,
+            repo=target,
+            source=clone,
+            filters=parsed,
+            item_number=item,
+            limit=limit,
+            step_tokens=step_tokens,
+        )
+    write_stdout(render_stage_plan(plan) + "\n")
+    failures = list(plan.failed)
+    if confirm:
+        with _exit_on_failure("Could not stage"):
+            applied = apply_stage(store, plan, source=clone)
+        print_success(
+            MESSAGES.roadmap.stage_applied.format(
+                staged=len(applied.staged),
+                stopped=len(applied.stopped),
+                removed=len(applied.removed),
+            )
+        )
+        failures += applied.failed
+    else:
+        print_info(MESSAGES.roadmap.preview_only)
+    with _exit_on_failure("Staging incomplete"):
+        raise_for_failed(failures)
 
 
 @app.command("run", help=HELP.roadmap.run)

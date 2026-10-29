@@ -26,8 +26,8 @@
 
 ## 5. The command, the dry run and the documents
 
-- [ ] 5.1 Write `tests/test_roadmap_stage_command.py` (the options, the three modes, the exit codes and the dry run) and extend `tests/test_roadmap_dry_runs.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_command.py` fails on the base
-- [ ] 5.2 Add the command in `src/devops_cli/commands/roadmap.py`, `stage_requests` in `src/devops_cli/roadmap/request_plan.py`, the help texts, and the terms Staged and Step in `CONTEXT.md`, and verify that `uv run devops ci test tests/test_roadmap_stage_command.py tests/test_roadmap_dry_runs.py` passes
+- [x] 5.1 Write `tests/test_roadmap_stage_command.py` (the options, the three modes, the exit codes and the dry run) and extend `tests/test_roadmap_dry_runs.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_command.py` fails on the base
+- [x] 5.2 Add the command in `src/devops_cli/commands/roadmap.py`, `stage_requests` in `src/devops_cli/roadmap/request_plan.py`, the help texts, and the terms Staged and Step in `CONTEXT.md`, and verify that `uv run devops ci test tests/test_roadmap_stage_command.py tests/test_roadmap_dry_runs.py` passes
 - [ ] 5.3 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci` passes
 
 ## Workflow follow-up
