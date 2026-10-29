@@ -38,9 +38,18 @@
 - [x] 4.2 Regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
-## 5. Archive
+## 5. Review findings
 
-- [ ] 5.1 Archive the change
+- [x] 5.1 Add a failing test: a Planned item whose change folder has no `tasks.md` is left out with a reason and the next Planned item is selected
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_planned.py`
+- [x] 5.2 Catch the failed read of `tasks.md` in `_Judge._planned_target`, and add the message `implement_left_no_tasks` that carries the error of git
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_planned.py`
+- [x] 5.3 Re-wrap the lines of the change that pass 100 characters
+  - Verification: `uv run devops ci lint`
+
+## 6. Archive
+
+- [ ] 6.1 Archive the change
   - Verification: `uv run devops openspec archive 2714-planned-items`
 
 ## Workflow follow-up

@@ -25,7 +25,7 @@ A Staged item SHALL hold a branch and a pull request in its record, its branch S
 - **THEN** the plan selects both, the lower number first
 
 ### Requirement: The job leaves out an item and says why
-The job SHALL leave out, with a reason in the plan, an item that the filter names and that is not Ready, is neither Staged nor Planned, holds `implement.stopped`, has an author who is not the owner, a member or a collaborator, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. The job SHALL also leave out a Planned item that a branch of `origin` holds, that a worktree holds, whose change is archived, whose title gives no branch type, whose folder gives no branch name, or whose `tasks.md` on the default branch has no unticked task.
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is not Ready, is neither Staged nor Planned, holds `implement.stopped`, has an author who is not the owner, a member or a collaborator, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. The job SHALL also leave out a Planned item that a branch of `origin` holds, that a worktree holds, whose change is archived, whose title gives no branch type, whose folder gives no branch name, whose folder on the default branch has no readable `tasks.md`, or whose `tasks.md` on the default branch has no unticked task. A Planned item that the job leaves out SHALL NOT stop the plan: the job judges the other items.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record and no change folder on `origin/main`
@@ -58,6 +58,10 @@ The job SHALL leave out, with a reason in the plan, an item that the filter name
 #### Scenario: A Planned item whose change is archived
 - **WHEN** `origin/main` holds only the archived folder of the item
 - **THEN** the plan leaves the item out and says that its change is archived on `main`
+
+#### Scenario: A Planned item whose change has no tasks.md
+- **WHEN** the change folder of a Planned item on `origin/main` holds no `tasks.md`, and a second Planned item is valid
+- **THEN** the plan leaves the first item out with a reason that names the folder and the error of git, and selects the second item
 
 #### Scenario: A Planned item with every task ticked
 - **WHEN** the `tasks.md` of the change folder on `origin/main` has no unticked task
