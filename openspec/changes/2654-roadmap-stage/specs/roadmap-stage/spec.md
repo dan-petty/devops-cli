@@ -18,8 +18,15 @@ Defines how `devops roadmap stage` makes a Ready roadmap item Staged: which item
 - **WHEN** the command runs with `--filter color=red`
 - **THEN** the command exits 1, names the families it accepts, and makes no request
 
+### Requirement: The job stages Ready items only
+Whatever the filter says, the job SHALL stage an item only when its Status is Ready. A `status` filter can narrow the Ready items and SHALL NOT widen them.
+
+#### Scenario: A filter with no status
+- **WHEN** the roadmap holds a Ready bug, a New bug and a bug with no Status, and the command runs with `--filter type=bug`
+- **THEN** the plan holds only the Ready bug, and it leaves out the other two and names their Status
+
 ### Requirement: The job leaves out the items it must not stage
-The job SHALL leave out an item that is Blocked, In Progress or In Review, an item with the label `needs-split`, an item whose author is not the owner, a member or a collaborator, and an item whose Dependencies section names an open issue. The job SHALL also leave out a held item: `origin` has a branch of the form `<type>/<issue>-<slug>` for it, or a worktree of the clone has one. The plan SHALL name each item it leaves out and say why.
+The job SHALL leave out an item that is not Ready, an item with the label `needs-split`, an item whose author is not the owner, a member or a collaborator, and an item whose Dependencies section names an open issue. The job SHALL also leave out a held item: `origin` has a branch of the form `<type>/<issue>-<slug>` for it, or a worktree of the clone has one. The plan SHALL name each item it leaves out and say why.
 
 #### Scenario: Items that are left out
 - **WHEN** the filter names a Blocked item, an item with `needs-split`, an item opened by an account with no write access, an item that depends on an open issue, and an item with a pushed branch
@@ -73,7 +80,7 @@ The job SHALL measure each task group with tiktoken. The measure SHALL be the to
 - **THEN** the comment on the issue gives the group's measure, and that measure is more than the tokens of the file packed
 
 ### Requirement: A group over the budget is split once or stops the item
-A group over the budget SHALL go back to the model once with its measure and the ask to split it. A group still over the budget SHALL stop the item: the job posts a comment that names the group and its measure, records `stage.needs_split`, and makes no branch.
+A group over the budget SHALL go back to the model once with its measure and the ask to split it. The job SHALL ask for a split once for each item, also when a corrected reply is over the budget again. A group still over the budget SHALL stop the item: the job posts a comment that names the group and its measure, records `stage.needs_split`, and makes no branch.
 
 #### Scenario: Every group is under the budget
 - **WHEN** the model gives three groups and the measure of each is under the budget
@@ -83,12 +90,16 @@ A group over the budget SHALL go back to the model once with its measure and the
 - **WHEN** one group is over the budget and the second reply splits it into two groups under the budget
 - **THEN** the job stages the item with the groups of the second reply
 
+#### Scenario: A corrected reply is over the budget
+- **WHEN** the first reply is split, the split fails the validation, and the corrected reply is over the budget
+- **THEN** the job stops the item as over the budget and asks the model for no second split, so it made three calls
+
 #### Scenario: A group stays over the budget
 - **WHEN** one group is over the budget after the second reply
 - **THEN** the job posts a comment that names the group and its measure, records `stage.needs_split`, pushes no branch and opens no pull request
 
 ### Requirement: The change passes the OpenSpec validation
-When the `openspec` binary is on `PATH`, the job SHALL run `openspec validate <change> --strict` on the change before it writes to git. A failed validation SHALL go back to the model once with the output of the tool. A second failure SHALL stop the item. Without the binary, the comment on the issue SHALL say that the validation did not run.
+When the `openspec` binary is on `PATH`, the job SHALL run `openspec validate <change> --strict --json` on the change before it writes to git. A failed validation SHALL go back to the model once with the output of the tool. A second failure SHALL stop the item. Without the binary, the comment on the issue SHALL say that the validation did not run.
 
 #### Scenario: The validation fails once
 - **WHEN** the first plan fails the validation and the second plan passes it
@@ -102,12 +113,23 @@ When the `openspec` binary is on `PATH`, the job SHALL run `openspec validate <c
 - **WHEN** the `openspec` binary is not on `PATH`
 - **THEN** the job stages the item and its comment says that the validation did not run
 
+### Requirement: The validation judges the change against the base specs
+The job SHALL run the validation in a scratch directory that also holds the base spec of each capability the change has a delta for. Any issue in the report of OpenSpec SHALL count as a problem and SHALL go back to the model once with the text of the issues. This holds also for an issue that OpenSpec gives for a valid change, such as a delta that `openspec archive` would refuse.
+
+#### Scenario: A MODIFIED requirement that the base spec lacks
+- **WHEN** the plan modifies a requirement whose name is not in the base spec of an existing capability
+- **THEN** the validation reports the refusal and the model gets it as the problem to correct
+
 ### Requirement: A failure stops one item and never hides the others
-A model call that fails SHALL skip its item. The job SHALL stage the other items, and then fail and name each skipped item. Rejected credentials SHALL stop the run. A push that GitHub refuses SHALL stop its item with the reason, and SHALL leave no remote branch without an open pull request. An item whose title or body looks like a secret SHALL be left out before the model reads it.
+A model call that fails SHALL skip its item. The job SHALL stage the other items, and then fail and name each skipped item. Rejected credentials SHALL stop the run. A tool error of the validation, such as a timeout, SHALL skip its item in the same way. A push that GitHub refuses SHALL stop its item with the reason, and SHALL leave no remote branch without an open pull request. An item whose title or body looks like a secret SHALL be left out before the model reads it.
 
 #### Scenario: One model call fails
 - **WHEN** the model call fails for the first of two items
 - **THEN** the second item is staged, the command exits 1, and the error names the first item
+
+#### Scenario: The validation times out
+- **WHEN** the validation of the first of two items runs past its timeout
+- **THEN** the second item is planned, and the error names the first item
 
 #### Scenario: Rejected credentials
 - **WHEN** the model call fails with rejected credentials for the first item
@@ -120,6 +142,13 @@ A model call that fails SHALL skip its item. The job SHALL stage the other items
 #### Scenario: A secret in the body
 - **WHEN** the body of an item holds a text that looks like a secret
 - **THEN** the plan leaves the item out, and the model reads none of its text
+
+### Requirement: A failed write stops one item
+A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed.
+
+#### Scenario: The comment of a stopped item fails
+- **WHEN** two items stop on the budget and the comment on the first fails
+- **THEN** the second item still gets its comment and its record, the first item gets no record, and the error names the first item
 
 ### Requirement: A closed item loses its staged branch when only the App wrote to it
 In each run the job SHALL look at the staged branch of each closed item whose record holds `stage.branch`. When every commit of the branch past `origin/<default branch>` has the identity of the session as its author, read from the name of each commit, the job SHALL close the draft pull request and delete the branch. When any other commit exists, the job SHALL keep both and say so in the plan.

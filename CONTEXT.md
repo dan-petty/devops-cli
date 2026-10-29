@@ -109,6 +109,7 @@ _Avoid_: grooming, triage
 **Alternative**:
 An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none or not-applicable. A person decides what an alternative means for the item.
 _Avoid_: competitor, substitute
+
 **Staging**:
 Making a Ready item Staged: a branch, an OpenSpec change in task groups that each fit one step, and a draft pull request that plans the item and closes no issue.
 _Avoid_: scaffolding, pre-work
