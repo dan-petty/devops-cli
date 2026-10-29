@@ -1,4 +1,5 @@
-# ArgoCD Helm values — minimal dev-mode configuration for minikube.
+# Argo CD Helm values. Argo CD's Application `argocd` installs them on the k3s homelab, and
+# `devops k8s deploy-stack` installs them on either cluster.
 # Chart: argo/argo-cd
 # Repo:  https://argoproj.github.io/argo-helm
 
@@ -33,11 +34,12 @@ server:
     serviceMonitor:
       enabled: true
   service:
-    # Local minikube: NodePort allows direct access.
-    # Production: Use type: ClusterIP with an Ingress Controller and TLS termination.
+    # NodePort: on minikube, `minikube service argocd-server -n argocd --url` gives its URL. On the
+    # homelab, Ingress argocd/argocd-ingress (k8s/ingress/ingress-routes.yaml) routes argocd.<domain>
+    # to port 80.
     type: NodePort
-  # Local minikube: --insecure disables internal TLS for plain HTTP NodePort access.
-  # Production: Remove --insecure, configure ingress.tls or cert-manager X.509 certs.
+  # --insecure serves plain HTTP. On the homelab, TLS ends at the Cloudflare edge, and Traefik's
+  # `web` entrypoint sends the request to port 80 in plain HTTP (k8s/ingress/ingress-routes.yaml).
   extraArgs:
     - --insecure
   resources:

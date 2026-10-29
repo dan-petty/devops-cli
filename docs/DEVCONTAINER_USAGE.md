@@ -563,7 +563,7 @@ devops k8s pods --all-namespaces
 # 5. Deploy infrastructure and observability stacks to the active cluster
 devops k8s deploy-stack --stack infra     # ArgoCD, k8s-monitoring (Alloy), Prometheus, Grafana, OTel Collector, Tempo
 devops k8s deploy-stack --stack llm       # Ollama profiles, LLM gateway, Open WebUI, Qdrant, Valkey
-devops k8s deploy-stack --stack logging   # Loki, Fluent Bit
+devops k8s deploy-stack --stack logging   # Loki; the infra stack's Alloy ships the logs
 devops k8s deploy-stack --stack all       # every stack, also devops and gitea
 
 # 6. Stream logs from a deployed controller

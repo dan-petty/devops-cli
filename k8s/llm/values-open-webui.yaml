@@ -1,11 +1,11 @@
-# Open-WebUI Helm values — minimal dev-mode configuration for minikube.
+# Open WebUI Helm values. Argo CD's Application `open-webui` installs them on the k3s homelab, and
+# `devops k8s deploy-stack --stack llm` installs them on either cluster.
 # Chart: open-webui/open-webui
 # Repo:  https://open-webui.github.io/helm-charts
 
 image:
   repository: ghcr.io/open-webui/open-webui
-  # Local minikube: Uses floating "main" tag for fast prototyping.
-  # Production: Pin to an explicit immutable semver release tag or sha256 digest (e.g. v0.5.0).
+  # A pinned release tag. A change of the tag is a pull request.
   tag: "v0.11.4"
 
 ollama:
@@ -92,8 +92,8 @@ extraEnvFrom:
       name: valkey-auth
 
 service:
-  # Local minikube: NodePort allows direct browser access without ingress controller.
-  # Production: Use ClusterIP with an Ingress resource and TLS certificate.
+  # NodePort: on minikube, `minikube service open-webui -n llm --url` gives its URL. On the homelab,
+  # Ingress llm/open-webui-ingress (k8s/ingress/ingress-routes.yaml) routes chat.<domain> to it.
   type: NodePort
   port: 8080
 
