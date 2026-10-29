@@ -56,7 +56,7 @@ This change fits one pull request.
 
 ## Feasibility
 
-- **The defect, on `origin/main` at dde2f55b.** An offline probe made `socket.getaddrinfo` answer `10.0.0.1` for `internetdb.shodan.io`. It used `scripted_resolver` and `record_connects` from `tests/web_fakes.py`. The probe called `ShodanInternetDBClient().check_ip("93.184.215.14")` twice.
+- **The defect, on `origin/main` at dde2f55b.** An offline probe made `socket.getaddrinfo` answer a private address for `internetdb.shodan.io`. It used `scripted_resolver` and `record_connects` from `tests/web_fakes.py`. The probe called `ShodanInternetDBClient().check_ip("93.184.215.14")` twice.
 - **The result of the probe.** It printed `outcome: ok | summary: Unchecked / Lookup timeout` and `cached: True`, with one DNS lookup for the two calls. The pipeline then gives "✓ Safe / Low Risk" (`_determine_network_security_status`).
 - **The reply statuses.** The OpenAPI document of InternetDB (`https://internetdb.shodan.io/openapi.json`) lists the statuses 200 and 422 for `GET /{ip}`. A live request for `192.0.2.1` got 404, and the client already reads 404 as "no data". The document names no rate limit. The 429 branch follows RFC 6585 and the Radar client, which maps 429 to `unavailable`.
 - **The reply bodies.** A live request on 2026-10-29 for `1.1.1.1` got 200 with the keys `cpes`, `hostnames`, `ip`, `ports`, `tags` and `vulns`. The request for `192.0.2.1` got the body `{"detail":"No information available"}`. FastAPI answers a missing route with `{"detail":"Not Found"}`, so the 404 check must name the exact text.

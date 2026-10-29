@@ -19,7 +19,7 @@ A `NetworkReputationRecord` SHALL name its outcome: `ok`, `unavailable` or `fail
 The Shodan InternetDB client SHALL give the outcome `failed` for a lookup that raises an error. It SHALL give `failed` for each reply with a status other than 200, 404 and 429. It SHALL give `unavailable` for a reply of 429 and for a target that is a domain. It SHALL give `ok` for a documented example or a local address, and it SHALL send no request about them.
 
 #### Scenario: A private answer for the API host
-- **WHEN** `internetdb.shodan.io` answers `10.0.0.1` and the client looks up a public address
+- **WHEN** `internetdb.shodan.io` answers a private address and the client looks up a public address
 - **THEN** the record has the outcome `failed` and a summary that starts with "Shodan InternetDB lookup failed"
 
 #### Scenario: A failed connect
