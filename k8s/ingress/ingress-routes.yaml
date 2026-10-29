@@ -366,30 +366,6 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: loki-ingress
-  namespace: logging
-  labels:
-    app.kubernetes.io/name: loki
-    app.kubernetes.io/part-of: devops-cli-stack
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: loki.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: loki
-                port:
-                  number: 3100
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
   name: argocd-ingress
   namespace: argocd
   labels:
