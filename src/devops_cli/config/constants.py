@@ -1069,11 +1069,26 @@ CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
 """How long fetching an Application's revision may take before deploy-stack gives up."""
 """JQ expression in cluster.yaml ignoreDifferences matching Argo CD PreDelete/PostDelete finalizers (#1674)."""
-CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
-    "GIT_TERMINAL_PROMPT": "0",
-    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
-}
-"""Environment that makes git fail instead of prompting for credentials or a passphrase."""
+CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {"GIT_TERMINAL_PROMPT": "0"}
+"""Environment that makes git fail instead of prompting for credentials."""
+CONST_GIT_NONINTERACTIVE_SSH_CONFIG: Final[str] = "core.sshCommand=ssh -o BatchMode=yes"
+"""The `git -c` value that makes git fail instead of asking for a passphrase or a host key. It is
+an argument, because the guard of `build_subprocess_env` refuses `GIT_SSH_COMMAND` (#2483)."""
+CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
+    {
+        "GIT_TERMINAL_PROMPT",
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+    }
+)
+"""The git keys that `build_subprocess_env` accepts from a caller (#2483). devops-cli sets
+`GIT_TERMINAL_PROMPT`, and a tool request sets the author and the committer (git(1)). None runs a
+program or writes a file. The guard refuses each other `GIT_` key, also one that git adds later."""
+CONST_GIT_GLOBAL_CONFIG_ENV: Final[frozenset[str]] = frozenset({"GIT_CONFIG_GLOBAL"})
+"""The ambient key that a `git config --global` call names in `extra_allowed_env`, so that it
+writes the global file that the environment names, as it does in a shell (#2483)."""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 
 # ── Kubernetes RBAC Audit ─────────────────────────────────────────────────────
@@ -1551,6 +1566,17 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "FPATH",
     "NULLCMD",
     "READNULLCMD",
+    # git(1), git-config(1), git-init(1): each GIT_ key but the ones of CONST_GIT_ACCEPTED_ENV
+    "GIT_*",
+    # git-var(1), the fall-back keys of GIT_EDITOR and GIT_PAGER
+    "VISUAL",
+    "EDITOR",
+    "PAGER",
+    # less(1), the filter that a pager runs
+    "LESSOPEN",
+    "LESSCLOSE",
+    # the git-mergetool--lib script, which reads a shell file from this directory
+    "MERGE_TOOLS_DIR",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",

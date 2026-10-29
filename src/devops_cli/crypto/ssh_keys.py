@@ -15,7 +15,11 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
 )
 
-from devops_cli.config.constants import CONST_PERM_PRIVATE_KEY, CONST_PERM_PUBLIC_KEY
+from devops_cli.config.constants import (
+    CONST_GIT_GLOBAL_CONFIG_ENV,
+    CONST_PERM_PRIVATE_KEY,
+    CONST_PERM_PUBLIC_KEY,
+)
 from devops_cli.core.serialization import strip_json_comments
 from devops_cli.core.validation import validate_safe_key_path
 from devops_cli.exceptions import ValidationError
@@ -311,7 +315,11 @@ def configure_git_signing(key_path: Path, repo_dir: Path | None = None) -> None:
         ("commit.gpgsign", "true"),
     )
     for key, value in settings:
-        run_subprocess(["git", "config", "--global", key, value], quiet=True)
+        run_subprocess(
+            ["git", "config", "--global", key, value],
+            quiet=True,
+            extra_allowed_env=CONST_GIT_GLOBAL_CONFIG_ENV,
+        )
 
     target_repo = (repo_dir or Path.cwd()).resolve()
     if (target_repo / ".git").exists():

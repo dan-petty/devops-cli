@@ -191,6 +191,30 @@ class TestDevcontainerCli:
         assert "post-start lifecycle complete" in result.output
         assert (fake_home / ".kube" / "config").exists()
 
+    @pytest.mark.usefixtures("no_configured_k8s_context")
+    def test_post_start_writes_the_git_defaults_in_the_global_file_the_environment_names(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With `GIT_CONFIG_GLOBAL` in the environment, `git config --global` writes the two git
+        defaults in that file, as it does in a shell, and the home directory gets no `.gitconfig`
+        (#2483)."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        global_config = tmp_path / "global-gitconfig"
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+
+        written = global_config.read_text(encoding="utf-8") if global_config.exists() else ""
+        assert (
+            result.exit_code,
+            "autoSetupRemote = true" in written,
+            "defaultBranch = main" in written,
+            (fake_home / ".gitconfig").exists(),
+        ) == (0, True, True, False)
+
     def test_post_start_spawns_background_k8s_bootstrap(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
