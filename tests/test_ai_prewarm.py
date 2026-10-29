@@ -472,7 +472,7 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
     async def test_the_tool_prewarms_each_configured_server(
         self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
     ) -> None:
-        """With no URL, the tool posts to every server that the configuration names."""
+        """With no URL, the tool posts the model and the keep-alive value to every configured server."""
         config(
             ai={
                 "provider": "ollama",
@@ -486,17 +486,19 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
         )
         recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
 
-        failed, reply = await _call_prewarm_tool({})
+        failed, reply = await _call_prewarm_tool({"keep_alive": "24h"})
 
         assert (
             failed,
             sorted(recorder.requested_hosts),
             [bytes(written).split(b"\r\n")[0] for written in recorder.written],
-            reply.count("confirmed HTTP 200 (keep_alive=1h)"),
+            [json.loads(bytes(written).partition(b"\r\n\r\n")[2]) for written in recorder.written],
+            reply.count("confirmed HTTP 200 (keep_alive=24h)"),
         ) == (
             False,
             ["example.com:11434", "example.org:11434"],
             [_PREWARM_REQUEST_LINE] * 2,
+            [{"model": "gemma4:26b", "prompt": "", "keep_alive": "24h"}] * 2,
             2,
         )
 
