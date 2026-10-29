@@ -29,7 +29,7 @@ def programs(process_fake: ProcessFake) -> ProcessFake:
     return process_fake
 
 
-def test_a_folder_is_matched_by_its_issue_number_and_an_archived_folder_by_the_number_after_its_date(
+def test_a_folder_is_matched_by_its_issue_number_and_an_archived_one_by_the_number_after_its_date(
     stage_repo: StageRepo, programs: ProcessFake
 ) -> None:
     merge_plan(stage_repo, 7, slug="stop-the-drop")

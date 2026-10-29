@@ -59,7 +59,7 @@ def test_a_summary_with_a_handle_has_it_in_a_code_span_so_that_the_title_pings_n
     ("kind", "label", "branch_type"),
     [("bug", "type/bug", "fix"), ("feature", "type/feature", "feat")],
 )
-def test_the_staging_pull_request_of_a_bug_and_of_a_feature_has_the_docs_type_and_keeps_the_branch_type(
+def test_the_staging_pull_request_of_a_bug_and_a_feature_has_the_docs_type_and_the_branch_type(
     kind: str,
     label: str,
     branch_type: str,

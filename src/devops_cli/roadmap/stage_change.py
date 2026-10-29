@@ -343,7 +343,8 @@ def staging_title(number: int, summary: str) -> str:
     span, so it pings no one."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
     room = SUMMARY_MAX_CHARS - len(lead)
-    return f"{_STAGING_TYPE}: {lead}{textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)}"
+    shortened = textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)
+    return f"{_STAGING_TYPE}: {lead}{shortened}"
 
 
 def delivery_title(issue_title: str) -> str:
