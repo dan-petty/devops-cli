@@ -6323,7 +6323,7 @@ Read and write the roadmap on GitHub, its source of truth: issues, their labels 
 
 ### `devops roadmap intake`
 
-**Turn candidates into items: every open issue with no priority/* label. The model compares each with the items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a status/new label, Value and Effort labels and a reason comment, then its priority label last, and goes to the backlog. A label a person set stays. Intake sets no milestone: a person plans the milestones, and a milestone an issue has stays. Close an issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
+**Turn candidates into items: every open issue with no priority/* label. The model compares each with the items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a status/new label, Value and Effort labels and a reason comment, then its priority label last, and goes to the backlog. A label a person set stays. Intake sets no milestone: a person plans the milestones, and a milestone an issue has stays. Close an issue as not planned to keep it off the roadmap: devops gh issues close \<number\> --reason not-planned. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
 
 ```bash
 devops roadmap intake [OPTIONS]
@@ -7421,6 +7421,29 @@ devops gh issues edit [OPTIONS] <number>
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
 | `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh issues close`
+
+**Close an open issue with its reason, completed or not planned. With --comment-file, the command posts the comment first, then closes the issue, so a failed close leaves the comment. It refuses a pull request and an issue that is already closed, because GitHub ignores a reason unless the state changes.**
+
+```bash
+devops gh issues close [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Number of the issue to close. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--reason` | `choice (completed|not-planned)` | - | Why the issue closes: completed, or not-planned for a rejected or superseded issue. |
+| `--comment-file` | `filename` | - | File with the comment to post before the close, such as the evidence for a not-planned close. Give - to read it from standard input. |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order. |
 
 ### `devops gh runs`
 

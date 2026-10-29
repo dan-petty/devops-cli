@@ -309,7 +309,11 @@ class GitHubFake:
 
     @staticmethod
     def _edit(issue: dict[str, Any], fields: Mapping[str, Any]) -> None:
-        """Apply an issue `PATCH`: `labels` replaces the labels, `body` the body."""
+        """Apply an issue `PATCH`: `labels` replaces the labels, `body` the body, and `state`
+        and `state_reason` the state and the reason of a close."""
+        for name in ("state", "state_reason"):
+            if name in fields:
+                issue[name] = fields[name]
         if "labels" in fields:
             issue["labels"] = [{"name": label} for label in fields["labels"]]
         if "body" in fields:

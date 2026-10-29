@@ -617,6 +617,29 @@ devops gh issues edit [OPTIONS] <number>
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
 | `--repo`, `-R` | `string` | - | Target repository |
 
+### `devops gh issues close`
+
+**Close an open issue with its reason, completed or not planned. With --comment-file, the command posts the comment first, then closes the issue, so a failed close leaves the comment. It refuses a pull request and an issue that is already closed, because GitHub ignores a reason unless the state changes.**
+
+```bash
+devops gh issues close [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Number of the issue to close. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--reason` | `choice (completed|not-planned)` | - | Why the issue closes: completed, or not-planned for a rejected or superseded issue. |
+| `--comment-file` | `filename` | - | File with the comment to post before the close, such as the evidence for a not-planned close. Give - to read it from standard input. |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order. |
+
 ---
 
 ## `devops gh runs`

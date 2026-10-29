@@ -1845,6 +1845,7 @@ class RoadmapMessages:
             "comment": "comment on {subject}",
             "label": "label {subject}",
             "create_issue": "open an issue for {subject}",
+            "close": "close {subject} with the reason {reason}",
         }
     )
     plan_conditions: dict[str, str] = field(
@@ -2068,6 +2069,17 @@ class RoadmapMessages:
 
 
 @dataclass(frozen=True)
+class IssueMessages:
+    """Messages of `devops gh issues`."""
+
+    close_dry_run_title: str = "# devops gh issues close for {repo}"
+    closed: str = "Closed #{number} as {reason}."
+    close_empty_comment: str = (
+        "The comment is empty. Give a file with the comment text, or no --comment-file."
+    )
+
+
+@dataclass(frozen=True)
 class ProjectMessages:
     """`devops gh project sync` and `devops gh project reconcile` (#892)."""
 
@@ -2208,6 +2220,7 @@ class LanguageCatalog:
     test: TestMessages = field(default_factory=TestMessages)
     roadmap: RoadmapMessages = field(default_factory=RoadmapMessages)
     project: ProjectMessages = field(default_factory=ProjectMessages)
+    issues: IssueMessages = field(default_factory=IssueMessages)
 
 
 MESSAGES = LanguageCatalog()
