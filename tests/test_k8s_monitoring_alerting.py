@@ -1,5 +1,6 @@
-"""Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules
-and the roadmap Service's rules (#2472, #2475) and the rule of its webhook route (#2476).
+"""Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules,
+the roadmap Service's rules (#2472, #2475), the rule of its webhook route (#2476) and the rule
+of a Valkey near its memory bound (#2094).
 
 The rules live in `k8s/monitoring/prometheus-values.yaml` (`serverFiles.alerting_rules.yml`).
 A rule over a series nothing in the stack serves never fires, so every expression may name
@@ -10,8 +11,8 @@ targets them and none of their series is listed: a rule over them would fire on 
 target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
 
 The checks read files only, except the two that run the pinned promtool (`tools.lock`):
-`promtool check rules` over every rule, and `promtool test rules` over each group of the roadmap
-Service with its unit tests in `tests/fixtures/prometheus_rules/`. Each skips where promtool is
+`promtool check rules` over every rule, and `promtool test rules` over each group that has unit
+tests in `tests/fixtures/prometheus_rules/`. Each skips where promtool is
 not installed; CI's test job installs it.
 """
 
@@ -64,6 +65,7 @@ ROADMAP_SERVICE_ACTIVITY_RULE_TESTS = (
 )
 OTEL_COLLECTOR_CAPTURE = FIXTURES / "metrics" / "otel-collector.yaml"
 OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
+VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
@@ -81,10 +83,13 @@ ROADMAP_SERVICE_GROUP_TESTS = (
 ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
 # The rules over the OpenTelemetry collector's own telemetry (#1642).
 OTEL_COLLECTOR_GROUP = "otel-collector"
+# The rule of a Valkey that refuses writes at its memory bound (#2094).
+VALKEY_MEMORY_GROUP = "valkey-memory"
 # Each group whose rules have promtool unit tests, with the file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
     (OTEL_COLLECTOR_GROUP, OTEL_COLLECTOR_RULE_TESTS),
+    (VALKEY_MEMORY_GROUP, VALKEY_MEMORY_RULE_TESTS),
 )
 
 # Every series an alert rule may select, by what serves it.
@@ -153,10 +158,13 @@ SERVED_SERIES = frozenset(
         # autodiscovery.
         "alertmanager_config_last_reload_successful",
         "alertmanager_notifications_failed_total",
-        # Argo CD, cloudflared, CoreDNS (#822), and Valkey redis_exporter (#551).
+        # Argo CD, cloudflared, CoreDNS (#822), and Valkey redis_exporter (#551, #2094).
         "argocd_app_info",
         "cloudflared_tunnel_ha_connections",
         "coredns_dns_responses_total",
+        "redis_instance_info",
+        "redis_memory_max_bytes",
+        "redis_memory_used_bytes",
         "redis_rejected_connections_total",
         "redis_up",
         # The roadmap Service (#2472): the series of its /metrics, which k8s-monitoring's
@@ -237,8 +245,8 @@ def test_every_alert_rule_selects_only_series_the_stack_serves() -> None:
 def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
-    the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476), and the
-    OpenTelemetry collector's export rules (#1642).
+    the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476), the
+    OpenTelemetry collector's export rules (#1642), and the Valkey memory rule (#2094).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -296,6 +304,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceWebhooksRejected", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
+        ("ValkeyMemoryNearBound", "warning"),
     ]
 
 
@@ -1078,6 +1087,36 @@ def test_the_otel_collector_rules_read_families_of_the_collector_capture() -> No
     assert (len(metrics), sorted(metrics - families.keys())) == (5, [])
 
 
+def test_the_valkey_memory_rule_warns_on_a_valkey_that_refuses_writes_near_its_bound() -> None:
+    """`ValkeyMemoryNearBound` warns after 10 minutes above 80% of `maxmemory`, only for a Valkey
+    whose policy is `noeviction` and that has a bound, and the Alerting table lists it (#2094).
+
+    The policy selects the Valkey: a `noeviction` Valkey refuses each write at its bound, and an
+    `allkeys-lru` Valkey evicts a key. A max of 0 is no bound, where the ratio is `+Inf`.
+    """
+    text = K8S_README.read_text(encoding="utf-8")
+    table = text[text.index("\n## Alerting\n") : text.index("\n### Receiver\n")]
+    assert (
+        [
+            (rule["alert"], rule["expr"], rule["for"], rule["labels"])
+            for rule in _group(VALKEY_MEMORY_GROUP)
+        ],
+        "| `ValkeyMemoryNearBound` |" in table,
+    ) == (
+        [
+            (
+                "ValkeyMemoryNearBound",
+                "redis_memory_used_bytes / redis_memory_max_bytes > 0.8"
+                " and redis_memory_max_bytes > 0"
+                ' and on (namespace, instance) redis_instance_info{maxmemory_policy="noeviction"}',
+                "10m",
+                {"severity": "warning"},
+            )
+        ],
+        True,
+    )
+
+
 def _readme_section(heading: str) -> str:
     """The text of one `###` section of k8s/README.md, its subsections included."""
     text = K8S_README.read_text(encoding="utf-8")
@@ -1131,8 +1170,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     group: str, rule_tests: Path, tmp_path: Path
 ) -> None:
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
-    `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475) and of
-    `otel-collector` (#1642).
+    `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
+    `otel-collector` (#1642) and of `valkey-memory` (#2094).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count.
