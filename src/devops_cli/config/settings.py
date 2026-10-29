@@ -50,6 +50,8 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_ENABLED,
     DEFAULT_AI_GATEWAY_PROVIDER,
     DEFAULT_AI_HARDWARE_COST_USD,
+    DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW,
+    DEFAULT_AI_IMPLEMENT_MODEL,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
@@ -555,6 +557,22 @@ class AIEmbeddingTaskOverride(AITaskOverride):
     )
 
 
+class AIImplementTaskOverride(AITaskOverride):
+    """The implement task's override (#2664). Its model is the coder route and its window is the
+    window of that route, until a source sets another, so a config file that sets only another
+    field of the task keeps both."""
+
+    model: str | None = Field(
+        default=DEFAULT_AI_IMPLEMENT_MODEL,
+        description="AI model of this task, in place of `ai.model`",
+    )
+    context_window: int | None = Field(
+        default=DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW,
+        gt=0,
+        description="Context window of this task in tokens, in place of `ai.context_window`",
+    )
+
+
 # The fields of a task that a variable sets, such as `DEVOPS_CLI_AI_TASK_CHAT_MODEL`.
 _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
 
@@ -574,6 +592,10 @@ class AITasksConfig(BaseModel):
     embedding: Annotated[
         AIEmbeddingTaskOverride, Variable(fields=(*_TASK_VARIABLES, "timeout"))
     ] = AIEmbeddingTaskOverride()
+    implement: AIImplementTaskOverride = Field(
+        default_factory=AIImplementTaskOverride,
+        description="The task of `devops roadmap implement`: one step of a staged change",
+    )
 
 
 class AIConfig(BaseModel):

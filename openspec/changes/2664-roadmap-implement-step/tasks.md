@@ -2,13 +2,13 @@
 
 ## 1. The harness dependency and the implement task
 
-- [ ] Add failing tests: the defaults of `ai.tasks.implement`, a window set in the config file, and the section list of the unknown-key test
+- [x] Add failing tests: the defaults of `ai.tasks.implement`, a window set in the config file, and the section list of the unknown-key test
   - Verification: `uv run devops ci test tests/test_ai_task_implement.py tests/config/test_unknown_config_keys.py`
-- [ ] Pin `pydantic-ai-harness[coder]==0.54.0` in `pyproject.toml` and refresh `uv.lock`
+- [x] Pin `pydantic-ai-harness[coder]==0.54.0` in `pyproject.toml` and refresh `uv.lock`
   - Verification: `uv lock --check`
-- [ ] Add the `implement` task to `AITasksConfig` and to the task list of `devops ai`, and the limits of the step to `config/constants.py`
+- [x] Add the `implement` task to `AITasksConfig` and to the task list of `devops ai`, and the limits of the step to `config/constants.py`
   - Verification: `uv run devops ci test tests/test_ai_task_implement.py tests/config/test_unknown_config_keys.py`
-- [ ] Move the stream drain and the spend record of refine's investigation to `roadmap/agent_run.py`
+- [x] Move the stream drain and the spend record of refine's investigation to `roadmap/agent_run.py`
   - Verification: `uv run devops ci test tests/test_roadmap_refine_investigation.py tests/test_roadmap_agent_run.py`
 
 ## 2. The groups, the inputs and the measure of a step

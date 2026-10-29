@@ -37,6 +37,7 @@ dependencies = [
     "uvicorn==0.53.0",
     "tiktoken==0.14.0",
     "pydantic-ai[spec]==2.54.0",
+    "pydantic-ai-harness[coder]==0.54.0",
     "logfire==5.2.0",
     "pynacl==1.6.2",
     "openai==3.26.1",

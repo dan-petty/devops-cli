@@ -2899,6 +2899,35 @@ CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER: Final[str] = "License :: "
 CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
 # The longest body, in tokens, that reaches the model with an item.
 CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 4096
+# The budget of one step of `devops roadmap implement` (#2664): the model requests and tool calls
+# of its run, the characters of one tool result, and the tokens of the window that the inputs
+# leave to the turns of the run. The window is `ai.tasks.implement.context_window`.
+CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS: Final[int] = 80
+CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: Final[int] = 240
+CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 16000
+CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS: Final[int] = 40000
+# The tokens of one packed file in the inputs of a step. The agent reads more with its tools.
+CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000
+# How long one verification command or static check of a step may run, and how many lines of its
+# output a stopped step reports.
+CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
+CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
+# The text that starts a second command in a shell command line. The shell tool refuses a command
+# that holds one, because its allowlist reads only the first word. `&` alone is not here, since
+# `2>&1` holds it.
+CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS: Final[tuple[str, ...]] = (
+    ";",
+    "&&",
+    "||",
+    "|",
+    "& ",
+    " &",
+    "`",
+    "$(",
+    "<(",
+    ">(",
+    "\n",
+)
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"

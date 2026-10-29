@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from collections.abc import AsyncIterable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
@@ -25,20 +25,15 @@ from pydantic_ai import Agent, RunContext, Tool, capture_run_messages
 from pydantic_ai.capabilities import PrepareTools
 from pydantic_ai.exceptions import (
     ModelAPIError,
-    ModelHTTPError,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
-from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.common_tools import firecrawl_search
-from devops_cli.ai.spend import track_request_spend
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
-    CONST_AI_GATEWAY_PROVIDER,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
@@ -49,11 +44,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_TOOL_MAX_LINES,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
 
 logger = logging.getLogger(__name__)
 
-# The HTTP statuses of a model reply that refuse the key, which stop the whole run.
-_REFUSED_KEY_STATUSES = frozenset({401, 403})
 # The exit code `_git` gives a command that ran out of time, as timeout(1) does.
 _TIMED_OUT = 124
 _GIT_TIMEOUT_SECONDS = 15
@@ -227,40 +221,6 @@ def _within_budget(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> li
     return tool_defs if has_budget and requests_left > 1 else []
 
 
-async def _drain(_ctx: RunContext[None], events: AsyncIterable[AgentStreamEvent]) -> None:
-    """Read the run's events. With a handler, pydantic-ai streams each model request, so a long
-    reply keeps the gateway's tunnel open past its cut of 125 s, as `LLMClient` streams (#2379)."""
-    async for _ in events:
-        pass
-
-
-def _refine_error(exc: ModelAPIError) -> AIClientError:
-    """Refine's class for a failed model call of the run, with no text of the model's reply."""
-    if isinstance(exc, ModelHTTPError) and exc.status_code in _REFUSED_KEY_STATUSES:
-        return AICredentialsError(f"The model refused the key (HTTP {exc.status_code}).")
-    return AIClientError(f"The investigation's model call failed ({type(exc).__name__}).")
-
-
-def _record_spend(model: Any, messages: list[ModelMessage], seconds: float) -> None:
-    """One spend record for the run's model replies, under the stage `analysis`; none when the
-    run got no reply. A model the bridge sends to a gateway names the gateway's URL in
-    `served_by`, and its record names the provider `gateway`, as `LLMClient`'s records do."""
-    replies = [message for message in messages if isinstance(message, ModelResponse)]
-    if not replies:
-        return
-    served_by = getattr(model, "served_by", None)
-    track_request_spend(
-        provider=CONST_AI_GATEWAY_PROVIDER if served_by else str(getattr(model, "system", "")),
-        model=str(getattr(model, "model_name", "unknown")),
-        server=urlsplit(served_by).netloc if served_by else "unknown",
-        prompt_tokens=sum(reply.usage.input_tokens for reply in replies),
-        completion_tokens=sum(reply.usage.output_tokens for reply in replies),
-        request_type="agent_run",
-        duration_seconds=seconds,
-        stage="analysis",
-    )
-
-
 def investigate[T: BaseModel](
     model: Any,
     instructions: str,
@@ -292,16 +252,16 @@ def investigate[T: BaseModel](
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
-            result = agent.run_sync(request, usage_limits=limits, event_stream_handler=_drain)
+            result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
             return InvestigationStopped(type(stopped).__name__)
         except ModelAPIError as exc:
             # Raised outside this handler, so a logged traceback holds no reply text.
-            error = _refine_error(exc)
+            error = model_call_error(exc, "The investigation's")
         else:
             return result.output
         finally:
-            _record_spend(model, messages, time.monotonic() - started)
+            record_run_spend(model, messages, time.monotonic() - started, stage="analysis")
     raise error
 
 

@@ -22,6 +22,7 @@ BIN_BANDIT: str = "bandit"
 BIN_BASH: str = "bash"
 BIN_COSIGN: str = "cosign"
 BIN_DAGGER: str = "dagger"
+BIN_DEVOPS: str = "devops"
 BIN_DIFFT: str = "difft"
 BIN_FIND: str = "find"
 BIN_GIT: str = "git"
@@ -49,6 +50,18 @@ BIN_TOFU: str = "tofu"
 BIN_TRIVY: str = "trivy"
 BIN_UV: str = "uv"
 BIN_ZIZMOR: str = "zizmor"
+
+
+# The programs that the shell tool of a `devops roadmap implement` step may start (#2664): the
+# project's own tools. A step runs its verification commands under the same list.
+IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (
+    BIN_GIT,
+    BIN_UV,
+    BIN_RUFF,
+    BIN_MYPY,
+    BIN_OPENSPEC,
+    BIN_DEVOPS,
+)
 
 
 # ── Command Argument List Builders ───────────────────────────────────────────
