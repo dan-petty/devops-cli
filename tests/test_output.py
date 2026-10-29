@@ -375,7 +375,7 @@ def test_rich_formatters() -> None:
     # 3. Durations & Latency
     assert format_duration(0.0) == "0.00s"
     assert format_duration(-5.0) == "0.00s"
-    assert format_duration(0.0005) == "500µs"
+    assert format_duration(0.0005) == "500\u00b5s"
     assert format_duration(0.05) == "50.0ms"
     assert format_duration(2.5) == "2.50s"
     assert format_duration(7.37) == "7.37s"

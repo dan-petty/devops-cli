@@ -1,6 +1,27 @@
 """AI models and provider integration package for devops-cli."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from devops_cli.ai.models.ollama import (
+        ModelProfileSpec,
+        ModelSettings,
+        OllamaModel,
+        OllamaProvider,
+        OpenAIChatModel,
+        OpenAIJsonSchemaTransformer,
+        OpenAIModelProfile,
+        cohere_model_profile,
+        create_ollama_model,
+        create_ollama_provider,
+        deepseek_model_profile,
+        google_model_profile,
+        harmony_model_profile,
+        meta_model_profile,
+        mistral_model_profile,
+        normalize_ollama_base_url,
+        qwen_model_profile,
+    )
 
 _OLLAMA_EXPORTS: frozenset[str] = frozenset(
     {
