@@ -72,7 +72,7 @@ from urllib.parse import urlsplit
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.client.factory import get_task_model
@@ -135,10 +135,30 @@ logger = logging.getLogger(__name__)
 # ── Models ────────────────────────────────────────────────────────────────────
 
 
+# OpenSpec's test of a requirement's text: the word SHALL or MUST, in capitals
+# (`containsShallOrMust` in OpenSpec 1.14.3, `dist/core/parsers/requirement-text.js`).
+_SHALL_OR_MUST: Final[re.Pattern[str]] = re.compile(r"\b(SHALL|MUST)\b")
+
+
 class AcceptanceCriterion(BaseModel):
+    """One requirement of the change in the shape of an OpenSpec spec delta (#1849): the
+    requirement's `name` and its `requirement` text, which says SHALL or MUST, and one scenario,
+    `scenario`, with its `when` and `then`. The rendered block goes into a change's spec delta as
+    it is."""
+
     model_config = ConfigDict(extra="forbid")
-    description: str
-    verification: str
+    name: str
+    requirement: str
+    scenario: str
+    when: str
+    then: str
+
+    @field_validator("requirement")
+    @classmethod
+    def _says_shall_or_must(cls, requirement: str) -> str:
+        if not _SHALL_OR_MUST.search(requirement):
+            raise ValueError(MESSAGES.roadmap.refine_requirement_keyword)
+        return requirement
 
 
 class DesignOption(BaseModel):
@@ -167,6 +187,7 @@ class RefinementProposal(BaseModel):
     model_config = ConfigDict(extra="forbid")
     problem_statement: str
     acceptance_criteria: list[AcceptanceCriterion] = Field(default_factory=list)
+    existing_tool: str
     key_questions: list[QuestionAnswer] = Field(default_factory=list)
     fits_one_pr: bool = True
     split_offs: list[str] = Field(default_factory=list)
@@ -747,17 +768,21 @@ def _suspected_block(proposal: RefinementProposal) -> str | None:
     return None if block.lower() in CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS else block
 
 
+def _complete(criterion: AcceptanceCriterion) -> bool:
+    """Whether each part of a criterion's requirement block has text."""
+    return all(part.strip() for part in criterion.model_dump().values())
+
+
 def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) -> bool:
-    """Deterministic check: problem non-empty, 1+ criterion with verification, no open questions,
-    fits one PR, and no suspected block.
+    """Deterministic check: a problem statement, 1+ criterion with every part of its requirement
+    block, an answer to the existing-tool question (#1849), no open questions, fits one PR, and
+    no suspected block.
     """
-    if not proposal.problem_statement.strip():
+    if not proposal.problem_statement.strip() or not proposal.existing_tool.strip():
         return False
     if not proposal.acceptance_criteria:
         return False
-    if not all(
-        c.description.strip() and c.verification.strip() for c in proposal.acceptance_criteria
-    ):
+    if not all(_complete(criterion) for criterion in proposal.acceptance_criteria):
         return False
     if open_questions:
         return False
@@ -1020,6 +1045,19 @@ def _option_lines(qa: QuestionAnswer) -> list[str]:
     ]
 
 
+def _requirement_block(criterion: AcceptanceCriterion) -> list[str]:
+    """A criterion as an OpenSpec requirement block with its one scenario (#1849)."""
+    return [
+        "",
+        f"### Requirement: {criterion.name.strip()}",
+        criterion.requirement.strip(),
+        "",
+        f"#### Scenario: {criterion.scenario.strip()}",
+        f"- **WHEN** {criterion.when.strip()}",
+        f"- **THEN** {criterion.then.strip()}",
+    ]
+
+
 def render_proposal_section(
     proposal: RefinementProposal,
     open_questions: list[str],
@@ -1040,9 +1078,12 @@ def render_proposal_section(
         "",
         "### Acceptance criteria",
     ]
-    for idx, ac in enumerate(proposal.acceptance_criteria, start=1):
-        lines.append(f"- Criterion {idx}: {ac.description.strip()}")
-        lines.append(f"  Verification: {ac.verification.strip()}")
+    for criterion in proposal.acceptance_criteria:
+        lines.extend(_requirement_block(criterion))
+
+    lines.append("")
+    lines.append("### Existing Tool Considered")
+    lines.append(proposal.existing_tool.strip())
 
     lines.append("")
     lines.append("### Key questions")
@@ -1379,7 +1420,7 @@ def refine_one_item(
     if edit_problem:
         return RefinedItem(
             item=item,
-            proposal=RefinementProposal(problem_statement=""),
+            proposal=RefinementProposal(problem_statement="", existing_tool=""),
             open_questions=[],
             is_ready=False,
             needs_split=False,

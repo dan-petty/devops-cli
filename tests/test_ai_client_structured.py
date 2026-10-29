@@ -258,8 +258,17 @@ _SYSTEM = "You refine one issue."
 _PROMPT = '{"number": 12}'
 _VALID = json.dumps(
     {
+        "existing_tool": "None.",
         "problem_statement": "Refine writes nothing.",
-        "acceptance_criteria": [{"description": "A section is written.", "verification": "pytest"}],
+        "acceptance_criteria": [
+            {
+                "name": "A section",
+                "requirement": "Refine SHALL write a section.",
+                "scenario": "A refine run",
+                "when": "refine runs",
+                "then": "a section is written",
+            }
+        ],
     }
 )
 _MARKDOWN = (
@@ -267,7 +276,13 @@ _MARKDOWN = (
 )
 # Three violations: a criterion given as a string, and two keys the schema does not define.
 _THREE_VIOLATIONS = json.dumps(
-    {"problem_statement": "x", "acceptance_criteria": ["A string"], "issue": 12, "title": "t"}
+    {
+        "existing_tool": "None.",
+        "problem_statement": "x",
+        "acceptance_criteria": ["A string"],
+        "issue": 12,
+        "title": "t",
+    }
 )
 _CONFIGS = {
     "gateway": AIConfig(
@@ -549,6 +564,7 @@ def test_the_validation_error_counts_the_last_replys_schema_violations(
 # five keys the schema does not define.
 _SEVEN_VIOLATIONS = json.dumps(
     {
+        "existing_tool": "None.",
         "problem_statement": "x",
         "acceptance_criteria": ["first", "second"],
         **{f"invented_{index}": index for index in range(1, 6)},
@@ -556,7 +572,12 @@ _SEVEN_VIOLATIONS = json.dumps(
 )
 # Two violations, one of them a key whose name is the model's own text.
 _INVENTED_KEY = json.dumps(
-    {"problem_statement": "x", "acceptance_criteria": ["a string"], "leaked_model_key": "y"}
+    {
+        "existing_tool": "None.",
+        "problem_statement": "x",
+        "acceptance_criteria": ["a string"],
+        "leaked_model_key": "y",
+    }
 )
 
 
