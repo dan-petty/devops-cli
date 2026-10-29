@@ -247,9 +247,25 @@ class PrometheusConfig(BaseModel):
 
 
 class ArgoCDConfig(BaseModel):
+    """Argo CD's server, and the GitHub App that its GitHub notifier acts as (#2000).
+
+    The App's private key is the managed credential `argocd.github_app_private_key`. The push
+    writes the two IDs and the key to Secret `argocd/argocd-notifications-secret`.
+    """
+
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     url: Annotated[ServiceUrlStr | None, Variable()] = Field(
         default=None, description="ArgoCD service URL"
+    )
+    github_app_id: Annotated[int | None, Variable()] = Field(
+        default=None,
+        gt=0,
+        description="ID of the GitHub App that Argo CD's GitHub notifier acts as",
+    )
+    github_app_installation_id: Annotated[int | None, Variable()] = Field(
+        default=None,
+        gt=0,
+        description="ID of the installation of Argo CD's notifier App on the managed repositories",
     )
 
 

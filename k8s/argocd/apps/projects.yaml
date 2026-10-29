@@ -75,6 +75,9 @@ spec:
         name: grafana-admin
       - group: ''
         kind: Secret
+        name: argocd-notifications-secret
+      - group: ''
+        kind: Secret
         name: gitea-admin
       - group: ''
         kind: Secret

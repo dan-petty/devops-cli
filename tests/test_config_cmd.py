@@ -71,8 +71,9 @@ def test_config_output_json_view() -> None:
 
 def test_github_token_is_not_a_config_option() -> None:
     """A person's GitHub identity comes only from `gh auth token`: no option, keyring key or
-    variable holds a gh token. The one GitHub credential devops-cli keeps is the private key of
-    the roadmap's GitHub App, a managed secret under `service.github_app` (ADR 0015)."""
+    variable holds a gh token. The GitHub credentials devops-cli keeps are the private keys of
+    two GitHub Apps: the roadmap's (`service.github_app`, ADR 0015) and the one Argo CD's GitHub
+    notifier acts as (`argocd.github_app_private_key`, #2000)."""
     from devops_cli.config.env import get_all_env_var_specs, secret_keys, setting_variables
 
     def github_section(keys: Iterable[str]) -> list[str]:
@@ -86,6 +87,9 @@ def test_github_token_is_not_a_config_option() -> None:
         ["github.default_org"],
         [],
         [
+            ("DEVOPS_CLI_ARGOCD_GITHUB_APP_ID", False),
+            ("DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID", False),
+            ("DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY", True),
             ("DEVOPS_CLI_GITHUB_DEFAULT_ORG", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID", False),

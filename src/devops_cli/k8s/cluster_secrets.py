@@ -312,6 +312,29 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "grafana"),),
         labels={"app.kubernetes.io/name": "grafana"},
     ),
+    # The GitHub App of Argo CD's GitHub notifier (#2000). Its `service.github` refers to these
+    # keys as `$github-appID`, `$github-installationID` and `$github-privateKey`. The values
+    # (`notifications.secret.create: false`) leave this Secret to the push. Argo CD reads the
+    # Secret when it builds each notification, so no workload restarts.
+    ClusterSecret(
+        namespace="argocd",
+        name="argocd-notifications-secret",
+        stack="infra",
+        entries=(
+            SecretEntry("github-appID", SettingSource("argocd.github_app_id"), required=False),
+            SecretEntry(
+                "github-installationID",
+                SettingSource("argocd.github_app_installation_id"),
+                required=False,
+            ),
+            SecretEntry(
+                "github-privateKey",
+                KeyringSource.for_credential("argocd.github_app_private_key"),
+                required=False,
+            ),
+        ),
+        labels={"app.kubernetes.io/part-of": "argocd"},
+    ),
     # Gitea's admin (#1081). A person types the password, so the push never makes one. The user
     # is the chart's default, which Gitea does not reserve. Each start of Gitea sets the
     # admin's password to this Secret's (`gitea.admin.passwordMode: keepUpdated`).
