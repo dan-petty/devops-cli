@@ -763,8 +763,6 @@ def _bootstrap_managed_tools(
     """Bootstrap missing managed DevOps tool binaries into target_dir."""
     if dry_run or skip:
         return []
-    if os.environ.get("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "").strip().lower() in ("1", "true", "yes"):
-        return []
     try:
         from devops_cli.commands.install_tools import install_managed_tools
 

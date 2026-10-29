@@ -41,9 +41,9 @@ from devops_cli.tools_lock import (
     BinaryTool,
     PythonTool,
     ToolsLock,
-    installed_commands,
     load_tools_lock,
 )
+from tests.support.tools import link_at_pin
 from tests.web_fakes import StubWeb
 
 runner = CliRunner()
@@ -107,15 +107,6 @@ def _tool_requests(stub_web: StubWeb) -> list[str]:
     floor configures, which a command may flush as it exits."""
     collector = urlsplit(os.environ["DEVOPS_CLI_TELEMETRY_ENDPOINT"]).netloc
     return [url for url in stub_web.requested if urlsplit(url).netloc != collector]
-
-
-def _link_at_pin(name: str, target_dir: Path) -> None:
-    """Install the packaged lock's `name` as install-tools leaves it, without downloading it."""
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for command, installed in installed_commands(name, load_tools_lock().tools()[name]).items():
-        installed.parent.mkdir(parents=True, exist_ok=True)
-        installed.write_bytes(EXECUTABLE)
-        (target_dir / command).symlink_to(installed)
 
 
 # ── Binary tools ──────────────────────────────────────────────────────────────
@@ -622,7 +613,7 @@ def test_only_missing_skips_a_tool_at_its_pin_and_reinstalls_one_linked_elsewher
 ) -> None:
     """`--only-missing` installs a tool unless its command links to its locked version."""
     target = tmp_path / "bin"
-    _link_at_pin("gitleaks", target)
+    link_at_pin("gitleaks", target)
     elsewhere = tmp_path / "elsewhere" / "osv-scanner"
     elsewhere.parent.mkdir()
     elsewhere.write_bytes(EXECUTABLE)
@@ -647,11 +638,11 @@ def test_check_passes_only_when_every_tool_is_at_its_pin(
     names = list(load_tools_lock().tools())
     for name in names:
         if name not in ("k9s", "semgrep"):
-            _link_at_pin(name, target)
+            link_at_pin(name, target)
 
     failing = runner.invoke(install_tools_app, ["--check", "--target-dir", str(target)])
     for name in ("k9s", "semgrep"):
-        _link_at_pin(name, target)
+        link_at_pin(name, target)
     passing = runner.invoke(install_tools_app, ["--check", "--target-dir", str(target)])
 
     named = [name for name in names if f"{name} " in failing.output]
@@ -696,7 +687,7 @@ def test_status_shows_each_pin_and_what_is_installed_without_a_request(
     """`status` reads the lock and the target directory only."""
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     target = tmp_path / "bin"
-    _link_at_pin("gitleaks", target)
+    link_at_pin("gitleaks", target)
     gitleaks = load_tools_lock().binary["gitleaks"]
 
     result = runner.invoke(install_tools_app, ["status", "--target-dir", str(target)])
