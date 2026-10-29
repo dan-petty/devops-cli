@@ -204,18 +204,6 @@ def _render_search_results_table(results: list[Any]) -> None:
     )
 
 
-def _resolve_runtime_valkey_client() -> Any:
-    """Attempt to resolve and connect to a live Valkey client."""
-    try:
-        from devops_cli.commands.valkey import _resolve_client
-
-        client = _resolve_client()
-        return client if client.ping() else None
-    except Exception as exc:
-        logger.debug("Valkey client unavailable for library vector tier: %s", exc)
-        return None
-
-
 def _resolve_runtime_qdrant_and_embedder() -> tuple[Any, Any]:
     """Attempt to resolve and connect to a live Qdrant client and EmbeddingsEngine."""
     try:
@@ -243,20 +231,23 @@ def _build_runtime_vector_store(
     semantic_needed: bool = True,
     dry_run: bool = False,
 ) -> LibraryVectorStore:
-    """Construct LibraryVectorStore wired with Qdrant, embedder, and Valkey clients if available."""
+    """Construct LibraryVectorStore wired with Qdrant, the embedder, and the Valkey tier of the process.
+
+    A dry run has no Valkey tier, so it sends no request.
+    """
     from devops_cli.ai.rag.library_store import LibraryVectorStore
+    from devops_cli.valkey.cache import shared_cache_tier
 
     if dry_run:
         return LibraryVectorStore(local_contracts_dir=contracts_dir)
 
-    valkey_client = _resolve_runtime_valkey_client()
     qdrant_client, embedder = (
         _resolve_runtime_qdrant_and_embedder() if semantic_needed else (None, None)
     )
 
     return LibraryVectorStore(
         qdrant_client=qdrant_client,
-        valkey_client=valkey_client,
+        symbol_cache=shared_cache_tier(),
         embedder=embedder,
         local_contracts_dir=contracts_dir,
     )

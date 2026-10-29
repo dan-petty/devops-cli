@@ -1,7 +1,11 @@
 """The Valkey cache tier: the reads and writes of a cache, behind a circuit breaker (#2073).
 
 The embeddings engine, the threat-intel client and the library symbol store keep cache entries in
-Valkey through a `ValkeyCacheTier`. The circuit breaker of pybreaker guards each tier:
+Valkey through one `ValkeyCacheTier` for each process, `shared_cache_tier()` (#1992). So the
+caches share one client, one connection pool and one breaker: while Valkey is down, the process
+makes one connection attempt in each cooldown, not one for each cache. The tier waits
+`DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS` for a connection and `valkey.timeout` for a command.
+The circuit breaker of pybreaker guards the tier:
 
 - Closed: each read and each write goes to Valkey.
 - Open: a command that fails opens the breaker. For the cooldown
@@ -20,6 +24,7 @@ the tests moves.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -33,8 +38,10 @@ from pybreaker import (
 from devops_cli.config.defaults import (
     DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS,
     DEFAULT_VALKEY_CACHE_BREAKER_FAILURES,
+    DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
 )
-from devops_cli.config.settings import get_valkey_password
+from devops_cli.config.settings import get_valkey_password, load_settings
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.valkey import ValkeyCommandError, ValkeyError
 from devops_cli.valkey.client import ValkeyClient
 
@@ -96,12 +103,51 @@ class ValkeyCacheTier:
             return None
 
 
-def configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
-    """A cache tier over the Valkey that `valkey.url` names, which waits `valkey.timeout`.
+def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
+    """A cache tier over the Valkey that `valkey.url` names.
 
-    It makes no DNS lookup and opens no connection. A `valkey.url` that is not valid raises
+    A command waits `valkey.timeout`, and a connection waits
+    `DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS`, but never longer than a command. It makes no
+    DNS lookup and opens no connection. A `valkey.url` that is not valid raises
     `ConfigurationError`, which names the setting.
     """
     cfg = settings.valkey
-    client = ValkeyClient(cfg.endpoint, password=get_valkey_password(settings), timeout=cfg.timeout)
+    client = ValkeyClient(
+        cfg.endpoint,
+        password=get_valkey_password(settings),
+        timeout=cfg.timeout,
+        connect_timeout=min(cfg.timeout, DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS),
+    )
     return ValkeyCacheTier(client)
+
+
+_SHARED_TIER_LOCK = threading.Lock()
+_shared_tier: ValkeyCacheTier | None = None
+_shared_tier_built = False
+
+
+def shared_cache_tier() -> ValkeyCacheTier | None:
+    """The one cache tier of the process, built from the loaded settings on first use.
+
+    When the tier cannot be built, for example because `valkey.url` is not valid or the keyring
+    is locked, the process logs one warning and each cache runs with no Valkey tier: this returns
+    None until `reset_shared_cache_tier`.
+    """
+    global _shared_tier, _shared_tier_built
+    with _SHARED_TIER_LOCK:
+        if not _shared_tier_built:
+            try:
+                _shared_tier = _configured_cache_tier(load_settings())
+            except DevOpsCLIError as exc:
+                logger.warning("The Valkey cache is off in this process: %s", exc)
+                _shared_tier = None
+            _shared_tier_built = True
+        return _shared_tier
+
+
+def reset_shared_cache_tier() -> None:
+    """Drop the tier of the process, so the next `shared_cache_tier` builds it again."""
+    global _shared_tier, _shared_tier_built
+    with _SHARED_TIER_LOCK:
+        _shared_tier = None
+        _shared_tier_built = False

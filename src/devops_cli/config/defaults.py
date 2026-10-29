@@ -570,10 +570,16 @@ DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
 # The circuit breaker of the Valkey cache tier (`devops_cli.valkey.cache`, #2073). One failed
 # command opens it: a failed command can cost the full `valkey.timeout`, and a miss costs only the
 # work that the cache saves. For the cooldown the tier sends no command, and then one trial
-# command decides. With the default timeout, an outage thus costs at most 2.0 s in each 60 s. The
-# cooldown is pybreaker's own default `reset_timeout` and the pause of the RAG lookups.
+# command decides. The caches of a process share one tier (#1992), so an outage costs one
+# connection attempt in each 60 s for the whole process. The cooldown is pybreaker's own default
+# `reset_timeout` and the pause of the RAG lookups.
 DEFAULT_VALKEY_CACHE_BREAKER_FAILURES: int = 1
 DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS: float = 60.0
+# The cache tier waits at most this long for a connection, and at most `valkey.timeout` (#1992).
+# A silent Valkey host then costs 0.25 s, not the 2.0 s of `valkey.timeout`. Measured on
+# 2026-10-29: a loopback connect took at most 0.6 ms, and a connect to a Service on another node
+# of the homelab took at most 0.4 ms, so the bound is more than 400 times the slowest connect.
+DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS: float = 0.25
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 
