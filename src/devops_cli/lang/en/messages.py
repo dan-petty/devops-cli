@@ -683,6 +683,9 @@ class K8sMessages:
         "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"
     )
+    job_api_refused: str = (
+        "The Kubernetes API refused to {action} in namespace devops: HTTP {status} {reason}"
+    )
     job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"
     job_dry_run_heading: str = (
         "Dry run: no request was made. run-job would make these requests, in order:"
@@ -2066,6 +2069,17 @@ class RoadmapMessages:
         "Then comment `implement: retry`.{note}"
     )
     implement_comment_last_none: str = "none."
+    implement_job_report: str = (
+        "{marker}\nThe runner Job {name} ended: {state}.\n\nThe last lines of its log:\n\n{log}"
+    )
+    implement_job_report_gone: str = (
+        "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log."
+    )
+    implement_job_report_no_log: str = "    (no log: the Job has no pod)"
+    implement_job_report_stopped: str = (
+        "\n\nThe Job left this item without a result. The item is Ready again, and the job "
+        "will not run it. Fix the cause. Then comment `implement: retry`."
+    )
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "

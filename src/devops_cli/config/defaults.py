@@ -730,6 +730,9 @@ DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
 # whose checks are not there yet (#2665).
 DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
 DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
+# How often the implement row is due on its own, besides its first run (#2667). A round only reads
+# the Jobs and the plan; the Job itself runs for up to two hours.
+DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 10
 # The labels of the items the stage job takes when no setting and no option names others: the Ready
 # P0 and P1 bugs (#2659).
 DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = (

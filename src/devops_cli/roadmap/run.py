@@ -56,6 +56,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
@@ -86,6 +87,7 @@ from devops_cli.roadmap.alternatives import (
     plan_alternatives,
     raise_for_failed_checks,
 )
+from devops_cli.roadmap.implement_submit import run_implement_round
 from devops_cli.roadmap.intake import (
     IntakeApplied,
     IntakePlan,
@@ -530,6 +532,26 @@ def _run_stage_adapter(
     return JobOutcome()
 
 
+def _run_implement_adapter(
+    store: RoadmapStore,
+    repo: str = "",
+    clone_path: Path | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Submit the implement Job of one Staged item, report the Jobs that ended, and wait while a
+    Job of the repository runs. The Service runs no step: the runner Job does (#2667)."""
+    source = _job_clone("implement", clone_path)
+    result = run_implement_round(store, repo=repo, source=source)
+    logger.info(
+        "The implement row of %s reported %d Job(s), waited %s, created %s",
+        repo,
+        len(result.reported),
+        result.waiting,
+        result.created,
+    )
+    return JobOutcome()
+
+
 def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
     """Check at most `roadmap.alternatives.limit` open items for an open tool that covers them
     (#2652). The check writes the others when one fails, and then the job fails naming it. A
@@ -624,6 +646,13 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         cross_job_predicate=_stage_cross_job,
     ),
     JobRow(
+        name="implement",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES),
+        runner=_run_implement_adapter,
+        needs_clone=True,
+        first_run_due=True,
+    ),
+    JobRow(
         name="alternatives",
         interval=timedelta(minutes=DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES),
         runner=_run_alternatives_adapter,
@@ -696,13 +725,15 @@ def build_stub_table(
     include_metrics: bool | None = None,
     include_alternatives: bool | None = None,
     include_stage: bool | None = None,
+    include_implement: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: intake,
-    plus metrics, refine, stage and alternatives when asked for or given a stub."""
+    plus metrics, refine, stage, implement and alternatives when asked for or given a stub."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
     add_stage = include_stage if include_stage is not None else ("stage" in r)
+    add_implement = include_implement if include_implement is not None else ("implement" in r)
     add_alternatives = (
         include_alternatives if include_alternatives is not None else ("alternatives" in r)
     )
@@ -710,6 +741,7 @@ def build_stub_table(
         "metrics": add_metrics,
         "refine": add_refine,
         "stage": add_stage,
+        "implement": add_implement,
         "alternatives": add_alternatives,
     }
     return tuple(

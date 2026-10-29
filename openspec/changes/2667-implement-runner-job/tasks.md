@@ -30,9 +30,9 @@
 
 ## 5. The Service row
 
-- [ ] Add failing tests: the row in the table, one Job for a Staged item, no second Job while it runs, the report of a Job that succeeded, failed or is gone, the stop of an item whose Job left it eligible, and a missing CronJob
+- [x] Add failing tests: the row in the table, one Job for a Staged item, no second Job while it runs, the report of a Job that succeeded, failed or is gone, the stop of an item whose Job left it eligible, and a missing CronJob
   - Verification: `uv run devops ci test tests/test_roadmap_implement_submit.py tests/test_roadmap_run.py`
-- [ ] Add the record keys, `k8s/cluster_job_api.py`, `roadmap/implement_submit.py`, the row, and the label selector in the Kubernetes fake
+- [x] Add the record keys, `k8s/cluster_job_api.py`, `roadmap/implement_submit.py`, the row, and the label selector in the Kubernetes fake
   - Verification: `uv run devops ci test tests/test_roadmap_implement_submit.py tests/test_roadmap_run.py tests/k8s`
 
 ## 6. The documentation
