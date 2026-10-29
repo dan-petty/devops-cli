@@ -2,9 +2,11 @@
 
 ## Why
 
-Issue #2635. The MCP tool `k8s_logs` published the option `loki_url`. The model that calls the tool fills it in. `execute_loki_query` built `<loki_url>/loki/api/v1/query_range` from it and sent a GET at the private level. That level admits each address but cloud metadata, whatever `ai.allow_private_network` says. httpx2 replaces the query of the URL with the parameters of the query. So a URL such as `http://<host>/some/path?x=` became `GET /some/path?query=...`, with any path that the caller names.
+Issue #2635. The MCP tool `k8s_logs` published the option `loki_url`. The model that calls the tool fills it in. `execute_loki_query` built `<loki_url>/loki/api/v1/query_range` from it and sent a GET at the private level. That level admits each address but cloud metadata, whatever `ai.allow_private_network` says.
 
-The tool also returned the answer. The text of a non-200 answer went into the error of the tool. A 200 answer was parsed as Loki JSON and its log lines went back to the model. Thus a model could send GET requests to the loopback and private services of the host and read what they answered.
+httpx2 replaces the query of the URL with the parameters of the query. So a URL such as `http://<host>/some/path?x=` became `GET /some/path?query=...`, with any path that the caller names.
+
+The tool also returned the answer. The text of a non-200 answer went into the error of the tool. A 200 answer was parsed as Loki JSON, and its log lines went back to the model. So a model could send GET requests to the loopback and private services of the host and read what they answered.
 
 The cause is the same as in #2480: input from a caller is used as configuration.
 
@@ -46,4 +48,4 @@ None.
 
 The change uses `_PATH_PARAM_RESTRICTIONS` of the MCP generator and the argument contract of the MCP server. Both exist, and #2480 and #2634 use both. No open tool decides which address a model may give. So the change builds no new function. It adds one entry to an existing table.
 
-The change deletes the `loki_url` option of one MCP tool. It deletes the GET request of the tool to a path and host that a model names, and the return of the answer text.
+The change deletes the `loki_url` option of one MCP tool. It deletes the GET request to a host and path that a model names. It deletes the return of the answer text.

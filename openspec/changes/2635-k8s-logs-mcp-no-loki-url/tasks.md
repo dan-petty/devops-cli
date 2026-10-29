@@ -16,6 +16,6 @@
 
 ## Workflow follow-up
 
-- The `loki.url` setting that the error texts name does not exist, and the command dials a localhost default. This is not part of this change. #2651 covers it.
+- The `loki.url` setting that the error texts name does not exist, and the command dials a localhost default. This is not part of this change. #2651 covers it. #2651 must modify the scenario "The default Loki" and the test `test_a_call_with_no_url_queries_the_default_loki`.
 - The other MCP tools that publish a URL option are not part of this change. #2637 covers `ai_prewarm`, #2638 covers `ai_benchmark` and #2639 covers `vault_status`.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
