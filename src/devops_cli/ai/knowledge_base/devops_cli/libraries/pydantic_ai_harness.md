@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/pydantic-ai-harness@0.54.*"
+  - "pkg:pypi/pydantic-ai-harness@0.59.*"
 sources:
   - "https://github.com/pydantic/pydantic-ai-harness"
   - "https://pydantic.dev/docs/ai/harness/"
@@ -20,7 +20,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [pydantic.dev/docs/ai/harness](https://pydantic.dev/docs/ai/harness/) |
 | **Public Git Repository** | [github.com/pydantic/pydantic-ai-harness](https://github.com/pydantic/pydantic-ai-harness) |
-| **Official PyPI Package** | [pypi.org/project/pydantic-ai-harness](https://pypi.org/project/pydantic-ai-harness/) (`0.54.0`) |
+| **Official PyPI Package** | [pypi.org/project/pydantic-ai-harness](https://pypi.org/project/pydantic-ai-harness/) (`0.59.0`) |
 | **DevOps CLI Integration** | [`src/devops_cli/roadmap/implement_step.py`](../../../../../../src/devops_cli/roadmap/implement_step.py) |
 
 ---
@@ -50,7 +50,7 @@ The project builds no agent loop of its own. It builds only the inputs of a step
 
 ## 4. Key Concepts & Core Patterns
 
-1. **Version pin.** Each release of the harness pins `pydantic-ai-slim` to the same number. So `pydantic-ai-harness==0.54.0` fits `pydantic-ai==2.54.0`. Move the two pins together.
+1. **Version pin.** Each release of the harness pins `pydantic-ai-slim` to the same number. So `pydantic-ai-harness==0.59.0` fits `pydantic-ai==2.59.0`. Move the two pins together.
 2. **Workspace.** `Coder` fails at the start of a run that has no workspace. Attach `LocalWorkspace(<dir>)` next to it.
 3. **Tuning `Coder`.** `Coder` is a combined capability. `visit_and_replace` swaps one of its parts. The step swaps `Shell` for one with `allowed_commands` and `denied_operators`, `ClearToolResults` and `WarnNearLimits` for copies with `context_window` set, and the `ToolOutputLimits` band for a smaller cap.
 4. **`delegate_task`.** `Coder(sub_agents=False)` leaves it out, so one agent run is one budget.

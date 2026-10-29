@@ -2628,7 +2628,7 @@ CONST_CAPABILITY_PROBE_PROHIBITION_PREFIX: Final[str] = "SUMMARY:"
 # such as `openai/gpt-4o`. The router writes the route name in the reply body (#2031).
 CONST_AI_GATEWAY_SERVED_MODEL_HEADER: Final[str] = "x-litellm-model-name"
 # Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and
-# Anthropic tables copy pydantic-ai 2.54.0's private maps (models/openai.py, models/anthropic.py),
+# Anthropic tables copy pydantic-ai 2.59.0's private maps (models/openai.py, models/anthropic.py),
 # which are not imported because they are private. A value absent from a table, or mapped to
 # None, is unknown: truncation is never guessed.
 CONST_OPENAI_FINISH_REASONS: Final[dict[str, FinishReason]] = {

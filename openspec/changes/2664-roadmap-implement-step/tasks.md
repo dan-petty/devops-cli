@@ -4,8 +4,8 @@
 
 - [x] Add failing tests: the defaults of `ai.tasks.implement`, a window set in the config file, and the section list of the unknown-key test
   - Verification: `uv run devops ci test tests/test_ai_task_implement.py tests/config/test_unknown_config_keys.py`
-- [x] Pin `pydantic-ai-harness[coder]==0.54.0` in `pyproject.toml` and refresh `uv.lock`
-  - Verification: `uv lock --check`
+- [x] Pin `pydantic-ai-harness[coder]==0.59.0` with `pydantic-ai==2.59.0` and `genai-prices==0.1.13` in `pyproject.toml`, and refresh `uv.lock`
+  - Verification: `uv lock --check` and `uv audit`
 - [x] Add the `implement` task to `AITasksConfig` and to the task list of `devops ai`, and the limits of the step to `config/constants.py`
   - Verification: `uv run devops ci test tests/test_ai_task_implement.py tests/config/test_unknown_config_keys.py`
 - [x] Move the stream drain and the spend record of refine's investigation to `roadmap/agent_run.py`
