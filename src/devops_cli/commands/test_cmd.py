@@ -362,6 +362,10 @@ def test_sandbox(
         bool,
         typer.Option("--rootless/--root", help="Run container with host user UID/GID"),
     ] = True,
+    seccomp_profile: Annotated[
+        Path | None,
+        typer.Option("--seccomp-profile", help=HELP.sandbox.seccomp_profile),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.test.dry_run),
@@ -369,6 +373,9 @@ def test_sandbox(
 ) -> None:
     """Execute test command inside an isolated, disposable Docker container sandbox."""
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+    from devops_cli.sandbox.models import container_sandbox_policy
+
+    policy = container_sandbox_policy(seccomp_profile)
 
     effective_mode, pub_list, loc_list = _validate_sandbox_network(
         network_mode=network_mode,
@@ -389,6 +396,7 @@ def test_sandbox(
             public_whitelist=pub_list,
             local_whitelist=loc_list,
             rootless=rootless,
+            policy=policy,
         )
     except ValueError as err:
         raise typer.BadParameter(str(err)) from err

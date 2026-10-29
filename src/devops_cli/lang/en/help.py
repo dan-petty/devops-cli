@@ -1723,6 +1723,11 @@ class SandboxCommandHelp:
     read_only: str = "Mount root filesystem as read-only with a tmpfs /tmp."
     network: str = "Docker network mode (bridge | host | none)."
     env: str = "Environment variable in KEY=VALUE format."
+    seccomp_profile: str = (
+        "Seccomp profile file for the container, in the JSON format of `docker --security-opt "
+        "seccomp=<file>`, in place of the engine's default profile. Its defaultAction must refuse "
+        "the system calls that it does not name."
+    )
     instance_id: str = "Unique instance ID or name of the sandbox."
     all_instances: str = "Apply operation across all registered sandbox instances."
     timeout: str = "Graceful stop timeout in seconds before SIGKILL."

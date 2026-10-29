@@ -252,16 +252,21 @@ class WorkloadSandboxEngine:
         return f"sandbox-{clean_name}-{ts}-{nonce}"
 
     @staticmethod
-    def declared_controls(config: SandboxDeployConfig) -> dict[str, Any]:
+    def declared_controls(
+        config: SandboxDeployConfig, *, inline_seccomp: bool = True
+    ) -> dict[str, Any]:
         """The hardening a deployment declares to the engine, before any engine call.
 
         These are the policy's security options, the Docker network of the network mode and the
         mode the workspace is mounted in. The method is pure: it asks the engine nothing,
-        provisions no network and injects no trace, so the dry run and the enforcement audit read
-        the controls the container is created with.
+        provisions no network and injects no trace, so the dry run reads the controls the
+        container is created with. A seccomp profile is in its inline form unless
+        `inline_seccomp` is False.
         """
         return {
-            **config.policy.to_docker_security_kwargs(read_only=config.read_only),
+            **config.policy.to_docker_security_kwargs(
+                read_only=config.read_only, inline_seccomp=inline_seccomp
+            ),
             "network_mode": config.network_config.to_docker_network_mode(),
             "workspace_mount_mode": "ro" if config.read_only else "rw",
         }
@@ -278,7 +283,10 @@ class WorkloadSandboxEngine:
         The environment is a copy of the config's that carries the active trace context, so a
         workload that traces is parented to the deploy span.
         """
-        declared = self.declared_controls(config)
+        inline_seccomp = (
+            config.policy.seccomp_profile is None or get_engine().accepts_inline_seccomp_profile()
+        )
+        declared = self.declared_controls(config, inline_seccomp=inline_seccomp)
         mount_mode = declared.pop("workspace_mount_mode")
         volumes = {str(ws_resolved): {"bind": "/workspace", "mode": mount_mode}}
         ports_map = {

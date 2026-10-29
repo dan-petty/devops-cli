@@ -34,6 +34,7 @@ devops sandbox deploy [OPTIONS] <command>
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--env`, `-e` | `string` | - | Environment variable in KEY=VALUE format. |
+| `--seccomp-profile` | `path` | - | Seccomp profile file for the container, in the JSON format of `docker --security-opt seccomp=<file>`, in place of the engine's default profile. Its defaultAction must refuse the system calls that it does not name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

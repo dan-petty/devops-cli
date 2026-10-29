@@ -17,8 +17,10 @@ import struct
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 from urllib.parse import quote, urlsplit
+
+from packaging.version import InvalidVersion, Version
 
 from devops_cli.config.constants import (
     CONST_DOCKER_BUILD_CACHE_TYPES,
@@ -57,6 +59,10 @@ if TYPE_CHECKING:
     from devops_cli.docker.sdk import ClientFactory, EngineClient, EngineContainer, EngineImage
 
 logger = logging.getLogger(__name__)
+
+# The first Podman whose compat create endpoint reads an inline seccomp profile from
+# `HostConfig.SecurityOpt` (containers/podman#29726, in v6.2.0-rc1 and later).
+_PODMAN_INLINE_SECCOMP_VERSION: Final[Version] = Version("6.2.0rc1")
 
 
 # =============================================================================
@@ -586,25 +592,51 @@ class DockerEngineService:
         """Report whether the underlying engine runs in rootless mode."""
         return CONST_SECURITY_OPT_ROOTLESS in self.security_options()
 
-    def kind(self) -> str:
-        """Report engine kind ('Podman' or 'Docker')."""
-        cached = self._get_cached("engine_kind")
+    def _version_components(self) -> list[dict[str, Any]]:
+        """The components that `GET /version` names, or none when the engine does not answer."""
+        cached = self._get_cached("version_components")
         if cached is not None:
-            return str(cached)
+            return list(cached)
         try:
             version_data = self.client().version() or {}
-            components = version_data.get("Components") or []
-            is_podman = any(
-                comp.get("Name") == CONST_PODMAN_ENGINE_COMPONENT_NAME
-                for comp in components
-                if isinstance(comp, dict)
-            )
-            result = "Podman" if is_podman else "Docker"
+            components = [
+                comp for comp in version_data.get("Components") or [] if isinstance(comp, dict)
+            ]
         except (DockerError, OSError) as exc:
             logger.debug("Failed retrieving engine version components: %s", exc)
-            result = "Docker"
-        self._set_cached("engine_kind", result)
-        return result
+            components = []
+        self._set_cached("version_components", components)
+        return components
+
+    def _podman_component(self) -> dict[str, Any] | None:
+        """The Podman component of the engine's version, or None for a Docker engine."""
+        return next(
+            (
+                comp
+                for comp in self._version_components()
+                if comp.get("Name") == CONST_PODMAN_ENGINE_COMPONENT_NAME
+            ),
+            None,
+        )
+
+    def kind(self) -> str:
+        """Report engine kind ('Podman' or 'Docker')."""
+        return "Podman" if self._podman_component() is not None else "Docker"
+
+    def accepts_inline_seccomp_profile(self) -> bool:
+        """Whether `HostConfig.SecurityOpt` may carry a seccomp profile's JSON (`seccomp=<json>`).
+
+        Docker reads the JSON, as the docker CLI sends it. Podman's compat API reads it from 6.2.0
+        (containers/podman#29726) and reads the value as a file path before that, so an older
+        Podman, or one whose version does not parse, gets the path.
+        """
+        podman = self._podman_component()
+        if podman is None:
+            return True
+        try:
+            return Version(str(podman.get("Version", ""))) >= _PODMAN_INLINE_SECCOMP_VERSION
+        except InvalidVersion:
+            return False
 
     def is_podman(self) -> bool:
         """Report whether the connected daemon is a Podman engine."""

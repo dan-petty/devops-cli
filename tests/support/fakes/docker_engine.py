@@ -738,9 +738,9 @@ class DockerEngineFake:
         """Make the container named `name` report these stats frames."""
         self.stats[name] = [dict(frame) for frame in frames]
 
-    def set_podman(self) -> None:
-        """Answer as a Podman engine does: its version names the Podman component."""
-        self.version_data["Components"] = [{"Name": "Podman Engine", "Version": "5.6.2"}]
+    def set_podman(self, version: str = "5.6.2") -> None:
+        """Answer as a Podman engine of `version` does: its version names the Podman component."""
+        self.version_data["Components"] = [{"Name": "Podman Engine", "Version": version}]
 
     # -- Containers ---------------------------------------------------------------
 
