@@ -2,10 +2,10 @@
 
 ## 1. The records, the setting and the GitHub support
 
-- [ ] Add failing tests: the job record keys, `roadmap.implement.in_runner` default and variable, the author of a comment, the three client calls, and the default filter parameter of `parse_filters`
-  - Verification: `uv run devops ci test tests/test_roadmap_implement_records.py tests/test_github_client_pulls.py tests/test_roadmap_stage_selection.py`
-- [ ] Add `ImplementRecordKey`, `IssueComment.author_association` with `seed_comment`, the setting, the constants and defaults, `GitHubClient.get_pull_status`, `update_pull_body` and `comment_on_pull`, and the default parameter of `parse_filters`
-  - Verification: `uv run devops ci test tests/test_roadmap_implement_records.py tests/test_github_client_pulls.py tests/test_roadmap_stage_selection.py`
+- [x] Add failing tests: the job record keys, `roadmap.implement.in_runner` default and variable, the author of a comment, the three client calls, and the default filter parameter of `parse_filters`
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_records.py tests/test_github_client.py`
+- [x] Add `ImplementRecordKey`, `IssueComment.author_association` with `seed_comment`, the setting, the constants and defaults, `GitHubClient.get_pull_status`, `update_pull_body` and `comment_on_pull`, and the default parameter of `parse_filters`
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_records.py tests/test_github_client.py`
 
 ## 2. The fix step
 

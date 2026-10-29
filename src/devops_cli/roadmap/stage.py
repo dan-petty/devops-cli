@@ -125,8 +125,11 @@ class StageFilter:
         return all(not wanted.isdisjoint(item.labels) for wanted in self.families.values())
 
 
-def parse_filters(options: Iterable[str]) -> StageFilter:
-    """The filter that the `family=value` options give, or the default filter with none.
+def parse_filters(
+    options: Iterable[str], defaults: Sequence[str] = _DEFAULT_FILTERS
+) -> StageFilter:
+    """The filter that the `family=value` options give, or the `defaults` with none: the Ready
+    P0 and P1 bugs for the stage job, and the job that implements them gives its own.
 
     A value is the label's name after the family: `priority=p1-high` is the label
     `priority/p1-high`. A family outside the label families, and an option that is not
@@ -134,7 +137,7 @@ def parse_filters(options: Iterable[str]) -> StageFilter:
     """
     texts = MESSAGES.roadmap
     families: dict[str, set[str]] = {}
-    for option in tuple(options) or _DEFAULT_FILTERS:
+    for option in tuple(options) or tuple(defaults):
         family, _, value = option.partition("=")
         family, value = family.strip().lower(), value.strip().lower()
         if not family or not value:
@@ -285,8 +288,8 @@ def _target_of(item: Item) -> StageTarget:
     return StageTarget(item, _commit_type(item.title) or "", _slug_of(item.title))
 
 
-def _priority_order(item: Item) -> tuple[int, int]:
-    """Highest priority first, then the lowest number."""
+def priority_order(item: Item) -> tuple[int, int]:
+    """The sort key of an item: highest priority first, then the lowest number."""
     values = CONST_ROADMAP_PRIORITY_VALUES
     rank = values.index(item.priority) if item.priority in values else len(values)
     return rank, item.number
@@ -330,7 +333,7 @@ def select_stageable(
             for item in store.items()
             if item.state is GitHubState.OPEN and filters.matches(item)
         ),
-        key=_priority_order,
+        key=priority_order,
     )
     selected: list[StageTarget] = []
     left_out: list[LeftOut] = []
@@ -1051,6 +1054,7 @@ __all__ = [
     "dry_run_stage",
     "parse_filters",
     "plan_stage",
+    "priority_order",
     "raise_for_failed",
     "render_stage_plan",
     "select_stageable",

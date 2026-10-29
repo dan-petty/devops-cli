@@ -848,6 +848,15 @@ class RoadmapStageConfig(BaseModel):
     )
 
 
+class RoadmapImplementConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    in_runner: Annotated[bool, Variable()] = Field(
+        description="Whether this process is the pod of a runner Job. Only then does `devops roadmap implement --confirm` run a step. The step's shell is no security boundary: the runner is the sandbox, with a narrow token and no other credential. The Service pod and a workstation keep this false",
+        default=False,
+    )
+
+
 class ServiceConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -927,6 +936,7 @@ class RoadmapConfig(BaseModel):
 
     alternatives: AlternativesConfig = Field(default_factory=AlternativesConfig)
     stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
+    implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
 
 
 class DataConfig(BaseModel):

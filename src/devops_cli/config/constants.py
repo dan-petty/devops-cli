@@ -2915,6 +2915,23 @@ CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000
 # output a stopped step reports.
 CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
 CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
+# The job of `devops roadmap implement` (#2665). The longest log of a failed check, in characters
+# from its end, that the fix step reads; the longest "why" in a pull request body, as the
+# squash message takes it; the longest last message of an agent in a comment; and the most time
+# that the checks of a pull request may take to settle.
+CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 6000
+CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS: Final[int] = 1000
+CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500
+CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
+# After a push, GitHub can show the checks of the old head, or none. The job reads this many
+# times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the checks of the pushed commit.
+CONST_ROADMAP_IMPLEMENT_HEAD_POLLS: Final[int] = 20
+# The comment of a person that clears the stop of an item, and the marker that heads every
+# comment of the job on an item.
+CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT: Final[str] = "implement: retry"
+CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER: Final[str] = "<!-- devops roadmap implement -->"
+# The number of the group of a fix step: a change numbers its groups from 1.
+CONST_ROADMAP_IMPLEMENT_FIX_GROUP: Final[int] = 0
 # The headings, in lower case, of the two sections of an issue that a step gives the model: the
 # problem, as the issue form and refine's proposal word it, and the acceptance criteria.
 CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS: Final[frozenset[str]] = frozenset(

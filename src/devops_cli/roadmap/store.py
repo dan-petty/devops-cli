@@ -182,7 +182,22 @@ class StageRecordKey(StrEnum):
     NEEDS_SPLIT = "stage.needs_split"
 
 
-JobRecord = dict[ItemField | RefineRecordKey | AlternativesRecordKey | StageRecordKey, str | None]
+class ImplementRecordKey(StrEnum):
+    """What the implement job records in an Item's job record (#2665): the last task group that
+    passed, the commit the job ended on, the pull request, the step that stopped the item, and
+    the spend of its steps as JSON. A person clears `implement.stopped` with a comment."""
+
+    GROUP = "implement.group"
+    SHA = "implement.sha"
+    PR = "implement.pr"
+    STOPPED = "implement.stopped"
+    SPEND = "implement.spend"
+
+
+JobRecord = dict[
+    ItemField | RefineRecordKey | AlternativesRecordKey | StageRecordKey | ImplementRecordKey,
+    str | None,
+]
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -294,12 +309,15 @@ class IssueRecord(BaseModel):
 
 
 class IssueComment(BaseModel):
-    """One comment on an issue: its body and when it was made."""
+    """One comment on an issue: its body, when it was made, and the commenter's relation to the
+    repository as GitHub gives it (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE` and others), None
+    when the store does not know it."""
 
     model_config = ConfigDict(frozen=True)
 
     body: str
     created_at: datetime
+    author_association: str | None = None
 
 
 class Closure(BaseModel):
@@ -419,7 +437,14 @@ _RECORD_SEPARATORS = ("\r\n\r\n", "\n\n")
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are another version's, kept as they are.
 _JOB_RECORD_KEYS = frozenset(
-    key.value for key in (*ItemField, *RefineRecordKey, *AlternativesRecordKey, *StageRecordKey)
+    key.value
+    for key in (
+        *ItemField,
+        *RefineRecordKey,
+        *AlternativesRecordKey,
+        *StageRecordKey,
+        *ImplementRecordKey,
+    )
 )
 
 
@@ -767,6 +792,7 @@ __all__ = [
     "Evidence",
     "EvidenceKind",
     "GitHubState",
+    "ImplementRecordKey",
     "IssueComment",
     "IssueRecord",
     "Item",

@@ -726,6 +726,10 @@ DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
+# The most items one implement run takes, and the seconds between two reads of a pull request
+# whose checks are not there yet (#2665).
+DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
+DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
 # item, the change folder and the packed files of one task group. It leaves most of a 128k
 # window for tool output and the model's turns (#2654).

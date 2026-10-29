@@ -351,6 +351,19 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._roadmap.comments.setdefault(number, []).append(made)
         self._log("comment", number, value=body)
 
+    def seed_comment(
+        self, number: int, body: str, *, author_association: str | None = None
+    ) -> None:
+        """Add a comment as another commenter made it, with their relation to the repository,
+        as GitHub gives it. Seeding records no change and no write."""
+        self._require_issue(number, "roadmap.issue.seed_comment")
+        made = IssueComment(
+            body=body,
+            created_at=as_utc(self._roadmap.clock()),
+            author_association=author_association,
+        )
+        self._roadmap.comments.setdefault(number, []).append(made)
+
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
         return list(self._roadmap.comments.get(number, []))
