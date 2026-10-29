@@ -9,16 +9,35 @@ program.
 
 from __future__ import annotations
 
+import contextlib
+import sqlite3
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
+from pydantic_ai.exceptions import ModelHTTPError
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
+from devops_cli.ai.client.models import AICredentialsError
+from devops_cli.ai.spend.ledger import SpendLedger
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+    CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
+    CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
+)
 from devops_cli.exceptions.roadmap import RoadmapImplementError
-from devops_cli.roadmap.implement_step import build_step_inputs, parse_task_groups
+from devops_cli.roadmap.implement_step import (
+    StepOutcome,
+    StepStatus,
+    build_step_inputs,
+    parse_task_groups,
+    run_step,
+)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.model_script import ModelScript, say, tool_call, tool_calls
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -85,6 +104,8 @@ def make_checkout(root: Path, tasks: str = _TASKS) -> Path:
     change.mkdir(parents=True)
     (checkout / "src").mkdir()
     (checkout / "docs").mkdir()
+    (checkout / "tests").mkdir()
+    (checkout / "tests" / "conftest.py").write_text('"""The tests."""\n', encoding="utf-8")
     git(checkout, "init", "-q", "-b", "main")
     for key, value in (("user.email", "ci@example.com"), ("user.name", "CI")):
         git(checkout, "config", key, value)
@@ -256,3 +277,431 @@ def test_an_issue_that_is_no_item_is_refused(store: InMemoryRoadmapStore, checko
         build_step_inputs(store, item=5, group=1, source=checkout, window=WINDOW)
 
     assert refused.value.message == "#5 is not an item of the roadmap."
+
+
+# ── The run of a step ─────────────────────────────────────────────────────────────────────
+
+_TASKS_PATH = "openspec/changes/1-sample-change/tasks.md"
+_TICKED = _TASKS.replace("- [ ] Add", "- [x] Add")
+_TEST = "def test_shout() -> None:\n    assert True\n"
+_CODE = _SAMPLE + '\n\ndef shout(text: str) -> str:\n    return text.upper() + "!"\n'
+_CHECK = "uv run devops ci test tests/test_sample.py"
+_DOCS = "uv run devops docs check"
+
+
+def _write(path: str, content: str) -> tuple[str, dict[str, Any]]:
+    return "write_file", {"path": path, "content": content}
+
+
+def _the_whole_group() -> tuple[tuple[str, dict[str, Any]], ...]:
+    """The calls of an agent that writes the test and the code, and ticks the group's tasks."""
+    return (
+        _write("tests/test_sample.py", _TEST),
+        _write("src/sample.py", _CODE),
+        _write(_TASKS_PATH, _TICKED),
+    )
+
+
+def _git_for_real(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603 B607: git, on the temporary repository of the test
+        call.argv, cwd=call.cwd, capture_output=True, text=True, check=False
+    )
+
+
+@pytest.fixture
+def programs(process_fake: ProcessFake) -> ProcessFake:
+    """The process edge: git runs for real, and every other program exits 0 unless a test says
+    otherwise."""
+    process_fake.answer("git", ProcessAnswer(side_effect=_git_for_real))
+    return process_fake
+
+
+def _step(
+    store: InMemoryRoadmapStore, checkout: Path, script: ModelScript, group: int = 1
+) -> StepOutcome:
+    return run_step(
+        store, item=1, group=group, source=checkout, model=script.model(), window=WINDOW
+    )
+
+
+_PREVIEW = ("--preview-features", "malware-check,check-command")
+
+
+def _text(call: ProcessCall) -> str:
+    """The command line of a call, without the preview flags that the runner adds to uv."""
+    return " ".join(word for word in call.argv if word not in _PREVIEW)
+
+
+def _programs_run(fake: ProcessFake, program: str) -> list[str]:
+    return [_text(call) for call in fake.calls if call.argv[0] == program]
+
+
+def _is_clean_at(checkout: Path, head: str) -> bool:
+    return (git(checkout, "rev-parse", "HEAD"), git(checkout, "status", "--porcelain")) == (
+        head,
+        "",
+    )
+
+
+def test_a_group_that_the_agent_completes_ends_done_with_one_commit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    before = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(
+        tool_calls(*_the_whole_group()),
+        say("The group is done."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    head = git(checkout, "rev-parse", "HEAD")
+    assert (
+        outcome.status,
+        outcome.reason,
+        outcome.commit,
+        outcome.last_message,
+        outcome.requests,
+        git(checkout, "rev-parse", "HEAD~1"),
+        git(checkout, "log", "-1", "--format=%s"),
+        sorted(git(checkout, "show", "--name-only", "--format=", "HEAD").splitlines()),
+        git(checkout, "status", "--porcelain"),
+    ) == (
+        StepStatus.DONE,
+        "",
+        head,
+        "The group is done.",
+        2,
+        before,
+        "The first group (#1)",
+        [_TASKS_PATH, "src/sample.py", "tests/test_sample.py"],
+        "",
+    )
+
+
+def test_the_exit_checks_run_each_command_once_then_the_static_checks_on_the_changed_files(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    _step(store, checkout, ModelScript(tool_calls(*_the_whole_group()), say("Done.")))
+
+    py = "src/sample.py tests/test_sample.py"
+    uv = [call for call in programs.calls if call.argv[0] == "uv"]
+    assert ([_text(call) for call in uv], {call.cwd for call in uv}) == (
+        [
+            "uv run devops ci test tests/test_sample.py",
+            "uv run devops docs check",
+            f"uv run ruff check {py}",
+            f"uv run ruff format --check {py}",
+            f"uv run mypy --strict {py}",
+        ],
+        {checkout},
+    )
+
+
+def test_a_failed_verification_command_stops_the_step_and_resets_the_checkout(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    programs.answer(
+        lambda call: _text(call) == _DOCS, ProcessAnswer(returncode=1, stdout="no docs\n")
+    )
+    script = ModelScript(tool_calls(*_the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.reason,
+        outcome.commit,
+        _is_clean_at(checkout, head),
+        (checkout / "tests" / "test_sample.py").exists(),
+        "def shout" in (checkout / "src" / "sample.py").read_text(encoding="utf-8"),
+    ) == (
+        StepStatus.STOPPED,
+        f"{_DOCS} exited with status 1.\nno docs",
+        "",
+        True,
+        False,
+        False,
+    )
+
+
+def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    programs.answer(
+        lambda call: _text(call).startswith("uv run ruff check"),
+        ProcessAnswer(returncode=1, stdout="E501 too long\n"),
+    )
+
+    outcome = _step(store, checkout, ModelScript(tool_calls(*_the_whole_group()), say("Done.")))
+
+    assert (outcome.status, outcome.reason, _is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "uv run ruff check src/sample.py tests/test_sample.py exited with status 1.\nE501 too long",
+        True,
+    )
+
+
+def test_a_task_left_unticked_stops_the_step_before_any_command_runs(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(tool_calls(_write("src/sample.py", _CODE)), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.reason,
+        _programs_run(programs, "uv"),
+        _is_clean_at(checkout, head),
+    ) == (
+        StepStatus.STOPPED,
+        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`",
+        [],
+        True,
+    )
+
+
+def test_a_change_to_another_group_stops_the_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    other = _TICKED.replace("- [x] Document", "- [ ] Document")
+    script = ModelScript(tool_calls(_write(_TASKS_PATH, other)), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, _is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "Group 2 changed. A step may change only its own group.",
+        True,
+    )
+
+
+def test_a_task_that_the_agent_removes_stops_the_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    shorter = _TICKED.replace(
+        "- [x] Add `shout` to `src/sample.py`\n"
+        "  - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`\n",
+        "",
+    )
+    script = ModelScript(tool_calls(_write(_TASKS_PATH, shorter)), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, _is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "The tasks of group 1 changed. A step may only tick them.",
+        True,
+    )
+
+
+def test_a_verification_command_that_is_no_command_line_does_not_run(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    tasks = _TASKS.replace(_DOCS, "uv run 'devops")
+    checkout = make_checkout(tmp_path, tasks)
+    ticked = tasks.replace("- [ ] Add", "- [x] Add")
+    script = ModelScript(tool_calls(_write(_TASKS_PATH, ticked)), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        "The verification command uv run 'devops is not a valid command line.",
+    )
+
+
+def test_a_verification_command_outside_the_allowlist_does_not_run(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    tasks = _TASKS.replace(_DOCS, "curl http://example.com")
+    checkout = make_checkout(tmp_path, tasks)
+    ticked = tasks.replace("- [ ] Add", "- [x] Add")
+    script = ModelScript(tool_calls(_write(_TASKS_PATH, ticked)), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, _programs_run(programs, "curl")) == (
+        StepStatus.STOPPED,
+        "The verification command curl http://example.com is not allowed. curl is not one of: "
+        "git, uv, ruff, mypy, openspec, devops.",
+        [],
+    )
+
+
+def test_a_group_whose_tasks_are_ticked_and_that_changes_no_file_stops_the_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    outcome = _step(store, checkout, ModelScript(say("Nothing to do.")), group=2)
+
+    assert (outcome.status, outcome.reason, outcome.last_message) == (
+        StepStatus.STOPPED,
+        "The agent changed no file.",
+        "Nothing to do.",
+    )
+
+
+def test_a_commit_that_a_hook_refuses_stops_the_step_and_resets_the_checkout(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    hook = checkout / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\necho refused by the hook\nexit 1\n", encoding="utf-8")
+    hook.chmod(0o755)
+
+    outcome = _step(store, checkout, ModelScript(tool_calls(*_the_whole_group()), say("Done.")))
+
+    assert (outcome.status, outcome.reason, _is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        "The commit failed.\nrefused by the hook",
+        True,
+    )
+
+
+def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes_on(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A refused command starts no process: the process floor fails a test that starts one."""
+    script = ModelScript(
+        tool_call("shell", command="curl http://example.com"),
+        tool_call("shell", command="git status; curl http://example.com"),
+        say("Done."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.last_message, outcome.requests, script.tool_answers()) == (
+        "Done.",
+        3,
+        [
+            "Command 'curl' is not in the allowed list.",
+            "Shell operator ';' is not allowed.",
+        ],
+    )
+
+
+def test_the_agent_has_the_file_tools_and_the_shell_and_no_delegate(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(say("Done."))
+
+    _step(store, checkout, script)
+
+    assert script.tools_offered[0] == [
+        "edit_file",
+        "grep",
+        "list_files",
+        "read_file",
+        "shell",
+        "write_file",
+    ]
+
+
+def test_the_first_request_holds_the_inputs_of_the_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(say("Done."))
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+
+    _step(store, checkout, script)
+
+    prompts = [part for message in script.seen[0] for part in message.parts]
+    assert inputs.message in [str(getattr(part, "content", "")) for part in prompts]
+
+
+def test_a_run_that_never_ends_stops_at_the_request_limit_and_resets_the_checkout(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(
+        tool_call("write_file", path="tests/test_sample.py", content=_TEST),
+        tool_call("read_file", path="docs/SAMPLE.md"),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.reason,
+        outcome.requests,
+        len(script.seen),
+        _is_clean_at(checkout, head),
+    ) == (
+        StepStatus.STOPPED,
+        "UsageLimitExceeded",
+        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+        True,
+    )
+
+
+def test_a_tool_result_is_cut_to_the_cap_of_a_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    (checkout / "docs" / "SAMPLE.md").write_text("x" * 60000 + "\n", encoding="utf-8")
+    git(checkout, "commit", "-q", "-am", "a long file")
+    script = ModelScript(tool_call("read_file", path="docs/SAMPLE.md"), say("Done."))
+
+    _step(store, checkout, script, group=2)
+
+    assert len(script.tool_answers()[0]) <= CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS
+
+
+def test_a_checkout_with_uncommitted_changes_is_refused_before_any_request(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    (checkout / "notes.txt").write_text("mine\n", encoding="utf-8")
+    script = ModelScript(say("Done."))
+
+    with pytest.raises(RoadmapImplementError) as refused:
+        _step(store, checkout, script)
+
+    assert (refused.value.message, script.seen, (checkout / "notes.txt").exists()) == (
+        f"The checkout {checkout} has uncommitted changes. A step resets the checkout when it "
+        "fails. Commit or discard the changes first.",
+        [],
+        True,
+    )
+
+
+def test_a_refused_key_raises_after_the_checkout_is_reset(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(
+        tool_call("write_file", path="tests/test_sample.py", content=_TEST),
+        ModelHTTPError(401, "gateway", {"error": "bad key"}),
+    )
+
+    with pytest.raises(AICredentialsError):
+        _step(store, checkout, script)
+
+    assert _is_clean_at(checkout, head)
+
+
+def _spend_rows(ledger: SpendLedger) -> Sequence[tuple[Any, ...]]:
+    with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
+        rows: Sequence[tuple[Any, ...]] = conn.execute(
+            "SELECT request_type, stage, prompt_tokens > 0, completion_tokens > 0 "
+            "FROM ai_spend_records"
+        ).fetchall()
+    return rows
+
+
+def test_the_spend_of_a_step_is_one_record_in_the_ledger(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, spend_ledger: SpendLedger
+) -> None:
+    script = ModelScript(tool_call("read_file", path="docs/SAMPLE.md"), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (_spend_rows(spend_ledger), outcome.requests, outcome.input_tokens > 0) == (
+        [("agent_run", "implement", 1, 1)],
+        2,
+        True,
+    )

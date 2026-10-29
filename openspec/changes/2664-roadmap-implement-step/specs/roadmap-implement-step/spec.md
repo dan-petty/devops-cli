@@ -32,6 +32,10 @@ The exit checks SHALL run in this order: every task of the group is ticked and n
 - **WHEN** the model ticks a task of group 2 while it works on group 1
 - **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
 
+#### Scenario: A task that the agent removes
+- **WHEN** the model removes a task of group 1 from the `tasks.md` and ticks the others
+- **THEN** the step reports stopped with the reason that the tasks of group 1 changed, and the checkout is reset
+
 #### Scenario: A verification command outside the allowlist
 - **WHEN** a Verification line of the group names `curl http://example.com`
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
@@ -72,12 +76,12 @@ The user message of the model SHALL hold the title, the problem statement and th
 The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff`, `mypy`, `openspec` or `devops`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on.
 
 #### Scenario: A program outside the list
-- **WHEN** the model calls the shell tool with `curl http://example.com` and then with `git status --short`
-- **THEN** the first call returns the refusal that `curl` is not in the allowed list, the second call runs, and the run ends with the model's last message
+- **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
+- **THEN** the call returns the refusal that `curl` is not in the allowed list, no process starts, and the run ends with the last message of the model
 
 #### Scenario: A second command
 - **WHEN** the model calls the shell tool with `git status; curl http://example.com`
-- **THEN** the call returns a refusal that names the operator, and nothing runs
+- **THEN** the call returns a refusal that names the operator, and no process starts
 
 ### Requirement: A run that reaches a limit ends stopped
 `UsageLimits` SHALL cap a run at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, or that breaks the rules of its tools past their retries, SHALL end as stopped with the class name of the pydantic-ai error as the reason, and the step SHALL reset the checkout. The agent SHALL have no `delegate_task` tool.

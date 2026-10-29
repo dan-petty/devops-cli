@@ -20,9 +20,9 @@
 
 ## 3. The run, the exit checks and the commit
 
-- [ ] Add failing tests: a done step with one commit, a failed verification, a failed static check, an unticked task, a changed group, the shell allowlist, the limits, the tools of the agent and the spend record
+- [x] Add failing tests: a done step with one commit, a failed verification, a failed static check, an unticked task, a changed group, the shell allowlist, the limits, the tools of the agent and the spend record
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Add the tuned `Coder` agent, the run with its limits, the exit checks, the commit and the reset, and `StepOutcome`
+- [x] Add the tuned `Coder` agent, the run with its limits, the exit checks, the commit and the reset, and `StepOutcome`
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_roadmap_agent_run.py`
 
 ## 4. The command and the documentation

@@ -6,31 +6,66 @@ groups (`## <n>. <title>`). A step reads one group and builds the inputs the mod
 item's title, problem and acceptance criteria, the change's `proposal.md`, `design.md` and
 `tasks.md`, the group, and the files the group names, packed. It counts their tokens before the
 first request and refuses a step that does not fit the window of `ai.tasks.implement`.
+
+The run is one pydantic-ai agent on the harness's `Coder`, tuned where its parts are public: a
+shell with an allowlist, a smaller cap on each tool result, and the window of the task. The step
+judges the exit, not the model: the tasks of the group are ticked, the verification commands pass,
+and the static checks pass on the changed files. Then it commits the checkout, or it resets it.
+A step writes nothing to GitHub.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
+import subprocess
+import time
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
+from pydantic import BaseModel, ConfigDict
+from pydantic_ai import Agent, capture_run_messages
+from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
+from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.usage import UsageLimits
+from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
+from pydantic_ai_harness.shell import Shell
+from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 
 from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.commands import (
+    BIN_GIT,
+    BIN_MYPY,
+    BIN_RUFF,
+    BIN_UV,
+    IMPLEMENT_ALLOWED_PROGRAMS,
+)
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
+    CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+    CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+    CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS,
+    CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
+    CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.store import Item, RoadmapStore
@@ -210,9 +245,13 @@ def named_files(source: Path, group: TaskGroup) -> list[Path]:
 
 @dataclass(frozen=True)
 class StepInputs:
-    """What one step gives the model: the instructions, the user message, and their tokens."""
+    """What one step gives the model: the instructions, the user message, and their tokens.
+    `change` is the change folder, and `groups` are the groups of its `tasks.md` before the
+    run."""
 
     group: TaskGroup
+    change: Path
+    groups: tuple[TaskGroup, ...]
     instructions: str
     message: str
     tokens: int
@@ -270,4 +309,350 @@ def build_step_inputs(
                 reserve=CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
             )
         )
-    return StepInputs(group=chosen, instructions=instructions, message=message, tokens=tokens)
+    return StepInputs(
+        group=chosen,
+        change=change,
+        groups=tuple(groups),
+        instructions=instructions,
+        message=message,
+        tokens=tokens,
+    )
+
+
+# ── The outcome ───────────────────────────────────────────────────────────────────────────
+
+
+class StepStatus(StrEnum):
+    """How a step ended: its group is committed, or the step stopped and reset the checkout."""
+
+    DONE = "done"
+    STOPPED = "stopped"
+
+
+class StepOutcome(BaseModel):
+    """The report of a step. `reason` is why a stopped step stopped: the class of the pydantic-ai
+    error that ended the run, or the first exit check that failed. `commit` is the commit of a
+    done step. `planned_requests` are the requests a dry run lists."""
+
+    model_config = ConfigDict(frozen=True)
+
+    item: int
+    group: int
+    title: str
+    status: StepStatus
+    reason: str = ""
+    last_message: str = ""
+    commit: str = ""
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    dry_run: bool = False
+    planned_requests: tuple[str, ...] = ()
+
+
+# ── The agent ─────────────────────────────────────────────────────────────────────────────
+
+
+def _tune(capability: AbstractCapability[None], window: int) -> AbstractCapability[None]:
+    """One part of `Coder`, changed for a step: the shell takes the allowlist and refuses the
+    operators that start a second command, the tool results get the cap of a step, and the
+    context controls get the window of the task, in place of the registry's."""
+    if isinstance(capability, Shell):
+        return replace(
+            capability,
+            allowed_commands=list(IMPLEMENT_ALLOWED_PROGRAMS),
+            denied_commands=[],
+            denied_operators=list(CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS),
+            allow_interactive=False,
+        )
+    if isinstance(capability, ClearToolResults | WarnNearLimits):
+        return replace(capability, context_window=window)
+    if isinstance(capability, ToolOutputLimits):
+        cap = CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS
+        return replace(capability, bands=[Band(over=cap, action=Truncate(max_chars=cap))])
+    return capability
+
+
+def build_agent(model: Any, source: Path, instructions: str, window: int) -> Agent[None, str]:
+    """The agent of a step: `Coder` on a local workspace at `source`. It has no `delegate_task`
+    tool, so the limits of a run cover the whole step, and it loads no instruction file of the
+    checkout, so its context is the inputs of the step."""
+    from pydantic_ai_harness.coder import Coder
+
+    coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
+    # The visitor replaces leaves and removes none, so the tree is never empty.
+    tuned = cast(
+        AbstractCapability[None], coder.visit_and_replace(lambda leaf: _tune(leaf, window))
+    )
+    return Agent(
+        model,
+        output_type=str,
+        retries={"tools": CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES},
+        capabilities=[LocalWorkspace(source), tuned],
+    )
+
+
+@dataclass(frozen=True)
+class _Run:
+    """What a run left: why it ended early (the class of the pydantic-ai error, or empty), the
+    last text of the model, and what it spent."""
+
+    reason: str
+    last_message: str
+    requests: int
+    input_tokens: int
+    output_tokens: int
+
+
+def _last_text(messages: Sequence[ModelMessage]) -> str:
+    """The last text part of the model's replies."""
+    texts = [
+        part.content
+        for message in messages
+        if isinstance(message, ModelResponse)
+        for part in message.parts
+        if isinstance(part, TextPart)
+    ]
+    return texts[-1] if texts else ""
+
+
+def _run_agent(agent: Agent[None, str], model: Any, message: str) -> _Run:
+    """Run the agent under the limits of a step and record its spend. Raises the client error
+    that refine raises when a model call fails."""
+    limits = UsageLimits(
+        request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+        tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+    )
+    reason = last = ""
+    error = None
+    started = time.monotonic()
+    with capture_run_messages() as messages:
+        try:
+            last = agent.run_sync(
+                message, usage_limits=limits, event_stream_handler=drain_events
+            ).output
+        except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
+            reason, last = type(stopped).__name__, _last_text(messages)
+        except ModelAPIError as exc:
+            # Raised outside this handler, so a logged traceback holds no reply text.
+            error = model_call_error(exc, "The step's")
+        finally:
+            record_run_spend(model, messages, time.monotonic() - started, stage="implement")
+    if error is not None:
+        raise error
+    replies = [reply for reply in messages if isinstance(reply, ModelResponse)]
+    return _Run(
+        reason=reason,
+        last_message=last,
+        requests=len(replies),
+        input_tokens=sum(reply.usage.input_tokens for reply in replies),
+        output_tokens=sum(reply.usage.output_tokens for reply in replies),
+    )
+
+
+# ── The exit checks ───────────────────────────────────────────────────────────────────────
+
+
+def _git(source: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """One git command in the checkout."""
+    return run_subprocess(
+        [BIN_GIT, *args],
+        cwd=source,
+        quiet=True,
+        timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+def _tail(done: subprocess.CompletedProcess[str]) -> str:
+    """The last lines of what a command printed."""
+    lines = f"{done.stdout or ''}{done.stderr or ''}".strip().splitlines()
+    return "\n".join(lines[-CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES:])
+
+
+def _git_output(source: Path, *args: str) -> str:
+    """What a git command printed. Raises `RoadmapImplementError` when it fails."""
+    done = _git(source, *args)
+    if done.returncode != 0:
+        raise RoadmapImplementError(
+            MESSAGES.roadmap.implement_git_failed.format(
+                command=shlex.join(args), output=_tail(done)
+            )
+        )
+    return done.stdout or ""
+
+
+def _require_clean(source: Path) -> None:
+    """Refuse a checkout with uncommitted changes: a failed step resets it."""
+    if _git_output(source, "status", "--porcelain").strip():
+        raise RoadmapImplementError(MESSAGES.roadmap.implement_dirty.format(path=source))
+
+
+def _reset(source: Path) -> None:
+    """Restore the checkout to its last commit."""
+    _git_output(source, "reset", "--hard", "HEAD")
+    _git_output(source, "clean", "-fd")
+
+
+def _shape(group: TaskGroup | None) -> tuple[str, tuple[tuple[str, tuple[str, ...]], ...]] | None:
+    """What a step may not change in its own group: the title, and the text and the commands of
+    each task, but not the checkboxes."""
+    if group is None:
+        return None
+    return group.title, tuple((task.text[3:], task.verification) for task in group.tasks)
+
+
+def _whole(group: TaskGroup | None) -> tuple[str, tuple[GroupTask, ...]] | None:
+    """What a step may not change in another group: the title and the tasks, checkboxes too."""
+    return None if group is None else (group.title, group.tasks)
+
+
+def _tasks_failure(inputs: StepInputs) -> str | None:
+    """The first rule of the tasks that the run broke: the group changed beyond its checkboxes,
+    a task of the group is not ticked, or another group changed."""
+    texts = MESSAGES.roadmap
+    number = inputs.group.number
+    tasks_md = (inputs.change / "tasks.md").read_text(encoding="utf-8")
+    after = {g.number: g for g in parse_task_groups(tasks_md)}
+    mine = after.get(number)
+    if mine is None or _shape(mine) != _shape(inputs.group):
+        return texts.implement_stop_tasks_edited.format(group=number)
+    unticked = next((task for task in mine.tasks if not task.ticked), None)
+    if unticked is not None:
+        return texts.implement_stop_unticked.format(task=unticked.text)
+    before = {g.number: g for g in inputs.groups}
+    changed = sorted(
+        other
+        for other in (before.keys() | after.keys()) - {number}
+        if _whole(before.get(other)) != _whole(after.get(other))
+    )
+    return texts.implement_stop_group_changed.format(group=changed[0]) if changed else None
+
+
+def _command_failure(source: Path, argv: Sequence[str], shown: str) -> str | None:
+    """Run `argv` in the checkout. None when it exits 0, else why the step stops."""
+    try:
+        done = run_subprocess(
+            list(argv),
+            cwd=source,
+            quiet=True,
+            timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return MESSAGES.roadmap.implement_stop_command_timeout.format(
+            command=shown, seconds=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS
+        )
+    if done.returncode == 0:
+        return None
+    return MESSAGES.roadmap.implement_stop_command_failed.format(
+        command=shown, status=done.returncode, output=_tail(done)
+    )
+
+
+def _verification_failure(source: Path, group: TaskGroup) -> str | None:
+    """Run each verification command of the group, from the tasks as they were before the run.
+    A command whose program is not on the allowlist does not run."""
+    texts = MESSAGES.roadmap
+    for command in group.verification_commands:
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            return texts.implement_stop_command_unparsed.format(command=command)
+        if not argv or argv[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
+            return texts.implement_stop_command_denied.format(
+                command=command,
+                program=argv[0] if argv else "",
+                allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS),
+            )
+        failure = _command_failure(source, argv, command)
+        if failure is not None:
+            return failure
+    return None
+
+
+def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
+    """Run `ruff check`, `ruff format --check` and `mypy --strict` on the changed Python files."""
+    files = [path for path in changed if path.endswith(".py")]
+    if not files:
+        return None
+    for tool in ((BIN_RUFF, "check"), (BIN_RUFF, "format", "--check"), (BIN_MYPY, "--strict")):
+        argv = [BIN_UV, "run", *tool, *files]
+        failure = _command_failure(source, argv, shlex.join(argv))
+        if failure is not None:
+            return failure
+    return None
+
+
+def _stage(source: Path) -> list[str]:
+    """Stage every change of the checkout, and list the paths that the commit would add or
+    change."""
+    _git_output(source, "add", "-A")
+    names = _git_output(source, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z")
+    return sorted(name for name in names.split("\0") if name)
+
+
+def _exit_failure(source: Path, inputs: StepInputs) -> str | None:
+    """The first exit check that fails, or None when every one passes."""
+    failure = _tasks_failure(inputs)
+    if failure is not None:
+        return failure
+    changed = _stage(source)
+    if not changed:
+        return MESSAGES.roadmap.implement_stop_no_change
+    return _verification_failure(source, inputs.group) or _static_failure(source, changed)
+
+
+def _commit(source: Path, message: str) -> tuple[str, str]:
+    """Commit the staged changes, with the hooks of the repository. The commit, and why the
+    step stops when git refuses it."""
+    done = _git(source, "commit", "-m", message)
+    if done.returncode != 0:
+        return "", MESSAGES.roadmap.implement_stop_commit_failed.format(output=_tail(done))
+    return _git_output(source, "rev-parse", "HEAD").strip(), ""
+
+
+# ── The step ──────────────────────────────────────────────────────────────────────────────
+
+
+def _attempt(source: Path, model: Any, window: int, inputs: StepInputs, item: int) -> StepOutcome:
+    """Run the agent, then judge the exit and commit."""
+    agent = build_agent(model, source, inputs.instructions, window)
+    run = _run_agent(agent, model, inputs.message)
+    outcome = StepOutcome(
+        item=item,
+        group=inputs.group.number,
+        title=inputs.group.title,
+        status=StepStatus.STOPPED,
+        last_message=run.last_message,
+        requests=run.requests,
+        input_tokens=run.input_tokens,
+        output_tokens=run.output_tokens,
+    )
+    reason = run.reason or _exit_failure(source, inputs)
+    commit = ""
+    if not reason:
+        commit, reason = _commit(source, f"{inputs.group.title} (#{item})")
+    if reason:
+        return outcome.model_copy(update={"reason": reason})
+    return outcome.model_copy(update={"status": StepStatus.DONE, "commit": commit})
+
+
+def run_step(
+    store: RoadmapStore, *, item: int, group: int, source: Path, model: Any, window: int
+) -> StepOutcome:
+    """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
+
+    The step commits the group as `<group title> (#<item>)` when every exit check passes, and
+    otherwise resets the checkout to its last commit, also when the run raises. It reads the
+    item once and writes nothing to GitHub. Raises `RoadmapImplementError` for a step it
+    refuses to start, and the client error of a failed model call.
+    """
+    inputs = build_step_inputs(store, item=item, group=group, source=source, window=window)
+    _require_clean(source)
+    done = False
+    try:
+        outcome = _attempt(source, model, window, inputs, item)
+        done = outcome.status is StepStatus.DONE
+        return outcome
+    finally:
+        if not done:
+            _reset(source)

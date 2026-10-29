@@ -2905,6 +2905,9 @@ CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 4096
 CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS: Final[int] = 80
 CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: Final[int] = 240
 CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 16000
+# The consecutive refusals that a tool may answer before the run ends, such as a command off the
+# allowlist. A refusal is the model's to correct, as the harness's own file tools allow five.
+CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
 CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS: Final[int] = 40000
 # The tokens of one packed file in the inputs of a step. The agent reads more with its tools.
 CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000
