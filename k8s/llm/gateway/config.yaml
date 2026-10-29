@@ -84,8 +84,8 @@ model_list:
       timeout: 1100
       num_retries: 0
 
-  # devops-review: one model name spread over the interactive Ollama tiers, each deployment
-  # weighted by its throughput:
+  # devops-review: one model name spread over the interactive Ollama tiers. The least-busy
+  # router sends each request to the deployment with the fewest requests in flight:
   # - qwen3-coder:30b on ollama-48gib-fast (2x RTX 3090) and ollama-64gib-standard (Tesla V100).
   # - gpt-oss:20b on ollama-16gib-fast.
   # The background tier (ollama-48gib-slow) is left out; it is devops-review's fallback.
@@ -107,7 +107,7 @@ model_list:
     model_info:
       supports_reasoning: true
 
-  # One group per devops-review model, copying its deployments and weights exactly, so a
+  # One group per devops-review model, copying its deployments exactly, so a
   # review can be pinned to one model and routed as the pool routes it. No max_input_tokens
   # and no fallback: either would send a request somewhere the pool would not.
   - model_name: qwen3-coder:30b
