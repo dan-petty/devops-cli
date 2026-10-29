@@ -290,7 +290,10 @@ def test_flagged_network_references_are_listed_alone(tmp_path: Path, terminal: C
         source_file="src/app.py",
         line_number=7,
         reputation=NetworkReputationRecord(
-            target="example-corp.com", is_malicious=True, reputation_summary="Malware"
+            target="example-corp.com",
+            is_malicious=True,
+            reputation_summary="Malware",
+            outcome="ok",
         ),
         security_status="⚠️ Flagged (Malware)",
     )
@@ -303,6 +306,36 @@ def test_flagged_network_references_are_listed_alone(tmp_path: Path, terminal: C
         "5 found (2 local, 3 external), 1 flagged by reputation" in "\n".join(lines),
         [_cells(line)[0] for line in lines if "example-corp.com" in line],
     ) == (True, ["https://example-corp.com/[/{payload}]"])
+
+
+def test_the_full_report_colors_an_unchecked_reference_yellow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An external reference that no lookup checked is yellow, and a safe one stays green."""
+    import devops_cli.output.console as console_module
+
+    colored = Console(record=True, width=_WIDTH, force_terminal=True, color_system="standard")
+    monkeypatch.setattr(console_module, "_CONSOLE", colored)
+    references = [
+        NetworkReference(
+            target=f"https://{name}-corp.com/v1",
+            reference_type="url",
+            source_file="src/app.py",
+            line_number=number,
+            security_status=status,
+        )
+        for number, (name, status) in enumerate(
+            [("unchecked", "Unchecked"), ("safe", "✓ Safe (Ports: 80)")], 1
+        )
+    ]
+    payload = FileReviewPayload(file_path="src/app.py", network_references=references)
+
+    _orchestrator(tmp_path, "colored", full_output=True).generate_consolidated_report([payload])
+    lines = colored.export_text(styles=True).splitlines()
+    unchecked_row = next(line for line in lines if "unchecked-corp" in line)
+    safe_row = next(line for line in lines if "safe-corp" in line)
+
+    assert ("\x1b[33mUnchecked" in unchecked_row, "\x1b[32m✓ Safe" in safe_row) == (True, True)
 
 
 def test_closing_line_names_the_session_directory_and_review_md(

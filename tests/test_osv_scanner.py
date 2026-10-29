@@ -331,7 +331,7 @@ def test_threat_intel_opt_in_behavior(
     def _mock_shodan(client: Any, ip: str) -> tuple[str, NetworkReputationRecord]:
         nonlocal called_shodan
         called_shodan = True
-        return (ip, NetworkReputationRecord(target=ip, ip=ip))
+        return (ip, NetworkReputationRecord(target=ip, ip=ip, outcome="ok"))
 
     monkeypatch.setattr(
         "devops_cli.ai.review.pipeline._fetch_ip_threat_intel",

@@ -844,7 +844,12 @@ def _dependency_row(d: DependencySpec) -> list[str]:
 def _network_reference_row(n: NetworkReference) -> list[str]:
     """A network reference's table cells, its text escaped."""
     scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
-    color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
+    if "⚠️" in n.security_status:
+        color = "red"
+    elif "UNCHECKED" in n.security_status.upper():
+        color = "yellow"
+    else:
+        color = "cyan" if n.is_local else "green"
     return [
         escape_text(n.target),
         escape_text(n.reference_type),

@@ -494,6 +494,10 @@ def _shodan_reply(address: str) -> str:
     from devops_cli.security.vulnerability_lookup import ShodanInternetDBClient
 
     rep = ShodanInternetDBClient().check_ip(address)
+    if rep.outcome in ("unavailable", "failed"):
+        return (
+            f"Shodan Intelligence for IP {address}:\n- Reputation Summary: {rep.reputation_summary}"
+        )
     ports = ", ".join(str(p) for p in rep.ports) or "None detected"
     vulns = ", ".join(rep.cves) or "None detected"
     return (
@@ -513,7 +517,6 @@ def _radar_reply(domain: str) -> str:
     if rep.outcome in ("unavailable", "failed"):
         return (
             f"Cloudflare Radar Intelligence for Domain {domain}:\n"
-            f"- Threat Categories: None\n"
             f"- Reputation Summary: {rep.reputation_summary}"
         )
     return (

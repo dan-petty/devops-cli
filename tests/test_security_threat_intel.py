@@ -59,6 +59,7 @@ def test_cloudflare_radar_valkey_l2_cache_hit(mock_valkey: MagicMock) -> None:
         source="Cloudflare Radar",
         tags=["Cloud Services"],
         reputation_summary="Categorized domain: Cloud Services",
+        outcome="ok",
     )
     mock_valkey.get.return_value = cached_record.model_dump_json()
 
@@ -104,6 +105,7 @@ def test_cloudflare_radar_batch_domains(mock_valkey: MagicMock) -> None:
         ip="",
         source="Cloudflare Radar",
         tags=["Infrastructure"],
+        outcome="ok",
     )
 
     def valkey_get_side_effect(key: str) -> str | None:
@@ -147,7 +149,9 @@ def test_cloudflare_radar_batch_empty_and_examples() -> None:
 
 
 def test_cloudflare_radar_cache_hit_ratio_metric(mock_valkey: MagicMock) -> None:
-    cached_rec = NetworkReputationRecord(target="hit.org", ip="", source="Cloudflare Radar")
+    cached_rec = NetworkReputationRecord(
+        target="hit.org", ip="", source="Cloudflare Radar", outcome="ok"
+    )
     mock_valkey.get.return_value = cached_rec.model_dump_json()
 
     client = CloudflareRadarClient(valkey_client=mock_valkey)
@@ -240,7 +244,7 @@ def test_a_valkey_outage_turns_the_threat_intel_l2_cache_off_for_a_cooldown(
     """
     for domain in ("outage.org", "cooldown.org", "trial.org"):
         cached = NetworkReputationRecord(
-            target=domain, ip="", source="Cloudflare Radar", tags=["Cached"]
+            target=domain, ip="", source="Cloudflare Radar", tags=["Cached"], outcome="ok"
         )
         valkey_client.set(_l2_key(domain), cached.model_dump_json())
     client = CloudflareRadarClient(valkey_client=valkey_client)
@@ -277,6 +281,32 @@ def test_a_corrupt_threat_intel_entry_is_a_miss_and_keeps_the_l2_cache_on(
         record = client.check_domain("corrupt-domain.org")
 
     assert (record.tags, _stored_tags(valkey_client, "corrupt-domain.org")) == (
+        ["Live"],
+        ["Live"],
+    )
+
+
+def test_a_threat_intel_entry_with_no_outcome_is_a_miss(valkey_client: ValkeyClient) -> None:
+    """An entry written before records named an outcome would read as verified: it is a miss.
+
+    Radar answers the lookup, and its record replaces the stale entry in Valkey.
+    """
+    stale = {
+        "target": "stale-domain.org",
+        "ip": "",
+        "source": "Cloudflare Radar",
+        "tags": ["Stale"],
+        "reputation_summary": "Categorized domain: Stale",
+    }
+    valkey_client.set(_l2_key("stale-domain.org"), json.dumps(stale))
+    client = CloudflareRadarClient(valkey_client=valkey_client)
+
+    with patch("httpx2.Client.get") as radar_get:
+        radar_get.return_value = _radar_reply("Live")
+        record = client.check_domain("stale-domain.org")
+
+    assert (record.outcome, record.tags, _stored_tags(valkey_client, "stale-domain.org")) == (
+        "ok",
         ["Live"],
         ["Live"],
     )

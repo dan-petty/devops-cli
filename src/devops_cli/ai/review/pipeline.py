@@ -898,31 +898,12 @@ def _format_extraction_summary(
     )
 
 
-def _fetch_domains_threat_intel(
-    radar_client: CloudflareRadarClient,
-    domain_targets: list[str],
-) -> dict[str, NetworkReputationRecord]:
-    """Fetch threat intelligence for domain targets with resilient fallback."""
-    if not domain_targets:
-        return {}
-    try:
-        return radar_client.check_domains_batch(domain_targets)
-    except Exception:
-        return {
-            d: NetworkReputationRecord(target=d, ip="", source="Cloudflare Radar", outcome="failed")
-            for d in domain_targets
-        }
-
-
 def _fetch_ip_threat_intel(
     shodan_client: ShodanInternetDBClient,
     ip: str,
 ) -> tuple[str, NetworkReputationRecord]:
-    """Fetch threat intelligence for a single IP address with fallback."""
-    try:
-        return ip, shodan_client.check_ip(ip)
-    except Exception:
-        return ip, NetworkReputationRecord(target=ip, ip=ip)
+    """Fetch threat intelligence for a single IP address."""
+    return ip, shodan_client.check_ip(ip)
 
 
 def _execute_pre_analysis_batch(
@@ -2762,7 +2743,7 @@ class ReviewPipelineOrchestrator:
         domain_targets = [target for target, rtype in unique_nets if rtype != "ip"]
         ip_targets = [target for target, rtype in unique_nets if rtype == "ip"]
         if domain_targets:
-            net_cache.update(_fetch_domains_threat_intel(radar_client, domain_targets))
+            net_cache.update(radar_client.check_domains_batch(domain_targets))
         if ip_targets:
             with ThreadPoolExecutor(max_workers=min(8, len(ip_targets))) as executor:
                 net_cache.update(
@@ -2950,7 +2931,16 @@ class ReviewPipelineOrchestrator:
         """Audit network references against reputation cache and return any suspicious findings."""
         findings: list[SavedFinding] = []
         for net in file_nets:
-            rep = net_cache.get(net.target, NetworkReputationRecord(target=net.target, ip=""))
+            rep = net_cache.get(net.target)
+            if rep is None:
+                # No lookup ran for it (a dry run): it is unchecked, never safe (#2504).
+                rep = NetworkReputationRecord(
+                    target=net.target,
+                    ip="",
+                    source="",
+                    outcome="unavailable",
+                    reputation_summary="No threat intelligence lookup answered for this target",
+                )
             net.reputation = rep
             net.security_status = _determine_network_security_status(net, rep)
             if rep.is_malicious:

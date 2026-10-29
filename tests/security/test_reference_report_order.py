@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
+from devops_cli.output.formatters.tables import format_network_references_table
 from devops_cli.security.reference_extractor import (
     deduplicate_network_references,
     sort_network_references,
@@ -121,3 +122,58 @@ def test_sort_network_references_ordered() -> None:
     ordered = sort_network_references([loc_ip, ext_safe_url, loc_url, ext_safe_ip, ext_flagged])
 
     assert tuple(ordered) == (ext_flagged, ext_safe_url, ext_safe_ip, loc_url, loc_ip)
+
+
+def _reference(target: str, status: str, line: int = 1) -> NetworkReference:
+    return NetworkReference(
+        target=target,
+        reference_type="url",
+        source_file="src/app.py",
+        line_number=line,
+        security_status=status,
+    )
+
+
+def test_an_unchecked_reference_sorts_before_a_safe_one() -> None:
+    """A reference that no lookup checked sorts after the flagged ones and before every safe one."""
+    safe_ports = _reference("https://d.example.net", "✓ Safe (Ports: 80)")
+    low_risk = _reference("https://c.example.net", "✓ Safe / Low Risk")
+    unchecked = _reference("https://b.example.net", "Unchecked")
+    flagged = _reference("https://a.example.net", "⚠️ Flagged (Malware)")
+
+    ordered = sort_network_references([safe_ports, low_risk, unchecked, flagged])
+
+    assert [ref.security_status for ref in ordered] == [
+        "⚠️ Flagged (Malware)",
+        "Unchecked",
+        "✓ Safe / Low Risk",
+        "✓ Safe (Ports: 80)",
+    ]
+
+
+def test_an_unchecked_reference_is_not_hidden_by_a_safe_one_of_the_same_target() -> None:
+    """Two references to one target keep the status that checked less, in either order."""
+    safe = _reference("https://api.example.net/v1", "✓ Safe / Low Risk", line=3)
+    unchecked = _reference("https://api.example.net/v1/", "Unchecked", line=9)
+
+    statuses = [
+        [ref.security_status for ref in deduplicate_network_references(refs)]
+        for refs in ([safe, unchecked], [unchecked, safe])
+    ]
+
+    assert statuses == [["Unchecked"], ["Unchecked"]]
+
+
+def test_the_network_table_colors_an_unchecked_reference_yellow() -> None:
+    """An external reference that no lookup checked is not green, the color of a safe one."""
+    table = format_network_references_table(
+        [
+            _reference("https://unchecked-corp.com", "Unchecked"),
+            _reference("https://safe-corp.com", "✓ Safe (Ports: 80)"),
+        ]
+    )
+
+    assert [(row[0], row[3]) for row in table.rows] == [
+        ("https://unchecked-corp.com", "[yellow]Unchecked[/yellow]"),
+        ("https://safe-corp.com", "[green]✓ Safe (Ports: 80)[/green]"),
+    ]
