@@ -24,7 +24,7 @@ SAMPLE_SOURCE = "def keep(comments):\n    return comments[:-1]\n"
 
 def run_git(cwd: Path, *args: str) -> str:
     """The output of `git <args>` in `cwd`."""
-    done = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)  # nosec B603 B607
+    done = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
     return done.stdout.strip()
 
 
