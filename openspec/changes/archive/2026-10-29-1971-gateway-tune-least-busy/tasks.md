@@ -9,7 +9,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1971-gateway-tune-least-busy`
 
 ## Workflow follow-up
