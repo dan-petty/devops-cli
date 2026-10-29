@@ -2130,7 +2130,8 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
 ) -> None:
     """The row is due on a first run, 24 hours after its last success and not before, and a
     webhook hint that makes intake due makes it due no sooner (#2652)."""
-    recent = {"intake": NOW - timedelta(minutes=5), "refine": NOW - timedelta(minutes=5)}
+    five_minutes_ago = NOW - timedelta(minutes=5)
+    recent = {"intake": five_minutes_ago, "refine": five_minutes_ago, "stage": five_minutes_ago}
 
     def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
         _stamp(tmp_path, **stamps)
@@ -2142,7 +2143,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
     assert (first, too_soon, a_day, hinted) == (
-        ("intake", "refine", "alternatives"),
+        ("intake", "refine", "stage", "alternatives"),
         (),
         ("alternatives",),
         ("intake",),
@@ -2158,7 +2159,7 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
 
-    assert (cli.exit_code, "Due: metrics, intake, refine, alternatives\n" in cli.output) == (
+    assert (cli.exit_code, "Due: metrics, intake, refine, stage, alternatives\n" in cli.output) == (
         0,
         True,
     )

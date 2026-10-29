@@ -23,7 +23,7 @@
 ## 4. The documents
 
 - [x] 4.1 Name the row, the settings and the metric in `CONTEXT.md` ("Lane"), `k8s/README.md` ("Roadmap service") and `k8s/devops/configmap.example.yaml`, and verify that `uv run devops ci test tests/test_k8s_configmap.py tests/test_k8s_roadmap_service.py` passes
-- [ ] 4.2 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci` passes
+- [x] 4.2 Run `devops docs generate --sync-readme`, and verify that `uv run devops ci` passes
 
 ## Workflow follow-up
 
