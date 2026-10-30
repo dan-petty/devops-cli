@@ -20,11 +20,11 @@
 
 ## 3. The alert
 
-- [ ] 3.1 Add failing promtool cases in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml` (limit 500: 600 fires, 400 quiet; limit 2000: 900 quiet, 1900 fires; the limit series with its own `instance` and `pod` labels) and update the expression in `tests/test_k8s_monitoring_alerting.py`
+- [x] 3.1 Add failing promtool cases in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml` (limit 500: 600 fires, 400 quiet; limit 2000: 900 quiet, 1900 fires; the limit series with its own `instance` and `pod` labels) and update the expression in `tests/test_k8s_monitoring_alerting.py`
   - Verification: `uv run devops ci test tests/test_k8s_monitoring_alerting.py` fails on the base
-- [ ] 3.2 Change the rule and its comment in `k8s/monitoring/prometheus-values.yaml`; update the alert row, the Go-live check and the settings row in `k8s/README.md`
+- [x] 3.2 Change the rule and its comment in `k8s/monitoring/prometheus-values.yaml`; update the alert row, the Go-live check and the settings row in `k8s/README.md`
   - Verification: `uv run devops ci test tests/test_k8s_monitoring_alerting.py` (promtool installed with `devops install-tools --tool promtool`)
-- [ ] 3.3 Run `uv run devops docs generate --sync-readme`
+- [x] 3.3 Run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`
 
 ## Workflow follow-up

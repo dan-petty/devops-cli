@@ -744,21 +744,24 @@ serverFiles:
             annotations:
               summary: "The roadmap Service has an unavailable replica"
               description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had an unavailable replica for 10 minutes (k8s/README.md, Roadmap service)."
-          # 90% of the default service.github_requests_per_hour (500). The Service holds its
-          # requests at the budget: a request waits when the hour has no room.
+          # 90% of the hourly budget that the Service reports (service.github_requests_per_hour,
+          # 500 by default). The Service holds its requests at the budget: a request waits when
+          # the hour has no room. The request counter comes over OTLP and the limit from the
+          # scrape of the pod, so their instance labels differ and on() joins the two sums. A
+          # Service that is down reports no limit: RoadmapServiceUnavailable covers that case.
           - alert: RoadmapServiceGitHubRequestsHigh
             expr: >-
               sum(
               (last_over_time(devops_cli_github_requests_total{job="roadmap-service"}[1h])
               unless last_over_time(devops_cli_github_requests_total{job="roadmap-service"}[1h] offset 1h))
               or increase(devops_cli_github_requests_total{job="roadmap-service"}[1h])
-              ) > 450
+              ) > on() 0.9 * max(devops_cli_service_budget_limit_requests{job="roadmap-service"})
             for: 0m
             labels:
               severity: warning
             annotations:
               summary: 'The roadmap Service sent {{ printf "%.0f" $value }} GitHub requests in the last hour'
-              description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
           # A request that the cache answered does not go to a model.
           - alert: RoadmapServiceModelRequestsHigh
             expr: >-

@@ -246,6 +246,10 @@ tests:
     input_series:
       - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
         values: '0+10x90'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x120'
     alert_rule_test:
       - eval_time: 90m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -254,7 +258,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 600 GitHub requests in the last hour"
-              description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
 
   - name: A GitHub request stream that starts in the hour counts its first flush
     interval: 5m
@@ -263,6 +267,10 @@ tests:
       # minutes: 520 requests in the hour before 115m.
       - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
         values: '_x12 300+20x11'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x30'
     alert_rule_test:
       - eval_time: 115m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -271,7 +279,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 520 GitHub requests in the last hour"
-              description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
 
   - name: A GitHub request stream from before the hour counts only the requests of the hour
     interval: 10m
@@ -280,6 +288,10 @@ tests:
       # 120m. The stream has no sample in the 5 minutes before 60m, and it is not new.
       - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
         values: '_x5 2000 _ 2010 _ _ _ 2020'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x30'
     alert_rule_test:
       - eval_time: 120m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -292,8 +304,83 @@ tests:
         values: '0+5x90'
       - series: 'devops_cli_github_requests_total{job="devops-cli", resource="graphql"}'
         values: '0+10x90'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x120'
     alert_rule_test:
       - eval_time: 90m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+
+  - name: 400 GitHub requests in an hour stay quiet for a limit of 500
+    interval: 5m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
+        values: '_x12 400x11'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x30'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+
+  - name: 900 GitHub requests in an hour stay quiet for a limit of 2000
+    interval: 5m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
+        values: '_x12 900x11'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '2000x30'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+
+  - name: 600 GitHub requests in an hour stay quiet for a limit of 2000, where they fire for 500
+    interval: 5m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
+        values: '_x12 600x11'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '2000x30'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+
+  - name: 1900 GitHub requests in an hour fire for a limit of 2000
+    interval: 5m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
+        values: '_x12 1900x11'
+      # The Service reports its budget on its own scrape, so the series has the pod's instance and
+      # pod labels, and the request counter (OTLP) has another instance (#2755).
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '2000x30'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 1900 GitHub requests in the last hour"
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
+
+  - name: A Service that reports no limit raises no volume alert; RoadmapServiceUnavailable covers a Service that is down
+    interval: 5m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
+        values: '_x12 1900x11'
+    alert_rule_test:
+      - eval_time: 115m
         alertname: RoadmapServiceGitHubRequestsHigh
         exp_alerts: []
 
