@@ -1,0 +1,13 @@
+# Tasks
+
+## 1. The admission policy
+
+- [ ] Add the dev dependency `cel-expr-python` and failing tests in `tests/test_k8s_job_admission_policy.py`: the Job from the template is admitted in its image forms, a Job that breaks one rule is refused, another identity is not matched, and the scope, the failure policy, the action and the user are read from the rendered manifests
+  - Verification: `uv run devops ci test tests/test_k8s_job_admission_policy.py`
+- [ ] Add `k8s/devops/roadmap-service/admissionpolicy.yaml` (the policy and its binding) and list it in the kustomization of `roadmap-service`
+  - Verification: `uv run devops ci test tests/test_k8s_job_admission_policy.py tests/test_k8s_runner.py tests/test_k8s_roadmap_service.py tests/test_k8s_devops_stack.py`
+
+## 2. The documentation
+
+- [ ] Describe the policy, its guarantees and what it does not guarantee in `k8s/README.md` (Runner Jobs, the Role line, the file tree, the follow-up line), and regenerate the documents
+  - Verification: `uv run devops docs generate --sync-readme .`
