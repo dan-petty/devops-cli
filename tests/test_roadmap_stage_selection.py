@@ -22,7 +22,7 @@ BUG = ("type/bug",)
 NO_PLANS = PlannedChanges("main", {}, {})
 
 
-def _no_holder(_issue: int) -> str | None:
+def _no_holder(_issue: int, _branch: str) -> str | None:
     return None
 
 
@@ -50,7 +50,7 @@ def _seed(
 def _select(
     store: InMemoryRoadmapStore,
     *filters: str,
-    holder_of: Callable[[int], str | None] = _no_holder,
+    holder_of: Callable[[int, str], str | None] = _no_holder,
     planned: PlannedChanges = NO_PLANS,
     item: int | None = None,
     limit: int = 3,
@@ -193,13 +193,28 @@ def test_a_held_item_is_left_out_with_the_sentence_of_its_holder(
 
     selection = _select(
         store,
-        holder_of=lambda issue: (
+        holder_of=lambda issue, _branch: (
             f"Issue {issue} is held by the branch origin/fix/{issue}-x." if issue == held else None
         ),
     )
 
     assert _numbers(selection) == [free]
     assert _reasons(selection) == {held: f"Issue {held} is held by the branch origin/fix/{held}-x."}
+
+
+def test_the_holder_is_asked_about_the_new_branch_of_the_item(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _seed(store)
+    asked: list[tuple[int, str]] = []
+
+    def holder(issue: int, branch: str) -> str | None:
+        asked.append((issue, branch))
+        return None
+
+    _select(store, holder_of=holder)
+
+    assert asked == [(number, f"fix/{number}-the-job-drops-a-comment")]
 
 
 def test_an_item_with_a_folder_on_the_default_branch_is_left_out_by_its_issue_number_alone(

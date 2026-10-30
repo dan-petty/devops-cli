@@ -87,6 +87,32 @@ def test_an_item_with_its_plan_on_main_and_its_branch_gone_is_planned_with_a_new
     assert github_api.requested == []
 
 
+def test_a_planned_item_with_a_stray_local_branch_with_a_commit_of_its_own_is_left_out(
+    store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    number = seed_staged(store, record=False)
+    merge_plan(repo, number)
+    repo.stray_branch(BRANCH, own_commit=True)
+
+    plan = _plan(store, repo)
+
+    assert plan.selected == ()
+    assert BRANCH in _reasons(plan)[number]
+    assert "1 commit" in _reasons(plan)[number]
+
+
+def test_a_planned_item_with_a_stray_local_branch_that_origin_holds_is_planned(
+    store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    number = seed_staged(store, record=False)
+    merge_plan(repo, number)
+    repo.stray_branch(BRANCH)
+
+    plan = _plan(store, repo)
+
+    assert _targets(plan) == [(number, BRANCH, None)]
+
+
 def test_an_item_with_no_record_and_a_plan_on_main_is_planned(
     store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
 ) -> None:
@@ -122,6 +148,21 @@ def test_an_item_with_its_plan_on_main_and_its_staged_branch_on_origin_takes_the
     plan = _plan(store, stage_repo)
 
     assert _targets(plan) == [(number, BRANCH, PULL)]
+
+
+def test_a_staged_item_with_a_stray_local_branch_with_a_commit_of_its_own_is_left_out(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    push_staged_branch(stage_repo)
+    route_pull_status(github_api)
+    number = seed_staged(store)
+    stage_repo.stray_branch(BRANCH, own_commit=True)
+
+    plan = _plan(store, stage_repo)
+
+    assert plan.selected == ()
+    assert BRANCH in _reasons(plan)[number]
+    assert "1 commit" in _reasons(plan)[number]
 
 
 def test_a_retry_finds_the_branch_and_the_pull_request_that_the_job_recorded(

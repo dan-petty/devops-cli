@@ -527,7 +527,7 @@ class RepoMessages:
     )
     worktrees_add_stray_unpushed: str = (
         "The local branch {branch} has {count} commit(s) that origin does not hold, and no "
-        "worktree uses it. Push the commits or delete the branch, then run the command again."
+        "worktree uses it. Push the commits or delete the branch, then try again."
     )
     worktrees_add_git_failed: str = "`git {command}` failed: {reason}"
     worktrees_add_bad_type: str = "'{type}' is not a branch type. Allowed types: {types}."

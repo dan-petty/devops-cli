@@ -12,8 +12,11 @@ of each commit, read with `git log --format=%an`, is the bot login of `service.g
 The run then adds the worktree on that branch.
 
 A local branch of the name that the run is about to create, with no worktree, is a stray branch
-(#2724). The run deletes it when `origin/main` or a remote-tracking ref of `origin` holds every
-commit of it, and refuses to go on, with the branch named, when it has a commit that they lack.
+(#2724). The run deletes it when `origin` holds every commit of it, and refuses to go on, with the
+branch named, when it has a commit that `origin` lacks. `origin` holds a commit when `origin/main`
+reaches it, or when a remote-tracking ref reaches it that is still at the tip that
+`git ls-remote --heads origin` lists. `issue_holder` and `stray_branch_reason` apply the same rule
+before a job picks the item, so the job leaves the item out with the branch named.
 """
 
 from __future__ import annotations
@@ -248,46 +251,72 @@ def _check_names(issue: int, pushed: _Pushed, type_: str | None, slug: str | Non
             )
 
 
-def _clear_stray_branch(repo_root: Path, branch: str) -> None:
-    """Delete the local `branch` when no worktree uses it and `origin` holds all its commits, so
-    that `git worktree add -b` does not refuse the name (#2724).
+def _live_tracking_refs(repo_root: Path, remote_heads: str) -> list[str]:
+    """The remote-tracking refs of `origin` that are at the tip that `remote_heads` lists for the
+    same branch. A ref of a branch that `origin` deleted, or that a push rewrote, is not among
+    them: it is stale, and the commits only it reaches are not on `origin`."""
+    live = {
+        (oid, ref)
+        for oid, _, ref in (line.partition("\t") for line in remote_heads.splitlines())
+        if ref
+    }
+    prefix = f"refs/remotes/{CONST_GIT_REMOTE_ORIGIN}/"
+    tracking = _run(
+        [*_git(repo_root), "for-each-ref", "--format=%(objectname)\t%(refname)", prefix]
+    )
+    refs: list[str] = []
+    for line in tracking.splitlines():
+        oid, _, ref = line.partition("\t")
+        if (oid, f"{CONST_REFS_HEADS_PREFIX}{ref.removeprefix(prefix)}") in live:
+            refs.append(ref)
+    return refs
 
-    A worktree that uses the branch holds the issue, and `local_holder` refused it before. A
-    commit counts as held when `origin/main` or a remote-tracking ref of `origin` reaches it.
-    A stale remote-tracking ref only keeps a branch. A branch with a commit that `origin` lacks
-    is never deleted: the error names it and the number of those commits.
+
+def _stray_tip(repo_root: Path, branch: str) -> str:
+    """The tip of the local `branch`, or an empty string when the clone has none. The branch is
+    read as `refs/heads/<branch>`, so a tag of the same name cannot stand in for it."""
+    ref = f"{CONST_REFS_HEADS_PREFIX}{branch}"
+    return _run([*_git(repo_root), "for-each-ref", "--format=%(objectname)", ref]).strip()
+
+
+def stray_branch_reason(repo_root: Path, branch: str, remote_heads: str) -> str | None:
+    """Why a job leaves an item out because of a stray local `branch`, or None when the clone has
+    no such branch or `origin` holds all its commits (#2724). The reason names the branch and the
+    number of commits that `origin` lacks. A worktree that uses the branch is `local_holder`'s case.
     """
-    git = _git(repo_root)
-    tip = _run(
-        [*git, "for-each-ref", "--format=%(objectname)", f"{CONST_REFS_HEADS_PREFIX}{branch}"]
-    )
-    if not tip.strip():
+    if not _stray_tip(repo_root, branch):
+        return None
+    held = _live_tracking_refs(repo_root, remote_heads)
+    ref = f"{CONST_REFS_HEADS_PREFIX}{branch}"
+    count = int(_run([*_git(repo_root), "rev-list", "--count", ref, "--not", _main_ref(), *held]))
+    if not count:
+        return None
+    return MESSAGES.repos.worktrees_add_stray_unpushed.format(branch=branch, count=count)
+
+
+def _clear_stray_branch(repo_root: Path, branch: str, remote_heads: str) -> None:
+    """Delete the stray local `branch` when `origin` holds all its commits, so that
+    `git worktree add -b` does not refuse the name (#2724). A branch with a commit that `origin`
+    lacks is never deleted: the error names it and the number of those commits.
+
+    No worktree uses the branch: `local_holder` refused the issue before. `origin` holds a commit
+    by the rule in the module text, which counts no stale remote-tracking ref.
+    """
+    if not (tip := _stray_tip(repo_root, branch)):
         return
-    count = int(
-        _run(
-            [
-                *git,
-                "rev-list",
-                "--count",
-                branch,
-                "--not",
-                _main_ref(),
-                f"--remotes={CONST_GIT_REMOTE_ORIGIN}",
-            ]
-        )
-    )
-    if count:
-        raise _failure(
-            MESSAGES.repos.worktrees_add_stray_unpushed.format(branch=branch, count=count)
-        )
-    _run([*git, "branch", "-D", branch])
-    logger.info(
-        MESSAGES.repos.worktrees_add_stray_deleted.format(branch=branch, commit=tip.strip())
-    )
+    if (why := stray_branch_reason(repo_root, branch, remote_heads)) is not None:
+        raise _failure(why)
+    _run([*_git(repo_root), "branch", "-D", branch])
+    logger.info(MESSAGES.repos.worktrees_add_stray_deleted.format(branch=branch, commit=tip))
 
 
 def _take_over(
-    repo_root: Path, issue: int, pushed: _Pushed, directory: Path, reclaim: ReclaimResult
+    repo_root: Path,
+    issue: int,
+    pushed: _Pushed,
+    directory: Path,
+    reclaim: ReclaimResult,
+    remote_heads: str,
 ) -> WorktreeAddReport:
     """Add the worktree on the pushed branch when the App wrote every commit past main.
 
@@ -307,7 +336,7 @@ def _take_over(
     )
     authors = _run([*git, "log", "--format=%an", f"{_main_ref()}..{remote_branch}"]).splitlines()
     _check_authors(issue, branch, authors)
-    _clear_stray_branch(repo_root, branch)
+    _clear_stray_branch(repo_root, branch, remote_heads)
     _run([*git, "worktree", "add", "--track", "-b", branch, str(directory), remote_branch])
     return WorktreeAddReport(
         issue=issue,
@@ -326,11 +355,12 @@ def _create(
     branch: str,
     directory: Path,
     reclaim: ReclaimResult,
+    remote_heads: str,
 ) -> WorktreeAddReport:
     """Add the worktree on the new `branch` at the fetched `origin/main`."""
     _, fetch, _, create = _commands(repo_root, branch, directory)
     _run(fetch)
-    _clear_stray_branch(repo_root, branch)
+    _clear_stray_branch(repo_root, branch, remote_heads)
     _run(create)
     return WorktreeAddReport(
         issue=issue,
@@ -390,11 +420,12 @@ def add_worktree(
             reclaimed=reclaim.removed,
             reclaim_error=reclaim.error,
         )
-    ls_remote = [*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN]
-    if (pushed := _staged_branch(_run(ls_remote), issue)) is None:
-        return _create(repo_root, issue, _new_branch(issue, type_, slug), directory, reclaim)
+    heads = _run([*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN])
+    if (pushed := _staged_branch(heads, issue)) is None:
+        branch = _new_branch(issue, type_, slug)
+        return _create(repo_root, issue, branch, directory, reclaim, heads)
     _check_names(issue, pushed, type_, slug)
-    return _take_over(repo_root, issue, pushed, directory, reclaim)
+    return _take_over(repo_root, issue, pushed, directory, reclaim, heads)
 
 
 def read_remote_heads(repo_root: Path) -> str:
@@ -404,16 +435,21 @@ def read_remote_heads(repo_root: Path) -> str:
     return _run([*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN])
 
 
-def issue_holder(repo_root: Path, issue: int, remote_heads: str) -> str | None:
+def issue_holder(
+    repo_root: Path, issue: int, remote_heads: str, branch: str | None = None
+) -> str | None:
     """Who holds `issue`, as a sentence: a worktree of the clone, the standard directory of its
     worktree, or a branch of `origin` that `remote_heads` lists; None when nobody does. A caller
     that judges an issue before it adds a worktree leaves a held issue alone (#2654); `add_worktree`
-    itself takes over a staged branch."""
+    itself takes over a staged branch.
+
+    With the `branch` that the caller is about to create, a stray local branch of that name with a
+    commit that `origin` lacks also holds the issue (#2724), as `add_worktree` would refuse it."""
     held = local_holder(repo_root, issue, worktree_directory(issue, repo_root))
     if held is not None:
         return held
     pushed = _pushed_branches(remote_heads, issue)
-    if not pushed:
-        return None
-    names = ", ".join(f"origin/{branch.name}" for branch in pushed)
-    return MESSAGES.repos.worktrees_add_held_by_pushed.format(issue=issue, branches=names)
+    if pushed:
+        names = ", ".join(f"origin/{found.name}" for found in pushed)
+        return MESSAGES.repos.worktrees_add_held_by_pushed.format(issue=issue, branches=names)
+    return None if branch is None else stray_branch_reason(repo_root, branch, remote_heads)

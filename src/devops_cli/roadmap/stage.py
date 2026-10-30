@@ -14,7 +14,7 @@ families all apply. With no `--filter` the job takes the filter of the setting
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
 It also leaves out an item with the label `needs-split`, an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
-(`worktree_add.issue_holder`), an item whose plan is already on the default branch or whose
+(`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
 item whose title gives no branch name, an item whose text looks like a secret, and an item whose
 record holds `stage.needs_split`. A run takes at most `--limit`
@@ -198,7 +198,7 @@ class _Judge:
     def __init__(
         self,
         store: RoadmapStore,
-        holder_of: Callable[[int], str | None],
+        holder_of: Callable[[int, str], str | None],
         planned: PlannedChanges,
     ) -> None:
         self._store = store
@@ -267,7 +267,7 @@ class _Judge:
         return None
 
     def _held(self, item: Item) -> str | None:
-        return self._holder_of(item.number)
+        return self._holder_of(item.number, _target_of(item).branch)
 
     def _secret(self, item: Item) -> str | None:
         looks_secret = any(redact_text(text) != text for text in (item.title, item.body))
@@ -312,14 +312,14 @@ def select_stageable(
     store: RoadmapStore,
     *,
     filters: StageFilter,
-    holder_of: Callable[[int], str | None],
+    holder_of: Callable[[int, str], str | None],
     planned: PlannedChanges,
     limit: int,
     item_number: int | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
-    `holder_of` tells who holds an issue (`worktree_add.issue_holder`), or None. `planned` holds
+    `holder_of` tells who holds an issue and its new `branch` (`worktree_add.issue_holder`), or None. `planned` holds
     the change folders of the default branch (#2714). With `item_number` the filter and the limit
     do not apply.
     """
@@ -684,7 +684,7 @@ def plan_stage(
     selection = select_stageable(
         store,
         filters=filters,
-        holder_of=partial(issue_holder, checkout, remote_heads=heads),
+        holder_of=lambda issue, branch: issue_holder(checkout, issue, heads, branch),
         planned=read_planned_changes(checkout, operation=_GIT_OPERATION),
         item_number=item_number,
         limit=limit or settings.roadmap.stage.limit,

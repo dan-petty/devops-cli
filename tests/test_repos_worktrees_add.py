@@ -353,6 +353,71 @@ def test_a_stray_branch_whose_commit_origin_holds_on_another_branch_is_deleted(
     assert _git_out(standard_dir, "rev-parse", "HEAD").stdout.strip() != tip
 
 
+def test_a_stray_branch_that_a_tag_of_its_name_shadows_is_kept_and_named(
+    cli: Cli, repo: Path, git: Git, standard_dir: Path
+) -> None:
+    branch = "feat/2337-worktrees-add"
+    tip = _stray_branch(git, repo, branch, own_commit=True)
+    git(repo, "tag", branch, "main")
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 1
+    assert branch in _said(result)
+    assert _git_out(repo, "rev-parse", f"refs/heads/{branch}").stdout.strip() == tip
+    assert not standard_dir.exists()
+
+
+def test_a_stray_branch_whose_only_holder_is_a_stale_remote_tracking_ref_is_kept(
+    cli: Cli, repo: Path, origin: Path, git: Git, standard_dir: Path
+) -> None:
+    """The push made `refs/remotes/origin/fix/2338-other`. The branch is then gone from `origin`,
+    and no fetch pruned the ref, so the commit is on no branch of `origin`."""
+    branch = "feat/2337-worktrees-add"
+    tip = _stray_branch(git, repo, branch, own_commit=True)
+    git(repo, "push", "origin", f"{tip}:refs/heads/fix/2338-other")
+    git(origin, "update-ref", "-d", "refs/heads/fix/2338-other")
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 1
+    assert branch in _said(result)
+    assert _git_out(repo, "rev-parse", f"refs/heads/{branch}").stdout.strip() == tip
+    assert not standard_dir.exists()
+
+
+def test_a_stray_branch_whose_holder_was_rewritten_on_origin_is_kept(
+    cli: Cli, repo: Path, origin: Path, git: Git, standard_dir: Path
+) -> None:
+    """A push rewrote the branch of `origin`; the remote-tracking ref still points at the old
+    commit, which `origin` no longer holds."""
+    branch = "feat/2337-worktrees-add"
+    tip = _stray_branch(git, repo, branch, own_commit=True)
+    git(repo, "push", "origin", f"{tip}:refs/heads/fix/2338-other")
+    git(origin, "update-ref", "refs/heads/fix/2338-other", "main")
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 1
+    assert branch in _said(result)
+    assert _git_out(repo, "rev-parse", f"refs/heads/{branch}").stdout.strip() == tip
+
+
+@pytest.mark.usefixtures("app")
+def test_a_stray_branch_stays_when_a_pushed_branch_of_a_person_refuses_the_takeover(
+    cli: Cli, repo: Path, origin: Path, git: Git, tmp_path: Path, standard_dir: Path
+) -> None:
+    _push_branch(origin, tmp_path, STAGED, "Jane Doe")
+    tip = _stray_branch(git, repo, STAGED)
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 1
+    assert "Jane Doe" in _said(result)
+    assert _git_out(repo, "rev-parse", f"refs/heads/{STAGED}").stdout.strip() == tip
+    assert not standard_dir.exists()
+
+
 @pytest.mark.usefixtures("app")
 def test_a_stray_branch_of_a_staged_issue_is_deleted_before_the_takeover(
     cli: Cli, repo: Path, origin: Path, git: Git, tmp_path: Path, standard_dir: Path
