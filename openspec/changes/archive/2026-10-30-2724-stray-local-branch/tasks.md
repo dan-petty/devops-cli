@@ -8,6 +8,8 @@
   - Verification: `uv run devops ci test tests/test_repos_worktrees_add.py tests/test_roadmap_implement_job.py tests/test_roadmap_stage_plan.py`
 - [x] 1.3 Run `uv run ruff check`, `uv run ruff format --check` and `uv run mypy --strict` on the changed files
   - Verification: `uv run devops ci lint`
+- [x] 1.4 Add tests for the review findings: a tag of the branch name, a stale remote-tracking ref, a rewritten branch of `origin`, a pushed branch of a person, and the left-out reason in the stage and implement plans. Then add `stray_branch_reason`, the live-ref rule and the `refs/heads/` read to `git/worktree_add.py`, and pass the branch from `stage.py` and `implement.py`
+  - Verification: `uv run devops ci test tests/test_repos_worktrees_add.py tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_selection.py tests/test_roadmap_implement_planned.py`
 
 ## 2. Documentation
 
