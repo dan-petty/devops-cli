@@ -637,7 +637,7 @@ def _resend_after(
     """The conversation that sends the failed request again, or `None` when `failed` is no error
     of the generation or the messages do not end with a request. It holds the same messages as the
     failed request, for the interrupted reply is dropped, and the usage of the replies that came
-    before, so the limits of the step count both sends."""
+    before and of the failed request, so the limits of the step count every send."""
     kept = list(messages)
     if kept and isinstance(kept[-1], ModelResponse) and kept[-1].state == "interrupted":
         kept.pop()
@@ -646,7 +646,7 @@ def _resend_after(
     replies = _new_replies(kept, conversation)
     calls = sum(isinstance(part, ToolCallPart) for reply in replies for part in reply.parts)
     spent = (conversation.usage if conversation else RunUsage()) + RunUsage(
-        requests=len(replies), tool_calls=calls
+        requests=len(replies) + 1, tool_calls=calls
     )
     for reply in replies:
         spent.incr(reply.usage)
@@ -660,13 +660,18 @@ def _run_agent(
     message: str,
     conversation: Conversation | None = None,
 ) -> _Run:
-    """One turn of the agent, and each send again of a request that failed inside a stream (#2794),
-    at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times. The turn ends with the last send."""
+    """One turn of the agent, and each send again of a request that failed inside a stream (#2794).
+    A request is sent again at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. A send
+    that gets a reply gives the next failed request its own resends. The request limit of the
+    step ends the loop. The turn ends with the last send."""
     run = _run_turn(agent, model, log, message, conversation)
-    for _ in range(CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS):
-        if run.resend is None:
-            break
-        run = run.then(_run_turn(agent, model, log, None, run.resend))
+    resends = CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+    while run.resend is not None and resends > 0:
+        sent = run.resend
+        later = _run_turn(agent, model, log, None, sent)
+        stalled = later.resend is not None and len(later.resend.messages) <= len(sent.messages)
+        resends = resends - 1 if stalled else CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+        run = run.then(later)
     return run
 
 

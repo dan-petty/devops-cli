@@ -1725,6 +1725,38 @@ def test_a_400_inside_a_stream_in_the_extra_turn_is_sent_again(
     assert _history(script.seen[3]) == _history(script.seen[2])
 
 
+def test_two_separate_failures_in_one_step_are_each_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The budget of a resend is for one call. A good reply between two failures gives the second
+    failure its own resend."""
+    script = ModelScript(
+        _in_stream_400(),
+        tool_calls(*the_whole_group()),
+        _in_stream_400(),
+        say("Done."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+    assert _history(script.seen[1]) == _history(script.seen[0])
+    assert _history(script.seen[3]) == _history(script.seen[2])
+
+
+def test_a_failure_after_a_good_reply_stops_when_its_own_resend_fails(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    read = tool_call("read_file", path="docs/SAMPLE.md")
+    script = ModelScript(_in_stream_400(), read, _in_stream_400())
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.status == StepStatus.STOPPED
+    assert outcome.reason.endswith(f"body: {XML_ERROR}")
+    assert len(script.seen) == 4
+
+
 def test_the_replies_before_a_send_again_count_against_the_request_limit(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -1735,7 +1767,7 @@ def test_the_replies_before_a_send_again_count_against_the_request_limit(
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, REQUEST_LIMIT_REASON)
-    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS + 1
+    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
 
 
 def test_the_tool_calls_before_a_send_again_count_against_the_tool_call_limit(

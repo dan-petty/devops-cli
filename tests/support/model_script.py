@@ -41,8 +41,8 @@ def say(text: str) -> ModelResponse:
 
 @dataclass(frozen=True)
 class InStream:
-    """A reply that fails after the stream has begun: the model streams a first text, then
-    `error` is raised. A request that does not stream raises `error` at once."""
+    """A reply that fails after the stream has begun: the model streams the start of a tool call
+    that ends early, as in #2656, then `error` is raised. A request that does not stream raises `error` at once."""
 
     error: Exception
 
@@ -83,7 +83,9 @@ class ModelScript:
             reply = self(messages, info)
         except Exception as error:
             if self._in_stream(len(self.seen)):
-                yield "A first text of the reply."
+                yield {
+                    0: DeltaToolCall(name="write_file", json_args='{"path": "a.py", "content": ')
+                }
             raise error
         for index, part in enumerate(reply.parts):
             if isinstance(part, ToolCallPart):
