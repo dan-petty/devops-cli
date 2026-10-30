@@ -35,6 +35,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS,
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
+    CONST_ROADMAP_RUN_ERROR_CHARS,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
@@ -323,7 +324,7 @@ def test_a_failed_model_call_becomes_refines_own_error(
         ),
         (
             call("read_file", path=["not", "a", "path"]),
-            "Tool 'read_file' exceeded max retries count of 2.",
+            "Tool <text> exceeded max retries count of 2.",
         ),
     ],
     ids=["never-an-answer", "tool-arguments-never-valid"],
@@ -346,7 +347,7 @@ def test_a_stop_gives_the_first_line_of_the_message_and_none_of_the_body(git_rep
     """The `body` of the error and the later lines of its message can quote the reply, so a stop
     holds neither; a token in the first line is masked."""
     token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
-    message = f"Invalid response: 1 validation error {token}\ninput_value=MODEL-TEXT"
+    message = f"The reply held {token} in it.\ninput_value=MODEL-TEXT"
     script = Script(UnexpectedModelBehavior(message, body="MODEL-TEXT"))
 
     stopped = _investigate(git_repo, script)
@@ -356,15 +357,30 @@ def test_a_stop_gives_the_first_line_of_the_message_and_none_of_the_body(git_rep
         False,
         False,
     )
-    assert stopped.message.startswith("Invalid response: 1 validation error")
+    assert stopped.message.startswith("The reply held ")
 
 
 def test_a_long_message_is_cut(git_repo: Path) -> None:
-    from devops_cli.config.constants import CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS
-
+    """A message longer than the limit is cut to the limit."""
     stopped = _investigate(git_repo, Script(UnexpectedModelBehavior("x" * 5000)))
 
-    assert len(stopped.message) == CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS
+    assert len(stopped.message) == CONST_ROADMAP_RUN_ERROR_CHARS
+
+
+def test_a_reply_that_repeats_a_tool_call_id_leaves_its_id_out_of_the_stop(
+    git_repo: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """pydantic-ai puts the `tool_call_id` of the reply, which the model chose, in the message of
+    this error, so the stop keeps the text before it only."""
+    twice = [ToolCallPart("list_files", {"path": "."}, tool_call_id="MODEL-sk-ABCDEF")] * 2
+
+    with caplog.at_level(logging.WARNING):
+        stopped = _investigate(git_repo, Script(ModelResponse(parts=twice)))
+
+    assert (stopped.reason, "MODEL" in stopped.message + caplog.text) == (
+        "UnexpectedModelBehavior",
+        False,
+    )
 
 
 def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -403,7 +419,7 @@ def test_the_warning_of_a_stopped_run_holds_no_text_of_the_model(
     assert (_warnings(caplog), "MODEL-TEXT" in render_refine_plan(plan) + caplog.text) == (
         [
             "Refine's investigation of #1 in example/roadmap stopped with no proposal "
-            "(UnexpectedModelBehavior: Invalid response from openai: 1 validation error); "
+            "(UnexpectedModelBehavior: Invalid response from openai); "
             "the item keeps its open questions."
         ],
         False,
@@ -421,7 +437,7 @@ def test_a_failed_model_call_of_the_investigation_names_the_repository_and_the_s
     assert (_warnings(caplog), "MODEL-TEXT" in render_refine_plan(plan) + caplog.text) == (
         [
             "Refine skipped #1 in example/roadmap: its model call failed (AIClientError, "
-            "LLM_INFERENCE_ERROR, HTTP 504 Gateway Timeout, 0 schema violation(s))."
+            "LLM_INFERENCE_ERROR, timeout (HTTP 504 Gateway Timeout), 0 schema violation(s))."
         ],
         False,
     )

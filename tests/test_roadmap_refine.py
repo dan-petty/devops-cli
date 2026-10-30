@@ -1069,7 +1069,7 @@ def test_a_timeout_at_the_gateway_is_named_by_its_repository_and_status(
     ) == (
         [
             f"Refine skipped #{first} in {REPO}: its model call failed (AIClientError, "
-            "LLM_INFERENCE_ERROR, HTTP 408 Request Timeout, 0 schema violation(s))."
+            "LLM_INFERENCE_ERROR, timeout (HTTP 408 Request Timeout), 0 schema violation(s))."
         ],
         f"the model call failed for 1 item(s), and refine skipped them: "
         f"#{first} (AIClientError, 0 schema violation(s))",

@@ -38,7 +38,12 @@ from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, capture_run_messages
 from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
 from pydantic_ai.conversation import Conversation
-from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
+from pydantic_ai.exceptions import (
+    AgentRunError,
+    ModelAPIError,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+)
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
@@ -63,8 +68,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
-    CONST_ROADMAP_IMPLEMENT_ERROR_CHARS,
-    CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
@@ -83,7 +86,12 @@ from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
-from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
+from devops_cli.roadmap.agent_run import (
+    bounded_text,
+    drain_events,
+    model_call_error,
+    record_run_spend,
+)
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -560,14 +568,13 @@ def _last_text(messages: Sequence[ModelMessage]) -> str:
     return texts[-1] if texts else ""
 
 
-def _stop_reason(stopped: Exception, log: ToolCallLog) -> str:
+def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
     """The reason of a run that a pydantic-ai error ended (#2758): the class and the message of the
-    error, then the counts of refused and retried tool calls when either is not zero. The message
-    is masked first and cut after, so a cut cannot split a secret."""
+    error, then the counts of refused and retried tool calls when either is not zero. It reads
+    `message`, not `str()`, which adds the `body`, the text of the model (#2778)."""
     texts = MESSAGES.roadmap
-    message = mask_secrets(str(stopped)[:CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS]).strip()
-    reason = texts.implement_stop_reason.format(
-        error=type(stopped).__name__, message=message[:CONST_ROADMAP_IMPLEMENT_ERROR_CHARS]
+    reason = texts.run_stop_reason.format(
+        error=type(stopped).__name__, message=bounded_text(stopped.message)
     )
     if not (log.refused or log.retried):
         return reason

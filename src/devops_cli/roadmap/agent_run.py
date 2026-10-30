@@ -3,6 +3,7 @@ that keeps a long reply inside the gateway's tunnel, and the spend record of a r
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
@@ -15,8 +16,8 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend import track_request_spend
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
-    CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS,
-    CONST_ROADMAP_REFINE_STOP_MESSAGE_READ_CHARS,
+    CONST_ROADMAP_RUN_ERROR_CHARS,
+    CONST_ROADMAP_RUN_ERROR_READ_CHARS,
 )
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -44,16 +45,32 @@ def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
     )
 
 
+def bounded_text(text: str) -> str:
+    """`text`, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters. The text is cut to a
+    multiple of that limit before the masking, which is slower than linear, and the masked text is
+    cut after, so a cut cannot split a secret."""
+    masked = mask_secrets(text[:CONST_ROADMAP_RUN_ERROR_READ_CHARS]).strip()
+    return masked[:CONST_ROADMAP_RUN_ERROR_CHARS]
+
+
+# A part of a message in quotes, such as a tool name, and the characters from which pydantic-ai
+# writes data of the reply of the model into a message (#2562).
+_QUOTED = re.compile(r"""(['"`]).*?\1""")
+_REPLY_DATA = re.compile(r"""[:;='"`]""")
+
+
 def run_error_message(stopped: AgentRunError) -> str:
-    """The first line of the `message` of a pydantic-ai error, masked and cut, to log (#2562).
+    """The fixed description in the `message` of a pydantic-ai error, to log (#2562).
 
     It is not `str(stopped)`: for `UnexpectedModelBehavior` that adds the `body`, the text of the
-    model. A message can hold a validation error too, whose later lines quote the reply, so the
-    first line only is kept. It is cut before the masking, which is slower than linear.
+    model. The message itself can hold data that the model chose: the id of a tool call, the name
+    of a tool, the repr of a part. So it keeps the first line only, hides each quoted part, and
+    stops at the first `:`, `;` or `=`. It then drops the characters that cannot print.
     """
     first = (stopped.message.splitlines() or [""])[0]
-    masked = mask_secrets(first[:CONST_ROADMAP_REFINE_STOP_MESSAGE_READ_CHARS]).strip()
-    return masked[:CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS]
+    hidden = _QUOTED.sub("<text>", bounded_text(first))
+    description = _REPLY_DATA.split(hidden, maxsplit=1)[0]
+    return "".join(char for char in description if char.isprintable()).strip()
 
 
 def record_run_spend(
@@ -78,4 +95,10 @@ def record_run_spend(
     )
 
 
-__all__ = ["drain_events", "model_call_error", "record_run_spend", "run_error_message"]
+__all__ = [
+    "bounded_text",
+    "drain_events",
+    "model_call_error",
+    "record_run_spend",
+    "run_error_message",
+]

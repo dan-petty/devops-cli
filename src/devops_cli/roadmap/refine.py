@@ -1776,11 +1776,13 @@ def _investigate(
     )
     if isinstance(revised, InvestigationStopped):
         logger.warning(
-            "Refine's investigation of #%d in %s stopped with no proposal (%s); the item keeps "
-            "its open questions.",
-            item.number,
-            repo,
-            f"{revised.reason}: {revised.message}",
+            MESSAGES.roadmap.refine_investigation_stopped.format(
+                number=item.number,
+                repo=repo,
+                reason=MESSAGES.roadmap.run_stop_reason.format(
+                    error=revised.reason, message=revised.message
+                ),
+            )
         )
         return None
     return revised
@@ -1896,12 +1898,13 @@ def _failed_item(item: Item, repo: str, exc: AIClientError) -> RefineFailure:
     code with the HTTP status or the timeout (#2562)."""
     failure = RefineFailure.of(item, exc)
     logger.warning(
-        "Refine skipped #%d in %s: its model call failed (%s, %s, %d schema violation(s)).",
-        item.number,
-        repo,
-        failure.error,
-        exc.reason,
-        failure.violations,
+        MESSAGES.roadmap.refine_item_skipped.format(
+            number=item.number,
+            repo=repo,
+            error=failure.error,
+            reason=exc.reason,
+            violations=failure.violations,
+        )
     )
     return failure
 

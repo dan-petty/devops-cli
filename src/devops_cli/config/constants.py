@@ -2942,12 +2942,6 @@ CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS: Final[int] = 20
 CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
 # The retries the model gets for a tool call or an answer that breaks its schema.
 CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
-# The most characters of the message of a stopped run in a warning, and the most that the masking
-# reads (#2562). The read is a multiple of the limit: the masking of secrets is slower than linear.
-CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS: Final[int] = 300
-CONST_ROADMAP_REFINE_STOP_MESSAGE_READ_CHARS: Final[int] = (
-    4 * CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS
-)
 CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 120
 CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 4000
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
@@ -3002,11 +2996,12 @@ CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMEN
 # comment (#2721). A reason may be as long as the tail of a command or a list of files.
 CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
-# The most characters of the message of a pydantic-ai error in the reason of a stopped run, and the
-# most that the masking reads (#2758). The read is a multiple of the limit: the masking of secrets
-# is slower than linear, and the message of an error can hold a long reply of the model.
-CONST_ROADMAP_IMPLEMENT_ERROR_CHARS: Final[int] = 500
-CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMENT_ERROR_CHARS
+# The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
+# of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
+# multiple of the limit: the masking of secrets is slower than linear, and the message of an error
+# can hold a long reply of the model.
+CONST_ROADMAP_RUN_ERROR_CHARS: Final[int] = 500
+CONST_ROADMAP_RUN_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_RUN_ERROR_CHARS
 CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.
