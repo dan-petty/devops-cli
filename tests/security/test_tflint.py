@@ -1,8 +1,9 @@
 """TFLint: the adapter's run of the pinned tool, and the report it reads (#2427).
 
-The reports below have the shape that `formatter/json.go` of tflint v0.65.0 writes, with the
+Most reports below have the shape that `formatter/json.go` of tflint v0.65.0 writes, with the
 severities `error`, `warning` and `info` of `toSeverity` in `formatter/formatter.go`. They are
-written from that source, not recorded from a run of tflint.
+written from that source. One test reads the run of tflint 0.65.0 that is recorded in
+`tests/fixtures/scanner_runs/runs_with_findings.json`.
 """
 
 from __future__ import annotations
@@ -128,6 +129,48 @@ def test_a_tree_whose_tf_files_are_in_sub_directories_is_linted_there(
         outcome.status,
         [finding.location for finding in outcome.findings],
     ) == (True, "ran", ["tf/network/main.tf:1"])
+
+
+def test_the_recorded_tflint_run_gives_one_finding_for_each_issue_with_its_relative_file(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
+    """The run of tflint 0.65.0 over a tree with two `.tf` files, one in `modules/network`,
+    exits 2 and writes six issues of the bundled `terraform` ruleset. All are warnings, so each
+    finding is MEDIUM. A file name is relative to the directory that tflint started in, and
+    `--recursive` gives the file of the module as `modules/network/main.tf` (#2427)."""
+    recorded = scanner_fake.script_run_with_findings("tflint", tree=tmp_path)
+
+    outcome = run_tflint_scan(tmp_path)
+
+    assert (scanner_fake.runs, outcome.status) == ([recorded], "ran")
+    assert [(f.severity, f.location, f.title) for f in outcome.findings] == [
+        ("MEDIUM", "main.tf:1", "[terraform_typed_variables] `unused` variable has no type"),
+        (
+            "MEDIUM",
+            "main.tf:1",
+            '[terraform_unused_declarations] variable "unused" is declared but not used',
+        ),
+        (
+            "MEDIUM",
+            "main.tf:1",
+            '[terraform_required_version] terraform "required_version" attribute is required',
+        ),
+        (
+            "MEDIUM",
+            "modules/network/main.tf:1",
+            "[terraform_typed_variables] `zone` variable has no type",
+        ),
+        (
+            "MEDIUM",
+            "modules/network/main.tf:1",
+            '[terraform_unused_declarations] variable "zone" is declared but not used',
+        ),
+        (
+            "MEDIUM",
+            "modules/network/main.tf:1",
+            '[terraform_required_version] terraform "required_version" attribute is required',
+        ),
+    ]
 
 
 def test_a_clean_report_is_a_scan_that_ran_with_no_finding(
