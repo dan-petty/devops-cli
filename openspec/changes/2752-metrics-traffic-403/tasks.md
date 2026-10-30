@@ -8,6 +8,8 @@
   - Verification: `uv run devops ci test tests/test_github_metrics.py tests/test_github_errors.py tests/test_roadmap_run.py`
 - [x] 1.3 Run `uv run ruff check`, `uv run ruff format --check` and `uv run mypy --strict` on the changed files
   - Verification: `uv run devops ci lint`
+- [x] 1.4 Lock in the lower swallowed-failures ceiling of `github/metrics.py`, from 8 to 4, with `uv run python -m tests.test_swallowed_failures_ratchet --lower`
+  - Verification: `uv run devops ci test tests/test_swallowed_failures_ratchet.py`
 
 ## 2. Documentation
 
