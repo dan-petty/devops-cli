@@ -70,7 +70,7 @@ def test_a_refused_program_is_logged_by_name_with_its_first_arguments(
     _step(store, checkout, script)
 
     assert _lines(capsys) == [
-        "Tool call: shell, started: pytest tests/test_sample.py --flag=sentinel-value",
+        "Tool call: shell, started: pytest tests/test_sample.py --flag=<masked>",
         "Tool call: shell, program pytest, refused.",
     ]
 
@@ -270,9 +270,8 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
             "uv run devops ci test tests/test_a.py",
             id="six-words",
         ),
-        pytest.param(
-            "uv run pytest -n 48 'tests/a b.py'", "uv run pytest -n 48 tests/a b.py", id="q"
-        ),
+        pytest.param("uv run pytest -n 48 'tests/a b.py'", "uv run pytest -n 48 <masked>", id="q"),
+        pytest.param("uv run pytest --numprocesses=48", "uv run pytest --numprocesses=48", id="n"),
         pytest.param(
             "git log --oneline -n 5 -- src tests docs", "git log --oneline -n 5 -- ...", id="words"
         ),
@@ -324,12 +323,62 @@ def test_a_secret_in_an_argument_never_reaches_the_line_of_a_command(
     assert lines[0].startswith("Tool call: shell, started: git remote add origin ")
 
 
-def test_a_line_break_or_an_escape_sequence_in_an_argument_stays_on_one_line(
+def test_an_escape_sequence_in_an_argument_stays_on_one_line(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    lines = _call_lines("git commit -m 'one\ntwo\x1b[31mred'", capsys)
+    lines = _call_lines("git log one\x1b[31mred\x07", capsys)
 
     assert lines == [
-        "Tool call: shell, started: git commit -m one\\ntwo\\x1b[31mred",
+        "Tool call: shell, started: git log one\\x1b[31mred\\x07",
         "Tool call: shell, program git, ok.",
     ]
+
+
+def test_a_line_break_in_an_argument_is_hidden_with_the_text_around_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lines = _call_lines("git commit -m 'one\ntwo'", capsys)
+
+    assert lines[0] == "Tool call: shell, started: git commit -m <masked>"
+
+
+@pytest.mark.parametrize(
+    ("command", "shown"),
+    [
+        pytest.param(
+            "git -c http.extraheader='AUTHORIZATION: basic dXNlcjpwYXNzd29yZDEyMw==' fetch",
+            "git -c http.extraheader=<masked> fetch",
+            id="header",
+        ),
+        pytest.param(
+            "uv run devops config set ai.api_key=supersecretvalue123",
+            "uv run devops config set ai.api_key=<masked>",
+            id="dotted-key",
+        ),
+        pytest.param(
+            "uv run devops x SECRET=abcdef1234567890abcdef",
+            "uv run devops x SECRET=<masked>",
+            id="upper-key",
+        ),
+        pytest.param(
+            "uv run devops x password=hunter2", "uv run devops x password=<masked>", id="p"
+        ),
+        pytest.param(
+            "git commit -m 'the password is hunter2'", "git commit -m <masked>", id="text"
+        ),
+        pytest.param(
+            "uv run devops --api-key=abc123def456ghi789jkl012",
+            "uv run devops --api-key=<masked>",
+            id="hyphen",
+        ),
+        pytest.param(
+            "uv run devops --password hunter2", "uv run devops --password <masked>", id="flag"
+        ),
+    ],
+)
+def test_an_argument_with_a_value_after_a_name_shows_its_name_and_not_its_value(
+    capsys: pytest.CaptureFixture[str], command: str, shown: str
+) -> None:
+    """The mask of secrets finds a secret by its form, and a secret has no form in an argument
+    such as `name=value`. The line keeps the name and hides the value, except for a number (#2806)."""
+    assert _call_lines(command, capsys)[0] == f"Tool call: shell, started: {shown}"

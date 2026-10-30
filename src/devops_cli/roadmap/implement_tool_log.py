@@ -52,7 +52,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
-from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model
 # reaches the log, and the count of the programs in the reason stays small by design.
@@ -106,25 +106,50 @@ def logged_program(word: str | None) -> str:
     return MESSAGES.roadmap.implement_tool_other
 
 
+def _logged_word(word: str) -> str:
+    """What the log shows of one argument. The mask of secrets finds a secret by its form, and
+    the value of `name=value` has none, so the line keeps the name and hides the value, except for
+    a number such as `--numprocesses=48`. A word with a space is free text, such as a message of a
+    commit, and the line hides it (#2806)."""
+    name, separator, value = word.partition("=")
+    if any(char.isspace() for char in name):
+        return MESSAGES.roadmap.implement_tool_masked
+    if separator and name and value and not value.isdecimal():
+        return f"{name}={MESSAGES.roadmap.implement_tool_masked}"
+    return word
+
+
+def _logged_words(words: list[str]) -> list[str]:
+    """The words through `_logged_word`, then through the mask of secrets for the words that
+    `_logged_word` left as they were. The mask of secrets reads a flag and its next word, such as
+    `--password hunter2`, and it never rewrites the name of a word that `_logged_word` masked."""
+    masked = sanitize_command_args_for_display(words)
+    return [
+        shown if (shown := _logged_word(word)) != word else other
+        for word, other in zip(words, masked, strict=True)
+    ]
+
+
 def logged_command(args: ValidatedToolArgs) -> str:
     """What the log shows of a command before the call runs (#2806): the first word and the words
-    after it, at most `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS`, with secrets masked, control
-    characters escaped and the text cut to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS`. Empty when
-    the call has no command word. The word "other" when the first word is no known program: it can
-    be a password or a token, and the words after it mean nothing without it. The mask runs on a
-    fixed length of text before the cut, so that the cut cannot split a secret."""
+    after it, at most `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS`, through `_logged_words`, with
+    control characters escaped and the text cut to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS`.
+    Empty when the call has no command word. The word "other" when the first word is no known
+    program: it can be a password or a token, and the words after it mean nothing without it. Each
+    word is read to a fixed length before the mask, so that the cut cannot split a secret."""
     word = command_word(args)
     if word is None:
         return ""
     if word not in _KNOWN_PROGRAMS:
         return MESSAGES.roadmap.implement_tool_other
     words = shlex.split(str(args["command"]))
-    shown = mask_secrets(
-        " ".join(words[:CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS])[
-            :CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS
+    shown = _logged_words(
+        [
+            argument[:CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS]
+            for argument in words[:CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS]
         ]
     )
-    escaped = shown.encode("unicode_escape").decode("ascii")
+    escaped = " ".join(shown).encode("unicode_escape").decode("ascii")
     cut = (
         len(words) > CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS
         or len(escaped) > CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS
