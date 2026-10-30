@@ -16,6 +16,7 @@ import pytest
 from devops_cli.roadmap.implement_step import (
     StepOutcome,
     StepStatus,
+    build_step_inputs,
     run_step,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -238,3 +239,11 @@ def test_a_step_with_no_python_file_runs_no_formatter(
     _step(store, checkout, script)
 
     assert not [line for line in programs_run(programs, "uv") if "ruff" in line]
+
+
+def test_the_instructions_say_that_the_job_formats_the_changed_python_files(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+
+    assert "The job formats the changed Python files" in inputs.instructions

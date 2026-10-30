@@ -9,9 +9,9 @@
 
 ## 2. The prompt
 
-- [ ] Write a failing test in `tests/test_roadmap_implement_step_format.py`: the instructions of the step say that the job formats the changed Python files.
+- [x] Write a failing test in `tests/test_roadmap_implement_step_format.py`: the instructions of the step say that the job formats the changed Python files.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_format.py`
-- [ ] Add the sentence to `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
+- [x] Add the sentence to `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_format.py tests/test_ai_task_implement.py`
 
 ## 3. The documentation
