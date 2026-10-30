@@ -14,12 +14,19 @@
 - [x] Add `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` to `src/devops_cli/config/constants.py`. Split `_run_agent` into a turn and a loop that resumes the conversation after an error of the generation inside a stream.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
 
-## 3. The documentation
+## 3. The review fixes
+
+- [x] Write failing tests: two separate failures in one step are each sent again; a failure after a good reply stops when its own resend fails; the failed send counts in the request limit. Count the resends per call and the failed request in the carried usage in `_run_agent` and `_resend_after`. The scripted failure in a stream starts a tool call.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
+- [x] Write failing tests for a body that echoes the model (a `raw=` echo, a key and value, an unclosed quote, a second line). Reduce the error text of the body in `body_error_text`. State the real bound on the sends of one call in the constant, the proposal and the design.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
+
+## 4. The documentation
 
 - [x] Regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 4. Archive
+## 5. Archive
 
 - [x] Archive the change.
   - Verification: `uv run devops openspec archive 2794-model-400-body-and-retry`
