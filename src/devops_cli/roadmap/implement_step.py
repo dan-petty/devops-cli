@@ -611,7 +611,7 @@ def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
     detail = texts.implement_model_call_model.format(model=failed.model_name)
     if isinstance(failed, ModelHTTPError):
         detail = texts.implement_model_call_status.format(status=failed.status_code, model=detail)
-        if body := bounded_text(body_error_text(failed.body)):
+        if body := body_error_text(failed.body):
             detail = texts.implement_model_call_body.format(detail=detail, body=body)
     reason = texts.run_stop_reason.format(error=type(failed).__name__, message=detail)
     return _with_counts(reason, log)

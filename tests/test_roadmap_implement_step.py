@@ -1525,6 +1525,46 @@ def test_the_error_text_of_the_body_is_masked_and_cut(
     assert len(outcome.reason) - len(prefix) <= constants.CONST_ROADMAP_RUN_ERROR_CHARS
 
 
+ECHOES = [
+    pytest.param(
+        'error parsing tool call: raw=\'{"content":"DB_PASSWORD=hunter2hunter2"}\', err=EOF',
+        "error parsing tool call: raw",
+        id="ollama-raw-echo",
+    ),
+    pytest.param(
+        {"message": "api_key=abcdef1234567890zz secret: 'S3cr3tValueHere!'"},
+        "api_key",
+        id="key-value",
+    ),
+    pytest.param(
+        "bad call\nthe second line holds hunter2hunter2 MIIEowIBAAKCAQEA1234567890abcdef",
+        "bad call",
+        id="second-line",
+    ),
+    pytest.param(
+        "raw='unclosed hunter2hunter2",
+        "raw",
+        id="unclosed-quote",
+    ),
+]
+
+
+@pytest.mark.parametrize(("body", "kept"), ECHOES)
+def test_the_error_text_of_the_body_holds_no_echo_of_the_model_output(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, body: object, kept: str
+) -> None:
+    """A provider can echo what the model wrote. The reason keeps the first line, hides quoted
+    text, and stops at the first `=` or `;`, as the reason of other errors does (#2562)."""
+    script = ModelScript(ModelHTTPError(400, "example-model", body))
+
+    outcome = _step(store, checkout, script)
+
+    prefix = "ModelHTTPError: HTTP 400, model example-model, body: "
+    assert outcome.reason == prefix + kept
+    for secret in ("hunter2", "S3cr3t", "abcdef1234", "MIIEow"):
+        assert secret not in outcome.reason
+
+
 @pytest.mark.parametrize(
     "body",
     [
