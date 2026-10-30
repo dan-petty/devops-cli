@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.3](https://github.com/dan-petty/devops-cli/compare/v0.21.2...v0.21.3) (2026-10-30)
+
+
+### Bug Fixes
+
+* **repos:** clear a stray local branch before worktree add ([#2727](https://github.com/dan-petty/devops-cli/issues/2727)) ([34136cb](https://github.com/dan-petty/devops-cli/commit/34136cbc978a7af4b273aaf8ae27801c0311bb9a)), closes [#2724](https://github.com/dan-petty/devops-cli/issues/2724)
+
 ## [0.21.2](https://github.com/dan-petty/devops-cli/compare/v0.21.1...v0.21.2) (2026-10-30)
 
 
