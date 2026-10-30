@@ -432,6 +432,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("ci", "docs"),
             ("ci", "fail-to-pass"),
             ("ci", "format"),
+            ("ci", "job-time"),
             ("ci", "lint"),
             ("ci", "lockfile"),
             ("ci", "maintain"),

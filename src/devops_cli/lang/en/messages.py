@@ -1479,6 +1479,24 @@ class CIMessages:
     gate_slot_holder: str = "process {pid} in {worktree}"
     gate_slot_holder_unknown: str = "another run"
     test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
+    job_time_title: str = "{job}: last runs of {workflow} on {branch}"
+    job_time_ok: str = (
+        "The last {count} runs of {job} took {mean:.0f} s on average. The limit is {limit:.0f} s."
+    )
+    job_time_over: str = (
+        "Over the limit: the last {count} runs of {job} took {mean:.0f} s on average, "
+        "and the limit is {limit:.0f} s."
+    )
+    job_time_short: str = (
+        "Only {found} of the last {wanted} runs of {job} could be read from {workflow} on "
+        "{branch}, so the mean says nothing yet."
+    )
+    job_time_no_repo: str = (
+        "No repository to read: the checkout has no origin remote. Give one with --repo."
+    )
+    job_time_dry_run_heading: str = (
+        "Would read the time of {job} in the last runs of {workflow} on {branch}"
+    )
     coverage_index_tree_changed: str = (
         "Files changed during the run; index not saved:\n{files}\n"
         "Re-run `devops ci coverage --build-index` on a clean working tree."

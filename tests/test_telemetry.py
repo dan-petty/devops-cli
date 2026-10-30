@@ -21,6 +21,7 @@ from devops_cli.telemetry.tracer import (
     trace_span,
 )
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.waits import POLL_INTERVAL_SECONDS
 
 
 @pytest.fixture
@@ -565,7 +566,9 @@ def test_sdk_meter_provider_flushes_one_batch_over_http_receiver() -> None:
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Receiver)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": POLL_INTERVAL_SECONDS}, daemon=True
+    )
     thread.start()
     try:
         host, port = server.server_address[0], server.server_address[1]

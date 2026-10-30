@@ -1,0 +1,1216 @@
+{
+ "description": "The CI Quality Gate runs of main that GitHub's Actions API listed on 2026-10-30, newest first, and the jobs of each run, cut to the fields devops-cli reads. Job names and times are as recorded.",
+ "workflow_runs": {
+  "total_count": 12,
+  "workflow_runs": [
+   {
+    "id": 40985544611,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40984740506,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40983651748,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40982073460,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40980414753,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40979165917,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40977313797,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40976203755,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40971514618,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40969160859,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40943393132,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "id": 40941576081,
+    "head_branch": "main",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success"
+   }
+  ]
+ },
+ "run_jobs": {
+  "40985544611": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123835585768,
+     "run_id": 40985544611,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T01:23:20Z",
+     "completed_at": "2026-10-30T01:24:52Z"
+    },
+    {
+     "id": 123835586205,
+     "run_id": 40985544611,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T01:23:20Z",
+     "completed_at": "2026-10-30T01:30:04Z"
+    },
+    {
+     "id": 123835587240,
+     "run_id": 40985544611,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:18Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    },
+    {
+     "id": 123835587312,
+     "run_id": 40985544611,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:18Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    },
+    {
+     "id": 123835587420,
+     "run_id": 40985544611,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:18Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    },
+    {
+     "id": 123835587460,
+     "run_id": 40985544611,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:18Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    },
+    {
+     "id": 123835587566,
+     "run_id": 40985544611,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:18Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    },
+    {
+     "id": 123835587591,
+     "run_id": 40985544611,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:18Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    },
+    {
+     "id": 123835587954,
+     "run_id": 40985544611,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:18Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    },
+    {
+     "id": 123835614363,
+     "run_id": 40985544611,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:23:23Z",
+     "completed_at": "2026-10-30T01:23:17Z"
+    }
+   ]
+  },
+  "40984740506": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123833002866,
+     "run_id": 40984740506,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T01:15:30Z",
+     "completed_at": "2026-10-30T01:21:15Z"
+    },
+    {
+     "id": 123833003185,
+     "run_id": 40984740506,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T01:15:29Z",
+     "completed_at": "2026-10-30T01:17:04Z"
+    },
+    {
+     "id": 123833004298,
+     "run_id": 40984740506,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:27Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    },
+    {
+     "id": 123833004566,
+     "run_id": 40984740506,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:27Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    },
+    {
+     "id": 123833004678,
+     "run_id": 40984740506,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:27Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    },
+    {
+     "id": 123833004695,
+     "run_id": 40984740506,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:27Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    },
+    {
+     "id": 123833004721,
+     "run_id": 40984740506,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:27Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    },
+    {
+     "id": 123833004725,
+     "run_id": 40984740506,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:27Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    },
+    {
+     "id": 123833005188,
+     "run_id": 40984740506,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:27Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    },
+    {
+     "id": 123833036617,
+     "run_id": 40984740506,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:15:33Z",
+     "completed_at": "2026-10-30T01:15:26Z"
+    }
+   ]
+  },
+  "40983651748": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123829431614,
+     "run_id": 40983651748,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T01:04:51Z",
+     "completed_at": "2026-10-30T01:06:12Z"
+    },
+    {
+     "id": 123829431809,
+     "run_id": 40983651748,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T01:04:51Z",
+     "completed_at": "2026-10-30T01:11:30Z"
+    },
+    {
+     "id": 123829432980,
+     "run_id": 40983651748,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:48Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    },
+    {
+     "id": 123829432993,
+     "run_id": 40983651748,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:48Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    },
+    {
+     "id": 123829433087,
+     "run_id": 40983651748,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:48Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    },
+    {
+     "id": 123829433113,
+     "run_id": 40983651748,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:48Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    },
+    {
+     "id": 123829433181,
+     "run_id": 40983651748,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:48Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    },
+    {
+     "id": 123829433208,
+     "run_id": 40983651748,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:48Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    },
+    {
+     "id": 123829433720,
+     "run_id": 40983651748,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:49Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    },
+    {
+     "id": 123829434052,
+     "run_id": 40983651748,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T01:04:49Z",
+     "completed_at": "2026-10-30T01:04:48Z"
+    }
+   ]
+  },
+  "40982073460": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123824356127,
+     "run_id": 40982073460,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:49:37Z",
+     "completed_at": "2026-10-30T00:56:30Z"
+    },
+    {
+     "id": 123824356489,
+     "run_id": 40982073460,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:49:38Z",
+     "completed_at": "2026-10-30T00:51:24Z"
+    },
+    {
+     "id": 123824357262,
+     "run_id": 40982073460,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:35Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    },
+    {
+     "id": 123824357490,
+     "run_id": 40982073460,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:35Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    },
+    {
+     "id": 123824357599,
+     "run_id": 40982073460,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:35Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    },
+    {
+     "id": 123824357902,
+     "run_id": 40982073460,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:35Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    },
+    {
+     "id": 123824357974,
+     "run_id": 40982073460,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:35Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    },
+    {
+     "id": 123824357985,
+     "run_id": 40982073460,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:35Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    },
+    {
+     "id": 123824358012,
+     "run_id": 40982073460,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:35Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    },
+    {
+     "id": 123824397799,
+     "run_id": 40982073460,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:49:43Z",
+     "completed_at": "2026-10-30T00:49:35Z"
+    }
+   ]
+  },
+  "40980414753": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123818775254,
+     "run_id": 40980414753,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:33:23Z",
+     "completed_at": "2026-10-30T00:38:44Z"
+    },
+    {
+     "id": 123818775427,
+     "run_id": 40980414753,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:33:22Z",
+     "completed_at": "2026-10-30T00:34:56Z"
+    },
+    {
+     "id": 123818776698,
+     "run_id": 40980414753,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    },
+    {
+     "id": 123818776700,
+     "run_id": 40980414753,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    },
+    {
+     "id": 123818776804,
+     "run_id": 40980414753,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    },
+    {
+     "id": 123818776811,
+     "run_id": 40980414753,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    },
+    {
+     "id": 123818776844,
+     "run_id": 40980414753,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    },
+    {
+     "id": 123818776924,
+     "run_id": 40980414753,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    },
+    {
+     "id": 123818777028,
+     "run_id": 40980414753,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    },
+    {
+     "id": 123818777162,
+     "run_id": 40980414753,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:33:20Z",
+     "completed_at": "2026-10-30T00:33:20Z"
+    }
+   ]
+  },
+  "40979165917": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123814789967,
+     "run_id": 40979165917,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:22:03Z",
+     "completed_at": "2026-10-30T00:29:01Z"
+    },
+    {
+     "id": 123814790234,
+     "run_id": 40979165917,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:22:03Z",
+     "completed_at": "2026-10-30T00:23:46Z"
+    },
+    {
+     "id": 123814791151,
+     "run_id": 40979165917,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:00Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    },
+    {
+     "id": 123814791254,
+     "run_id": 40979165917,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:00Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    },
+    {
+     "id": 123814791339,
+     "run_id": 40979165917,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:00Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    },
+    {
+     "id": 123814791389,
+     "run_id": 40979165917,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:00Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    },
+    {
+     "id": 123814791405,
+     "run_id": 40979165917,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:00Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    },
+    {
+     "id": 123814791491,
+     "run_id": 40979165917,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:00Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    },
+    {
+     "id": 123814792113,
+     "run_id": 40979165917,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:00Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    },
+    {
+     "id": 123814831217,
+     "run_id": 40979165917,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:22:07Z",
+     "completed_at": "2026-10-30T00:22:00Z"
+    }
+   ]
+  },
+  "40977313797": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123808447161,
+     "run_id": 40977313797,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:04:27Z",
+     "completed_at": "2026-10-30T00:05:51Z"
+    },
+    {
+     "id": 123808447360,
+     "run_id": 40977313797,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-30T00:04:27Z",
+     "completed_at": "2026-10-30T00:11:32Z"
+    },
+    {
+     "id": 123808448539,
+     "run_id": 40977313797,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:25Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    },
+    {
+     "id": 123808448608,
+     "run_id": 40977313797,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:25Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    },
+    {
+     "id": 123808448712,
+     "run_id": 40977313797,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:25Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    },
+    {
+     "id": 123808448737,
+     "run_id": 40977313797,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:25Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    },
+    {
+     "id": 123808449121,
+     "run_id": 40977313797,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:25Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    },
+    {
+     "id": 123808449411,
+     "run_id": 40977313797,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:25Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    },
+    {
+     "id": 123808451953,
+     "run_id": 40977313797,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:25Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    },
+    {
+     "id": 123808498093,
+     "run_id": 40977313797,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-30T00:04:33Z",
+     "completed_at": "2026-10-30T00:04:24Z"
+    }
+   ]
+  },
+  "40976203755": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123804730633,
+     "run_id": 40976203755,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T23:54:10Z",
+     "completed_at": "2026-10-29T23:59:34Z"
+    },
+    {
+     "id": 123804730934,
+     "run_id": 40976203755,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T23:54:11Z",
+     "completed_at": "2026-10-29T23:55:53Z"
+    },
+    {
+     "id": 123804731949,
+     "run_id": 40976203755,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:08Z",
+     "completed_at": "2026-10-29T23:54:07Z"
+    },
+    {
+     "id": 123804732153,
+     "run_id": 40976203755,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:08Z",
+     "completed_at": "2026-10-29T23:54:07Z"
+    },
+    {
+     "id": 123804732271,
+     "run_id": 40976203755,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:08Z",
+     "completed_at": "2026-10-29T23:54:08Z"
+    },
+    {
+     "id": 123804732411,
+     "run_id": 40976203755,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:08Z",
+     "completed_at": "2026-10-29T23:54:07Z"
+    },
+    {
+     "id": 123804732413,
+     "run_id": 40976203755,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:08Z",
+     "completed_at": "2026-10-29T23:54:08Z"
+    },
+    {
+     "id": 123804732610,
+     "run_id": 40976203755,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:08Z",
+     "completed_at": "2026-10-29T23:54:07Z"
+    },
+    {
+     "id": 123804773189,
+     "run_id": 40976203755,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:15Z",
+     "completed_at": "2026-10-29T23:54:07Z"
+    },
+    {
+     "id": 123804773548,
+     "run_id": 40976203755,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:54:15Z",
+     "completed_at": "2026-10-29T23:54:08Z"
+    }
+   ]
+  },
+  "40971514618": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123789143471,
+     "run_id": 40971514618,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T23:12:30Z",
+     "completed_at": "2026-10-29T23:13:41Z"
+    },
+    {
+     "id": 123789143789,
+     "run_id": 40971514618,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T23:12:31Z",
+     "completed_at": "2026-10-29T23:19:22Z"
+    },
+    {
+     "id": 123789144995,
+     "run_id": 40971514618,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:28Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    },
+    {
+     "id": 123789145077,
+     "run_id": 40971514618,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:28Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    },
+    {
+     "id": 123789145116,
+     "run_id": 40971514618,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:28Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    },
+    {
+     "id": 123789145375,
+     "run_id": 40971514618,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:28Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    },
+    {
+     "id": 123789145519,
+     "run_id": 40971514618,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:28Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    },
+    {
+     "id": 123789145619,
+     "run_id": 40971514618,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:28Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    },
+    {
+     "id": 123789146197,
+     "run_id": 40971514618,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:28Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    },
+    {
+     "id": 123789204074,
+     "run_id": 40971514618,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T23:12:37Z",
+     "completed_at": "2026-10-29T23:12:28Z"
+    }
+   ]
+  },
+  "40969160859": {
+   "total_count": 10,
+   "jobs": [
+    {
+     "id": 123781231495,
+     "run_id": 40969160859,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T22:52:54Z",
+     "completed_at": "2026-10-29T22:54:19Z"
+    },
+    {
+     "id": 123781231687,
+     "run_id": 40969160859,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T22:52:54Z",
+     "completed_at": "2026-10-29T22:59:43Z"
+    },
+    {
+     "id": 123781233101,
+     "run_id": 40969160859,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    },
+    {
+     "id": 123781233107,
+     "run_id": 40969160859,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    },
+    {
+     "id": 123781233109,
+     "run_id": 40969160859,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    },
+    {
+     "id": 123781233155,
+     "run_id": 40969160859,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    },
+    {
+     "id": 123781233196,
+     "run_id": 40969160859,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    },
+    {
+     "id": 123781233325,
+     "run_id": 40969160859,
+     "name": "Runner Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    },
+    {
+     "id": 123781233394,
+     "run_id": 40969160859,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    },
+    {
+     "id": 123781233558,
+     "run_id": 40969160859,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T22:52:51Z",
+     "completed_at": "2026-10-29T22:52:51Z"
+    }
+   ]
+  },
+  "40943393132": {
+   "total_count": 9,
+   "jobs": [
+    {
+     "id": 123692324774,
+     "run_id": 40943393132,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T19:48:37Z",
+     "completed_at": "2026-10-29T19:54:55Z"
+    },
+    {
+     "id": 123692325419,
+     "run_id": 40943393132,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T19:48:37Z",
+     "completed_at": "2026-10-29T19:50:07Z"
+    },
+    {
+     "id": 123692326500,
+     "run_id": 40943393132,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:48:34Z",
+     "completed_at": "2026-10-29T19:48:34Z"
+    },
+    {
+     "id": 123692326761,
+     "run_id": 40943393132,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:48:34Z",
+     "completed_at": "2026-10-29T19:48:34Z"
+    },
+    {
+     "id": 123692326814,
+     "run_id": 40943393132,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:48:34Z",
+     "completed_at": "2026-10-29T19:48:34Z"
+    },
+    {
+     "id": 123692326874,
+     "run_id": 40943393132,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:48:34Z",
+     "completed_at": "2026-10-29T19:48:34Z"
+    },
+    {
+     "id": 123692327076,
+     "run_id": 40943393132,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:48:34Z",
+     "completed_at": "2026-10-29T19:48:34Z"
+    },
+    {
+     "id": 123692327475,
+     "run_id": 40943393132,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:48:34Z",
+     "completed_at": "2026-10-29T19:48:34Z"
+    },
+    {
+     "id": 123692393134,
+     "run_id": 40943393132,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:48:42Z",
+     "completed_at": "2026-10-29T19:48:34Z"
+    }
+   ]
+  },
+  "40941576081": {
+   "total_count": 9,
+   "jobs": [
+    {
+     "id": 123686034362,
+     "run_id": 40941576081,
+     "name": "Static Analysis",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T19:36:14Z",
+     "completed_at": "2026-10-29T19:37:54Z"
+    },
+    {
+     "id": 123686036132,
+     "run_id": 40941576081,
+     "name": "Tests & Coverage",
+     "status": "completed",
+     "conclusion": "success",
+     "started_at": "2026-10-29T19:36:14Z",
+     "completed_at": "2026-10-29T19:42:50Z"
+    },
+    {
+     "id": 123686036903,
+     "run_id": 40941576081,
+     "name": "Image Pins",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:36:12Z",
+     "completed_at": "2026-10-29T19:36:11Z"
+    },
+    {
+     "id": 123686036964,
+     "run_id": 40941576081,
+     "name": "Rule Pack Tests",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:36:12Z",
+     "completed_at": "2026-10-29T19:36:11Z"
+    },
+    {
+     "id": 123686037209,
+     "run_id": 40941576081,
+     "name": "Service Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:36:12Z",
+     "completed_at": "2026-10-29T19:36:11Z"
+    },
+    {
+     "id": 123686037221,
+     "run_id": 40941576081,
+     "name": "Docs Site Build",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:36:12Z",
+     "completed_at": "2026-10-29T19:36:11Z"
+    },
+    {
+     "id": 123686037237,
+     "run_id": 40941576081,
+     "name": "Changed-Test Independence",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:36:12Z",
+     "completed_at": "2026-10-29T19:36:11Z"
+    },
+    {
+     "id": 123686037266,
+     "run_id": 40941576081,
+     "name": "Dependency Freshness",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:36:12Z",
+     "completed_at": "2026-10-29T19:36:11Z"
+    },
+    {
+     "id": 123686037936,
+     "run_id": 40941576081,
+     "name": "DevContainer Image",
+     "status": "completed",
+     "conclusion": "skipped",
+     "started_at": "2026-10-29T19:36:12Z",
+     "completed_at": "2026-10-29T19:36:11Z"
+    }
+   ]
+  }
+ }
+}

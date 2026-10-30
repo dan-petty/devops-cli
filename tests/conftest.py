@@ -18,10 +18,12 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 import errno
+import gc
 import ipaddress
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import weakref
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -726,14 +728,14 @@ def reset_dry_run_state():
 
 @pytest.fixture(autouse=True)
 def isolate_llm_response_cache(isolate_data_dir: Path):
-    """Ensure LLM response cache is isolated per test to prevent cross-test cache hits."""
-    from devops_cli.ai.response_cache import (
-        get_llm_response_cache,
-        reset_llm_response_cache,
-    )
+    """Ensure LLM response cache is isolated per test to prevent cross-test cache hits.
+
+    The cache is built on first use, from the settings the test has by then: building it here
+    would load and validate the settings for each of the 13,000 tests, and most never use it.
+    """
+    from devops_cli.ai.response_cache import reset_llm_response_cache
 
     reset_llm_response_cache()
-    get_llm_response_cache()
     yield
     reset_llm_response_cache()
 
@@ -832,8 +834,19 @@ def isolate_own_source_repository(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("devops_cli.core.repo._own_source_dir", lambda: installed)
 
 
+@pytest.fixture(scope="session")
+def runtime_dirs_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The one directory of the worker that holds the runtime directory of each test.
+
+    `mktemp` with a number scans every entry of the base directory to find the next number, so a
+    numbered directory for each of the worker's 3,500 tests made each one slower than the last.
+    The runtime directories are made inside this one, by `mkdtemp`, which scans nothing.
+    """
+    return tmp_path_factory.mktemp("runtime", numbered=False)
+
+
 @pytest.fixture(autouse=True)
-def isolate_session_bus(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+def isolate_session_bus(runtime_dirs_root: Path, monkeypatch: pytest.MonkeyPatch):
     """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets.
 
     The runtime directory sits beside `tmp_path`, neither holding it nor inside it: a sandbox
@@ -842,7 +855,7 @@ def isolate_session_bus(tmp_path_factory: pytest.TempPathFactory, monkeypatch: p
     """
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
     # the bus fallback is $XDG_RUNTIME_DIR/bus
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path_factory.mktemp("run")))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", tempfile.mkdtemp(dir=runtime_dirs_root))
 
 
 @pytest.fixture(autouse=True)
@@ -1444,10 +1457,22 @@ def docker_endpoint_env(
     reset_settings_cache()
 
 
+# The garbage collector runs a young collection after each 2,000 net allocations, and the heap of
+# the imported libraries (pydantic models, Textual, the Kubernetes client) is large, so a full
+# collection took 0.9 s. In a worker of the full run the collector ran 4,000 to 7,000 times for
+# 22 to 37 s of its 260 s. A young threshold of 50,000 leaves 120 to 190 runs and 5 to 10 s of it
+# (#2699). The cycles that the tests leave stay uncollected a little longer, which no test reads;
+# a test that needs the collection calls `gc.collect()`.
+GC_YOUNG_THRESHOLD = 50_000
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    """Register `pytester` so subpackage test modules such as `tests/invariants/` can use it."""
+    """Register `pytester` so subpackage test modules such as `tests/invariants/` can use it, and
+    raise the collector's young threshold for this process."""
     if not config.pluginmanager.has_plugin("pytester"):
         config.pluginmanager.import_plugin("pytester")
+    _, gen1, gen2 = gc.get_threshold()
+    gc.set_threshold(GC_YOUNG_THRESHOLD, gen1, gen2)
 
 
 def _missing_live_binary(item: pytest.Item) -> str | None:

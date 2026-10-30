@@ -2674,6 +2674,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Install promtool",
         ): "Installs the pinned promtool that the rule tests of the test row run, with the lock's installer",
         (
+            "job-time",
+            "Check the duration of Tests & Coverage",
+        ): "Reads the job times of the last runs of main from the Actions API, so it is no row of the gate (#2699)",
+        (
             "rule-pack",
             "Detect Changed Rule Pack Files",
         ): "Git diff to check whether src/devops_cli/review/rules/** changed",

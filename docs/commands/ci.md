@@ -348,6 +348,28 @@ devops ci mutate [OPTIONS] <paths>
 
 ---
 
+## `devops ci job-time`
+
+**Fail when the last runs of a CI job took more than the limit on average. Reads the job time of the last completed push runs of a workflow on a branch from GitHub's Actions API. A job that passed, failed or timed out counts, whatever the run concluded. Fails too when fewer runs than asked for could be read.**
+
+```bash
+devops ci job-time [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name. Default: the origin of the current checkout. |
+| `--job` | `string` | `Tests & Coverage` | Name of the job whose time is read. |
+| `--workflow` | `string` | `ci.yml` | Workflow file that holds the job. |
+| `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
+| `--runs` | `integer` | `10` | How many of the last runs the mean covers. |
+| `--limit` | `float` | `300.0` | Most seconds the mean of the runs may be. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ci fail-to-pass`
 
 **Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched.**
