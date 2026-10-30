@@ -2042,6 +2042,8 @@ class RoadmapMessages:
     )
     implement_tool_line: str = "Tool call: {tool}, {outcome}."
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
+    implement_tool_started: str = "Tool call: {tool}, started: {command}"
+    implement_tool_cut: str = " ..."
     implement_tick_turn: str = (
         "The checks of your group passed, but `{path}` still holds these tasks of your group "
         "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "

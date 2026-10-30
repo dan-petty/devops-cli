@@ -16,9 +16,9 @@
 
 ## 3. The tool log names the command
 
-- [ ] Write the failing tests in `tests/test_roadmap_implement_tool_log.py`: the start line comes before the call runs; a long command is cut; a secret is masked; a control character stays on one line; an unknown first word shows as `other`; a call with no command writes no start line. Update the tests that read all lines.
+- [x] Write the failing tests in `tests/test_roadmap_implement_tool_log.py`: the start line comes before the call runs; a long command is cut; a secret is masked; a control character stays on one line; an unknown first word shows as `other`; a call with no command writes no start line. Update the tests that read all lines.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py`
-- [ ] Change `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/lang/en/messages.py` and `src/devops_cli/config/constants.py`.
+- [x] Change `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/lang/en/messages.py` and `src/devops_cli/config/constants.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py tests/test_roadmap_implement_step.py`
 
 ## 4. The documentation
