@@ -44,7 +44,6 @@ def test_build_subprocess_env_allowlist_and_denylist(
     monkeypatch.setenv("HOME", "/home/testuser")
     monkeypatch.setenv("USER", "testuser")
     monkeypatch.setenv("TERM", "xterm-256color")
-    monkeypatch.setenv("VIRTUAL_ENV", "/app/.venv")
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     monkeypatch.setenv("OTEL_SERVICE_NAME", "devops-cli")
 
@@ -66,7 +65,6 @@ def test_build_subprocess_env_allowlist_and_denylist(
     assert env["HOME"] == "/home/testuser"
     assert env["USER"] == "testuser"
     assert env["TERM"] == "xterm-256color"
-    assert env["VIRTUAL_ENV"] == "/app/.venv"
     assert env["DEVOPS_CLI_DATA_DIR"] == str(tmp_path / ".data")
     assert env["OTEL_SERVICE_NAME"] == "devops-cli"
 
@@ -651,7 +649,6 @@ def test_constants_integrity() -> None:
     assert isinstance(DEFAULT_ALLOWED_ENV_VARS, frozenset)
     assert "PATH" in DEFAULT_ALLOWED_ENV_VARS
     assert "HOME" in DEFAULT_ALLOWED_ENV_VARS
-    assert "VIRTUAL_ENV" in DEFAULT_ALLOWED_ENV_VARS
     assert "DEVOPS_CLI_" in DEFAULT_ALLOWED_ENV_PREFIXES
     assert "*TOKEN*" in DEFAULT_DENIED_ENV_PATTERNS
     assert "*SECRET*" in DEFAULT_DENIED_ENV_PATTERNS
