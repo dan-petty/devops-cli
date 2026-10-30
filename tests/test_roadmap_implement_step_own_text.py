@@ -1,6 +1,6 @@
-"""The text of the own group (#2774): a step writes the text of its own group back to `tasks.md`
-and keeps the ticks that the model set. It stops on a change of the number, the order or the
-heading of the tasks, and a fix step changes no task.
+"""The text of the own group (#2774, #2790): a step writes `tasks.md` back to its text before the
+run and keeps the ticks that the model set in its own group, by position. No edit of the file stops
+the step, and a fix step ticks no task.
 
 The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real on a checkout in
 `tmp_path`; every other program is answered by `process_fake`.
@@ -43,8 +43,10 @@ from tests.support.model_script import ModelScript, say, tool_calls
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 WORK = (write_call("tests/test_sample.py", TEST_BODY), write_call("src/sample.py", SHOUT_CODE))
-CHANGED = "The tasks of group 1 changed. A step may only tick them."
-NOTE = "Restored the text of group 1. A step ticks its tasks and does not edit them."
+NOTE = (
+    "Restored the tasks.md of the change 1-sample-change. A step only ticks the tasks of its own "
+    "group."
+)
 FIRST_TASK = "Add the failing test `tests/test_sample.py` for `src/sample.py`"
 RENAMED_TASK = "Add the failing test `tests/test_other.py` for `src/sample.py`"
 REWRITTEN = TICKED.replace(FIRST_TASK, RENAMED_TASK)
@@ -187,10 +189,19 @@ REMOVED = TICKED.replace(SECOND, "")
 RETITLED = TICKED.replace("## 1. The first group", "## 1. Another group")
 
 
-@pytest.mark.parametrize(
-    "tasks", [SWAPPED, ADDED, REMOVED, RETITLED], ids=["swapped", "added", "removed", "retitled"]
-)
-def test_a_change_of_the_number_the_order_or_the_heading_of_the_tasks_still_stops_the_step(
+@pytest.mark.parametrize("tasks", [SWAPPED, RETITLED], ids=["swapped", "retitled"])
+def test_a_reorder_or_a_new_heading_is_undone_and_the_ticks_are_kept(
+    tasks: str, store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, tasks)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout)) == ((StepStatus.DONE, ""), TICKED)
+
+
+@pytest.mark.parametrize("tasks", [ADDED, REMOVED], ids=["added", "removed"])
+def test_an_added_or_removed_task_of_the_group_gives_no_tick_and_the_unticked_task_is_named(
     tasks: str, store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
@@ -198,7 +209,10 @@ def test_a_change_of_the_number_the_order_or_the_heading_of_the_tasks_still_stop
 
     result = _step(store, checkout, script)
 
-    assert (result, is_clean_at(checkout, head)) == ((StepStatus.STOPPED, CHANGED), True)
+    assert (result, is_clean_at(checkout, head)) == (
+        (StepStatus.STOPPED, f"A task of the group is not ticked: [ ] {FIRST_TASK}"),
+        True,
+    )
 
 
 def test_a_group_at_the_end_of_a_file_with_no_final_line_end_is_restored_as_it_was(
@@ -260,7 +274,7 @@ def test_a_tasks_file_with_crlf_line_ends_keeps_them_when_the_text_is_restored(
     )
 
 
-def test_the_step_prints_one_line_that_names_the_group_it_restores(
+def test_the_step_prints_one_line_that_names_the_change_it_restores(
     store: InMemoryRoadmapStore,
     checkout: Path,
     programs: ProcessFake,
@@ -287,7 +301,7 @@ def test_the_step_prints_no_line_when_the_model_only_ticks(
     assert "Restored" not in capsys.readouterr().err
 
 
-def test_a_fix_step_that_edits_the_text_of_a_task_still_stops(
+def test_a_fix_step_that_edits_the_text_of_a_task_leaves_the_tasks_as_they_were(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(
@@ -307,9 +321,10 @@ def test_a_fix_step_that_edits_the_text_of_a_task_still_stops(
         window=WINDOW,
     )
 
-    assert (outcome.status, outcome.reason) == (
-        StepStatus.STOPPED,
-        "The tasks changed. A fix step changes no task.",
+    assert (outcome.status, outcome.reason, _committed_tasks(checkout)) == (
+        StepStatus.DONE,
+        "",
+        TASKS,
     )
 
 
@@ -321,6 +336,17 @@ def test_the_instructions_say_not_to_edit_the_text_of_a_task_and_what_to_do_with
     assert (
         "Do not edit the text of a task. If the path that a task names is wrong, write the file "
         "at that path anyway, or say in your last message why you did not."
+    ) in inputs.instructions
+
+
+def test_the_instructions_say_that_the_job_writes_the_whole_file_back(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+
+    assert (
+        "The job writes the whole file back as it was before your run, and keeps only your ticks "
+        "of the tasks of your group."
     ) in inputs.instructions
 
 

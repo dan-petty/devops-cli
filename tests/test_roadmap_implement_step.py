@@ -367,23 +367,22 @@ def test_a_task_left_unticked_after_the_extra_turn_stops_the_step(
     )
 
 
-def test_a_text_change_to_another_group_stops_the_step(
+def test_a_text_change_to_another_group_is_undone_and_the_step_ends_done(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
     other = TICKED.replace("Document the function", "Describe the function")
     script = ModelScript(tool_calls(write_call(TASKS_PATH, other)), say("Done."))
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
-        StepStatus.STOPPED,
-        "Group 2 changed. A step may change only its own group.",
-        True,
+    assert (outcome.status, outcome.reason, git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n") == (
+        StepStatus.DONE,
+        "",
+        TICKED,
     )
 
 
-def test_a_task_that_the_agent_removes_stops_the_step(
+def test_a_task_that_the_agent_removes_leaves_the_group_unticked_and_stops_the_step(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
@@ -392,13 +391,17 @@ def test_a_task_that_the_agent_removes_stops_the_step(
         "  - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`\n",
         "",
     )
-    script = ModelScript(tool_calls(write_call(TASKS_PATH, shorter)), say("Done."))
+    script = ModelScript(
+        tool_calls(write_call("src/sample.py", SHOUT_CODE), write_call(TASKS_PATH, shorter)),
+        say("Done."),
+    )
 
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        "The tasks of group 1 changed. A step may only tick them.",
+        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
+        "for `src/sample.py`",
         True,
     )
 
@@ -591,7 +594,7 @@ def test_a_commit_that_the_agent_makes_stops_the_step_and_the_checkout_returns_t
     )
 
 
-def test_a_tasks_file_that_the_agent_removes_stops_the_step_and_resets_the_checkout(
+def test_a_tasks_file_that_the_agent_removes_is_written_back_and_its_tasks_stay_unticked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
@@ -603,14 +606,21 @@ def test_a_tasks_file_that_the_agent_removes_stops_the_step_and_resets_the_check
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+    assert (
+        outcome.status,
+        outcome.reason,
+        is_clean_at(checkout, head),
+        (checkout / TASKS_PATH).exists(),
+    ) == (
         StepStatus.STOPPED,
-        "The tasks of group 1 changed. A step may only tick them.",
+        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
+        "for `src/sample.py`",
+        True,
         True,
     )
 
 
-def test_a_tasks_file_with_bytes_that_are_not_text_stops_the_step(
+def test_a_tasks_file_with_bytes_that_are_not_text_is_written_back_and_its_tasks_stay_unticked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
@@ -618,13 +628,14 @@ def test_a_tasks_file_with_bytes_that_are_not_text_stops_the_step(
     def garble() -> None:
         (checkout / TASKS_PATH).write_bytes(b"\xff\xfe not utf-8")
 
-    script = ModelScript(say("Done."), effects={1: garble})
+    script = ModelScript(tool_calls(*WORK), say("Done."), effects={2: garble})
 
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        "The tasks of group 1 changed. A step may only tick them.",
+        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
+        "for `src/sample.py`",
         True,
     )
 
@@ -905,10 +916,9 @@ def test_an_extra_turn_that_changes_many_files_names_only_the_first_of_them(
     )
 
 
-def test_an_extra_turn_that_edits_the_text_of_another_group_stops_the_step(
+def test_an_extra_turn_that_edits_the_text_of_another_group_is_undone(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
     untick = write_call(
         TASKS_PATH, TICKED.replace("Document the function", "Describe the function")
     )
@@ -916,10 +926,10 @@ def test_an_extra_turn_that_edits_the_text_of_another_group_stops_the_step(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
-        StepStatus.STOPPED,
-        "Group 2 changed. A step may change only its own group.",
-        True,
+    assert (outcome.status, outcome.reason, git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n") == (
+        StepStatus.DONE,
+        "",
+        TICKED,
     )
 
 
@@ -1646,10 +1656,9 @@ def test_a_fix_step_runs_the_verification_commands_of_every_group_of_the_change(
     assert uv[1:3] == ["uv run devops ci test tests/test_sample.py", "uv run devops docs check"]
 
 
-def test_a_fix_step_that_ticks_a_task_stops_and_resets_the_checkout(
+def test_a_fix_step_that_ticks_a_task_ends_done_with_the_tasks_as_they_were(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(
         tool_calls(write_call("src/sample.py", SHOUT_CODE), write_call(TASKS_PATH, TICKED)),
         say("Fixed."),
@@ -1657,11 +1666,12 @@ def test_a_fix_step_that_ticks_a_task_stops_and_resets_the_checkout(
 
     outcome = _fix(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
-        StepStatus.STOPPED,
-        "The tasks changed. A fix step changes no task.",
-        True,
-    )
+    assert (
+        outcome.status,
+        outcome.reason,
+        git(checkout, "show", "--name-only", "--format=", "HEAD"),
+        (checkout / TASKS_PATH).read_text(encoding="utf-8"),
+    ) == (StepStatus.DONE, "", "src/sample.py", TASKS)
 
 
 def test_a_fix_step_that_changes_no_file_stops(

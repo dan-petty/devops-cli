@@ -2015,10 +2015,6 @@ class RoadmapMessages:
         "window of {window} tokens minus {reserve} tokens for the turns of the run."
     )
     implement_git_failed: str = "git {command} failed.\n{output}"
-    implement_stop_tasks_edited: str = (
-        "The tasks of group {group} changed. A step may only tick them."
-    )
-    implement_stop_fix_tasks_changed: str = "The tasks changed. A fix step changes no task."
     implement_fix_title: str = "Make check {check} pass"
     implement_fix_task: str = "[ ] Make check `{check}` pass"
     implement_stop_unticked: str = "A task of the group is not ticked: {task}"
@@ -2047,14 +2043,9 @@ class RoadmapMessages:
         "done. Change nothing else in that file and change no other file. Then reply with one "
         "short message."
     )
-    implement_stop_group_changed: str = (
-        "Group {group} changed. A step may change only its own group."
-    )
-    implement_restored_ticks: str = (
-        "Restored the checkboxes of these groups: {groups}. A step ticks only its own group."
-    )
-    implement_restored_text: str = (
-        "Restored the text of group {group}. A step ticks its tasks and does not edit them."
+    implement_restored_tasks: str = (
+        "Restored the tasks.md of the change {change}. A step only ticks the tasks of its own "
+        "group."
     )
     implement_stop_command_denied: str = (
         "The verification command {command} is not allowed. {program} is not one of: {allowed}."
