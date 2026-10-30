@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.0](https://github.com/dan-petty/devops-cli/compare/v0.21.4...v0.22.0) (2026-10-30)
+
+
+### Features
+
+* **k8s:** admission policy for the Service Jobs ([#2730](https://github.com/dan-petty/devops-cli/issues/2730)) ([4be83c2](https://github.com/dan-petty/devops-cli/commit/4be83c28b69b6b0011dd743c242ea2897da618a6)), closes [#2696](https://github.com/dan-petty/devops-cli/issues/2696)
+
+
+### Bug Fixes
+
+* **security:** refuse the uv and npm keys that run a program ([#2749](https://github.com/dan-petty/devops-cli/issues/2749)) ([c5a4596](https://github.com/dan-petty/devops-cli/commit/c5a45965d4514b690da2c961b98204a401bcb67d)), closes [#2673](https://github.com/dan-petty/devops-cli/issues/2673)
+
 ## [0.21.4](https://github.com/dan-petty/devops-cli/compare/v0.21.3...v0.21.4) (2026-10-30)
 
 
