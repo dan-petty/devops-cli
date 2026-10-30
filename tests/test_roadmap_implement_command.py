@@ -61,7 +61,7 @@ def test_a_done_step_prints_its_outcome_as_json_and_exits_0(
 
     result = _implement(cli, implement_checkout, "--format", "json")
 
-    printed = json.loads(result.output)
+    printed = json.loads(result.stdout)
     assert (
         result.exit_code,
         {
@@ -83,6 +83,7 @@ def test_a_done_step_prints_its_outcome_as_json_and_exits_0(
         True,
         2,
     )
+    assert result.stderr.splitlines() == ["Tool call: write_file, ok."] * 3
 
 
 def test_a_done_step_prints_a_table_with_its_commit(
@@ -116,7 +117,7 @@ def test_a_stopped_step_exits_1_and_prints_its_reason_as_json(
 
     result = _implement(cli, implement_checkout, "--json")
 
-    printed = json.loads(result.output)
+    printed = json.loads(result.stdout)
     assert (result.exit_code, printed["status"], printed["reason"], printed["commit"]) == (
         1,
         "stopped",
