@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the agent made no commit, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. An edit of `tasks.md` SHALL be no reason to stop. A task left unticked after the first three checks first gets the extra turn of the requirement "A step asks once for the missing ticks". A static check that fails first gets the extra turn of the requirement "A step asks once for a fix of a failed static check".
+The exit checks SHALL run in this order: the agent made no commit, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A failed static check, and a task left unticked after the first three checks, first get the extra turn of their own requirements.
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -46,7 +46,7 @@ The exit checks SHALL run in this order: the agent made no commit, each verifica
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
 
 ### Requirement: A step asks once for the missing ticks
-When the agent ends its run, the check of the tasks passes, each verification command passes, the static checks pass, and a task of the group is unticked, the step SHALL run one more model turn. The turn SHALL continue the same conversation under the same `UsageLimits`. Its message SHALL name the path of the `tasks.md` and list the unticked tasks, and SHALL ask only for their ticks. The step SHALL run the turn at most once, and SHALL run none for a fix step. A step SHALL get one extra turn at most, whichever check asks for it: after the turn of the requirement "A step asks once for a fix of a failed static check" it SHALL run no turn for the ticks.
+When the agent ends its run, the check of the tasks passes, each verification command passes, the static checks pass, and a task of the group is unticked, the step SHALL run one more model turn. The turn SHALL continue the same conversation under the same `UsageLimits`. Its message SHALL name the path of the `tasks.md` and list the unticked tasks, and SHALL ask only for their ticks. A step SHALL get one extra turn at most, whichever check asks for it, and none for the ticks of a fix step.
 
 #### Scenario: The agent forgot the ticks
 - **WHEN** the model writes a test file and a source file, ends its run with the tasks of group 1 unticked, the verification command and the static checks exit 0, and the model ticks the tasks in the extra turn
