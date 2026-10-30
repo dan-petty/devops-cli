@@ -77,6 +77,7 @@ from devops_cli.roadmap.refine import (
     inspect_checkout,
     needs_investigation,
     plan_refine,
+    raise_for_failed_items,
     render_proposal_section,
     render_refine_plan,
     sanitize_text,
@@ -1032,9 +1033,46 @@ def test_a_proposal_that_never_fits_the_schema_skips_only_its_item(
         ("Body P1-High", "New"),
         True,
         [
-            f"Refine skipped #{first}: its model call failed "
-            "(StructuredOutputValidationError, 3 schema violation(s))."
+            f"Refine skipped #{first} in {REPO}: its model call failed "
+            "(StructuredOutputValidationError, LLM_INFERENCE_ERROR, 3 schema violation(s))."
         ],
+        False,
+    )
+
+
+def test_a_timeout_at_the_gateway_is_named_by_its_repository_and_status(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify a gateway that answers 408 with a body of model text gives a warning with the
+    repository, the error code and the status, and an error of the round, a report and a log with
+    none of that text."""
+    first, *_ = _seed_new_items(store)
+    timeout = httpx2.Response(408, json={"error": {"message": "MODEL-TEXT"}})
+    scripted_gateway({first: timeout})
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
+        plan = plan_refine(store, repo=REPO, source=git_repo)
+    with pytest.raises(RoadmapRefineError) as raised:
+        raise_for_failed_items(plan)
+
+    assert (
+        [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "devops_cli.roadmap.refine"
+        ],
+        str(raised.value),
+        "MODEL-TEXT" in render_refine_plan(plan) + caplog.text,
+    ) == (
+        [
+            f"Refine skipped #{first} in {REPO}: its model call failed (AIClientError, "
+            "LLM_INFERENCE_ERROR, HTTP 408 Request Timeout, 0 schema violation(s))."
+        ],
+        f"the model call failed for 1 item(s), and refine skipped them: "
+        f"#{first} (AIClientError, 0 schema violation(s))",
         False,
     )
 

@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from pydantic_ai import Tool
-from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
@@ -44,9 +44,9 @@ from devops_cli.roadmap.refine import (
     RefinementProposal,
     inspect_checkout,
     plan_refine,
+    render_refine_plan,
 )
 from devops_cli.roadmap.refine_investigation import (
-    InvestigationStopped,
     InvestigationTools,
     cited_web_search,
     investigate,
@@ -315,41 +315,115 @@ def test_a_failed_model_call_becomes_refines_own_error(
 
 
 @pytest.mark.parametrize(
-    ("answer", "reason"),
+    ("answer", "message"),
     [
-        (ModelResponse(parts=[TextPart(content="not json")]), "UnexpectedModelBehavior"),
-        (call("read_file", path=["not", "a", "path"]), "UnexpectedModelBehavior"),
+        (
+            ModelResponse(parts=[TextPart(content="not json")]),
+            "Exceeded maximum output retries (2)",
+        ),
+        (
+            call("read_file", path=["not", "a", "path"]),
+            "Tool 'read_file' exceeded max retries count of 2.",
+        ),
     ],
     ids=["never-an-answer", "tool-arguments-never-valid"],
 )
 def test_a_model_that_breaks_the_rules_past_its_retries_stops_the_run(
-    git_repo: Path, answer: ModelResponse, reason: str
+    git_repo: Path, answer: ModelResponse, message: str
 ) -> None:
     """A model that never answers through the output tool, or never sends valid tool arguments,
-    stops the run with no proposal; refine then keeps its first proposal."""
-    assert _investigate(git_repo, Script(answer)) == InvestigationStopped(reason)
+    stops the run with no proposal; refine then keeps its first proposal. The stop holds the class
+    of the error and its message."""
+    stopped = _investigate(git_repo, Script(answer))
+
+    assert (stopped.reason, stopped.message.startswith(message)) == (
+        "UnexpectedModelBehavior",
+        True,
+    )
+
+
+def test_a_stop_gives_the_first_line_of_the_message_and_none_of_the_body(git_repo: Path) -> None:
+    """The `body` of the error and the later lines of its message can quote the reply, so a stop
+    holds neither; a token in the first line is masked."""
+    token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    message = f"Invalid response: 1 validation error {token}\ninput_value=MODEL-TEXT"
+    script = Script(UnexpectedModelBehavior(message, body="MODEL-TEXT"))
+
+    stopped = _investigate(git_repo, script)
+
+    assert (stopped.reason, token in stopped.message, "MODEL-TEXT" in stopped.message) == (
+        "UnexpectedModelBehavior",
+        False,
+        False,
+    )
+    assert stopped.message.startswith("Invalid response: 1 validation error")
+
+
+def test_a_long_message_is_cut(git_repo: Path) -> None:
+    from devops_cli.config.constants import CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS
+
+    stopped = _investigate(git_repo, Script(UnexpectedModelBehavior("x" * 5000)))
+
+    assert len(stopped.message) == CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS
+
+
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.refine"]
 
 
 def test_a_stopped_run_keeps_the_first_proposal(
     git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
 ) -> None:
-    script = Script(ModelResponse(parts=[TextPart(content="not json")]))
+    script = Script(UnexpectedModelBehavior("Exceeded maximum output retries (3)"))
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
         plan = _round(store, git_repo, _FIRST, script)
 
     refined = plan.refined_items[0]
-    assert (
-        refined.next_step,
-        plan.failed_items,
-        [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.refine"],
-    ) == (
+    assert (refined.next_step, plan.failed_items, _warnings(caplog)) == (
         NextStep.PERSON,
         [],
         [
-            "Refine's investigation of #1 stopped with no proposal (UnexpectedModelBehavior); "
+            "Refine's investigation of #1 in example/roadmap stopped with no proposal "
+            "(UnexpectedModelBehavior: Exceeded maximum output retries (3)); "
             "the item keeps its open questions."
         ],
+    )
+
+
+def test_the_warning_of_a_stopped_run_holds_no_text_of_the_model(
+    git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    message = "Invalid response from openai: 1 validation error\ninput_value=MODEL-TEXT"
+    script = Script(UnexpectedModelBehavior(message, body="MODEL-TEXT"))
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
+        plan = _round(store, git_repo, _FIRST, script)
+
+    assert (_warnings(caplog), "MODEL-TEXT" in render_refine_plan(plan) + caplog.text) == (
+        [
+            "Refine's investigation of #1 in example/roadmap stopped with no proposal "
+            "(UnexpectedModelBehavior: Invalid response from openai: 1 validation error); "
+            "the item keeps its open questions."
+        ],
+        False,
+    )
+
+
+def test_a_failed_model_call_of_the_investigation_names_the_repository_and_the_status(
+    git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    script = Script(ModelHTTPError(504, "model", body="MODEL-TEXT"))
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
+        plan = _round(store, git_repo, _FIRST, script)
+
+    assert (_warnings(caplog), "MODEL-TEXT" in render_refine_plan(plan) + caplog.text) == (
+        [
+            "Refine skipped #1 in example/roadmap: its model call failed (AIClientError, "
+            "LLM_INFERENCE_ERROR, HTTP 504 Gateway Timeout, 0 schema violation(s))."
+        ],
+        False,
     )
 
 

@@ -9,9 +9,9 @@
 
 ## 2. The two warnings
 
-- [ ] 2.1 Write failing tests in `tests/test_roadmap_refine.py` and `tests/test_roadmap_refine_investigation.py`: the warning of a failed call names the repository, the code and the status or `timeout`; the warning of a stopped investigation names the repository, the class and the first line of the message; the body, the second line of the message and a token never appear in the log, the error of the round, the record or the comment.
+- [x] 2.1 Write failing tests in `tests/test_roadmap_refine.py` and `tests/test_roadmap_refine_investigation.py`: the warning of a failed call names the repository, the code and the status or `timeout`; the warning of a stopped investigation names the repository, the class and the first line of the message; the body, the second line of the message and a token never appear in the log, the error of the round, the record or the comment.
   - Verification: `uv run devops ci test tests/test_roadmap_refine.py tests/test_roadmap_refine_investigation.py`
-- [ ] 2.2 Add `run_error_message` to `src/devops_cli/roadmap/agent_run.py` and the limits to `src/devops_cli/config/constants.py`. Give `InvestigationStopped` the field `message`. Pass `repo` from `plan_refine` to `refine_one_item`, `_investigate` and `_failed_item`, and write the two warnings.
+- [x] 2.2 Add `run_error_message` to `src/devops_cli/roadmap/agent_run.py` and the limits to `src/devops_cli/config/constants.py`. Give `InvestigationStopped` the field `message`. Pass `repo` from `plan_refine` to `refine_one_item`, `_investigate` and `_failed_item`, and write the two warnings.
   - Verification: `uv run devops ci test tests/test_roadmap_refine.py tests/test_roadmap_refine_investigation.py tests/test_roadmap_alternatives.py`
 
 ## 3. The documentation

@@ -2942,6 +2942,12 @@ CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS: Final[int] = 20
 CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
 # The retries the model gets for a tool call or an answer that breaks its schema.
 CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
+# The most characters of the message of a stopped run in a warning, and the most that the masking
+# reads (#2562). The read is a multiple of the limit: the masking of secrets is slower than linear.
+CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS: Final[int] = 300
+CONST_ROADMAP_REFINE_STOP_MESSAGE_READ_CHARS: Final[int] = (
+    4 * CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS
+)
 CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 120
 CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 4000
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of

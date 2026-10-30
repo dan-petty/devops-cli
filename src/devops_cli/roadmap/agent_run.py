@@ -8,12 +8,17 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic_ai import RunContext
-from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, ModelTimeoutError
+from pydantic_ai.exceptions import AgentRunError, ModelAPIError, ModelHTTPError, ModelTimeoutError
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend import track_request_spend
-from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS,
+    CONST_ROADMAP_REFINE_STOP_MESSAGE_READ_CHARS,
+)
+from devops_cli.security.sanitizer import mask_secrets
 
 # The HTTP statuses of a model reply that refuse the key, which stop the whole run.
 _REFUSED_KEY_STATUSES = frozenset({401, 403})
@@ -39,6 +44,18 @@ def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
     )
 
 
+def run_error_message(stopped: AgentRunError) -> str:
+    """The first line of the `message` of a pydantic-ai error, masked and cut, to log (#2562).
+
+    It is not `str(stopped)`: for `UnexpectedModelBehavior` that adds the `body`, the text of the
+    model. A message can hold a validation error too, whose later lines quote the reply, so the
+    first line only is kept. It is cut before the masking, which is slower than linear.
+    """
+    first = (stopped.message.splitlines() or [""])[0]
+    masked = mask_secrets(first[:CONST_ROADMAP_REFINE_STOP_MESSAGE_READ_CHARS]).strip()
+    return masked[:CONST_ROADMAP_REFINE_STOP_MESSAGE_CHARS]
+
+
 def record_run_spend(
     model: Any, messages: Sequence[ModelMessage], seconds: float, *, stage: str
 ) -> None:
@@ -61,4 +78,4 @@ def record_run_spend(
     )
 
 
-__all__ = ["drain_events", "model_call_error", "record_run_spend"]
+__all__ = ["drain_events", "model_call_error", "record_run_spend", "run_error_message"]
