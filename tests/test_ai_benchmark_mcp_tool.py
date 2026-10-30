@@ -1,9 +1,11 @@
-"""Tests that the MCP tool `ai_benchmark` takes no server URL from the calling model (#2638)."""
+"""Tests that the MCP tool `ai_benchmark` takes no server URL and no file path from the calling
+model (#2638, #2704)."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -17,15 +19,13 @@ BENCHMARK_TOOL_PARAMETERS = [
     "benchmark_type",
     "tasks_filter",
     "concurrency",
-    "output",
     "format_type",
     "dry_run",
     "explain",
-    "document",
-    "code",
     "samples",
 ]
-"""The parameters that the MCP tool of `devops ai benchmark` publishes: no `servers`."""
+"""The parameters that the MCP tool of `devops ai benchmark` publishes: no `servers`, no `output`,
+no `document` and no `code`."""
 
 _LOOPBACK_URL = "http://127.0.0.1:8200/v1/sys/seal-status?x="
 _CHAT_REQUEST_LINE = b"POST /api/chat HTTP/1.1"
@@ -63,8 +63,8 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
     """The MCP tool `ai_benchmark` sends its chat requests to the servers of `ai.ollama_urls`,
     never to a URL that the calling model gives (#2638)."""
 
-    async def test_the_tool_publishes_no_servers_parameter(self) -> None:
-        """The schema of the tool holds its own options and no server list."""
+    async def test_the_tool_publishes_no_servers_and_no_path_parameter(self) -> None:
+        """The schema of the tool holds its own options, no server list and no file path."""
         from fastmcp import Client
 
         from devops_cli.ai.mcp.server import mcp
@@ -133,6 +133,39 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
             [],
             [],
         )
+
+    @pytest.mark.parametrize("option", ["output", "document", "code"])
+    async def test_a_path_argument_is_refused_and_touches_no_file_and_no_socket(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        config: Callable[..., Any],
+        tmp_path: Path,
+        option: str,
+    ) -> None:
+        """A call that gives `output`, `document` or `code` fails before the command runs.
+
+        On `origin/main` the call with `output` wrote a report to that path. The call with
+        `document` or `code` read the file and sent its text to the model server.
+        """
+        config(ai={"provider": "ollama", "ollama_urls": ["http://example.com:11434"]})
+        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        recorder = record_connects(monkeypatch, _chat_answers())
+        target = tmp_path / "target"
+        target.mkdir()
+        (target / "secret.py").write_text("SECRET_MARKER = 1\n")
+        value = str(target / "report.json") if option == "output" else str(target)
+
+        failed, reply = await _call_benchmark_tool(
+            {"benchmark_type": "embedding", "models": "m1", option: value}
+        )
+
+        assert (
+            failed,
+            f"1. Parameter: `{option}`\n   Kind: HALLUCINATED_PARAM\n" in reply,
+            sorted(path.name for path in target.iterdir()),
+            recorder.dialled,
+            recorder.written,
+        ) == (True, True, ["secret.py"], [], [])
 
     async def test_the_tool_benchmarks_each_model_on_the_configured_server(
         self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]

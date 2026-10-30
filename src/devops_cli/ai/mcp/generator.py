@@ -49,6 +49,8 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         ),
         "required": frozenset(),
     },
+    # No `output`, `document` or `code`: a path that the model chose would make the command write
+    # a file or read one (#2704). The tool prints its report and ranks the built-in corpus.
     ("ai", "benchmark"): {
         "allowed": frozenset(
             {
@@ -57,12 +59,9 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
                 "benchmark_type",
                 "tasks_filter",
                 "concurrency",
-                "output",
                 "format_type",
                 "dry_run",
                 "explain",
-                "document",
-                "code",
                 "samples",
             }
         ),

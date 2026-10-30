@@ -198,6 +198,45 @@ def test_fastmcp_tool_docstrings_and_parameters() -> None:
         )
 
 
+def test_no_tool_text_names_a_flag_that_the_tool_does_not_publish() -> None:
+    """A description of a tool or a parameter names no `--flag` that the tool leaves out.
+
+    The text of a tool is the help text of its command. A person reads the flag at the command
+    line, but a model that reads it calls a parameter that the schema lacks, and the call fails
+    (#2704).
+    """
+    import asyncio
+    import re
+
+    from devops_cli.ai.mcp.generator import resolve_click_command
+    from devops_cli.ai.mcp.server import mcp
+    from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
+
+    paths = {"_".join(path).replace("-", "_"): path for path, *_ in CONST_MCP_EXPOSURE_TABLE}
+    flags_by_name = {
+        name: {
+            opt: param.name
+            for param in resolve_click_command(path).params
+            for opt in getattr(param, "opts", [])
+            if opt.startswith("--")
+        }
+        for name, path in paths.items()
+    }
+    unpublished: list[str] = []
+    for tool in asyncio.run(mcp._list_tools()):
+        if tool.name not in flags_by_name:
+            continue
+        published = set(tool.parameters["properties"])
+        texts = [tool.description or ""] + [
+            str(prop.get("description", "")) for prop in tool.parameters["properties"].values()
+        ]
+        for flag in set(re.findall(r"(?<![\w-])--[a-z][a-z-]*", " ".join(texts))):
+            name = flags_by_name[tool.name].get(flag)
+            if name is not None and name not in published:
+                unpublished.append(f"{tool.name}: {flag}")
+    assert unpublished == []
+
+
 def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
     """Every registered FastMCP tool sets readOnlyHint, and argument-mutating tools carry False (#857)."""
     import asyncio

@@ -1769,9 +1769,7 @@ class BenchmarkCommandHelp:
         "Path to a source directory whose code chunks are the embedding corpus, each queried by "
         "its path (relative to the directory) and its symbol names, in place of --document."
     )
-    samples: str = (
-        "Number of document sections, or code chunks with --code, to run retrieval queries for."
-    )
+    samples: str = "Number of document sections or code chunks to run retrieval queries for."
     mode: str = "Benchmark mode: 'auto', 'chat', 'embedding'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
 

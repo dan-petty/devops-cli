@@ -4717,7 +4717,7 @@ devops ai benchmark [OPTIONS]
 | `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas. |
 | `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval. |
 | `--code` | `path` | - | Path to a source directory whose code chunks are the embedding corpus, each queried by its path (relative to the directory) and its symbol names, in place of --document. |
-| `--samples` | `integer` | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
+| `--samples` | `integer` | `5` | Number of document sections or code chunks to run retrieval queries for. |
 
 ### `devops ai cache`
 
