@@ -74,7 +74,7 @@ With environment isolation on, `build_subprocess_env` SHALL keep each key that t
 - **THEN** the child environment holds none of these keys
 
 ### Requirement: A caller override of a git key that devops-cli does not set is refused
-`build_subprocess_env` SHALL raise `SecurityError` for a caller override whose upper-case key starts with `GIT_`, but not for the five keys of the next requirement. It SHALL refuse `EDITOR`, `VISUAL`, `PAGER`, `LESSOPEN`, `LESSCLOSE` and `MERGE_TOOLS_DIR` in the same way. The message is "Prohibited dangerous environment variable override: '<key>'" and the error code is `SECURITY_ERROR`. It SHALL do this with environment isolation on and off.
+`build_subprocess_env` SHALL raise `SecurityError` for a caller override whose upper-case key starts with `GIT_`, but not for the seven keys of the next requirement. It SHALL refuse `EDITOR`, `VISUAL`, `PAGER`, `LESSOPEN`, `LESSCLOSE` and `MERGE_TOOLS_DIR` in the same way. The message is "Prohibited dangerous environment variable override: '<key>'" and the error code is `SECURITY_ERROR`. It SHALL do this with environment isolation on and off.
 
 #### Scenario: A git configuration key
 - **WHEN** a caller builds a child environment with the override `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_VALUE_12`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL` or `GIT_CONFIG_SYSTEM`, in upper or lower case
@@ -105,11 +105,15 @@ With environment isolation on, `build_subprocess_env` SHALL keep each key that t
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
 
 ### Requirement: A git key that devops-cli sets reaches the child
-`build_subprocess_env` SHALL put `GIT_TERMINAL_PROMPT`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` of the caller override in the child environment with their values. It SHALL do the same for a key that only contains a refused git name, and for `XDG_CONFIG_HOME`.
+`build_subprocess_env` SHALL put `GIT_TERMINAL_PROMPT`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_AUTHOR_DATE`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` and `GIT_COMMITTER_DATE` of the caller override in the child environment with their values. It SHALL do the same for a key that only contains a refused git name, and for `XDG_CONFIG_HOME`.
 
 #### Scenario: The five git keys and keys that look like a refused key
 - **WHEN** a caller builds a child environment with the overrides `GIT_TERMINAL_PROMPT`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`, `GITHUB_STEP_SUMMARY`, `EXAMPLE_GIT_SSH_COMMAND` and `XDG_CONFIG_HOME`
 - **THEN** the child environment holds each of these keys with its value, with isolation on and off
+
+#### Scenario: The two date keys
+- **WHEN** a caller builds a child environment with the overrides `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE`
+- **THEN** the child environment holds both keys with their values, with isolation on and off
 
 ### Requirement: The ambient allowlist holds no refused key
 No key of `DEFAULT_ALLOWED_ENV_VARS` SHALL be a key that `build_subprocess_env` refuses from a caller.
