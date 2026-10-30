@@ -16,9 +16,9 @@
 
 ## 3. The instructions and the documentation
 
-- [ ] Word the rule in `src/devops_cli/ai/tasks/roadmap_implement_step.md` and in the help of `devops roadmap implement`.
+- [x] Word the rule in `src/devops_cli/ai/tasks/roadmap_implement_step.md` and in the help of `devops roadmap implement`.
   - Verification: `uv run devops ci test tests/test_ai_task_implement.py tests/test_roadmap_implement_step.py`
-- [ ] Regenerate the documentation.
+- [x] Regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 4. Archive

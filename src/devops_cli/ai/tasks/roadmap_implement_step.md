@@ -17,6 +17,7 @@ Keep these rules of the project:
 - Use an open library or the standard library before you write a helper. Do not write your own parser for URLs, IP addresses, paths or Markdown.
 - Write no code in the product that detects a test. A test doubles only the edges of the process: another program, the network, the clock and the keyring.
 - Swallow no error. Fix a defect at its cause.
+- Keep every test that exists. You may add tests. Do not remove, rename or replace a test. A test that you move to another file keeps its name. If a step loses a test, it stops and all your work is lost. To change a test file, add to it or edit the test.
 - Keep the complexity of a function at 10 or less, and its nesting at 5 or less.
 - Write the prose of documents, messages and comments in simple, short sentences.
 - Write no secret, internal host name, private IP address or e-mail address. Use `example.com` and the addresses of RFC 5737.
