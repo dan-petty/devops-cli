@@ -2,9 +2,9 @@
 
 ## 1. The memory limit and the worker bound of the runner Job
 
-- [ ] Write failing tests in `tests/test_k8s_runner.py`: the memory limit of the runner is 12 Gi and its request is 4 Gi; `PYTEST_XDIST_AUTO_NUM_WORKERS` equals the CPU limit; the Job that the template makes passes the admission policy.
+- [x] Write failing tests in `tests/test_k8s_runner.py`: the memory limit of the runner is 12 Gi and its request is 4 Gi; `PYTEST_XDIST_AUTO_NUM_WORKERS` equals the CPU limit; the Job that the template makes passes the admission policy.
   - Verification: `uv run devops ci test tests/test_k8s_runner.py tests/test_k8s_job_admission_policy.py`
-- [ ] Change `k8s/devops/cronjob-runner.yaml`: memory limit 12 Gi, the worker variable, and the comments. Change `k8s/README.md` and `docs/ROUTINE_TASKS.md` where they state the numbers.
+- [x] Change `k8s/devops/cronjob-runner.yaml`: memory limit 12 Gi, the worker variable, and the comments. Change `k8s/README.md` and `docs/ROUTINE_TASKS.md` where they state the numbers.
   - Verification: `uv run devops ci test tests/test_k8s_runner.py tests/test_k8s_job_admission_policy.py`
 
 ## 2. The shell takes the worker bound
