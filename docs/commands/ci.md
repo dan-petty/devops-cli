@@ -350,7 +350,7 @@ devops ci mutate [OPTIONS] <paths>
 
 ## `devops ci job-time`
 
-**Fail when the last runs of a CI job took more than the limit on average. Reads the job time of the last successful push runs of a workflow on a branch from GitHub's Actions API. Fails too when fewer runs than asked for could be read.**
+**Fail when the last runs of a CI job took more than the limit on average. Reads the job time of the last completed push runs of a workflow on a branch from GitHub's Actions API. A job that passed, failed or timed out counts, whatever the run concluded. Fails too when fewer runs than asked for could be read.**
 
 ```bash
 devops ci job-time [OPTIONS]

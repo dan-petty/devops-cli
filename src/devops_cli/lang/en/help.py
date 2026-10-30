@@ -800,8 +800,9 @@ class CICommandHelp:
     fail_to_pass_head: str = "Head git revision supplying the overlaid tests/ tree."
     job_time: str = (
         "Fail when the last runs of a CI job took more than the limit on average. Reads the job "
-        "time of the last successful push runs of a workflow on a branch from GitHub's Actions "
-        "API. Fails too when fewer runs than asked for could be read."
+        "time of the last completed push runs of a workflow on a branch from GitHub's Actions "
+        "API. A job that passed, failed or timed out counts, whatever the run concluded. Fails "
+        "too when fewer runs than asked for could be read."
     )
     job_time_repo: str = "Repository as owner/name. Default: the origin of the current checkout."
     job_time_job: str = "Name of the job whose time is read."

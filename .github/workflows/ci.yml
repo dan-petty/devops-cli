@@ -147,11 +147,13 @@ jobs:
           exit "$status"
 
   # AGENTS.md rule 5: a check that averages more than 5 minutes is a P0 bug. The run of one pull
-  # request is one sample, so this job reads the last ten successful pushes to main from the
+  # request is one sample, so this job reads the last ten completed pushes to main from the
   # Actions API and fails when the mean of the `Tests & Coverage` job is over 300 s (#2699). It
   # runs on every push to main and on the daily schedule, beside the test job, and no pull request
   # waits for it: the history it reads is main's, which a pull request cannot change. It sees the
-  # runs before this one. It needs `actions: read` only.
+  # runs before this one. It reads the conclusion of the test job, not of the run, so a run that
+  # this job turned red still gives its test time to the next window. It needs `actions: read`
+  # only.
   job-time:
     name: Test Job Duration
     if: github.event_name == 'push' || github.event_name == 'schedule'

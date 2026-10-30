@@ -30,7 +30,7 @@ _RECORDED = json.loads((FIXTURES / "github" / "ci_runs_main.json").read_text(enc
 _REPO = "octocat/Hello-World"
 _RUNS = (
     f"/repos/{_REPO}/actions/workflows/ci.yml/runs"
-    "?branch=main&event=push&status=success&per_page=100"
+    "?branch=main&event=push&status=completed&per_page=100"
 )
 _JOB = "Tests & Coverage"
 # The seconds the job took in each recorded run, from its start to its end, newest run first.
@@ -77,7 +77,7 @@ def _job(name: str, started: str, completed: str, conclusion: str = "success") -
 
 
 def _route_runs(api: GitHubApiFake, seconds: list[float | None]) -> list[int]:
-    """Route one successful run for each entry, newest first. An entry is the seconds the job took
+    """Route one completed run for each entry, newest first. An entry is the seconds the job took
     in that run, or None for a run that has no such job."""
     ids = list(range(100, 100 + len(seconds)))
     runs = [{"id": run_id, "head_branch": "main", "event": "push"} for run_id in ids]
@@ -129,11 +129,11 @@ def test_the_read_stops_at_the_wanted_runs_and_asks_for_no_more_jobs(
     )
 
 
-def test_a_run_without_the_job_or_with_the_job_failed_is_left_out(
+def test_a_run_without_the_job_or_with_the_job_cancelled_is_left_out(
     github_api: GitHubApiFake,
 ) -> None:
-    """A run that skipped the job has no time for it, and a failed job is not a run of the job
-    that passed: neither counts toward the wanted runs."""
+    """A run that skipped the job has no time for it, and a cancelled job did not run to its end:
+    neither counts toward the wanted runs."""
     ids = _route_runs(github_api, [300.0, None, 200.0, 100.0])
     github_api.route(
         "GET",
@@ -141,7 +141,7 @@ def test_a_run_without_the_job_or_with_the_job_failed_is_left_out(
         github_json(
             {
                 "total_count": 1,
-                "jobs": [_job(_JOB, "2026-10-29T10:00:00Z", "2026-10-29T10:09:00Z", "failure")],
+                "jobs": [_job(_JOB, "2026-10-29T10:00:00Z", "2026-10-29T10:09:00Z", "cancelled")],
             }
         ),
     )
@@ -149,6 +149,38 @@ def test_a_run_without_the_job_or_with_the_job_failed_is_left_out(
     read = _read(count=3)
 
     assert [(run.run_id, run.seconds) for run in read] == [(ids[0], 300.0), (ids[3], 100.0)]
+
+
+@pytest.mark.parametrize("conclusion", ["failure", "timed_out"])
+def test_a_job_that_ran_to_an_end_counts_whatever_the_run_concluded(
+    github_api: GitHubApiFake, conclusion: str
+) -> None:
+    """A run whose test job failed or timed out is a real sample, and so is a run that failed for
+    another job, the guard itself among them. The listing holds every completed run, and the
+    job's own conclusion decides (#2699)."""
+    ids = _route_runs(github_api, [250.0] * 10)
+    runs = [{"id": run_id, "conclusion": "failure"} for run_id in ids]
+    github_api.route("GET", _RUNS, github_json({"total_count": 10, "workflow_runs": runs}))
+    job = _job(_JOB, "2026-10-29T10:00:00Z", "2026-10-29T10:10:00Z", conclusion)
+    github_api.route("GET", _jobs_path(ids[3]), github_json({"total_count": 1, "jobs": [job]}))
+
+    read = _read(count=10)
+
+    assert [run.seconds for run in read] == [250.0] * 3 + [600.0] + [250.0] * 6
+
+
+def test_a_slow_failed_job_among_fast_runs_puts_the_mean_over_the_limit(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """Nine runs of 250 s and one failed run of 600 s average 285 s with the failure counted, and
+    over a limit of 280 s: the slow run is seen, not dropped for its conclusion."""
+    ids = _route_runs(github_api, [250.0] * 10)
+    job = _job(_JOB, "2026-10-29T10:00:00Z", "2026-10-29T10:10:00Z", "failure")
+    github_api.route("GET", _jobs_path(ids[5]), github_json({"total_count": 1, "jobs": [job]}))
+
+    result = cli("ci", "job-time", "--repo", _REPO, "--limit", "280")
+
+    assert (result.exit_code, "took 285 s on average" in _said(result)) == (1, True)
 
 
 def test_a_job_that_has_not_ended_is_left_out(github_api: GitHubApiFake) -> None:
@@ -181,7 +213,7 @@ def test_the_runs_are_read_page_by_page_until_enough_hold_the_job(
 
 
 def test_an_answer_that_holds_no_runs_reads_as_none(github_api: GitHubApiFake) -> None:
-    """A workflow with no successful run on the branch gives an empty read, not an error."""
+    """A workflow with no completed run on the branch gives an empty read, not an error."""
     github_api.route("GET", _RUNS, github_json({"total_count": 0, "workflow_runs": []}))
 
     assert _read() == []

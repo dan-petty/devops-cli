@@ -2364,7 +2364,7 @@ def _render_job_time_plan(repo: str, *, workflow: str, branch: str, job: str, ru
             PlannedRequest(
                 method="GET",
                 target=f"{base}/runs/<run_id>/jobs",
-                repeat=f"for each run, until {runs} runs hold a successful {job}",
+                repeat=f"for each run, until {runs} runs hold an ended {job}",
             ),
         ],
     )

@@ -130,6 +130,11 @@ class JobRunTime(BaseModel):
     seconds: float
 
 
+# The conclusions of a job that ran to an end: it passed, failed, or hit its time limit. A skipped or
+# cancelled job did not run its work, so its time says nothing of the job.
+_JOB_ENDED_CONCLUSIONS = frozenset({"success", "failure", "timed_out"})
+
+
 class _WorkflowRunRef(BaseModel):
     """The run of a workflow listing that devops-cli reads: its number."""
 
@@ -380,19 +385,21 @@ class GitHubClient:
     def get_job_run_times(
         self, repo: str, *, workflow: str, branch: str, job: str, count: int
     ) -> list[JobRunTime]:
-        """How long `job` took in each of the last `count` successful `push` runs of `workflow` on
-        `branch`, newest first (#2699).
+        """How long `job` took in each of the last `count` completed `push` runs of `workflow` on
+        `branch` where it ran to an end, newest first (#2699).
 
-        A run that has no job of that name, or whose job did not succeed, is left out and does not
-        count. The listing is read page by page and stops once `count` runs hold the job, so the
-        jobs of no later run are asked for. Fewer than `count` come back when the workflow has
-        fewer such runs.
+        The job's own conclusion decides, not the run's. A job that ended `success`, `failure` or
+        `timed_out` counts, so a run that failed for another job, such as the guard that reads
+        this time, still gives the time of the job. A run that has no job of that name, or whose
+        job was skipped or cancelled, is left out. The listing is read page by page and stops once
+        `count` runs hold the job, so the jobs of no later run are asked for. Fewer than `count`
+        come back when the workflow has fewer such runs.
         """
         query = urlencode(
             {
                 "branch": branch,
                 "event": "push",
-                "status": "success",
+                "status": "completed",
                 "per_page": DEFAULT_GH_REST_PER_PAGE,
             }
         )
@@ -408,10 +415,13 @@ class GitHubClient:
         return times
 
     def _job_seconds(self, repo: str, run_id: int, job: str) -> float | None:
-        """The seconds the successful job `job` took in the run `run_id`; None if it has none."""
+        """The seconds the job `job` took in the run `run_id`; None if it did not run to an end."""
         path = _repo_path(repo, f"actions/runs/{run_id}/jobs?per_page={DEFAULT_GH_REST_PER_PAGE}")
         jobs = _read_as(_RunJobs, self._session.rest("GET", path), path=path).jobs
-        return next((j.seconds for j in jobs if j.name == job and j.conclusion == "success"), None)
+        return next(
+            (j.seconds for j in jobs if j.name == job and j.conclusion in _JOB_ENDED_CONCLUSIONS),
+            None,
+        )
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""

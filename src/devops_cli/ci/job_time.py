@@ -50,6 +50,7 @@ def check_job_time(
     wanted: int,
     limit_seconds: float,
 ) -> JobTimeReport:
-    """Read the last `wanted` successful runs of `job` in `workflow` on `branch` of `repo`."""
+    """Read the time of `job` in the last `wanted` completed runs of `workflow` on `branch` of
+    `repo` where it ran to an end."""
     runs = client.get_job_run_times(repo, workflow=workflow, branch=branch, job=job, count=wanted)
     return JobTimeReport(job=job, wanted=wanted, limit_seconds=limit_seconds, runs=tuple(runs))
