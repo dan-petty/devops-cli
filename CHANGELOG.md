@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.6](https://github.com/dan-petty/devops-cli/compare/v0.22.5...v0.22.6) (2026-10-30)
+
+
+### Bug Fixes
+
+* **roadmap:** format changed Python files in the job ([#2791](https://github.com/dan-petty/devops-cli/issues/2791)) ([18a6e2b](https://github.com/dan-petty/devops-cli/commit/18a6e2bfa2b8ec8136ee699814d0fa5b3aa1f588)), closes [#2789](https://github.com/dan-petty/devops-cli/issues/2789)
+* **roadmap:** the job owns tasks.md in an implement step ([#2792](https://github.com/dan-petty/devops-cli/issues/2792)) ([2e9552f](https://github.com/dan-petty/devops-cli/commit/2e9552f433e85a0dffc7a2d2f3502dfa42f410a4)), closes [#2790](https://github.com/dan-petty/devops-cli/issues/2790)
+
 ## [0.22.5](https://github.com/dan-petty/devops-cli/compare/v0.22.4...v0.22.5) (2026-10-30)
 
 
