@@ -167,13 +167,14 @@ def test_junk_known_hosts_lines_do_not_skip_pinning(junk_line: str, tmp_path: Pa
     ],
 )
 def test_clone_repo_pins_known_hosts_for_all_spellings(
-    url: str, tmp_path: Path, git_fake: GitFake
+    url: str, tmp_path: Path, git_fake: GitFake, known_hosts: Path
 ) -> None:
     """The write runs for every URL passed to clone_repo with no URL filtering."""
     git_fake.answer(["git", "clone"], ProcessAnswer())
-    with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
-        clone_repo(url, tmp_path / "dest")
-        assert mock_ensure.call_count == 1
+
+    clone_repo(url, tmp_path / "dest")
+
+    assert known_hosts.read_text().splitlines() == list(CONST_GITHUB_KNOWN_HOSTS_LINES)
 
 
 # =============================================================================
@@ -182,7 +183,7 @@ def test_clone_repo_pins_known_hosts_for_all_spellings(
 
 
 def test_clone_repo_wraps_a_failed_clone_with_masked_stderr(
-    tmp_path: Path, git_fake: GitFake
+    tmp_path: Path, git_fake: GitFake, known_hosts: Path
 ) -> None:
     """A clone that git refuses raises GitOperationError carrying masked stderr."""
     ssh_err = (
@@ -192,9 +193,8 @@ def test_clone_repo_wraps_a_failed_clone_with_masked_stderr(
     )
     git_fake.answer(["git", "clone"], ProcessAnswer(returncode=128, stderr=ssh_err))
 
-    with patch("devops_cli.git.operations._ensure_known_host"):
-        with pytest.raises(GitOperationError) as exc_info:
-            clone_repo("git@github.com:org/repo.git", tmp_path / "dest")
+    with pytest.raises(GitOperationError) as exc_info:
+        clone_repo("git@github.com:org/repo.git", tmp_path / "dest")
 
     msg = str(exc_info.value)
     assert (
@@ -205,7 +205,7 @@ def test_clone_repo_wraps_a_failed_clone_with_masked_stderr(
 
 
 def test_devops_repos_clone_cli_exits_nonzero_with_no_traceback(
-    tmp_path: Path, cli: Callable[..., Any], git_fake: GitFake
+    tmp_path: Path, cli: Callable[..., Any], git_fake: GitFake, known_hosts: Path
 ) -> None:
     """CLI devops repos clone exits non-zero with clean error and no traceback on failure."""
     git_fake.answer(
@@ -213,7 +213,6 @@ def test_devops_repos_clone_cli_exits_nonzero_with_no_traceback(
         ProcessAnswer(returncode=128, stderr="Host key verification failed for github.com"),
     )
 
-    with patch("devops_cli.git.operations._ensure_known_host"):
-        dest = tmp_path / "clone_target"
-        res = cli(["repos", "clone", "git@github.com:org/repo.git", str(dest)])
-        assert (res.exit_code != 0, "Traceback" not in res.output) == (True, True)
+    dest = tmp_path / "clone_target"
+    res = cli(["repos", "clone", "git@github.com:org/repo.git", str(dest)])
+    assert (res.exit_code != 0, "Traceback" not in res.output) == (True, True)

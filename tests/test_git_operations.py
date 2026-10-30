@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
+from devops_cli.config.constants import CONST_GITHUB_KNOWN_HOSTS_LINES
 from devops_cli.exceptions import (
     BranchAlreadyExistsError,
     GitOperationError,
@@ -127,7 +127,7 @@ def test_is_git_clean_and_get_latest_tag_report_a_git_that_cannot_run(
     assert (is_git_clean(tmp_path), get_latest_git_tag(tmp_path)) == (False, None)
 
 
-def test_validate_clone_dest_and_prepare_clone_url(tmp_path: Path) -> None:
+def test_validate_clone_dest_and_prepare_clone_url(tmp_path: Path, known_hosts: Path) -> None:
     """Verify _validate_clone_dest traversal checks and _prepare_clone_url host key seeding."""
     from devops_cli.exceptions import GitOperationError
     from devops_cli.git.operations import _prepare_clone_url, _validate_clone_dest
@@ -155,14 +155,14 @@ def test_validate_clone_dest_and_prepare_clone_url(tmp_path: Path) -> None:
     with pytest.raises(GitOperationError, match="forbidden system path"):
         _validate_clone_dest(Path("/etc/git-dest"))
 
-    # _prepare_clone_url calls _ensure_known_host for both SSH and HTTPS
-    with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
-        url_ssh = _prepare_clone_url("git@github.com:org/repo.git")
-        assert (url_ssh, mock_ensure.call_count) == ("git@github.com:org/repo.git", 1)
-
-    with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
-        url_https = _prepare_clone_url("https://github.com/org/repo.git")
-        assert (url_https, mock_ensure.call_count) == ("https://github.com/org/repo.git", 1)
+    # _prepare_clone_url pins the GitHub host keys, and keeps both spellings of the URL
+    url_ssh = _prepare_clone_url("git@github.com:org/repo.git")
+    url_https = _prepare_clone_url("https://github.com/org/repo.git")
+    assert (url_ssh, url_https, known_hosts.read_text().splitlines()) == (
+        "git@github.com:org/repo.git",
+        "https://github.com/org/repo.git",
+        list(CONST_GITHUB_KNOWN_HOSTS_LINES),
+    )
 
 
 def test_read_file_at_revision_reads_the_base_revision(git_fake: GitFake, tmp_path: Path) -> None:
@@ -281,17 +281,16 @@ def _git_words(fake: GitFake, repo: Path) -> list[list[str]]:
 
 
 def test_clone_repo_ensures_github_known_host_for_all_urls(
-    git_fake: GitFake, tmp_path: Path
+    git_fake: GitFake, tmp_path: Path, known_hosts: Path
 ) -> None:
     """Verify clone_repo ensures host keys are known for all clone URLs, and clones the URL
     that it normalized."""
     git_fake.answer(["git", "clone"], ProcessAnswer())
-    with patch("devops_cli.git.operations._ensure_known_host") as mock_known_host:
-        clone_repo("git@github.com:example/repo.git", tmp_path / "repo")
-        clone_repo("github.com/example/repo2.git", tmp_path / "repo2")
+    clone_repo("git@github.com:example/repo.git", tmp_path / "repo")
+    clone_repo("github.com/example/repo2.git", tmp_path / "repo2")
 
-    assert (mock_known_host.call_count, [list(call.argv) for call in git_fake.calls]) == (
-        2,
+    assert (known_hosts.read_text().splitlines(), [list(call.argv) for call in git_fake.calls]) == (
+        list(CONST_GITHUB_KNOWN_HOSTS_LINES),
         [
             ["git", "clone", "--", "git@github.com:example/repo.git", str(tmp_path / "repo")],
             ["git", "clone", "--", "https://github.com/example/repo2.git", str(tmp_path / "repo2")],
@@ -380,6 +379,26 @@ def test_pull_tracking_divergent_branch_raises_git_operation_error(
         raised.value.details["repository"],
         raised.value.details["remote"],
     ) == (True, True, "pull", str(repo), "origin")
+
+
+def test_pull_tracking_raises_gits_reason_when_the_configuration_cannot_be_read(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """Only exit status 1 of `git config --get` means that the branch tracks no remote. Any other
+    status is a failure of git, and it is not read as "nothing to pull"."""
+    git_fake.replay("fetch_and_pull_updates")
+    git_fake.answer(
+        lambda call: call.argv[3:5] == ("config", "--get"),
+        ProcessAnswer(returncode=128, stderr="fatal: bad config line 3 in file .git/config"),
+    )
+
+    with pytest.raises(GitOperationError, match="bad config line 3") as raised:
+        pull_tracking(tmp_path / "clone2")
+
+    assert (
+        raised.value.details["operation"],
+        [call for call in _git_words(git_fake, tmp_path / "clone2") if call[0] == "pull"],
+    ) == ("pull", [])
 
 
 def test_pull_tracking_does_nothing_without_a_remote_branch_and_names_a_missing_remote(

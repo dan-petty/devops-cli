@@ -8,10 +8,13 @@ made with the real git by `tests/support/git_recording.py`. `replay` loads the t
 needs. The directory of the test stands in for `{root}`, so the repositories of a scenario are the
 same names under `tmp_path`.
 
-A command is found by its arguments and directory. When a transcript holds the same command more
-than once, the fake answers the first call with the first record, the second call with the second,
-and the last one again after that, for a command whose answer changes between two calls. A git
-command with no record fails the test and names the command, so a change to the commands that the
+A command is found by its arguments, its directory, its standard input and the environment that the
+caller sets, so a commit with another message, author or date has no record. The fake does not see
+the files of a directory: a test that must check what a file holds starts the real git.
+
+When a transcript holds the same command more than once, the fake answers the first call with the
+first record, the second call with the second, and the last one again after that, for a command
+whose answer changes between two calls. A git command with no record fails the test and names the command, so a change to the commands that the
 code starts fails here until the transcripts are recorded again. A test may script an answer
 (`answer`) for a failure that a recording cannot hold, such as a git that cannot start. The scripted
 answer wins over a record. Every other program is answered as `ProcessFake` answers it.
@@ -33,9 +36,11 @@ from devops_cli.core.process import reset_process_runner, set_process_runner
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.git_recording import load_transcript
 from tests.support.git_scenarios import ROOT_MARK
+from tests.support.started_programs import started_program, started_words
 
 _PROGRAM = "git"
-_Key = tuple[tuple[str, ...], str | None]
+# The arguments, the directory, the standard input, and the environment that the caller sets.
+_Key = tuple[tuple[str, ...], str | None, str | None, tuple[tuple[str, str], ...]]
 
 
 class GitFake(ProcessFake):
@@ -52,7 +57,12 @@ class GitFake(ProcessFake):
         """Load the transcripts of `scenarios`."""
         for name in scenarios:
             for record in load_transcript(name)["exchanges"]:
-                key = (tuple(record["argv"]), record["cwd"])
+                key = (
+                    tuple(record["argv"]),
+                    record["cwd"],
+                    record["stdin"],
+                    tuple(sorted((record["env"] or {}).items())),
+                )
                 self._records.setdefault(key, []).append(record)
             self.loaded.append(name)
 
@@ -61,10 +71,12 @@ class GitFake(ProcessFake):
         return text.replace(str(self.root.resolve()), ROOT_MARK).replace(str(self.root), ROOT_MARK)
 
     def _key(self, call: ProcessCall) -> _Key:
-        """What a record is found by: the arguments and the directory, with the root as the
-        placeholder."""
+        """What a record is found by: the arguments, the directory, the standard input and the
+        environment that the caller sets, with the root as the placeholder."""
         cwd = self._marked(str(call.cwd)) if call.cwd is not None else None
-        return tuple(self._marked(word) for word in call.argv), cwd
+        stdin = call.stdin if isinstance(call.stdin, str) else None
+        env = tuple(sorted((call.env or {}).items()))
+        return tuple(self._marked(word) for word in call.argv), cwd, stdin, env
 
     def _match_answer(self, call: ProcessCall) -> ProcessAnswer:
         if not call.argv or Path(call.argv[0]).name != _PROGRAM:
@@ -76,7 +88,8 @@ class GitFake(ProcessFake):
         records = self._records.get(key)
         if records is None:
             pytest.fail(
-                f"no record of `{' '.join(key[0])}` in {key[1]} for the scenarios "
+                f"no record of `{' '.join(key[0])}` in {key[1]} with that standard input and "
+                f"environment for the scenarios "
                 f"{self.loaded or 'loaded'}: load its scenario with `replay`, or record the real "
                 "git again (tests/support/git_recording.py)",
                 pytrace=False,
@@ -102,11 +115,9 @@ def git_fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[GitFak
     real_init = subprocess.Popen.__init__
 
     def refusing_init(self: subprocess.Popen[Any], args: Any, *rest: Any, **kwargs: Any) -> None:
-        words = [args] if isinstance(args, (str, bytes)) else list(args or [])
-        if words and Path(str(words[0])).name == _PROGRAM:
+        if started_program(args) == _PROGRAM:
             pytest.fail(
-                "a test with git_fake started a real git: "
-                f"{' '.join(str(word) for word in words)[:256]}",
+                f"a test with git_fake started a real git: {' '.join(started_words(args))[:256]}",
                 pytrace=False,
             )
         real_init(self, args, *rest, **kwargs)

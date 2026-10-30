@@ -9,6 +9,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -22,6 +23,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 128,
    "stdout": "",
    "stderr": "fatal: No names found, cannot describe anything.\n"
@@ -35,6 +37,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "v0.2.1\n",
    "stderr": ""
@@ -47,6 +50,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": " M f.txt\n",
    "stderr": ""

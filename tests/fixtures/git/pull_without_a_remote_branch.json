@@ -11,6 +11,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "main\n",
    "stderr": ""
@@ -26,6 +27,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 1,
    "stdout": "",
    "stderr": ""
@@ -40,6 +42,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -54,6 +57,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "main\n",
    "stderr": ""
@@ -69,6 +73,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "gone\n",
    "stderr": ""
@@ -82,6 +87,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""

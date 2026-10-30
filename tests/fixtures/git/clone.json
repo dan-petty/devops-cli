@@ -11,6 +11,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": "Cloning into '{root}/first'...\ndone.\n"
@@ -25,6 +26,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 128,
    "stdout": "",
    "stderr": "fatal: repository '{root}/missing.git' does not exist\n"

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,6 @@ from devops_cli.review.score import (
 )
 from devops_cli.security.normalization import NormalizedFinding
 from devops_cli.security.sarif import write_sarif
-from tests.support.fakes.git import GitFake
 from tests.support.paths import FIXTURES
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -647,10 +647,12 @@ def test_stability_needs_an_identity_on_every_row_and_one_every_session_reported
 # --- (h) golden materialisation -------------------------------------------------------------------
 
 
-def test_the_golden_set_materialises_as_one_fixed_commit(tmp_path: Path, git_fake: GitFake) -> None:
-    """The pinned id is the commit that git makes of these files with that author and date: the
-    transcript of `commit_snapshots` holds the real git's answer, and its record shows one commit."""
-    git_fake.replay("commit_snapshots")
+def test_the_golden_set_materialises_as_one_fixed_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pinned id is the commit `git commit` makes of these files with that author and date.
+    It starts the real git: the fake does not see what a file holds."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     golden = tmp_path / "golden.json"
     golden.write_text(json.dumps({"files": {"app/db.py": "query = f'{x}'\n", "a.py": "x = 1\n"}}))
     labels = tmp_path / "labels.json"
@@ -672,15 +674,23 @@ def test_the_golden_set_materialises_as_one_fixed_commit(tmp_path: Path, git_fak
 
     first = materialise_golden(labels, tmp_path / "one")
     second = materialise_golden(labels, tmp_path / "two")
+    count = subprocess.run(
+        ["git", "-C", str(tmp_path / "one"), "rev-list", "--count", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
     assert (
         first.commit,
         second.commit,
+        count,
         (tmp_path / "one" / "app" / "db.py").read_text(),
         [(loss.defect_id, loss.reason) for loss in first.accepted_loss],
     ) == (
         "63b6e3c00959a24f7f5badfa9508a96cca4504ae",
         first.commit,
+        "1",
         "query = f'{x}'\n",
         [("logic", "no rule")],
     )

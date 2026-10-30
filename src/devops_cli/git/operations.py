@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import subprocess
 from collections.abc import Generator
 from datetime import datetime
@@ -47,6 +48,9 @@ logger = logging.getLogger(__name__)
 
 _HEADS_PREFIX = "refs/heads/"
 _REMOTES_PREFIX = "refs/remotes/"
+_CONFIG_KEY_UNSET = 1
+"""The exit status of `git config --get` for a key that is not set (git-config(1)). Any other
+status above 0 is a failure, such as a configuration file that cannot be read."""
 
 
 def _normalize_clone_url(url: str) -> str:
@@ -225,7 +229,11 @@ def _tracking_remote(repo_dir: Path, branch: str) -> str:
     """The remote that `branch` tracks, from its `branch.<name>.remote` setting; empty when it
     tracks none, or only a local branch (`.`)."""
     proc = _git(repo_dir, "config", "--get", f"branch.{branch}.remote", read=True)
-    remote = proc.stdout.strip() if proc.returncode == 0 else ""
+    if proc.returncode == _CONFIG_KEY_UNSET:
+        return ""
+    if proc.returncode != 0:
+        raise GitOperationError(_reason(proc), operation="pull")
+    remote = proc.stdout.strip()
     return "" if remote == "." else remote
 
 
@@ -284,9 +292,10 @@ def commit_snapshot(
     """Make `repo_dir` a new repository whose one commit holds `paths`, and return its id.
 
     The author, committer and both dates are the ones given, no hook runs and nothing is signed,
-    so the same files always give the same commit, whatever the git configuration. The commit is
-    made with plumbing: `add` takes the files as they are, with no line-ending conversion, and
-    `commit-tree` reads the message from standard input as it is.
+    so the same files always give the same commit, whatever the configuration of git on the host.
+    The commit is made with plumbing. `add` takes each path as one file name (`--literal-pathspecs`)
+    and the files as they are: no line-ending conversion, and no attributes file of the user or the
+    system. `commit-tree` reads the message from standard input as it is.
     """
     operation = "commit_snapshot"
     when = date.isoformat()
@@ -304,8 +313,13 @@ def commit_snapshot(
     )
     if init.returncode != 0:
         raise GitOperationError(_reason(init), operation=operation)
-    no_conversion = ["-c", "core.autocrlf=false", "-c", "core.safecrlf=false"]
-    _checked(repo_dir, *no_conversion, "add", "--force", "--", *sorted(paths), operation=operation)
+    as_they_are = [
+        "--literal-pathspecs",
+        *("-c", "core.autocrlf=false"),
+        *("-c", "core.safecrlf=false"),
+        *("-c", f"core.attributesFile={os.devnull}"),
+    ]
+    _checked(repo_dir, *as_they_are, "add", "--force", "--", *sorted(paths), operation=operation)
     tree = _checked(repo_dir, "write-tree", operation=operation)
     commit = _checked(
         repo_dir,

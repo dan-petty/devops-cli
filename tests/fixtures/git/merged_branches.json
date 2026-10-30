@@ -13,6 +13,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "refs/heads/feat/merged\nrefs/heads/feat/open\nrefs/heads/main\n",
    "stderr": ""
@@ -29,6 +30,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "feat/merged\nmain\n",
    "stderr": ""
@@ -45,6 +47,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "refs/heads/feat/merged\nrefs/heads/feat/open\nrefs/heads/main\n",
    "stderr": ""
@@ -61,6 +64,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "feat/merged\nmain\n",
    "stderr": ""
@@ -77,6 +81,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "Deleted branch feat/merged (was f3bffc8).\n",
    "stderr": ""
@@ -91,6 +96,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "main\n",
    "stderr": ""
@@ -107,6 +113,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "refs/heads/feat/open\nrefs/heads/main\n",
    "stderr": ""
@@ -123,6 +130,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""

@@ -11,6 +11,7 @@ one differs (`tests/support/git_recording.py`).
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -70,8 +71,8 @@ def test_a_transcript_holds_git_commands_and_no_host_data(name: str) -> None:
 def test_a_scenario_over_the_process_fake_starts_the_recorded_commands_and_gives_the_result(
     name: str, process_fake: ProcessFake, tmp_path: Path
 ) -> None:
-    """The code starts the recorded commands in the recorded order, each with the recorded answer,
-    and returns the recorded result."""
+    """The code starts the recorded commands in the recorded order, each with the recorded standard
+    input and environment and the recorded answer, and returns the recorded result."""
     transcript = load_transcript(name)
     pending = list(transcript["exchanges"])
     unexpected: list[str] = []
@@ -83,6 +84,11 @@ def test_a_scenario_over_the_process_fake_starts_the_recorded_commands_and_gives
             unexpected.append(f"started {list(call.argv)}, recorded {expected}")
             raise AssertionError(unexpected[-1])
         assert record is not None
+        given = (call.stdin, call.env or None)
+        recorded = (record["stdin"], record["env"])
+        if given != recorded:
+            unexpected.append(f"started with {given}, recorded {recorded}")
+            raise AssertionError(unexpected[-1])
         done = subprocess.CompletedProcess(
             list(call.argv),
             record["returncode"],
@@ -142,6 +148,71 @@ def test_a_test_with_the_git_fake_cannot_start_a_real_git(git_fake: GitFake) -> 
         subprocess.run(["git", "--version"], check=False)
 
 
+@pytest.mark.parametrize("command", ["a shell string", "bytes"])
+def test_a_test_with_the_git_fake_cannot_start_a_real_git_by_a_shell_string_or_bytes(
+    git_fake: GitFake, command: str
+) -> None:
+    """The refusal reads the program as the process guard of the test floor does: the first word
+    of a command line, and a bytes argument decoded."""
+    with pytest.raises(pytest.fail.Exception, match="started a real git"):
+        if command == "bytes":
+            subprocess.run([b"git", b"--version"], check=False)
+        else:
+            subprocess.run("git --version", shell=True, check=False)
+
+
+def _commit_tree_call(tmp_path: Path) -> dict[str, Any]:
+    """The `commit-tree` command of the `commit_snapshots` transcript, as a call of the test."""
+    record = next(
+        exchange
+        for exchange in load_transcript("commit_snapshots")["exchanges"]
+        if "commit-tree" in exchange["argv"]
+    )
+    return {
+        "cmd": [word.replace(ROOT_MARK, str(tmp_path)) for word in record["argv"]],
+        "input": record["stdin"],
+        "env": record["env"],
+        "answer": record["stdout"],
+    }
+
+
+def test_a_record_is_found_by_the_standard_input_and_the_environment_of_the_call(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """A commit made with the recorded message, identity and dates gets the recorded id."""
+    git_fake.replay("commit_snapshots")
+    call = _commit_tree_call(tmp_path)
+
+    done = run_subprocess(call["cmd"], input=call["input"], env=call["env"], quiet=True)
+
+    assert done.stdout == call["answer"]
+
+
+@pytest.mark.parametrize(
+    ("change", "field"),
+    [
+        ({"input": "another message\n"}, "input"),
+        ({"env": {"GIT_AUTHOR_NAME": "Someone Else"}}, "env"),
+        ({"env": {"GIT_AUTHOR_DATE": "1999-01-01T00:00:00+00:00"}}, "env"),
+        ({"env": {"GIT_COMMITTER_EMAIL": "x@example.com"}}, "env"),
+    ],
+)
+def test_a_commit_with_another_message_or_identity_or_date_has_no_record(
+    git_fake: GitFake, tmp_path: Path, change: dict[str, Any], field: str
+) -> None:
+    """The fake does not answer a commit that differs from the recorded one in what the commit
+    holds, so a change to the message, the author or the date fails the test."""
+    git_fake.replay("commit_snapshots")
+    call = _commit_tree_call(tmp_path)
+    if field == "env":
+        call["env"] = {**call["env"], **change["env"]}
+    else:
+        call.update(change)
+
+    with pytest.raises(pytest.fail.Exception, match=r"no record of `git -C .*commit-tree"):
+        run_subprocess(call["cmd"], input=call["input"], env=call["env"], quiet=True)
+
+
 def test_no_two_scenarios_give_one_command_in_one_directory_different_answers() -> None:
     """The fake finds a record by the command and the directory, so two scenarios that load
     together and answer one command differently would give a test either answer."""
@@ -183,6 +254,37 @@ def test_a_changed_transcript_and_a_transcript_without_a_scenario_are_reported()
         any(line.startswith(f"+++ git/{changed}.json") for line in report),
         f"{dropped}.json: no scenario records it" in report,
     ) == (True, True)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "/srv/data/repo",
+        "in /opt/tool and",
+        "/etc/gitconfig",
+        "/run/user/1000/x",
+        "/usr/lib/git-core",
+        "/media/disk/repo",
+    ],
+)
+def test_host_data_is_also_a_path_in_a_system_directory(text: str) -> None:
+    """A host path is any directory of the root of a host, not only the ones of a user."""
+    assert host_data_in(text) != []
+
+
+def test_a_reference_or_a_file_name_that_holds_a_directory_name_is_no_host_path() -> None:
+    """Only a path that starts at the root is a host path."""
+    assert host_data_in("refs/heads/etc/x and docs/opt/y and {root}/repo") == []
+
+
+def test_host_data_is_the_host_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A message of git that names the host leaks it, so the name is host data."""
+    monkeypatch.setattr(socket, "gethostname", lambda: "build-box7")
+
+    assert (
+        host_data_in("unable to auto-detect email address (got 'runner@build-box7.(none)')"),
+        host_data_in("on another-box the pull failed"),
+    ) == (["build-box7"], [])
 
 
 @pytest.mark.parametrize(

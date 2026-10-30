@@ -402,19 +402,6 @@ def prevent_external_network_calls() -> Iterator[None]:
         pytest.fail(f"Edge reached outside a test: {late_reaches}", pytrace=False)
 
 
-def _started_words(args: Any) -> list[str]:
-    """Return the tokenized argv words `subprocess.Popen(args)` starts."""
-    if isinstance(args, (str, bytes, os.PathLike)):
-        return os.fsdecode(args).split()
-    return [os.fsdecode(word) for word in args] if args else []
-
-
-def _started_program(args: Any) -> str:
-    """The name of the program `subprocess.Popen(args)` starts: a command line's first word."""
-    words = _started_words(args)
-    return Path(words[0]).name if words else ""
-
-
 def _is_allowed_kubectl_renderer(words: list[str]) -> bool:
     """Report whether `kubectl` argv invokes an offline renderer (`kustomize` or `patch --local`)."""
     if len(words) < 2:
@@ -464,10 +451,12 @@ def refuse_real_programs() -> None:
     import platform
 
     platform.platform()
+    from tests.support.started_programs import started_words
+
     real_init = subprocess.Popen.__init__
 
     def refusing_init(self: subprocess.Popen[Any], args: Any, *rest: Any, **kwargs: Any) -> None:
-        words = _started_words(args)
+        words = started_words(args)
         if not _is_allowed_process(words):
             program = Path(words[0]).name if words else ""
             target = " ".join([program, *words[1:]])[:256]
@@ -1203,6 +1192,17 @@ def cli() -> Callable[..., Any]:
         )
 
     return invoke
+
+
+@pytest.fixture
+def known_hosts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The `~/.ssh/known_hosts` of a home in `tmp_path`, which the clone code writes (#2146).
+
+    A test asserts on this file, not on a call to the private function that writes it.
+    """
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    return home / ".ssh" / "known_hosts"
 
 
 @pytest.fixture

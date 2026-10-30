@@ -12,6 +12,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": "From {root}/remote\n * branch            refs/pull/42/head -> FETCH_HEAD\n"
@@ -26,6 +27,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "75ac23cfa0767cab946525a0d5dd0960869d7847\n",
    "stderr": ""
@@ -41,6 +43,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 128,
    "stdout": "",
    "stderr": "fatal: couldn't find remote ref refs/pull/43/head\n"

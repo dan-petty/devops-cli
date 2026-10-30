@@ -11,6 +11,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -20,10 +21,13 @@
     "git",
     "-C",
     "{root}/one",
+    "--literal-pathspecs",
     "-c",
     "core.autocrlf=false",
     "-c",
     "core.safecrlf=false",
+    "-c",
+    "core.attributesFile=/dev/null",
     "add",
     "--force",
     "--",
@@ -32,6 +36,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -45,6 +50,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "a00be386265f39b69551419c8b71f3c093c9c5d3\n",
    "stderr": ""
@@ -60,6 +66,14 @@
    ],
    "cwd": null,
    "stdin": "The golden review set's files, for a path review\n",
+   "env": {
+    "GIT_AUTHOR_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_AUTHOR_EMAIL": "",
+    "GIT_AUTHOR_NAME": "devops-cli golden",
+    "GIT_COMMITTER_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_COMMITTER_EMAIL": "",
+    "GIT_COMMITTER_NAME": "devops-cli golden"
+   },
    "returncode": 0,
    "stdout": "63b6e3c00959a24f7f5badfa9508a96cca4504ae\n",
    "stderr": ""
@@ -75,6 +89,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -90,6 +105,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "1\n",
    "stderr": ""
@@ -104,6 +120,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -113,10 +130,13 @@
     "git",
     "-C",
     "{root}/two",
+    "--literal-pathspecs",
     "-c",
     "core.autocrlf=false",
     "-c",
     "core.safecrlf=false",
+    "-c",
+    "core.attributesFile=/dev/null",
     "add",
     "--force",
     "--",
@@ -125,6 +145,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -138,6 +159,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "a00be386265f39b69551419c8b71f3c093c9c5d3\n",
    "stderr": ""
@@ -153,6 +175,14 @@
    ],
    "cwd": null,
    "stdin": "The golden review set's files, for a path review\n",
+   "env": {
+    "GIT_AUTHOR_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_AUTHOR_EMAIL": "",
+    "GIT_AUTHOR_NAME": "devops-cli golden",
+    "GIT_COMMITTER_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_COMMITTER_EMAIL": "",
+    "GIT_COMMITTER_NAME": "devops-cli golden"
+   },
    "returncode": 0,
    "stdout": "63b6e3c00959a24f7f5badfa9508a96cca4504ae\n",
    "stderr": ""
@@ -168,6 +198,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -183,6 +214,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "1\n",
    "stderr": ""
@@ -197,6 +229,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "main\n",
    "stderr": ""

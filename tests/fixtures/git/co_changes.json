@@ -14,6 +14,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n45bc05424172ba1e1ea7106b0713e41436768933\ndb6d9b3bb2a5ba44890197d38c77409e8cdbabc6\n",
    "stderr": ""
@@ -34,6 +35,7 @@
    ],
    "cwd": null,
    "stdin": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n45bc05424172ba1e1ea7106b0713e41436768933\ndb6d9b3bb2a5ba44890197d38c77409e8cdbabc6\n",
+   "env": null,
    "returncode": 0,
    "stdout": "\u001e0e4a5ae14e5443dbd2af6d94283d76ca3afde109\u0000\na.py\u0000d.py\u0000sp ace.py\u0000\u001e45bc05424172ba1e1ea7106b0713e41436768933\u0000\na.py\u0000b.py\u0000\u001edb6d9b3bb2a5ba44890197d38c77409e8cdbabc6\u0000\na.py\u0000b.py\u0000c.py\u0000",
    "stderr": ""
@@ -51,6 +53,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n",
    "stderr": ""
@@ -71,6 +74,7 @@
    ],
    "cwd": null,
    "stdin": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n",
+   "env": null,
    "returncode": 0,
    "stdout": "\u001e0e4a5ae14e5443dbd2af6d94283d76ca3afde109\u0000\na.py\u0000d.py\u0000sp ace.py\u0000",
    "stderr": ""
@@ -88,6 +92,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "6b5b8278b217dddb0d80109854c7c859e6f0758b\n",
    "stderr": ""
@@ -108,6 +113,7 @@
    ],
    "cwd": null,
    "stdin": "6b5b8278b217dddb0d80109854c7c859e6f0758b\n",
+   "env": null,
    "returncode": 0,
    "stdout": "\u001e6b5b8278b217dddb0d80109854c7c859e6f0758b\u0000\nlonely.py\u0000",
    "stderr": ""

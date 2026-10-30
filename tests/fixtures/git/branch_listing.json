@@ -11,6 +11,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "main\n",
    "stderr": ""
@@ -27,6 +28,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "refs/heads/feat/xyz\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/feat/remote\nrefs/remotes/origin/main\n",
    "stderr": ""
@@ -41,6 +43,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "main\n",
    "stderr": ""
@@ -57,6 +60,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "refs/heads/feat/xyz\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/feat/remote\nrefs/remotes/origin/main\n",
    "stderr": ""
@@ -71,6 +75,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -87,6 +92,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "refs/heads/feat/xyz\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/feat/remote\nrefs/remotes/origin/main\n",
    "stderr": ""

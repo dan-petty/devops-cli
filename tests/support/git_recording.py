@@ -2,8 +2,8 @@
 
 `record_scenario` runs a scenario of `tests/support/git_scenarios.py` in a scratch directory with
 the real git: `ws.git` builds the repository, and every git command that the code of `src/`
-starts runs through `RecordingRunner`, which keeps its arguments, directory, standard input, exit
-code, standard output and standard error. The scratch directory differs on every recording, so the
+starts runs through `RecordingRunner`, which keeps its arguments, directory, standard input, the
+environment that the caller sets, exit code, standard output and standard error. The scratch directory differs on every recording, so the
 record holds `{root}` in its place. The scenario's return value is kept as its result.
 
 The `devops ci` row `git` runs `main(["--check"])` on the stock runner. It records every
@@ -20,7 +20,9 @@ from __future__ import annotations
 import difflib
 import getpass
 import json
+import os
 import re
+import socket
 import subprocess
 import tempfile
 from collections.abc import Sequence
@@ -38,9 +40,15 @@ from tests.support.git_scenarios import ROOT_MARK, SCENARIOS, Workspace
 from tests.support.paths import FIXTURES
 
 TRANSCRIPTS = FIXTURES / "git"
-# A path that only a host has, an e-mail address that is not on example.com, or the user's name.
-HOST_PATH = re.compile(r"/(?:home|Users|tmp|root|var|mnt|workspaces)/")
+# A path that only a host has (a directory of the root of the host, not a name inside a path), an
+# e-mail address that is not on example.com, the user's name, or the name of the host.
+HOST_PATH = re.compile(
+    r"(?<![\w.])/(?:home|Users|tmp|root|var|mnt|workspaces|srv|opt|etc|run|usr|media|private|Volumes)/"
+)
 EMAIL = re.compile(r"[\w.+-]+@(?!example\.com\b)[\w-]+(?:\.[\w-]+)+")
+
+
+NO_CONFIGURATION = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
 
 
 @dataclass(frozen=True)
@@ -50,6 +58,7 @@ class Exchange:
     argv: tuple[str, ...]
     cwd: str | None
     stdin: str | None
+    env: dict[str, str] | None
     returncode: int
     stdout: str
     stderr: str
@@ -88,6 +97,9 @@ class RecordingRunner:
         child_env = build_subprocess_env(
             env=env, isolate_env=isolate_env, extra_allowed_keys=extra_allowed_env
         )
+        # The guard drops the keys of the caller, so the child reads the files of the host unless
+        # they are set here: a transcript holds what git does with no configuration.
+        child_env.update(NO_CONFIGURATION)
         done = subprocess.run(
             argv,
             input=input,
@@ -105,6 +117,7 @@ class RecordingRunner:
                     argv=tuple(self.ws.shown(word) for word in argv),
                     cwd=self.ws.shown(str(cwd)) if cwd is not None else None,
                     stdin=self.ws.shown(input) if input is not None else None,
+                    env=dict(sorted(env.items())) if env else None,
                     returncode=done.returncode,
                     stdout=self.ws.shown(done.stdout),
                     stderr=self.ws.shown(done.stderr),
@@ -122,12 +135,16 @@ class RecordingRunner:
 
 
 def host_data_in(text: str) -> list[str]:
-    """What in `text` only one host has: a host path, a user name, or an e-mail address that is
-    not on example.com."""
+    """What in `text` only one host has: a host path, a user name, the name of the host, or an
+    e-mail address that is not on example.com."""
     found = HOST_PATH.findall(text) + EMAIL.findall(text)
-    user = getpass.getuser()
-    if len(user) > 3 and re.search(rf"\b{re.escape(user)}\b", text):
-        found.append(user)
+    hostname = socket.gethostname()
+    names = {getpass.getuser(), hostname, hostname.split(".")[0]}
+    found.extend(
+        sorted(
+            name for name in names if len(name) > 3 and re.search(rf"\b{re.escape(name)}\b", text)
+        )
+    )
     return found
 
 
@@ -148,6 +165,7 @@ def record_scenario(name: str) -> dict[str, Any]:
                 "argv": list(exchange.argv),
                 "cwd": exchange.cwd,
                 "stdin": exchange.stdin,
+                "env": exchange.env,
                 "returncode": exchange.returncode,
                 "stdout": exchange.stdout,
                 "stderr": exchange.stderr,

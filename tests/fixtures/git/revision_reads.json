@@ -14,6 +14,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "100644 blob 1e90bd67bb85e76e901c022dc113514bc7ae2b0c\tmod.py\u0000",
    "stderr": ""
@@ -27,6 +28,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "def kept(): pass\ndef gone(): pass\n",
    "stderr": ""
@@ -44,6 +46,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "040000 tree 75d8905a2bb78d959cf0b6a947e32b78209a54b9\t.cursor/rules\u0000",
    "stderr": ""
@@ -61,6 +64,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "100644 blob 071dd5799214aafa7df4312e92aafc15a12d3a88\t.cursor/rules/style.mdc\u0000",
    "stderr": ""
@@ -74,6 +78,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "Rule.\n",
    "stderr": ""
@@ -91,6 +96,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "120000 blob 3f0c3373962a5c65e21327b1e5582c23df6d421d\tAGENTS.md\u0000",
    "stderr": ""
@@ -108,6 +114,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "",
    "stderr": ""
@@ -125,6 +132,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "100644 blob 908a86ed5d460ad8a86e01dfd134b9e3566fa9df\tdocs/rules.md\u0000",
    "stderr": ""
@@ -138,6 +146,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "Rules.\n",
    "stderr": ""
@@ -155,6 +164,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "100644 blob 255e6fe8798df607482d7de4f01b8d4de0f4c269\tmy project/AGENTS.md\u0000",
    "stderr": ""
@@ -168,6 +178,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "Spaced.\n",
    "stderr": ""
@@ -185,6 +196,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "100644 blob 7d4290a117a4ddcc11daae7ea675841033830c8f\tcafé/mod.py\u0000",
    "stderr": ""
@@ -198,6 +210,7 @@
    ],
    "cwd": "{root}/repo",
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "x = 1\n",
    "stderr": ""

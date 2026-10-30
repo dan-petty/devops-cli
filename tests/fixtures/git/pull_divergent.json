@@ -11,6 +11,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "main\n",
    "stderr": ""
@@ -26,6 +27,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "origin\n",
    "stderr": ""
@@ -39,6 +41,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 0,
    "stdout": "origin\n",
    "stderr": ""
@@ -54,6 +57,7 @@
    ],
    "cwd": null,
    "stdin": null,
+   "env": null,
    "returncode": 128,
    "stdout": "",
    "stderr": "From {root}/remote\n * branch            main       -> FETCH_HEAD\n   3b84c4d..548bfb4  main       -> origin/main\nhint: You have divergent branches and need to specify how to reconcile them.\nhint: You can do so by running one of the following commands sometime before\nhint: your next pull:\nhint:\nhint:   git config pull.rebase false  # merge\nhint:   git config pull.rebase true   # rebase\nhint:   git config pull.ff only       # fast-forward only\nhint:\nhint: You can replace \"git config\" with \"git config --global\" to set a default\nhint: preference for all repositories. You can also pass --rebase, --no-rebase,\nhint: or --ff-only on the command line to override the configured default per\nhint: invocation.\nfatal: Need to specify how to reconcile divergent branches.\n"
