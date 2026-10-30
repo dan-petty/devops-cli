@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: The job formats the changed Python files
-Before the verification commands and the static checks, the step SHALL run `uv run ruff format` on the changed Python files, outside the shell of the agent, and stage the files it changed. The step SHALL print one line that names them. A formatter that fails SHALL stop the step. `ruff check` SHALL not fix.
+Before the verification commands and the static checks, the step SHALL run `uv run ruff format` on the changed Python files, outside the shell of the agent, and stage the files it changed. The step SHALL print one line that names them. A formatter that fails SHALL stop the step. `ruff check` SHALL not fix. The step SHALL pass the file names after `--`, and SHALL stop on a symbolic link before it runs a tool.
 
 #### Scenario: Correct code that is unformatted
 - **WHEN** the model writes correct code that the formatter would change, ticks the tasks, and ends its run
@@ -24,3 +24,11 @@ Before the verification commands and the static checks, the step SHALL run `uv r
 #### Scenario: Only the changed files
 - **WHEN** the model changes one Python file and one document
 - **THEN** the format command names the Python file only
+
+#### Scenario: A file named like an option
+- **WHEN** a changed file has a name that starts with `-`
+- **THEN** each tool gets the name after `--`, so the tool reads it as a path
+
+#### Scenario: A symbolic link
+- **WHEN** a changed Python file is a symbolic link
+- **THEN** the step reports stopped, the reason names the link, and no formatter runs

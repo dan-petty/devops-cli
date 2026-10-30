@@ -15,6 +15,8 @@ A formatter gives one result for one input. An editor or a pre-commit hook appli
 - The format run is one command. It has the same timeout as the other commands of the exit checks, and a timeout stops the step.
 - The static checks run `ruff check` and `mypy --strict`. The `ruff format --check` row goes. `ruff check` does not fix: a lint rule can point at a real defect that the model must see.
 - The formatter gets only the changed files that end in `.py`, from the list that the step already builds. It touches no other file.
+- The job gives the file names to `ruff format`, `ruff check` and `mypy --strict` after `--`. A name that starts with `-` is then a path, not an option.
+- The job stops the step before the format run when a changed Python file is a symbolic link. The formatter writes, and it follows a link to a file outside the checkout. The reason names the link.
 - The prompt of the step says that the job formats the changed Python files, so the model need not run the formatter.
 - A consumer observes the exit of a step, so the change carries a spec delta. It adds one requirement to `roadmap-implement-step`. It modifies none, because no requirement names the format check.
 - This change fits one pull request.
@@ -39,6 +41,8 @@ A formatter gives one result for one input. An editor or a pre-commit hook appli
 - Explicit file arguments make ruff format only those files. A probe shows that it reports `1 file reformatted` for one path. The formatter cannot touch a file outside the list.
 - The files that the formatter changed come from git, not from the output of ruff. After `git add -A` the index holds the files before the format run, so `git diff --name-only -z` lists exactly the files that the formatter changed. No output of ruff is parsed.
 - The timeout is per command. `_command_failure` passes `CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS` to `run_subprocess` for each verification command and each static check. The format run uses the same function, so it counts as one command with the same limit.
+- A probe with ruff 0.16.8 shows that `ruff format link.py` writes through a link to a file outside the checkout, and that a link to a directory makes ruff format every Python file below it. The file name comes from the agent, which can make a link with `git` or `uv run python`. `Path.is_symlink` finds the link, so no parser is needed.
+- A probe shows that a file named `--config=exclude = ['*.py'] #.py` is read as a ruff option unless `--` comes before the paths. With `--` the same name is a path. `mypy --strict -- <file>` and `ruff check -- <file>` also run as before.
 
 ## Existing Tool Considered
 

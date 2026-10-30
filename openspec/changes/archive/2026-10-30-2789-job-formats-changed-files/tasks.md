@@ -14,12 +14,19 @@
 - [x] Add the sentence to `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_format.py tests/test_ai_task_implement.py`
 
-## 3. The documentation
+## 3. Safe tool arguments
+
+- [x] Write failing tests in `tests/test_roadmap_implement_step_format.py`: the file names follow `--` for the format run, `ruff check` and `mypy --strict`, also for a name that starts with `-`; a changed Python file that is a link stops the step, and the target of the link stays as it was.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step_format.py`
+- [x] In `src/devops_cli/roadmap/implement_step.py`, put `--` before the file names, and stop on a link before the format run, with a message from `src/devops_cli/lang/en/messages.py`.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step_format.py tests/test_roadmap_implement_step.py tests/test_roadmap_implement_step_own_text.py`
+
+## 4. The documentation
 
 - [x] Regenerate the documentation with `devops docs generate --sync-readme`.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 4. Archive
+## 5. Archive
 
 - [x] Archive the change.
   - Verification: `uv run devops openspec archive 2789-job-formats-changed-files`
