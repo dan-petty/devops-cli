@@ -62,11 +62,14 @@ IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (*IMPLEMENT_SHELL_PROGRAMS, BIN_OP
 # What a step agent runs in place of a program that its shell refuses (#2773). The key is the
 # program that the model asks for, as the shell reads the first word. The value is the text of the
 # replacement, which reads after "Instead of `<program>`:" in the refusal, and in a table of the
-# prompt `roadmap_implement_step.md`. A test fails when the table, the prompt and
+# prompt `roadmap_implement_step.md`. The first sentence of a value is the replacement itself. A test fails when the table, the prompt and
 # `IMPLEMENT_SHELL_PROGRAMS` disagree.
+PYTHON_REPLACEMENT: str = (
+    "`uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies"
+)
 IMPLEMENT_SHELL_REPLACEMENTS: dict[str, str] = {
-    "python": "`uv run python`",
-    "python3": "`uv run python`",
+    "python": PYTHON_REPLACEMENT,
+    "python3": PYTHON_REPLACEMENT,
     "pytest": "`uv run pytest`",
     "pip": "nothing. The lockfile gives the dependencies",
     "pip3": "nothing. The lockfile gives the dependencies",

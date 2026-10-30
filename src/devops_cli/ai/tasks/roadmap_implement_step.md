@@ -28,8 +28,8 @@ The shell refuses any other program, and each refusal counts against a limit. If
 
 | Program | Instead |
 | :--- | :--- |
-| `python` | `uv run python` |
-| `python3` | `uv run python` |
+| `python` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
+| `python3` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
 | `pytest` | `uv run pytest` |
 | `pip` | nothing. The lockfile gives the dependencies |
 | `pip3` | nothing. The lockfile gives the dependencies |
@@ -42,6 +42,6 @@ The shell refuses any other program, and each refusal counts against a limit. If
 | `rg` | the tool `grep` |
 | `cd` | nothing. Every command runs in the checkout |
 
-The tool `write_file` does not create a directory. To create one, run `uv run python -c 'import pathlib; pathlib.Path("dir").mkdir(parents=True)'` with your path in place of `dir`.
+The tool `write_file` does not create a directory. To create one, run `uv run python -c '__import__("pathlib").Path("dir").mkdir(parents=True)'` with your path in place of `dir`.
 
 When you finish, reply with one short message. Say what you changed and what each verification command returned.

@@ -14,6 +14,10 @@ import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
+    CONST_ROADMAP_IMPLEMENT_ERROR_CHARS,
+)
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
@@ -23,6 +27,7 @@ from tests.support.model_script import ModelScript, say, tool_call
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 ALLOWED = "These programs are allowed: `git`, `uv`, `ruff`, `mypy`."
+UV_RUN_PYTHON = "`uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies."
 UV_RUN = (
     "Run the commands of the project with `uv run`, for example `uv run devops ci test <file>`."
 )
@@ -62,7 +67,7 @@ def _refusal(
     [
         (
             "python -m pytest",
-            "Command 'python' is not in the allowed list. Instead of `python`: `uv run python`.",
+            f"Command 'python' is not in the allowed list. Instead of `python`: {UV_RUN_PYTHON}",
         ),
         (
             "pytest tests/test_sample.py",
@@ -84,6 +89,10 @@ def _refusal(
             "cd src",
             "Command 'cd' is not in the allowed list. "
             "Instead of `cd`: nothing. Every command runs in the checkout.",
+        ),
+        (
+            "python -m pip install x",
+            f"Command 'python' is not in the allowed list. Instead of `python`: {UV_RUN_PYTHON}",
         ),
         (
             "pip install x",
@@ -117,6 +126,16 @@ def test_the_refusal_of_an_operator_states_the_rule_of_one_command_in_each_call(
         "Shell operator ';' is not allowed. Run one command in each call. "
         "Do not chain commands. Do not use `cd`: every command runs in the checkout."
     )
+
+
+def test_the_text_of_the_shell_is_cut_so_a_long_word_does_not_fill_the_context(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The shell echoes the first word of the command, and so does an interactive refusal."""
+    for command in ("A" * 5000, "vim " + "B" * 5000):
+        answer = _refusal(command, store, checkout, programs)
+
+        assert len(answer) <= CONST_ROADMAP_IMPLEMENT_ERROR_CHARS + len(ALLOWED) + len(UV_RUN) + 2
 
 
 def test_the_hint_adds_no_word_of_the_command(
@@ -155,7 +174,7 @@ def test_the_model_gets_five_refusals_with_a_hint_and_the_sixth_call_ends_the_ru
         5,
         True,
     )
-    assert all(answer.endswith("Instead of `python`: `uv run python`.") for answer in answers)
+    assert all(answer.endswith(f"Instead of `python`: {UV_RUN_PYTHON}") for answer in answers)
     assert outcome.reason.endswith("\nRefused commands: python 6. Other retries: 0.")
 
 
@@ -181,6 +200,23 @@ def test_the_prompt_table_has_one_row_for_each_replacement_in_the_order_of_the_t
     ]
 
 
+def test_each_shell_example_of_the_prompt_passes_the_shell_policy() -> None:
+    """The prompt teaches the model what to run. A command of the prompt that the shell refuses
+    sends the model into the loop that the table is there to end. The shell refuses a command that
+    holds a denied operator anywhere, also inside quotes, so the check is a plain text match."""
+    examples = [
+        code
+        for code in re.findall(r"`([^`\n]+)`", _prompt())
+        if code.split()[0] in IMPLEMENT_SHELL_PROGRAMS
+    ]
+
+    assert len(examples) >= 2
+    for example in examples:
+        assert [op for op in CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS if op in example] == [], (
+            example
+        )
+
+
 def test_no_program_of_the_table_is_a_program_that_the_shell_allows() -> None:
     assert set(IMPLEMENT_SHELL_REPLACEMENTS).isdisjoint(IMPLEMENT_SHELL_PROGRAMS)
 
@@ -195,7 +231,7 @@ def test_each_replacement_names_an_allowed_program_or_a_tool_that_the_agent_has(
     named = [
         code.split()[0]
         for replacement in IMPLEMENT_SHELL_REPLACEMENTS.values()
-        for code in re.findall(r"`([^`]+)`", replacement)
+        for code in re.findall(r"`([^`]+)`", replacement.split(". ")[0])
     ]
 
     assert named

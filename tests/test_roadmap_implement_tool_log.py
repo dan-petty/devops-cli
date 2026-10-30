@@ -13,6 +13,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelRetry, ToolFailed
 
+from devops_cli.config.commands import IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.roadmap.implement_step import StepOutcome, run_step
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -26,6 +27,10 @@ TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 # Bare words of at most 24 characters that the mask of secrets changes.
 SHORT_TOKEN = "ghp_" + "abcdefghijklmnopqrst"
 AWS_KEY_ID = "AKIA" + "IOSFODNN7EXAMPLE"
+# Bare words of at most 24 characters that the mask of secrets leaves as they are, such as a
+# password or the header of a token that the model read from a file.
+PASSWORD = "hunter2password"
+JWT_HEADER = "eyJhbGciOiJIUzI1NiJ9"
 
 
 @pytest.fixture
@@ -110,18 +115,25 @@ def test_a_program_of_the_allowlist_is_logged_by_name(
         "ü" + "b",
         AWS_KEY_ID,
         SHORT_TOKEN,
+        PASSWORD,
+        JWT_HEADER,
+        "a" * 24,
+        "curl",
+        "p0",
+        "my-tool",
+        "PYTHON",
     ],
 )
-def test_a_first_word_that_is_no_bare_word_is_logged_as_other(
+def test_a_first_word_that_is_no_known_program_is_logged_as_other(
     capsys: pytest.CaptureFixture[str], command: str
 ) -> None:
     assert _program_line(command, capsys) == "Tool call: shell, program other, ok."
 
 
-@pytest.mark.parametrize(
-    "word", ["python", "cd", "a", "a" * 24, "Py.thon-3_x", "pip3", "my-tool", "hunter2"]
-)
-def test_a_bare_first_word_is_logged_by_name(capsys: pytest.CaptureFixture[str], word: str) -> None:
+@pytest.mark.parametrize("word", sorted(IMPLEMENT_SHELL_REPLACEMENTS))
+def test_a_program_of_the_table_of_replacements_is_logged_by_name(
+    capsys: pytest.CaptureFixture[str], word: str
+) -> None:
     assert _program_line(f"{word} --flag 'a b'", capsys) == f"Tool call: shell, program {word}, ok."
 
 
@@ -212,7 +224,7 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
     script = ModelScript(
         tool_calls(
             ("fine", {}),
-            ("forbidden", {"command": "x"}),
+            ("forbidden", {"command": "cat"}),
             ("outside", {"path": "/y"}),
             ("again", {}),
             ("broken", {}),
@@ -231,9 +243,9 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
             "Tool call: again, retry.",
             "Tool call: broken, failed.",
             "Tool call: fine, ok.",
-            "Tool call: forbidden, program x, refused.",
+            "Tool call: forbidden, program cat, refused.",
             "Tool call: outside, retry.",
         ],
-        Counter(x=1),
+        Counter(cat=1),
         2,
     )

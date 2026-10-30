@@ -1270,18 +1270,21 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
 ) -> None:
     """Five programs, one of them twice: the reason lists four, and the fifth joins `other`."""
     script = ModelScript(
-        *(tool_call("shell", command=f"{name} x") for name in ("p0", "p1", "p2", "p3", "p4"))
+        *(
+            tool_call("shell", command=f"{name} x")
+            for name in ("cat", "ls", "grep", "find", "head", "head")
+        )
     )
 
     outcome = _step(store, checkout, script)
 
     assert constants.CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS == 4
     assert outcome.reason.endswith(
-        "\nRefused commands: p4 2, p0 1, p1 1, p2 1, other 1. Other retries: 0."
+        "\nRefused commands: head 2, cat 1, ls 1, grep 1, other 1. Other retries: 0."
     )
 
 
-def test_a_first_word_that_is_no_bare_word_is_counted_as_other_and_never_shown(
+def test_a_first_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"))
@@ -1290,6 +1293,19 @@ def test_a_first_word_that_is_no_bare_word_is_counted_as_other_and_never_shown(
 
     assert outcome.reason.endswith("\nRefused commands: other 6. Other retries: 0.")
     assert "hunter2" not in outcome.reason
+
+
+def test_a_short_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A password that the model read from a file is a short bare word, and the mask of secrets
+    leaves it as it is. The reason goes to a comment on GitHub, so it must not show the word."""
+    script = ModelScript(tool_call("shell", command="hunter2password x"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: other 6. Other retries: 0.")
+    assert "hunter2password" not in outcome.reason
 
 
 def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retries(

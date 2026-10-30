@@ -5,10 +5,10 @@ did. `ToolCallLog` is a pydantic-ai `Hooks` capability. It writes one line to th
 stream for each tool call: the tool name, the program of a shell command, and the outcome. A line
 holds no other argument, no file content, no output and no text of a refusal, as an argument can
 hold a path or a secret and the text of one refusal repeats the whole command. The program is the
-first word of the command, as the shell reads it, and only when it is a bare word: letters, digits,
-`_`, `.` and `-`, from a letter, in 24 characters at most, that the mask of secrets leaves as it is
-(#2773). Any other first word, such as an assignment with a secret in it or a path, is written as
-"other". The line has no reason for a refusal. The tool name and the program tell a refused program
+first word of the command, as the shell reads it, and only when it is a program that the project
+knows: a program of the allowlist, or a program of the table of replacements (#2773). Any other
+first word is written as "other", also a short bare word, as the model can read a password or a
+token from a file and run it as a command. The line has no reason for a refusal. The tool name and the program tell a refused program
 from a refused path.
 
 It also counts the shell commands that the shell refused by its policy, by program, and the calls
@@ -22,7 +22,6 @@ level INFO, so such a line would never reach the Job log.
 
 from __future__ import annotations
 
-import re
 import shlex
 from collections import Counter
 from dataclasses import dataclass, field
@@ -41,14 +40,14 @@ from pydantic_ai.exceptions import (
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
+from devops_cli.config.commands import IMPLEMENT_ALLOWED_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
-from devops_cli.security.sanitizer import mask_secrets
 
-# A program that the log may show: the shell reads it as one word, and it holds no path, no quote,
-# no space and no assignment.
-_BARE_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,23}")
+# The first words that the log may show. They are fixed in the code, so no text of the model
+# reaches the log, and the count of the programs in the reason stays small by design.
+_KNOWN_PROGRAMS = frozenset((*IMPLEMENT_ALLOWED_PROGRAMS, *IMPLEMENT_SHELL_REPLACEMENTS))
 
 
 class ToolOutcome(StrEnum):
@@ -88,13 +87,12 @@ def command_word(args: ValidatedToolArgs) -> str | None:
 
 
 def logged_program(word: str | None) -> str:
-    """What the log shows for the first word of a command: the word when it is a bare word that
-    the mask of secrets leaves as it is, else the word "other". Empty when there is no word. A first
-    word can be an assignment with a secret in it, or a path, or an escape sequence, so no other
-    word is written."""
+    """What the log shows for the first word of a command: the word when it is a known program,
+    else the word "other". Empty when there is no word. A first word can be an assignment with a
+    secret in it, a path, an escape sequence or a password, so no other word is written."""
     if word is None:
         return ""
-    if _BARE_WORD.fullmatch(word) and mask_secrets(word) == word:
+    if word in _KNOWN_PROGRAMS:
         return word
     return MESSAGES.roadmap.implement_tool_other
 

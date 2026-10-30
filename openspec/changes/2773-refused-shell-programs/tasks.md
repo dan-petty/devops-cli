@@ -2,7 +2,7 @@
 
 ## 1. The log and the reason name the refused program
 
-- [x] Write failing tests in `tests/test_roadmap_implement_tool_log.py` and `tests/test_roadmap_implement_step.py`: a refused bare word shows in the line; a word with `=`, a path, a quote, a space, an escape sequence, more than 24 characters and a word that `mask_secrets` changes show "other"; the reason counts refused commands by program, in order of count; more programs than `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` join "other"; no refusal gives "0".
+- [x] Write failing tests in `tests/test_roadmap_implement_tool_log.py` and `tests/test_roadmap_implement_step.py`: a refused known program shows in the line; any other word, such as an assignment with `=`, a path, a quote, a space, an escape sequence, a short password and a word that `mask_secrets` changes, shows "other"; the reason counts refused commands by program, in order of count; more programs than `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` join "other"; no refusal gives "0".
   - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py tests/test_roadmap_implement_step.py`
 - [x] Add `command_word`, `is_policy_refusal` and `logged_program` to `src/devops_cli/roadmap/implement_tool_log.py`, make `ToolCallLog.refused` a `Counter` with `refused_text()`, add `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` to `src/devops_cli/config/constants.py`, and use the text in `_stop_reason` of `src/devops_cli/roadmap/implement_step.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py tests/test_roadmap_implement_step.py`
@@ -21,12 +21,17 @@
 - [x] Add the table to `src/devops_cli/ai/tasks/roadmap_implement_step.md`, next to the line of allowed programs.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_shell_refusal.py`
 
-## 4. The documentation
+## 4. Findings of the review
+
+- [x] Write failing tests, then log only a known program (`logged_program`), cut the text of the shell in the hint, add `python -m pip` to the replacement of `python` and `python3`, and change the directory command of the prompt to one that has no refused operator. A test checks each shell command of the prompt against `CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS`.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_shell_refusal.py tests/test_roadmap_implement_tool_log.py tests/test_roadmap_implement_step.py`
+
+## 5. The documentation
 
 - [ ] Regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 5. Archive
+## 6. Archive
 
 - [ ] Archive the change.
   - Verification: `uv run devops openspec archive 2773-refused-shell-programs`

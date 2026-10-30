@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The text of the refusal SHALL keep the text of the shell tool and SHALL add the replacement: the entry of `IMPLEMENT_SHELL_REPLACEMENTS` for the first word, else the list of the allowed programs with the `uv run` form, else, for an operator, the rule of one command in each call. The refusal SHALL NOT change what the shell allows. The shell SHALL run with `HOME` set to a temporary directory of the step, so that the configuration and credentials of the user's home do not reach it. The shell is no security boundary.
+The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The text of the refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters, and SHALL add the replacement: the entry of `IMPLEMENT_SHELL_REPLACEMENTS` for the first word, else the list of the allowed programs with the `uv run` form, else, for an operator, the rule of one command in each call. The refusal SHALL NOT change what the shell allows. The shell SHALL run with `HOME` set to a temporary directory of the step, so that the configuration and credentials of the user's home do not reach it. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
@@ -19,7 +19,11 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 
 #### Scenario: A habit of the table
 - **WHEN** the model calls the shell tool with `python -m pytest`
-- **THEN** the refusal holds "Instead of `python`: `uv run python`", and no process starts
+- **THEN** the refusal holds "Instead of `python`: `uv run python`" and says that `python -m pip` is not to run, and no process starts
+
+#### Scenario: A long word
+- **WHEN** the model calls the shell tool with a first word of 5000 characters
+- **THEN** the refusal holds the text of the shell cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters, then the hint
 
 #### Scenario: A file command
 - **WHEN** the model calls the shell tool with `cat README.md`
@@ -34,7 +38,7 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **THEN** the model got five refusals with a hint, and the sixth call ends the run as before
 
 #### Scenario: The prompt and the table agree
-- **WHEN** the table `IMPLEMENT_SHELL_REPLACEMENTS` or `IMPLEMENT_SHELL_PROGRAMS` differs from the prompt of the step
+- **WHEN** the table `IMPLEMENT_SHELL_REPLACEMENTS` or `IMPLEMENT_SHELL_PROGRAMS` differs from the prompt of the step, or a shell command of the prompt holds an operator that the shell refuses
 - **THEN** a test fails
 
 ### Requirement: The reason of a stopped run counts the refused and the retried tool calls
@@ -69,7 +73,7 @@ A step that stops on a pydantic-ai error SHALL count, over all its turns, the to
 - **THEN** the reason holds the message of the error and holds neither count
 
 ### Requirement: Every tool call of a step writes one line to the Job log
-The agent of a step SHALL write one line to the standard error stream for each tool call. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a bare word, else the word `other`. A bare word SHALL match `[A-Za-z][A-Za-z0-9_.-]{0,23}` as a whole, and the mask of secrets SHALL leave it as it is. The line SHALL hold nothing else.
+The agent of a step SHALL write one line to the standard error stream for each tool call. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist or a program of `IMPLEMENT_SHELL_REPLACEMENTS`, else the word `other`. The line SHALL hold nothing else.
 
 #### Scenario: A refused program
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py --secret-flag=abc`, and then ends its run
@@ -88,12 +92,12 @@ The agent of a step SHALL write one line to the standard error stream for each t
 - **THEN** the standard error stream holds the line "Tool call: read_file, retry."
 
 #### Scenario: A first word that is no program
-- **WHEN** the first word of a shell command is an assignment such as `API_KEY=hunter2`, a path, a word of more than 24 characters, a word with a space or a quote, an escape sequence, or the command has an unclosed quote
+- **WHEN** the first word of a shell command is an assignment such as `API_KEY=hunter2`, a path, a word with a space or a quote, an escape sequence, or the command has an unclosed quote
 - **THEN** the line holds "program other" and holds no part of the word
 
-#### Scenario: A bare word in the form of a secret
-- **WHEN** the first word of a shell command is a bare word that the mask of secrets changes
-- **THEN** the line holds "program other"
+#### Scenario: A short bare word that is no known program
+- **WHEN** the first word of a shell command is a short bare word such as `hunter2password` that the model read from a file
+- **THEN** the line and the reason of a stopped run hold "other" and not the word
 
 #### Scenario: A refused path
 - **WHEN** the model calls `read_file` with a path outside the root
