@@ -38,7 +38,7 @@ The exit checks SHALL run in this order: the group changed only in its checkboxe
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
 
 ### Requirement: The turn for the ticks changes only the tasks file
-The extra turn SHALL change no file except the `tasks.md` of the change. The step SHALL check this with git, by comparing the checkout after the turn with the tree of the checkout before it, and SHALL stop with a reason that names the other paths when the turn changed any. After the turn every exit check SHALL run again, and the step SHALL restore the checkboxes of the other groups again. The outcome SHALL count the requests and the tokens of both turns, and the spend ledger SHALL hold the replies of both.
+The extra turn SHALL change no file except the `tasks.md` of the change. The step SHALL check this with git, by comparing the checkout after the turn with the tree of the checkout before it, and SHALL stop with a reason that names the other paths when the turn changed any. After the turn every exit check and the restore of the other groups SHALL run again. The outcome SHALL count the requests and the tokens of both turns, and the spend ledger SHALL hold the replies of both.
 
 #### Scenario: The turn changes another file
 - **WHEN** the model changes `src/sample.py` in the extra turn
