@@ -477,7 +477,7 @@ Before the verification commands and the static checks, the step SHALL run `uv r
 - **THEN** the step reports stopped, the reason names the link, and no formatter runs
 
 ### Requirement: A step asks once for a fix of a failed static check
-When the agent ends its run, each verification command passes, and `ruff check` or `mypy --strict` fails, the step SHALL run one more turn in the same conversation under the same `UsageLimits`. Its message SHALL hold the text of the failure and the unticked tasks, if any. The step SHALL run the turn at most once. Every exit check SHALL run again after it.
+When the agent ends its run, each verification command passes, and `ruff check` or `mypy --strict` fails, the step SHALL run one more turn in the same conversation under the same `UsageLimits`. Its message SHALL hold the text of the failure and the unticked tasks, if any. The step SHALL mask secrets in the text with `mask_secrets` first, then cut it to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters. The step SHALL run the turn at most once. Every exit check SHALL run again after it.
 
 #### Scenario: An unused import
 - **WHEN** the model ticks the tasks and ends its run, `ruff check` exits 1 for an unused import in a changed file, and the model removes the import in the extra turn
