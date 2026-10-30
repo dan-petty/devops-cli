@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.2](https://github.com/dan-petty/devops-cli/compare/v0.22.1...v0.22.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **release:** the urgent-fix rule reads scope/security, not type/security ([#2769](https://github.com/dan-petty/devops-cli/issues/2769)) ([05be980](https://github.com/dan-petty/devops-cli/commit/05be980e558fca3209cacdb7d4111831be0e7e5c))
+* **roadmap:** restore ticks of other groups in an implement step ([#2770](https://github.com/dan-petty/devops-cli/issues/2770)) ([c266ce2](https://github.com/dan-petty/devops-cli/commit/c266ce2ca5b5ee951daf131f56547c5bb0c149e0)), closes [#2767](https://github.com/dan-petty/devops-cli/issues/2767)
+
 ## [0.22.1](https://github.com/dan-petty/devops-cli/compare/v0.22.0...v0.22.1) (2026-10-30)
 
 
