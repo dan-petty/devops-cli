@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the own group keeps the number, the order and the heading of its tasks and no other group changed beyond its checkboxes, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A task left unticked after the first three checks first gets the extra turn of the requirement "A step asks once for the missing ticks".
+The exit checks SHALL run in this order: the own group keeps its tasks and no other group changed beyond its checkboxes, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A task left unticked after the first three checks first gets the extra turn of the requirement "A step asks once for the missing ticks".
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -46,7 +46,7 @@ The exit checks SHALL run in this order: the own group keeps the number, the ord
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
 
 ### Requirement: A change of another group beyond its checkboxes stops the step
-After the restore, the text of each other group SHALL equal its text before the run. Any difference beyond the checkboxes SHALL stop the step with the group named: a title, a task, a command, a bullet or a line changed, added or removed. A group number that two groups hold after the run SHALL stop the step, and one that two groups hold before the run SHALL be refused before the step starts. The own group SHALL follow the requirement "A step writes the text of its own group back". A fix step SHALL change no task and restore nothing.
+After the restore, the text of each other group SHALL equal its text before the run. Any difference beyond the checkboxes SHALL stop the step with the group named: a title, a task, a command, a bullet or a line changed, added or removed. A group number that two groups hold after the run SHALL stop the step, and one that two groups hold before the run SHALL be refused before the step starts. The own group follows its own requirement. A fix step SHALL change no task and restore nothing.
 
 #### Scenario: The model ticks a later group and edits its text
 - **WHEN** the model ticks a task of group 2 and also changes the text of that task
