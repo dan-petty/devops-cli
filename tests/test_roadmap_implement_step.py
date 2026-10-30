@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from pydantic_ai.exceptions import (
     ModelAPIError,
+    ModelContextWindowExceededError,
     ModelHTTPError,
     ModelRequestTimeout,
     UnexpectedModelBehavior,
@@ -70,7 +71,7 @@ from tests.support.implement_step import (
     the_whole_group,
     write_call,
 )
-from tests.support.model_script import ModelScript, say, tool_call, tool_calls
+from tests.support.model_script import InStream, ModelScript, say, tool_call, tool_calls
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1446,7 +1447,7 @@ def test_a_model_call_that_fails_stops_the_step_with_the_diff_of_the_work_and_th
 def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_the_reason(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    script = ModelScript(ModelHTTPError(503, "example-model", {"error": "busy"}))
+    script = ModelScript(ModelHTTPError(503, "example-model"))
 
     outcome = _step(store, checkout, script)
 
@@ -1487,6 +1488,100 @@ def test_a_message_of_a_failed_model_call_is_not_in_the_reason(
     outcome = _step(store, checkout, script)
 
     assert outcome.reason == "ModelAPIError: model example-model"
+
+
+XML_ERROR = "XML syntax error on line 75: unexpected EOF"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"message": XML_ERROR, "type": None, "code": "400"}, id="message"),
+        pytest.param({"error": XML_ERROR}, id="error-text"),
+        pytest.param({"error": {"message": XML_ERROR, "code": 400}}, id="error-message"),
+        pytest.param(XML_ERROR, id="text"),
+    ],
+)
+def test_the_reason_of_a_failed_model_call_holds_the_error_text_of_the_body(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, body: object
+) -> None:
+    script = ModelScript(ModelHTTPError(400, "example-model", body))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == f"ModelHTTPError: HTTP 400, model example-model, body: {XML_ERROR}"
+
+
+def test_the_error_text_of_the_body_is_masked_and_cut(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    long_text = f"{TOKEN} " + "x" * (2 * constants.CONST_ROADMAP_RUN_ERROR_CHARS)
+    script = ModelScript(ModelHTTPError(400, "example-model", {"message": long_text}))
+
+    outcome = _step(store, checkout, script)
+
+    prefix = "ModelHTTPError: HTTP 400, model example-model, body: "
+    assert TOKEN not in outcome.reason
+    assert outcome.reason.startswith(prefix)
+    assert len(outcome.reason) - len(prefix) <= constants.CONST_ROADMAP_RUN_ERROR_CHARS
+
+
+ECHOES = [
+    pytest.param(
+        'error parsing tool call: raw=\'{"content":"DB_PASSWORD=hunter2hunter2"}\', err=EOF',
+        "error parsing tool call: raw",
+        id="ollama-raw-echo",
+    ),
+    pytest.param(
+        {"message": "api_key=abcdef1234567890zz secret: 'S3cr3tValueHere!'"},
+        "api_key",
+        id="key-value",
+    ),
+    pytest.param(
+        "bad call\nthe second line holds hunter2hunter2 MIIEowIBAAKCAQEA1234567890abcdef",
+        "bad call",
+        id="second-line",
+    ),
+    pytest.param(
+        "raw='unclosed hunter2hunter2",
+        "raw",
+        id="unclosed-quote",
+    ),
+]
+
+
+@pytest.mark.parametrize(("body", "kept"), ECHOES)
+def test_the_error_text_of_the_body_holds_no_echo_of_the_model_output(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, body: object, kept: str
+) -> None:
+    """A provider can echo what the model wrote. The reason keeps the first line, hides quoted
+    text, and stops at the first `=` or `;`, as the reason of other errors does (#2562)."""
+    script = ModelScript(ModelHTTPError(400, "example-model", body))
+
+    outcome = _step(store, checkout, script)
+
+    prefix = "ModelHTTPError: HTTP 400, model example-model, body: "
+    assert outcome.reason == prefix + kept
+    for secret in ("hunter2", "S3cr3t", "abcdef1234", "MIIEow"):
+        assert secret not in outcome.reason
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"error": {"api_key": "abcdefghij1234567890zzQQ", "code": 7}}, id="keys"),
+        pytest.param({"message": 7, "error": ["abcdefghij1234567890zzQQ"]}, id="not-text"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_a_body_with_no_error_text_adds_nothing_to_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, body: object
+) -> None:
+    script = ModelScript(ModelHTTPError(400, "example-model", body))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == "ModelHTTPError: HTTP 400, model example-model"
 
 
 def test_a_failed_read_of_the_discarded_diff_keeps_the_reason_of_the_stop(
@@ -1564,6 +1659,180 @@ def test_a_refused_key_in_the_extra_turn_raises_after_the_checkout_is_reset(
         _step(store, checkout, script)
 
     assert is_clean_at(checkout, head)
+
+
+# ── A model call that fails inside a stream is sent again (#2794) ─────────────────────────
+
+
+def _in_stream_400() -> InStream:
+    """The error that the gateway sends when Ollama cannot read a tool call of the model: the
+    stream is open, so the status 200 is sent, and the error object has the code "400"."""
+    body = {"message": XML_ERROR, "type": None, "param": None, "code": "400"}
+    return InStream(ModelHTTPError(400, "example-model", body, in_stream=True))
+
+
+def _history(messages: Sequence[Any]) -> list[Any]:
+    return [message.parts for message in messages]
+
+
+def test_a_400_inside_a_stream_is_sent_again_with_the_same_history_and_the_step_ends_done(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(*the_whole_group()), _in_stream_400(), say("The group is done.")
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, outcome.last_message) == (
+        StepStatus.DONE,
+        "",
+        "The group is done.",
+    )
+    assert len(script.seen) == 3
+    assert _history(script.seen[2]) == _history(script.seen[1])
+
+
+def test_a_400_inside_a_stream_at_the_first_request_is_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(_in_stream_400(), tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 3)
+    assert _history(script.seen[1]) == _history(script.seen[0])
+
+
+def test_a_400_inside_a_stream_on_every_send_stops_the_step_with_the_body(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(tool_calls(*WORK), _in_stream_400())
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        f"ModelHTTPError: HTTP 400, model example-model, body: {XML_ERROR}",
+        True,
+    )
+    assert len(script.seen) == 1 + 1 + constants.CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+    assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
+
+
+NOT_RESENT = [
+    pytest.param(
+        ModelHTTPError(400, "example-model", {"message": XML_ERROR}), id="before-the-stream"
+    ),
+    pytest.param(
+        ModelHTTPError(503, "example-model", {"message": "busy"}, in_stream=True),
+        id="status-503",
+    ),
+    pytest.param(
+        ModelHTTPError.for_category(
+            ModelContextWindowExceededError,
+            status_code=400,
+            model_name="example-model",
+            body={"message": "The prompt is too long."},
+            in_stream=True,
+        ),
+        id="context-window",
+    ),
+]
+
+
+@pytest.mark.parametrize("failure", NOT_RESENT)
+def test_other_failed_model_calls_are_not_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, failure: ModelHTTPError
+) -> None:
+    script = ModelScript(tool_calls(*WORK), InStream(failure))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 2)
+
+
+def test_a_400_inside_a_stream_in_the_extra_turn_is_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(*WORK), say(FORGOT), _in_stream_400(), tool_calls(TICK), say("Ticked.")
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.last_message) == (StepStatus.DONE, "Ticked.")
+    assert _history(script.seen[3]) == _history(script.seen[2])
+
+
+def test_two_separate_failures_in_one_step_are_each_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The budget of a resend is for one call. A good reply between two failures gives the second
+    failure its own resend."""
+    script = ModelScript(
+        _in_stream_400(),
+        tool_calls(*the_whole_group()),
+        _in_stream_400(),
+        say("Done."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+    assert _history(script.seen[1]) == _history(script.seen[0])
+    assert _history(script.seen[3]) == _history(script.seen[2])
+
+
+def test_a_failure_after_a_good_reply_stops_when_its_own_resend_fails(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    read = tool_call("read_file", path="docs/SAMPLE.md")
+    script = ModelScript(_in_stream_400(), read, _in_stream_400())
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.status == StepStatus.STOPPED
+    assert outcome.reason.endswith(f"body: {XML_ERROR}")
+    assert len(script.seen) == 4
+
+
+def test_the_replies_before_a_send_again_count_against_the_request_limit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A fresh budget for the second send would let the run make more requests than the limit."""
+    read = tool_call("read_file", path="docs/SAMPLE.md")
+    script = ModelScript(read, _in_stream_400(), read)
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, REQUEST_LIMIT_REASON)
+    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
+
+
+def test_the_tool_calls_before_a_send_again_count_against_the_tool_call_limit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    batch = 4
+    reads = tool_calls(*[("read_file", {"path": "docs/SAMPLE.md"})] * batch)
+    script = ModelScript(reads, _in_stream_400(), reads)
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, TOOL_CALL_LIMIT_REASON)
+    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS // batch + 2
+
+
+def test_the_spend_of_a_failed_send_is_in_the_outcome_and_the_ledger(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, spend_ledger: SpendLedger
+) -> None:
+    script = ModelScript(_in_stream_400(), tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.requests == 3
+    assert [row[:2] for row in _spend_rows(spend_ledger)] == [("agent_run", "implement")] * 2
 
 
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────

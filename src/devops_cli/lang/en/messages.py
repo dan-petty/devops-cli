@@ -2027,6 +2027,7 @@ class RoadmapMessages:
     implement_paths_more: str = " and {count} more"
     implement_model_call_model: str = "model {model}"
     implement_model_call_status: str = "HTTP {status}, {model}"
+    implement_model_call_body: str = "{detail}, body: {body}"
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
     implement_tool_other: str = "other"
     implement_refusal_replacement: str = "Instead of `{program}`: {replacement}."

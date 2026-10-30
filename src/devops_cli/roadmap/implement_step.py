@@ -29,6 +29,7 @@ from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -42,12 +43,13 @@ from pydantic_ai.conversation import Conversation
 from pydantic_ai.exceptions import (
     AgentRunError,
     ModelAPIError,
+    ModelContextWindowExceededError,
     ModelHTTPError,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
 from pydantic_ai_harness.shell import Shell
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
@@ -76,6 +78,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+    CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
@@ -91,6 +94,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import (
+    body_error_text,
     bounded_text,
     drain_events,
     model_call_error,
@@ -540,7 +544,8 @@ def build_agent(
 class _Run:
     """What a turn left: why it ended early (the class and the message of the pydantic-ai error,
     with the counts of `ToolCallLog`, or empty), the last text of the model, what it spent, and
-    the conversation to continue when it ended."""
+    the conversation to continue when it ended, and the conversation to resume when a new send of
+    the request can fix the error that ended it (#2794)."""
 
     reason: str
     last_message: str
@@ -548,6 +553,7 @@ class _Run:
     input_tokens: int
     output_tokens: int
     conversation: Conversation | None = None
+    resend: Conversation | None = None
 
     def then(self, later: _Run) -> _Run:
         """This turn followed by `later`, which continued its conversation: the end and the last
@@ -559,6 +565,7 @@ class _Run:
             input_tokens=self.input_tokens + later.input_tokens,
             output_tokens=self.output_tokens + later.output_tokens,
             conversation=later.conversation,
+            resend=later.resend,
         )
 
 
@@ -597,15 +604,54 @@ def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
 
 def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
     """The reason of a run that a failed model call ended (#2731): the class of the error, the HTTP
-    status when the reply has one, and the name of the model, then the counts of `_stop_reason`.
-    The message and the body of the reply stay out. They are text that the provider chose, and the
-    masker finds a secret by its form in a sentence, not by its key in the repr of a dict."""
+    status when the reply has one, and the name of the model, then the error text of the body of
+    the reply (#2794), then the counts of `_stop_reason`. The message of the error stays out, and
+    so does every value of the body but its error text: the masker finds a secret by its form in
+    a sentence, not by its key in the repr of a dict."""
     texts = MESSAGES.roadmap
     detail = texts.implement_model_call_model.format(model=failed.model_name)
     if isinstance(failed, ModelHTTPError):
         detail = texts.implement_model_call_status.format(status=failed.status_code, model=detail)
+        if body := body_error_text(failed.body):
+            detail = texts.implement_model_call_body.format(detail=detail, body=body)
     reason = texts.run_stop_reason.format(error=type(failed).__name__, message=detail)
     return _with_counts(reason, log)
+
+
+def _generation_failed(failed: ModelAPIError) -> bool:
+    """Whether `failed` is an error that the provider reported inside an open stream, with the
+    status 400, and that is no context window error (#2794). The request was good, for the
+    provider had begun to answer. The model made a reply that the provider could not use, such as
+    a tool call that ends early, and the next sample of the model can be whole. A request that
+    the provider refuses before it streams, and a prompt that is too long, fail the same way again."""
+    return (
+        isinstance(failed, ModelHTTPError)
+        and failed.in_stream
+        and failed.status_code == HTTPStatus.BAD_REQUEST
+        and not isinstance(failed, ModelContextWindowExceededError)
+    )
+
+
+def _resend_after(
+    failed: ModelAPIError, messages: Sequence[ModelMessage], conversation: Conversation | None
+) -> Conversation | None:
+    """The conversation that sends the failed request again, or `None` when `failed` is no error
+    of the generation or the messages do not end with a request. It holds the same messages as the
+    failed request, for the interrupted reply is dropped, and the usage of the replies that came
+    before and of the failed request, so the limits of the step count every send."""
+    kept = list(messages)
+    if kept and isinstance(kept[-1], ModelResponse) and kept[-1].state == "interrupted":
+        kept.pop()
+    if not _generation_failed(failed) or not kept or isinstance(kept[-1], ModelResponse):
+        return None
+    replies = _new_replies(kept, conversation)
+    calls = sum(isinstance(part, ToolCallPart) for reply in replies for part in reply.parts)
+    spent = (conversation.usage if conversation else RunUsage()) + RunUsage(
+        requests=len(replies) + 1, tool_calls=calls
+    )
+    for reply in replies:
+        spent.incr(reply.usage)
+    return Conversation(messages=kept, usage=spent)
 
 
 def _run_agent(
@@ -615,16 +661,39 @@ def _run_agent(
     message: str,
     conversation: Conversation | None = None,
 ) -> _Run:
-    """One turn of the agent under the limits of a step, and its spend as one record. With
-    `conversation`, the turn continues it: its messages and its usage carry over, so the limits
-    count both turns. A failed model call ends the turn as stopped, with the replies that came before
+    """One turn of the agent, and each send again of a request that failed inside a stream (#2794).
+    A request is sent again at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. A send
+    that gets a reply gives the next failed request its own resends. The request limit of the
+    step ends the loop. The turn ends with the last send."""
+    run = _run_turn(agent, model, log, message, conversation)
+    resends = CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+    while run.resend is not None and resends > 0:
+        sent = run.resend
+        later = _run_turn(agent, model, log, None, sent)
+        stalled = later.resend is not None and len(later.resend.messages) <= len(sent.messages)
+        resends = resends - 1 if stalled else CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+        run = run.then(later)
+    return run
+
+
+def _run_turn(
+    agent: Agent[None, str],
+    model: Any,
+    log: ToolCallLog,
+    message: str | None,
+    conversation: Conversation | None = None,
+) -> _Run:
+    """One send of a request to the agent under the limits of a step, and its spend as one record.
+    With `conversation`, the turn continues it: its messages and its usage carry over, so the
+    limits count both turns. Without `message`, it resumes the request that the conversation ends
+    with. A failed model call ends the turn as stopped, with the replies that came before
     it, as a limit does. Raises `AICredentialsError` when the model refuses the key."""
     limits = UsageLimits(
         request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     )
     reason = last = ""
-    kept = None
+    kept = resend = None
     error: AICredentialsError | None = None
     started = time.monotonic()
     with capture_run_messages() as messages:
@@ -645,6 +714,7 @@ def _run_agent(
                 error = refused
             else:
                 reason, last = _model_call_reason(exc, log), _last_text(messages)
+                resend = _resend_after(exc, messages, conversation)
         finally:
             replies = _new_replies(messages, conversation)
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
@@ -657,6 +727,7 @@ def _run_agent(
         input_tokens=sum(reply.usage.input_tokens for reply in replies),
         output_tokens=sum(reply.usage.output_tokens for reply in replies),
         conversation=kept,
+        resend=resend,
     )
 
 
