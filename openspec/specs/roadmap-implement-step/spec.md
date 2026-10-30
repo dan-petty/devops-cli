@@ -474,3 +474,26 @@ After each turn of the model, the step SHALL write the raw lines of the region o
 #### Scenario: A fix step edits a task
 - **WHEN** a fix step edits the text of a task of group 1
 - **THEN** the step reports stopped with the reason that a fix step changes no task
+
+### Requirement: The job formats the changed Python files
+Before the verification commands and the static checks, the step SHALL run `uv run ruff format` on the changed Python files, outside the shell of the agent, and stage the files it changed. The step SHALL print one line that names them. A formatter that fails SHALL stop the step. `ruff check` SHALL not fix.
+
+#### Scenario: Correct code that is unformatted
+- **WHEN** the model writes correct code that the formatter would change, ticks the tasks, and ends its run
+- **THEN** the step reports done, the commit holds the formatted file, and the step prints one line that names the file
+
+#### Scenario: Code that is formatted
+- **WHEN** the formatter changes no file
+- **THEN** the step prints no line about the format and reports done
+
+#### Scenario: A lint or type error
+- **WHEN** the code is unformatted and `ruff check` exits 1 after the format run
+- **THEN** the step reports stopped with the reason that `ruff check` failed
+
+#### Scenario: A file with a syntax error
+- **WHEN** the formatter exits with status 2 on a changed file
+- **THEN** the step reports stopped, the reason names the format command and its exit status, and the checkout is reset
+
+#### Scenario: Only the changed files
+- **WHEN** the model changes one Python file and one document
+- **THEN** the format command names the Python file only
