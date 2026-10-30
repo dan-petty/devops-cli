@@ -15,7 +15,7 @@ Two things in the design made one forgotten tick cost the whole step:
 - The exit checks run in a new order. The group may change only in its checkboxes and no other group may change. Then each verification command and the static checks run. The check that every task is ticked runs last.
 - A step whose only fault is missing ticks gets one more model turn. The verification and the static checks have passed by then. The turn asks only for the ticks and lists the unticked tasks. It is the same conversation and the same `UsageLimits` as the first turn. The turn may change only `tasks.md`. The job checks this with git, and any other change stops the step. After the turn every exit check runs again.
 - A stopped step keeps the diff of its work. The step reads the diff of the discarded work, masks secrets in it (`devops_cli.security.sanitizer.mask_secrets`) and cuts it to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters. `StepOutcome` carries it. The job posts it in the stop comment in a fenced block. The fence is longer than any run of backticks in the diff, so no text of the diff can end the block.
-- A consumer observes the stop comment, the exit order and the `StepOutcome`, so the change carries spec deltas. It modifies three requirements of `roadmap-implement-step` and one of `roadmap-implement-job`, and adds three requirements to `roadmap-implement-step`.
+- A consumer observes the stop comment, the exit order and the `StepOutcome`, so the change carries spec deltas. It modifies three requirements of `roadmap-implement-step`, adds three requirements to it, and adds one requirement to `roadmap-implement-job`.
 - This change fits one pull request.
 
 ## Capabilities
@@ -23,7 +23,7 @@ Two things in the design made one forgotten tick cost the whole step:
 ### Modified Capabilities
 
 - `roadmap-implement-step`: the exit checks and their order, the inputs of a step and the limits of a run change. Three requirements are added: the tick turn, the files that the turn may change, and the diff of a stopped step.
-- `roadmap-implement-job`: the stop comment holds the diff of the discarded work.
+- `roadmap-implement-job`: one added requirement, the stop comment holds the diff of the discarded work.
 
 ## Impact
 

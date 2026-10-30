@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the group changed only in its checkboxes and no other group changed, each verification command of the group passes, `ruff check`, `ruff format --check` and `mypy --strict` pass on the changed Python files, and every task of the group is ticked. The step SHALL stop at the first check that fails, SHALL name it as the reason, SHALL make no commit, and SHALL reset the checkout to the commit where the step started. A step that passes the first three checks and leaves a task unticked SHALL get the extra turn of the requirement "A step asks once for the missing ticks" before the last check decides.
+The exit checks SHALL run in this order: the group changed only in its checkboxes and no other group changed, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A task left unticked after the first three checks first gets the extra turn of the requirement "A step asks once for the missing ticks".
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -38,7 +38,7 @@ The exit checks SHALL run in this order: the group changed only in its checkboxe
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
 
 ### Requirement: The inputs of a step are fixed
-The user message of the model SHALL hold the title, the problem statement and the acceptance criteria of the item, the `proposal.md`, `design.md` and `tasks.md` of the change, the group, the files that the group names, packed, and, for a step that is not a fix step, the path of the `tasks.md` of the change under the heading "The tasks file". It SHALL hold nothing else. The change is the one folder `openspec/changes/<N>-*/` of the checkout, and the step SHALL raise `RoadmapImplementError` when there is none or more than one.
+The user message of the model SHALL hold the title, problem statement and acceptance criteria of the item, the `proposal.md`, `design.md` and `tasks.md` of the change, the group, the files that the group names, packed, and, except for a fix step, the path of the `tasks.md` under the heading "The tasks file". It SHALL hold nothing else. The change is the one folder `openspec/changes/<N>-*/` of the checkout, and the step SHALL raise `RoadmapImplementError` when there is none or more than one.
 
 #### Scenario: The first request
 - **WHEN** the step runs group 1 of a change whose group 1 names `src/sample.py` and `tests/test_sample.py`, which does not exist yet
@@ -53,7 +53,7 @@ The user message of the model SHALL hold the title, the problem statement and th
 - **THEN** the step raises `RoadmapImplementError` that names the pattern
 
 ### Requirement: A run that reaches a limit ends stopped
-`UsageLimits` SHALL cap a run at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. The extra turn for the missing ticks SHALL count against the same limits. A run that reaches a limit, or that breaks the rules of its tools past their retries, SHALL end as stopped with the class name of the pydantic-ai error as the reason, and the step SHALL reset the checkout. The agent SHALL have no `delegate_task` tool.
+`UsageLimits` SHALL cap a run at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls, and the extra turn for the ticks SHALL count against them. A run that reaches a limit, or breaks the rules of its tools past their retries, SHALL end as stopped with the class name of the pydantic-ai error as the reason, and the step SHALL reset the checkout. The agent SHALL have no `delegate_task` tool.
 
 #### Scenario: A model that never ends
 - **WHEN** the model calls a tool in every reply

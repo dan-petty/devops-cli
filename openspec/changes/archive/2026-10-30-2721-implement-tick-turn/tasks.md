@@ -28,5 +28,5 @@
 
 ## 5. Archive
 
-- [ ] Archive the change.
+- [x] Archive the change.
   - Verification: `uv run devops openspec archive 2721-implement-tick-turn`
