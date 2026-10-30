@@ -1583,6 +1583,18 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "SSH_*",
     # ssh_config(5): ssh starts this program to run a ProxyCommand, a LocalCommand or a Match exec
     "SHELL",
+    # gh and kubectl (#2672). gh help environment: gh starts the program of GH_BROWSER, of its
+    # fall-back BROWSER, of GH_EDITOR and of GH_PAGER. GH_PATH is the path that gh auth setup-git
+    # writes as the git credential helper, and git starts it. kubectl starts the program of
+    # KUBE_EDITOR (kubectl edit) and KUBECTL_EXTERNAL_DIFF (kubectl diff). GH_CONFIG_DIR and
+    # KUBECONFIG stay accepted: callers set both, and a caller names a file that it controls.
+    "GH_BROWSER",
+    "BROWSER",
+    "GH_EDITOR",
+    "GH_PAGER",
+    "GH_PATH",
+    "KUBE_EDITOR",
+    "KUBECTL_EXTERNAL_DIFF",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",
