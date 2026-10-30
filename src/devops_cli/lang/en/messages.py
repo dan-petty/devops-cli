@@ -2019,6 +2019,9 @@ class RoadmapMessages:
     implement_restored_ticks: str = (
         "Restored the checkboxes of these groups: {groups}. A step ticks only its own group."
     )
+    implement_restored_text: str = (
+        "Restored the text of group {group}. A step ticks its tasks and does not edit them."
+    )
     implement_stop_command_denied: str = (
         "The verification command {command} is not allowed. {program} is not one of: {allowed}."
     )
