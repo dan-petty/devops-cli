@@ -49,6 +49,7 @@ _NUMERIC_CASES = [
     ("valkey.timeout", "5.0", float, 5.0, ["0", "-1", "inf", "nan", "x"]),
     ("service.poll_interval_seconds", "120", int, 120, ["0", "-1", "inf", "x", "59"]),
     ("service.drain_timeout_seconds", "30", int, 30, ["0", "-1", "inf", "x"]),
+    ("service.github_requests_per_hour", "2000", int, 2000, ["0", "-1", "inf", "x"]),
     ("ci.gate_slots", "2", int, 2, ["0", "-1", "inf", "x"]),
 ]
 

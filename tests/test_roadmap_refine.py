@@ -88,6 +88,7 @@ from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     _run_refine_adapter,
     build_stub_table,
+    ended_by_stop,
     run_due_jobs,
 )
 from devops_cli.roadmap.store import (
@@ -102,6 +103,7 @@ from devops_cli.roadmap.store import (
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL
 from tests.llm_stream_fakes import route_llm_clients
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.service_stop import stop_error
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1208,6 +1210,34 @@ def test_a_failed_item_does_not_hide_the_items_a_refine_round_set_ready(
         _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
 
     assert (raised.value.failed_items, raised.value.readied_count) == ((first,), 2)
+
+
+class _StopsOnBody(InMemoryRoadmapStore):
+    """A store whose write of the body of issue `stopped` fails as the request budget fails it
+    when the Service is stopping (#2753)."""
+
+    stopped = 0
+
+    def write_issue_body(self, number: int, body: str) -> None:
+        if number == self.stopped:
+            raise stop_error()
+        super().write_issue_body(number, body)
+
+
+def test_a_stop_of_the_service_keeps_the_items_whose_model_call_failed(
+    git_repo: Path, scripted_gateway: Callable[..., list[httpx2.Request]]
+) -> None:
+    """The stop ends the round, and the round still fails for the item that failed before it,
+    so a row with a real failure is counted while stops interrupt its rounds (#2753)."""
+    store = _StopsOnBody(repo=REPO)
+    first, second, _third = _seed_new_items(store)
+    store.stopped = second
+    scripted_gateway({first: _SCHEMA_MISS})
+
+    with pytest.raises(RoadmapRefineError) as raised:
+        _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+
+    assert (list(raised.value.failed_items), ended_by_stop(raised.value)) == ([first], False)
 
 
 # ── The hourly round: no Ready count stops it, and no model call when nothing changed ──

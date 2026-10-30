@@ -630,6 +630,12 @@ def test_doc_generator_telemetry_docs(generator: DocGenerator) -> None:
     # The table lists the metrics devops-cli sends, and only those (#564).
     listed = {line.split("`")[1] for line in content.splitlines() if line.startswith("| `")}
     assert listed == {i.name for i in INSTRUMENTS}
+    # The traffic gauges come from a person's workstation only. The text says so once, not in
+    # each of the six rows (#2752).
+    assert (
+        content.count("`devops gh metrics --emit-telemetry`"),
+        content.count("The roadmap Service sends none"),
+    ) == (1, 1)
     # The LLM span section names the GenAI conventions commit the snapshot pins (#588).
     pinned = load_genai_snapshot()["source"]["commit"]
     assert ("## LLM Span Attributes" in content, f"`{pinned}`" in content) == (True, True)

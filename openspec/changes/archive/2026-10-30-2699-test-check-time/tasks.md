@@ -1,0 +1,40 @@
+# Tasks
+
+## 1. The guard: `devops ci job-time`
+
+- [x] 1.1 Add failing tests in `tests/test_ci_job_time.py` over the fake of the GitHub API with the recorded runs of `main` in `tests/fixtures/github/ci_runs_main.json`: the job time read from the right job of each run, the stop at the wanted runs, a run without the job and a failed job left out, a second page of runs, the mean on the limit and over it, a short read, the options, the dry run, and the shape of the `job-time` job in `ci.yml`
+  - Verification: `uv run devops ci test tests/test_ci_job_time.py` fails on the base
+- [x] 1.2 Add `GitHubClient.get_job_run_times`, the report in `ci/job_time.py`, the command `devops ci job-time` with its messages and help, and the job `Test Job Duration` in `ci.yml`. Register the command as not exposed by MCP and the step in the allowlist of the workflow parity test
+  - Verification: `uv run devops ci test tests/test_ci_job_time.py tests/test_ci.py tests/test_mcp.py`
+- [x] 1.3 Run `uv run devops docs generate --sync-readme`
+  - Verification: `uv run devops ci docs`
+
+## 2. The cut: work that every test repeated
+
+- [x] 2.1 Measure the job on the runner (24 runs) and the test run on 4 pinned CPUs, and write `baseline.md`
+  - Verification: `baseline.md` holds the table of runs and the mean of the newest 10
+- [x] 2.2 Set `tmp_path_retention_policy = "failed"`, make the runtime directory of `isolate_session_bus` with `mkdtemp` inside one directory for each worker, and key the Markdown parse of `tests/support/markdown_examples.py` by the text of the document
+  - Verification: `uv run devops ci test tests/test_k8s_llm_gateway.py tests/test_docs.py`
+- [x] 2.3 Build the LLM response cache on first use in `isolate_llm_response_cache`
+  - Verification: `uv run devops ci test tests/test_llm_response_cache.py`
+- [x] 2.4 Raise the young threshold of the garbage collector in the root conftest
+  - Verification: `uv run devops ci test tests/test_memory_profiler.py`
+- [x] 2.5 Poll the shutdown of the five test servers every 0.01 s
+  - Verification: `uv run devops ci test tests/test_sandbox_probe.py tests/test_sandbox_metrics.py tests/k8s/test_kubernetes_contract.py`
+- [x] 2.6 Show that the same tests run and the same lines are covered: the number of tests, the coverage total and the thresholds before and after
+  - Verification: `proposal.md`, section "Result"
+- [x] 2.7 Add the section "Run time" to `docs/TESTING.md`
+  - Verification: `uv run devops ci docs`
+
+## 3. The guard reads the job, not the run
+
+- [x] 3.1 Add failing tests: a failed or timed-out job counts whatever the run concluded, a cancelled job does not, and a slow failed run puts the mean over the limit
+  - Verification: `uv run devops ci test tests/test_ci_job_time.py` fails on the earlier read of successful runs
+- [x] 3.2 List completed runs and count a job that ended `success`, `failure` or `timed_out`; change the spec, the help text, the dry run text and the comment in `ci.yml`
+  - Verification: `uv run devops ci test tests/test_ci_job_time.py tests/test_ci.py`
+- [x] 3.3 State the expected red of `Test Job Duration` after the merge, and the measured ratio of the cut, in the proposal and the design
+  - Verification: `uv run devops openspec check`
+
+## Workflow follow-up
+
+- The mean over ten runs on the runner is known only after the change merges and ten pushes to `main` have run. `devops ci job-time` states it. #2699 stays open until it reads under 300 s. The job `Test Job Duration` is red on the merge push and on about 8 pushes after it, because its window still holds the slow runs (`design.md`, "Expected red after the merge").

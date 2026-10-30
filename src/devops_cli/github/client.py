@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from datetime import datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode
@@ -120,6 +121,46 @@ class _IssueSearchPage(BaseModel):
     total_count: int
     incomplete_results: bool
     items: list[IssueSearchHit]
+
+
+class JobRunTime(BaseModel):
+    """How long a job took in one workflow run, from its start to its end (#2699)."""
+
+    run_id: int
+    seconds: float
+
+
+# The conclusions of a job that ran to an end: it passed, failed, or hit its time limit. A skipped or
+# cancelled job did not run its work, so its time says nothing of the job.
+_JOB_ENDED_CONCLUSIONS = frozenset({"success", "failure", "timed_out"})
+
+
+class _WorkflowRunRef(BaseModel):
+    """The run of a workflow listing that devops-cli reads: its number."""
+
+    id: int
+
+
+class _JobTiming(BaseModel):
+    """One job of a run: its name, how it ended, and when it started and ended."""
+
+    name: str
+    conclusion: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @property
+    def seconds(self) -> float | None:
+        """The seconds from start to end; None for a job that has not both."""
+        if self.started_at is None or self.completed_at is None:
+            return None
+        return (self.completed_at - self.started_at).total_seconds()
+
+
+class _RunJobs(BaseModel):
+    """What the jobs endpoint says of a run."""
+
+    jobs: list[_JobTiming]
 
 
 class _FileContents(BaseModel):
@@ -340,6 +381,47 @@ class GitHubClient:
             if len(hits) >= page.total_count or len(page.items) < per_page:
                 break
         return hits
+
+    def get_job_run_times(
+        self, repo: str, *, workflow: str, branch: str, job: str, count: int
+    ) -> list[JobRunTime]:
+        """How long `job` took in each of the last `count` completed `push` runs of `workflow` on
+        `branch` where it ran to an end, newest first (#2699).
+
+        The job's own conclusion decides, not the run's. A job that ended `success`, `failure` or
+        `timed_out` counts, so a run that failed for another job, such as the guard that reads
+        this time, still gives the time of the job. A run that has no job of that name, or whose
+        job was skipped or cancelled, is left out. The listing is read page by page and stops once
+        `count` runs hold the job, so the jobs of no later run are asked for. Fewer than `count`
+        come back when the workflow has fewer such runs.
+        """
+        query = urlencode(
+            {
+                "branch": branch,
+                "event": "push",
+                "status": "completed",
+                "per_page": DEFAULT_GH_REST_PER_PAGE,
+            }
+        )
+        listing = _repo_path(repo, f"actions/workflows/{quote(workflow, safe='')}/runs?{query}")
+        times: list[JobRunTime] = []
+        for item in self._session.paginate(listing, iterable_key="workflow_runs"):
+            run = _read_as(_WorkflowRunRef, item, path=listing)
+            seconds = self._job_seconds(repo, run.id, job)
+            if seconds is not None:
+                times.append(JobRunTime(run_id=run.id, seconds=seconds))
+            if len(times) >= count:
+                break
+        return times
+
+    def _job_seconds(self, repo: str, run_id: int, job: str) -> float | None:
+        """The seconds the job `job` took in the run `run_id`; None if it did not run to an end."""
+        path = _repo_path(repo, f"actions/runs/{run_id}/jobs?per_page={DEFAULT_GH_REST_PER_PAGE}")
+        jobs = _read_as(_RunJobs, self._session.rest("GET", path), path=path).jobs
+        return next(
+            (j.seconds for j in jobs if j.name == job and j.conclusion in _JOB_ENDED_CONCLUSIONS),
+            None,
+        )
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""

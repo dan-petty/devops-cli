@@ -30,6 +30,7 @@ import logging
 import shlex
 import subprocess
 import threading
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -49,6 +50,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
+    CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
@@ -77,6 +79,7 @@ from devops_cli.exceptions import (
     RoadmapRefineError,
     RoadmapRunError,
     SecurityError,
+    ServiceStoppingError,
 )
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.request_scope import request_scope
@@ -507,10 +510,15 @@ def _run_refine_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Run refine job and return JobOutcome; it fails, once the other items are written, when the
-    model call failed for any item."""
+    model call failed for any item. The stop of the Service ends the run, but the items that
+    failed before it still fail the run (#2753)."""
     source = _job_clone("refine", clone_path)
     plan = plan_refine(store, repo=repo, source=source)
-    readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
+    try:
+        readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
+    except ServiceStoppingError:
+        raise_for_failed_items(plan)
+        raise
     raise_for_failed_items(plan, readied)
     return JobOutcome(set_ready=readied > 0)
 
@@ -863,6 +871,10 @@ class FailureLedger:
     the job's record. With a `record`, the ledger is kept in that file at each change and read
     back when the ledger is made, so a restart of the Service keeps it (#2474). The Service's
     /metrics shows each job that failed its limit of rounds in a row (#2475).
+
+    The ledger also holds the cause of each failed round, the class of its error, for the log
+    line that suspends a job. The causes stay in memory: the record keeps its format, because
+    the version that runs now reads it as it is and would not start on another one (#2753).
     """
 
     def __init__(
@@ -875,6 +887,7 @@ class FailureLedger:
         self._failed: dict[tuple[str, str], tuple[int, str]] = {
             (repo, job): (rounds, failed_on) for repo, job, rounds, failed_on in kept
         }
+        self._causes: dict[tuple[str, str], deque[str]] = {}
         for repo, job in self._failed:
             self._report_locked(repo, job)
 
@@ -889,20 +902,34 @@ class FailureLedger:
             rounds, failed_on = self._failed.get((repo, job), (0, None))
             return rounds >= self._limit and failed_on == current
 
-    def failed(self, repo: str, job: str, current: str) -> int:
-        """Count a failed round on `current`; the rounds in a row, which restart at 1 when the
-        input is not the one of the last failure."""
+    def failed(self, repo: str, job: str, current: str, cause: str) -> int:
+        """Count a failed round on `current` with its `cause`; the rounds in a row, which
+        restart at 1 when the input is not the one of the last failure."""
         with self._lock:
             rounds, failed_on = self._failed.get((repo, job), (0, None))
             rounds = rounds + 1 if failed_on == current or rounds < self._limit else 1
             self._failed[(repo, job)] = (rounds, current)
+            causes = self._causes.get((repo, job), deque(maxlen=self._limit))
+            if rounds == 1:
+                causes.clear()
+            causes.append(cause)
+            self._causes[(repo, job)] = causes
             self._keep_locked()
             self._report_locked(repo, job)
             return rounds
 
+    def causes(self, repo: str, job: str) -> tuple[str, ...]:
+        """The cause of each of the last rounds in a row that `job` failed, oldest first. A round
+        that a process before the last restart counted has the cause `unknown`."""
+        with self._lock:
+            rounds, _ = self._failed.get((repo, job), (0, None))
+            known = tuple(self._causes.get((repo, job), ()))
+            return (CONST_SERVICE_CAUSE_UNKNOWN,) * (min(rounds, self._limit) - len(known)) + known
+
     def succeeded(self, repo: str, job: str) -> None:
         """Clear the record of `job`."""
         with self._lock:
+            self._causes.pop((repo, job), None)
             if self._failed.pop((repo, job), None) is not None:
                 self._keep_locked()
                 self._report_locked(repo, job)
@@ -948,11 +975,29 @@ def _round_input(
     return hashlib.sha256(read.encode("utf-8")).hexdigest()
 
 
-def _count_failure(failures: FailureLedger, repo: str, job: str, current: str) -> None:
-    """Count a failed round of `job`, and log once when it reaches the limit."""
-    rounds = failures.failed(repo, job, current)
+def ended_by_stop(exc: BaseException) -> bool:
+    """Whether `exc` is the error of a request that ended because the Service is stopping
+    (`ServiceStoppingError`), or has it as its cause. A group is a stop when each member is: a
+    group that holds a real failure is a failure (#2753)."""
+    if isinstance(exc, ServiceStoppingError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return all(ended_by_stop(sub) for sub in exc.exceptions)
+    return exc.__cause__ is not None and ended_by_stop(exc.__cause__)
+
+
+def _count_failure(
+    failures: FailureLedger, repo: str, job: str, current: str, exc: BaseException
+) -> None:
+    """Count a failed round of `job`, and log once when it reaches the limit. A round that the
+    stop of the Service ends is not at fault, so it leaves the count as it was (#2753)."""
+    if ended_by_stop(exc):
+        return
+    rounds = failures.failed(repo, job, current, type(exc).__name__)
     if rounds == failures.limit:
-        message = MESSAGES.serve.job_suspended.format(job=job, repo=repo, rounds=rounds)
+        message = MESSAGES.serve.job_suspended.format(
+            job=job, repo=repo, rounds=rounds, causes=", ".join(failures.causes(repo, job))
+        )
         logger.warning(message, extra={"repo": repo})
 
 
@@ -1037,7 +1082,7 @@ def _execute_due_rows(
         except Exception as exc:
             failed_jobs.append(row.name)
             outcomes[row.name] = _outcome_of_failure(exc)
-            _count_failure(failures, repo, row.name, current)
+            _count_failure(failures, repo, row.name, current, exc)
             if row.needs_clone and clone_path is None:
                 clone_error = exc
                 clone_jobs.append(row.name)

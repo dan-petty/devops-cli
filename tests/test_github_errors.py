@@ -486,3 +486,22 @@ def test_the_status_gh_wrote_is_read_from_either_of_its_formats() -> None:
             "HTTP 4040",
         )
     ] == [422, 502, 404, None, None]
+
+
+def test_a_refusal_by_the_token_is_a_403_that_names_the_integration() -> None:
+    """GitHub answers a path that the permissions of an installation token do not cover with
+    HTTP 403 "Resource not accessible by integration". A rate limit, a missing scope and a 404
+    are not that refusal, nor is the phrase with another status (#2752)."""
+    from devops_cli.github.error_classifier import is_gh_refused_by_token
+
+    assert [
+        is_gh_refused_by_token(output)
+        for output in (
+            "gh: Resource not accessible by integration (HTTP 403)",
+            "gh: resource not accessible by integration (HTTP 403)",
+            "gh: Resource not accessible by integration (HTTP 404)",
+            "gh: You have exceeded a secondary rate limit (HTTP 403)",
+            "gh: Bad Gateway (HTTP 502)",
+            "",
+        )
+    ] == [True, True, False, False, False, False]

@@ -32,6 +32,7 @@ from devops_cli.sandbox.probe import (
     probe_tcp,
     run_sandbox_probes,
 )
+from tests.support.waits import POLL_INTERVAL_SECONDS
 
 runner = CliRunner()
 
@@ -168,7 +169,9 @@ def http_server() -> Generator[str]:
     server = HTTPServer(("127.0.0.1", 0), _MockHTTPHandler)
     host = str(server.server_address[0])
     port = int(server.server_address[1])
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": POLL_INTERVAL_SECONDS}, daemon=True
+    )
     thread.start()
     yield f"http://{host}:{port}"
     server.shutdown()

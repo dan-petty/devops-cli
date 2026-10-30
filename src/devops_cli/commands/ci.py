@@ -30,6 +30,8 @@ from devops_cli.config.constants import (
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
+    CONST_CI_TEST_JOB_NAME,
+    CONST_CI_WORKFLOW_FILE,
     CONST_EXIT_CANCELLED,
     CONST_EXIT_FAILURE,
     CONST_GIT_MAIN_BRANCH,
@@ -41,6 +43,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_CI_BANDIT_NICENESS,
+    DEFAULT_CI_JOB_TIME_RUNS,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_REPEAT_RUNS,
@@ -70,6 +73,7 @@ from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import CI_CHECKS_TOTAL, CI_GATE_SLOT_WAIT, emit
 
 if TYPE_CHECKING:
+    from devops_cli.ci.job_time import JobTimeReport
     from devops_cli.ci.mutate import MutationTarget
     from devops_cli.core.test_selection import SuiteImports
 
@@ -2303,6 +2307,97 @@ def _append_step_summary(text: str) -> None:
     ).parent.is_dir():
         with summary_path.open("a", encoding="utf-8") as handle:
             handle.write(f"{text}\n")
+
+
+@app.command(name="job-time", help=HELP.ci.job_time)
+def job_time(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.ci.job_time_repo)] = None,
+    job: Annotated[str, typer.Option("--job", help=HELP.ci.job_time_job)] = CONST_CI_TEST_JOB_NAME,
+    workflow: Annotated[
+        str, typer.Option("--workflow", help=HELP.ci.job_time_workflow)
+    ] = CONST_CI_WORKFLOW_FILE,
+    branch: Annotated[
+        str, typer.Option("--branch", "-b", help=HELP.ci.job_time_branch)
+    ] = CONST_GIT_MAIN_BRANCH,
+    runs: Annotated[
+        int, typer.Option("--runs", min=1, help=HELP.ci.job_time_runs)
+    ] = DEFAULT_CI_JOB_TIME_RUNS,
+    limit: Annotated[
+        float, typer.Option("--limit", min=1, help=HELP.ci.job_time_limit)
+    ] = CONST_CI_TEST_BUDGET_SECONDS,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Fail when the last runs of a CI job averaged more than the limit (#2699)."""
+    from devops_cli.core.repo import find_repo_root, get_repo_origin_name
+
+    target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
+    if target is None:
+        print_error(MESSAGES.ci.job_time_no_repo)
+        raise typer.Exit(1)
+    if dry_run or is_dry_run():
+        _render_job_time_plan(target, workflow=workflow, branch=branch, job=job, runs=runs)
+        return
+    from devops_cli.ci.job_time import check_job_time
+    from devops_cli.github.session import get_github_session
+
+    report = check_job_time(
+        get_github_session().client,
+        target,
+        workflow=workflow,
+        branch=branch,
+        job=job,
+        wanted=runs,
+        limit_seconds=limit,
+    )
+    _print_job_time_report(report, workflow=workflow, branch=branch)
+    if not report.passes:
+        raise typer.Exit(1)
+
+
+def _render_job_time_plan(repo: str, *, workflow: str, branch: str, job: str, runs: int) -> None:
+    """List the requests of `job-time` without making them (#412)."""
+    base = f"/repos/{repo}/actions"
+    render_request_plan(
+        MESSAGES.ci.job_time_dry_run_heading.format(job=job, workflow=workflow, branch=branch),
+        [
+            PlannedRequest(method="GET", target=f"{base}/workflows/{workflow}/runs"),
+            PlannedRequest(
+                method="GET",
+                target=f"{base}/runs/<run_id>/jobs",
+                repeat=f"for each run, until {runs} runs hold an ended {job}",
+            ),
+        ],
+    )
+
+
+def _print_job_time_report(report: JobTimeReport, *, workflow: str, branch: str) -> None:
+    """Show the seconds of each run read, then say whether the mean is inside the limit."""
+    print_table(
+        title=MESSAGES.ci.job_time_title.format(job=report.job, workflow=workflow, branch=branch),
+        columns=["Run ID", "Seconds"],
+        rows=[[str(run.run_id), f"{run.seconds:.0f}"] for run in report.runs],
+    )
+    if not report.complete:
+        print_error(
+            MESSAGES.ci.job_time_short.format(
+                found=len(report.runs),
+                wanted=report.wanted,
+                job=report.job,
+                workflow=workflow,
+                branch=branch,
+            )
+        )
+        return
+    figures = {
+        "count": report.wanted,
+        "job": report.job,
+        "mean": report.mean_seconds,
+        "limit": report.limit_seconds,
+    }
+    if report.passes:
+        print_success(MESSAGES.ci.job_time_ok.format(**figures))
+    else:
+        print_error(MESSAGES.ci.job_time_over.format(**figures))
 
 
 @app.command(name="fail-to-pass", help=HELP.ci.fail_to_pass)

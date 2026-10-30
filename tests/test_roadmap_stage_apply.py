@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import json
 import stat
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli import exceptions
 from devops_cli.exceptions import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.stage import StageApplied, apply_stage, parse_filters, plan_stage
+from devops_cli.roadmap.run import ended_by_stop
+from devops_cli.roadmap.stage import (
+    StageApplied,
+    StageFailure,
+    StagePlan,
+    apply_stage,
+    parse_filters,
+    plan_stage,
+)
 from devops_cli.roadmap.stage_change import StageSplit
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
@@ -24,6 +34,7 @@ from tests.support.roadmap_stage import (
     validate_args,
     write_big_file,
 )
+from tests.support.service_stop import stop_error
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -190,11 +201,16 @@ def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
 
 
 class _CommentRefused(InMemoryRoadmapStore):
-    """A store whose comment on issue `refused` fails, as GitHub fails a write."""
+    """A store whose comment on issue `refused` fails, as GitHub fails a write, and whose comment
+    on issue `stopped` fails as the request budget fails it when the Service is stopping
+    (#2753)."""
 
     refused = 0
+    stopped = 0
 
     def comment(self, number: int, body: str) -> None:
+        if number == self.stopped:
+            raise stop_error()
         if number == self.refused:
             raise GitHubOperationError("comment refused", operation="roadmap.issue.comment")
         super().comment(number, body)
@@ -220,6 +236,62 @@ def test_a_comment_that_fails_for_a_stopped_item_leaves_the_others_stopped(
     refused = store.item(1)
     assert refused is not None
     assert StageRecordKey.NEEDS_SPLIT not in refused.job_record
+
+
+def _stuck_stage(stage_repo: StageRepo, model_fake: ModelFake, store: _CommentRefused) -> StagePlan:
+    """The plan for two items whose group is over the budget, so each gets a comment."""
+    write_big_file(stage_repo)
+    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    stuck = make_stage_proposal(groups=[heavy])
+    model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
+    return plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        step_tokens=6000,
+    )
+
+
+def test_a_stop_of_the_service_ends_the_run_and_is_no_failed_item(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.stopped = seed_stageable(store)
+    seed_stageable(store, "fix(roadmap): the job drops a label")
+    plan = _stuck_stage(stage_repo, model_fake, store)
+
+    with pytest.raises(exceptions.ServiceStoppingError):
+        apply_stage(store, plan, source=stage_repo.clone)
+
+
+def test_a_stop_of_the_service_after_a_write_that_failed_ends_the_run_with_that_failure(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.refused = seed_stageable(store)
+    store.stopped = seed_stageable(store, "fix(roadmap): the job drops a label")
+    plan = _stuck_stage(stage_repo, model_fake, store)
+
+    with pytest.raises(exceptions.RoadmapStageError) as raised:
+        apply_stage(store, plan, source=stage_repo.clone)
+
+    assert list(raised.value.failed_items) == [store.refused]
+    assert not ended_by_stop(raised.value)
+
+
+def test_a_stop_of_the_service_keeps_the_failures_that_the_plan_found(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.stopped = seed_stageable(store)
+    plan = _stuck_stage(stage_repo, model_fake, store)
+    planned = replace(plan, failed=(StageFailure(7, "fix(roadmap): a title", "AIClientError", ""),))
+
+    with pytest.raises(exceptions.RoadmapStageError) as raised:
+        apply_stage(store, planned, source=stage_repo.clone)
+
+    assert list(raised.value.failed_items) == [7]
 
 
 def _refuse_pushes_of(repo: StageRepo, fragment: str) -> None:

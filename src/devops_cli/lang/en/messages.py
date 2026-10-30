@@ -1479,6 +1479,24 @@ class CIMessages:
     gate_slot_holder: str = "process {pid} in {worktree}"
     gate_slot_holder_unknown: str = "another run"
     test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
+    job_time_title: str = "{job}: last runs of {workflow} on {branch}"
+    job_time_ok: str = (
+        "The last {count} runs of {job} took {mean:.0f} s on average. The limit is {limit:.0f} s."
+    )
+    job_time_over: str = (
+        "Over the limit: the last {count} runs of {job} took {mean:.0f} s on average, "
+        "and the limit is {limit:.0f} s."
+    )
+    job_time_short: str = (
+        "Only {found} of the last {wanted} runs of {job} could be read from {workflow} on "
+        "{branch}, so the mean says nothing yet."
+    )
+    job_time_no_repo: str = (
+        "No repository to read: the checkout has no origin remote. Give one with --repo."
+    )
+    job_time_dry_run_heading: str = (
+        "Would read the time of {job} in the last runs of {workflow} on {branch}"
+    )
     coverage_index_tree_changed: str = (
         "Files changed during the run; index not saved:\n{files}\n"
         "Re-run `devops ci coverage --build-index` on a clean working tree."
@@ -1704,8 +1722,8 @@ class ServeMessages:
     )
     # Logged once, when a roadmap job reaches its limit of failed rounds (#2161).
     job_suspended: str = (
-        "The roadmap job {job} of {repo} failed {rounds} rounds in a row, so it does not run "
-        "again until its input changes."
+        "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
+        "it does not run again until its input changes."
     )
 
 
@@ -1981,6 +1999,11 @@ class RoadmapMessages:
         "The extra turn for the ticks changed files other than the tasks file: {paths}."
     )
     implement_paths_more: str = " and {count} more"
+    implement_stop_reason: str = "{error}: {message}"
+    implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
+    implement_tool_other: str = "other"
+    implement_tool_line: str = "Tool call: {tool}, {outcome}."
+    implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tick_turn: str = (
         "The checks of your group passed, but `{path}` still holds these tasks of your group "
         "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "

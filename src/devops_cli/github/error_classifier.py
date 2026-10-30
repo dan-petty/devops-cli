@@ -49,6 +49,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
     CONST_GITHUB_SCOPE_PATTERNS,
     CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
+    CONST_GITHUB_TOKEN_NOT_COVERED_PATTERN,
     CONST_GITHUB_UNAUTHENTICATED_PATTERNS,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
@@ -344,6 +345,15 @@ def gh_http_status(output: str) -> int | None:
     """The HTTP status gh names in what it wrote to stderr, or None when it names none."""
     found = CONST_GH_HTTP_STATUS_RE.search(output)
     return None if found is None else int(found.group("status"))
+
+
+def is_gh_refused_by_token(output: str) -> bool:
+    """Whether what gh wrote to stderr says that HTTP 403 refused the path because the permissions
+    of the token do not cover it: "Resource not accessible by integration". A 403 for a rate
+    limit, a scope or a suspended installation says other words."""
+    return gh_http_status(output) == HTTPStatus.FORBIDDEN and _gh_says(
+        output, (CONST_GITHUB_TOKEN_NOT_COVERED_PATTERN,)
+    )
 
 
 def gh_failure_details(output: str, *, exit_code: int | None) -> dict[str, Any]:

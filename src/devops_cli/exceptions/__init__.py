@@ -49,6 +49,7 @@ from devops_cli.exceptions.roadmap import (
     RoadmapRefineError,
     RoadmapRunError,
     RoadmapStageError,
+    ServiceStoppingError,
 )
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -148,6 +149,7 @@ __all__ = [
     "SandboxValidationError",
     "SecurityError",
     "ServiceStatusError",
+    "ServiceStoppingError",
     "SubprocessError",
     "TelemetryError",
     "ToolDownloadError",

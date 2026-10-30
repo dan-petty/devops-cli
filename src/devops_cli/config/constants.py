@@ -661,6 +661,10 @@ CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_
 # of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
+# The job of `ci.yml` that runs the test row: `devops ci job-time` reads the time of this job from
+# its last runs (#2699), so the budget above is checked on the runs of the runner and not on the
+# one run of a pull request.
+CONST_CI_TEST_JOB_NAME: Final[str] = "Tests & Coverage"
 # `devops ci` gate slots (#2336): a directory directly under the data directory, outside the
 # subdirectories that `devops workspace clean` prunes, holds one lock file for each slot.
 CONST_CI_GATE_SLOTS_DIRNAME: Final[str] = "ci-gate-slots"
@@ -884,6 +888,9 @@ CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
     "read:project",
     "oauth scope",
 )
+# What GitHub answers (HTTP 403) when the permissions of an installation token do not cover the
+# path: "Resource not accessible by integration" (#2752).
+CONST_GITHUB_TOKEN_NOT_COVERED_PATTERN: Final[str] = "resource not accessible by integration"
 # No login, one GitHub refused (HTTP 401), an account GitHub suspended (HTTP 403, #2161), or a
 # GitHub App installation that its owner suspended (HTTP 403, #2474): GitHub refuses the request
 # for a token with "This installation has been suspended", and a request with a token minted
@@ -1494,6 +1501,9 @@ CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 CONST_SERVICE_HALT_FILENAME: Final[str] = "service-halt.json"
 CONST_SERVICE_BUDGET_FILENAME: Final[str] = "service-budget.json"
 CONST_SERVICE_FAILURES_FILENAME: Final[str] = "service-failures.json"
+# The cause the log line that suspends a job gives for a failed round that an earlier process
+# counted: the file keeps the count and not the cause (#2753).
+CONST_SERVICE_CAUSE_UNKNOWN: Final[str] = "unknown"
 # The Service's lanes (#1532): each repository has one worker per lane. The status lane runs the
 # jobs that call no model (the metrics and the submission of the implement Job, #2757). The model
 # lane runs the jobs that call the model, so a status-lane round never waits for a model-lane
@@ -2986,6 +2996,11 @@ CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMEN
 # comment (#2721). A reason may be as long as the tail of a command or a list of files.
 CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
+# The most characters of the message of a pydantic-ai error in the reason of a stopped run, and the
+# most that the masking reads (#2758). The read is a multiple of the limit: the masking of secrets
+# is slower than linear, and the message of an error can hold a long reply of the model.
+CONST_ROADMAP_IMPLEMENT_ERROR_CHARS: Final[int] = 500
+CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMENT_ERROR_CHARS
 CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.

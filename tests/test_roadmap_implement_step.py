@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai_harness.shell import Shell
 
 from devops_cli.ai.client.models import AICredentialsError
@@ -44,6 +44,7 @@ from devops_cli.roadmap.implement_step import (
     run_step,
     shell_environment,
 )
+from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
@@ -532,7 +533,9 @@ def test_the_shell_gets_the_interpreter_that_uv_is_told_to_use(
 def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     tmp_path: Path, checkout: Path
 ) -> None:
-    agent = build_agent(ModelScript(say("x")).model(), checkout, "go", WINDOW, tmp_path / "home")
+    agent = build_agent(
+        ModelScript(say("x")).model(), checkout, "go", WINDOW, tmp_path / "home", ToolCallLog()
+    )
 
     leaves: list[Any] = []
 
@@ -657,7 +660,7 @@ def test_a_run_that_never_ends_stops_at_the_request_limit_and_resets_the_checkou
         is_clean_at(checkout, head),
     ) == (
         StepStatus.STOPPED,
-        "UsageLimitExceeded",
+        REQUEST_LIMIT_REASON,
         CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
         CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
         True,
@@ -677,7 +680,7 @@ def test_a_run_that_calls_too_many_tools_stops_at_the_tool_call_limit(
     assert CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS // batch < CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        "UsageLimitExceeded",
+        TOOL_CALL_LIMIT_REASON,
         True,
     )
     assert outcome.requests < CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
@@ -961,7 +964,7 @@ def test_the_extra_turn_counts_against_the_request_limit_of_the_first_turn(
 
     assert (outcome.status, outcome.reason, outcome.requests) == (
         StepStatus.STOPPED,
-        "UsageLimitExceeded",
+        REQUEST_LIMIT_REASON,
         CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     )
 
@@ -1194,6 +1197,116 @@ def test_a_stopped_step_reads_its_diff_with_no_external_program_and_no_text_conv
     reading = [argv for argv in diffs if "--no-ext-diff" in argv]
     assert reading
     assert all("--no-textconv" in argv for argv in reading)
+
+
+# ── The reason of a stop (#2758) ──────────────────────────────────────────────────────────
+
+LIMIT_ADVICE = (
+    "Consider raising the limit, or see the docs on usage limits for budget-aware patterns: "
+    "https://pydantic.dev/docs/ai/core-concepts/agent/#usage-limits"
+)
+REQUEST_LIMIT_REASON = (
+    "UsageLimitExceeded: The next request would exceed the request_limit of "
+    f"{CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS}. {LIMIT_ADVICE}"
+)
+TOOL_CALL_LIMIT_REASON = (
+    "UsageLimitExceeded: The next tool call(s) would exceed the tool_calls_limit of "
+    f"{CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS} (tool_calls=244). {LIMIT_ADVICE}"
+)
+RETRY_LIMIT_MESSAGE = (
+    "Tool 'shell' exceeded max retries count of 5. Consider raising the retry limit, or see the "
+    "docs on tool retries: https://pydantic.dev/docs/ai/tools-toolsets/tools-advanced/#tool-retries"
+)
+
+
+def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and_the_count(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The shell allows git, uv, ruff and mypy. The model asks for `pytest` in every reply, as the
+    Job on #2656 may have done: the shell refuses it five times, and the sixth call ends the run."""
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(tool_call("shell", command="pytest tests/test_sample.py"))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, outcome.requests, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE}\nRefused commands: 6. Other retries: 0.",
+        6,
+        True,
+    )
+
+
+def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retries(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_call("read_file"))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE.replace('shell', 'read_file')}\n"
+        "Refused commands: 0. Other retries: 6.",
+    )
+
+
+def test_a_model_that_asks_for_a_path_outside_the_root_counts_other_retries_not_refused_commands(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_call("read_file", path="/etc/passwd"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: 0. Other retries: 6.")
+
+
+def test_a_run_that_reaches_the_request_limit_stops_with_the_message_and_no_count(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_call("read_file", path="docs/SAMPLE.md"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == REQUEST_LIMIT_REASON
+
+
+def test_a_secret_in_the_message_of_the_error_is_masked_in_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(UnexpectedModelBehavior(f"The reply held {TOKEN} in it."))
+
+    outcome = _step(store, checkout, script)
+
+    assert TOKEN not in outcome.reason
+    assert outcome.reason.startswith("UnexpectedModelBehavior: The reply held ")
+
+
+def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    long = "x" * (3 * constants.CONST_ROADMAP_IMPLEMENT_ERROR_CHARS)
+    script = ModelScript(
+        tool_call("shell", command="pytest tests/test_sample.py"), UnexpectedModelBehavior(long)
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == (
+        f"UnexpectedModelBehavior: {'x' * constants.CONST_ROADMAP_IMPLEMENT_ERROR_CHARS}\n"
+        "Refused commands: 1. Other retries: 0."
+    )
+
+
+def test_the_counts_cover_the_extra_turn_for_the_ticks(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    refused = tool_call("shell", command="pytest tests/test_sample.py")
+    script = ModelScript(refused, tool_calls(*WORK), say(FORGOT), refused)
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: 7. Other retries: 0.")
 
 
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────

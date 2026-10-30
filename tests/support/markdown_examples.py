@@ -54,8 +54,15 @@ class Heading(NamedTuple):
 
 
 @cache
+def _parsed(text: str) -> tuple[Token, ...]:
+    return tuple(_PARSER.parse(text))
+
+
 def _tokens(path: Path) -> tuple[Token, ...]:
-    return tuple(_PARSER.parse(path.read_text(encoding="utf-8")))
+    """The tokens of the document at `path`. The parse is kept by the text of the document, not by
+    its path: a test writes a different document to the path of an earlier test once the
+    directory of that test is gone (`tmp_path_retention_policy = "failed"`)."""
+    return _parsed(path.read_text(encoding="utf-8"))
 
 
 def _fence_language(token: Token) -> str:
