@@ -18,13 +18,15 @@ writes nothing to GitHub.
 
 from __future__ import annotations
 
+import io
 import os
 import shlex
 import subprocess
 import tempfile
 import time
+from collections import Counter
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -80,6 +82,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
+from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.security.sanitizer import mask_secrets
@@ -96,12 +99,15 @@ _PROMPT = "roadmap_implement_step.md"
 
 @dataclass(frozen=True)
 class GroupTask:
-    """One task of a group: its text with the checkbox, and whether it is ticked."""
+    """One task of a group: its text with the checkbox, and whether it is ticked. `line` is the
+    zero-based line of the task in its file, or -1 for a task that no file holds. It is no part of
+    the comparison: a blank line that moves a task changes no task."""
 
     text: str
     ticked: bool
     verification: tuple[str, ...] = ()
     paths: tuple[str, ...] = ()
+    line: int = field(default=-1, compare=False)
 
 
 @dataclass(frozen=True)
@@ -156,6 +162,7 @@ def _task_of(item: Sequence[Token]) -> GroupTask | None:
         ticked=lines[0].content[:3] != _CHECKBOXES[0],
         verification=verification,
         paths=_code_spans(lines[0]),
+        line=lines[0].map[0] if lines[0].map else -1,
     )
 
 
@@ -168,11 +175,18 @@ def _headings(tokens: Sequence[Token], tag: str) -> list[tuple[int, int, str]]:
     ]
 
 
+def _file_lines(text: str) -> list[str]:
+    """The lines of `text` with their line ends, split as markdown-it splits: at `\\n`, `\\r` and
+    `\\r\\n`, and nowhere else. `"".join` of the lines is `text`. The line numbers of the tokens
+    index this list."""
+    return io.StringIO(text, newline="").readlines()
+
+
 def parse_task_groups(tasks_md: str) -> list[TaskGroup]:
     """The numbered groups of a `tasks.md`, in file order. A `##` section whose heading is not
     `<n>. <title>`, such as `## Workflow follow-up`, is no group, and ends the one before it."""
     tokens = _MARKDOWN.parse(tasks_md)
-    lines = tasks_md.splitlines()
+    lines = [line.rstrip("\r\n") for line in _file_lines(tasks_md)]
     headings = _headings(tokens, "h2")
     groups: list[TaskGroup] = []
     for position, (index, first_line, heading) in enumerate(headings):
@@ -366,6 +380,11 @@ def build_step_inputs(
     change = find_change(source, item, archived=fix is not None)
     documents = {name: (change / name).read_text(encoding="utf-8") for name in _CHANGE_DOCUMENTS}
     groups = parse_task_groups(documents["tasks.md"])
+    twice = duplicate_group(groups)
+    if twice is not None:
+        raise RoadmapImplementError(
+            MESSAGES.roadmap.implement_duplicate_group.format(change=change.name, group=twice)
+        )
     chosen = _chosen_group(groups, group, fix, change)
     sections = [
         issue_inputs(held),
@@ -682,14 +701,28 @@ def _fix_tasks_failure(inputs: StepInputs, after: dict[int, TaskGroup]) -> str |
     return None
 
 
-def _groups_after(inputs: StepInputs) -> dict[int, TaskGroup] | None:
-    """The groups of the `tasks.md` as the run left it, or None when the file is gone or is not
-    UTF-8 text."""
+def duplicate_group(groups: Sequence[TaskGroup]) -> int | None:
+    """The first number that two groups hold, or None. A dict keyed by number keeps the last of
+    two such groups, so an edit of the first would pass every comparison."""
+    twice = [number for number, count in Counter(g.number for g in groups).items() if count > 1]
+    return twice[0] if twice else None
+
+
+def _list_after(inputs: StepInputs) -> list[TaskGroup] | None:
+    """The groups of the `tasks.md` as the run left it, in file order, or None when the file is
+    gone or is not UTF-8 text."""
     try:
         tasks_md = (inputs.change / "tasks.md").read_text(encoding="utf-8")
     except OSError, UnicodeDecodeError:
         return None
-    return {g.number: g for g in parse_task_groups(tasks_md)}
+    return parse_task_groups(tasks_md)
+
+
+def _groups_after(inputs: StepInputs) -> dict[int, TaskGroup] | None:
+    """The groups of the `tasks.md` as the run left it by number, or None when the file is gone or
+    is not UTF-8 text. `_tasks_failure` has refused a number that two groups hold."""
+    groups = _list_after(inputs)
+    return None if groups is None else {g.number: g for g in groups}
 
 
 def _unticked(inputs: StepInputs) -> tuple[GroupTask, ...]:
@@ -702,31 +735,75 @@ def _unticked(inputs: StepInputs) -> tuple[GroupTask, ...]:
     return tuple(task for task in mine.tasks if not task.ticked)
 
 
+def _restore_ticks(
+    inputs: StepInputs,
+    before: dict[int, TaskGroup],
+    after: dict[int, TaskGroup],
+    numbers: list[int],
+) -> str | None:
+    """Write the checkboxes of groups `numbers` back to their state before the run, in the
+    `tasks.md` as the run left it, and print one line that names the groups. The line ends are
+    kept. The file is parsed again after the write: a group whose text still differs from its text
+    before the run stops the step, so a wrong line or an edit beyond the checkboxes can never reach
+    the commit. Why the step stops, or None."""
+    path = inputs.change / "tasks.md"
+    lines = _file_lines(path.read_text(encoding="utf-8", newline=""))
+    for number in numbers:
+        for base, now in zip(before[number].tasks, after[number].tasks, strict=True):
+            if base.text[:3] != now.text[:3]:
+                lines[now.line] = lines[now.line].replace(now.text[:3], base.text[:3], 1)
+    path.write_text("".join(lines), encoding="utf-8", newline="")
+    again = _groups_after(inputs) or {}
+    for number in numbers:
+        if again.get(number) != before[number]:
+            return MESSAGES.roadmap.implement_stop_group_changed.format(group=number)
+    groups = ", ".join(str(number) for number in numbers)
+    print_muted(MESSAGES.roadmap.implement_restored_ticks.format(groups=groups), to_stderr=True)
+    return None
+
+
+def _other_groups_failure(inputs: StepInputs, after: dict[int, TaskGroup]) -> str | None:
+    """The rule of the groups other than the own one: a change beyond their checkboxes stops the
+    step with the first such group named. A change of their checkboxes only is restored, and the
+    restored text must equal the text before the run."""
+    before = {g.number: g for g in inputs.groups}
+    others = sorted((before.keys() | after.keys()) - {inputs.group.number})
+    edited = [n for n in others if _shape(before.get(n)) != _shape(after.get(n))]
+    if edited:
+        return MESSAGES.roadmap.implement_stop_group_changed.format(group=edited[0])
+    changed = [n for n in others if before[n].text != after[n].text]
+    return _restore_ticks(inputs, before, after, changed) if changed else None
+
+
 def _tasks_failure(inputs: StepInputs) -> str | None:
     """The first rule of the tasks that the run broke: the group changed beyond its checkboxes,
-    or another group changed. A fix step may change no task. The ticks are no rule of this check:
-    `_unticked_failure` judges them last."""
+    or another group changed beyond its checkboxes (#2767). The checkboxes of another group are
+    written back to their state before the run, so the commit holds the restored file. A fix step
+    may change no task. The ticks of the group are no rule of this check: `_unticked_failure`
+    judges them last."""
     texts = MESSAGES.roadmap
     number = inputs.group.number
-    after = _groups_after(inputs)
-    if after is None:
+    groups = _list_after(inputs)
+    if groups is None:
         return (
             texts.implement_stop_fix_tasks_changed
             if inputs.fix
             else texts.implement_stop_tasks_edited.format(group=number)
+        )
+    twice = duplicate_group(groups)
+    after = {g.number: g for g in groups}
+    if twice is not None:
+        return (
+            texts.implement_stop_fix_tasks_changed
+            if inputs.fix
+            else texts.implement_stop_group_changed.format(group=twice)
         )
     if inputs.fix is not None:
         return _fix_tasks_failure(inputs, after)
     mine = after.get(number)
     if mine is None or _shape(mine) != _shape(inputs.group):
         return texts.implement_stop_tasks_edited.format(group=number)
-    before = {g.number: g for g in inputs.groups}
-    changed = sorted(
-        other
-        for other in (before.keys() | after.keys()) - {number}
-        if _whole(before.get(other)) != _whole(after.get(other))
-    )
-    return texts.implement_stop_group_changed.format(group=changed[0]) if changed else None
+    return _other_groups_failure(inputs, after)
 
 
 def _unticked_failure(inputs: StepInputs) -> str | None:

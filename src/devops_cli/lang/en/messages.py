@@ -1979,6 +1979,9 @@ class RoadmapMessages:
         "The checkout has more than one change folder that matches {pattern}: {names}."
     )
     implement_no_group: str = "The change {change} has no group {group}. Its groups are {groups}."
+    implement_duplicate_group: str = (
+        "The tasks.md of the change {change} has two groups numbered {group}."
+    )
     implement_dirty: str = (
         "The checkout {path} has uncommitted changes. A step resets the checkout when it fails. "
         "Commit or discard the changes first."
@@ -2012,6 +2015,9 @@ class RoadmapMessages:
     )
     implement_stop_group_changed: str = (
         "Group {group} changed. A step may change only its own group."
+    )
+    implement_restored_ticks: str = (
+        "Restored the checkboxes of these groups: {groups}. A step ticks only its own group."
     )
     implement_stop_command_denied: str = (
         "The verification command {command} is not allowed. {program} is not one of: {allowed}."
