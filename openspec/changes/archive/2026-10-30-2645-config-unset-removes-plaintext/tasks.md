@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] 2.1 Archive this change with `uv run devops openspec archive 2645-config-unset-removes-plaintext`
+- [x] 2.1 Archive this change with `uv run devops openspec archive 2645-config-unset-removes-plaintext`
 
 ## Workflow follow-up
 
