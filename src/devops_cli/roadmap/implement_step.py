@@ -61,6 +61,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
+    CONST_ROADMAP_IMPLEMENT_ERROR_CHARS,
+    CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
@@ -79,6 +81,7 @@ from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
+from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -407,11 +410,12 @@ class StepStatus(StrEnum):
 
 
 class StepOutcome(BaseModel):
-    """The report of a step. `reason` is why a stopped step stopped: the class of the pydantic-ai
-    error that ended the run, or the first exit check that failed. `commit` is the commit of a
-    done step. `diff` is the diff of the work that a stopped step discarded, with secrets masked
-    and cut to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, and `diff_cut` says that it was
-    cut (#2721). `planned_requests` are the requests a dry run lists."""
+    """The report of a step. `reason` is why a stopped step stopped: the class and the message of
+    the pydantic-ai error that ended the run, with the counts of refused and retried tool calls
+    (#2758), or the first exit check that failed. `commit` is the commit of a done step. `diff` is
+    the diff of the work that a stopped step discarded, with secrets masked and cut to
+    `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, and `diff_cut` says that it was cut (#2721).
+    `planned_requests` are the requests a dry run lists."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -477,12 +481,13 @@ def _tune(
 
 
 def build_agent(
-    model: Any, source: Path, instructions: str, window: int, home: Path
+    model: Any, source: Path, instructions: str, window: int, home: Path, log: ToolCallLog
 ) -> Agent[None, str]:
     """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
-    scratch `home`. It has no `delegate_task` tool, so the limits of a run cover the whole step,
-    and it loads no instruction file of the checkout, so its context is the inputs of the step.
-    The shell is no security boundary: the runner of the step is the sandbox."""
+    scratch `home`, and the hooks of `log` for its tool calls (#2758). It has no `delegate_task`
+    tool, so the limits of a run cover the whole step, and it loads no instruction file of the
+    checkout, so its context is the inputs of the step. The shell is no security boundary: the
+    runner of the step is the sandbox."""
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
@@ -494,14 +499,15 @@ def build_agent(
         model,
         output_type=str,
         retries={"tools": CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES},
-        capabilities=[LocalWorkspace(source), tuned],
+        capabilities=[LocalWorkspace(source), tuned, log.hooks()],
     )
 
 
 @dataclass(frozen=True)
 class _Run:
-    """What a turn left: why it ended early (the class of the pydantic-ai error, or empty), the
-    last text of the model, what it spent, and the conversation to continue when it ended."""
+    """What a turn left: why it ended early (the class and the message of the pydantic-ai error,
+    with the counts of `ToolCallLog`, or empty), the last text of the model, what it spent, and
+    the conversation to continue when it ended."""
 
     reason: str
     last_message: str
@@ -535,8 +541,27 @@ def _last_text(messages: Sequence[ModelMessage]) -> str:
     return texts[-1] if texts else ""
 
 
+def _stop_reason(stopped: Exception, log: ToolCallLog) -> str:
+    """The reason of a run that a pydantic-ai error ended (#2758): the class and the message of the
+    error, then the counts of refused and retried tool calls when either is not zero. The message
+    is masked first and cut after, so a cut cannot split a secret."""
+    texts = MESSAGES.roadmap
+    message = mask_secrets(str(stopped)[:CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS]).strip()
+    reason = texts.implement_stop_reason.format(
+        error=type(stopped).__name__, message=message[:CONST_ROADMAP_IMPLEMENT_ERROR_CHARS]
+    )
+    if not (log.refused or log.retried):
+        return reason
+    counts = texts.implement_stop_counts.format(refused=log.refused, retried=log.retried)
+    return f"{reason}\n{counts}"
+
+
 def _run_agent(
-    agent: Agent[None, str], model: Any, message: str, conversation: Conversation | None = None
+    agent: Agent[None, str],
+    model: Any,
+    log: ToolCallLog,
+    message: str,
+    conversation: Conversation | None = None,
 ) -> _Run:
     """One turn of the agent under the limits of a step, and its spend as one record. With
     `conversation`, the turn continues it: its messages and its usage carry over, so the limits
@@ -559,7 +584,7 @@ def _run_agent(
             )
             last, kept = result.output, result.conversation
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
-            reason, last = type(stopped).__name__, _last_text(messages)
+            reason, last = _stop_reason(stopped, log), _last_text(messages)
         except ModelAPIError as exc:
             # Raised outside this handler, so a logged traceback holds no reply text.
             error = model_call_error(exc, "The step's")
@@ -830,12 +855,16 @@ def _end_agent_processes() -> None:
 
 
 def _turn(
-    agent: Agent[None, str], model: Any, message: str, conversation: Conversation | None = None
+    agent: Agent[None, str],
+    model: Any,
+    log: ToolCallLog,
+    message: str,
+    conversation: Conversation | None = None,
 ) -> _Run:
     """One turn of the agent. When it ends, so does every process of the agent's shell, before
     the job runs a program that gets the session's token."""
     try:
-        return _run_agent(agent, model, message, conversation)
+        return _run_agent(agent, model, log, message, conversation)
     finally:
         _end_agent_processes()
 
@@ -863,7 +892,13 @@ def _foreign_change(source: Path, inputs: StepInputs, tree: str) -> str | None:
 
 
 def _tick_turn(
-    agent: Agent[None, str], model: Any, source: Path, inputs: StepInputs, start: str, first: _Run
+    agent: Agent[None, str],
+    model: Any,
+    log: ToolCallLog,
+    source: Path,
+    inputs: StepInputs,
+    start: str,
+    first: _Run,
 ) -> tuple[_Run, str]:
     """The one extra turn of a step whose checks passed and whose agent left tasks unticked: the
     same conversation and the same limits, a message that asks only for the ticks. The turn and
@@ -873,7 +908,7 @@ def _tick_turn(
     tasks = "\n".join(f"- {task.text}" for task in _unticked(inputs))
     message = MESSAGES.roadmap.implement_tick_turn.format(path=tasks_md, tasks=tasks)
     tree = _tree(source)
-    run = first.then(_turn(agent, model, message, first.conversation))
+    run = first.then(_turn(agent, model, log, message, first.conversation))
     reason = (
         run.reason or _foreign_change(source, inputs, tree) or _exit_failure(source, inputs, start)
     )
@@ -885,11 +920,12 @@ def _attempt(
 ) -> StepOutcome:
     """Run the agent, then judge the exit and commit."""
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
-        agent = build_agent(model, source, inputs.instructions, window, Path(home))
-        run = _turn(agent, model, inputs.message)
+        log = ToolCallLog()
+        agent = build_agent(model, source, inputs.instructions, window, Path(home), log)
+        run = _turn(agent, model, log, inputs.message)
         reason = run.reason or _exit_failure(source, inputs, start) or ""
         if not reason and _unticked(inputs):
-            run, reason = _tick_turn(agent, model, source, inputs, start, run)
+            run, reason = _tick_turn(agent, model, log, source, inputs, start, run)
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,
@@ -989,6 +1025,7 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
     """Print the outcome in the format `fmt`: a table, or the model's fields as JSON or YAML."""
     from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
     from devops_cli.output import print_key_values, write_stdout
+    from devops_cli.output.markup import escape_text
     from devops_cli.output.serialization import emit_serialized
 
     if fmt != CONST_OUTPUT_FORMAT_TABLE:
@@ -1003,12 +1040,12 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
     labels = texts.implement_labels
     rows = {
         labels["status"]: outcome.status.value,
-        labels["reason"]: outcome.reason,
+        labels["reason"]: escape_text(outcome.reason),
         labels["commit"]: outcome.commit,
         labels["requests"]: str(outcome.requests),
         labels["input_tokens"]: str(outcome.input_tokens),
         labels["output_tokens"]: str(outcome.output_tokens),
-        labels["last_message"]: outcome.last_message,
+        labels["last_message"]: escape_text(outcome.last_message),
     }
     title = texts.implement_title.format(
         item=outcome.item, group=outcome.group, title=outcome.title
