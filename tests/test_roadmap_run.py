@@ -1782,6 +1782,44 @@ def test_a_ledger_record_with_an_implement_entry_loads_and_keeps_the_row_suspend
     ) == ([[REPO, "implement", FailureLedger().limit]], ["implement"] * 3, 1.0)
 
 
+def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fault_is_fixed(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """The status lane reads no issue change, so a poll round brings no new input by itself. The
+    input of such a round holds the hour of the round: a row suspended by a fault that is fixed
+    runs again in a later hour, with no webhook (#2757)."""
+    calls: list[str] = []
+    fixed = {"yes": False}
+
+    def implement(**_: Any) -> JobOutcome:
+        calls.append("implement")
+        if not fixed["yes"]:
+            raise GitOperationError("The Kubernetes API refused the call.")
+        return JobOutcome()
+
+    failures = FailureLedger()
+
+    def round_of(at: datetime) -> tuple[str, ...]:
+        return run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={POLL_KEY: 1},
+            table=_lane(STATUS_LANE_ROWS, implement=implement),
+            data_dir=tmp_path,
+            now=at,
+            failures=failures,
+        )
+
+    for step in range(failures.limit):
+        with pytest.raises(RoadmapRunError):
+            round_of(NOW + timedelta(minutes=step))
+    same_hour = round_of(NOW + timedelta(minutes=10))
+    fixed["yes"] = True
+    later = round_of(NOW + timedelta(hours=1, minutes=10))
+
+    assert (same_hour, later, len(calls)) == ((), ("metrics", "implement"), 4)
+
+
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
