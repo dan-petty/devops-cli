@@ -52,7 +52,7 @@ The exit checks SHALL run in this order: the agent made no commit, no test that 
 ## ADDED Requirements
 
 ### Requirement: A step keeps the tests that existed
-Every test that a `.py` file under `tests/` held at the commit where the step started SHALL be in the checkout after the run, by qualified name (`test_x` or `Class.test_x`), unless the same qualified name is new in another changed test file. A test is a function named `test_*`. When a test is lost, the step SHALL stop with a reason that names the file and at most `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests, and SHALL give no extra turn. A file that does not parse is skipped.
+Every test that a `.py` file under `tests/` held at the commit where the step started SHALL be in the checkout after the run, by qualified name (`test_x` or `Class.test_x`). A test is a function named `test_*`. When a test is lost, the step SHALL stop with a reason that names the file and at most `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests, and SHALL give no extra turn. A file that does not parse is skipped.
 
 #### Scenario: A test file that the agent replaces
 - **WHEN** a test file holds `test_a` and `test_b` at the start, and the model writes a file that holds `test_c`
@@ -72,7 +72,11 @@ Every test that a `.py` file under `tests/` held at the commit where the step st
 
 #### Scenario: A test that the agent moves
 - **WHEN** the model moves `Check.test_a` from one test file to a new test file
-- **THEN** the step reports done
+- **THEN** the step reports stopped, and the reason names the old file and `Check.test_a`
+
+#### Scenario: A test that loses its body
+- **WHEN** the model keeps the name of `test_a` and replaces its body with `pass`
+- **THEN** this check does not stop the step: it reads names only
 
 #### Scenario: A file that does not parse
 - **WHEN** a test file has a syntax error after the run, or at the start
