@@ -22,7 +22,7 @@ Read commands pass `local_read=True`, so a dry run still reads. A command that c
 
 `GitFake` subclasses `ProcessFake`, so it records `ProcessCall` and keeps the dry-run and timeout rules of the process fake. It answers a command whose first word is `git` from the exchanges of the scenarios the test loaded. A command with no exchange fails the test and names the command. Any other program gets the `ProcessFake` answer.
 
-An exchange is found by its arguments, with the directory of the test written as `{root}`. When a scenario records one set of arguments more than once, the fake answers the first call with the first exchange, the second call with the second, and the last answer again after that. This holds the cases where the answer changes between two calls (`git diff HEAD` before and after an edit).
+An exchange is found by its arguments, its directory, its standard input and the environment that the caller sets, with the directory of the test written as `{root}`. When a scenario records one set of arguments more than once, the fake answers the first call with the first exchange, the second call with the second, and the last answer again after that. This holds the cases where the answer changes between two calls (`git diff HEAD` before and after an edit).
 
 The environment of a call is not part of the key. A test that cares reads it from `fake.calls`.
 

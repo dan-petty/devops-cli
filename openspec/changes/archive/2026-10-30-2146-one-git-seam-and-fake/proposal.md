@@ -9,7 +9,7 @@ devops-cli has no git fake, because git has two ways in. 27 modules start git th
 ## What Changes
 
 - The process runner (`ProcessRunner`, `run_subprocess`) is the one seam for git. The three GitPython users move to it: `git/operations.py` (`clone_repo`, `fetch_all`, `pull_tracking`, `create_branch`, `commit_snapshot`, `list_branches`, `delete_merged_branches`), `commands/repos.py` (`_current_branch`) and `ai/research/edges.py` (`extract_git_co_changes`). No module of `src/` imports GitPython any more, and GitPython leaves the dependencies. An invariant test fails when a module imports it or starts git by a way other than the runner.
-- `commit_snapshot` runs `git add`, `git write-tree` and `git commit-tree`. It gives the same commit id as before for the same files: the pinned id `63b6e3c00959a24f7f5badfa9508a96cca4504ae` of the golden review set holds. Caller overrides of `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE` pass the environment guard, like the four other git keys that run no program.
+- `commit_snapshot` runs `git add`, `git write-tree` and `git commit-tree`. It gives the same commit id as before for the same files: the pinned id `63b6e3c00959a24f7f5badfa9508a96cca4504ae` of the golden review set holds. `git add` takes each path as a file name (`--literal-pathspecs`) and reads no attributes file of the user (`core.attributesFile=/dev/null`), so a glob character or a line-ending rule on the host cannot change the commit. Caller overrides of `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE` pass the environment guard, like the four other git keys that run no program.
 - `tests/support/fakes/git.py` holds `GitFake`, a process fake that answers each git command from a transcript, and the `git_fake` fixture installs it through the seam. A test with the fixture cannot start a real git: the fixture refuses it. A git command with no transcript fails the test and names the command.
 - A transcript is a file of `tests/fixtures/git/`. It holds the commands that one scenario started, with the arguments, the exit code, the standard output and the standard error of each, and the result the scenario gave. The scenarios are code in `tests/support/git_scenarios.py`. A transcript holds `{root}` in place of the directory the scenario ran in. It holds no host path, user name or e-mail address except `example.com`.
 - `tests/test_git_contract.py` runs every transcript over the code of `src/` with the process fake, and over `GitFake`. It checks that both give the recorded result and that the code starts the recorded commands. It starts no program.
@@ -17,7 +17,10 @@ devops-cli has no git fake, because git has two ways in. 27 modules start git th
 - The three test files use the fake and start no git. Four other test files that used GitPython or its patch points (`tests/test_ssh_host_keys.py`, `tests/test_ai_research_forage.py`, `tests/test_review_score.py`, `tests/test_repos.py`) move with the code they test.
 - `docs/TESTING.md` describes the git seam, the fake and the contract suite. The GitPython manual leaves the knowledge base.
 - The environment guard of `build_subprocess_env` accepts two more git keys, so the spec `subprocess-environment` changes: two requirements are modified.
-- This change fits one pull request.
+- `GitFake` finds a record by the arguments, the directory, the standard input and the environment that the caller sets, so a commit with another message, author or date has no record. The recorder runs git with no user or system configuration file, and it fails on a host name, as on a host path, a user name or an e-mail address.
+- `tests/test_git_commit_snapshot.py` and the golden-set test start the real git, because the fake does not see what a file holds.
+- `pull_tracking` raises git's reason when `git config --get` exits with a status other than 1, which is the only status for a key that is not set.
+- This change fits one pull request. Issues #2174 and #2178 to #2183 move the other test files to the fake, and refuse real git in every test when the last one has moved.
 
 ## Capabilities
 

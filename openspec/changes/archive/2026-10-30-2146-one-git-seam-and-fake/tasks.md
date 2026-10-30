@@ -32,12 +32,18 @@
 - [x] Describe the git seam, the fake, the contract suite and the row in `docs/TESTING.md`, remove the GitPython manual from the knowledge base, and regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme`
 
-## 5. Archive
+## 5. Review fixes
+
+- [x] `GitFake` finds a record by the standard input and the environment too, the recorder keeps the environment, and the golden-set test and `tests/test_git_commit_snapshot.py` start the real git
+  - Verification: `uv run devops ci test tests/test_git_contract.py tests/test_git_commit_snapshot.py tests/test_review_score.py`
+- [x] The recorder runs git with no user or system configuration file, and the host name and the system directories count as host data
+  - Verification: `uv run devops ci test tests/test_git_recording.py tests/test_git_contract.py`
+- [x] `commit_snapshot` takes each path as a file name and reads no attributes file of the user, and `pull_tracking` raises the reason of git when `git config --get` fails
+  - Verification: `uv run devops ci test tests/test_git_commit_snapshot.py tests/test_git_operations.py`
+- [x] The clone tests assert on `known_hosts` and patch no private name, and the git fake refuses a shell string and bytes as the process guard does
+  - Verification: `uv run devops ci test tests/test_git_operations.py tests/test_ssh_host_keys.py tests/test_git_contract.py`
+
+## 6. Archive
 
 - [x] Archive the change
   - Verification: `uv run devops openspec archive 2146-one-git-seam-and-fake`
-
-## Workflow follow-up
-
-- #2174 and #2178 to #2183 move the other test files to the fake, and refuse real git in every test when the last one has moved.
-- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
