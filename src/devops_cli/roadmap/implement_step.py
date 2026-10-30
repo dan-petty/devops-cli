@@ -571,7 +571,7 @@ def _stop_reason(stopped: Exception, log: ToolCallLog) -> str:
     )
     if not (log.refused or log.retried):
         return reason
-    counts = texts.implement_stop_counts.format(refused=log.refused, retried=log.retried)
+    counts = texts.implement_stop_counts.format(refused=log.refused_text(), retried=log.retried)
     return f"{reason}\n{counts}"
 
 

@@ -1233,10 +1233,52 @@ def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and
 
     assert (outcome.status, outcome.reason, outcome.requests, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE}\nRefused commands: 6. Other retries: 0.",
+        f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE}\nRefused commands: pytest 6. Other retries: 0.",
         6,
         True,
     )
+
+
+def test_the_reason_counts_the_refused_commands_by_program_from_the_most_refused(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        *(
+            tool_call("shell", command=f"{program} x")
+            for program in "cd python cd python python python".split()
+        )
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: python 4, cd 2. Other retries: 0.")
+
+
+def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """Five programs, one of them twice: the reason lists four, and the fifth joins `other`."""
+    script = ModelScript(
+        *(tool_call("shell", command=f"{name} x") for name in ("p0", "p1", "p2", "p3", "p4"))
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert constants.CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS == 4
+    assert outcome.reason.endswith(
+        "\nRefused commands: p4 2, p0 1, p1 1, p2 1, other 1. Other retries: 0."
+    )
+
+
+def test_a_first_word_that_is_no_bare_word_is_counted_as_other_and_never_shown(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: other 6. Other retries: 0.")
+    assert "hunter2" not in outcome.reason
 
 
 def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retries(
@@ -1296,7 +1338,7 @@ def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
 
     assert outcome.reason == (
         f"UnexpectedModelBehavior: {'x' * constants.CONST_ROADMAP_IMPLEMENT_ERROR_CHARS}\n"
-        "Refused commands: 1. Other retries: 0."
+        "Refused commands: pytest 1. Other retries: 0."
     )
 
 
@@ -1308,7 +1350,7 @@ def test_the_counts_cover_the_extra_turn_for_the_ticks(
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: 7. Other retries: 0.")
+    assert outcome.reason.endswith("\nRefused commands: pytest 7. Other retries: 0.")
 
 
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ line goes to the standard error stream, which `capsys` reads.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,9 @@ from tests.support.model_script import ModelScript, say, tool_call, tool_calls
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+# Bare words of at most 24 characters that the mask of secrets changes.
+SHORT_TOKEN = "ghp_" + "abcdefghijklmnopqrst"
+AWS_KEY_ID = "AKIA" + "IOSFODNN7EXAMPLE"
 
 
 @pytest.fixture
@@ -47,7 +51,7 @@ def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().err.splitlines()
 
 
-def test_a_refused_program_is_logged_as_other_with_no_argument(
+def test_a_refused_bare_word_is_logged_by_name_with_no_argument(
     store: InMemoryRoadmapStore,
     checkout: Path,
     programs: ProcessFake,
@@ -60,7 +64,9 @@ def test_a_refused_program_is_logged_as_other_with_no_argument(
 
     _step(store, checkout, script)
 
-    assert _lines(capsys) == ["Tool call: shell, program other, refused."]
+    err = capsys.readouterr().err
+    assert err.splitlines() == ["Tool call: shell, program pytest, refused."]
+    assert "sentinel-value" not in err
 
 
 def _program_line(command: str, capsys: pytest.CaptureFixture[str]) -> str:
@@ -95,15 +101,28 @@ def test_a_program_of_the_allowlist_is_logged_by_name(
         "/home/user/secret-dir/tool run",
         "\x1b[31mred git",
         "'unclosed quote",
-        "pytest tests/test_sample.py",
         "'git status'",
         "''",
+        "py=thon",
+        "../tool run",
+        "1python",
+        "a" * 25,
+        "ü" + "b",
+        AWS_KEY_ID,
+        SHORT_TOKEN,
     ],
 )
-def test_a_first_word_that_is_no_allowed_program_is_logged_as_other(
+def test_a_first_word_that_is_no_bare_word_is_logged_as_other(
     capsys: pytest.CaptureFixture[str], command: str
 ) -> None:
     assert _program_line(command, capsys) == "Tool call: shell, program other, ok."
+
+
+@pytest.mark.parametrize(
+    "word", ["python", "cd", "a", "a" * 24, "Py.thon-3_x", "pip3", "my-tool", "hunter2"]
+)
+def test_a_bare_first_word_is_logged_by_name(capsys: pytest.CaptureFixture[str], word: str) -> None:
+    assert _program_line(f"{word} --flag 'a b'", capsys) == f"Tool call: shell, program {word}, ok."
 
 
 @pytest.mark.parametrize("command", ["", "   "])
@@ -212,9 +231,9 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
             "Tool call: again, retry.",
             "Tool call: broken, failed.",
             "Tool call: fine, ok.",
-            "Tool call: forbidden, program other, refused.",
+            "Tool call: forbidden, program x, refused.",
             "Tool call: outside, retry.",
         ],
-        1,
+        Counter(x=1),
         2,
     )
