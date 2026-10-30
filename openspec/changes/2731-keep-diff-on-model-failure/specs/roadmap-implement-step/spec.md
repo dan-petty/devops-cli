@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A run that reaches a limit ends stopped
-`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, breaks the rules of its tools past their retries, or ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the message of the pydantic-ai error, masked and cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters. The outcome of a failed turn SHALL hold the requests and the tokens of the replies that came before the failure and the last text of the model, added to those of the turn before it. The agent SHALL have no `delegate_task` tool.
+`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, breaks the rules of its tools past their retries, or ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the message of the pydantic-ai error, masked and cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it. The agent SHALL have no `delegate_task` tool.
 
 #### Scenario: A model that never ends
 - **WHEN** the model calls a tool in every reply
@@ -35,7 +35,7 @@
 
 #### Scenario: A model call fails in the first turn
 - **WHEN** the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`
-- **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of both files, the requests and the tokens of the replies before the failure, and the last text of the model, and the checkout is reset
+- **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of both files, the requests (the reply and the failed request) and the tokens, and the last text of the model, and the checkout is reset
 
 #### Scenario: A model call fails in the extra turn
 - **WHEN** the first turn passes every check and leaves a task unticked, and the model call of the extra turn for the ticks raises one of those errors

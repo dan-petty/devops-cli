@@ -1333,6 +1333,8 @@ WORK_WITH_NOTE = ModelResponse(
 def test_a_model_call_that_fails_stops_the_step_with_the_diff_of_the_work_and_the_spend(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, failure: ModelAPIError
 ) -> None:
+    """The requests are the reply to the first request and the request that failed: pydantic-ai
+    keeps the failed request as an interrupted reply, with the tokens it was billed."""
     head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(WORK_WITH_NOTE, failure)
 
@@ -1345,7 +1347,7 @@ def test_a_model_call_that_fails_stops_the_step_with_the_diff_of_the_work_and_th
         outcome.requests,
         outcome.input_tokens > 0,
         is_clean_at(checkout, head),
-    ) == (StepStatus.STOPPED, True, "I write the test and the code.", 1, True, True)
+    ) == (StepStatus.STOPPED, True, "I write the test and the code.", 2, True, True)
     assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
     assert "diff --git a/tests/test_sample.py b/tests/test_sample.py" in outcome.diff
 
@@ -1389,7 +1391,7 @@ def test_a_model_call_that_fails_in_the_extra_turn_stops_the_step_with_the_diff_
         outcome.last_message,
         outcome.requests,
         is_clean_at(checkout, head),
-    ) == (StepStatus.STOPPED, True, FORGOT, 2, True)
+    ) == (StepStatus.STOPPED, True, FORGOT, 3, True)
     assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
     assert "diff --git a/tests/test_sample.py b/tests/test_sample.py" in outcome.diff
 
@@ -1408,7 +1410,7 @@ def test_the_spend_of_a_failed_extra_turn_is_in_the_ledger(
 
     assert (_spend_rows(spend_ledger), outcome.requests) == (
         [("agent_run", "implement", 1, 1), ("agent_run", "implement", 1, 1)],
-        3,
+        4,
     )
 
 

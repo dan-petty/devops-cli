@@ -45,6 +45,7 @@ from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
 from pydantic_ai_harness.shell import Shell
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 
+from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
 from devops_cli.ai.task_loader import load_task_prompt
@@ -584,14 +585,15 @@ def _run_agent(
 ) -> _Run:
     """One turn of the agent under the limits of a step, and its spend as one record. With
     `conversation`, the turn continues it: its messages and its usage carry over, so the limits
-    count both turns. Raises the client error that refine raises when a model call fails."""
+    count both turns. A failed model call ends the turn as stopped, with the replies that came before
+    it, as a limit does. Raises `AICredentialsError` when the model refuses the key."""
     limits = UsageLimits(
         request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     )
     reason = last = ""
     kept = None
-    error = None
+    error: AICredentialsError | None = None
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
@@ -605,8 +607,12 @@ def _run_agent(
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
             reason, last = _stop_reason(stopped, log), _last_text(messages)
         except ModelAPIError as exc:
-            # Raised outside this handler, so a logged traceback holds no reply text.
-            error = model_call_error(exc, "The step's")
+            refused = model_call_error(exc, "The step's")
+            if isinstance(refused, AICredentialsError):
+                # Raised outside this handler, so a logged traceback holds no reply text.
+                error = refused
+            else:
+                reason, last = _stop_reason(exc, log), _last_text(messages)
         finally:
             replies = _new_replies(messages, conversation)
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
@@ -1036,10 +1042,11 @@ def run_step(
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
     The step commits the group as `<group title> (#<item>)` when every exit check passes, and
-    otherwise resets the checkout to the commit it started at, also when the agent made commits or the run raises. It reads the
-    item once and writes nothing to GitHub. Raises `RoadmapImplementError` for a step it
-    refuses to start, and the client error of a failed model call. With `fix`, the step makes the
-    failed check pass and ticks no task (`run_fix_step`).
+    otherwise resets the checkout to the commit it started at, also when the agent made commits or
+    the run raises. It reads the item once and writes nothing to GitHub. A failed model call ends
+    the step as stopped, with the diff of the work. Raises `RoadmapImplementError` for a step it
+    refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
+    step makes the failed check pass and ticks no task (`run_fix_step`).
     """
     inputs = build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix)
     _require_clean(source)

@@ -7,7 +7,7 @@
 
 ## 2. The stop for a failed model call
 
-- [ ] Change `_run_agent` in `src/devops_cli/roadmap/implement_step.py`: a `ModelAPIError` that is not a refused key ends the turn as stopped with `_stop_reason` and the last text, and a refused key raises `AICredentialsError` after the `finally` block. Fix the docstrings of `_run_agent` and `run_step`.
+- [x] Change `_run_agent` in `src/devops_cli/roadmap/implement_step.py`: a `ModelAPIError` that is not a refused key ends the turn as stopped with `_stop_reason` and the last text, and a refused key raises `AICredentialsError` after the `finally` block. Fix the docstrings of `_run_agent` and `run_step`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
 
 ## 3. The documentation
