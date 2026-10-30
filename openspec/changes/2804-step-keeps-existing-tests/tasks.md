@@ -2,9 +2,9 @@
 
 ## 1. The names and the comparison
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_test_names.py`: module-level and class tests get qualified names; async tests, tests in `if` and `try` blocks, and nested classes count; a parametrized test is one name; a function inside a function and a non-test function do not count; a file that does not parse gives no names; the lost names of a file that drops, renames or deletes a test; a moved test is excused by a new name in another file, and a name that the other file had before is not new; the names are sorted.
+- [x] Write failing tests in `tests/test_roadmap_implement_test_names.py`: module-level and class tests get qualified names; async tests, tests in `if` and `try` blocks, and nested classes count; a parametrized test is one name; a function inside a function and a non-test function do not count; a file that does not parse gives no names; the lost names of a file that drops, renames or deletes a test; a moved test is excused by a new name in another file, and a name that the other file had before is not new; the names are sorted.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_test_names.py`
-- [ ] Add `src/devops_cli/roadmap/implement_test_names.py` with `test_names` and `lost_tests`, built on the standard library `ast`.
+- [x] Add `src/devops_cli/roadmap/implement_test_names.py` with `test_names` and `lost_tests`, built on the standard library `ast`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_test_names.py`
 
 ## 2. The exit check
