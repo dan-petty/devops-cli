@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.3](https://github.com/dan-petty/devops-cli/compare/v0.22.2...v0.22.3) (2026-10-30)
+
+
+### Bug Fixes
+
+* **roadmap:** a stage group names its files and its tasks ([#2775](https://github.com/dan-petty/devops-cli/issues/2775)) ([15ca3a3](https://github.com/dan-petty/devops-cli/commit/15ca3a37b1478b908210c927a6758d4e091f13d8)), closes [#2772](https://github.com/dan-petty/devops-cli/issues/2772)
+
 ## [0.22.2](https://github.com/dan-petty/devops-cli/compare/v0.22.1...v0.22.2) (2026-10-30)
 
 
