@@ -9,10 +9,10 @@
 
 ## 2. The prompt
 
-- [ ] Write a failing test in `tests/test_roadmap_implement_step.py`: the instructions of the step say to tick only the tasks of the group, and give the reason.
-  - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Add the sentence to `src/devops_cli/ai/tasks/roadmap_implement_step.md`, and update the snapshot of the inputs.
-  - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_ai_task_implement.py`
+- [x] Write a failing test in `tests/test_roadmap_implement_step_ticks.py`: the instructions of the step say to tick only the tasks of the group, and give the reason.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step_ticks.py`
+- [x] Add the sentence to `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step_ticks.py tests/test_ai_task_implement.py`
 
 ## 3. The documentation
 

@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli.roadmap.implement_step import FixRequest, StepStatus, run_fix_step, run_step
+from devops_cli.roadmap.implement_step import (
+    FixRequest,
+    StepStatus,
+    build_step_inputs,
+    run_fix_step,
+    run_step,
+)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
 from tests.support.implement_step import (
@@ -267,4 +273,15 @@ def test_a_fix_step_that_ticks_a_task_of_any_group_still_stops(
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
         "The tasks changed. A fix step changes no task.",
+    )
+
+
+def test_the_instructions_say_to_tick_only_the_tasks_of_the_group_and_give_the_reason(
+    store: InMemoryRoadmapStore, later_open: Path
+) -> None:
+    inputs = build_step_inputs(store, item=1, group=1, source=later_open, window=WINDOW)
+
+    assert (
+        "Tick only the tasks of your group. A later group runs in its own step and ticks its own."
+        in inputs.instructions
     )
