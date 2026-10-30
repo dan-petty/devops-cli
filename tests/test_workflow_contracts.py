@@ -140,13 +140,14 @@ def test_release_please_makes_every_release_on_a_push_to_main() -> None:
 
 
 _URGENT_MERGE_STEP = "Merge the Release Pull Request on an Urgent Fix"
-_URGENT_LABELS = ("release-now", "priority/p0-critical", "type/security", "priority/p1-high")
+_URGENT_LABELS = ("release-now", "priority/p0-critical", "scope/security", "priority/p1-high")
 
 
 def test_an_urgent_fix_turns_on_auto_merge_of_the_release_pull_request() -> None:
     """After release-please updates the release pull request, the release App turns on its
     auto-merge when the pushed commit's pull request carries `release-now`, or closes an issue
-    labeled `priority/p0-critical`, or `type/security` with `priority/p1-high` (#1966, ADR 0013).
+    labeled `priority/p0-critical`, or `scope/security` with `priority/p1-high` (#1966, #2768,
+    ADR 0013). Intake gives a security fix `scope/security`, and no title gives `type/security`.
     The App token does it, because a merge that GITHUB_TOKEN makes starts no Release run, and the
     run of a release merge does nothing. RELEASE_CYCLE.md states the rule, and the label exists."""
     steps = _load_workflow(RELEASE_PATH)["jobs"]["release-please"]["steps"]
@@ -162,7 +163,8 @@ def test_an_urgent_fix_turns_on_auto_merge_of_the_release_pull_request() -> None
         step["env"],
         'gh pr merge "$RELEASE_PR" --repo "$REPOSITORY" --auto --squash' in script,
         [label for label in _URGENT_LABELS if label not in script],
-        "release-now" in {label["name"] for label in labels},
+        {"release-now", "scope/security"} <= {label["name"] for label in labels},
+        "type/security" in script,
         [label for label in _URGENT_LABELS if f"`{label}`" not in cycle],
     ) == (
         True,
@@ -176,6 +178,7 @@ def test_an_urgent_fix_turns_on_auto_merge_of_the_release_pull_request() -> None
         True,
         [],
         True,
+        False,
         [],
     )
 
