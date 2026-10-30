@@ -14,7 +14,7 @@
 
 ## 3. Archive
 
-- [ ] 3.1 Archive the change
+- [x] 3.1 Archive the change, and name gh and kubectl in the Purpose of `openspec/specs/subprocess-environment/spec.md`, because the archive command does not edit the Purpose
   - Verification: `uv run devops openspec archive 2672-refuse-gh-kubectl-code-env-keys`
 
 ## Workflow follow-up
