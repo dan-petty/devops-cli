@@ -46,6 +46,7 @@ from devops_cli.roadmap.store import (
     Evidence,
     EvidenceKind,
     GitHubState,
+    ImplementRecordKey,
     Item,
     ItemField,
     RefineRecordKey,
@@ -496,10 +497,84 @@ def test_a_field_a_person_changed_after_the_read_raises_before_any_write() -> No
     ) == ([], ["priority/p1-high"], {"field": "Priority", "read": "P2-Medium", "now": "P1-High"})
 
 
-def test_two_stores_marking_one_issue_at_once_keep_each_others_marks() -> None:
-    """The Service's lanes each open a store for the repository, so two mark writes on one issue
-    can overlap: the later write joins the record the earlier one wrote, never the one both
-    read before either wrote (#1532)."""
+def _mark_refine(store: GitHubRoadmapStore, item: Item) -> None:
+    store.set_marks(item, {RefineRecordKey.BODY_HASH: "b1"})
+
+
+def _mark_refine_failure(store: GitHubRoadmapStore, item: Item) -> None:
+    store.set_marks(item, {RefineRecordKey.FAILED_BODY_HASH: "f1"})
+
+
+def _mark_implement(store: GitHubRoadmapStore, item: Item) -> None:
+    store.set_marks(item, {ImplementRecordKey.JOB: "job-1"})
+
+
+def _ready_with_refine_mark(store: GitHubRoadmapStore, item: Item) -> None:
+    store.set_field(item, ItemField.STATUS, "Ready", marks={RefineRecordKey.BODY_HASH: "b1"})
+
+
+def _write_body(store: GitHubRoadmapStore, item: Item) -> None:
+    store.write_issue_body(item.number, "New text")
+
+
+@pytest.mark.parametrize(
+    ("held_write", "other_write", "record", "body"),
+    [
+        pytest.param(
+            _mark_refine_failure,
+            _mark_refine,
+            {RefineRecordKey.BODY_HASH: "b1", RefineRecordKey.FAILED_BODY_HASH: "f1"},
+            "Text",
+            id="two-refine-marks",
+        ),
+        pytest.param(
+            _ready_with_refine_mark,
+            _mark_implement,
+            {
+                ItemField.STATUS: "Ready",
+                RefineRecordKey.BODY_HASH: "b1",
+                ImplementRecordKey.JOB: "job-1",
+            },
+            "Text",
+            id="refine-field-write-then-implement-mark",
+        ),
+        pytest.param(
+            _mark_implement,
+            _ready_with_refine_mark,
+            {
+                ItemField.STATUS: "Ready",
+                RefineRecordKey.BODY_HASH: "b1",
+                ImplementRecordKey.JOB: "job-1",
+            },
+            "Text",
+            id="implement-mark-then-refine-field-write",
+        ),
+        pytest.param(
+            _write_body,
+            _mark_implement,
+            {ImplementRecordKey.JOB: "job-1"},
+            "New text",
+            id="body-write-then-implement-mark",
+        ),
+        pytest.param(
+            _mark_implement,
+            _write_body,
+            {ImplementRecordKey.JOB: "job-1"},
+            "New text",
+            id="implement-mark-then-body-write",
+        ),
+    ],
+)
+def test_two_stores_writing_one_issue_at_once_keep_each_others_keys(
+    held_write: Callable[[GitHubRoadmapStore, Item], None],
+    other_write: Callable[[GitHubRoadmapStore, Item], None],
+    record: dict[Any, str],
+    body: str,
+) -> None:
+    """The Service's lanes each open a store for the repository, so two writes of one issue can
+    overlap: the later write joins the record the earlier one wrote, never the one both read
+    before either wrote (#1532). The model lane writes the refine, stage and alternatives keys,
+    and the status lane writes the implement keys of the same Items (#2757)."""
     github, second_store = seeded(i7=("priority/p2-medium",))
     armed, read_done, writing, written = (threading.Event() for _ in range(4))
     handoffs: list[bool] = []
@@ -523,19 +598,21 @@ def test_two_stores_marking_one_issue_at_once_keep_each_others_marks() -> None:
     )
     first_read, second_read = read(first_store, 7), read(second_store, 7)
 
-    def mark() -> None:
+    def write_other() -> None:
         handoffs.append(read_done.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         writing.set()
-        second_store.set_marks(second_read, {RefineRecordKey.BODY_HASH: "b1"})
+        other_write(second_store, second_read)
         written.set()
 
-    marking = threading.Thread(target=mark)
+    writing_other = threading.Thread(target=write_other)
     armed.set()
-    marking.start()
-    first_store.set_marks(first_read, {RefineRecordKey.FAILED_BODY_HASH: "f1"})
-    marking.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-    assert (read(second_store, 7).job_record, handoffs) == (
-        {RefineRecordKey.BODY_HASH: "b1", RefineRecordKey.FAILED_BODY_HASH: "f1"},
+    writing_other.start()
+    held_write(first_store, first_read)
+    writing_other.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    after = read(second_store, 7)
+    assert (after.job_record, github.body(7).startswith(body), handoffs) == (
+        record,
+        True,
         [True, True],
     )
 

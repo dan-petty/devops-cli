@@ -9,7 +9,7 @@
 
 ## 2. Two writers of one issue
 
-- [ ] Write tests in `tests/test_roadmap_github_store.py`: two stores on one fake issue, a field write with a refine mark against a mark write of `implement.job`, and a body write against a mark write. Each keeps all keys. Check that both fail when the lock of the store is taken out.
+- [x] Write tests in `tests/test_roadmap_github_store.py`: two stores on one fake issue, a field write with a refine mark against a mark write of `implement.job`, and a body write against a mark write. Each keeps all keys. Check that both fail when the lock of the store is taken out.
   - Verification: `uv run devops ci test tests/test_roadmap_github_store.py`
 
 ## 3. The documentation
