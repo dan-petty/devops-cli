@@ -14,17 +14,21 @@
 - [x] 2.2 Add `run_error_message` to `src/devops_cli/roadmap/agent_run.py` and the limits to `src/devops_cli/config/constants.py`. Give `InvestigationStopped` the field `message`. Pass `repo` from `plan_refine` to `refine_one_item`, `_investigate` and `_failed_item`, and write the two warnings.
   - Verification: `uv run devops ci test tests/test_roadmap_refine.py tests/test_roadmap_refine_investigation.py tests/test_roadmap_alternatives.py`
 
-## 3. The documentation
+## 3. The review
 
-- [ ] 3.1 Regenerate the documentation.
+- [x] 3.1 Write failing tests, then fix: Claude and Ollama errors carry the timeout and the status (`tests/test_ai_client_error_reason.py`); a 408 or 504 reason says `timeout`; the message of a stopped run keeps no data of the reply and no control character, and the implement step keeps the `body` out of its reason (`tests/test_roadmap_agent_run.py`, `tests/test_roadmap_refine_investigation.py`, `tests/test_roadmap_implement_step.py`). Share `bounded_text` and one pair of limits; move the two warnings to `lang/en`.
+  - Verification: `uv run devops ci test tests/test_ai_client_error_reason.py tests/test_roadmap_agent_run.py tests/test_roadmap_refine_investigation.py tests/test_roadmap_implement_step.py tests/test_roadmap_refine.py`
+
+## 4. The documentation
+
+- [x] 4.1 Regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 4. Archive
+## 5. Archive
 
-- [ ] 4.1 Archive the change.
+- [x] 5.1 Archive the change.
   - Verification: `uv run devops openspec archive 2562-refine-warning-reasons`
 
 ## Workflow follow-up
 
-- The implement step builds its stop reason from `str(stopped)`, which holds the `body` of an `UnexpectedModelBehavior`. The follow-up issue is filed with `devops roadmap intake`.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
