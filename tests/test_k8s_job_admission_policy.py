@@ -121,6 +121,20 @@ def _drop_spec_field(name: str) -> Mutation:
     return lambda job: job["spec"].pop(name)
 
 
+def _set_pod_label(value: str) -> Mutation:
+    return lambda job: job["spec"]["template"]["metadata"]["labels"].update(
+        {"app.kubernetes.io/name": value}
+    )
+
+
+def _drop_pod_labels(job: dict[str, Any]) -> None:
+    del job["spec"]["template"]["metadata"]["labels"]
+
+
+def _set_container(**fields: object) -> Mutation:
+    return lambda job: _container(job).update(fields)
+
+
 def _add_container(job: dict[str, Any]) -> None:
     _pod(job)["containers"].append({**copy.deepcopy(_container(job)), "name": "second"})
 
@@ -188,6 +202,18 @@ def test_the_job_from_the_runner_template_passes_in_every_image_form() -> None:
         pytest.param(_set_pod(hostNetwork=True), "host namespace", id="host-network"),
         pytest.param(_set_pod(hostPID=True), "host namespace", id="host-pid"),
         pytest.param(_set_pod(hostIPC=True), "host namespace", id="host-ipc"),
+        pytest.param(_set_pod_label("roadmap-service"), "label", id="label-of-the-service"),
+        pytest.param(_set_pod_label("traefik"), "label", id="label-of-another-pod"),
+        pytest.param(_drop_pod_labels, "label", id="no-labels"),
+        pytest.param(_set_pod(priorityClassName="system-node-critical"), "priority", id="priority"),
+        pytest.param(_set_pod(nodeName="node-1"), "node", id="node-name"),
+        pytest.param(
+            _set_pod(imagePullSecrets=[{"name": "x"}]), "imagePullSecrets", id="pull-secret"
+        ),
+        pytest.param(_set_container(command=["sh", "-c", "id"]), "command", id="command"),
+        pytest.param(_set_spec(manualSelector=True), "manualSelector", id="manual-selector"),
+        pytest.param(_set_spec(completions=2), "once", id="completions"),
+        pytest.param(_set_spec(parallelism=2), "once", id="parallelism"),
         pytest.param(_set_spec(backoffLimit=1), "backoffLimit", id="retry"),
         pytest.param(_drop_spec_field("backoffLimit"), "backoffLimit", id="retry-not-set"),
         pytest.param(_drop_spec_field("activeDeadlineSeconds"), "deadline", id="no-deadline"),
@@ -198,6 +224,12 @@ def test_a_job_that_breaks_one_rule_is_refused_by_that_rule(mutate: Mutation, ru
 
     assert len(refused) == 1
     assert rule in refused[0]
+
+
+def test_a_job_that_names_the_default_values_passes() -> None:
+    explicit = _changed(_set_spec(completions=1, parallelism=1, manualSelector=False))
+
+    assert _refusals(explicit) == []
 
 
 def test_a_job_that_runs_longer_than_the_template_is_refused() -> None:
@@ -248,6 +280,14 @@ def test_the_policy_covers_the_create_and_update_of_jobs_in_namespace_devops_and
         ["Deny", "Audit"],
         {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}}},
     )
+
+
+def test_the_match_condition_names_the_user_of_the_role_binding() -> None:
+    spec = _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]
+
+    assert [condition["expression"] for condition in spec["matchConditions"]] == [
+        f'request.userInfo.username == "{_service_user()}"'
+    ]
 
 
 def test_the_expressions_use_only_standard_cel() -> None:

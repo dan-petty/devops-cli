@@ -5,8 +5,12 @@
 # Job when the Service makes it. It matches no other user: the CLI user, Argo CD and the CronJob
 # controller are never evaluated. It uses only standard CEL, so a test runs the same expressions
 # against the Job that CronJob `devops-cli-runner` makes (tests/test_k8s_job_admission_policy.py).
-# Not pinned: the tag or digest of the image, the args and the plain `env` values, the resources
-# and the number of Jobs (k8s/README.md, Runner Jobs).
+# The pod keeps the label `app.kubernetes.io/name: devops-cli-job`, because the NetworkPolicies of
+# the stack select pods by that label: a Job pod with the label of the Service would take its
+# egress to the API server. The Job runs its pod once, and it has no `command`, no
+# `imagePullSecrets`, no `priorityClassName` and no `nodeName`.
+# Not pinned: the tag or digest of the image, the args and the plain `env` values, the resources,
+# `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs (k8s/README.md, Runner Jobs).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -77,6 +81,41 @@ spec:
         (!has(object.spec.template.spec.hostPID) || !object.spec.template.spec.hostPID) &&
         (!has(object.spec.template.spec.hostIPC) || !object.spec.template.spec.hostIPC)
       message: The pod must not use the host namespaces hostNetwork, hostPID or hostIPC.
+      reason: Forbidden
+    # The NetworkPolicies select pods by this label (networkpolicy-egress.yaml admits the label of
+    # the Service to the API server), so the label of a Job pod stays the label of a Job.
+    - expression: >-
+        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) &&
+        "app.kubernetes.io/name" in object.spec.template.metadata.labels &&
+        object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-job"
+      message: The pod label app.kubernetes.io/name must be devops-cli-job.
+      reason: Forbidden
+    # Fields that reach beyond the pod: a priority class can preempt other pods, and a node name
+    # skips the scheduler.
+    - expression: >-
+        !has(object.spec.template.spec.priorityClassName) &&
+        !has(object.spec.template.spec.nodeName)
+      message: The pod must not set priorityClassName or nodeName.
+      reason: Forbidden
+    # Another entry would let the pod use another Secret of the namespace.
+    - expression: >-
+        !has(object.spec.template.spec.imagePullSecrets) ||
+        size(object.spec.template.spec.imagePullSecrets) == 0
+      message: The pod must not set imagePullSecrets.
+      reason: Forbidden
+    # The image sets the entrypoint. The Service sets only `args`.
+    - expression: object.spec.template.spec.containers.all(c, !has(c.command))
+      message: The container must not set command.
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.manualSelector) || !object.spec.manualSelector
+      message: The Job must not set manualSelector.
+      reason: Forbidden
+    # The Job runs its pod once. A work queue or a parallel Job would run it many times.
+    - expression: >-
+        (!has(object.spec.completions) || object.spec.completions == 1) &&
+        (!has(object.spec.parallelism) || object.spec.parallelism == 1)
+      message: The Job must run its pod once, so completions and parallelism are 1 or not set.
       reason: Forbidden
     # A job that changed GitHub never runs twice (cronjob-runner.yaml).
     - expression: has(object.spec.backoffLimit) && object.spec.backoffLimit == 0
