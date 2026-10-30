@@ -16,7 +16,7 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
-    CONST_ROADMAP_IMPLEMENT_ERROR_CHARS,
+    CONST_ROADMAP_RUN_ERROR_CHARS,
 )
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -135,7 +135,7 @@ def test_the_text_of_the_shell_is_cut_so_a_long_word_does_not_fill_the_context(
     for command in ("A" * 5000, "vim " + "B" * 5000):
         answer = _refusal(command, store, checkout, programs)
 
-        assert len(answer) <= CONST_ROADMAP_IMPLEMENT_ERROR_CHARS + len(ALLOWED) + len(UV_RUN) + 2
+        assert len(answer) <= CONST_ROADMAP_RUN_ERROR_CHARS + len(ALLOWED) + len(UV_RUN) + 2
 
 
 def test_the_hint_adds_no_word_of_the_command(

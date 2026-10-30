@@ -1,0 +1,34 @@
+# Tasks
+
+## 1. The error carries its status and timeout
+
+- [x] 1.1 Write failing tests in `tests/test_ai_client_error_reason.py`: the `reason` of an error with a status, a timeout and neither; an OpenAI-style HTTP 408 reply with the body `MODEL-TEXT` gives status 408 and a `reason` with no `MODEL-TEXT`; an error frame with a status in its body gives that status; a read timeout gives `timed_out`; and in `tests/test_roadmap_agent_run.py` `model_call_error` for `ModelHTTPError(504)` and `ModelTimeoutError`.
+  - Verification: `uv run devops ci test tests/test_ai_client_error_reason.py tests/test_roadmap_agent_run.py`
+- [x] 1.2 Add `status`, `timed_out` and `reason` to `AIClientError` in `src/devops_cli/ai/client/models.py`. Set them in `_status_error` (`openai.py`), `_map_openai_error` for a timeout, `_format_status_error` and `_format_network_error` (`base.py`), the status branch of `claude.py`, and `model_call_error` (`roadmap/agent_run.py`).
+  - Verification: `uv run devops ci test tests/test_ai_client_error_reason.py tests/test_roadmap_agent_run.py tests/test_ai_client_retries.py`
+
+## 2. The two warnings
+
+- [x] 2.1 Write failing tests in `tests/test_roadmap_refine.py` and `tests/test_roadmap_refine_investigation.py`: the warning of a failed call names the repository, the code and the status or `timeout`; the warning of a stopped investigation names the repository, the class and the first line of the message; the body, the second line of the message and a token never appear in the log, the error of the round, the record or the comment.
+  - Verification: `uv run devops ci test tests/test_roadmap_refine.py tests/test_roadmap_refine_investigation.py`
+- [x] 2.2 Add `run_error_message` to `src/devops_cli/roadmap/agent_run.py` and the limits to `src/devops_cli/config/constants.py`. Give `InvestigationStopped` the field `message`. Pass `repo` from `plan_refine` to `refine_one_item`, `_investigate` and `_failed_item`, and write the two warnings.
+  - Verification: `uv run devops ci test tests/test_roadmap_refine.py tests/test_roadmap_refine_investigation.py tests/test_roadmap_alternatives.py`
+
+## 3. The review
+
+- [x] 3.1 Write failing tests, then fix: Claude and Ollama errors carry the timeout and the status (`tests/test_ai_client_error_reason.py`); a 408 or 504 reason says `timeout`; the message of a stopped run keeps no data of the reply and no control character, and the implement step keeps the `body` out of its reason (`tests/test_roadmap_agent_run.py`, `tests/test_roadmap_refine_investigation.py`, `tests/test_roadmap_implement_step.py`). Share `bounded_text` and one pair of limits; move the two warnings to `lang/en`.
+  - Verification: `uv run devops ci test tests/test_ai_client_error_reason.py tests/test_roadmap_agent_run.py tests/test_roadmap_refine_investigation.py tests/test_roadmap_implement_step.py tests/test_roadmap_refine.py`
+
+## 4. The documentation
+
+- [x] 4.1 Regenerate the documentation.
+  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
+
+## 5. Archive
+
+- [x] 5.1 Archive the change.
+  - Verification: `uv run devops openspec archive 2562-refine-warning-reasons`
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

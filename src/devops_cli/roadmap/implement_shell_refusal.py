@@ -7,7 +7,7 @@ in its place is refused until the step stops. `shell_refusal_hooks` is a pydanti
 capability that keeps the text of the shell and adds the replacement after it. It changes nothing
 that the shell allows. It adds only text from the table `IMPLEMENT_SHELL_REPLACEMENTS` and from the
 messages, never a word of the command. It cuts the text of the shell to
-`CONST_ROADMAP_IMPLEMENT_ERROR_CHARS`, as the text echoes the first word of the command, or the
+`CONST_ROADMAP_RUN_ERROR_CHARS`, as the text echoes the first word of the command, or the
 whole command for an interactive one, with no limit.
 """
 
@@ -22,7 +22,7 @@ from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_ERROR_CHARS
+from devops_cli.config.constants import CONST_ROADMAP_RUN_ERROR_CHARS
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_tool_log import command_word, is_policy_refusal
 
@@ -59,7 +59,7 @@ async def _execute(
         text = error.tool_retry.content
         if word is None or not isinstance(text, str) or not is_policy_refusal(error):
             raise
-        shown = text[:CONST_ROADMAP_IMPLEMENT_ERROR_CHARS]
+        shown = text[:CONST_ROADMAP_RUN_ERROR_CHARS]
         raise ModelRetry(f"{shown} {refusal_hint(word)}") from error
 
 

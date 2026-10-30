@@ -2996,11 +2996,12 @@ CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMEN
 # comment (#2721). A reason may be as long as the tail of a command or a list of files.
 CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
-# The most characters of the message of a pydantic-ai error in the reason of a stopped run, and the
-# most that the masking reads (#2758). The read is a multiple of the limit: the masking of secrets
-# is slower than linear, and the message of an error can hold a long reply of the model.
-CONST_ROADMAP_IMPLEMENT_ERROR_CHARS: Final[int] = 500
-CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMENT_ERROR_CHARS
+# The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
+# of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
+# multiple of the limit: the masking of secrets is slower than linear, and the message of an error
+# can hold a long reply of the model.
+CONST_ROADMAP_RUN_ERROR_CHARS: Final[int] = 500
+CONST_ROADMAP_RUN_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_RUN_ERROR_CHARS
 # The most programs that the reason of a stopped run lists in its count of refused commands
 # (#2773). The programs beyond that join the count of "other".
 CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS: Final[int] = 4

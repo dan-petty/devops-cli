@@ -1895,6 +1895,17 @@ class RoadmapMessages:
     refine_web_off_no_key: str = "no Firecrawl key is set"
     refine_web_off_unread: str = "the repository's visibility could not be read"
     refine_none: str = "No items to refine."
+    # The warnings of refine for an item whose model call failed or whose investigation stopped.
+    refine_item_skipped: str = (
+        "Refine skipped #{number} in {repo}: its model call failed ({error}, {reason}, "
+        "{violations} schema violation(s))."
+    )
+    refine_investigation_stopped: str = (
+        "Refine's investigation of #{number} in {repo} stopped with no proposal ({reason}); "
+        "the item keeps its open questions."
+    )
+    # The class of a pydantic-ai error, then its message: a stopped run (#2562, #2758).
+    run_stop_reason: str = "{error}: {message}"
     # The report's groups, by next step, in the order the report shows them (#1758).
     refine_step_headings: dict[str, str] = field(
         default_factory=lambda: {
@@ -2015,7 +2026,6 @@ class RoadmapMessages:
         "The extra turn for the ticks changed files other than the tasks file: {paths}."
     )
     implement_paths_more: str = " and {count} more"
-    implement_stop_reason: str = "{error}: {message}"
     implement_model_call_model: str = "model {model}"
     implement_model_call_status: str = "HTTP {status}, {model}"
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."

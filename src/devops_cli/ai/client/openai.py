@@ -105,7 +105,9 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             raw_body = getattr(getattr(exc, "response", None), "text", "") or ""
             return self._status_error(exc.status_code, raw_body)
         if isinstance(exc, openai.APIConnectionError):
-            return self._connection_error(exc)
+            error = self._connection_error(exc)
+            error.timed_out = isinstance(exc, openai.APITimeoutError)
+            return error
         if isinstance(exc, openai.APIError):
             status = _frame_status(exc)
             if status is not None:
@@ -129,7 +131,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             )
         cleaned = _clean_http_error_body(raw_body)
         detail = f": {mask_secrets(cleaned)}" if cleaned else ""
-        return AIClientError(f"Provider request failed with HTTP {status}{detail}")
+        return AIClientError(f"Provider request failed with HTTP {status}{detail}", status=status)
 
     def _supports_reasoning(self) -> bool:
         """Return True if model declared reasoning capability via gateway or direct config."""

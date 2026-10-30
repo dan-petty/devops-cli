@@ -1359,10 +1359,21 @@ def test_a_secret_in_the_message_of_the_error_is_masked_in_the_reason(
     assert outcome.reason.startswith("UnexpectedModelBehavior: The reply held ")
 
 
+def test_the_body_of_the_error_stays_out_of_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """`str()` of `UnexpectedModelBehavior` adds its `body`, the text of the model (#2778)."""
+    script = ModelScript(UnexpectedModelBehavior("The reply broke the rules.", body="MODEL-TEXT"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == "UnexpectedModelBehavior: The reply broke the rules."
+
+
 def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    long = "x" * (3 * constants.CONST_ROADMAP_IMPLEMENT_ERROR_CHARS)
+    long = "x" * (3 * constants.CONST_ROADMAP_RUN_ERROR_CHARS)
     script = ModelScript(
         tool_call("shell", command="pytest tests/test_sample.py"), UnexpectedModelBehavior(long)
     )
@@ -1370,7 +1381,7 @@ def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
     outcome = _step(store, checkout, script)
 
     assert outcome.reason == (
-        f"UnexpectedModelBehavior: {'x' * constants.CONST_ROADMAP_IMPLEMENT_ERROR_CHARS}\n"
+        f"UnexpectedModelBehavior: {'x' * constants.CONST_ROADMAP_RUN_ERROR_CHARS}\n"
         "Refused commands: pytest 1. Other retries: 0."
     )
 

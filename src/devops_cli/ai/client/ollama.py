@@ -222,7 +222,8 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 ) from exc
             msg_text = mask_secrets(exc.response.text[:300].strip()) or "(empty)"
             raise AIClientError(
-                f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
+                f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}",
+                status=exc.response.status_code,
             ) from exc
 
     def _ollama_messages(
@@ -407,7 +408,8 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             body = mask_secrets(exc.response.text[:300].strip())
             msg_text = body or "(empty)"
             raise AIClientError(
-                f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
+                f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}",
+                status=exc.response.status_code,
             ) from exc
 
     def _ollama_stream(

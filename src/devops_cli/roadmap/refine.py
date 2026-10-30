@@ -1599,6 +1599,7 @@ def refine_one_item(
     store: RoadmapStore,
     item: Item,
     *,
+    repo: str,
     source: Path,
     sha: str,
     client: LLMClient | Any,
@@ -1662,7 +1663,7 @@ def refine_one_item(
     if needs_investigation(proposal, open_questions):
         tools = InvestigationTools(source=source, sha=sha, firecrawl_key=web.key)
         revised = _investigate(
-            item, request, raw_proposal, proposal, open_questions, tools, investigator
+            item, repo, request, raw_proposal, proposal, open_questions, tools, investigator
         )
         if revised is not None:
             allowed_urls = tools.allowed_urls
@@ -1741,6 +1742,7 @@ def _prompt(task: str) -> str:
 
 def _investigate(
     item: Item,
+    repo: str,
     request: dict[str, Any],
     first: RefinementProposal,
     proposal: RefinementProposal,
@@ -1752,7 +1754,8 @@ def _investigate(
 
     It gets the proposal request without the context, which its tools read, with the first
     proposal and the questions the validated `proposal` leaves open: the open questions and
-    each decision with no verified source (#2398).
+    each decision with no verified source (#2398). The warning for a stop names `repo` and the
+    reason, with no text of the model (#2562).
     """
     unsourced = [
         f"{qa.question} {_DECISION_WITHOUT_SOURCE}"
@@ -1773,10 +1776,13 @@ def _investigate(
     )
     if isinstance(revised, InvestigationStopped):
         logger.warning(
-            "Refine's investigation of #%d stopped with no proposal (%s); the item keeps its "
-            "open questions.",
-            item.number,
-            revised.reason,
+            MESSAGES.roadmap.refine_investigation_stopped.format(
+                number=item.number,
+                repo=repo,
+                reason=MESSAGES.roadmap.run_stop_reason.format(
+                    error=revised.reason, message=revised.message
+                ),
+            )
         )
         return None
     return revised
@@ -1834,6 +1840,7 @@ def plan_refine(
             res = refine_one_item(
                 store,
                 cand,
+                repo=repo,
                 source=source_path,
                 sha=sha,
                 client=client,
@@ -1844,7 +1851,7 @@ def plan_refine(
         except AICredentialsError:
             raise
         except AIClientError as exc:
-            failed.append(_failed_item(cand, exc))
+            failed.append(_failed_item(cand, repo, exc))
             continue
         refined.append(res)
 
@@ -1885,15 +1892,19 @@ def dry_run_refine(
     )
 
 
-def _failed_item(item: Item, exc: AIClientError) -> RefineFailure:
+def _failed_item(item: Item, repo: str, exc: AIClientError) -> RefineFailure:
     """Record `item` as skipped for its failed model call, logging no model text: the error's
-    message can quote the reply."""
+    message can quote the reply. The warning gives `repo`, the error's class and its `reason`: the
+    code with the HTTP status or the timeout (#2562)."""
     failure = RefineFailure.of(item, exc)
     logger.warning(
-        "Refine skipped #%d: its model call failed (%s, %d schema violation(s)).",
-        item.number,
-        failure.error,
-        failure.violations,
+        MESSAGES.roadmap.refine_item_skipped.format(
+            number=item.number,
+            repo=repo,
+            error=failure.error,
+            reason=exc.reason,
+            violations=failure.violations,
+        )
     )
     return failure
 

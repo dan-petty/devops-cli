@@ -44,7 +44,12 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_TOOL_MAX_LINES,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
+from devops_cli.roadmap.agent_run import (
+    drain_events,
+    model_call_error,
+    record_run_spend,
+    run_error_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +101,11 @@ class ToolSet(Protocol):
 class InvestigationStopped:
     """An investigation that ended with no proposal: it spent its budget (`UsageLimitExceeded`),
     or the model broke the run's rules past its retries (`UnexpectedModelBehavior`). `reason` is
-    the class of pydantic-ai's error. Refine keeps the first proposal (#2398)."""
+    the class of pydantic-ai's error, and `message` the first line of its message, masked and cut
+    (#2562). Refine keeps the first proposal (#2398)."""
 
     reason: str
+    message: str
 
 
 @dataclass
@@ -254,7 +261,7 @@ def investigate[T: BaseModel](
         try:
             result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
-            return InvestigationStopped(type(stopped).__name__)
+            return InvestigationStopped(type(stopped).__name__, run_error_message(stopped))
         except ModelAPIError as exc:
             # Raised outside this handler, so a logged traceback holds no reply text.
             error = model_call_error(exc, "The investigation's")
