@@ -44,7 +44,7 @@ A step that stops on a pydantic-ai error SHALL count, over all its turns, the to
 
 #### Scenario: Refused commands
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and the shell allows only `git`, `uv`, `ruff` and `mypy`
-- **THEN** the reason ends with "Refused commands: 6. Other retries: 0."
+- **THEN** the reason ends with a new line and "Refused commands: 6. Other retries: 0."
 
 #### Scenario: Arguments that fail validation
 - **WHEN** the model calls the tool `read_file` without its `path` argument in every reply
