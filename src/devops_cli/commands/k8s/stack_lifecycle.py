@@ -261,6 +261,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "devops" / "cronjob-runner.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "serviceaccount.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "role.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "admissionpolicy.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "pvc.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "service.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "deployment.yaml",

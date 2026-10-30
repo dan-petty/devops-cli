@@ -1,0 +1,144 @@
+# What a Job of the roadmap Service may be (#2696). Kubernetes RBAC cannot limit `create` on
+# `jobs` to a name, and Pod Security `restricted` only warns about a Job: it refuses the pod later.
+# So the Role `roadmap-service-jobs` could make a Job with any image, any ServiceAccount of the
+# namespace, any other Secret and any volume that `restricted` admits. This policy refuses such a
+# Job when the Service makes it. It matches no other user: the CLI user, Argo CD and the CronJob
+# controller are never evaluated. It uses only standard CEL, so a test runs the same expressions
+# against the Job that CronJob `devops-cli-runner` makes (tests/test_k8s_job_admission_policy.py).
+# The pod keeps the label `app.kubernetes.io/name: devops-cli-job`, because the NetworkPolicies of
+# the stack select pods by that label: a Job pod with the label of the Service would take its
+# egress to the API server. The Job runs its pod once, and it has no `command`, no
+# `imagePullSecrets`, no `priorityClassName` and no `nodeName`.
+# Not pinned: the tag or digest of the image, the args and the plain `env` values, the resources,
+# `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs (k8s/README.md, Runner Jobs).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: roadmap-service-jobs
+  labels:
+    app.kubernetes.io/name: roadmap-service
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  # The policy runs in the API server, not behind a webhook, so no outage can block a request.
+  # `Fail` matters when an expression errors: the Service's Job is then refused, in the open.
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  matchConditions:
+    - name: made-by-the-roadmap-service
+      expression: request.userInfo.username == "system:serviceaccount:devops:roadmap-service"
+  validations:
+    - expression: >-
+        size(object.spec.template.spec.containers) == 1 &&
+        (!has(object.spec.template.spec.initContainers) ||
+        size(object.spec.template.spec.initContainers) == 0)
+      message: The Job must have one container and no init container.
+      reason: Forbidden
+    # The repository alone, or followed by a tag or a digest: a bare prefix would admit
+    # `runner-evil`.
+    - expression: >-
+        object.spec.template.spec.containers.all(c,
+        c.image == "ghcr.io/dan-petty/devops-cli/runner" ||
+        c.image.startsWith("ghcr.io/dan-petty/devops-cli/runner:") ||
+        c.image.startsWith("ghcr.io/dan-petty/devops-cli/runner@"))
+      message: The image must be ghcr.io/dan-petty/devops-cli/runner, alone or with a tag or a digest.
+      reason: Forbidden
+    - expression: >-
+        has(object.spec.template.spec.serviceAccountName) &&
+        object.spec.template.spec.serviceAccountName == "devops-cli"
+      message: The pod must use ServiceAccount devops-cli.
+      reason: Forbidden
+    - expression: >-
+        has(object.spec.template.spec.automountServiceAccountToken) &&
+        object.spec.template.spec.automountServiceAccountToken == false
+      message: The pod must set automountServiceAccountToken to false, so that it has no token.
+      reason: Forbidden
+    - expression: >-
+        object.spec.template.spec.containers.all(c, !has(c.envFrom) ||
+        c.envFrom.all(e, has(e.secretRef) && !has(e.configMapRef) &&
+        e.secretRef.name == "devops-cli"))
+      message: envFrom may name only Secret devops-cli.
+      reason: Forbidden
+    # `valueFrom` reads one key of any Secret, which `envFrom` does not allow.
+    - expression: >-
+        object.spec.template.spec.containers.all(c, !has(c.env) ||
+        c.env.all(e, !has(e.valueFrom)))
+      message: An env entry must not use valueFrom.
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.template.spec.volumes) ||
+        object.spec.template.spec.volumes.all(v,
+        ((v.name == "tmp" || v.name == "home") && has(v.emptyDir)) ||
+        (v.name == "config" && has(v.configMap) && v.configMap.name == "devops-cli-config"))
+      message: The pod may have only the volumes tmp and home (emptyDir) and config (ConfigMap devops-cli-config).
+      reason: Forbidden
+    - expression: >-
+        (!has(object.spec.template.spec.hostNetwork) || !object.spec.template.spec.hostNetwork) &&
+        (!has(object.spec.template.spec.hostPID) || !object.spec.template.spec.hostPID) &&
+        (!has(object.spec.template.spec.hostIPC) || !object.spec.template.spec.hostIPC)
+      message: The pod must not use the host namespaces hostNetwork, hostPID or hostIPC.
+      reason: Forbidden
+    # The NetworkPolicies select pods by this label (networkpolicy-egress.yaml admits the label of
+    # the Service to the API server), so the label of a Job pod stays the label of a Job.
+    - expression: >-
+        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) &&
+        "app.kubernetes.io/name" in object.spec.template.metadata.labels &&
+        object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-job"
+      message: The pod label app.kubernetes.io/name must be devops-cli-job.
+      reason: Forbidden
+    # Fields that reach beyond the pod: a priority class can preempt other pods, and a node name
+    # skips the scheduler.
+    - expression: >-
+        !has(object.spec.template.spec.priorityClassName) &&
+        !has(object.spec.template.spec.nodeName)
+      message: The pod must not set priorityClassName or nodeName.
+      reason: Forbidden
+    # Another entry would let the pod use another Secret of the namespace.
+    - expression: >-
+        !has(object.spec.template.spec.imagePullSecrets) ||
+        size(object.spec.template.spec.imagePullSecrets) == 0
+      message: The pod must not set imagePullSecrets.
+      reason: Forbidden
+    # The image sets the entrypoint. The Service sets only `args`.
+    - expression: object.spec.template.spec.containers.all(c, !has(c.command))
+      message: The container must not set command.
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.manualSelector) || !object.spec.manualSelector
+      message: The Job must not set manualSelector.
+      reason: Forbidden
+    # The Job runs its pod once. A work queue or a parallel Job would run it many times.
+    - expression: >-
+        (!has(object.spec.completions) || object.spec.completions == 1) &&
+        (!has(object.spec.parallelism) || object.spec.parallelism == 1)
+      message: The Job must run its pod once, so completions and parallelism are 1 or not set.
+      reason: Forbidden
+    # A job that changed GitHub never runs twice (cronjob-runner.yaml).
+    - expression: has(object.spec.backoffLimit) && object.spec.backoffLimit == 0
+      message: backoffLimit must be 0.
+      reason: Forbidden
+    - expression: >-
+        has(object.spec.activeDeadlineSeconds) && object.spec.activeDeadlineSeconds > 0 &&
+        object.spec.activeDeadlineSeconds <= 7200
+      message: The Job must set a deadline (activeDeadlineSeconds) of 7200 seconds at most.
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: roadmap-service-jobs
+  labels:
+    app.kubernetes.io/name: roadmap-service
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  policyName: roadmap-service-jobs
+  # `Audit` writes each refusal to the audit log of the API server.
+  validationActions: ["Deny", "Audit"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: devops
