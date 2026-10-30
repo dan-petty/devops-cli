@@ -527,6 +527,7 @@ def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
     """No git configuration, helper or key of the user's home reaches a shell command."""
     monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
     monkeypatch.delenv("UV_PYTHON", raising=False)
+    monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
 
     env = shell_environment(tmp_path / "home")
 
@@ -549,6 +550,18 @@ def test_the_shell_gets_the_interpreter_that_uv_is_told_to_use(
     env = shell_environment(tmp_path / "home")
 
     assert env["UV_PYTHON"] == "/usr/local/bin/python3"
+
+
+def test_the_shell_gets_the_worker_bound_of_the_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`pytest-xdist` counts the CPUs of the node. The pod of the runner sets the bound, and the
+    shell of a step gets no other variable of the job, so the bound must be passed on (#2806)."""
+    monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "2")
+
+    env = shell_environment(tmp_path / "home")
+
+    assert env["PYTEST_XDIST_AUTO_NUM_WORKERS"] == "2"
 
 
 def test_the_agent_of_a_step_runs_its_shell_in_that_environment(

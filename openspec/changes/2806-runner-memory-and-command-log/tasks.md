@@ -9,9 +9,9 @@
 
 ## 2. The shell takes the worker bound
 
-- [ ] Write the failing tests in `tests/test_roadmap_implement_step.py`: the shell environment holds the variable of the process, and holds none when the process has none.
+- [x] Write the failing tests in `tests/test_roadmap_implement_step.py`: the shell environment holds the variable of the process, and holds none when the process has none.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Change `shell_environment` in `src/devops_cli/roadmap/implement_step.py`.
+- [x] Change `shell_environment` in `src/devops_cli/roadmap/implement_step.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
 
 ## 3. The tool log names the command
