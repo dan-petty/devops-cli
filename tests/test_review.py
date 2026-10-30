@@ -376,6 +376,39 @@ def test_review_findings_details_pretty_printing(tmp_path: Path) -> None:
         assert "Found sensitive secret in source" in res_details.output
 
 
+def test_review_findings_details_shows_confirmed_state(tmp_path: Path) -> None:
+    """Verify review findings --details displays the finding state and confirmation adjudicator."""
+    from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
+    from devops_cli.review.state import FindingState
+
+    sess_dir = tmp_path / "rev_sess_state"
+    sess_dir.mkdir(exist_ok=True)
+    f = SavedFinding(
+        id="f-001",
+        persona="devsecops",
+        severity="HIGH",
+        title="Confirmed Vulnerability",
+        location="src/app.py:10",
+        description="SQL injection in query handler",
+        status="VERIFIED",
+        state=FindingState.CONFIRMED,
+        confirmed_by="human",
+    )
+    payload = ReviewSessionPayload(
+        generated_at="2026-08-26T12:00:00Z",
+        subject=review_subject("path", "src/", []),
+        findings=[f],
+    )
+    (sess_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+
+    with patch("devops_cli.commands.review._find_session_dir", return_value=sess_dir):
+        res = runner.invoke(review_app, ["findings", "--session", "rev_sess_state", "--details"])
+        assert res.exit_code == 0
+        assert "State:" in res.output
+        assert "CONFIRMED" in res.output
+        assert "human" in res.output
+
+
 def test_format_clean_text_field_and_finding_unwrapping() -> None:
     """Verify that format_clean_text_field unwraps raw lists, tuples, and stringified Python lists."""
     from devops_cli.ai.review_schema import Finding, format_clean_text_field

@@ -7,6 +7,9 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from devops_cli.ai.review_schema import Finding, SavedFinding
+from devops_cli.config.constants import CONST_VERIFIED_BY_HUMAN
+from devops_cli.review.fingerprint import is_fingerprint_v2
+from devops_cli.review.state import FindingState, assert_finding_state_invariants
 
 # The labels a finding's status is settled under: a person's verdict, a vulnerability scan's
 # match and a dry run's placeholder (#1150). `Finding.verified_by` is plain text, so a session
@@ -145,6 +148,21 @@ def _build_verdict_updates(
     }
 
 
+def _resolve_finding_state_updates(
+    finding: Any, norm_status: str, by: str | None
+) -> dict[str, Any]:
+    """Determine lifecycle state and confirmed_by updates for an adjudicated finding."""
+    fp = getattr(finding, "fingerprint_v2", None) or getattr(finding, "fingerprint", None)
+    has_fp_v2 = bool(fp and is_fingerprint_v2(str(fp)))
+    if norm_status in ("VERIFIED", "MITIGATED") and by == CONST_VERIFIED_BY_HUMAN and has_fp_v2:
+        return {"state": FindingState.CONFIRMED, "confirmed_by": "human"}
+    if norm_status in ("UNVERIFIED", "INVALIDATED") and (
+        hasattr(finding, "state") or hasattr(finding, "confirmed_by")
+    ):
+        return {"state": FindingState.OPEN, "confirmed_by": None}
+    return {}
+
+
 def apply_verdict[T: (Finding, SavedFinding)](
     finding: T,
     status: str,
@@ -177,6 +195,8 @@ def apply_verdict[T: (Finding, SavedFinding)](
         # but an update does not, and criteria that passed twice once stored 2.0.
         updates["confidence_score"] = min(1.0, max(0.0, confidence_score))
 
+    updates.update(_resolve_finding_state_updates(finding, norm_status, by))
+
     for key, val in extra_updates.items():
         if val is not None:
             updates[key] = val
@@ -186,4 +206,6 @@ def apply_verdict[T: (Finding, SavedFinding)](
             setattr(finding, key, val)
 
     assert_verdict_invariants([finding])
+    if hasattr(finding, "state"):
+        assert_finding_state_invariants([finding])
     return finding

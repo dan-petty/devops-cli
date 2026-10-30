@@ -32,7 +32,7 @@ _VALID_TRANSITIONS: dict[FindingState, frozenset[FindingState]] = {
         {FindingState.OPEN, FindingState.FIXED, FindingState.CONFIRMED}
     ),
     FindingState.FIXED: frozenset({FindingState.OPEN}),
-    FindingState.CONFIRMED: frozenset({FindingState.FIXED}),
+    FindingState.CONFIRMED: frozenset({FindingState.FIXED, FindingState.OPEN}),
 }
 
 
