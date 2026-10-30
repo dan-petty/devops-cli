@@ -60,7 +60,7 @@ jobs:
 
       # An urgent fix releases without a wait for a person (#1966, ADR 0013). When the pull
       # request of the pushed commit carries release-now, or closes an issue labeled
-      # priority/p0-critical, or type/security with priority/p1-high, this step turns on the
+      # priority/p0-critical, or scope/security with priority/p1-high, this step turns on the
       # auto-merge of the release pull request, and GitHub merges it when its required checks
       # pass. gh merges at once when the checks already passed. The App token does it, because a
       # merge that GITHUB_TOKEN makes starts no workflow, and then no run creates the release.
@@ -94,7 +94,7 @@ jobs:
                 or any(.closingIssuesReferences.nodes[];
                   [.labels.nodes[].name]
                   | any(. == "priority/p0-critical")
-                    or (any(. == "type/security") and any(. == "priority/p1-high")))')
+                    or (any(. == "scope/security") and any(. == "priority/p1-high")))')
           if [ "$urgent" != "true" ]; then
             echo "Pull request #$pr is not an urgent fix. A person merges the release pull request."
             exit 0

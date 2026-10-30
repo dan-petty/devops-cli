@@ -24,7 +24,7 @@ An urgent fix releases without a wait for a person. After `Run release-please` u
 
 - The pull request has the label `release-now`. A person sets this label.
 - An issue that it closes has the label `priority/p0-critical`.
-- An issue that it closes has the labels `type/security` and `priority/p1-high`.
+- An issue that it closes has the labels `scope/security` and `priority/p1-high`. Intake gives `scope/security` to an issue whose title has the scope `security`, such as `fix(security): ...`.
 
 For an urgent fix, the step turns on auto-merge of the release pull request with the release App token. GitHub merges it when the required checks and the rules of the `main` ruleset pass. If they already passed, the step merges it at once. The App token does it, because a merge that `GITHUB_TOKEN` makes starts no workflow, and then no run creates the release. For any other pull request, the step does nothing, and a person merges the release pull request.
 
