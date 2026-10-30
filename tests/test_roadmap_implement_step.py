@@ -44,7 +44,6 @@ from devops_cli.roadmap.implement_step import (
     run_step,
     shell_environment,
 )
-from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
@@ -533,6 +532,8 @@ def test_the_shell_gets_the_interpreter_that_uv_is_told_to_use(
 def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     tmp_path: Path, checkout: Path
 ) -> None:
+    from devops_cli.roadmap.implement_tool_log import ToolCallLog
+
     agent = build_agent(
         ModelScript(say("x")).model(), checkout, "go", WINDOW, tmp_path / "home", ToolCallLog()
     )
