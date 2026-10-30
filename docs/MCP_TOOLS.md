@@ -205,7 +205,7 @@ Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks
 | `format_type` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `explain` | `boolean` | No | `False` | Explain benchmark metrics, terminology, and mathematical formulas. |
-| `samples` | `integer` | No | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
+| `samples` | `integer` | No | `5` | Number of document sections or code chunks to run retrieval queries for. |
 
 ### `ai_chaos_model`
 

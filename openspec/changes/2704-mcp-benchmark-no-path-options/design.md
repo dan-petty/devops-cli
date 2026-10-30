@@ -2,10 +2,11 @@
 
 ## Decisions
 
-- **The tool publishes none of `output`, `document` and `code`.** Each one names a path on the host. `output` makes the command write a file, and the other two make it read a file or a tree and send the text to a model server. A model must not choose either. `SECURITY.md` principle 11 states the rule for a URL. The same reasoning holds for a path: the tool publishes no option for input that a model gives.
+- **The tool publishes none of `output`, `document` and `code`.** Each one names a path on the host. `output` makes the command write a file, and the other two make it read a file or a tree and send the text to a model server. A model must not choose either. `SECURITY.md` principle 11 stated the rule for a URL. The same reasoning holds for a path, so principle 11 now names a path that a model gives: a tool publishes no option for it unless a path helper confines it.
 - **An allow list, not a deny list.** The entry of `("ai", "benchmark")` lists the options that stay. A new option of the command is not published until a person adds it (#2480).
 - **The tool needs none of the three.** The report comes back on stdout. The embedding benchmark has a built-in corpus. See `proposal.md`, Feasibility.
 - **The command keeps the three options.** A person types the paths, so no model sits between the person and the option.
+- **The help text of `--samples` names no flag.** The text said "code chunks with --code", and the tool does not publish `code`. A model that read it called `code=` and got a refusal. The text now holds for the command and for the tool. A contract test in `tests/test_fastmcp_contracts.py` holds that no tool text names a flag that the tool leaves out.
 - **The tests call the tool through a FastMCP `Client`.** They are in `tests/test_ai_benchmark_mcp_tool.py`, with the tests of #2638. They give a real directory with a real file and check that the directory is unchanged and that no byte reaches the socket. The tests of `--output`, `--document` and `--code` of the command are in `tests/test_ai_benchmark.py` and `tests/test_embedding_benchmark.py`.
 
 ## Rejected alternatives

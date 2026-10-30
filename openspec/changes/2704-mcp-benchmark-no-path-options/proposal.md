@@ -14,6 +14,8 @@ The cause is the same as in #2480, #2638 and #2639: input from a caller is used 
 - The MCP tool `ai_benchmark` publishes no `output`, `document` and `code` option. A call that gives one fails at the argument contract, before any command runs. The command writes no file, reads no file and sends no request.
 - The tool prints its report, as before. An embedding benchmark ranks the built-in corpus (`AGENTS.md` and the workspace specs).
 - `devops ai benchmark` keeps `--output`, `--document` and `--code` for a person at the command line.
+- The help text of `--samples` no longer names `--code`, so the tool description names no option that the tool lacks.
+- `SECURITY.md` principle 11 names a file path that a model gives, with the one allowed case: a path helper confines it.
 - A consumer sees the tool schema, so the change carries a spec delta in the capability `ai-benchmark`.
 - This change fits one pull request.
 
@@ -31,7 +33,8 @@ None.
 
 - `src/devops_cli/ai/mcp/generator.py`: the entry of `("ai", "benchmark")` only.
 - `tests/test_ai_benchmark_mcp_tool.py`.
-- `docs/MCP_TOOLS.md` (generated).
+- `src/devops_cli/lang/en/help.py`, `SECURITY.md` and `tests/test_fastmcp_contracts.py`.
+- `docs/MCP_TOOLS.md`, `docs/CLI_REFERENCE.md` and `docs/commands/ai.md` (generated).
 
 ## Feasibility
 
