@@ -1784,6 +1784,111 @@ def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_both_lanes(eve
     )
 
 
+@pytest.mark.parametrize("action", ["opened", "edited", "reopened"])
+def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_round(
+    action: str, monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
+) -> None:
+    """A delivery of `issues` opened, edited or reopened with an issue number runs its scoped update
+    on the model lane worker, and queues no full round on either lane (ADR 0017, #1533)."""
+    ran_updates: list[tuple[Any, str]] = []
+
+    def fake_scoped(delivery: Any, store: Any, **kwargs: Any) -> Any:
+        ran_updates.append((delivery, threading.current_thread().name))
+        return None
+
+    monkeypatch.setattr("devops_cli.roadmap.run.run_scoped_update", fake_scoped)
+
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        payload = _event_payload(action, issue={"number": 42})
+        response = _github_post(client, "issues", payload, f"scoped-{action}")
+        settled = _lanes_settled(app)
+
+    assert (
+        response.status_code,
+        response.json(),
+        settled,
+        _webhook_keys(lanes),
+        len(ran_updates),
+    ) == (
+        202,
+        {"status": "accepted"},
+        True,
+        {STATUS_LANE: [], MODEL_LANE: []},
+        1,
+    )
+    delivery, thread_name = ran_updates[0]
+    assert (delivery.repo, delivery.event, delivery.action, delivery.number) == (
+        REPO_A,
+        "issues",
+        action,
+        42,
+    )
+    assert f"-{MODEL_LANE}" in thread_name
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _event_payload("labeled", issue={"number": 42}),
+        _event_payload("opened"),
+    ],
+)
+def test_an_unscopeable_delivery_keeps_the_whole_round_hint(payload: dict[str, Any]) -> None:
+    """An issues event without an issue number, or with an action not in SCOPED_UPDATES, keeps the
+    whole-round hint to all lanes."""
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        action = payload.get("action") or ""
+        response = _github_post(client, "issues", payload, "unscoped-1")
+        settled = _lanes_settled(app)
+    key = ("webhook", "issues", action)
+    assert (response.status_code, response.json(), settled, _webhook_keys(lanes)) == (
+        202,
+        {"status": "accepted"},
+        True,
+        {STATUS_LANE: [key], MODEL_LANE: [key]},
+    )
+
+
+def test_a_scoped_update_failure_records_error_and_pauses(
+    monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
+) -> None:
+    """A scoped update that fails records an error metric, error span status, and pauses the lane."""
+
+    def boom_scoped(delivery: Any, store: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("scoped boom")
+
+    monkeypatch.setattr("devops_cli.roadmap.run.run_scoped_update", boom_scoped)
+
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        payload = _event_payload("opened", issue={"number": 42})
+        response = _github_post(client, "issues", payload, "scoped-err")
+        settled = _lanes_settled(app)
+
+    assert (response.status_code, response.json(), settled) == (
+        202,
+        {"status": "accepted"},
+        True,
+    )
+
+
+def test_enqueue_scoped_unmanaged_repo_or_unknown_lane() -> None:
+    """enqueue_scoped returns False for an unmanaged repository or an unknown lane."""
+    app = _lanes_app(_unblocked_lanes())
+    mgr = app.state.service_manager
+
+    def dummy() -> None:
+        pass
+
+    assert mgr.enqueue_scoped("example-org/unmanaged", MODEL_LANE, dummy) is False
+    assert mgr.enqueue_scoped(REPO_A, "nonexistent-lane", dummy) is False
+
+
 def test_the_app_bots_own_event_reaches_neither_lane() -> None:
     """The roadmap's own writes come back as webhooks from the GitHub App's bot. The roadmap
     consumer refuses them, and answers with the reason."""
