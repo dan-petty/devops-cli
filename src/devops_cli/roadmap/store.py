@@ -762,7 +762,7 @@ class RoadmapStore(Protocol):
         """Every close and reopen of issue `number`, oldest first, from its timeline."""
 
     def label_issue(self, number: int, label: str) -> None:
-        """Add `label` to issue `number`, keeping its other labels."""
+        """Add `label` to issue or pull request `number`, keeping its other labels."""
 
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether GitHub confirms the evidence: the advisory exists, the run of this repository

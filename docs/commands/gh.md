@@ -932,7 +932,9 @@ devops gh pr edit [OPTIONS] <number>
 Open a draft pull request, into the default branch unless --base names another.
 
 Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
-review. It sets the Status of the roadmap item the pull request closes to In Progress.
+review. It sets the Status of the roadmap item the pull request closes to In Progress. It also
+adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
+and scope/ai. A scope that .github/labels.yml does not declare gets no label and a warning.
 
 ```bash
 devops gh pr create [OPTIONS]

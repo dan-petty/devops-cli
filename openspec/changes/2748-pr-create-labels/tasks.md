@@ -8,9 +8,9 @@
 
 ## 2. devops pr create adds the labels
 
-- [ ] 2.1 In `tests/test_pr_title_labels.py`, assert the scenarios of `specs/pr-title-labels/spec.md` against the in-memory roadmap store: the labels of a fix with a scope, the warning for an undeclared scope, the exit 1 that names pull request, labels and reason for a refused label and a missing label file, the Status that is still set, no label in a dry run, and the REST fallback path, and verify that `uv run devops ci test tests/test_pr_title_labels.py` fails on the base
-- [ ] 2.2 Add `src/devops_cli/roadmap/pull_labels.py`, let the in-memory store accept a pull request number in `label_issue`, and call the labels from `devops pr create` on both paths with the messages in `lang/en/messages.py`, and verify that `uv run devops ci test tests/test_pr_title_labels.py tests/test_pr_cmd.py tests/test_pr_status.py` passes
-- [ ] 2.3 Name the labels in the help of `devops pr create`, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 2.1 In `tests/test_pr_title_labels.py`, assert the scenarios of `specs/pr-title-labels/spec.md` against the in-memory roadmap store: the labels of a fix with a scope, the warning for an undeclared scope, the exit 1 that names pull request, labels and reason for a refused label and a missing label file, the Status that is still set, no label in a dry run, and the REST fallback path, and verify that `uv run devops ci test tests/test_pr_title_labels.py` fails on the base
+- [x] 2.2 Add `src/devops_cli/roadmap/pull_labels.py`, let the in-memory store accept a pull request number in `label_issue`, and call the labels from `devops pr create` on both paths with the messages in `lang/en/messages.py`, and verify that `uv run devops ci test tests/test_pr_title_labels.py tests/test_pr_cmd.py tests/test_pr_status.py` passes
+- [x] 2.3 Name the labels in the help of `devops pr create`, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## Workflow follow-up
 

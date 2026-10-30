@@ -1057,6 +1057,15 @@ class PRMessages:
     status_not_set: str = (
         "Pull request #{number} is {state}, but the Status of its item was not set: {error}"
     )
+    labels_not_set: str = (
+        "Pull request #{number} is open, but the labels of its title were not added: {error}"
+    )
+    labels_unreadable: str = "{path} can't be read as label specs: {error}"
+    labels_refused: str = "{labels} could not be added: {error}"
+    labels_scope_undeclared: str = (
+        "The scope `{scope}` of the title has no label: {path} does not declare {label}. "
+        "The pull request gets no scope label."
+    )
     gh_cli_required: str = (
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."
