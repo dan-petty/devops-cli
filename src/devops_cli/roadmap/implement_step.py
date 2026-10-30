@@ -90,6 +90,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import (
+    body_error_text,
     bounded_text,
     drain_events,
     model_call_error,
@@ -596,13 +597,16 @@ def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
 
 def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
     """The reason of a run that a failed model call ended (#2731): the class of the error, the HTTP
-    status when the reply has one, and the name of the model, then the counts of `_stop_reason`.
-    The message and the body of the reply stay out. They are text that the provider chose, and the
-    masker finds a secret by its form in a sentence, not by its key in the repr of a dict."""
+    status when the reply has one, and the name of the model, then the error text of the body of
+    the reply (#2794), then the counts of `_stop_reason`. The message of the error stays out, and
+    so does every value of the body but its error text: the masker finds a secret by its form in
+    a sentence, not by its key in the repr of a dict."""
     texts = MESSAGES.roadmap
     detail = texts.implement_model_call_model.format(model=failed.model_name)
     if isinstance(failed, ModelHTTPError):
         detail = texts.implement_model_call_status.format(status=failed.status_code, model=detail)
+        if body := bounded_text(body_error_text(failed.body)):
+            detail = texts.implement_model_call_body.format(detail=detail, body=body)
     reason = texts.run_stop_reason.format(error=type(failed).__name__, message=detail)
     return _with_counts(reason, log)
 

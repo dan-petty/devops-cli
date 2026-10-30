@@ -4,7 +4,7 @@ that keeps a long reply inside the gateway's tunnel, and the spend record of a r
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterable, Sequence
+from collections.abc import AsyncIterable, Mapping, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -53,6 +53,20 @@ def bounded_text(text: str) -> str:
     return masked[:CONST_ROADMAP_RUN_ERROR_CHARS]
 
 
+def body_error_text(body: object) -> str:
+    """The error text in the `body` of a model's error reply: the body when it is a string, else
+    its `message`, else its `error`, read the same way. It is a string that the provider wrote as
+    an error text. No other value of a body is read, for `mask_secrets` finds a secret by its
+    form in a text, and not the value of a key such as `api_key` in the repr of a dict."""
+    if isinstance(body, str):
+        return body
+    if isinstance(body, Mapping):
+        return next(
+            (text for key in ("message", "error") if (text := body_error_text(body.get(key)))), ""
+        )
+    return ""
+
+
 # A part of a message in quotes, such as a tool name, and the characters from which pydantic-ai
 # writes data of the reply of the model into a message (#2562).
 _QUOTED = re.compile(r"""(['"`]).*?\1""")
@@ -96,6 +110,7 @@ def record_run_spend(
 
 
 __all__ = [
+    "body_error_text",
     "bounded_text",
     "drain_events",
     "model_call_error",

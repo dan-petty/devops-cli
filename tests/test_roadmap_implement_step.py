@@ -1445,7 +1445,7 @@ def test_a_model_call_that_fails_stops_the_step_with_the_diff_of_the_work_and_th
 def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_the_reason(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    script = ModelScript(ModelHTTPError(503, "example-model", {"error": "busy"}))
+    script = ModelScript(ModelHTTPError(503, "example-model"))
 
     outcome = _step(store, checkout, script)
 
@@ -1486,6 +1486,60 @@ def test_a_message_of_a_failed_model_call_is_not_in_the_reason(
     outcome = _step(store, checkout, script)
 
     assert outcome.reason == "ModelAPIError: model example-model"
+
+
+XML_ERROR = "XML syntax error on line 75: unexpected EOF"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"message": XML_ERROR, "type": None, "code": "400"}, id="message"),
+        pytest.param({"error": XML_ERROR}, id="error-text"),
+        pytest.param({"error": {"message": XML_ERROR, "code": 400}}, id="error-message"),
+        pytest.param(XML_ERROR, id="text"),
+    ],
+)
+def test_the_reason_of_a_failed_model_call_holds_the_error_text_of_the_body(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, body: object
+) -> None:
+    script = ModelScript(ModelHTTPError(400, "example-model", body))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == f"ModelHTTPError: HTTP 400, model example-model, body: {XML_ERROR}"
+
+
+def test_the_error_text_of_the_body_is_masked_and_cut(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    long_text = f"{TOKEN} " + "x" * (2 * constants.CONST_ROADMAP_RUN_ERROR_CHARS)
+    script = ModelScript(ModelHTTPError(400, "example-model", {"message": long_text}))
+
+    outcome = _step(store, checkout, script)
+
+    prefix = "ModelHTTPError: HTTP 400, model example-model, body: "
+    assert TOKEN not in outcome.reason
+    assert outcome.reason.startswith(prefix)
+    assert len(outcome.reason) - len(prefix) <= constants.CONST_ROADMAP_RUN_ERROR_CHARS
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"error": {"api_key": "abcdefghij1234567890zzQQ", "code": 7}}, id="keys"),
+        pytest.param({"message": 7, "error": ["abcdefghij1234567890zzQQ"]}, id="not-text"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_a_body_with_no_error_text_adds_nothing_to_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, body: object
+) -> None:
+    script = ModelScript(ModelHTTPError(400, "example-model", body))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == "ModelHTTPError: HTTP 400, model example-model"
 
 
 def test_a_failed_read_of_the_discarded_diff_keeps_the_reason_of_the_stop(

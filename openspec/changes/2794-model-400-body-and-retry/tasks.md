@@ -2,9 +2,9 @@
 
 ## 1. The body in the reason
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_step.py`: the reason of a `ModelHTTPError` with the status 400 holds the `message` of a dict body, the string of a `{"error": "..."}` body, and a string body; a token in the text is masked; a long text is cut; a body of other values (`api_key`, headers) adds nothing; a `ModelAPIError` adds nothing. Change the tests of #2731 that say the body stays out.
+- [x] Write failing tests in `tests/test_roadmap_implement_step.py`: the reason of a `ModelHTTPError` with the status 400 holds the `message` of a dict body, the string of a `{"error": "..."}` body, and a string body; a token in the text is masked; a long text is cut; a body of other values (`api_key`, headers) adds nothing; a `ModelAPIError` adds nothing. Change the tests of #2731 that say the body stays out.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Add the text of the body to the reason in `_model_call_reason` of `src/devops_cli/roadmap/implement_step.py`, and the format to `src/devops_cli/lang/en/messages.py`.
+- [x] Add the text of the body to the reason in `_model_call_reason` of `src/devops_cli/roadmap/implement_step.py`, and the format to `src/devops_cli/lang/en/messages.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
 
 ## 2. The resend
