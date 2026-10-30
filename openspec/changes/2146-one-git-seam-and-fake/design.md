@@ -10,11 +10,11 @@
 
 - `clone_repo`: `git clone -- <url> <dest>`.
 - `fetch_all`: `git remote`, then `git fetch --prune <remote>` for each remote.
-- `pull_tracking`: `git branch --show-current`, `git for-each-ref --format=%(upstream:remotename) refs/heads/<branch>`, `git remote`, then `git pull <remote> <branch>`.
+- `pull_tracking`: `git branch --show-current`, `git config --get branch.<branch>.remote`, `git remote`, then `git pull <remote> <branch>`. `for-each-ref --format=%(upstream:remotename)` is not used: it gives nothing for a branch whose remote does not exist, where the setting names it.
 - `create_branch`: `git show-ref --verify --quiet refs/heads/<name>`, then `git checkout -b <name>`.
 - `list_branches` and `delete_merged_branches`: `git branch --show-current`, `git for-each-ref --format=%(refname) refs/heads refs/remotes`, `git branch --merged <default>` and `git branch -d`.
 - `commit_snapshot`: `git init`, `git add --force`, `git write-tree` and `git commit-tree --no-gpg-sign` with the message on standard input and the author and date in the environment. The ref is set by `git update-ref`.
-- `current_branch` is new and shared by `list_branches` and `commands/repos.py`. `extract_git_co_changes` runs one `git log` for all commits of a path.
+- `current_branch` is new and shared by `list_branches` and `commands/repos.py`. `extract_git_co_changes` runs `git rev-list` for the commits of a path and one `git log --no-walk --stdin` for the files of all of them, where GitPython started one `git diff` for each commit.
 
 Read commands pass `local_read=True`, so a dry run still reads. A command that changes the repository or reaches a remote is a planned request in a dry run, as every other mutating start of the runner.
 
@@ -36,9 +36,9 @@ The record sets the identity, the dates, `HOME` and the configuration files, so 
 
 `tests/test_git_contract.py` runs each scenario twice: over a `ProcessFake` that answers the recorded exchanges in order, and over `GitFake`. Both runs must give the recorded result, and the first must start exactly the recorded commands in order. The `devops ci` row `git` records each scenario with the real git again and fails when the transcript differs. Together they fix the fake to the code and the transcript to git.
 
-### The hermetic floor refuses real git in a test with the fixture
+### The fixture refuses real git
 
-`git_fake` sets a flag that the process guard of `tests/conftest.py` reads. A test with the fixture that reaches a real git, through the `git` fixture or a direct `subprocess` call, fails. This holds the criteria "start no git" for the three files and for every file that migrates later.
+`git_fake` puts a guard on `subprocess.Popen` for the length of the test. A test with the fixture that reaches a real git, through the `git` fixture or a direct `subprocess` call, fails. This holds the criterion "start no git" for the three files and for every file that migrates later. The floor of `tests/conftest.py` still allows git in the other tests, until the last of the follow-up issues moves them.
 
 ### The row runs in the static job
 

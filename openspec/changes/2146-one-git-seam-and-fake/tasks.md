@@ -29,7 +29,7 @@
 
 ## 4. Documents
 
-- [ ] Describe the git seam, the fake, the contract suite and the row in `docs/TESTING.md`, remove the GitPython manual from the knowledge base, and regenerate the documentation
+- [x] Describe the git seam, the fake, the contract suite and the row in `docs/TESTING.md`, remove the GitPython manual from the knowledge base, and regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme`
 
 ## 5. Archive
