@@ -190,7 +190,7 @@ def test_a_changed_transcript_and_a_transcript_without_a_scenario_are_reported()
     [
         ("{root}/repo and runner@example.com", []),
         ("/home/someone/repo", ["/home/"]),
-        ("/tmp/git-scenario-abc/repo", ["/tmp/"]),
+        ("/mnt/scratch/repo", ["/mnt/"]),
         ("someone@corp.example.org", ["someone@corp.example.org"]),
     ],
 )
