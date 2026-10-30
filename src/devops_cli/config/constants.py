@@ -661,6 +661,10 @@ CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_
 # of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
+# The job of `ci.yml` that runs the test row: `devops ci job-time` reads the time of this job from
+# its last runs (#2699), so the budget above is checked on the runs of the runner and not on the
+# one run of a pull request.
+CONST_CI_TEST_JOB_NAME: Final[str] = "Tests & Coverage"
 # `devops ci` gate slots (#2336): a directory directly under the data directory, outside the
 # subdirectories that `devops workspace clean` prunes, holds one lock file for each slot.
 CONST_CI_GATE_SLOTS_DIRNAME: Final[str] = "ci-gate-slots"

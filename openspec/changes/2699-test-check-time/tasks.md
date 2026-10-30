@@ -2,11 +2,11 @@
 
 ## 1. The guard: `devops ci job-time`
 
-- [ ] 1.1 Add failing tests in `tests/test_ci_job_time.py` over the fake of the GitHub API with the recorded runs of `main` in `tests/fixtures/github/ci_runs_main.json`: the job time read from the right job of each run, the stop at the wanted runs, a run without the job and a failed job left out, a second page of runs, the mean on the limit and over it, a short read, the options, the dry run, and the shape of the `job-time` job in `ci.yml`
+- [x] 1.1 Add failing tests in `tests/test_ci_job_time.py` over the fake of the GitHub API with the recorded runs of `main` in `tests/fixtures/github/ci_runs_main.json`: the job time read from the right job of each run, the stop at the wanted runs, a run without the job and a failed job left out, a second page of runs, the mean on the limit and over it, a short read, the options, the dry run, and the shape of the `job-time` job in `ci.yml`
   - Verification: `uv run devops ci test tests/test_ci_job_time.py` fails on the base
-- [ ] 1.2 Add `GitHubClient.get_job_run_times`, the report in `ci/job_time.py`, the command `devops ci job-time` with its messages and help, and the job `Test Job Duration` in `ci.yml`. Register the command as not exposed by MCP and the step in the allowlist of the workflow parity test
+- [x] 1.2 Add `GitHubClient.get_job_run_times`, the report in `ci/job_time.py`, the command `devops ci job-time` with its messages and help, and the job `Test Job Duration` in `ci.yml`. Register the command as not exposed by MCP and the step in the allowlist of the workflow parity test
   - Verification: `uv run devops ci test tests/test_ci_job_time.py tests/test_ci.py tests/test_mcp.py`
-- [ ] 1.3 Run `uv run devops docs generate --sync-readme`
+- [x] 1.3 Run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`
 
 ## 2. The cut: work that every test repeated

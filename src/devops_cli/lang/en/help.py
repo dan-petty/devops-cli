@@ -798,6 +798,17 @@ class CICommandHelp:
         "tests fail unpatched."
     )
     fail_to_pass_head: str = "Head git revision supplying the overlaid tests/ tree."
+    job_time: str = (
+        "Fail when the last runs of a CI job took more than the limit on average. Reads the job "
+        "time of the last successful push runs of a workflow on a branch from GitHub's Actions "
+        "API. Fails too when fewer runs than asked for could be read."
+    )
+    job_time_repo: str = "Repository as owner/name. Default: the origin of the current checkout."
+    job_time_job: str = "Name of the job whose time is read."
+    job_time_workflow: str = "Workflow file that holds the job."
+    job_time_branch: str = "Branch whose push runs are read."
+    job_time_runs: str = "How many of the last runs the mean covers."
+    job_time_limit: str = "Most seconds the mean of the runs may be."
 
 
 @dataclass(frozen=True)

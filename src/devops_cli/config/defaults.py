@@ -441,6 +441,8 @@ DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 # select at most 12.
 DEFAULT_CI_TEST_SERIAL_MAX_FILES: Final[int] = 12
 DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
+# `devops ci job-time` (#2699): how many of the last runs of the test job its mean covers.
+DEFAULT_CI_JOB_TIME_RUNS: Final[int] = 10
 # `devops ci` gate slots (#2336): one slot for each this many CPUs, at least one. The full suite
 # starts one pytest worker for each CPU, so a gate saturates a host alone. On 16 CPUs on
 # 2026-10-27, 11189 tests took 247 s alone, inside the 300 s test budget, and two gates side by

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from datetime import datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode
@@ -120,6 +121,41 @@ class _IssueSearchPage(BaseModel):
     total_count: int
     incomplete_results: bool
     items: list[IssueSearchHit]
+
+
+class JobRunTime(BaseModel):
+    """How long a job took in one workflow run, from its start to its end (#2699)."""
+
+    run_id: int
+    seconds: float
+
+
+class _WorkflowRunRef(BaseModel):
+    """The run of a workflow listing that devops-cli reads: its number."""
+
+    id: int
+
+
+class _JobTiming(BaseModel):
+    """One job of a run: its name, how it ended, and when it started and ended."""
+
+    name: str
+    conclusion: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @property
+    def seconds(self) -> float | None:
+        """The seconds from start to end; None for a job that has not both."""
+        if self.started_at is None or self.completed_at is None:
+            return None
+        return (self.completed_at - self.started_at).total_seconds()
+
+
+class _RunJobs(BaseModel):
+    """What the jobs endpoint says of a run."""
+
+    jobs: list[_JobTiming]
 
 
 class _FileContents(BaseModel):
@@ -340,6 +376,42 @@ class GitHubClient:
             if len(hits) >= page.total_count or len(page.items) < per_page:
                 break
         return hits
+
+    def get_job_run_times(
+        self, repo: str, *, workflow: str, branch: str, job: str, count: int
+    ) -> list[JobRunTime]:
+        """How long `job` took in each of the last `count` successful `push` runs of `workflow` on
+        `branch`, newest first (#2699).
+
+        A run that has no job of that name, or whose job did not succeed, is left out and does not
+        count. The listing is read page by page and stops once `count` runs hold the job, so the
+        jobs of no later run are asked for. Fewer than `count` come back when the workflow has
+        fewer such runs.
+        """
+        query = urlencode(
+            {
+                "branch": branch,
+                "event": "push",
+                "status": "success",
+                "per_page": DEFAULT_GH_REST_PER_PAGE,
+            }
+        )
+        listing = _repo_path(repo, f"actions/workflows/{quote(workflow, safe='')}/runs?{query}")
+        times: list[JobRunTime] = []
+        for item in self._session.paginate(listing, iterable_key="workflow_runs"):
+            run = _read_as(_WorkflowRunRef, item, path=listing)
+            seconds = self._job_seconds(repo, run.id, job)
+            if seconds is not None:
+                times.append(JobRunTime(run_id=run.id, seconds=seconds))
+            if len(times) >= count:
+                break
+        return times
+
+    def _job_seconds(self, repo: str, run_id: int, job: str) -> float | None:
+        """The seconds the successful job `job` took in the run `run_id`; None if it has none."""
+        path = _repo_path(repo, f"actions/runs/{run_id}/jobs?per_page={DEFAULT_GH_REST_PER_PAGE}")
+        jobs = _read_as(_RunJobs, self._session.rest("GET", path), path=path).jobs
+        return next((j.seconds for j in jobs if j.name == job and j.conclusion == "success"), None)
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""

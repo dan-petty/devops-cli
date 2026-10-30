@@ -146,6 +146,38 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+  # AGENTS.md rule 5: a check that averages more than 5 minutes is a P0 bug. The run of one pull
+  # request is one sample, so this job reads the last ten successful pushes to main from the
+  # Actions API and fails when the mean of the `Tests & Coverage` job is over 300 s (#2699). It
+  # runs on every push to main and on the daily schedule, beside the test job, and no pull request
+  # waits for it: the history it reads is main's, which a pull request cannot change. It sees the
+  # runs before this one. It needs `actions: read` only.
+  job-time:
+    name: Test Job Duration
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: job-time
+          save-uv-cache: "false"
+
+      - name: Check the duration of Tests & Coverage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run devops ci job-time --repo "$GITHUB_REPOSITORY"
+
   # Builds the devcontainer image of every pull request and of every workflow_dispatch run, with
   # the actions release.yml uses (#1895). It
   # pushes the image by digest to a registry on the runner, starts it as its remote user, and
