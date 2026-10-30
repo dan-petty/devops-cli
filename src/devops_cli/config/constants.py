@@ -922,6 +922,11 @@ CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
 # endpoint URL with no httpx2 origin, and what a served_by display shows for a value that names no
 # server. It is never the text of the URL, so it never holds userinfo.
 CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
+# The longest value, and the characters outside the allowed set, of a metric label that a caller
+# of a command sets, such as the model of `devops ai prewarm` (#2676). The set holds the letters
+# and marks of an Ollama model reference: `hf.co/org/repo:Q4_K_M`.
+CONST_METRIC_LABEL_MAX_LENGTH: Final[int] = 128
+CONST_METRIC_LABEL_UNSAFE_RE: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9._:/-]")
 # The `backend_info` of a reply the response cache answered, and the server its spend-ledger row
 # names: no backend served it, so spend reports leave it out of their server counts (#816).
 CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"
