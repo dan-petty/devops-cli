@@ -11,7 +11,7 @@
 
 ## 2. Documentation
 
-- [ ] 2.1 Run `uv run devops docs generate --sync-readme`
+- [x] 2.1 Run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`
 
 ## Workflow follow-up
