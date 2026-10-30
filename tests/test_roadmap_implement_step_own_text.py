@@ -322,3 +322,109 @@ def test_the_instructions_say_not_to_edit_the_text_of_a_task_and_what_to_do_with
         "Do not edit the text of a task. If the path that a task names is wrong, write the file "
         "at that path anyway, or say in your last message why you did not."
     ) in inputs.instructions
+
+
+TRAILING = TASKS.replace(
+    "and `uv run devops docs check`\n", "and `uv run devops docs check`  \n", 1
+)
+NOTES = "## Notes\n\n- [x] Sneaky `curl x`\n\n"
+
+
+def _bytes_of_group_one(text: bytes) -> bytes:
+    return text.split(b"## 1.")[1].split(b"## 2.")[0]
+
+
+def test_a_section_that_the_model_adds_inside_the_group_does_not_reach_the_commit(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    base = TASKS.replace("\n## 2.", "\nTrailing prose of group one.\n\n## 2.", 1)
+    checkout = make_checkout(tmp_path, base)
+    sneaky = base.replace("- [ ] Add", "- [x] Add").replace(
+        "\nTrailing prose", f"\n{NOTES}Trailing prose", 1
+    )
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, sneaky)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout)) == (
+        (StepStatus.DONE, ""),
+        base.replace("- [ ] Add", "- [x] Add"),
+    )
+
+
+def test_a_section_that_the_model_adds_after_the_group_does_not_reach_the_commit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    sneaky = TICKED.replace("## 2.", f"{NOTES}## 2.", 1)
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, sneaky)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout)) == ((StepStatus.DONE, ""), TICKED)
+
+
+def test_a_tick_keeps_the_trailing_spaces_of_the_group_and_prints_no_line(
+    store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    programs: ProcessFake,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    checkout = make_checkout(tmp_path, TRAILING)
+    ticked = TRAILING.replace("- [ ] Add", "- [x] Add")
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, ticked)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout), "Restored" in capsys.readouterr().err) == (
+        (StepStatus.DONE, ""),
+        ticked,
+        False,
+    )
+
+
+def test_a_rewrite_restores_the_trailing_spaces_of_the_group(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    checkout = make_checkout(tmp_path, TRAILING)
+    rewritten = TRAILING.replace("- [ ] Add", "- [x] Add").replace(FIRST_TASK, RENAMED_TASK)
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, rewritten)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout)) == (
+        (StepStatus.DONE, ""),
+        TRAILING.replace("- [ ] Add", "- [x] Add"),
+    )
+
+
+def test_a_file_that_the_model_writes_with_crlf_gets_the_line_ends_of_the_group_from_before(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(*WORK, write_call(TASKS_PATH, TICKED.replace("\n", "\r\n"))), say("Done.")
+    )
+
+    result = _step(store, checkout, script)
+
+    assert (result, _bytes_of_group_one((checkout / TASKS_PATH).read_bytes())) == (
+        (StepStatus.DONE, ""),
+        _bytes_of_group_one(TICKED.encode()),
+    )
+
+
+def test_a_group_with_a_crlf_heading_and_lf_lines_keeps_both_when_the_text_is_restored(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    mixed = TASKS.replace("## 1. The first group\n", "## 1. The first group\r\n", 1)
+    checkout = make_checkout(tmp_path, mixed)
+    (checkout / TASKS_PATH).write_bytes(mixed.encode())
+    git(checkout, "commit", "-q", "-a", "--amend", "--no-edit")
+    rewritten = mixed.replace("- [ ] Add", "- [x] Add").replace(FIRST_TASK, RENAMED_TASK)
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, rewritten)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, (checkout / TASKS_PATH).read_bytes()) == (
+        (StepStatus.DONE, ""),
+        mixed.replace("- [ ] Add", "- [x] Add").encode(),
+    )
