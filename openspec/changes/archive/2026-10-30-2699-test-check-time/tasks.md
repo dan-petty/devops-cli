@@ -17,7 +17,7 @@
   - Verification: `uv run devops ci test tests/test_k8s_llm_gateway.py tests/test_docs.py`
 - [x] 2.3 Build the LLM response cache on first use in `isolate_llm_response_cache`
   - Verification: `uv run devops ci test tests/test_llm_response_cache.py`
-- [x] 2.4 Raise the young threshold of the garbage collector and freeze the collected heap in the root conftest
+- [x] 2.4 Raise the young threshold of the garbage collector in the root conftest
   - Verification: `uv run devops ci test tests/test_memory_profiler.py`
 - [x] 2.5 Poll the shutdown of the five test servers every 0.01 s
   - Verification: `uv run devops ci test tests/test_sandbox_probe.py tests/test_sandbox_metrics.py tests/k8s/test_kubernetes_contract.py`
@@ -26,7 +26,15 @@
 - [x] 2.7 Add the section "Run time" to `docs/TESTING.md`
   - Verification: `uv run devops ci docs`
 
+## 3. The guard reads the job, not the run
+
+- [x] 3.1 Add failing tests: a failed or timed-out job counts whatever the run concluded, a cancelled job does not, and a slow failed run puts the mean over the limit
+  - Verification: `uv run devops ci test tests/test_ci_job_time.py` fails on the earlier read of successful runs
+- [x] 3.2 List completed runs and count a job that ended `success`, `failure` or `timed_out`; change the spec, the help text, the dry run text and the comment in `ci.yml`
+  - Verification: `uv run devops ci test tests/test_ci_job_time.py tests/test_ci.py`
+- [x] 3.3 State the expected red of `Test Job Duration` after the merge, and the measured ratio of the cut, in the proposal and the design
+  - Verification: `uv run devops openspec check`
+
 ## Workflow follow-up
 
-- The mean over ten runs on the runner is known only after the change merges and ten pushes to `main` have run. `devops ci job-time` states it. #2699 stays open until it reads under 300 s.
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- The mean over ten runs on the runner is known only after the change merges and ten pushes to `main` have run. `devops ci job-time` states it. #2699 stays open until it reads under 300 s. The job `Test Job Duration` is red on the merge push and on about 8 pushes after it, because its window still holds the slow runs (`design.md`, "Expected red after the merge").

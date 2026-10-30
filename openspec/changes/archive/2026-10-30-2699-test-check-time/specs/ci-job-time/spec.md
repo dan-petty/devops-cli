@@ -4,14 +4,14 @@ How `devops ci job-time` finds out whether a CI job, by default the test job, st
 ## ADDED Requirements
 
 ### Requirement: The mean time of the test job over its last runs is checked
-The `devops ci job-time` command SHALL read from the GitHub Actions API the time of a named job in the last successful `push` runs of a workflow on a branch. By default it SHALL read the job `Tests & Coverage` of `ci.yml` on `main`, 10 runs, with a limit of 300 seconds. The time of a run SHALL be the time from the start of the job to its end. The command SHALL exit 0 when the mean of the runs is not over the limit, and exit 1 when it is. It SHALL print the time of each run read and the mean.
+The `devops ci job-time` command SHALL read from the GitHub Actions API the time of a named job in the last completed `push` runs of a workflow on a branch. By default it SHALL read the job `Tests & Coverage` of `ci.yml` on `main`, 10 runs, with a limit of 300 seconds. The time of a run SHALL be the time from the start of the job to its end. The command SHALL exit 0 when the mean of the runs is not over the limit, and exit 1 when it is. It SHALL print the time of each run read and the mean.
 
 #### Scenario: The mean is inside the limit
-- **WHEN** the last 10 successful runs of the job took 100 seconds each and the user runs `devops ci job-time`
+- **WHEN** the last 10 runs of the job took 100 seconds each and the user runs `devops ci job-time`
 - **THEN** the command exits 0 and the output names the mean of 100 seconds and the limit of 300 seconds
 
 #### Scenario: The mean is over the limit
-- **WHEN** the last 10 successful runs of the job took 400 seconds each and the user runs `devops ci job-time`
+- **WHEN** the last 10 runs of the job took 400 seconds each and the user runs `devops ci job-time`
 - **THEN** the command exits 1 and the output names the mean of 400 seconds and says that it is over the limit
 
 #### Scenario: The mean is on the limit
@@ -30,19 +30,30 @@ The `devops ci job-time` command SHALL read from the GitHub Actions API the time
 The command SHALL exit 1 when GitHub gave fewer runs of the job than the command asked for, and its output SHALL name how many it read and how many it asked for. The mean of fewer runs SHALL NOT pass.
 
 #### Scenario: Three runs of ten
-- **WHEN** only 3 successful runs hold the job, each inside the limit, and the user runs `devops ci job-time`
+- **WHEN** only 3 runs hold the job, each inside the limit, and the user runs `devops ci job-time`
 - **THEN** the command exits 1 and the output says that only 3 of the last 10 runs were read
 
-### Requirement: Only a successful job of a successful run counts
-The command SHALL list only the runs that GitHub reports as successful `push` runs of the workflow on the branch. A listed run that has no job of the given name, or whose job did not end with the conclusion `success`, SHALL NOT count and SHALL NOT take a place among the wanted runs. The command SHALL follow the next link of the listing, and SHALL stop asking for the jobs of runs once the wanted runs are read.
+### Requirement: The conclusion of the job counts, not the conclusion of the run
+The command SHALL list the completed `push` runs of the workflow on the branch, whatever their conclusion. A run SHALL count when its job of the given name ended with `success`, `failure` or `timed_out`, and has a start and an end. Any other run SHALL NOT count and SHALL NOT take a place among the wanted runs. A run that failed for another job still holds the time of the test job, and a slow run that failed is the run the check must see.
 
 #### Scenario: A run without the job
 - **WHEN** the newest run has no job of that name and the older runs have it
 - **THEN** the run is left out and the runs after it are read in its place
 
-#### Scenario: A job that failed
-- **WHEN** the job failed in one run
+#### Scenario: A job that was cancelled
+- **WHEN** the job was cancelled in one run
 - **THEN** that run is left out
+
+#### Scenario: A job that failed or timed out
+- **WHEN** the job failed or timed out in one run, and the run concluded with a failure
+- **THEN** the time of the job counts as one of the wanted runs
+
+#### Scenario: A slow failed run among fast ones
+- **WHEN** 9 of the 10 runs took 250 seconds and one failed run took 600 seconds
+- **THEN** the mean is 285 seconds and the command exits 1 for a limit of 280 seconds
+
+### Requirement: Only the wanted runs are read
+The command SHALL follow the next link of the listing of runs, and SHALL stop asking for the jobs of runs once the wanted runs are read.
 
 #### Scenario: A second page of runs
 - **WHEN** the listing links a next page
