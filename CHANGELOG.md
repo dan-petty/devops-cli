@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.4](https://github.com/dan-petty/devops-cli/compare/v0.22.3...v0.22.4) (2026-10-30)
+
+
+### Bug Fixes
+
+* **pr:** pr create adds the labels of the title ([#2782](https://github.com/dan-petty/devops-cli/issues/2782)) ([7183af3](https://github.com/dan-petty/devops-cli/commit/7183af3911b832a671a97fd3b50482b45a808d54)), closes [#2748](https://github.com/dan-petty/devops-cli/issues/2748)
+* **roadmap:** refused shell programs name their replacement ([#2783](https://github.com/dan-petty/devops-cli/issues/2783)) ([0458f8f](https://github.com/dan-petty/devops-cli/commit/0458f8f525798feef3305bfc12eb3645a766363c)), closes [#2773](https://github.com/dan-petty/devops-cli/issues/2773)
+* **roadmap:** restore the own group text in an implement step ([#2780](https://github.com/dan-petty/devops-cli/issues/2780)) ([163a840](https://github.com/dan-petty/devops-cli/commit/163a8409032c48581d6169f6a6028207d218ccdf)), closes [#2774](https://github.com/dan-petty/devops-cli/issues/2774)
+* **security:** lock joserfc at 1.7.7 ([#2787](https://github.com/dan-petty/devops-cli/issues/2787)) ([0b9f9e5](https://github.com/dan-petty/devops-cli/commit/0b9f9e5add219a8a97e0cbf63f645baaa5ce37dc)), closes [#2786](https://github.com/dan-petty/devops-cli/issues/2786)
+
 ## [0.22.3](https://github.com/dan-petty/devops-cli/compare/v0.22.2...v0.22.3) (2026-10-30)
 
 
