@@ -11,7 +11,7 @@
 
 ## 2. Documentation
 
-- [ ] 2.1 Say in the six instrument descriptions that the Service does not send the traffic gauges, and add the consequence to ADR 0015. Run `uv run devops docs generate --sync-readme`
+- [x] 2.1 Say in the six instrument descriptions that the Service does not send the traffic gauges, and add the consequence to ADR 0015. Run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`
 
 ## Workflow follow-up
