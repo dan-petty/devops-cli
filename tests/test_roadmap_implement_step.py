@@ -966,9 +966,10 @@ def test_a_failed_verification_command_stops_the_step_with_no_extra_turn(
     )
 
 
-def test_a_failed_static_check_stops_the_step_with_no_extra_turn(
+def test_a_failed_static_check_gets_one_extra_turn_for_it_and_none_for_the_ticks(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    """The turn for the failure lists the unticked tasks too (#2795), so no turn for them follows."""
     programs.answer(
         lambda call: command_text(call).startswith("uv run mypy"),
         ProcessAnswer(returncode=1, stdout="error: bad type\n"),
@@ -977,7 +978,7 @@ def test_a_failed_static_check_stops_the_step_with_no_extra_turn(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 2)
+    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 3)
     assert outcome.reason.endswith("exited with status 1.\nerror: bad type")
 
 

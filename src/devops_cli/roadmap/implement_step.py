@@ -81,6 +81,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS,
+    CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
@@ -978,23 +979,33 @@ def _stage(source: Path) -> list[str]:
     return sorted(name for name in names.split("\0") if name)
 
 
-def _exit_failure(source: Path, inputs: StepInputs, start: str) -> str | None:
+@dataclass(frozen=True)
+class _Failure:
+    """Why the step stops, and, for a failed static check, the paths that the step changed: the
+    files that the one extra turn for that failure may change (#2795). `repair_paths` is None for
+    a failure that gets no such turn."""
+
+    reason: str
+    repair_paths: frozenset[str] | None = None
+
+
+def _exit_failure(source: Path, inputs: StepInputs, start: str) -> _Failure | None:
     """The first exit check that fails, or None when every one passes. The step makes the only
     commit, so a checkout that left `start` fails the first check. The `tasks.md` is written
     back first, whatever the run did to it. The ticks are judged last, by
     `_unticked_failure`, as a step with a task unticked gets a turn for them first."""
     head = _head(source)
     if head != start:
-        return MESSAGES.roadmap.implement_stop_head_moved.format(start=start, head=head)
+        return _Failure(MESSAGES.roadmap.implement_stop_head_moved.format(start=start, head=head))
     _restore_tasks(inputs)
     changed = _stage(source)
     if not changed:
-        return MESSAGES.roadmap.implement_stop_no_change
-    return (
-        _format_failure(source, changed)
-        or _verification_failure(source, inputs.group)
-        or _static_failure(source, changed)
-    )
+        return _Failure(MESSAGES.roadmap.implement_stop_no_change)
+    early = _format_failure(source, changed) or _verification_failure(source, inputs.group)
+    if early:
+        return _Failure(early)
+    static = _static_failure(source, changed)
+    return _Failure(static, frozenset(changed)) if static else None
 
 
 def _discarded_diff(source: Path, start: str) -> tuple[str, bool]:
@@ -1067,19 +1078,60 @@ def _tree(source: Path) -> str:
     return _git_output(source, "write-tree").strip()
 
 
-def _foreign_change(source: Path, inputs: StepInputs, tree: str) -> str | None:
-    """Why the step stops when the checkout differs from `tree` in a file other than the
-    `tasks.md` of the change, else None."""
+@dataclass(frozen=True)
+class _Ask:
+    """The one extra turn of a step: its message, the files other than the `tasks.md` of the change
+    that it may change, and the reason of the stop when it changes any other."""
+
+    message: str
+    may_change: frozenset[str]
+    changed_reason: str
+
+
+def _foreign_change(source: Path, inputs: StepInputs, tree: str, ask: _Ask) -> str | None:
+    """Why the step stops when the checkout differs from `tree` in a file that `ask` does not let
+    the turn change, else None. The `tasks.md` of the change is always allowed."""
     _git_output(source, "add", "-A")
     names = _git_output(source, "diff", "--cached", "--name-only", "--no-renames", "-z", tree)
     tasks = (inputs.change / "tasks.md").relative_to(source).as_posix()
-    others = sorted(name for name in names.split("\0") if name and name != tasks)
+    allowed = ask.may_change | {tasks}
+    others = sorted(name for name in names.split("\0") if name and name not in allowed)
     if not others:
         return None
-    return MESSAGES.roadmap.implement_stop_tick_turn_changed.format(paths=_paths_text(others))
+    return ask.changed_reason.format(paths=_paths_text(others))
 
 
-def _tick_turn(
+def _unticked_fields(source: Path, inputs: StepInputs) -> dict[str, str]:
+    """The path of the `tasks.md` of the change and the list of the unticked tasks of the group,
+    for the message of an extra turn."""
+    tasks_md = (inputs.change / "tasks.md").relative_to(source).as_posix()
+    tasks = "\n".join(f"- {task.text}" for task in _unticked(inputs))
+    return {"path": tasks_md, "tasks": tasks}
+
+
+def _extra_ask(source: Path, inputs: StepInputs, failure: _Failure | None) -> _Ask | None:
+    """The extra turn that the result of the exit checks earns, or None. A step gets one extra turn
+    at most: a failed static check gets the turn that fixes it, and the message lists the unticked
+    tasks too, so no turn for the ticks follows. A step whose checks passed gets the turn for the
+    ticks when a task is unticked. No other failure gets a turn."""
+    texts = MESSAGES.roadmap
+    unticked = bool(_unticked(inputs))
+    if failure is None:
+        if not unticked:
+            return None
+        message = texts.implement_tick_turn.format(**_unticked_fields(source, inputs))
+        return _Ask(message, frozenset(), texts.implement_stop_tick_turn_changed)
+    if failure.repair_paths is None:
+        return None
+    ticks = texts.implement_repair_turn_ticks.format(**_unticked_fields(source, inputs))
+    message = texts.implement_repair_turn.format(
+        failure=mask_secrets(failure.reason)[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
+        ticks=ticks if unticked else "",
+    )
+    return _Ask(message, failure.repair_paths, texts.implement_stop_repair_turn_changed)
+
+
+def _extra_turn(
     agent: Agent[None, str],
     model: Any,
     log: ToolCallLog,
@@ -1087,20 +1139,19 @@ def _tick_turn(
     inputs: StepInputs,
     start: str,
     first: _Run,
+    ask: _Ask,
 ) -> tuple[_Run, str]:
-    """The one extra turn of a step whose checks passed and whose agent left tasks unticked: the
-    same conversation and the same limits, a message that asks only for the ticks. The turn and
-    the first together, and why the step stops, if it does. The turn may change only `tasks.md`.
-    Every exit check runs again after it."""
-    tasks_md = (inputs.change / "tasks.md").relative_to(source).as_posix()
-    tasks = "\n".join(f"- {task.text}" for task in _unticked(inputs))
-    message = MESSAGES.roadmap.implement_tick_turn.format(path=tasks_md, tasks=tasks)
+    """The one extra turn of a step (#2721, #2795): the same conversation and the same limits as
+    the first turn, and the message of `ask`. The turn and the first together, and why the step
+    stops, if it does. The turn may change only the files that `ask` names and the `tasks.md`.
+    Every exit check runs again after it, and the first that fails stops the step."""
     tree = _tree(source)
-    run = first.then(_turn(agent, model, log, message, first.conversation))
-    reason = (
-        run.reason or _foreign_change(source, inputs, tree) or _exit_failure(source, inputs, start)
-    )
-    return run, reason or ""
+    run = first.then(_turn(agent, model, log, ask.message, first.conversation))
+    reason = run.reason or _foreign_change(source, inputs, tree, ask)
+    if not reason:
+        failure = _exit_failure(source, inputs, start)
+        reason = failure.reason if failure else ""
+    return run, reason
 
 
 def _attempt(
@@ -1111,9 +1162,12 @@ def _attempt(
         log = ToolCallLog()
         agent = build_agent(model, source, inputs.instructions, window, Path(home), log)
         run = _turn(agent, model, log, inputs.message)
-        reason = run.reason or _exit_failure(source, inputs, start) or ""
-        if not reason and _unticked(inputs):
-            run, reason = _tick_turn(agent, model, log, source, inputs, start, run)
+        failure = _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start)
+        ask = _extra_ask(source, inputs, failure)
+        if ask is None:
+            reason = failure.reason if failure else ""
+        else:
+            run, reason = _extra_turn(agent, model, log, source, inputs, start, run, ask)
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,

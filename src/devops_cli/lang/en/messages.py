@@ -2021,6 +2021,9 @@ class RoadmapMessages:
     implement_stop_tick_turn_changed: str = (
         "The extra turn for the ticks changed files other than the tasks file: {paths}."
     )
+    implement_stop_repair_turn_changed: str = (
+        "The extra turn for the static check changed files that the step had not changed: {paths}."
+    )
     implement_paths_more: str = " and {count} more"
     implement_model_call_model: str = "model {model}"
     implement_model_call_status: str = "HTTP {status}, {model}"
@@ -2043,6 +2046,15 @@ class RoadmapMessages:
         "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "
         "done. Change nothing else in that file and change no other file. Then reply with one "
         "short message."
+    )
+    implement_repair_turn: str = (
+        "A static check of your group failed:\n\n{failure}\n\nFix what the check reports. Change "
+        "only the files that you changed.{ticks} Then reply with one short message."
+    )
+    implement_repair_turn_ticks: str = (
+        " The file `{path}` also holds these tasks of your group unticked:\n\n{tasks}\n\n"
+        "Change `- [ ]` to `- [x]` in front of each task whose work is done. Change nothing else "
+        "in that file."
     )
     implement_restored_tasks: str = (
         "Restored the tasks.md of the change {change}. A step only ticks the tasks of its own "
