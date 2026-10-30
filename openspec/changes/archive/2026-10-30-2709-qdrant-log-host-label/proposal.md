@@ -19,7 +19,7 @@ Userinfo is valid configuration, so the change keeps it in the request and out o
   - An `http` or `https` URL shows as `server_label` (`ai/benchmark/labels.py`, #2481) shows it: `host[:port]`.
   - A `k8s://` address shows as `<service>.<namespace>`, with `:<port>` when the port is a number.
   - A text with no origin, and a `k8s://` address that names no Service, show as `unknown`.
-- The `list_collections` log line, the investigator log line and the retriever cache key use `server_label`.
+- The `list_collections` log line, the investigator log line and the retriever cache key use the label.
 - The retriever cache key holds the label and a SHA-256 digest of the whole base URL. The label drops the scheme, the path and a default port, so two servers can share it. The digest tells them apart.
 - `InvalidURLError` names its server with `server_label`, in its message and in `details["url"]`: `Invalid URL for server <label>: <reason>`. A URL with no origin gives `Invalid URL: <reason>`, so `unknown` never reads as a URL. This covers the Qdrant `__init__` error and the errors of `validate_url`, and it covers every other raiser of the class. The reason keeps the kind of problem. The Qdrant `__init__` reason names `qdrant.url`.
 - Two reason texts of `validate_url` and `_validate_dns_name_syntax` no longer repeat the URL.

@@ -13,8 +13,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from devops_cli.ai.rag import retriever
+from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.ai.rag.investigator import _get_or_create_retriever, clear_investigation_cache
-from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import InvalidURLError
 
@@ -71,7 +72,7 @@ def test_the_client_log_line_of_list_collections_names_the_server_by_host_and_po
     client._build_client = lambda: native
 
     with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
-        with pytest.raises(Exception, match="Connection refused"):
+        with pytest.raises(QdrantClientError, match="Connection refused"):
             client.list_collections()
 
     (line,) = (
@@ -198,7 +199,7 @@ def test_two_servers_with_one_label_keep_two_cache_keys(
     two = QdrantClient(second, allow_private_network=True, timeout=5.0)
 
     retriever._verify_single_collection_for_search(one, "devops_code", "model-a")
-    with pytest.raises(Exception, match="model"):
+    with pytest.raises(EmbeddingsError, match="embedding model mismatch"):
         retriever._verify_single_collection_for_search(two, "devops_code", "model-a")
 
     assert len(retriever._SEARCH_VERIFIED_MODELS) == 2

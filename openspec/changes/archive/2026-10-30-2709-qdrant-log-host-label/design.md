@@ -2,7 +2,7 @@
 
 ## Decisions
 
-- **One label function for the Qdrant client.** `qdrant_server_label(url)` is in `ai/rag/qdrant.py`, the only module that reads a Qdrant address. `QdrantClient.server_label` applies it to `base_url`. The investigator and the retriever read the property, so no caller formats a URL.
+- **One label function for the Qdrant client.** `qdrant_server_label(url)` is in `ai/rag/qdrant.py`, the only module that reads a Qdrant address. `QdrantClient.server_label` applies it to `base_url`. The retriever and `list_collections` read the property. The investigator holds the configured URL and no client property in its test doubles, so it calls `qdrant_server_label` with that URL. No caller formats a URL.
 - **An HTTP URL uses `server_label` of #2481.** It already gives `host[:port]` and `unknown`. The RAG module imports it inside the function, as the module does for its other helpers.
 - **A Service address uses `parse_service_url`.** The text is `<service>.<namespace>`, as the #2459 span writes `server.address`. A numeric port is added as `:<port>`, as for an HTTP URL, so two ports of one Service keep two cache keys. A named port gives no suffix. `ServiceAddressError` gives `unknown`: a label never raises, and the address text is not shown.
 - **`InvalidURLError` is fixed at the class.** The cause is one place: the class writes its URL argument. Each raiser, in `validate_url` and in the clients, passes the URL it holds. The class now writes `server_label(url)` in the message and in `details["url"]`. A raiser needs no change, and a new raiser cannot leak.

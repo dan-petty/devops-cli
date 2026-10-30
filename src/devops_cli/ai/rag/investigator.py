@@ -23,7 +23,7 @@ from pybreaker import (
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.models import RAGContext
-from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.ai.rag.qdrant import QdrantClient, qdrant_server_label
 from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config import settings as settings_mod
 from devops_cli.config.constants import (
@@ -238,7 +238,7 @@ def _get_or_create_retriever(
         if not qdrant.is_alive():
             logger.debug(
                 "Qdrant vector store unreachable at %s, skipping RAG investigation",
-                qdrant.server_label,
+                qdrant_server_label(qdrant_url),
             )
             return None
 
