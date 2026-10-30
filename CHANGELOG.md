@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.1](https://github.com/dan-petty/devops-cli/compare/v0.22.0...v0.22.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **github:** ask no traffic endpoint as the App ([#2759](https://github.com/dan-petty/devops-cli/issues/2759)) ([692c15f](https://github.com/dan-petty/devops-cli/commit/692c15fad0c945598230c6ac57017ddb3e8a54e7)), closes [#2752](https://github.com/dan-petty/devops-cli/issues/2752)
+* **roadmap:** a stop of the Service is not a failed round ([#2756](https://github.com/dan-petty/devops-cli/issues/2756)) ([0b7e190](https://github.com/dan-petty/devops-cli/commit/0b7e190e9c655150caea12fbdfaa716950032f15)), closes [#2753](https://github.com/dan-petty/devops-cli/issues/2753)
+* **roadmap:** say why an implement step stopped ([#2762](https://github.com/dan-petty/devops-cli/issues/2762)) ([cd56ce4](https://github.com/dan-petty/devops-cli/commit/cd56ce4358b86c814e6ad3e36153da2f4246e321)), closes [#2758](https://github.com/dan-petty/devops-cli/issues/2758)
+* **service:** render and alert on the hourly request budget ([#2760](https://github.com/dan-petty/devops-cli/issues/2760)) ([809d85b](https://github.com/dan-petty/devops-cli/commit/809d85b7f0f471f053c953ce39a65e8800ed8d0b)), closes [#2755](https://github.com/dan-petty/devops-cli/issues/2755)
+* **service:** run the implement row on the status lane ([#2763](https://github.com/dan-petty/devops-cli/issues/2763)) ([cd94f2c](https://github.com/dan-petty/devops-cli/commit/cd94f2cea3cffc7e26d19feb4462d70531758129)), closes [#2757](https://github.com/dan-petty/devops-cli/issues/2757)
+
+
+### Performance Improvements
+
+* **ci:** cut test job time and guard its mean ([#2764](https://github.com/dan-petty/devops-cli/issues/2764)) ([e76f656](https://github.com/dan-petty/devops-cli/commit/e76f656cbc580542ce8b548142aaac056ebabcac)), closes [#2699](https://github.com/dan-petty/devops-cli/issues/2699)
+
 ## [0.22.0](https://github.com/dan-petty/devops-cli/compare/v0.21.4...v0.22.0) (2026-10-30)
 
 
