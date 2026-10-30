@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from markdown_it import MarkdownIt
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
+from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
@@ -45,7 +45,6 @@ from tests.support.roadmap_stage import STAGE_REPO
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 MARKER = "<!-- devops roadmap implement -->"
-CUT = CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
 
 
 def _item(world: JobWorld, number: int = 1) -> tuple[str | None, dict[str, str | None]]:
@@ -480,7 +479,8 @@ def test_the_stop_comment_says_that_the_job_discarded_the_work_and_how_much_it_s
 
 
 def test_the_stop_comment_of_a_cut_diff_says_that_it_is_cut(job_world: JobWorld) -> None:
-    long_note = ("write_file", {"path": "CONTEXT.md", "content": "y" * 3 * CUT + "\n"})
+    cut = constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
+    long_note = ("write_file", {"path": "CONTEXT.md", "content": "y" * 3 * cut + "\n"})
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
@@ -492,8 +492,8 @@ def test_the_stop_comment_of_a_cut_diff_says_that_it_is_cut(job_world: JobWorld)
     job_world.run(script)
 
     comment = job_world.issue_comments()[0]
-    assert f"The job discarded this work. The diff is cut to {CUT} characters. Read it" in comment
-    assert len(comment) < 2 * CUT
+    assert f"The job discarded this work. The diff is cut to {cut} characters. Read it" in comment
+    assert len(comment) < 2 * cut
 
 
 def test_a_stop_pushes_the_commits_of_the_steps_that_passed_and_leaves_the_draft(

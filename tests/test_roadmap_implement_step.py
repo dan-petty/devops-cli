@@ -22,9 +22,9 @@ from pydantic_ai_harness.shell import Shell
 
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
+from devops_cli.config import constants
 from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS
 from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
@@ -1061,11 +1061,16 @@ def test_the_diff_of_a_stopped_step_is_cut_to_a_constant_size(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _stopped_on_docs(programs)
-    long_file = write_call("docs/LONG.md", "y" * 3 * CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n")
+    long_file = write_call(
+        "docs/LONG.md", "y" * 3 * constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n"
+    )
 
     outcome = _step(store, checkout, ModelScript(tool_calls(long_file, TICK), say("Done.")))
 
-    assert (len(outcome.diff), outcome.diff_cut) == (CONST_ROADMAP_IMPLEMENT_DIFF_CHARS, True)
+    assert (len(outcome.diff), outcome.diff_cut) == (
+        constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
+        True,
+    )
 
 
 def test_the_diff_of_a_stopped_step_is_masked_before_it_is_cut(
@@ -1081,12 +1086,14 @@ def test_the_diff_of_a_stopped_step_is_masked_before_it_is_cut(
         + "-----END "
         + "PRIVATE KEY-----\n"
     )
-    file = write_call("docs/KEY.md", key + "y" * 3 * CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n")
+    file = write_call(
+        "docs/KEY.md", key + "y" * 3 * constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n"
+    )
 
     outcome = _step(store, checkout, ModelScript(tool_calls(file, TICK), say("Done.")))
 
     assert (len(outcome.diff), "PRIVATE KEY" in outcome.diff, "A" * 16 in outcome.diff) == (
-        CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
+        constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
         False,
         False,
     )
