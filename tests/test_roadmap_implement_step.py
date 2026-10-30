@@ -1352,27 +1352,73 @@ def test_a_model_call_that_fails_stops_the_step_with_the_diff_of_the_work_and_th
     assert "diff --git a/tests/test_sample.py b/tests/test_sample.py" in outcome.diff
 
 
-def test_a_model_call_that_fails_gives_the_status_of_the_reply_in_the_reason(
+def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_the_reason(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(ModelHTTPError(503, "example-model", {"error": "busy"}))
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason == (
-        "ModelHTTPError: status_code: 503, model_name: example-model, body: {'error': 'busy'}"
-    )
+    assert outcome.reason == "ModelHTTPError: HTTP 503, model example-model"
 
 
-def test_a_secret_in_the_message_of_a_failed_model_call_is_masked_in_the_reason(
+def test_a_model_call_that_fails_without_a_status_gives_the_model_in_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(ModelRequestTimeout("example-model", 30))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == "ModelRequestTimeout: model example-model"
+
+
+def test_the_reason_of_a_failed_model_call_leaves_out_the_message_and_the_body(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A masker finds a secret by its form in a text. It does not find the value of a key in the
+    repr of a dict, so the reason holds neither the body of the reply nor the message."""
+    secret = "abcdefghij1234567890zzQQ"
+    body = {"error": {"headers": {"x-api-key": secret}, "api_key": secret, "note": TOKEN}}
+    script = ModelScript(ModelHTTPError(500, "example-model", body))
+
+    outcome = _step(store, checkout, script)
+
+    assert secret not in outcome.reason
+    assert TOKEN not in outcome.reason
+    assert "api_key" not in outcome.reason
+
+
+def test_a_message_of_a_failed_model_call_is_not_in_the_reason(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(ModelAPIError("example-model", f"The provider echoed {TOKEN}."))
 
     outcome = _step(store, checkout, script)
 
-    assert TOKEN not in outcome.reason
-    assert "<masked-github-token>" in outcome.reason
+    assert outcome.reason == "ModelAPIError: model example-model"
+
+
+def test_a_failed_read_of_the_discarded_diff_keeps_the_reason_of_the_stop(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The step has no diff to show. It still tells why it stopped, and why it has no diff."""
+    head = git(checkout, "rev-parse", "HEAD")
+
+    def refuse(_source: Path, _start: str) -> tuple[str, bool]:
+        raise RoadmapImplementError("git add -A failed.\nfatal: index is locked")
+
+    monkeypatch.setattr(implement_step, "_discarded_diff", refuse)
+    script = ModelScript(tool_calls(*WORK), say(FORGOT), ModelAPIError("example-model", "broke"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.status is StepStatus.STOPPED
+    assert outcome.reason.startswith("ModelAPIError: model example-model\n")
+    assert "fatal: index is locked" in outcome.reason
+    assert (outcome.diff, outcome.diff_cut, is_clean_at(checkout, head)) == ("", False, True)
 
 
 @pytest.mark.parametrize("failure", FAILED_CALLS)

@@ -514,7 +514,7 @@ def test_the_stop_comment_of_a_failed_model_call_holds_the_diff_of_the_discarded
     comment = job_world.issue_comments()[0]
     assert (applied.stopped, applied.failed) == ((1,), ())
     assert "Stopped at group 2." in comment
-    assert "ModelAPIError: The provider broke." in comment
+    assert "ModelAPIError: model example-model" in comment
     assert "+A note." in comment
     assert "The job discarded this work." in comment
 
