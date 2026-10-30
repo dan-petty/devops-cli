@@ -460,6 +460,17 @@ def test_a_commit_that_a_hook_refuses_stops_the_step_and_resets_the_checkout(
     )
 
 
+# What the refusal adds to the text of the shell (#2773).
+ALLOWED_HINT = (
+    "These programs are allowed: `git`, `uv`, `ruff`, `mypy`. Run the commands of the project "
+    "with `uv run`, for example `uv run devops ci test <file>`."
+)
+OPERATOR_HINT = (
+    "Run one command in each call. Do not chain commands. "
+    "Do not use `cd`: every command runs in the checkout."
+)
+
+
 def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes_on(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -476,8 +487,8 @@ def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes
         "Done.",
         3,
         [
-            "Command 'curl' is not in the allowed list.",
-            "Shell operator ';' is not allowed.",
+            f"Command 'curl' is not in the allowed list. {ALLOWED_HINT}",
+            f"Shell operator ';' is not allowed. {OPERATOR_HINT}",
         ],
     )
 
@@ -495,8 +506,8 @@ def test_the_shell_tool_refuses_the_devops_cli_and_openspec(
     _step(store, checkout, script)
 
     assert script.tool_answers() == [
-        "Command 'devops' is not in the allowed list.",
-        "Command 'openspec' is not in the allowed list.",
+        f"Command 'devops' is not in the allowed list. {ALLOWED_HINT}",
+        f"Command 'openspec' is not in the allowed list. {ALLOWED_HINT}",
     ]
 
 

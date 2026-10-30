@@ -9,9 +9,9 @@
 
 ## 2. The refusal names the replacement
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_shell_refusal.py`, with the model as a `FunctionModel`: the refusal of `python`, `cat` and `cd` holds the replacement of the table and the original text; an unknown program gets the list of allowed programs; an operator gets the rule of one command; five refusals reach the model and the sixth ends the run; a file tool refusal gets no hint; nothing that the shell allows changes.
+- [x] Write failing tests in `tests/test_roadmap_implement_shell_refusal.py`, with the model as a `FunctionModel`: the refusal of `python`, `cat` and `cd` holds the replacement of the table and the original text; an unknown program gets the list of allowed programs; an operator gets the rule of one command; five refusals reach the model and the sixth ends the run; a file tool refusal gets no hint; nothing that the shell allows changes.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_shell_refusal.py`
-- [ ] Add `IMPLEMENT_SHELL_REPLACEMENTS` to `src/devops_cli/config/commands.py`, the hint texts to `src/devops_cli/lang/en/messages.py`, the new module `src/devops_cli/roadmap/implement_shell_refusal.py`, and the capability in `build_agent`.
+- [x] Add `IMPLEMENT_SHELL_REPLACEMENTS` to `src/devops_cli/config/commands.py`, the hint texts to `src/devops_cli/lang/en/messages.py`, the new module `src/devops_cli/roadmap/implement_shell_refusal.py`, and the capability in `build_agent`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_shell_refusal.py tests/test_roadmap_implement_step.py`
 
 ## 3. The prompt table
