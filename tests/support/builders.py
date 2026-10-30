@@ -139,6 +139,7 @@ _STAGE_PROPOSAL: dict[str, Any] = {
             "title": "Keep the last comment",
             "reads": ["src/devops_cli/sample.py"],
             "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
+            "creates": ["tests/test_sample.py"],
             "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
             "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
             "documentation": "Change no document",
@@ -150,7 +151,7 @@ _STAGE_PROPOSAL: dict[str, Any] = {
 
 def make_stage_proposal(**overrides: Any) -> StageProposal:
     """The model's plan of a change for the stage job: one group that reads and changes
-    `src/devops_cli/sample.py`, and a spec delta that creates the capability `comment-thread`."""
+    `src/devops_cli/sample.py` and creates `tests/test_sample.py`, and a spec delta that creates the capability `comment-thread`."""
     return _validated(StageProposal, _STAGE_PROPOSAL, overrides)
 
 

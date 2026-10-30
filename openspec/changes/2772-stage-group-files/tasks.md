@@ -2,9 +2,9 @@
 
 ## 1. The rules of the reply and the line
 
-- [ ] 1.1 Write failing tests in `tests/test_roadmap_stage_plan.py`: a group with no `changes`, a blank `test`, `implementation`, `documentation` or `verify`, and a `creates` path outside `changes` each fail `StageProposal` validation; a group with no `reads` is valid; a faked first reply with an empty `changes` goes back to the model once, with the violation named, and a valid second reply stages the item; a group renders `Reads: none. Changes: ...` with no double stop, `(new)` after a created path, and no task that starts with a comma or holds `.,`.
+- [x] 1.1 Write failing tests in `tests/test_roadmap_stage_plan.py`: a group with no `changes`, a blank `test`, `implementation`, `documentation` or `verify`, and a `creates` path outside `changes` each fail `StageProposal` validation; a group with no `reads` is valid; a faked first reply with an empty `changes` goes back to the model once, with the violation named, and a valid second reply stages the item; a group renders `Reads: none. Changes: ...` with no double stop, `(new)` after a created path, and no task that starts with a comma or holds `.,`.
   - Verification: `uv run devops ci test tests/test_roadmap_stage_plan.py`
-- [ ] 1.2 In `src/devops_cli/roadmap/stage_change.py`, add the type `Text` and the field `creates` to `StageGroup`, require `changes`, and render the line and the tasks. In `src/devops_cli/lang/en/messages.py`, add the texts for the empty `reads` and the new mark. Update `tests/support/builders.py` so the sample group marks its new test file.
+- [x] 1.2 In `src/devops_cli/roadmap/stage_change.py`, add the type `Text` and the field `creates` to `StageGroup`, require `changes`, and render the line and the tasks. In `src/devops_cli/lang/en/messages.py`, add the texts for the empty `reads` and the new mark. Update `tests/support/builders.py` so the sample group marks its new test file.
   - Verification: `uv run devops ci test tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_apply.py`
 
 ## 2. The comment names the missing paths

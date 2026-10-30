@@ -17,9 +17,16 @@ from dataclasses import dataclass
 from datetime import date
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Final
+from typing import Annotated, Final, Self
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
@@ -69,6 +76,8 @@ def _capability_name(name: str) -> str:
 
 
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
+# A text of a task group: at least one character once the whitespace around it is stripped.
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class _Reply(BaseModel):
@@ -115,15 +124,24 @@ class StageRejection(_Reply):
 
 
 class StageGroup(_Reply):
-    """One task group of the change: the work of one implementation step."""
+    """One task group of the change: the work of one implementation step. A group changes at
+    least one file. `creates` lists the paths of `changes` that the step makes."""
 
-    title: str
+    title: Text
     reads: list[RepositoryPath] = Field(default_factory=list)
-    changes: list[RepositoryPath] = Field(default_factory=list)
-    test: str
-    implementation: str
-    documentation: str
-    verify: str
+    changes: list[RepositoryPath] = Field(min_length=1)
+    creates: list[RepositoryPath] = Field(default_factory=list)
+    test: Text
+    implementation: Text
+    documentation: Text
+    verify: Text
+
+    @model_validator(mode="after")
+    def _creates_are_changes(self) -> Self:
+        for path in self.creates:
+            if path not in self.changes:
+                raise ValueError(MESSAGES.roadmap.stage_bad_creates.format(path=path))
+        return self
 
 
 class StageProposal(_Reply):
@@ -292,20 +310,28 @@ def _design_file(proposal: StageProposal) -> str:
     )
 
 
+def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
+    """The paths as code spans, a created path with its mark."""
+    mark = MESSAGES.roadmap.stage_group_new
+    return ", ".join(f"`{p}`{mark if p in created else ''}" for p in paths)
+
+
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its files, and its three tasks."""
+    """The group as `tasks.md` holds it, numbered `index`: its files, and its three tasks. A task
+    text loses its final full stop, as a comma follows it."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
-        reads=", ".join(f"`{p}`" for p in group.reads) or texts.stage_none,
-        changes=", ".join(f"`{p}`" for p in group.changes) or texts.stage_none,
+        reads=_paths(group.reads) or texts.stage_group_no_reads,
+        changes=_paths(group.changes, group.creates),
+    )
+    test, implementation, documentation = (
+        task.rstrip(".") for task in (group.test, group.implementation, group.documentation)
     )
     return (
-        f"## {index}. {group.title.strip()}\n\n{files}\n\n"
-        f"- [ ] {index}.1 {group.test.strip()}, "
-        f"and verify that `{group.verify.strip()}` fails on the base\n"
-        f"- [ ] {index}.2 {group.implementation.strip()}, "
-        f"and verify that `{group.verify.strip()}` passes\n"
-        f"- [ ] {index}.3 {group.documentation.strip()}, "
+        f"## {index}. {group.title}\n\n{files}\n\n"
+        f"- [ ] {index}.1 {test}, and verify that `{group.verify}` fails on the base\n"
+        f"- [ ] {index}.2 {implementation}, and verify that `{group.verify}` passes\n"
+        f"- [ ] {index}.3 {documentation}, "
         f"run `{_REGENERATE_DOCUMENTS}`, and verify that `uv run devops ci docs` passes\n"
     )
 
