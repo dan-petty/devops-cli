@@ -59,13 +59,13 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import branch_authors
+from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.implement_step import parse_task_groups
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes, tasks_on_default
 from devops_cli.roadmap.refine import inspect_checkout
 from devops_cli.roadmap.stage import (
     LeftOut,
     StageFilter,
-    commit_type,
     parse_filters,
     priority_order,
 )

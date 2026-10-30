@@ -3035,10 +3035,21 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
 CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
 CONST_ROADMAP_PRIORITY_LABEL_PREFIX: Final[str] = "priority/"
-CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS: Final[dict[str, str]] = {
+CONST_ROADMAP_SCOPE_LABEL_PREFIX: Final[str] = "scope/"
+# The `type/*` label of each Conventional Commit type of an item's title (#2715). The title is the
+# only source of an item's type label; the model picks a type only for a title with no type.
+CONST_ROADMAP_COMMIT_TYPE_LABELS: Final[dict[str, str]] = {
+    "feat": "type/feature",
+    "fix": "type/bug",
     "perf": "type/infra",
     "build": "type/infra",
     "ci": "type/infra",
+    "refactor": "type/refactor",
+    "docs": "type/docs",
+    "test": "type/test",
+    "chore": "type/chore",
+    "style": "type/chore",
+    "revert": "type/chore",
 }
 # The label of a candidate an agent files.
 CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
