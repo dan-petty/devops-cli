@@ -185,6 +185,19 @@ def test_timeout_expired_contract(
         assert exc_info.value.timeout == 1e-9
 
 
+def test_the_real_runner_replaces_output_bytes_that_are_not_utf8(tmp_path: Path) -> None:
+    """A program may print bytes that are not text, such as the diff of a Latin-1 file. The
+    runner decodes them with a replacement character and raises no error (#2721)."""
+    runner = DefaultProcessRunner()
+    runner.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "latin1.txt").write_bytes(b"caf\xe9 ok\n")
+    stored = runner.run(["git", "hash-object", "-w", "latin1.txt"], cwd=tmp_path, check=True)
+
+    done = runner.run(["git", "cat-file", "-p", stored.stdout.strip()], cwd=tmp_path)
+
+    assert (done.returncode, done.stdout) == (0, "caf\ufffd ok\n")
+
+
 def test_process_fake_call_recording(tmp_path: Path) -> None:
     """ProcessFake records detailed ProcessCall metadata for assertions."""
     fake = ProcessFake()

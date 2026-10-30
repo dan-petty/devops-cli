@@ -2940,6 +2940,14 @@ CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500
 # stop comment. A comment holds at most 65,536 characters, and the comment also holds the reason
 # and the last message of the agent.
 CONST_ROADMAP_IMPLEMENT_DIFF_CHARS: Final[int] = 20000
+# The most of a diff, in characters, that a stopped step masks before it cuts to the limit above:
+# the masking of secrets is slower than linear, and a diff has no size limit. The part is a
+# multiple of the limit, so a secret in the shown part is masked whole.
+CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
+# The most paths that a reason of a stop names, and the most characters of a reason in the stop
+# comment (#2721). A reason may be as long as the tail of a command or a list of files.
+CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
+CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
 CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.

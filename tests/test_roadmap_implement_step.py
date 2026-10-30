@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
 from devops_cli.exceptions.roadmap import RoadmapImplementError
+from devops_cli.roadmap import implement_step
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
@@ -857,6 +858,33 @@ def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
     )
 
 
+def test_an_extra_turn_that_changes_many_files_names_only_the_first_of_them(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The reason goes into a comment of GitHub, which refuses a comment of 65,536 characters."""
+    shown = constants.CONST_ROADMAP_IMPLEMENT_REASON_PATHS
+
+    def agent_writes_many_files() -> None:
+        for number in range(shown + 30):
+            (checkout / "docs" / f"generated_{number:04d}.md").write_text("x\n", encoding="utf-8")
+
+    script = ModelScript(
+        tool_calls(*WORK),
+        say("The work is done."),
+        tool_calls(TICK),
+        say("Ticked."),
+        effects={3: agent_writes_many_files},
+    )
+
+    outcome = _step(store, checkout, script)
+
+    names = [f"docs/generated_{number:04d}.md" for number in range(shown)]
+    assert outcome.reason == (
+        "The extra turn for the ticks changed files other than the tasks file: "
+        f"{', '.join(names)} and 30 more."
+    )
+
+
 def test_an_extra_turn_that_changes_another_group_stops_the_step(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -1098,6 +1126,52 @@ def test_the_diff_of_a_stopped_step_is_masked_before_it_is_cut(
         False,
     )
     assert "<masked-private-key>" in outcome.diff
+
+
+def test_a_stopped_step_reports_the_diff_of_a_file_that_is_not_utf8(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A Latin-1 file in the discarded work must not crash the job that reads its diff."""
+    _stopped_on_docs(programs)
+
+    def agent_writes_latin1() -> None:
+        (checkout / "docs" / "LATIN1.md").write_bytes("caf\xe9 au lait\n".encode("latin-1"))
+
+    script = ModelScript(
+        tool_calls(*the_whole_group()), say("Done."), effects={2: agent_writes_latin1}
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.status is StepStatus.STOPPED
+    assert "caf\ufffd au lait" in outcome.diff
+
+
+def test_a_stopped_step_masks_only_a_bounded_part_of_a_very_large_diff(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The masking is slower than linear, so its input is cut before it runs. The cut keeps a
+    multiple of the limit, so that a secret inside the shown part is still masked whole."""
+    _stopped_on_docs(programs)
+    limit = constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
+    masked_sizes: list[int] = []
+    real_mask = implement_step.mask_secrets
+
+    def spy(text: str) -> str:
+        masked_sizes.append(len(text))
+        return real_mask(text)
+
+    monkeypatch.setattr(implement_step, "mask_secrets", spy)
+    huge = write_call("docs/HUGE.md", ("y" * 99 + "\n") * (50 * limit // 100))
+
+    outcome = _step(store, checkout, ModelScript(tool_calls(huge, TICK), say("Done.")))
+
+    assert (len(outcome.diff), outcome.diff_cut) == (limit, True)
+    assert masked_sizes
+    assert max(masked_sizes) <= constants.CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS
 
 
 def test_a_done_step_reports_no_diff(

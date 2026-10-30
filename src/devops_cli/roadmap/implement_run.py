@@ -54,6 +54,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
+    CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
     CONST_ROADMAP_STATUS_READY,
@@ -521,7 +522,9 @@ class _ItemRun:
         last = safe_text(mask_secrets(stop.last_message))[
             :CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
         ]
-        reason = textwrap.indent(mask_secrets(stop.reason).strip(), "    ")
+        reason = textwrap.indent(
+            mask_secrets(stop.reason).strip()[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS], "    "
+        )
         self.store.comment(
             self.number,
             texts.implement_comment_stopped.format(

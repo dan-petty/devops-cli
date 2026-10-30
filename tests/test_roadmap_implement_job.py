@@ -496,6 +496,27 @@ def test_the_stop_comment_of_a_cut_diff_says_that_it_is_cut(job_world: JobWorld)
     assert len(comment) < 2 * cut
 
 
+def test_the_stop_comment_cuts_a_reason_that_is_too_long(job_world: JobWorld) -> None:
+    """GitHub refuses a comment of more than 65,536 characters, and the comment would be lost."""
+    names = [f"{'f' * 240}{number:02d}.md" for number in range(30)]
+    many = tuple(("write_file", {"path": name, "content": "x\n"}) for name in names)
+    script = ModelScript(
+        tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
+        tool_calls(*group_two_calls(TICKED_FIRST)),
+        say("Wrote the note."),
+        tool_calls(*many),
+        say("Ticked."),
+    )
+
+    job_world.run(script)
+
+    comment = job_world.issue_comments()[0]
+    reason = comment.partition("Reason:\n\n")[2].partition("\n\nLast message")[0]
+    assert reason.strip().startswith("The extra turn for the ticks changed files")
+    assert len(reason.strip()) == constants.CONST_ROADMAP_IMPLEMENT_REASON_CHARS
+
+
 def test_a_stop_pushes_the_commits_of_the_steps_that_passed_and_leaves_the_draft(
     job_world: JobWorld,
 ) -> None:

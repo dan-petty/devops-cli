@@ -60,6 +60,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
+    CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
@@ -67,6 +68,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS,
+    CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
@@ -790,18 +792,21 @@ def _exit_failure(source: Path, inputs: StepInputs, start: str) -> str | None:
 
 def _discarded_diff(source: Path, start: str) -> tuple[str, bool]:
     """The diff from the commit `start` to the checkout, new files included: the work that a
-    stopped step is about to discard. Secrets are masked in the whole diff, then it is cut to
-    `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, as a cut first could split a secret and let
-    half of it through. No external diff program and no text conversion runs: the agent can write
-    the settings that name one. The diff, and whether it was cut."""
+    stopped step is about to discard. Secrets are masked in the first
+    `CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS` characters, a multiple of the limit, as the masking
+    is slower than linear. Then the diff is cut to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS`
+    characters. A cut before the masking could split a secret and let half of it through. No
+    external diff program and no text conversion runs: the agent can write the settings that name
+    one. The diff, and whether it was cut."""
     _git_output(source, "add", "-A")
     raw = _git_output(
         source, "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", start
     )
-    masked = mask_secrets(raw)
-    return masked[:CONST_ROADMAP_IMPLEMENT_DIFF_CHARS], len(
-        masked
-    ) > CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
+    masked = mask_secrets(raw[:CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS])
+    cut = len(raw) > CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS
+    return masked[:CONST_ROADMAP_IMPLEMENT_DIFF_CHARS], cut or (
+        len(masked) > CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
+    )
 
 
 def _commit(source: Path, message: str) -> tuple[str, str]:
@@ -850,7 +855,11 @@ def _foreign_change(source: Path, inputs: StepInputs, tree: str) -> str | None:
     others = sorted(name for name in names.split("\0") if name and name != tasks)
     if not others:
         return None
-    return MESSAGES.roadmap.implement_stop_tick_turn_changed.format(paths=", ".join(others))
+    shown = others[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS]
+    paths = ", ".join(shown)
+    if len(others) > len(shown):
+        paths += MESSAGES.roadmap.implement_paths_more.format(count=len(others) - len(shown))
+    return MESSAGES.roadmap.implement_stop_tick_turn_changed.format(paths=paths)
 
 
 def _tick_turn(
