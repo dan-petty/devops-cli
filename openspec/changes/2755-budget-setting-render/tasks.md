@@ -11,11 +11,11 @@
 
 ## 2. The declaration and the documents
 
-- [ ] 2.1 Add failing tests: the variable `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` in `tests/test_config_declarations.py`, and the numeric cases (`2000` valid, `0`, `-1`, `x` refused) in `tests/test_config_field_validation.py`
+- [x] 2.1 Add failing tests: the variable `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` in `tests/test_config_declarations.py`, and the numeric cases (`2000` valid, `0`, `-1`, `x` refused) in `tests/test_config_field_validation.py`
   - Verification: `uv run devops ci test tests/test_config_declarations.py tests/test_config_field_validation.py` fails on the base
-- [ ] 2.2 Mark the field with `Variable()` and give it a description in `config/settings.py`
+- [x] 2.2 Mark the field with `Variable()` and give it a description in `config/settings.py`
   - Verification: `uv run devops ci test tests/test_config_declarations.py tests/test_config_field_validation.py`
-- [ ] 2.3 Run `uv run devops docs generate --sync-readme`, and write in `k8s/README.md` the owner's commands (`devops config set service.github_requests_per_hour <n>`, then `devops k8s deploy-stack --stack devops`)
+- [x] 2.3 Run `uv run devops docs generate --sync-readme`, and write in `k8s/README.md` the owner's commands (`devops config set service.github_requests_per_hour <n>`, then `devops k8s deploy-stack --stack devops`)
   - Verification: `uv run devops ci docs`
 
 ## 3. The alert
