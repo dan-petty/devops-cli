@@ -164,6 +164,33 @@ def test_an_item_with_a_pushed_branch_is_left_out(
     assert model_fake.call_count == 0
 
 
+def test_an_item_with_a_stray_local_branch_with_a_commit_of_its_own_is_left_out(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    branch = f"fix/{item}-the-job-drops-a-comment"
+    stage_repo.stray_branch(branch, own_commit=True)
+
+    plan = _plan(store, stage_repo)
+
+    assert [left.number for left in plan.left_out] == [item]
+    assert branch in plan.left_out[0].reason
+    assert "1 commit" in plan.left_out[0].reason
+    assert model_fake.call_count == 0
+
+
+@pytest.mark.usefixtures("openspec")
+def test_an_item_with_a_stray_local_branch_that_origin_holds_is_staged(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    stage_repo.stray_branch(f"fix/{item}-the-job-drops-a-comment")
+    model_fake.answer(make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    assert plan.left_out == ()
+    assert [change.target.item.number for change in plan.ready] == [item]
+
+
 # ── The measure ───────────────────────────────────────────────────────────────
 
 

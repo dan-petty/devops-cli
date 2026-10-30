@@ -60,6 +60,17 @@ class StageRepo:
         self.git("switch", "-q", "main")
         self.git("branch", "-q", "-D", branch)
 
+    def stray_branch(self, branch: str, *, own_commit: bool = False) -> None:
+        """Make the local `branch` with no worktree, at `main` or with one commit that `origin`
+        lacks, as a job that died before its cleanup leaves it (#2724)."""
+        self.git("branch", "-q", branch)
+        if own_commit:
+            self.git("switch", "-q", branch)
+            (self.clone / "stray.txt").write_text("stray\n", encoding="utf-8")
+            self.git("add", "-A")
+            self.git("commit", "-q", "-m", "stray work")
+            self.git("switch", "-q", "main")
+
 
 @pytest.fixture
 def stage_repo(tmp_path: Path) -> StageRepo:

@@ -53,6 +53,7 @@ from devops_cli.git.worktree_add import (
     local_holder,
     read_remote_heads,
     remote_branches,
+    stray_branch_reason,
     worktree_directory,
 )
 from devops_cli.github.client import PullStatus
@@ -247,7 +248,7 @@ class _Judge:
         branch = branch_name(item.number, type_, folder.partition("-")[2])
         if parse_branch(branch) is None:
             return texts.implement_left_planned_branch.format(folder=folder, branch=branch)
-        held = issue_holder(self._source, item.number, self._heads)
+        held = issue_holder(self._source, item.number, self._heads, branch)
         if held is not None:
             return held
         try:
@@ -275,7 +276,7 @@ class _Judge:
         other = next((author for author in authors if author != self._bot), None)
         if other is not None:
             return texts.implement_left_foreign.format(author=other, bot=self._bot)
-        return None
+        return stray_branch_reason(self._source, branch, self._heads)
 
     def _pull_reason(self, pull: int) -> str | None:
         try:
