@@ -29,7 +29,7 @@ None.
 ## Impact
 
 - `src/devops_cli/github/metrics.py`, `src/devops_cli/github/error_classifier.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/commands/gh.py`, `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`.
-- `tests/test_github_metrics.py`, `tests/test_github_error_classifier.py`, `tests/test_roadmap_run.py`, `tests/roadmap_github_fake.py`, `tests/conftest.py`.
+- `tests/test_github_metrics.py`, `tests/test_github_errors.py`, `tests/test_roadmap_run.py`, `tests/roadmap_github_fake.py`, `tests/conftest.py`.
 - The expected effect on the budget: `increase(devops_cli_github_requests_total{row="metrics"}[1h])` falls by about 110 for the seven repositories.
 
 ## Feasibility

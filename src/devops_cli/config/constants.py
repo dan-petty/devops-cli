@@ -884,6 +884,9 @@ CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
     "read:project",
     "oauth scope",
 )
+# What GitHub answers (HTTP 403) when the permissions of an installation token do not cover the
+# path: "Resource not accessible by integration" (#2752).
+CONST_GITHUB_TOKEN_NOT_COVERED_PATTERN: Final[str] = "resource not accessible by integration"
 # No login, one GitHub refused (HTTP 401), an account GitHub suspended (HTTP 403, #2161), or a
 # GitHub App installation that its owner suspended (HTTP 403, #2474): GitHub refuses the request
 # for a token with "This installation has been suspended", and a request with a token minted

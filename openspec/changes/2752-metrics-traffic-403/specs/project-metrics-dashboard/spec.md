@@ -34,5 +34,5 @@ The project metrics collector SHALL NOT send a GitHub path again in the same pro
 - **THEN** the path `repos/example/two/traffic/views` is requested
 
 #### Scenario: A failure that is not a refusal by the token
-- **WHEN** GitHub answers a traffic path with a 502 or with a 403 that names a rate limit, and the collector reads the traffic again
+- **WHEN** GitHub answers a traffic path with a 502 or with a 403 of another message, such as "Must have push access", and the collector reads the traffic again
 - **THEN** the path is requested again

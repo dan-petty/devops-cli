@@ -25,9 +25,11 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import CONST_ROADMAP_TYPE_LABEL_PREFIX
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import acts_as_github_app, run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import GhCliClient, parse_paginated_json
+from devops_cli.github.error_classifier import is_gh_refused_by_token
 from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.store import GitHubState, RoadmapStore
 from devops_cli.telemetry.instruments import (
@@ -134,8 +136,13 @@ class TrafficPathMetric(BaseModel):
 
 
 class TrafficSummaryMetric(BaseModel):
-    """Consolidated GitHub repository traffic and engagement analytics."""
+    """Consolidated GitHub repository traffic and engagement analytics.
 
+    `traffic_collected` is false when the process did not ask for the views, clones, referrers
+    and paths, because its token cannot read them: the totals then hold 0 and mean "unknown"
+    (#2752)."""
+
+    traffic_collected: bool = True
     views_count: int = 0
     views_uniques: int = 0
     clones_count: int = 0
@@ -464,90 +471,114 @@ def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
     return metrics
 
 
+_refused_paths: set[str] = set()
+"""The GitHub paths that answered this process with HTTP 403 "Resource not accessible by
+integration": the token lacks the permission of the path and keeps lacking it until the process
+restarts, so the collector does not ask again (#2752). A path holds the repository and the
+endpoint."""
+
+
+def reset_refused_paths() -> None:
+    """Forget the refused paths, as a new process knows none."""
+    _refused_paths.clear()
+
+
+def _read_json(client: GhCliClient, path: str, what: str) -> Any | None:
+    """The JSON that GitHub answers for `path`, or None when the path was refused before, or
+    when the read fails: the failure is logged as a warning naming `what`. A refusal by the
+    token is kept, so the path is asked once."""
+    if path in _refused_paths:
+        return None
+    try:
+        return json.loads(client.api(path))
+    except Exception as err:
+        logger.warning("Failed to query %s: %s", what, err)
+        if isinstance(err, GitHubOperationError) and is_gh_refused_by_token(
+            str(err.details.get("stderr", ""))
+        ):
+            _refused_paths.add(path)
+    return None
+
+
 def _fetch_traffic_views(client: GhCliClient, repo: str) -> tuple[int, int]:
     """Fetch total 14-day pageviews count and unique visitors from GitHub traffic API."""
-    try:
-        data = json.loads(client.api(f"repos/{repo}/traffic/views"))
-        if isinstance(data, dict):
-            return int(data.get("count", 0)), int(data.get("uniques", 0))
-    except Exception as err:
-        logger.warning("Failed to query traffic views for %s: %s", repo, err)
+    data = _read_json(client, f"repos/{repo}/traffic/views", f"traffic views for {repo}")
+    if isinstance(data, dict):
+        return int(data.get("count", 0)), int(data.get("uniques", 0))
     return 0, 0
 
 
 def _fetch_traffic_clones(client: GhCliClient, repo: str) -> tuple[int, int]:
     """Fetch total 14-day git clones count and unique cloners from GitHub traffic API."""
-    try:
-        data = json.loads(client.api(f"repos/{repo}/traffic/clones"))
-        if isinstance(data, dict):
-            return int(data.get("count", 0)), int(data.get("uniques", 0))
-    except Exception as err:
-        logger.warning("Failed to query traffic clones for %s: %s", repo, err)
+    data = _read_json(client, f"repos/{repo}/traffic/clones", f"traffic clones for {repo}")
+    if isinstance(data, dict):
+        return int(data.get("count", 0)), int(data.get("uniques", 0))
     return 0, 0
 
 
 def _fetch_traffic_referrers(client: GhCliClient, repo: str) -> list[TrafficReferrerMetric]:
     """Fetch top referral domains from GitHub traffic API."""
-    try:
-        data = json.loads(client.api(f"repos/{repo}/traffic/popular/referrers"))
-        if isinstance(data, list):
-            return [
-                TrafficReferrerMetric(
-                    referrer=str(item.get("referrer", "")),
-                    count=int(item.get("count", 0)),
-                    uniques=int(item.get("uniques", 0)),
-                )
-                for item in data
-                if isinstance(item, dict) and "referrer" in item
-            ]
-    except Exception as err:
-        logger.warning("Failed to query traffic referrers for %s: %s", repo, err)
-    return []
+    data = _read_json(
+        client, f"repos/{repo}/traffic/popular/referrers", f"traffic referrers for {repo}"
+    )
+    if not isinstance(data, list):
+        return []
+    return [
+        TrafficReferrerMetric(
+            referrer=str(item.get("referrer", "")),
+            count=int(item.get("count", 0)),
+            uniques=int(item.get("uniques", 0)),
+        )
+        for item in data
+        if isinstance(item, dict) and "referrer" in item
+    ]
 
 
 def _fetch_traffic_paths(client: GhCliClient, repo: str) -> list[TrafficPathMetric]:
     """Fetch top viewed paths from GitHub traffic API."""
-    try:
-        data = json.loads(client.api(f"repos/{repo}/traffic/popular/paths"))
-        if isinstance(data, list):
-            return [
-                TrafficPathMetric(
-                    path=str(item.get("path", "")),
-                    title=str(item.get("title", "")),
-                    count=int(item.get("count", 0)),
-                    uniques=int(item.get("uniques", 0)),
-                )
-                for item in data
-                if isinstance(item, dict) and "path" in item
-            ]
-    except Exception as err:
-        logger.warning("Failed to query popular paths for %s: %s", repo, err)
-    return []
+    data = _read_json(client, f"repos/{repo}/traffic/popular/paths", f"popular paths for {repo}")
+    if not isinstance(data, list):
+        return []
+    return [
+        TrafficPathMetric(
+            path=str(item.get("path", "")),
+            title=str(item.get("title", "")),
+            count=int(item.get("count", 0)),
+            uniques=int(item.get("uniques", 0)),
+        )
+        for item in data
+        if isinstance(item, dict) and "path" in item
+    ]
 
 
 def _fetch_repo_metadata(client: GhCliClient, repo: str) -> tuple[int, int, int]:
     """Fetch repository stars, forks, and open issues count."""
-    try:
-        data = json.loads(client.api(f"repos/{repo}"))
-        if isinstance(data, dict):
-            return (
-                int(data.get("stargazers_count", 0)),
-                int(data.get("forks_count", 0)),
-                int(data.get("open_issues_count", 0)),
-            )
-    except Exception as err:
-        logger.warning("Failed to query repo metadata for %s: %s", repo, err)
+    data = _read_json(client, f"repos/{repo}", f"repo metadata for {repo}")
+    if isinstance(data, dict):
+        return (
+            int(data.get("stargazers_count", 0)),
+            int(data.get("forks_count", 0)),
+            int(data.get("open_issues_count", 0)),
+        )
     return 0, 0, 0
 
 
 def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
-    """Aggregate traffic, engagement, and metadata analytics for a GitHub repository."""
+    """Aggregate traffic, engagement, and metadata analytics for a GitHub repository.
+
+    A process that acts as the GitHub App asks for no traffic: the four endpoints need the
+    Administration permission, which the installation token does not hold, so each answers HTTP
+    403 and spends part of the hourly budget (#2752). The report then has `traffic_collected`
+    false, and only the stars, forks and open issues.
+    """
     client = GhCliClient()
+    stars, forks, open_issues = _fetch_repo_metadata(client, repo)
+    if acts_as_github_app():
+        return TrafficSummaryMetric(
+            traffic_collected=False, stars=stars, forks=forks, open_issues=open_issues
+        )
     views_count, views_uniques = _fetch_traffic_views(client, repo)
     clones_count, clones_uniques = _fetch_traffic_clones(client, repo)
-    referrers = _fetch_traffic_referrers(client, repo)
-    paths = _fetch_traffic_paths(client, repo)
-    stars, forks, open_issues = _fetch_repo_metadata(client, repo)
 
     return TrafficSummaryMetric(
         views_count=views_count,
@@ -557,8 +588,8 @@ def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
         stars=stars,
         forks=forks,
         open_issues=open_issues,
-        referrers=referrers,
-        paths=paths,
+        referrers=_fetch_traffic_referrers(client, repo),
+        paths=_fetch_traffic_paths(client, repo),
     )
 
 
@@ -635,21 +666,26 @@ def _emit_item_counts(items: list[ItemCountMetric]) -> None:
     _sent_item_series.update(series)
 
 
+def _emit_traffic(traffic: TrafficSummaryMetric) -> None:
+    """Send the traffic gauges. A report that collected no traffic sends none, so a panel shows
+    no data and not 0 visitors (#2752)."""
+    emit(PROJECT_TRAFFIC_VIEWS, float(traffic.views_count))
+    emit(PROJECT_TRAFFIC_VIEWS_UNIQUES, float(traffic.views_uniques))
+    emit(PROJECT_TRAFFIC_CLONES, float(traffic.clones_count))
+    emit(PROJECT_TRAFFIC_CLONES_UNIQUES, float(traffic.clones_uniques))
+    for ref in traffic.referrers:
+        emit(PROJECT_TRAFFIC_REFERRERS, float(ref.count), {"referrer": ref.referrer})
+    for p in traffic.paths:
+        emit(PROJECT_TRAFFIC_PATHS, float(p.count), {"path": p.path})
+
+
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
     """Emit project and engineering velocity metrics over OpenTelemetry to Prometheus."""
     emit(PROJECT_RELEASES, float(report.total_releases))
-    emit(PROJECT_TRAFFIC_VIEWS, float(report.traffic.views_count))
-    emit(PROJECT_TRAFFIC_VIEWS_UNIQUES, float(report.traffic.views_uniques))
-    emit(PROJECT_TRAFFIC_CLONES, float(report.traffic.clones_count))
-    emit(PROJECT_TRAFFIC_CLONES_UNIQUES, float(report.traffic.clones_uniques))
     emit(PROJECT_STARS, float(report.traffic.stars))
     emit(PROJECT_FORKS, float(report.traffic.forks))
-
-    for ref in report.traffic.referrers:
-        emit(PROJECT_TRAFFIC_REFERRERS, float(ref.count), {"referrer": ref.referrer})
-
-    for p in report.traffic.paths:
-        emit(PROJECT_TRAFFIC_PATHS, float(p.count), {"path": p.path})
+    if report.traffic.traffic_collected:
+        _emit_traffic(report.traffic)
 
     for rel in report.releases:
         emit(PROJECT_COMMITS, float(rel.commit_count), {"release": rel.tag})
@@ -695,5 +731,6 @@ __all__ = [
     "get_milestone_metrics",
     "get_release_cadence_metrics",
     "get_repository_traffic_metrics",
+    "reset_refused_paths",
     "reset_sent_item_series",
 ]
