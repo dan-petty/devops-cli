@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The text of the refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters, and SHALL add the replacement: the entry of `IMPLEMENT_SHELL_REPLACEMENTS` for the first word, else the list of the allowed programs with the `uv run` form, else, for an operator, the rule of one command in each call. The refusal SHALL NOT change what the shell allows. The shell SHALL run with `HOME` set to a temporary directory of the step, so that the configuration and credentials of the user's home do not reach it. The shell is no security boundary.
+The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters, and SHALL add a hint. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
@@ -42,7 +42,7 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **THEN** a test fails
 
 ### Requirement: The reason of a stopped run counts the refused and the retried tool calls
-A step that stops on a pydantic-ai error SHALL count, over all its turns, the tool calls that a tool refused by its policy, by program, and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when either is not zero. The refused count SHALL list the programs from the most refused to the least, at most `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` of them, and SHALL add the programs beyond that to the count of `other`. A call counts as refused when it has a shell command and a `PermissionError` is in the `__cause__` chain of the retry. The step SHALL read no message text.
+A step that stops on a pydantic-ai error SHALL count the tool calls that a tool refused by its policy, by program, and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when a count is not zero. It SHALL list at most `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` programs, most refused first, and join the rest to `other`. A call counts as refused when it has a shell command and a `PermissionError` is in its `__cause__` chain.
 
 #### Scenario: The call that exceeds the limit
 - **WHEN** the model is refused more often than `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES` times

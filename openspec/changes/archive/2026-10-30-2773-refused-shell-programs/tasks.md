@@ -28,10 +28,10 @@
 
 ## 5. The documentation
 
-- [ ] Regenerate the documentation.
+- [x] Regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 6. Archive
 
-- [ ] Archive the change.
+- [x] Archive the change.
   - Verification: `uv run devops openspec archive 2773-refused-shell-programs`
