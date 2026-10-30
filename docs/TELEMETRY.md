@@ -34,6 +34,10 @@ A gauge holds a snapshot, such as a project metric that the roadmap Service send
 every 15 minutes. Prometheus finds a plain selector only within five minutes of a
 sample, so a dashboard reads a gauge with `last_over_time(<metric>[$__range])`, and
 no gauge name ends in `_total`, which Prometheus keeps for counters.
+Only `devops gh metrics --emit-telemetry`, run with a person's `gh` login, sends the
+six `devops_cli_project_traffic_*` gauges. The roadmap Service sends none, because its
+token cannot read traffic. A traffic panel shows the last value that a workstation
+sent, and that value can be old.
 Prometheus 3 stores each histogram as a
 native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 `_count` series; query it with `histogram_quantile`, `histogram_avg` and

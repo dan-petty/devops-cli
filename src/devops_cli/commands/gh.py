@@ -1782,6 +1782,16 @@ def _render_labels_table(labels: list[LabelTaxonomyMetric], repo: str) -> None:
     print_table(f"Taxonomy Labels Breakdown ({repo})", columns, rows)
 
 
+def _traffic_summary_line(traffic: TrafficSummaryMetric) -> str:
+    """The 14-day traffic line of the summary panel, or the note that none was collected."""
+    if not traffic.traffic_collected:
+        return "14-Day Traffic: [bold]not collected[/bold]"
+    return (
+        f"14-Day Traffic: [bold]{traffic.views_count}[/bold] views ({traffic.views_uniques} unique) | "
+        f"[bold]{traffic.clones_count}[/bold] clones ({traffic.clones_uniques} unique)"
+    )
+
+
 def _render_traffic_tables(traffic: TrafficSummaryMetric, repo: str) -> None:
     """Render top referral sources and popular paths traffic tables."""
     if traffic.referrers:
@@ -1848,8 +1858,7 @@ def project_metrics_cmd(
         f"Total Releases Tracked: [bold]{report.total_releases}[/bold]\n"
         f"Average Release Cadence: [bold]{report.average_cadence_days} days[/bold]\n"
         f"GitHub Stars: [bold]{report.traffic.stars}[/bold] | Forks: [bold]{report.traffic.forks}[/bold] | Open Issues: [bold]{report.traffic.open_issues}[/bold]\n"
-        f"14-Day Traffic: [bold]{report.traffic.views_count}[/bold] views ({report.traffic.views_uniques} unique) | "
-        f"[bold]{report.traffic.clones_count}[/bold] clones ({report.traffic.clones_uniques} unique)"
+        f"{_traffic_summary_line(report.traffic)}"
     )
     print_panel(summary_text, title="Engineering Velocity & Project Metrics")
 

@@ -40,7 +40,9 @@ class GitHubFake:
     """One repository's issues and milestones, answering the store's `gh` commands.
 
     `issues` maps a number to its REST payload. `files` maps a path to its text, or to the
-    `(exit code, output)` `gh` gives for it, such as a 502.
+    `(exit code, output)` `gh` gives for it, such as a 502. `traffic_answer`, when set, is the
+    `(exit code, output)` that `gh` gives for every traffic path, such as the 403 that an
+    installation token gets (#2752).
     """
 
     def __init__(
@@ -52,9 +54,11 @@ class GitHubFake:
         events: Iterable[dict[str, Any]] = (),
         commits: Iterable[str] = (),
         login: str = "roadmap-bot",
+        traffic_answer: tuple[int, str] | None = None,
     ) -> None:
         self.repo = repo
         self.login = login
+        self.traffic_answer = traffic_answer
         self.milestones = list(milestones)
         self.files = dict(files or {})
         self.events = list(events)
@@ -133,6 +137,15 @@ class GitHubFake:
             args
             for args in self.calls
             if args[0] == "project" or any(word in " ".join(args) for word in PROJECT_WORDS)
+        ]
+
+    def traffic_calls(self) -> list[str]:
+        """The path of every traffic request sent, in order."""
+        return [
+            arg
+            for args in self.calls
+            for arg in args[1:]
+            if arg.startswith("repos/") and "/traffic/" in arg
         ]
 
     def writes(self) -> list[list[str]]:
@@ -280,6 +293,8 @@ class GitHubFake:
             return self.events[(page - 1) * size : page * size]
         if parts == ["actions", "runs"]:
             return {"total_count": 0, "workflow_runs": []}
+        if parts[0] == "traffic" and self.traffic_answer is not None:
+            return self.traffic_answer
         if parts[0] == "traffic":
             return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
         if parts[0] == "milestones":

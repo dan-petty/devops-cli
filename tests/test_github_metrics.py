@@ -42,9 +42,21 @@ from devops_cli.github.metrics import (
     get_milestone_metrics,
     get_release_cadence_metrics,
     get_repository_traffic_metrics,
+    reset_refused_paths,
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.telemetry.instruments import PROJECT_ITEM_LABELS, PROJECT_ITEMS
+from devops_cli.telemetry.instruments import (
+    PROJECT_FORKS,
+    PROJECT_ITEM_LABELS,
+    PROJECT_ITEMS,
+    PROJECT_STARS,
+    PROJECT_TRAFFIC_CLONES,
+    PROJECT_TRAFFIC_CLONES_UNIQUES,
+    PROJECT_TRAFFIC_PATHS,
+    PROJECT_TRAFFIC_REFERRERS,
+    PROJECT_TRAFFIC_VIEWS,
+    PROJECT_TRAFFIC_VIEWS_UNIQUES,
+)
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.otlp import FakeCollector
@@ -767,3 +779,192 @@ def test_extract_commits_and_prs_counts_one_commit_for_a_count_git_does_not_give
     process_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
 
     assert _extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21") == (1, 0)
+
+
+# ── The traffic of a repository under the App (#2752) ─────────────────────────
+
+REFUSED_BY_TOKEN = (1, "gh: Resource not accessible by integration (HTTP 403)")
+"""What `gh api` writes when an installation token lacks the permission of the path."""
+TRAFFIC_ENDPOINTS = (
+    "traffic/views",
+    "traffic/clones",
+    "traffic/popular/referrers",
+    "traffic/popular/paths",
+)
+TRAFFIC_SERIES = (
+    PROJECT_TRAFFIC_VIEWS,
+    PROJECT_TRAFFIC_VIEWS_UNIQUES,
+    PROJECT_TRAFFIC_CLONES,
+    PROJECT_TRAFFIC_CLONES_UNIQUES,
+    PROJECT_TRAFFIC_REFERRERS,
+    PROJECT_TRAFFIC_PATHS,
+)
+
+
+def _traffic_paths(repo: str, *, only: str | None = None) -> list[str]:
+    """The paths of the traffic endpoints of `repo`, or those that end with `only`."""
+    return [f"repos/{repo}/{e}" for e in TRAFFIC_ENDPOINTS if only is None or e.endswith(only)]
+
+
+def _github(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    app: bool,
+    traffic_answer: tuple[int, str] | None = None,
+) -> GitHubFake:
+    """A fake GitHub at the `gh` edge, with the process acting as the App or as a person."""
+    github = GitHubFake("example/repo", traffic_answer=traffic_answer)
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    monkeypatch.setattr("devops_cli.github.metrics.acts_as_github_app", lambda: app, raising=False)
+    return github
+
+
+def test_a_workstation_asks_the_four_traffic_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A process with a person's login collects the traffic, as before."""
+    github = _github(monkeypatch, app=False)
+
+    traffic = get_repository_traffic_metrics("example/repo")
+
+    assert (github.traffic_calls(), traffic.traffic_collected) == (
+        _traffic_paths("example/repo"),
+        True,
+    )
+
+
+def test_the_app_asks_no_traffic_endpoint_and_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The installation token has no Administration permission, so a process that acts as the
+    App sends no traffic request. The stars and forks still come from the repository read."""
+    github = _github(monkeypatch, app=True)
+
+    traffic = get_repository_traffic_metrics("example/repo")
+
+    assert (github.traffic_calls(), traffic.traffic_collected, traffic.open_issues) == (
+        [],
+        False,
+        0,
+    )
+
+
+def test_a_report_without_traffic_sends_no_traffic_series(
+    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
+) -> None:
+    """The panels show no data for a series that nothing sends, not a 0 for no visitors. The
+    stars and forks are still sent."""
+    _github(monkeypatch, app=True)
+    report = ProjectMetricsReport(
+        repo="example/repo",
+        generated_at="2026-10-30 00:00:00 UTC",
+        traffic=get_repository_traffic_metrics("example/repo"),
+    )
+
+    emit_project_metrics_telemetry(report)
+
+    assert (
+        {s.name: otlp.points(s.name) for s in TRAFFIC_SERIES},
+        [otlp.points(s.name) for s in (PROJECT_STARS, PROJECT_FORKS)],
+    ) == ({s.name: [] for s in TRAFFIC_SERIES}, [[({}, 0.0)], [({}, 0.0)]])
+
+
+def test_a_report_with_traffic_sends_the_traffic_series(
+    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
+) -> None:
+    """A workstation sends the four totals. The referrer and path series have a point for each
+    referrer and path, and the fake repository has none."""
+    _github(monkeypatch, app=False)
+    report = ProjectMetricsReport(
+        repo="example/repo",
+        generated_at="2026-10-30 00:00:00 UTC",
+        traffic=get_repository_traffic_metrics("example/repo"),
+    )
+
+    emit_project_metrics_telemetry(report)
+
+    assert {s.name for s in TRAFFIC_SERIES if otlp.points(s.name)} == {
+        s.name
+        for s in (
+            PROJECT_TRAFFIC_VIEWS,
+            PROJECT_TRAFFIC_VIEWS_UNIQUES,
+            PROJECT_TRAFFIC_CLONES,
+            PROJECT_TRAFFIC_CLONES_UNIQUES,
+        )
+    }
+
+
+def test_a_path_that_the_token_cannot_read_is_asked_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """After one 403 "Resource not accessible by integration" for a repository and an endpoint,
+    the process does not ask that path again. The first refusal logs one warning."""
+    github = _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
+        get_repository_traffic_metrics("example/repo")
+        get_repository_traffic_metrics("example/repo")
+
+    assert (
+        github.traffic_calls(),
+        sum("Failed to query" in r.getMessage() for r in caplog.records),
+    ) == (_traffic_paths("example/repo"), 4)
+
+
+def test_a_refusal_for_one_repository_does_not_stop_the_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard keys on the whole path, so another repository is asked."""
+    github = _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+
+    get_repository_traffic_metrics("example/one")
+    get_repository_traffic_metrics("example/two")
+
+    assert github.traffic_calls() == _traffic_paths("example/one") + _traffic_paths("example/two")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        (1, "gh: Bad Gateway (HTTP 502)"),
+        (1, "gh: Must have push access to view repository traffic (HTTP 403)"),
+    ],
+)
+def test_a_failure_that_is_not_a_refusal_by_the_token_is_asked_again(
+    monkeypatch: pytest.MonkeyPatch, answer: tuple[int, str]
+) -> None:
+    """A 502 and a 403 for a person without push access pass: the guard is for the refusal that an
+    installation token gets, and the rate limiter owns the waits for a rate limit."""
+    github = _github(monkeypatch, app=False, traffic_answer=answer)
+
+    get_repository_traffic_metrics("example/repo")
+    get_repository_traffic_metrics("example/repo")
+
+    assert github.traffic_calls() == _traffic_paths("example/repo") * 2
+
+
+def test_a_new_process_asks_a_refused_path_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard lasts for the process: a restart sends the path again."""
+    github = _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+    get_repository_traffic_metrics("example/repo")
+
+    reset_refused_paths()
+    get_repository_traffic_metrics("example/repo")
+
+    assert github.traffic_calls() == _traffic_paths("example/repo") * 2
+
+
+def test_the_command_prints_that_the_app_collected_no_traffic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A report with no traffic prints "not collected" and no count of views."""
+    report = ProjectMetricsReport(
+        repo="example/repo",
+        generated_at="2026-10-30 00:00:00 UTC",
+        traffic=TrafficSummaryMetric(traffic_collected=False, stars=3),
+    )
+    monkeypatch.setattr("devops_cli.commands.gh.collect_project_metrics_report", lambda **_: report)
+
+    result = runner.invoke(gh_app, ["metrics", "--repo", "example/repo"])
+
+    assert (result.exit_code, "not collected" in result.stdout, "0 views" in result.stdout) == (
+        0,
+        True,
+        False,
+    )

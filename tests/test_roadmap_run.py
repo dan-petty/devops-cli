@@ -95,7 +95,12 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
 )
 from devops_cli.server.service import ServiceManager, TriggerBatch, no_round_pause
-from devops_cli.telemetry.instruments import PROJECT_ITEMS, PROJECT_RELEASES
+from devops_cli.telemetry.instruments import (
+    PROJECT_ITEMS,
+    PROJECT_RELEASES,
+    PROJECT_STARS,
+    PROJECT_TRAFFIC_VIEWS,
+)
 from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
@@ -1179,6 +1184,39 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
         ],
         True,
     )
+
+
+def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    stub_web: StubWeb,
+    git: Callable[..., None],
+    otlp: FakeCollector,
+) -> None:
+    """The installation token of the Service has no Administration permission, so GitHub
+    answers each traffic path with 403 and the round spends four requests a repository for
+    nothing (#2752). The round sends none, logs no warning, and sends the stars and no
+    traffic series."""
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    git(clone, "init", "--quiet")
+    github = GitHubFake(
+        REPO, traffic_answer=(1, "gh: Resource not accessible by integration (HTTP 403)")
+    )
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    monkeypatch.setattr("devops_cli.github.metrics.acts_as_github_app", lambda: True, raising=False)
+    for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
+        stub_web.page(url, json.dumps(STATUS_PAGE))
+    with caplog.at_level(logging.WARNING):
+        _run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
+    assert (
+        github.traffic_calls(),
+        otlp.points(PROJECT_TRAFFIC_VIEWS.name),
+        otlp.points(PROJECT_STARS.name),
+        [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
+    ) == ([], [], [({}, 0.0)], [])
 
 
 @pytest.mark.parametrize(
