@@ -18,7 +18,6 @@ from typer.testing import CliRunner
 from devops_cli.commands.pr import app
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.merge_readiness import ClosingRead
-from devops_cli.roadmap import pull_status
 from devops_cli.roadmap.grounding import ClosingIssue
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, ItemField
@@ -40,6 +39,8 @@ def _status(roadmap_store: InMemoryRoadmapStore, number: int) -> str | None:
 def _set(
     roadmap_store: InMemoryRoadmapStore, status: str, read: ClosingRead, *, number: int = 7
 ) -> int | None:
+    from devops_cli.roadmap import pull_status
+
     with patch.object(pull_status, "read_closing_issues", return_value=read):
         return pull_status.set_delivered_status(REPO, number, status)
 

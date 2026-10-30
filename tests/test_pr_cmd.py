@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,11 +22,12 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture(autouse=True)
-def no_status_write() -> Iterator[None]:
+def no_status_write(monkeypatch: pytest.MonkeyPatch) -> None:
     """`pr create` and `pr ready` set the Status of the item the pull request closes (#2717);
-    tests/test_pr_status.py holds that. These cases leave the roadmap alone."""
-    with patch("devops_cli.commands.pr.set_delivered_status"):
-        yield
+    tests/test_pr_status.py holds that. These cases leave the roadmap alone. `raising=False`
+    lets the cases run on a base that has no such function, so the replay of a fix sees them
+    pass there."""
+    monkeypatch.setattr("devops_cli.commands.pr.set_delivered_status", MagicMock(), raising=False)
 
 
 class TestPrCommands:
