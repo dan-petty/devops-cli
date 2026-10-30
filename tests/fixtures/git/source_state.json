@@ -1,0 +1,167 @@
+{
+ "scenario": "source_state",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "rev-parse",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "938c546abb43bcd505b6d38c539724ca4e4843ac\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "diff",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "rev-parse",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "938c546abb43bcd505b6d38c539724ca4e4843ac\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "diff",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "rev-parse",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "938c546abb43bcd505b6d38c539724ca4e4843ac\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "diff",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "diff --git a/src/devops_cli/__init__.py b/src/devops_cli/__init__.py\nindex 367fce1..7d4290a 100644\n--- a/src/devops_cli/__init__.py\n+++ b/src/devops_cli/__init__.py\n@@ -1 +1 @@\n-\"\"\"devops-cli.\"\"\"\n+x = 1\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "rev-parse",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "938c546abb43bcd505b6d38c539724ca4e4843ac\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "diff",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "diff --git a/src/devops_cli/__init__.py b/src/devops_cli/__init__.py\nindex 367fce1..407de30 100644\n--- a/src/devops_cli/__init__.py\n+++ b/src/devops_cli/__init__.py\n@@ -1 +1 @@\n-\"\"\"devops-cli.\"\"\"\n+x = 2\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "rev-parse",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "0f64b9eb8d24d0dc10b52e85dd1e702c0a69a13e\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/own",
+    "diff",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  }
+ ],
+ "result": [
+  [
+   "938c546abb43bcd505b6d38c539724ca4e4843ac",
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  [
+   "938c546abb43bcd505b6d38c539724ca4e4843ac",
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  [
+   "938c546abb43bcd505b6d38c539724ca4e4843ac",
+   "31a9dbb6854d10fd6c2f287651625bb6ab6d27e69d120f2b84b02d95e29e81ef"
+  ],
+  [
+   "938c546abb43bcd505b6d38c539724ca4e4843ac",
+   "2ccfca3db5508b94cefd31da240dc3acae078622216e9e0489468e457c20030b"
+  ],
+  [
+   "0f64b9eb8d24d0dc10b52e85dd1e702c0a69a13e",
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ]
+ ]
+}

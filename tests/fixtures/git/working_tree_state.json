@@ -1,0 +1,63 @@
+{
+ "scenario": "working_tree_state",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "status",
+    "--porcelain"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "describe",
+    "--tags",
+    "--abbrev=0"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: No names found, cannot describe anything.\n"
+  },
+  {
+   "argv": [
+    "git",
+    "describe",
+    "--tags",
+    "--abbrev=0"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "v0.2.1\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "status",
+    "--porcelain"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "returncode": 0,
+   "stdout": " M f.txt\n",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "before": [
+   true,
+   null
+  ],
+  "tagged": "v0.2.1",
+  "dirty": true
+ }
+}

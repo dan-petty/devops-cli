@@ -32,6 +32,9 @@ from devops_cli.git.operations import (
     resolve_merge_base,
 )
 from devops_cli.models.git import ChangedFile
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
+from tests.support.git_recording import load_transcript
 
 
 def test_normalize_clone_url() -> None:
@@ -255,33 +258,30 @@ def test_delete_merged_branches(tmp_path: Path) -> None:
         mock_repo.delete_head.assert_called_once_with(mock_feat, force=False)
 
 
-def test_is_git_clean_and_get_latest_tag(tmp_path: Path) -> None:
-    """Verify is_git_clean and get_latest_git_tag."""
+def test_is_git_clean_and_get_latest_tag(git_fake: GitFake, tmp_path: Path) -> None:
+    """is_git_clean is true for a tree with no change, and get_latest_git_tag gives the newest
+    tag, or None when the repository has none."""
     from devops_cli.git.operations import get_latest_git_tag, is_git_clean
 
-    mock_clean = MagicMock(returncode=0, stdout="")
-    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_clean):
-        assert is_git_clean(tmp_path) is True
+    git_fake.replay("working_tree_state")
+    repo = tmp_path / "repo"
 
-    mock_dirty = MagicMock(returncode=0, stdout=" M file.py\n")
-    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_dirty):
-        assert is_git_clean(tmp_path) is False
+    assert (
+        (is_git_clean(repo), get_latest_git_tag(repo)),
+        get_latest_git_tag(repo),
+        is_git_clean(repo),
+    ) == ((True, None), "v0.2.1", False)
 
-    # Exception in is_git_clean
-    with patch("devops_cli.git.operations.run_subprocess", side_effect=Exception("git error")):
-        assert is_git_clean(tmp_path) is False
 
-    mock_tag = MagicMock(returncode=0, stdout="v0.2.1\n")
-    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_tag):
-        assert get_latest_git_tag(tmp_path) == "v0.2.1"
+def test_is_git_clean_and_get_latest_tag_report_a_git_that_cannot_run(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """A git that fails to start leaves the tree not clean and the repository with no tag."""
+    from devops_cli.git.operations import get_latest_git_tag, is_git_clean
 
-    mock_no_tag = MagicMock(returncode=128, stdout="")
-    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_no_tag):
-        assert get_latest_git_tag(tmp_path) is None
+    git_fake.answer(["git"], ProcessAnswer(side_effect=OSError("git error")))
 
-    # Exception in get_latest_git_tag
-    with patch("devops_cli.git.operations.run_subprocess", side_effect=Exception("git error")):
-        assert get_latest_git_tag(tmp_path) is None
+    assert (is_git_clean(tmp_path), get_latest_git_tag(tmp_path)) == (False, None)
 
 
 def test_git_operations_edge_cases(tmp_path: Path) -> None:
@@ -358,48 +358,43 @@ def test_validate_clone_dest_and_prepare_clone_url(tmp_path: Path) -> None:
         assert (url_https, mock_ensure.call_count) == ("https://github.com/org/repo.git", 1)
 
 
-def test_read_file_at_revision_reads_the_base_revision(symbol_removal_repo: Path) -> None:
+def test_read_file_at_revision_reads_the_base_revision(git_fake: GitFake, tmp_path: Path) -> None:
     """The file is read at the base revision, not taken for a pathspec (#787)."""
-    content = read_file_at_revision(symbol_removal_repo, "main", "mod.py")
-
-    assert content == "def kept(): pass\ndef gone(): pass\n"
-
-
-def test_read_file_at_revision_reads_no_directory(tmp_path: Path, git: Callable[..., None]) -> None:
-    """A directory at the revision is not a file. `git show` printed its listing, which a
-    branch review reading its conventions at the merge base took for `.cursor/rules` (#946)."""
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    (tmp_path / ".cursor" / "rules").mkdir(parents=True)
-    (tmp_path / ".cursor" / "rules" / "style.mdc").write_text("Rule.\n", encoding="utf-8")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "rules")
+    git_fake.replay("revision_reads")
 
     assert (
-        read_file_at_revision(tmp_path, "main", ".cursor/rules"),
-        read_file_at_revision(tmp_path, "main", ".cursor/rules/style.mdc"),
+        read_file_at_revision(tmp_path / "repo", "main", "mod.py")
+        == "def kept(): pass\ndef gone(): pass\n"
+    )
+
+
+def test_read_file_at_revision_reads_no_directory(git_fake: GitFake, tmp_path: Path) -> None:
+    """A directory at the revision is not a file. `git show` printed its listing, which a
+    branch review reading its conventions at the merge base took for `.cursor/rules` (#946)."""
+    git_fake.replay("revision_reads")
+    repo = tmp_path / "repo"
+
+    assert (
+        read_file_at_revision(repo, "main", ".cursor/rules"),
+        read_file_at_revision(repo, "main", ".cursor/rules/style.mdc"),
     ) == (None, "Rule.\n")
 
 
-def test_read_file_at_revision_reads_no_link(tmp_path: Path, git: Callable[..., None]) -> None:
+def test_read_file_at_revision_reads_no_link(git_fake: GitFake, tmp_path: Path) -> None:
     """A committed link is no file at the revision. Its blob is the path it points to, which a
     branch review took for the `AGENTS.md` a project linked to its rules (#946)."""
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "rules.md").write_text("Rules.\n", encoding="utf-8")
-    (tmp_path / "AGENTS.md").symlink_to("docs/rules.md")
-    (tmp_path / "linked").symlink_to("docs", target_is_directory=True)
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "links")
+    git_fake.replay("revision_reads")
+    repo = tmp_path / "repo"
 
     assert (
-        read_file_at_revision(tmp_path, "main", "AGENTS.md"),
-        read_file_at_revision(tmp_path, "main", "linked/rules.md"),
-        read_file_at_revision(tmp_path, "main", "docs/rules.md"),
+        read_file_at_revision(repo, "main", "AGENTS.md"),
+        read_file_at_revision(repo, "main", "linked/rules.md"),
+        read_file_at_revision(repo, "main", "docs/rules.md"),
     ) == (None, None, "Rules.\n")
 
 
 def test_read_file_at_revision_reads_any_path_inside_the_repository(
-    tmp_path: Path, git: Callable[..., None]
+    git_fake: GitFake, tmp_path: Path
 ) -> None:
     """A path is refused only when it could leave the repository or read as an option (#946).
 
@@ -407,91 +402,70 @@ def test_read_file_at_revision_reads_any_path_inside_the_repository(
     outside ASCII is harmless. Both were refused, and a subproject named with one lost its
     conventions in a branch review.
     """
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    (tmp_path / "my project").mkdir()
-    (tmp_path / "my project" / "AGENTS.md").write_text("Spaced.\n", encoding="utf-8")
-    (tmp_path / "café").mkdir()
-    (tmp_path / "café" / "mod.py").write_text("x = 1\n", encoding="utf-8")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "names")
+    git_fake.replay("revision_reads")
+    repo = tmp_path / "repo"
 
     assert (
-        read_file_at_revision(tmp_path, "main", "my project/AGENTS.md"),
-        read_file_at_revision(tmp_path, "main", "café/mod.py"),
+        read_file_at_revision(repo, "main", "my project/AGENTS.md"),
+        read_file_at_revision(repo, "main", "café/mod.py"),
     ) == ("Spaced.\n", "x = 1\n")
 
 
 def test_list_changed_files_gives_a_rename_its_old_and_new_path(
-    tmp_path: Path, git: Callable[..., None]
+    git_fake: GitFake, tmp_path: Path
 ) -> None:
     """A rename is one entry with both paths, so its base can be read at the old one (#593).
 
     The plain `--name-status` parser kept `old.py<TAB>new.py` as one path, which does not exist,
     and handled the renamed file as deleted.
     """
-    outline = "".join(f"def step_{n}():\n    return {n}\n\n\n" for n in range(8))
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    (tmp_path / "old_name.py").write_text(outline, encoding="utf-8")
-    (tmp_path / "gone.py").write_text("x = 1\n", encoding="utf-8")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "base")
-    git(tmp_path, "switch", "--quiet", "-c", "feature")
-    (tmp_path / "old_name.py").unlink()
-    (tmp_path / "new_name.py").write_text(
-        outline + "def step_9():\n    return 9\n", encoding="utf-8"
-    )
-    (tmp_path / "gone.py").unlink()
-    (tmp_path / "fresh.py").write_text("y = 2\n", encoding="utf-8")
-    git(tmp_path, "add", "-A")
-    git(tmp_path, "commit", "--quiet", "-m", "rename")
-    main_sha = subprocess.run(
-        ["git", "-C", str(tmp_path), "rev-parse", "main"], capture_output=True, text=True
-    ).stdout.strip()
+    git_fake.replay("renamed_files")
+    repo = tmp_path / "repo"
 
-    changes = list_changed_files(tmp_path, "main", "feature")
+    changes = list_changed_files(repo, "main", "feature")
 
     assert (
         sorted(changes, key=lambda c: c.path),
-        resolve_merge_base(tmp_path, "main", "feature"),
+        resolve_merge_base(repo, "main", "feature"),
     ) == (
         [
             ChangedFile(change_type="added", path="fresh.py"),
             ChangedFile(change_type="deleted", path="gone.py"),
             ChangedFile(change_type="renamed", path="new_name.py", old_path="old_name.py"),
         ],
-        main_sha,
+        load_transcript("renamed_files")["result"]["merge_base"],
     )
 
 
-def test_revision_helpers_refuse_option_like_arguments(tmp_path: Path) -> None:
+def test_revision_helpers_refuse_option_like_arguments(git_fake: GitFake, tmp_path: Path) -> None:
     """A revision or path that git could read as an option is refused before git runs."""
-    with patch("devops_cli.git.operations.run_subprocess") as run:
-        refused = (
-            read_file_at_revision(tmp_path, "--output=x", "mod.py"),
-            read_file_at_revision(tmp_path, "main", "../escape.py"),
-            read_file_at_revision(tmp_path, "main", "src/../../escape.py"),
-            read_file_at_revision(tmp_path, "main", "-p"),
-            read_file_at_revision(tmp_path, "main", "/etc/hostname"),
-            read_file_at_revision(tmp_path, "main", ""),
-            resolve_merge_base(tmp_path, "-x"),
-            list_changed_files(tmp_path, "main", "--no-index"),
-        )
+    refused = (
+        read_file_at_revision(tmp_path, "--output=x", "mod.py"),
+        read_file_at_revision(tmp_path, "main", "../escape.py"),
+        read_file_at_revision(tmp_path, "main", "src/../../escape.py"),
+        read_file_at_revision(tmp_path, "main", "-p"),
+        read_file_at_revision(tmp_path, "main", "/etc/hostname"),
+        read_file_at_revision(tmp_path, "main", ""),
+        resolve_merge_base(tmp_path, "-x"),
+        list_changed_files(tmp_path, "main", "--no-index"),
+    )
 
-    assert (refused, run.call_count) == ((None, None, None, None, None, None, None, []), 0)
+    assert (refused, git_fake.call_count) == ((None, None, None, None, None, None, None, []), 0)
 
 
-def test_revision_helpers_report_a_failed_git_call(tmp_path: Path) -> None:
-    """A failed `git show` or `git diff` reads nothing, and a failed merge base falls back to the
-    base, where the review's two-dot diff starts."""
-    failed = MagicMock(returncode=128, stdout="")
-    with patch("devops_cli.git.operations.run_subprocess", return_value=failed):
-        results = (
-            read_file_at_revision(tmp_path, "main", "mod.py"),
-            resolve_merge_base(tmp_path, "main", "feature"),
-            list_changed_files(tmp_path, "main"),
-        )
+def test_revision_helpers_report_a_failed_git_call(git_fake: GitFake, tmp_path: Path) -> None:
+    """A failed `git ls-tree` or `git diff` reads nothing, and a failed merge base falls back to
+    the base, where the review's two-dot diff starts."""
+    git_fake.replay("revision_failures")
+    repo = tmp_path / "repo"
 
-    assert results == (None, "main", [])
+    results = (
+        read_file_at_revision(repo, "nosuch", "mod.py"),
+        resolve_merge_base(repo, "nosuch", "main"),
+        list_changed_files(repo, "nosuch"),
+    )
+
+    assert results == (None, "nosuch", [])
 
 
 def test_commit_snapshot_makes_the_same_one_commit_of_the_same_files(

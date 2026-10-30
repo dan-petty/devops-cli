@@ -1,0 +1,53 @@
+{
+ "scenario": "pull_request_head",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "fetch",
+    "origin",
+    "refs/pull/42/head"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": "From {root}/remote\n * branch            refs/pull/42/head -> FETCH_HEAD\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "rev-parse",
+    "FETCH_HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "75ac23cfa0767cab946525a0d5dd0960869d7847\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "fetch",
+    "origin",
+    "refs/pull/43/head"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: couldn't find remote ref refs/pull/43/head\n"
+  }
+ ],
+ "result": {
+  "found": "75ac23cfa0767cab946525a0d5dd0960869d7847",
+  "missing": null
+ }
+}

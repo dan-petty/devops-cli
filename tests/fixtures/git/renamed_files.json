@@ -1,0 +1,55 @@
+{
+ "scenario": "renamed_files",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "diff",
+    "--name-status",
+    "-z",
+    "--find-renames",
+    "main...feature",
+    "--"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "A\u0000fresh.py\u0000D\u0000gone.py\u0000R089\u0000old_name.py\u0000new_name.py\u0000",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "merge-base",
+    "--",
+    "main",
+    "feature"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "22212321ca34a5862a842933b397351192e26956\n",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "changes": [
+   {
+    "change_type": "added",
+    "path": "fresh.py",
+    "old_path": null
+   },
+   {
+    "change_type": "deleted",
+    "path": "gone.py",
+    "old_path": null
+   },
+   {
+    "change_type": "renamed",
+    "path": "new_name.py",
+    "old_path": "old_name.py"
+   }
+  ],
+  "merge_base": "22212321ca34a5862a842933b397351192e26956"
+ }
+}

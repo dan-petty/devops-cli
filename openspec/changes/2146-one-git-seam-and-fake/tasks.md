@@ -2,12 +2,14 @@
 
 ## 1. The git fake, the transcripts and the contract suite
 
-- [ ] Add the failing contract suite and the scenarios for the git commands that the code already starts through the runner: `read_file_at_revision`, `list_changed_files`, `resolve_merge_base`, `is_git_clean`, `get_latest_git_tag`, the worktree functions, `own_source_state` and `get_repo_origin_name`
+- [x] Add the failing contract suite and the scenarios for the git commands that the code already starts through the runner: `read_file_at_revision`, `list_changed_files`, `resolve_merge_base`, `is_git_clean`, `get_latest_git_tag`, the worktree functions, `own_source_state` and `get_repo_origin_name`
   - Verification: `uv run devops ci test tests/test_git_contract.py`
-- [ ] Add `GitFake`, the `git_fake` fixture and the refusal of real git in a test that uses it
+- [x] Add `GitFake`, the `git_fake` fixture and the refusal of real git in a test that uses it
   - Verification: `uv run devops ci test tests/test_git_contract.py`
-- [ ] Add the recorder (`tests/support/git_recording.py`) and record the transcripts with the real git
+- [x] Add the recorder (`tests/support/git_recording.py`) and record the transcripts with the real git
   - Verification: `uv run python -m tests.support.git_recording --check`
+- [x] Give `own_source_state` a package directory parameter, and move `tests/test_git_worktree.py`, `tests/test_core_repo.py` and the tests of `tests/test_git_operations.py` that need no GitPython to the fake
+  - Verification: `uv run devops ci test tests/test_git_worktree.py tests/test_core_repo.py tests/test_git_operations.py`
 
 ## 2. The GitPython users run git through the runner
 
@@ -18,24 +20,19 @@
 - [ ] Remove GitPython from `pyproject.toml` and `uv.lock`
   - Verification: `uv run devops ci deps lockfile`
 
-## 3. The worktree and repository tests run on the fake
-
-- [ ] Move `tests/test_git_worktree.py` and `tests/test_core_repo.py` to the fake, and measure their starts and time
-  - Verification: `uv run devops ci test tests/test_git_worktree.py tests/test_core_repo.py`
-
-## 4. The row that records the transcripts again
+## 3. The row that records the transcripts again
 
 - [ ] Add the failing test of the row, then the `git` row in `get_check_specs` and its title
   - Verification: `uv run devops ci test tests/test_ci.py`
 - [ ] Run the row and measure it
   - Verification: `uv run devops ci --only git`
 
-## 5. Documents
+## 4. Documents
 
 - [ ] Describe the git seam, the fake, the contract suite and the row in `docs/TESTING.md`, remove the GitPython manual from the knowledge base, and regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme`
 
-## 6. Archive
+## 5. Archive
 
 - [ ] Archive the change
   - Verification: `uv run devops openspec archive 2146-one-git-seam-and-fake`

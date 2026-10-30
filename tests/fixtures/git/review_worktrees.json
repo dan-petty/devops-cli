@@ -1,0 +1,104 @@
+{
+ "scenario": "review_worktrees",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "add",
+    "--detach",
+    "{root}/user-data/worktrees/review-ctx-commit",
+    "main"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "HEAD is now at 6f826d0 initial\n",
+   "stderr": "Preparing worktree (detached HEAD 6f826d0)\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "add",
+    "--detach",
+    "{root}/user-data/worktrees/review-ctx-base",
+    "main"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "HEAD is now at 6f826d0 initial\n",
+   "stderr": "Preparing worktree (detached HEAD 6f826d0)\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "remove",
+    "--force",
+    "{root}/user-data/worktrees/review-ctx-commit"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "prune"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "remove",
+    "--force",
+    "{root}/user-data/worktrees/review-ctx-base"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "prune"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "commit": "{root}/user-data/worktrees/review-ctx-commit",
+  "base": "{root}/user-data/worktrees/review-ctx-base",
+  "partial": false
+ }
+}
