@@ -8,7 +8,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed model call gives a reason with the error text of the provider
-The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status when it has one, and the name of the model. For a `ModelHTTPError` it SHALL also hold the error text of the body, masked and cut like other stop text. The error text SHALL be a string of the body, and no other value of the body. It SHALL NOT hold the message of the error. When git cannot give the diff of the discarded work, the outcome SHALL hold an empty diff, and the reason SHALL hold the text of the git error after the reason of the stop.
+The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status when it has one, and the name of the model. For a `ModelHTTPError` it SHALL also hold the error text of the body, masked and cut like other stop text. It SHALL hold no other value of the body and not the message of the error.
 
 #### Scenario: The body of a 400
 - **WHEN** the body of a `ModelHTTPError` with the status 400 is a dict with the `message` "XML syntax error on line 75: unexpected EOF"
@@ -24,7 +24,7 @@ The reason of a step that a failed model call ended SHALL hold the class of the 
 
 #### Scenario: The diff cannot be read
 - **WHEN** a model call fails and `git add` or `git diff` fails when the step reads the diff of the discarded work
-- **THEN** the step reports stopped with an empty diff, the reason starts with the class of the error and holds the text of the git error, and the checkout is reset
+- **THEN** the step reports stopped with an empty diff, the reason starts with the class of the error and holds the text of the git error after it, and the checkout is reset
 
 ## ADDED Requirements
 
