@@ -23,7 +23,7 @@
 
 ## 4. The documentation
 
-- [ ] Regenerate the documentation.
+- [x] Regenerate the documentation, the help of `devops roadmap implement` and the term in `CONTEXT.md`.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 5. Archive
