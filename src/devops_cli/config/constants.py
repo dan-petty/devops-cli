@@ -1494,6 +1494,9 @@ CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 CONST_SERVICE_HALT_FILENAME: Final[str] = "service-halt.json"
 CONST_SERVICE_BUDGET_FILENAME: Final[str] = "service-budget.json"
 CONST_SERVICE_FAILURES_FILENAME: Final[str] = "service-failures.json"
+# The cause the log line that suspends a job gives for a failed round that an earlier process
+# counted: the file keeps the count and not the cause (#2753).
+CONST_SERVICE_CAUSE_UNKNOWN: Final[str] = "unknown"
 # The Service's lanes (#1532): each repository has one worker per lane. The status lane runs the
 # job that refreshes the metrics, the model lane those that call the model, so a status-lane round
 # never waits for a model-lane round. A service app given no jobs runs its logging job in the

@@ -46,7 +46,7 @@ from devops_cli.config.settings import (
     get_service_webhook_secrets,
     load_settings,
 )
-from devops_cli.exceptions import ConfigurationError, RoadmapRunError
+from devops_cli.exceptions import ConfigurationError, RoadmapRunError, ServiceStoppingError
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
@@ -205,7 +205,7 @@ class RequestBudget:
                 wait = (self._sent[0][0] + self._window - self._clock()).total_seconds()
             _report_spent(spent)
             if self._closed.is_set():
-                raise RoadmapRunError(
+                raise ServiceStoppingError(
                     MESSAGES.serve.budget_closed.format(spent=spent, limit=self._limit),
                     details={"limit": self._limit},
                 )

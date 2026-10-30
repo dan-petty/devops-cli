@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.exceptions import GitHubOperationError
+from devops_cli.exceptions import GitHubOperationError, ServiceStoppingError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StageApplied, apply_stage, parse_filters, plan_stage
 from devops_cli.roadmap.stage_change import StageSplit
@@ -190,12 +190,16 @@ def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
 
 
 class _CommentRefused(InMemoryRoadmapStore):
-    """A store whose comment on issue `refused` fails, as GitHub fails a write."""
+    """A store whose comment on issue `refused` fails, as GitHub fails a write, or, with a
+    `stop`, as the request budget fails it when the Service is stopping (#2753)."""
 
     refused = 0
+    stop = False
 
     def comment(self, number: int, body: str) -> None:
         if number == self.refused:
+            if self.stop:
+                raise ServiceStoppingError("the Service is stopping")
             raise GitHubOperationError("comment refused", operation="roadmap.issue.comment")
         super().comment(number, body)
 
@@ -220,6 +224,22 @@ def test_a_comment_that_fails_for_a_stopped_item_leaves_the_others_stopped(
     refused = store.item(1)
     assert refused is not None
     assert StageRecordKey.NEEDS_SPLIT not in refused.job_record
+
+
+def test_a_stop_of_the_service_ends_the_run_and_is_no_failed_item(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.refused = seed_stageable(store)
+    store.stop = True
+    seed_stageable(store, "fix(roadmap): the job drops a label")
+    write_big_file(stage_repo)
+    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    stuck = make_stage_proposal(groups=[heavy])
+    model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
+
+    with pytest.raises(ServiceStoppingError):
+        _stage(store, stage_repo, step_tokens=6000)
 
 
 def _refuse_pushes_of(repo: StageRepo, fragment: str) -> None:

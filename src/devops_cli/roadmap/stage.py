@@ -67,6 +67,7 @@ from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
     RoadmapStageError,
+    ServiceStoppingError,
     ToolExecutionError,
 )
 from devops_cli.git.branch_form import branch_name
@@ -886,11 +887,11 @@ def _write_each(
     writes: Iterable[tuple[Item, Callable[[], None]]], done: list[int], failed: list[StageFailure]
 ) -> None:
     """Run each write. A write that fails adds a `StageFailure` and the next write still runs;
-    rejected GitHub credentials stop the run."""
+    rejected GitHub credentials and the stop of the Service stop the run (#2753)."""
     for item, write in writes:
         try:
             write()
-        except GitHubUnauthenticatedError:
+        except GitHubUnauthenticatedError, ServiceStoppingError:
             raise
         except DevOpsCLIError as exc:
             failed.append(_write_failure(item, exc))

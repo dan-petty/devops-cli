@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import TypeAdapter
 
 from devops_cli.ai.client import network
 from devops_cli.config.constants import (
@@ -38,7 +39,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_GH_MAX_RETRIES, DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
-from devops_cli.exceptions import RoadmapRunError
+from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError, ServiceStoppingError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github import rate_limiter, session_transport
 from devops_cli.github.request_scope import request_labels
@@ -385,7 +386,7 @@ def test_a_request_the_budget_has_no_room_for_ends_when_the_budget_is_closed() -
     _send(budget, 2)
     budget.close()
 
-    with pytest.raises(RoadmapRunError) as raised:
+    with pytest.raises(ServiceStoppingError) as raised:
         budget.admit()
 
     assert (raised.value.details, budget.spent()) == ({"limit": 2}, 2)
@@ -542,6 +543,7 @@ def _failing_table(calls: list[str]) -> Any:
     return build_stub_table({"intake": broken})
 
 
+_CAUSE = "GitHubOperationError"
 _POLL = {("poll", "", ""): 1}
 _WEBHOOK = {("webhook", "issues", "opened"): 1}
 
@@ -584,14 +586,172 @@ def test_a_job_that_failed_its_limit_of_rounds_does_not_run_until_its_input_chan
 
 def test_a_success_clears_the_record_of_failed_rounds() -> None:
     ledger = FailureLedger(limit=2)
-    ledger.failed(REPO_A, "intake", "a")
+    ledger.failed(REPO_A, "intake", "a", _CAUSE)
     ledger.succeeded(REPO_A, "intake")
-    ledger.failed(REPO_A, "intake", "a")
+    ledger.failed(REPO_A, "intake", "a", _CAUSE)
     assert not ledger.suspended(REPO_A, "intake", "a")
-    ledger.failed(REPO_A, "intake", "a")
+    ledger.failed(REPO_A, "intake", "a", _CAUSE)
     assert ledger.suspended(REPO_A, "intake", "a")
     assert not ledger.suspended(REPO_A, "intake", "b")
     assert not ledger.suspended(REPO_B, "intake", "a")
+
+
+# ── A stop is not a failed round (#2753) ───────────────────────────────────────────────────
+
+
+def _stopping() -> ServiceStoppingError:
+    return ServiceStoppingError("the request does not wait: the Service is stopping")
+
+
+class _Rounds:
+    """Rounds of one `intake` row over one ledger. The row raises the next error of `errors`
+    and succeeds when none is left; `calls` counts each time the row ran."""
+
+    def __init__(self, *errors: Exception, limit: int = DEFAULT_SERVICE_MAX_FAILED_ROUNDS) -> None:
+        self.errors = list(errors)
+        self.calls = 0
+        self.ledger = FailureLedger(limit=limit)
+        self._minutes = 0
+
+    def _intake(self, **_: Any) -> JobOutcome:
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return JobOutcome()
+
+    def poll(self, tmp_path: Path) -> None:
+        """One round that a poll starts, where the input of the job is the same each time."""
+        self._minutes += 1
+        run_due_jobs(
+            REPO_A,
+            InMemoryRoadmapStore(),
+            _POLL,
+            table=build_stub_table({"intake": self._intake}),
+            data_dir=tmp_path,
+            now=START + timedelta(minutes=self._minutes),
+            failures=self.ledger,
+        )
+
+    def fail(self, tmp_path: Path) -> None:
+        """One round that is meant to end with its error."""
+        with pytest.raises(RoadmapRunError):
+            self.poll(tmp_path)
+
+
+def test_three_rounds_that_a_stop_ends_do_not_suspend_the_row_and_the_next_round_runs(
+    tmp_path: Path,
+) -> None:
+    rounds = _Rounds(*(_stopping() for _ in range(DEFAULT_SERVICE_MAX_FAILED_ROUNDS)))
+    for _ in range(DEFAULT_SERVICE_MAX_FAILED_ROUNDS):
+        rounds.fail(tmp_path)
+
+    rounds.poll(tmp_path)
+
+    assert rounds.calls == DEFAULT_SERVICE_MAX_FAILED_ROUNDS + 1
+    assert _suspended_metric() == 0
+
+
+def _caused_by(cause: Exception) -> Exception:
+    wrapped = RoadmapRefineError("the round ended")
+    wrapped.__cause__ = cause
+    return wrapped
+
+
+@pytest.mark.parametrize(
+    ("error", "counts"),
+    [
+        pytest.param(_caused_by(_stopping()), False, id="the stop is the cause"),
+        pytest.param(ExceptionGroup("g", [_stopping(), _stopping()]), False, id="stops only"),
+        pytest.param(
+            ExceptionGroup("g", [_stopping(), GitHubOperationError("read")]),
+            True,
+            id="a stop and a real failure",
+        ),
+        pytest.param(_caused_by(GitHubOperationError("read")), True, id="a real cause"),
+    ],
+)
+def test_a_stop_in_the_cause_chain_or_in_a_group_is_a_stop_only_when_no_real_failure_is_with_it(
+    tmp_path: Path, error: Exception, counts: bool
+) -> None:
+    """With a limit of 1, a failure that counts suspends the row at once."""
+    rounds = _Rounds(error, limit=1)
+    rounds.fail(tmp_path)
+
+    rounds.poll(tmp_path)
+
+    assert rounds.calls == (1 if counts else 2)
+
+
+def test_a_stop_between_two_failures_keeps_the_count_of_the_row(tmp_path: Path) -> None:
+    """With a limit of 2: the count is 1, the stop leaves it, and the next failure makes 2 and
+    suspends the row. Counted, the stop would suspend it a round sooner; cleared, a round later."""
+    rounds = _Rounds(
+        GitHubOperationError("read"), _stopping(), GitHubOperationError("read"), limit=2
+    )
+    for _ in range(3):
+        rounds.fail(tmp_path)
+
+    rounds.poll(tmp_path)
+
+    assert rounds.calls == 3
+    assert _suspended_metric() == 1
+
+
+def test_the_line_that_suspends_a_row_names_the_cause_of_each_round(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.WARNING, logger="devops_cli.roadmap.run")
+    rounds = _Rounds(
+        GitHubOperationError("read"), RoadmapRefineError("model"), GitHubOperationError("write")
+    )
+    for _ in range(DEFAULT_SERVICE_MAX_FAILED_ROUNDS):
+        rounds.fail(tmp_path)
+
+    (line,) = [r.getMessage() for r in caplog.records if "rounds in a row" in r.getMessage()]
+    assert "(causes: GitHubOperationError, RoadmapRefineError, GitHubOperationError)" in line
+
+
+def test_a_round_that_an_earlier_process_counted_has_the_cause_unknown(tmp_path: Path) -> None:
+    record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
+    before = FailureLedger(record=record)
+    for _ in range(2):
+        before.failed(REPO_A, "intake", "a", _CAUSE)
+
+    after = FailureLedger(record=record)
+    after.failed(REPO_A, "intake", "a", "RoadmapRefineError")
+
+    assert after.causes(REPO_A, "intake") == ("unknown", "unknown", "RoadmapRefineError")
+
+
+def test_a_failure_on_new_input_starts_the_causes_again_and_a_success_clears_them() -> None:
+    ledger = FailureLedger(limit=2)
+    ledger.failed(REPO_A, "intake", "a", "GitHubOperationError")
+    ledger.failed(REPO_A, "intake", "a", "GitHubOperationError")
+    ledger.failed(REPO_A, "intake", "b", "RoadmapRefineError")
+    new_input = ledger.causes(REPO_A, "intake")
+    ledger.succeeded(REPO_A, "intake")
+
+    assert (new_input, ledger.causes(REPO_A, "intake")) == (("RoadmapRefineError",), ())
+
+
+_RUNNING_VERSION_RECORD = TypeAdapter(list[tuple[str, str, int, str]])
+"""The type with which the version that runs now reads `service-failures.json`: a record of
+another shape would stop that version from starting after a rollback."""
+
+
+def test_the_failure_file_keeps_the_format_that_the_running_version_reads(tmp_path: Path) -> None:
+    record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
+    record.write_text(json.dumps([[REPO_A, "refine", 3, "abc"]]), encoding="utf-8")
+
+    kept = FailureLedger(record=record)
+    assert kept.suspended(REPO_A, "refine", "abc")
+    assert _gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, {"repo": REPO_A, "row": "refine"}) == 1
+
+    kept.failed(REPO_B, "implement", "x", "ServiceStoppingError")
+    assert _RUNNING_VERSION_RECORD.validate_json(record.read_bytes()) == [
+        (REPO_A, "refine", 3, "abc"),
+        (REPO_B, "implement", 1, "x"),
+    ]
 
 
 # ── A restart ───────────────────────────────────────────────────────────────────────────────
@@ -734,7 +894,7 @@ def test_a_job_reports_its_suspension_until_new_input_or_a_success_ends_it() -> 
     ledger = FailureLedger(limit=2)
     seen: list[float] = []
     for current in ("a", "a", "b", "b"):
-        ledger.failed(REPO_A, "intake", current)
+        ledger.failed(REPO_A, "intake", current, _CAUSE)
         seen.append(_suspended_metric())
     ledger.succeeded(REPO_A, "intake")
     seen.append(_suspended_metric())
