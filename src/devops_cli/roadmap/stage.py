@@ -26,7 +26,10 @@ prompt `roadmap_stage_change.md`), measures each task group (`stage_change.measu
 asks once for a split of the groups over `--step-tokens`. A group still over the budget stops the
 item (`OverBudget`). The job validates the change with `openspec validate --strict` in a scratch
 directory when the binary is on `PATH`; a failure goes back to the model once, and a second one
-stops the item. A reply the rules refuse (`check_proposal`) takes the same one return. The plan
+stops the item. A reply the rules refuse (`check_proposal`) takes the same one return. A group that
+changes no file, or has a blank text, fails the schema of the reply, and `chat_structured` sends it
+back once (`_REPLY_RETURNS`). The comment on the item names each changed path that is no file on the default branch and
+that no group creates (`missing_paths`); it never stops the item. The plan
 writes nothing to git or to GitHub. A model call that fails skips its item; rejected credentials
 stop the run.
 """
@@ -92,6 +95,7 @@ from devops_cli.roadmap.stage_change import (
     check_proposal,
     closing_keyword_in,
     measure_groups,
+    missing_paths,
     pull_request_body,
     render_change,
     safe_text,
@@ -356,13 +360,17 @@ _SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
 _DEFAULT_WINDOW: Final[int] = 8192
+# A reply that fails its schema goes back to the model once, with the violations; a second one
+# stops the item.
+_REPLY_RETURNS: Final[int] = 1
 
 
 @dataclass(frozen=True)
 class StagedChange:
     """A change ready to write: the target, the title and the body of its draft pull request, the
     files by path from the repository root, the measure of each task group, whether
-    `openspec validate` ran on it (it does not without the binary), and the budget of the run."""
+    `openspec validate` ran on it (it does not without the binary), the budget of the run, and
+    the paths that the groups change and that exist nowhere (`missing_paths`)."""
 
     target: StageTarget
     title: str
@@ -371,6 +379,7 @@ class StagedChange:
     groups: tuple[MeasuredGroup, ...]
     validated: bool
     budget: int
+    missing: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -501,7 +510,10 @@ class _Planner:
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
         return self._client.chat_structured(
-            load_task_prompt(task), json.dumps(request, ensure_ascii=False, indent=1), schema
+            load_task_prompt(task),
+            json.dumps(request, ensure_ascii=False, indent=1),
+            schema,
+            max_retries=_REPLY_RETURNS,
         )
 
     def _settle(
@@ -527,7 +539,14 @@ class _Planner:
         if problem is not None:
             return problem
         return StagedChange(
-            target, title, body, files, tuple(measured), self._tool is not None, self._budget
+            target,
+            title,
+            body,
+            files,
+            tuple(measured),
+            self._tool is not None,
+            self._budget,
+            missing_paths(self._source, proposal.groups),
         )
 
     def _build(
@@ -808,6 +827,18 @@ def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
     return json.dumps([[m.group.title, m.tokens] for m in groups], ensure_ascii=False)
 
 
+def _notes(change: StagedChange) -> str:
+    """The notes that end the comment of a staged item: the paths that exist nowhere, and a
+    validation that did not run."""
+    texts = MESSAGES.roadmap
+    missing = (
+        texts.stage_comment_missing.format(paths=", ".join(f"`{p}`" for p in change.missing))
+        if change.missing
+        else ""
+    )
+    return missing + ("" if change.validated else texts.stage_comment_not_validated)
+
+
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
     post the one comment. The Status of the item stays as it is."""
@@ -834,7 +865,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
             pull=pull.number,
             budget=change.budget,
             groups=_groups_listed(change.groups),
-            notes="" if change.validated else texts.stage_comment_not_validated,
+            notes=_notes(change),
         ),
     )
 

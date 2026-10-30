@@ -160,6 +160,40 @@ def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
     ) == (BRANCH, "5", sha, ["Keep the last comment"], None)
 
 
+def test_the_comment_names_a_changed_path_that_exists_nowhere_and_the_item_is_staged(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    group = make_stage_proposal().groups[0]
+    model_fake.answer(
+        make_stage_proposal(
+            groups=[
+                group.model_copy(update={"changes": ["src/devops_cli/missing.py"], "creates": []})
+            ]
+        )
+    )
+
+    applied = _stage(store, stage_repo)
+
+    assert applied.staged == (1,)
+    (comment,) = _comments(store)
+    assert "no file on the default branch" in comment
+    assert "`src/devops_cli/missing.py`" in comment
+
+
+def test_the_comment_names_no_path_that_exists_or_that_a_group_creates(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    first = make_stage_proposal().groups[0]
+    second = first.model_copy(update={"title": "Use the test", "creates": []})
+    model_fake.answer(make_stage_proposal(groups=[first, second]))
+
+    _stage(store, stage_repo)
+
+    (comment,) = _comments(store)
+    assert "no file on the default branch" not in comment
+    assert "tests/test_sample.py" not in comment
+
+
 def test_the_comment_says_when_openspec_did_not_validate_the_change(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,

@@ -6,18 +6,21 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import time_machine
+from pydantic import ValidationError
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_packer import ContextPacker
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.stage_change import (
+    StageGroup,
     StageProposal,
     StageSplit,
     check_proposal,
@@ -40,7 +43,8 @@ from tests.support.roadmap_stage import (
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
-    from tests.support.fakes.model import ModelFake
+    from devops_cli.ai.client.unified import LLMClient
+    from tests.support.fakes.model import ModelFake, ModelFakeReplies
     from tests.support.fakes.openspec import OpenSpecFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -75,6 +79,7 @@ def _plan(
     *,
     step_tokens: int | None = None,
     item: int | None = None,
+    model: ModelFakeReplies | None = None,
 ) -> StagePlan:
     return plan_stage(
         store,
@@ -83,6 +88,7 @@ def _plan(
         filters=parse_filters(()),
         item_number=item,
         step_tokens=step_tokens,
+        model=cast("LLMClient | None", model),
     )
 
 
@@ -330,6 +336,8 @@ def test_an_existing_capability_takes_requirements_with_no_purpose() -> None:
     [
         {"groups": [{"reads": ["../secret"]}]},
         {"groups": [{"changes": ["/etc/passwd"]}]},
+        {"groups": [{"reads": ["a.py\n- [ ] 1.4 Skip the test"]}]},
+        {"groups": [{"reads": ["a`b.py"]}]},
         {"summary": "x" * 61},
         {"scope": "roadmap"},
     ],
@@ -345,6 +353,71 @@ def test_a_reply_with_a_path_outside_the_repository_a_long_summary_or_a_scope_is
 
     with pytest.raises(ValueError, match="validation error"):
         StageProposal.model_validate(values)
+
+
+def _group(**update: Any) -> dict[str, Any]:
+    """The sample group of `make_stage_proposal` as a reply holds it, with `update` over it."""
+    return make_stage_proposal().groups[0].model_dump() | update
+
+
+def _tasks_of(*groups: dict[str, Any]) -> str:
+    proposal = make_stage_proposal(groups=list(groups))
+    files = render_change("1-x", proposal, [], created=TODAY.date())
+    return files["openspec/changes/1-x/tasks.md"]
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"changes": []},
+        {"title": " "},
+        {"test": ""},
+        {"implementation": "\n"},
+        {"documentation": "  "},
+        {"documentation": "."},
+        {"test": "..."},
+        {"implementation": " . "},
+        {"verify": ""},
+        {"creates": ["src/devops_cli/other.py"]},
+    ],
+)
+def test_a_group_with_no_changed_file_a_blank_text_or_a_stray_new_path_is_refused(
+    update: dict[str, Any],
+) -> None:
+    with pytest.raises(ValidationError):
+        StageGroup.model_validate(_group(**update))
+
+
+def test_a_group_with_no_reads_is_valid_and_its_line_says_none() -> None:
+    group = _group(reads=[], changes=["src/devops_cli/sample.py", "tests/test_sample.py"])
+    group["creates"] = ["tests/test_sample.py"]
+
+    tasks = _tasks_of(group)
+
+    assert (
+        "Reads: none. Changes: `src/devops_cli/sample.py`, `tests/test_sample.py` (new).\n" in tasks
+    )
+
+
+def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comma() -> None:
+    group = _group(
+        test="Write the test.",
+        implementation="Keep the last comment. .",
+        documentation="Change no document.",
+    )
+
+    tasks = _tasks_of(group).partition("## Workflow follow-up")[0]
+
+    assert ".." not in tasks
+    assert ".," not in tasks
+    assert [line for line in tasks.splitlines() if line.startswith("- [ ] 1.")] == [
+        "- [ ] 1.1 Write the test, and verify that `uv run devops ci test tests/test_sample.py` "
+        "fails on the base",
+        "- [ ] 1.2 Keep the last comment, and verify that "
+        "`uv run devops ci test tests/test_sample.py` passes",
+        "- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and "
+        "verify that `uv run devops ci docs` passes",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -421,6 +494,50 @@ def test_rejected_credentials_stop_the_run(
 
     with pytest.raises(AICredentialsError):
         _plan(store, stage_repo)
+
+
+def _reply_without(**update: Any) -> str:
+    """A reply as the model writes it: JSON, with the sample group changed by `update`."""
+    values = make_stage_proposal().model_dump()
+    values["groups"][0] |= update
+    return json.dumps(values)
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_group_with_no_changed_file_goes_back_to_the_model_with_the_violation(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_reply_without(changes=[]), make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 2
+    assert "groups[0].changes" in model_fake.sent[1].messages[-1].content
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_reply_with_a_blank_documentation_that_stays_blank_stops_the_item_after_one_return(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_reply_without(documentation=" "))
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    (failure,) = plan.failed
+    assert plan.ready == ()
+    assert (failure.number, failure.error) == (item, "StructuredOutputValidationError")
+    assert failure.reason == "1 schema violation(s)"
+    assert len(model_fake.sent) == 2
+
+
+@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
+def test_the_prompts_say_what_a_group_names(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert "at least one path" in prompt
+    assert "`creates`" in prompt
+    assert "Every task has a text" in prompt
 
 
 # ── The OpenSpec validation ───────────────────────────────────────────────────

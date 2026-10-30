@@ -2253,6 +2253,10 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
+    stage_comment_missing: str = (
+        "\n\nThese paths of the plan are no file on the default branch, and no group creates "
+        "them: {paths}. A person checks that the plan names them right."
+    )
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."
@@ -2399,6 +2403,11 @@ class RoadmapMessages:
     stage_impact_documents: str = "Documents"
     stage_impact_tests: str = "Tests"
     stage_group_files: str = "Reads: {reads}. Changes: {changes}."
+    # The empty value of `reads` ends in no stop of its own: `stage_group_files` ends the sentence.
+    stage_group_no_reads: str = "none"
+    stage_group_new: str = " (new)"
+    stage_blank_text: str = "A task text holds only full stops and spaces."
+    stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
     stage_title_lead: str = "plan #{number} "
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"

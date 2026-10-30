@@ -11,15 +11,23 @@ the context packer.
 
 from __future__ import annotations
 
+import string
 import textwrap
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Final
+from typing import Annotated, Final, Self
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
@@ -49,15 +57,21 @@ _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
 _TESTS_DIRECTORY: Final[str] = "tests/"
 _DOCUMENT_SUFFIX: Final[str] = ".md"
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
+_SENTENCE_END: Final[str] = f"{string.whitespace}."
 _REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 
 # ── The reply ─────────────────────────────────────────────────────────────────
 
 
+def _is_plain(path: str) -> bool:
+    """Whether `path` can stand in a code span of one line: no backtick, no control character."""
+    return "`" not in path and path.isprintable()
+
+
 def _repository_path(path: str) -> str:
-    """A path inside the repository: relative, with no `..`."""
+    """A path inside the repository: relative, with no `..`, and fit for a code span."""
     parts = PurePosixPath(path)
-    if not path or parts.is_absolute() or ".." in parts.parts:
+    if not path or parts.is_absolute() or ".." in parts.parts or not _is_plain(path):
         raise ValueError(MESSAGES.roadmap.stage_bad_path.format(path=path))
     return path
 
@@ -69,6 +83,21 @@ def _capability_name(name: str) -> str:
 
 
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
+# A text of a task group: at least one character once the whitespace around it is stripped.
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _sentence(text: str) -> str:
+    """The text of a task without the full stops at its end, as the writer joins a comma to it.
+    A text that holds only stops and spaces has nothing left, and the schema refuses it."""
+    kept = text.rstrip(_SENTENCE_END)
+    if not kept:
+        raise ValueError(MESSAGES.roadmap.stage_blank_text)
+    return kept
+
+
+# The text of a task that the writer joins to the words after it: it ends in no full stop.
+Sentence = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_sentence)]
 
 
 class _Reply(BaseModel):
@@ -115,15 +144,24 @@ class StageRejection(_Reply):
 
 
 class StageGroup(_Reply):
-    """One task group of the change: the work of one implementation step."""
+    """One task group of the change: the work of one implementation step. A group changes at
+    least one file. `creates` lists the paths of `changes` that the step makes."""
 
-    title: str
+    title: Text
     reads: list[RepositoryPath] = Field(default_factory=list)
-    changes: list[RepositoryPath] = Field(default_factory=list)
-    test: str
-    implementation: str
-    documentation: str
-    verify: str
+    changes: list[RepositoryPath] = Field(min_length=1)
+    creates: list[RepositoryPath] = Field(default_factory=list)
+    test: Sentence
+    implementation: Sentence
+    documentation: Sentence
+    verify: Text
+
+    @model_validator(mode="after")
+    def _creates_are_changes(self) -> Self:
+        for path in self.creates:
+            if path not in self.changes:
+                raise ValueError(MESSAGES.roadmap.stage_bad_creates.format(path=path))
+        return self
 
 
 class StageProposal(_Reply):
@@ -292,20 +330,24 @@ def _design_file(proposal: StageProposal) -> str:
     )
 
 
+def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
+    """The paths as code spans, a created path with its mark."""
+    mark = MESSAGES.roadmap.stage_group_new
+    return ", ".join(f"`{p}`{mark if p in created else ''}" for p in paths)
+
+
 def group_text(index: int, group: StageGroup) -> str:
     """The group as `tasks.md` holds it, numbered `index`: its files, and its three tasks."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
-        reads=", ".join(f"`{p}`" for p in group.reads) or texts.stage_none,
-        changes=", ".join(f"`{p}`" for p in group.changes) or texts.stage_none,
+        reads=_paths(group.reads) or texts.stage_group_no_reads,
+        changes=_paths(group.changes, group.creates),
     )
     return (
-        f"## {index}. {group.title.strip()}\n\n{files}\n\n"
-        f"- [ ] {index}.1 {group.test.strip()}, "
-        f"and verify that `{group.verify.strip()}` fails on the base\n"
-        f"- [ ] {index}.2 {group.implementation.strip()}, "
-        f"and verify that `{group.verify.strip()}` passes\n"
-        f"- [ ] {index}.3 {group.documentation.strip()}, "
+        f"## {index}. {group.title}\n\n{files}\n\n"
+        f"- [ ] {index}.1 {group.test}, and verify that `{group.verify}` fails on the base\n"
+        f"- [ ] {index}.2 {group.implementation}, and verify that `{group.verify}` passes\n"
+        f"- [ ] {index}.3 {group.documentation}, "
         f"run `{_REGENERATE_DOCUMENTS}`, and verify that `uv run devops ci docs` passes\n"
     )
 
@@ -381,19 +423,29 @@ class MeasuredGroup:
     tokens: int
 
 
+def _file_at(root: Path, path: str) -> Path | None:
+    """The file at `path` under `root`, or None when `path` leaves `root` or holds no file."""
+    try:
+        found = safe_resolve_subpath(root, path)
+    except SecurityError:
+        return None
+    return found if found.is_file() else None
+
+
 def _packed_tokens(root: Path, paths: Sequence[str], limit: int) -> int:
     """The tokens of the files at `paths` under `root`, packed. A path that holds no file is a
     file the step creates, and costs nothing to read. A file is packed to at most `limit`."""
     packer = ContextPacker(PackingConfig(max_tokens=limit))
-    total = 0
-    for path in dict.fromkeys(paths):
-        try:
-            found = safe_resolve_subpath(root, path)
-        except SecurityError:
-            continue
-        if found.is_file():
-            total += packer.pack_file(found).packed_tokens
-    return total
+    files = (_file_at(root, path) for path in dict.fromkeys(paths))
+    return sum(packer.pack_file(found).packed_tokens for found in files if found is not None)
+
+
+def missing_paths(root: Path, groups: Sequence[StageGroup]) -> tuple[str, ...]:
+    """The paths that the groups change, each once, that hold no file under `root` and that no
+    group creates: a person checks them, as a new file the model did not mark looks the same."""
+    created = {path for group in groups for path in group.creates}
+    changed = dict.fromkeys(path for group in groups for path in group.changes)
+    return tuple(path for path in changed if path not in created and _file_at(root, path) is None)
 
 
 def measure_groups(
