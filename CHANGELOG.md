@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.1](https://github.com/dan-petty/devops-cli/compare/v0.21.0...v0.21.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **roadmap:** intake derives type and scope labels from the title ([#2720](https://github.com/dan-petty/devops-cli/issues/2720)) ([5278c53](https://github.com/dan-petty/devops-cli/commit/5278c53e9d88ce95f6ff6e395151720a868ef768)), closes [#2715](https://github.com/dan-petty/devops-cli/issues/2715)
+
 ## [0.21.0](https://github.com/dan-petty/devops-cli/compare/v0.20.0...v0.21.0) (2026-10-29)
 
 
