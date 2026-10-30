@@ -21,7 +21,7 @@ things that the round trip of ruamel.yaml does not do alone:
 from __future__ import annotations
 
 import io
-from collections.abc import Mapping
+from collections.abc import Collection, Iterator, Mapping
 from typing import Any, Final
 
 from ruamel.yaml import YAML
@@ -91,8 +91,13 @@ def changes(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[KeyPath
     return removed | changed
 
 
-def edit(text: str, changed: Mapping[KeyPath, Any], *, name: str) -> str:
+def edit(
+    text: str, changed: Mapping[KeyPath, Any], *, name: str, scrub: Collection[str] = ()
+) -> str:
     """The YAML `text` with each key path of `changed` set to its value, or removed for `ABSENT`.
+
+    A comment line that holds one of the `scrub` texts loses its comment, so a value that an edit
+    replaces does not stay in a note such as `# was <value>` (#2645).
 
     `name` names the file in the error that a text which is not YAML, or that holds no mapping,
     raises. The error does not quote the text, which can hold a credential.
@@ -128,11 +133,51 @@ def edit(text: str, changed: Mapping[KeyPath, Any], *, name: str) -> str:
             _remove(document, path)
         else:
             _set(document, path, value)
+    if scrub:
+        _scrub_comments(document, scrub)
     if not document:
         return head
     written = io.StringIO()
     yaml.dump(document, written)
     return head + written.getvalue()
+
+
+def _scrub_comments(node: Any, texts: Collection[str]) -> None:
+    """Empty each comment line, in `node` and below it, that holds one of `texts`."""
+    for token in _comment_tokens(node):
+        lines = token.value.splitlines(keepends=True)
+        token.value = "".join(
+            ("\n" if line.endswith("\n") else "") if any(t in line for t in texts) else line
+            for line in lines
+        )
+    if isinstance(node, CommentedMap):
+        children: Iterator[Any] = iter(node.values())
+    elif isinstance(node, CommentedSeq):
+        children = iter(node)
+    else:
+        return
+    for child in children:
+        _scrub_comments(child, texts)
+
+
+def _comment_tokens(node: Any) -> Iterator[CommentToken]:
+    """Each comment token that ruamel.yaml keeps on `node`: before it, after its keys and items,
+    and at its end."""
+    if not isinstance(node, (CommentedMap, CommentedSeq)):
+        return
+    yield from _flatten_tokens(node.ca.comment)
+    for entry in node.ca.items.values():
+        yield from _flatten_tokens(entry)
+    yield from _flatten_tokens(node.ca.end)
+
+
+def _flatten_tokens(slot: Any) -> Iterator[CommentToken]:
+    """The comment tokens in a slot of the comment entry, which holds a token, a list or None."""
+    if isinstance(slot, CommentToken):
+        yield slot
+    elif isinstance(slot, list):
+        for item in slot:
+            yield from _flatten_tokens(item)
 
 
 def find(text: str, dotted: str, *, name: str) -> tuple[KeyPath, int] | None:

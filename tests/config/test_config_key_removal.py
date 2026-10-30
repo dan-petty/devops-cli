@@ -331,7 +331,8 @@ def test_a_removal_of_a_credential_drops_each_comment_that_holds_its_value(
     _use(
         isolate_devops_cli_config,
         f"ai:\n  # the old key was {_SECRET}\n  api_key: {_SECRET}  # was {_SECRET}\n"
-        "  # the next line holds the model\n  model: qwen3  # keep\n",
+        "  # the next line holds the model\n  model: qwen3  # keep\n"
+        f"github:\n  accounts:\n    - one  # {_SECRET}\n    - two  # keep too\n",
     )
     clock.move_to(_REMOVED_AT)
 
@@ -342,7 +343,9 @@ def test_a_removal_of_a_credential_drops_each_comment_that_holds_its_value(
     assert _SECRET not in text
     assert yaml.safe_load(text) == {
         "ai": {"api_key": "***REDACTED***", "model": "qwen3"},
+        "github": {"accounts": ["one", "two"]},
     }
+    assert "- two  # keep too\n" in text
     assert "# the next line holds the model\n  model: qwen3  # keep\n" in text
 
 

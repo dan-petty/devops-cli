@@ -12,7 +12,8 @@ Issue #2513 made the alert of `devops config audit-keys` say that the copy still
 
 - `devops config unset <key>` shows the value of each credential that it removes as `***REDACTED***` in the new copy and in each retained older copy. The key stays, so a person sees that a value was there. Every other line of the copy stays as it was, so a person can still undo the removal of another key.
 - A key counts as a credential when its dotted name is in the set of credentials of `devops_cli.config.env` (`secret_keys()`). A removal of a section, such as `ai`, redacts each credential below it.
-- A copy that holds no value to redact (an empty value, the placeholder, or no such key) stays byte for byte as it is. A copy that is not YAML stops the command with a `ConfigurationError` that names the copy and quotes no text. The command stops before it replaces the file, so no credential is removed and left in that copy.
+- A copy that holds no value to redact (an empty value, the placeholder, or no such key) stays byte for byte as it is. A copy that is not UTF-8 text, is not YAML, or is not a YAML mapping stops the command with a `ConfigurationError` that names the copy and quotes no text. The command stops before it replaces the file, so no credential is removed and left in that copy.
+- A comment line of a copy that holds the value, such as `# was <value>`, loses its comment text. The copies keep their line ends (CRLF stays CRLF).
 - The copy keeps the mode of the file. The retention of 10 copies does not change. A write that is not a removal does not redact: its copy only repeats the file as it was.
 - The alert of `devops config audit-keys` no longer says that the copy still holds the value. The requirement that said so is renamed and changed.
 - The help of `devops config unset`, the generated documents and the knowledge base say what the copies show.

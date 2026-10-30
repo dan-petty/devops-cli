@@ -7,6 +7,8 @@
 - [x] 1.3 Delete the sentence about the copy from `ConfigMessages.plaintext_alert`, verified with `uv run devops ci test tests/test_config_audit_keys.py`
 - [x] 1.4 Change the help of `devops config unset` and `devops config audit-keys`, `src/devops_cli/docs/generator.py` and the knowledge base, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops docs check` passes
 
+- [x] 1.5 Drop the comments that hold the value, refuse a copy that is not UTF-8 text or not a YAML mapping, and keep the line ends of a copy, verified with `uv run devops ci test tests/config/test_config_key_removal.py`
+
 ## 2. Archive
 
 - [ ] 2.1 Archive this change with `uv run devops openspec archive 2645-config-unset-removes-plaintext`

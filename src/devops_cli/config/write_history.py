@@ -41,7 +41,7 @@ def back_up(path: Path, redact: Collection[KeyPath] = ()) -> Path | None:
     state a person restores to undo the writes of that second.
 
     `redact` names the key paths of credentials that the write removes from the file (#2645).
-    Each retained copy, the new one and the older ones, then shows the value of such a key as
+    Each copy, the older ones and the new one, then shows the value of such a key as
     `CONST_CONFIG_REDACTED_VALUE`, so the removal of a credential leaves no copy that holds it.
     The rest of each copy stays as it is. A copy that cannot be read as YAML raises
     ConfigurationError, before the caller replaces the file.
@@ -50,50 +50,69 @@ def back_up(path: Path, redact: Collection[KeyPath] = ()) -> Path | None:
         return None
     stamp = datetime.now(UTC).strftime(CONST_CONFIG_BACKUP_STAMP_FORMAT)
     backup = path.with_name(f"{path.name}{CONST_CONFIG_BACKUP_INFIX}{stamp}")
+    for copy in _copies(path) if redact else ():
+        _copy(copy, copy, redact)
     if not backup.exists():
         _copy(path, backup, redact)
     for stale in _copies(path)[:-CONST_CONFIG_BACKUPS_KEPT]:
         stale.unlink()
-    if redact:
-        for copy in _copies(path):
-            _copy(copy, copy, redact)
     return backup
 
 
 def _copy(source: Path, dest: Path, redact: Collection[KeyPath]) -> None:
     """Write `source` to `dest` with its mode, and with the values of the `redact` keys redacted.
     A `dest` that is `source` changes only when a key holds a value to redact, and never shows a
-    half-written file."""
+    half-written file. The copy is made in bytes, so every line that holds no value to redact
+    stays as it was."""
     if not redact:
         shutil.copy2(source, dest)
         return
-    text = source.read_text(encoding="utf-8")
-    redacted = _redact(text, redact, name=str(source))
-    if redacted == text and dest == source:
+    data = source.read_bytes()
+    redacted = _redact(data, redact, name=str(source))
+    if redacted == data and dest == source:
         return
     partial = dest.with_name(f"{dest.name}.tmp")
-    partial.write_text(redacted, encoding="utf-8")
+    partial.write_bytes(redacted)
     shutil.copystat(source, partial)
     os.replace(partial, dest)
 
 
-def _redact(text: str, paths: Collection[KeyPath], *, name: str) -> str:
-    """The YAML `text` with the value of each key path of `paths` replaced by
-    `CONST_CONFIG_REDACTED_VALUE`, when `text` holds a value there that is not empty and is not
-    the replacement. `name` names the file in the error for a text that is not YAML. The error
-    does not quote the text, which can hold a credential."""
+def _redact(data: bytes, paths: Collection[KeyPath], *, name: str) -> bytes:
+    """The YAML `data` with the value of each key path of `paths` replaced by
+    `CONST_CONFIG_REDACTED_VALUE`, when `data` holds a value there that is not empty and is not
+    the replacement. A comment line that holds the replaced value loses its comment. `data` that
+    holds nothing, or only comments, stays as it is. `name` names the file in the error for data
+    that is not UTF-8 text, that is not YAML, or that holds no mapping. The error does not quote
+    the data, which can hold a credential."""
     try:
-        held = leaves(_mapping(text.encode("utf-8")))
-    except yaml.YAMLError as exc:
+        text = data.decode("utf-8")
+        loaded = yaml.safe_load(text)
+    except (UnicodeDecodeError, yaml.YAMLError) as exc:
         raise ConfigurationError(
             f"Cannot read {name}: it is not valid YAML ({type(exc).__name__})."
         ) from None
+    if loaded is None:
+        return data
+    if not isinstance(loaded, Mapping):
+        raise ConfigurationError(f"Cannot read {name}: it does not hold a YAML mapping.")
+    held = leaves(loaded)
     hidden = {
         path: CONST_CONFIG_REDACTED_VALUE
         for path in paths
         if held.get(path) not in (None, "", CONST_CONFIG_REDACTED_VALUE)
     }
-    return edit(text, hidden, name=name) if hidden else text
+    if not hidden:
+        return data
+    crlf = "\r\n" in text
+    redacted = edit(
+        text.replace("\r\n", "\n"),
+        hidden,
+        name=name,
+        scrub=[
+            line.strip() for path in hidden for line in str(held[path]).splitlines() if line.strip()
+        ],
+    )
+    return (redacted.replace("\n", "\r\n") if crlf else redacted).encode("utf-8")
 
 
 def credential_paths(
