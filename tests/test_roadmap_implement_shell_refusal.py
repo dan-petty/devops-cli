@@ -7,10 +7,13 @@ agent is the real agent of a step, with the real shell of the harness.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
+from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
@@ -154,3 +157,46 @@ def test_the_model_gets_five_refusals_with_a_hint_and_the_sixth_call_ends_the_ru
     )
     assert all(answer.endswith("Instead of `python`: `uv run python`.") for answer in answers)
     assert outcome.reason.endswith("\nRefused commands: python 6. Other retries: 0.")
+
+
+# ── The prompt agrees with the table ──────────────────────────────────────────────────────
+
+
+def _prompt() -> str:
+    return load_task_prompt("roadmap_implement_step.md")
+
+
+def test_the_prompt_lists_the_allowed_programs_of_the_shell() -> None:
+    programs = ", ".join(f"`{program}`" for program in IMPLEMENT_SHELL_PROGRAMS)
+
+    assert f"The shell runs only {programs}." in _prompt()
+
+
+def test_the_prompt_table_has_one_row_for_each_replacement_in_the_order_of_the_table() -> None:
+    rows = [line for line in _prompt().splitlines() if line.startswith("| `")]
+
+    assert rows == [
+        f"| `{program}` | {replacement} |"
+        for program, replacement in IMPLEMENT_SHELL_REPLACEMENTS.items()
+    ]
+
+
+def test_no_program_of_the_table_is_a_program_that_the_shell_allows() -> None:
+    assert set(IMPLEMENT_SHELL_REPLACEMENTS).isdisjoint(IMPLEMENT_SHELL_PROGRAMS)
+
+
+def test_each_replacement_names_an_allowed_program_or_a_tool_that_the_agent_has(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(say("Done."))
+    _step(store, checkout, script)
+    names = {*IMPLEMENT_SHELL_PROGRAMS, *script.tools_offered[0]}
+
+    named = [
+        code.split()[0]
+        for replacement in IMPLEMENT_SHELL_REPLACEMENTS.values()
+        for code in re.findall(r"`([^`]+)`", replacement)
+    ]
+
+    assert named
+    assert set(named) <= names

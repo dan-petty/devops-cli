@@ -16,9 +16,9 @@
 
 ## 3. The prompt table
 
-- [ ] Write a failing test in `tests/test_roadmap_implement_shell_refusal.py` that pins the line of allowed programs and the table of the prompt to `IMPLEMENT_SHELL_PROGRAMS` and `IMPLEMENT_SHELL_REPLACEMENTS`, and that each replacement names an allowed program or a tool that the agent has.
+- [x] Write a failing test in `tests/test_roadmap_implement_shell_refusal.py` that pins the line of allowed programs and the table of the prompt to `IMPLEMENT_SHELL_PROGRAMS` and `IMPLEMENT_SHELL_REPLACEMENTS`, and that each replacement names an allowed program or a tool that the agent has.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_shell_refusal.py`
-- [ ] Add the table to `src/devops_cli/ai/tasks/roadmap_implement_step.md`, next to the line of allowed programs.
+- [x] Add the table to `src/devops_cli/ai/tasks/roadmap_implement_step.md`, next to the line of allowed programs.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_shell_refusal.py`
 
 ## 4. The documentation

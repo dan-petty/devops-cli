@@ -505,10 +505,9 @@ def build_agent(
 ) -> Agent[None, str]:
     """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
     scratch `home`, the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
-    tool calls (#2758). It has no `delegate_task`
-    tool, so the limits of a run cover the whole step, and it loads no instruction file of the
-    checkout, so its context is the inputs of the step. The shell is no security boundary: the
-    runner of the step is the sandbox."""
+    tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
+    and it loads no instruction file of the checkout, so its context is the inputs of the step. The
+    shell is no security boundary: the runner of the step is the sandbox."""
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
