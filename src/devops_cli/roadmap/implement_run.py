@@ -34,6 +34,7 @@ until a person comments `implement: retry`.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import textwrap
 from collections.abc import Iterator, Sequence
@@ -50,8 +51,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
+    CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
     CONST_ROADMAP_STATUS_READY,
@@ -91,16 +94,26 @@ _WHY_HEADINGS = frozenset({"why"})
 
 class _StopError(Exception):
     """An item stops: the job's own signal, caught where the item's run ends. `push` says whether
-    the commits that passed are worth pushing."""
+    the commits that passed are worth pushing. `diff` is the diff of the work that a stopped step
+    discarded, and `diff_cut` says that it was cut (#2721)."""
 
     def __init__(
-        self, step: str, reason: str, last_message: str = "", *, push: bool = True
+        self,
+        step: str,
+        reason: str,
+        last_message: str = "",
+        *,
+        push: bool = True,
+        diff: str = "",
+        diff_cut: bool = False,
     ) -> None:
         super().__init__(reason)
         self.step = step
         self.reason = reason
         self.last_message = last_message
         self.push = push
+        self.diff = diff
+        self.diff_cut = diff_cut
 
 
 @dataclass(frozen=True)
@@ -121,6 +134,30 @@ class ImplementApplied:
     ready: tuple[int, ...] = ()
     stopped: tuple[int, ...] = ()
     failed: tuple[ImplementFailure, ...] = ()
+
+
+def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
+    """The stop of an item for a step that stopped, with the diff of its discarded work."""
+    return _StopError(
+        step, outcome.reason, outcome.last_message, diff=outcome.diff, diff_cut=outcome.diff_cut
+    )
+
+
+def _diff_section(stop: _StopError) -> str:
+    """The diff of the discarded work of a stopped step as a fenced block of the stop comment, or
+    nothing when there is none. The diff is text of the agent, so it is masked here again, at the
+    point where it leaves for GitHub. The fence is one backtick longer than the longest run of
+    backticks in the diff, and at least three: CommonMark ends a fenced block only at a fence at
+    least as long as its opening, so no line of the diff can end the block."""
+    if not stop.diff:
+        return ""
+    texts = MESSAGES.roadmap
+    diff = mask_secrets(stop.diff).rstrip("\n")
+    longest = max((len(run) for run in re.findall(r"`+", diff)), default=0)
+    cut = texts.implement_comment_diff_cut.format(limit=CONST_ROADMAP_IMPLEMENT_DIFF_CHARS)
+    return texts.implement_comment_diff.format(
+        cut=cut if stop.diff_cut else "", fence="`" * max(3, longest + 1), diff=diff
+    )
 
 
 def require_runner(repo: str) -> None:
@@ -324,7 +361,7 @@ class _ItemRun:
             )
             self.outcomes.append(outcome)
             if outcome.status is StepStatus.STOPPED:
-                raise _StopError(self.step, outcome.reason, outcome.last_message)
+                raise _stopped_by(self.step, outcome)
             self._record(group=str(group.number), sha=outcome.commit)
 
     def _finish_change(self) -> None:
@@ -454,7 +491,7 @@ class _ItemRun:
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
-            raise _StopError(self.step, outcome.reason, outcome.last_message)
+            raise _stopped_by(self.step, outcome)
 
     def _ready(self, pull: int) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["ready"]
@@ -485,7 +522,9 @@ class _ItemRun:
         last = safe_text(mask_secrets(stop.last_message))[
             :CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
         ]
-        reason = textwrap.indent(mask_secrets(stop.reason).strip(), "    ")
+        reason = textwrap.indent(
+            mask_secrets(stop.reason).strip()[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS], "    "
+        )
         self.store.comment(
             self.number,
             texts.implement_comment_stopped.format(
@@ -493,6 +532,7 @@ class _ItemRun:
                 step=stop.step,
                 reason=reason,
                 last=last or texts.implement_comment_last_none,
+                diff=_diff_section(stop),
                 note=note,
             ),
         )

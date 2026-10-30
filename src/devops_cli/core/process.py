@@ -616,6 +616,7 @@ class DefaultProcessRunner:
                     env=sub_env,
                     capture_output=capture_output,
                     text=text,
+                    errors="replace" if text else None,
                     check=check,
                     timeout=timeout,
                 )

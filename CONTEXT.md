@@ -127,7 +127,7 @@ The work of one task group of a staged change, sized so that its inputs fit a bu
 _Avoid_: chunk, phase
 
 **Implementing**:
-Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A stopped item goes back to Ready and waits for the comment `implement: retry`. A person merges.
+Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item goes back to Ready, shows the masked diff of the work it discarded, and waits for the comment `implement: retry`. A person merges.
 _Avoid_: building, executing
 
 **Runner**:

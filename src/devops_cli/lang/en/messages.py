@@ -1977,6 +1977,16 @@ class RoadmapMessages:
     implement_fix_title: str = "Make check {check} pass"
     implement_fix_task: str = "[ ] Make check `{check}` pass"
     implement_stop_unticked: str = "A task of the group is not ticked: {task}"
+    implement_stop_tick_turn_changed: str = (
+        "The extra turn for the ticks changed files other than the tasks file: {paths}."
+    )
+    implement_paths_more: str = " and {count} more"
+    implement_tick_turn: str = (
+        "The checks of your group passed, but `{path}` still holds these tasks of your group "
+        "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "
+        "done. Change nothing else in that file and change no other file. Then reply with one "
+        "short message."
+    )
     implement_stop_group_changed: str = (
         "Group {group} changed. A step may change only its own group."
     )
@@ -2112,10 +2122,15 @@ class RoadmapMessages:
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
         "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
-        "{last}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
+        "{last}{diff}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
         "Then comment `implement: retry`.{note}"
     )
     implement_comment_last_none: str = "none."
+    implement_comment_diff: str = (
+        "\n\nThe job discarded this work.{cut} Read it before you retry:\n\n"
+        "{fence}diff\n{diff}\n{fence}"
+    )
+    implement_comment_diff_cut: str = " The diff is cut to {limit} characters."
     implement_job_report: str = (
         "{marker}\nThe runner Job {name} ended: {state}.\n\nThe last lines of its log:\n\n{log}"
     )
