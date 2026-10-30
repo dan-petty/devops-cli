@@ -14,7 +14,7 @@
 
 ## 3. Archive
 
-- [ ] 3.1 Archive the change, and name uv and npm in the Purpose of `openspec/specs/subprocess-environment/spec.md`, because the archive command does not edit the Purpose
+- [x] 3.1 Archive the change, and name uv and npm in the Purpose of `openspec/specs/subprocess-environment/spec.md`, because the archive command does not edit the Purpose
   - Verification: `uv run devops openspec archive 2673-refuse-uv-npm-program-env-keys`
 
 ## Workflow follow-up
