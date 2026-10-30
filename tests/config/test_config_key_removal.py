@@ -188,8 +188,8 @@ _WITH_SECRET = f"""\
 # devops-cli settings of this workstation
 ai:
   provider: ollama
-  api_key: {_SECRET}   # the key of the gateway
-  model: qwen3
+  api_key: {_SECRET}
+  model: qwen3   # the model of every task
 """
 _REDACTED = "'***REDACTED***'"
 
