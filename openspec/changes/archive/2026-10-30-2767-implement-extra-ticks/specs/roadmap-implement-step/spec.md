@@ -37,6 +37,21 @@ The exit checks SHALL run in this order: the group changed only in its checkboxe
 - **WHEN** a Verification line of the group names `curl http://example.com`
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
 
+### Requirement: A step asks once for the missing ticks
+When the agent ends its run, the check of the tasks passes, each verification command passes, the static checks pass, and a task of the group is unticked, the step SHALL run one more model turn. The turn SHALL continue the same conversation under the same `UsageLimits`. Its message SHALL name the path of the `tasks.md` and list the unticked tasks, and SHALL ask only for their ticks. The step SHALL run the turn at most once, and SHALL run none for a fix step.
+
+#### Scenario: The agent forgot the ticks
+- **WHEN** the model writes a test file and a source file, ends its run with the tasks of group 1 unticked, the verification command and the static checks exit 0, and the model ticks the tasks in the extra turn
+- **THEN** the step reports done, the extra turn got the list of the unticked tasks, the new commit holds the test file, the source file and the ticked `tasks.md`, and the verification command ran twice
+
+#### Scenario: The turn ticks nothing
+- **WHEN** the model ends the extra turn and leaves the task unticked
+- **THEN** the step reports stopped with the reason that names the unticked task, and the model got no third turn
+
+#### Scenario: A fix step
+- **WHEN** a fix step ends with a changed file and no ticks
+- **THEN** the step commits the fix and the model gets no extra turn
+
 ### Requirement: The turn for the ticks changes only the tasks file
 The extra turn SHALL change no file except the `tasks.md` of the change. The step SHALL check this with git, by comparing the checkout after the turn with the tree of the checkout before it, and SHALL stop with a reason that names the other paths when the turn changed any. After the turn every exit check and the restore of the other groups SHALL run again. The outcome SHALL count the requests and the tokens of both turns, and the spend ledger SHALL hold the replies of both.
 
@@ -73,12 +88,36 @@ After each turn of the model, the step SHALL compare every group other than its 
 - **WHEN** the `tasks.md` has CRLF line ends and the model ticks a later group
 - **THEN** the committed `tasks.md` keeps its CRLF line ends and the later group is unticked
 
+#### Scenario: A file with lone CR line ends
+- **WHEN** the model writes a `tasks.md` that has many lone CR line ends before the groups, and ticks a later group
+- **THEN** the step reports done, and the committed `tasks.md` has the later group unticked on its own line
+
 ### Requirement: A change of another group beyond its checkboxes stops the step
-A difference in another group other than its checkboxes, the title, the text of a task, a verification command, or a task or group added or removed, SHALL stop the step with the group named. The own group SHALL keep its rule: its checkboxes may change, and its text may not. A fix step SHALL change no task, checkboxes included, and SHALL restore nothing.
+After the restore, the text of each other group SHALL equal its text before the run. Any difference beyond the checkboxes SHALL stop the step with the group named: a title, a task, a command, a bullet or a line changed, added or removed. A group number that two groups hold after the run SHALL stop the step, and one that two groups hold before the run SHALL be refused before the step starts. The own group SHALL keep its rule. A fix step SHALL change no task and restore nothing.
 
 #### Scenario: The model ticks a later group and edits its text
 - **WHEN** the model ticks a task of group 2 and also changes the text of that task
 - **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: The model changes a bullet of a later group
+- **WHEN** the model ticks the tasks of group 2 and changes `-` to `*` before one of them
+- **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: The model adds a line to a later group
+- **WHEN** the model adds a paragraph to group 2, with or without a change of its checkboxes
+- **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: A copy of a group hides an edit
+- **WHEN** the model edits a task of group 2 and adds a second group 2 that is a copy of the original
+- **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: A fix step with a copy of a group
+- **WHEN** a fix step edits a task of group 2 and adds a second group 2 that is a copy of the original
+- **THEN** the step reports stopped with the reason that a fix step changes no task
+
+#### Scenario: A tasks file that numbers a group twice
+- **WHEN** the `tasks.md` of the change holds two groups with the number 2
+- **THEN** the step is refused before the model runs, and the message names the change and group 2
 
 #### Scenario: A fix step
 - **WHEN** a fix step ticks a task of any group

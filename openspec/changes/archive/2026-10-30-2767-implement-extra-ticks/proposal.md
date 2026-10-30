@@ -9,7 +9,9 @@ A tick is bookkeeping that the job owns. A model that did more than its group di
 ## What Changes
 
 - After each turn of the model, the step compares every other group with its base. A group that differs only in its checkboxes gets its checkbox state written back to the base state in `tasks.md`. The step prints one line to the error stream, which the Job log holds, that names the restored groups. Then it goes on with the checks of its own group.
-- Any other difference in another group still stops the step: the title, the text of a task, a verification command, a task or a group added or removed.
+- Any other difference in another group still stops the step: the title, the text of a task, a verification command, a task or a group added or removed, and any other line of the group, such as a changed bullet or an added paragraph. After the restore the text of the group must equal its text before the run.
+- A `tasks.md` that holds one group number twice stops the step, and a change whose base `tasks.md` holds one is refused before the step starts. Without this, a copy of a group could hide an edit of it.
+- The step splits the file into lines as the parser does, at `\n`, `\r` and `\r\n`, so a line number of the parser always indexes the right line.
 - The restore runs after the first turn and after the extra turn for the ticks (#2721). Every exit check reads the restored file, and the step stages the files after the restore, so the commit holds the restored `tasks.md`.
 - The own group keeps its rule: its checkboxes may change and its text may not. A fix step keeps its rule: it may change no task.
 - The prompt of the step says: tick only the tasks of your group, because a later group runs in its own step and ticks its own.
@@ -26,7 +28,8 @@ A tick is bookkeeping that the job owns. A model that did more than its group di
 ## Impact
 
 - `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `src/devops_cli/lang/en/messages.py`.
-- `tests/test_roadmap_implement_step.py`, `tests/support/implement_step.py`, and the snapshot of the prompt.
+- `src/devops_cli/lang/en/help.py` and the documents that `devops docs generate --sync-readme` writes from it.
+- `tests/test_roadmap_implement_step.py`, `tests/test_roadmap_implement_step_ticks.py` and `tests/support/implement_step.py`.
 - The documents that `devops docs generate --sync-readme` writes.
 
 ## Feasibility
@@ -39,7 +42,7 @@ A tick is bookkeeping that the job owns. A model that did more than its group di
 
 ## Existing Tool Considered
 
-The step already uses `markdown-it-py` through `parse_task_groups`. The change reuses it: the parser gives the shape of a group, its checkbox state and now the line of each task. The change builds only the write-back of one checkbox, which replaces the first `[ ]`, `[x]` or `[X]` of a line. After the write the step parses the file again and compares each restored group with its base. A write that failed to restore a group stops the step. No new library is needed.
+The step already uses `markdown-it-py` through `parse_task_groups`. The change reuses it: the parser gives the shape of a group, its checkbox state and now the line of each task. The change builds only the write-back of one checkbox, which replaces the first `[ ]`, `[x]` or `[X]` of a line. After the write the step parses the file again and compares each restored group with its base. A write that failed to restore a group, or that left any other difference in its text, stops the step. No new library is needed.
 
 Cost of what it builds, estimated: about 60 lines of code and 150 lines of tests, about 60k tokens of agent work and two hours of elapsed time. The upkeep is small: the code follows the parser.
 

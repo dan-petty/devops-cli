@@ -19,7 +19,14 @@
 - [x] Regenerate the documentation with `devops docs generate --sync-readme`.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 4. Archive
+## 4. Review fixes
+
+- [x] Write failing tests in `tests/test_roadmap_implement_step_ticks.py`: a changed bullet and an added line in a later group stop the step; a file with many lone CR line ends is restored on the right line; a copy of a group that hides an edit stops a step and a fix step; a base file with a group number twice is refused.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step_ticks.py`
+- [x] Compare the whole text of each other group after the restore, split the file as the parser does, refuse a group number that two groups hold, and name the stale sentence in the help text, the specs and the proposal.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step_ticks.py tests/test_roadmap_implement_step.py`
+
+## 5. Archive
 
 - [x] Archive the change.
   - Verification: `uv run devops openspec archive 2767-implement-extra-ticks`

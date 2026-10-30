@@ -166,7 +166,7 @@ The step SHALL accept a fix request: the name of a failed check and its log. The
 - **THEN** the step reports stopped with the reason that the tasks changed, and the checkout is reset
 
 ### Requirement: A step asks once for the missing ticks
-When the agent ends its run, the group changed only in its checkboxes, no other group changed, each verification command passes, the static checks pass, and a task of the group is unticked, the step SHALL run one more model turn. The turn SHALL continue the same conversation under the same `UsageLimits`. Its message SHALL name the path of the `tasks.md` and list the unticked tasks, and SHALL ask only for their ticks. The step SHALL run the turn at most once, and SHALL run none for a fix step.
+When the agent ends its run, the check of the tasks passes, each verification command passes, the static checks pass, and a task of the group is unticked, the step SHALL run one more model turn. The turn SHALL continue the same conversation under the same `UsageLimits`. Its message SHALL name the path of the `tasks.md` and list the unticked tasks, and SHALL ask only for their ticks. The step SHALL run the turn at most once, and SHALL run none for a fix step.
 
 #### Scenario: The agent forgot the ticks
 - **WHEN** the model writes a test file and a source file, ends its run with the tasks of group 1 unticked, the verification command and the static checks exit 0, and the model ticks the tasks in the extra turn
@@ -312,12 +312,36 @@ After each turn of the model, the step SHALL compare every group other than its 
 - **WHEN** the `tasks.md` has CRLF line ends and the model ticks a later group
 - **THEN** the committed `tasks.md` keeps its CRLF line ends and the later group is unticked
 
+#### Scenario: A file with lone CR line ends
+- **WHEN** the model writes a `tasks.md` that has many lone CR line ends before the groups, and ticks a later group
+- **THEN** the step reports done, and the committed `tasks.md` has the later group unticked on its own line
+
 ### Requirement: A change of another group beyond its checkboxes stops the step
-A difference in another group other than its checkboxes, the title, the text of a task, a verification command, or a task or group added or removed, SHALL stop the step with the group named. The own group SHALL keep its rule: its checkboxes may change, and its text may not. A fix step SHALL change no task, checkboxes included, and SHALL restore nothing.
+After the restore, the text of each other group SHALL equal its text before the run. Any difference beyond the checkboxes SHALL stop the step with the group named: a title, a task, a command, a bullet or a line changed, added or removed. A group number that two groups hold after the run SHALL stop the step, and one that two groups hold before the run SHALL be refused before the step starts. The own group SHALL keep its rule. A fix step SHALL change no task and restore nothing.
 
 #### Scenario: The model ticks a later group and edits its text
 - **WHEN** the model ticks a task of group 2 and also changes the text of that task
 - **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: The model changes a bullet of a later group
+- **WHEN** the model ticks the tasks of group 2 and changes `-` to `*` before one of them
+- **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: The model adds a line to a later group
+- **WHEN** the model adds a paragraph to group 2, with or without a change of its checkboxes
+- **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: A copy of a group hides an edit
+- **WHEN** the model edits a task of group 2 and adds a second group 2 that is a copy of the original
+- **THEN** the step reports stopped, the reason names group 2, and the checkout is reset
+
+#### Scenario: A fix step with a copy of a group
+- **WHEN** a fix step edits a task of group 2 and adds a second group 2 that is a copy of the original
+- **THEN** the step reports stopped with the reason that a fix step changes no task
+
+#### Scenario: A tasks file that numbers a group twice
+- **WHEN** the `tasks.md` of the change holds two groups with the number 2
+- **THEN** the step is refused before the model runs, and the message names the change and group 2
 
 #### Scenario: A fix step
 - **WHEN** a fix step ticks a task of any group
