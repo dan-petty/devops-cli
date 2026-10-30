@@ -329,6 +329,14 @@ def _log_section(fix: FixRequest | None) -> str:
     return f"# The log of the failed check\n\n{fix.log[-CONST_ROADMAP_IMPLEMENT_LOG_CHARS:]}"
 
 
+def _tasks_file_section(source: Path, change: Path, fix: FixRequest | None) -> str:
+    """The path of the `tasks.md` of the change in the checkout, under its heading. A fix step
+    ticks no task, so it gets none."""
+    if fix is not None:
+        return ""
+    return f"# The tasks file\n\n`{(change / 'tasks.md').relative_to(source).as_posix()}`"
+
+
 def build_step_inputs(
     store: RoadmapStore,
     *,
@@ -356,6 +364,7 @@ def build_step_inputs(
         issue_inputs(held),
         *(f"# {name} of the change\n\n{text.strip()}" for name, text in documents.items()),
         f"# Your group\n\n{chosen.text}",
+        _tasks_file_section(source, change, fix),
         _log_section(fix),
         _files_section(source, chosen),
     ]

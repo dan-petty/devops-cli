@@ -9,9 +9,9 @@
 
 ## 2. The instructions and the inputs
 
-- [ ] Write a failing test in `tests/test_roadmap_implement_step.py`: the user message of a step holds the path of the `tasks.md` of the change, and the message of a fix step does not.
+- [x] Write a failing test in `tests/test_roadmap_implement_step.py`: the user message of a step holds the path of the `tasks.md` of the change, and the message of a fix step does not.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Add the section of the tasks file to the inputs, and word the instructions in `src/devops_cli/ai/tasks/roadmap_implement_step.md`. Update the snapshot of the inputs.
+- [x] Add the section of the tasks file to the inputs, and word the instructions in `src/devops_cli/ai/tasks/roadmap_implement_step.md`. Update the snapshot of the inputs.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_ai_task_implement.py`
 
 ## 3. The diff of a stopped step

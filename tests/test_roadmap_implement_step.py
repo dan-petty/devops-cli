@@ -966,6 +966,37 @@ def test_a_fix_step_gets_no_extra_turn(
     assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 2)
 
 
+def test_the_inputs_of_a_step_name_the_tasks_file_and_those_of_a_fix_step_do_not(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    step = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+    fix = build_step_inputs(
+        store,
+        item=1,
+        group=0,
+        source=checkout,
+        window=WINDOW,
+        fix=FixRequest(check="Static Analysis", log="E501"),
+    )
+
+    assert (
+        f"# The tasks file\n\n`{TASKS_PATH}`" in step.message,
+        "# The tasks file" in fix.message,
+    ) == (
+        True,
+        False,
+    )
+
+
+def test_the_instructions_say_that_a_step_ends_only_when_every_task_is_ticked(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+
+    assert "not done until every task of your group is ticked" in inputs.instructions
+    assert "`- [ ]` to `- [x]`" in inputs.instructions
+
+
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────
 
 FIX_TITLE = "Make check Static Analysis pass"

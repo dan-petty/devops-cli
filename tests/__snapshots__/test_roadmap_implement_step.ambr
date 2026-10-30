@@ -52,6 +52,10 @@
   - [ ] Add `shout` to `src/sample.py`
     - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`
   
+  # The tasks file
+  
+  `openspec/changes/1-sample-change/tasks.md`
+  
   # Files the group names (signatures only)
   
   ## src/sample.py
