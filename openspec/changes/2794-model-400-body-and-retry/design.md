@@ -1,0 +1,19 @@
+# Design
+
+## Decisions
+
+- **The match is the structure of the error, not its text.** A resend needs an error that a new sample can fix. A 400 that the provider reports before the stream opens is a bad request, and it fails the same way again. A 400 inside an open stream is a failure of the generation. So the test is `ModelHTTPError` with `in_stream` set and `status_code == 400`, and not `ModelContextWindowExceededError` (the same history overflows again). The pydantic-ai library gives all three facts as fields. No part of the message is matched, so the rule holds for the XML error of qwen3-coder and for the JSON error that Ollama gives for other models.
+- **One resend.** `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` is 1, so the gateway gets a call at most twice (#2500). A failure rate of about one in a hundred requests gives one in ten thousand for two in a row. The stop with the body covers the rest.
+- **The resend is a resumed turn.** `_run_agent` keeps its body as `_turn`. A failed turn that the match accepts returns a `_Run` with the conversation to resume: the messages of the run without the interrupted reply, and the usage of the conversation plus the usage of the replies that were complete. The loop in `_run_agent` runs `_turn` again with no prompt and that conversation, and joins the two with `_Run.then`. A run that is not resendable returns no such conversation. The messages must end with a request after the interrupted reply is dropped. If they do not, the step stops, as it did before.
+- **The usage carries over.** `UsageLimits` count the usage of the conversation, so a resend cannot give the step more requests or tool calls than the limits allow. The interrupted reply is in the spend (it was billed) and not in the request count of the limits, as pydantic-ai counts a request when the agent acts on its reply.
+- **The text of the body is a string, never a dict.** #2731 kept the body out because `mask_secrets` finds a secret by its form in a text, and not the value of a key such as `api_key` in the repr of a dict. The reason now holds only a string that the provider wrote as an error text: the body when it is a string, else its `message`, else its `error` (a string or a dict that is read the same way). Any other key stays out. The text goes through `bounded_text`.
+- **No change of the route.** The evidence in the proposal shows that no limit cut the call, so a higher `num_predict` would change nothing.
+
+## Rejected alternatives
+
+- **`on_model_request_error` of a capability.** The source says it cannot recover an error after the stream has begun, and this error comes in the stream.
+- **`ModelRetry` from a hook.** It adds a retry prompt to the history, so the model would see a different history, and it counts against the retry budget of the tools.
+- **A non-streaming request.** A hook could recover a failure before the stream opens, but a non-streaming call dies at 125 s in the tunnel (#2379).
+- **A match on the text `XML syntax error`.** It names one parser of one model. The error of another model has other words, and the fields of the library say the same thing without the text.
+- **A raise of `num_predict` or `max_tokens`.** No limit cut the call (see the proposal).
+- **A retry of every 400.** A request that the provider refuses before the stream opens fails the same way again.
