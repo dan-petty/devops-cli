@@ -2065,6 +2065,9 @@ class RoadmapMessages:
     implement_stop_command_failed: str = "{command} exited with status {status}.\n{output}"
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"
+    implement_stop_link: str = (
+        "The agent made a symbolic link: {paths}. The step does not format a link."
+    )
     implement_stop_no_change: str = "The agent changed no file."
     implement_stop_head_moved: str = (
         "The agent moved HEAD from {start} to {head}. A step makes the only commit."

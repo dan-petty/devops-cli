@@ -9,6 +9,7 @@ does; every other program is answered by `process_fake`.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ from tests.support.implement_step import (
     WINDOW,
     command_text,
     git,
+    git_for_real,
     is_clean_at,
     programs_run,
     the_whole_group,
@@ -36,7 +38,7 @@ from tests.support.model_script import ModelScript, say, tool_calls
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-FORMAT = "uv run ruff format"
+FORMAT = "uv run ruff format --"
 CHANGED_FILES = "src/sample.py tests/test_sample.py"
 UNFORMATTED = SHOUT_CODE.replace('text.upper() + "!"', 'text.upper()+"!"')
 LINE = "Formatted: src/sample.py"
@@ -61,7 +63,9 @@ def _format(call: ProcessCall) -> subprocess.CompletedProcess[str]:
     """What `ruff format` does to the files it gets: it puts a space round the `+`. With
     `--check` it writes nothing and exits 1 when a file would change."""
     check = "--check" in call.argv
-    names = [word for word in call.argv[call.argv.index("format") + 1 :] if word != "--check"]
+    names = [
+        word for word in call.argv[call.argv.index("format") + 1 :] if word not in {"--check", "--"}
+    ]
     changed = 0
     for name in names:
         path = (call.cwd or Path()) / name
@@ -139,8 +143,8 @@ def test_the_format_run_is_the_first_command_and_the_check_of_the_format_is_gone
         f"{FORMAT} {CHANGED_FILES}",
         "uv run devops ci test tests/test_sample.py",
         "uv run devops docs check",
-        f"uv run ruff check {CHANGED_FILES}",
-        f"uv run mypy --strict {CHANGED_FILES}",
+        f"uv run ruff check -- {CHANGED_FILES}",
+        f"uv run mypy --strict -- {CHANGED_FILES}",
     ]
 
 
@@ -173,7 +177,7 @@ def test_a_lint_error_after_the_format_run_still_stops_the_step(
 
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        f"uv run ruff check {CHANGED_FILES} exited with status 1.\nF401 unused import",
+        f"uv run ruff check -- {CHANGED_FILES} exited with status 1.\nF401 unused import",
         True,
     )
 
@@ -191,7 +195,7 @@ def test_a_type_error_after_the_format_run_still_stops_the_step(
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"uv run mypy --strict {CHANGED_FILES} exited with status 1.\nerror: bad type",
+        f"uv run mypy --strict -- {CHANGED_FILES} exited with status 1.\nerror: bad type",
     )
 
 
@@ -238,6 +242,61 @@ def test_a_step_with_no_python_file_runs_no_formatter(
 
     _step(store, checkout, script)
 
+    assert not [line for line in programs_run(programs, "uv") if "ruff" in line]
+
+
+def test_a_file_named_like_an_option_is_a_path_for_each_tool(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    name = "--config=exclude.py"
+    script = ModelScript(tool_calls(*the_whole_group(), write_call(name, "x = 1\n")), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    tools = [("ruff", "format"), ("ruff", "check"), ("mypy", "--strict")]
+    commands = [
+        line.split() for line in programs_run(programs, "uv") if "ruff" in line or "mypy" in line
+    ]
+    assert (outcome.status, [(words[2:4], words[4:6]) for words in commands]) == (
+        StepStatus.DONE,
+        [(list(tool), ["--", name]) for tool in tools],
+    )
+
+
+def _link_then_git(outside: Path) -> Callable[[ProcessCall], subprocess.CompletedProcess[str]]:
+    """What the agent leaves behind: `src/link.py`, a link to a file outside the checkout, as the
+    allowed `git` or `uv run python` could make it. It exists when the step stages the checkout."""
+
+    def make(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        link = (call.cwd or Path()) / "src" / "link.py"
+        if not link.is_symlink():
+            link.symlink_to(outside)
+        return git_for_real(call)
+
+    return make
+
+
+def test_a_link_named_like_a_python_file_stops_the_step_and_the_formatter_never_follows_it(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, tmp_path: Path
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    outside = tmp_path / "outside.py"
+    outside.write_text(UNFORMATTED, encoding="utf-8")
+    _formats(programs)
+    programs.answer(
+        lambda call: call.argv[:3] == ("git", "add", "-A"),
+        ProcessAnswer(side_effect=_link_then_git(outside)),
+    )
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, outside.read_text(encoding="utf-8")) == (
+        StepStatus.STOPPED,
+        "The agent made a symbolic link: src/link.py. The step does not format a link.",
+        UNFORMATTED,
+    )
+    assert is_clean_at(checkout, head)
     assert not [line for line in programs_run(programs, "uv") if "ruff" in line]
 
 

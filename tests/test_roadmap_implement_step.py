@@ -286,11 +286,11 @@ def test_the_exit_checks_format_first_run_each_command_once_then_the_static_chec
     uv = [call for call in programs.calls if call.argv[0] == "uv"]
     assert ([command_text(call) for call in uv], {call.cwd for call in uv}) == (
         [
-            f"uv run ruff format {py}",
+            f"uv run ruff format -- {py}",
             "uv run devops ci test tests/test_sample.py",
             "uv run devops docs check",
-            f"uv run ruff check {py}",
-            f"uv run mypy --strict {py}",
+            f"uv run ruff check -- {py}",
+            f"uv run mypy --strict -- {py}",
         ],
         {checkout},
     )
@@ -337,7 +337,7 @@ def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
 
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        "uv run ruff check src/sample.py tests/test_sample.py exited with status 1.\nE501 too long",
+        "uv run ruff check -- src/sample.py tests/test_sample.py exited with status 1.\nE501 too long",
         True,
     )
 

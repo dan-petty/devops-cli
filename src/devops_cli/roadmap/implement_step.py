@@ -1007,14 +1007,27 @@ def _paths_text(names: Sequence[str]) -> str:
     return paths
 
 
+def _link_failure(source: Path, files: Sequence[str]) -> str | None:
+    """Why the step stops when one of `files` is a symbolic link, else None. The formatter writes
+    through a link, also to a file outside the checkout, so no tool gets a link."""
+    links = [path for path in files if (source / path).is_symlink()]
+    if not links:
+        return None
+    return MESSAGES.roadmap.implement_stop_link.format(paths=_paths_text(links))
+
+
 def _format_failure(source: Path, changed: Sequence[str]) -> str | None:
     """Run `ruff format` on the changed Python files, outside the shell of the agent, and stage
     the files it changed. Git names them: the index holds the files as they were before the run.
-    Prints one line that names them. None when the formatter exits 0, else why the step stops."""
+    Prints one line that names them. None when the formatter exits 0, else why the step stops.
+    A file name that starts with `-` follows `--`, so the tool reads it as a path."""
     files = _python_files(changed)
     if not files:
         return None
-    argv = [BIN_UV, "run", BIN_RUFF, "format", *files]
+    link = _link_failure(source, files)
+    if link is not None:
+        return link
+    argv = [BIN_UV, "run", BIN_RUFF, "format", "--", *files]
     failure = _command_failure(source, argv, shlex.join(argv))
     if failure is not None:
         return failure
@@ -1036,7 +1049,7 @@ def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
     if not files:
         return None
     for tool in ((BIN_RUFF, "check"), (BIN_MYPY, "--strict")):
-        argv = [BIN_UV, "run", *tool, *files]
+        argv = [BIN_UV, "run", *tool, "--", *files]
         failure = _command_failure(source, argv, shlex.join(argv))
         if failure is not None:
             return failure
