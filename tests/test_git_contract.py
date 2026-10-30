@@ -23,6 +23,7 @@ from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.git_recording import (
     committed_names,
+    differences,
     host_data_in,
     load_transcript,
     transcript_path,
@@ -158,3 +159,43 @@ def test_no_two_scenarios_give_one_command_in_one_directory_different_answers() 
     }
 
     assert conflicting == {}
+
+
+def test_a_recording_that_matches_the_transcripts_reports_no_difference() -> None:
+    """The row passes when the real git gives the committed text for every scenario."""
+    recorded = {name: transcript_path(name).read_text(encoding="utf-8") for name in SCENARIO_NAMES}
+
+    assert differences(recorded) == []
+
+
+def test_a_changed_transcript_and_a_transcript_without_a_scenario_are_reported() -> None:
+    """The row fails, naming the file, when the real git gives other text for a scenario or a
+    transcript has no scenario."""
+    recorded = {name: transcript_path(name).read_text(encoding="utf-8") for name in SCENARIO_NAMES}
+    changed = SCENARIO_NAMES[0]
+    dropped = SCENARIO_NAMES[1]
+    recorded[changed] = recorded[changed].replace('"returncode": 0', '"returncode": 1', 1)
+    del recorded[dropped]
+
+    report = differences(recorded)
+
+    assert (
+        any(line.startswith(f"+++ git/{changed}.json") for line in report),
+        f"{dropped}.json: no scenario records it" in report,
+    ) == (True, True)
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ("{root}/repo and runner@example.com", []),
+        ("/home/someone/repo", ["/home/"]),
+        ("/tmp/git-scenario-abc/repo", ["/tmp/"]),
+        ("someone@corp.example.org", ["someone@corp.example.org"]),
+    ],
+)
+def test_host_data_is_a_host_path_or_an_address_outside_example_com(
+    text: str, found: list[str]
+) -> None:
+    """A transcript may hold the placeholder and example.com, and nothing else of a host."""
+    assert host_data_in(text) == found

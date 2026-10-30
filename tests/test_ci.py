@@ -491,6 +491,24 @@ def test_the_gate_builds_the_wheel_and_sdist_beside_the_lock_check() -> None:
     )
 
 
+def test_the_git_row_records_the_transcripts_again_with_the_real_git() -> None:
+    """The row runs `main(["--check"])` of the recorder in a process of its own, outside pytest,
+    so a transcript that the real git no longer gives fails the gate (#2146). It is no heavy row:
+    it takes seconds."""
+    spec = get_check_spec("git")
+
+    assert (
+        spec.cmd[:4],
+        "tests.support.git_recording" in spec.cmd[4],
+        "--check" in spec.cmd[4],
+    ) == (
+        ["uv", "run", "python", "-c"],
+        True,
+        True,
+    )
+    assert spec.heavy is False
+
+
 def test_ci_outdated_command(monkeypatch) -> None:
     called = []
 

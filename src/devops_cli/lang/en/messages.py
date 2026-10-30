@@ -1463,6 +1463,7 @@ class CIMessages:
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
     openspec_validation: str = "openspec validation"
+    git_transcripts: str = "git transcripts (recorded again with the real git)"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"
     col_result: str = "Result"

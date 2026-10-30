@@ -22,9 +22,9 @@
 
 ## 3. The row that records the transcripts again
 
-- [ ] Add the failing test of the row, then the `git` row in `get_check_specs` and its title
+- [x] Add the failing test of the row, then the `git` row in `get_check_specs` and its title
   - Verification: `uv run devops ci test tests/test_ci.py`
-- [ ] Run the row and measure it
+- [x] Run the row and measure it
   - Verification: `uv run devops ci --only git`
 
 ## 4. Documents
