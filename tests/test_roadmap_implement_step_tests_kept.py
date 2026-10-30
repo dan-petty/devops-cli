@@ -169,32 +169,43 @@ def test_a_step_that_deletes_a_test_file_stops(
     )
 
 
-def test_a_step_that_moves_the_tests_to_a_new_file_ends_done(
+def test_a_step_that_moves_the_tests_to_a_new_file_stops(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    moved = "tests/test_moved.py"
-    script = _script(write_call(moved, OLD), SOURCE, removes=checkout / OLD_PATH)
-
-    outcome = _run(store, checkout, script)
-
-    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
-    assert git(checkout, "show", f"HEAD:{moved}") + "\n" == OLD
-
-
-def test_a_step_that_moves_only_some_of_the_tests_stops_with_the_rest(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    script = _script(
-        write_call("tests/test_moved.py", "def test_a() -> None: ...\n"),
-        SOURCE,
-        removes=checkout / OLD_PATH,
-    )
+    """Every test stays in its file. A person moves tests in a pull request of their own."""
+    script = _script(write_call("tests/test_moved.py", OLD), SOURCE, removes=checkout / OLD_PATH)
 
     outcome = _run(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: TestKept.test_c, test_b",
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+    )
+
+
+def test_a_step_that_moves_the_tests_to_a_file_that_pytest_does_not_collect_stops(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = _script(write_call("tests/conftest.py", OLD), SOURCE, removes=checkout / OLD_PATH)
+
+    outcome = _run(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+    )
+
+
+def test_a_step_that_replaces_a_test_file_with_a_byte_order_mark_still_stops(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = _script(write_call(OLD_PATH, "\ufeffdef test_new() -> None: ...\n"), SOURCE)
+
+    outcome = _run(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
     )
 
 

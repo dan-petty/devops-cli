@@ -77,6 +77,10 @@ def test_defined_tests_of_a_file_that_does_not_parse_is_none(text: str) -> None:
     assert defined_tests(text) is None
 
 
+def test_defined_tests_ignores_a_byte_order_mark_at_the_start() -> None:
+    assert defined_tests("\ufeffdef test_a(): pass\n") == frozenset({"test_a"})
+
+
 def test_defined_tests_of_an_empty_file_is_empty() -> None:
     assert defined_tests("") == frozenset()
 
@@ -109,26 +113,12 @@ def test_a_new_file_loses_nothing() -> None:
     assert lost_tests({}, {"tests/test_new.py": _names("test_a")}) == {}
 
 
-def test_a_test_that_moves_to_another_file_is_not_lost() -> None:
+def test_a_test_that_moves_to_another_file_is_lost() -> None:
+    """Every test stays in its file, even when the other file holds a test of the same name."""
     before = {"tests/test_a.py": _names("TestA.test_x", "test_y")}
     after = {"tests/test_b.py": _names("TestA.test_x", "test_y")}
 
-    assert lost_tests(before, after) == {}
-
-
-def test_a_name_that_the_other_file_had_before_is_not_a_move() -> None:
-    """File A is deleted, and file B had `test_x` already: no test moved, one was removed."""
-    before = {"tests/test_a.py": _names("test_x"), "tests/test_b.py": _names("test_x", "test_z")}
-    after = {"tests/test_b.py": _names("test_x", "test_z", "test_w")}
-
-    assert lost_tests(before, after) == {"tests/test_a.py": ["test_x"]}
-
-
-def test_one_new_name_excuses_one_lost_name() -> None:
-    before = {"tests/test_a.py": _names("test_x"), "tests/test_b.py": _names("test_x")}
-    after = {"tests/test_c.py": _names("test_x")}
-
-    assert lost_tests(before, after) == {"tests/test_b.py": ["test_x"]}
+    assert lost_tests(before, after) == {"tests/test_a.py": ["TestA.test_x", "test_y"]}
 
 
 def test_a_renamed_test_is_lost() -> None:
@@ -145,7 +135,7 @@ def test_a_file_that_did_not_parse_at_the_start_is_skipped() -> None:
     assert lost_tests(before, after) == {}
 
 
-def test_a_file_that_does_not_parse_after_the_run_is_skipped_and_excuses_nothing() -> None:
+def test_a_file_that_does_not_parse_after_the_run_is_skipped() -> None:
     before = {"tests/test_a.py": _names("test_a"), "tests/test_b.py": _names("test_b")}
     after: dict[str, frozenset[str] | None] = {"tests/test_a.py": None}
 
