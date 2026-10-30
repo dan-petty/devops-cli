@@ -194,6 +194,12 @@ addopts = "-n logical --dist worksteal -p no:logfire -p no:pytest_logfire -p no:
 # 1800 s timeout. A test that needs longer says so with `@pytest.mark.timeout(<seconds>)`.
 timeout = 600
 timeout_method = "signal"
+# `tmp_path` makes a numbered directory, and pytest finds the next number by listing every entry
+# of the worker's base directory, so with the default policy `all` each test was slower than the
+# one before it: 0.16 ms for the first directory and 1.6 ms for the 3,500th, 3 ms on average
+# with the run's other work, 89 s of CPU in a run (#2699). Policy `failed` deletes the directory
+# of a test that passed and keeps the directory of a test that failed, for its debugging.
+tmp_path_retention_policy = "failed"
 markers = [
     "bwrap: live sandbox tests requiring bubblewrap; skipped where bwrap is not installed",
     "live: live tests requiring the named local tool binaries; skipped where a binary is not installed",

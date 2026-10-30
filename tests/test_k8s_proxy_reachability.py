@@ -21,6 +21,7 @@ import pytest
 import yaml
 
 from devops_cli.k8s.service_http import reaches_service
+from tests.support.waits import POLL_INTERVAL_SECONDS
 
 CONTEXT = "loopback"
 VERSION = {
@@ -126,7 +127,9 @@ def api_server(
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
     server = ApiServer(url=f"http://127.0.0.1:{httpd.server_address[1]}")
     httpd.RequestHandlerClass = _handler(server)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=httpd.serve_forever, kwargs={"poll_interval": POLL_INTERVAL_SECONDS}, daemon=True
+    )
     thread.start()
 
     kubeconfig = tmp_path / "kubeconfig"

@@ -38,6 +38,7 @@ from tests.support.fakes.kubernetes import (
     from_wire,
 )
 from tests.support.paths import FIXTURES
+from tests.support.waits import POLL_INTERVAL_SECONDS
 
 CONTEXT = "contract"
 ARGO = ("argoproj.io", "v1alpha1", "argocd", "applications")
@@ -147,7 +148,9 @@ def _kubeconfig(path: Path, server: str) -> Path:
 def replay_server() -> Iterator[str]:
     """The loopback server that replays the recording, as `http://127.0.0.1:<port>`."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Replay)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": POLL_INTERVAL_SECONDS}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}"
