@@ -2,7 +2,7 @@
 
 ### Requirement: A high request volume warns
 
-`RoadmapServiceGitHubRequestsHigh` SHALL fire above 90% of the hourly budget that the Service reports in `devops_cli_service_budget_limit_requests`, when the Service sent more GitHub requests than that in 1 hour. It SHALL join the request count and the limit with `on()`, because the two series carry different `instance` labels. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests of the Service in 1 hour that the cache did not answer. Both SHALL count the first value of a series that starts in the hour, and SHALL NOT count the requests of a series from before the hour.
+`RoadmapServiceGitHubRequestsHigh` SHALL fire when the Service sent more GitHub requests in 1 hour than 90% of the budget in `devops_cli_service_budget_limit_requests`, and SHALL join the two with `on()`, because their `instance` labels differ. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests in 1 hour that the cache did not answer. Both SHALL count the first value of a new series, and SHALL NOT count a series from before the hour.
 
 #### Scenario: 600 GitHub requests in an hour
 
