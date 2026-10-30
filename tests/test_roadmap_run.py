@@ -6,8 +6,8 @@ real `git` against bare remotes in `tmp_path`, with the session's `gh api user` 
 at the process edge (#1366). The last cases run the GitHub store over `GitHubFake`, a fake at
 the `gh` process edge, to count a round's reads and show that no round reads a project board
 (#1361, ADR 0016). The table holds the status lane's
-metrics row and the model lane's intake and refine rows; every clone tracks origin's default
-branch.
+metrics and implement rows and the model lane's intake, refine, stage and alternatives rows;
+every clone tracks origin's default branch.
 """
 
 from __future__ import annotations
@@ -41,9 +41,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_BUDGET_FILENAME,
+    CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_HALT_FILENAME,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
     CONST_URL_GITHUB_STATUS_SUMMARY,
 )
@@ -71,6 +73,7 @@ from devops_cli.roadmap.run import (
     MODEL_LANE_ROWS,
     SCOPED_UPDATES,
     STATUS_LANE_ROWS,
+    FailureLedger,
     JobOutcome,
     JobRow,
     WebhookDelivery,
@@ -96,6 +99,7 @@ from devops_cli.roadmap.store import (
 )
 from devops_cli.server.service import ServiceManager, TriggerBatch, no_round_pause
 from devops_cli.telemetry.instruments import PROJECT_ITEMS, PROJECT_RELEASES
+from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
@@ -321,15 +325,15 @@ def _poll_round(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics row runs first, then the model lane's intake, refine, stage,
-    implement and alternatives; no row closes items, cuts or starts a release (#1360, #2652,
-    #2659, #2667)."""
+    """The status lane's metrics and implement rows run first, then the model lane's intake,
+    refine, stage and alternatives; no row closes items, cuts or starts a release (#1360, #2652,
+    #2659, #2667, #2757)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS),
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
     ) == (
-        ["metrics", "intake", "refine", "stage", "implement", "alternatives"],
+        ["metrics", "implement", "intake", "refine", "stage", "alternatives"],
         True,
         ["issues"],
     )
@@ -748,7 +752,7 @@ def test_service_wiring(
             (REPO, STATUS_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
-        [["metrics"], ["intake", "refine", "stage", "implement", "alternatives"]],
+        [["metrics", "implement"], ["intake", "refine", "stage", "alternatives"]],
     )
 
 
@@ -1562,7 +1566,7 @@ def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
     )
 
 
-DEFAULT_JOB_NAMES = ("metrics", "intake", "refine")
+DEFAULT_JOB_NAMES = ("metrics", "implement", "intake", "refine")
 POLL = TriggerBatch(repo=REPO, counts={POLL_KEY: 1}, first_at=NOW, last_at=NOW)
 
 
@@ -1653,11 +1657,18 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A refine round blocks on a slow model. In the same repository the status lane still runs
-    the metrics round a poll makes due, while the refine round is still running."""
+    the metrics row and the implement row a poll makes due, while the refine round is still
+    running (#2757)."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     refining, model_answers = threading.Event(), threading.Event()
     refine_released: list[bool] = []
     measured: list[str] = []
+    during_refine: list[bool] = []
+
+    def implement(**_: Any) -> JobOutcome:
+        # Records whether the model had not yet answered when the row ran.
+        during_refine.append(not model_answers.is_set())
+        return JobOutcome()
 
     def refine(**_: Any) -> JobOutcome:
         refining.set()
@@ -1668,7 +1679,11 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
     lanes = {
         CONST_SERVICE_LANE_STATUS: partial(
             service_job,
-            table=_lane(STATUS_LANE_ROWS, metrics=_recorded(measured, "metrics")),
+            table=_lane(
+                STATUS_LANE_ROWS,
+                metrics=_recorded(measured, "metrics"),
+                implement=_recorded(measured, "implement", implement),
+            ),
             clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
         ),
         CONST_SERVICE_LANE_MODEL: partial(
@@ -1692,16 +1707,87 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
     assert (
         measured_while_refining,
         measured,
+        during_refine,
         refine_still_running,
         bool(refine_released) and all(refine_released),
-    ) == (True, ["metrics"], True, True)
+    ) == (True, ["metrics", "implement"], [True], True, True)
+
+
+def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_hint(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """A poll makes the row due on the status lane ten minutes after its last success and not
+    before. A webhook batch reaches the lane too, and makes the row due no sooner, since the row
+    has no batch key (#2757)."""
+
+    def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
+        _stamp(tmp_path, **stamps)
+        return _poll_round(seeded_store, tmp_path, table=_lane(STATUS_LANE_ROWS), batch=batch)
+
+    fresh = {"metrics": NOW - timedelta(minutes=1)}
+    first = ran({POLL_KEY: 1})
+    too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=9, seconds=59))
+    ten_minutes = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=10))
+    hinted = ran({OPENED: 1}, **fresh, implement=NOW - timedelta(minutes=2))
+
+    assert (first, too_soon, ten_minutes, hinted) == (
+        ("metrics", "implement"),
+        (),
+        ("implement",),
+        (),
+    )
+
+
+def test_a_ledger_record_with_an_implement_entry_loads_and_keeps_the_row_suspended_on_its_lane(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """The ledger keys an entry by the repository and the job, so a record has no lane to move.
+    A record whose `implement` entry reached the limit loads, shows the row suspended, and keeps
+    the row from running in a status-lane round of the same input (#2757)."""
+    record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
+    calls: list[str] = []
+
+    def failing(**_: Any) -> JobOutcome:
+        calls.append("implement")
+        raise GitOperationError("The Kubernetes API refused the call.")
+
+    def round_of(at: datetime) -> tuple[str, ...]:
+        return run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={POLL_KEY: 1},
+            table=_lane(STATUS_LANE_ROWS, implement=failing),
+            data_dir=tmp_path,
+            now=at,
+            failures=FailureLedger(record=record),
+        )
+
+    for step in range(FailureLedger().limit):
+        with pytest.raises(RoadmapRunError):
+            round_of(NOW + timedelta(minutes=step))
+    kept = json.loads(record.read_text(encoding="utf-8"))
+    GLOBAL_METRICS.reset()
+    suspended_labels = {"repo": REPO, "row": "implement"}
+
+    # A restart: a new ledger reads the record, and the round of the same input runs no row.
+    round_of(NOW + timedelta(minutes=10))
+    loaded = GLOBAL_METRICS.get_gauge_value(
+        CONST_SERVICE_METRIC_JOB_SUSPENDED, labels=suspended_labels
+    )
+
+    assert (
+        [entry[:3] for entry in kept],
+        calls,
+        loaded,
+    ) == ([[REPO, "implement", FailureLedger().limit]], ["implement"] * 3, 1.0)
 
 
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A model-lane round records intake, refine, stage, implement and alternatives while a status-lane round
-    is running metrics, which had read `schedule.json` before them: metrics' success keeps theirs."""
+    """A model-lane round records intake, refine, stage and alternatives while a status-lane round
+    is running metrics, which had read `schedule.json` before them: the success of metrics and the
+    one of implement, which follows it, keep theirs."""
     later = NOW + timedelta(seconds=1)
 
     def metrics(**_: Any) -> JobOutcome:
@@ -1713,7 +1799,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             data_dir=tmp_path,
             now=later,
         )
-        assert model_round == ("intake", "refine", "stage", "implement", "alternatives")
+        assert model_round == ("intake", "refine", "stage", "alternatives")
         return JobOutcome()
 
     ran = run_due_jobs(
@@ -1725,14 +1811,14 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         now=NOW,
     )
     assert (ran, _schedule(tmp_path)) == (
-        ("metrics",),
+        ("metrics", "implement"),
         {
             "intake": later.isoformat(),
             "refine": later.isoformat(),
             "stage": later.isoformat(),
-            "implement": later.isoformat(),
             "alternatives": later.isoformat(),
             "metrics": NOW.isoformat(),
+            "implement": NOW.isoformat(),
         },
     )
 
@@ -2142,7 +2228,6 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
         "intake": five_minutes_ago,
         "refine": five_minutes_ago,
         "stage": five_minutes_ago,
-        "implement": five_minutes_ago,
     }
 
     def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
@@ -2155,7 +2240,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
     assert (first, too_soon, a_day, hinted) == (
-        ("intake", "refine", "stage", "implement", "alternatives"),
+        ("intake", "refine", "stage", "alternatives"),
         (),
         ("alternatives",),
         ("intake",),
@@ -2173,7 +2258,7 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     assert (
         cli.exit_code,
-        "Due: metrics, intake, refine, stage, implement, alternatives\n" in cli.output,
+        "Due: metrics, implement, intake, refine, stage, alternatives\n" in cli.output,
     ) == (0, True)
 
 

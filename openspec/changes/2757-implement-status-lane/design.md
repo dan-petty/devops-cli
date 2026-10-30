@@ -21,7 +21,7 @@ What the lock does not cover. A writer outside the process: the runner Job (`dev
 
 Stale plans are safe. The row plans from the listing its store read at the start of the round. A model-lane write after that read can only make the plan late: `stage` sets an item Staged after the plan, and the next round takes it. If `stage` removes the `stage.*` keys of an item while the row creates its Job, the Job runs `roadmap implement --item N`, finds the item not eligible and ends. The row then records the state `succeeded` and nothing is lost.
 
-The tests. `tests/test_roadmap_github_store.py` already holds a test for two mark writes. The change adds two tests that run the mixes the move creates, with two stores on one fake issue and a pause between the read and the write of the first writer: a field write with refine marks against a mark write of `implement.job`, and a body write against a mark write. Without the lock both lose a key, which the author checked by taking the lock out in a scratch copy.
+The tests. `tests/test_roadmap_github_store.py` held a test for two mark writes. The change turns it into a test with five cases, each with two stores on one fake issue and a pause between the read and the write of the first writer: two refine marks, a field write with a refine mark against a mark write of `implement.job` in both orders, and a body write against a mark write in both orders. With the lock taken out of the store, in a scratch edit that was not committed, all five cases failed, and each lost a key or the body. With the lock they pass.
 
 ## Rejected alternatives
 

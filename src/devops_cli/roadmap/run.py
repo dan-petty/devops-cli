@@ -1,7 +1,8 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's row, metrics, before the model lane's, intake, refine,
-stage and alternatives, so a burst of candidates never holds back the metrics (#1360). `devops roadmap run` runs the
+The due table runs the status lane's rows, metrics and implement, before the model lane's,
+intake, refine, stage and alternatives, so a burst of candidates never holds back the metrics
+(#1360), and a slow model never holds back the implement row (#2757). `devops roadmap run` runs the
 whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
 read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
@@ -617,8 +618,17 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         needs_clone=True,
         first_run_due=True,
     ),
+    JobRow(
+        name="implement",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES),
+        runner=_run_implement_adapter,
+        needs_clone=True,
+        first_run_due=True,
+    ),
 )
-"""The row that refreshes the metrics, which calls no model."""
+"""The rows that call no model: the one that refreshes the metrics, and the one that submits the
+implement Job, which only talks to the Kubernetes API and GitHub. The model runs in the Job, so
+a model-lane round that is still running never delays the row (#2757)."""
 
 MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -644,13 +654,6 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         needs_clone=True,
         first_run_due=True,
         cross_job_predicate=_stage_cross_job,
-    ),
-    JobRow(
-        name="implement",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES),
-        runner=_run_implement_adapter,
-        needs_clone=True,
-        first_run_due=True,
     ),
     JobRow(
         name="alternatives",
