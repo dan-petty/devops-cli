@@ -1704,8 +1704,8 @@ class ServeMessages:
     )
     # Logged once, when a roadmap job reaches its limit of failed rounds (#2161).
     job_suspended: str = (
-        "The roadmap job {job} of {repo} failed {rounds} rounds in a row, so it does not run "
-        "again until its input changes."
+        "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
+        "it does not run again until its input changes."
     )
 
 

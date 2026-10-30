@@ -37,6 +37,16 @@ class RoadmapRunError(DevOpsCLIError):
         return isinstance(cause, ConfigurationError)
 
 
+class ServiceStoppingError(RoadmapRunError):
+    """Raised when a request ends because the Service is stopping (#2753).
+
+    The request budget raises it for a request that would wait for the window: the stop does
+    not wait. The round that gets it is not at fault, so it is no failed round of its job.
+    """
+
+    error_code = "SERVICE_STOPPING"
+
+
 class RoadmapImplementError(DevOpsCLIError):
     """Raised when `devops roadmap implement` refuses to start a step, or cannot read its inputs.
 
