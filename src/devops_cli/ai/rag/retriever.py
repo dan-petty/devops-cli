@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import logging
 import time
 from collections.abc import Iterator, Sequence
@@ -256,7 +257,7 @@ def _expand_persona_rag_query(query: str, persona: str) -> tuple[str, str | None
     return query, None
 
 
-_SEARCH_VERIFIED_MODELS: dict[tuple[str, str], str] = {}
+_SEARCH_VERIFIED_MODELS: dict[tuple[str, str, str], str] = {}
 
 
 def reset_search_verified_models() -> None:
@@ -332,13 +333,25 @@ def _raise_model_mismatch(
     )
 
 
+def _search_cache_key(qdrant: Any, collection_name: str) -> tuple[str, str, str]:
+    """The key of a collection on one server: its label, a digest of the whole URL, its name.
+
+    The label names the server for a reader, but it drops the scheme, the path and a default port,
+    so two servers can share it. The digest of the whole URL tells them apart. The key holds
+    neither the URL nor its userinfo.
+    """
+    label = str(getattr(qdrant, "server_label", "unknown"))
+    identity = str(getattr(qdrant, "base_url", id(qdrant)))
+    return label, hashlib.sha256(identity.encode()).hexdigest(), collection_name
+
+
 def _verify_single_collection_for_search(
     qdrant: Any,
     collection_name: str,
     configured_model: str,
 ) -> None:
     """Check once per process that a collection's points were created with the configured model."""
-    key = (str(getattr(qdrant, "base_url", id(qdrant))), collection_name)
+    key = _search_cache_key(qdrant, collection_name)
     if key in _SEARCH_VERIFIED_MODELS:
         verified_model = _SEARCH_VERIFIED_MODELS[key]
         if verified_model and configured_model and verified_model != configured_model:

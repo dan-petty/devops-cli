@@ -172,6 +172,29 @@ def _build_quantization_config(enabled: bool) -> Any:
     )
 
 
+def qdrant_server_label(url: str) -> str:
+    """The `host[:port]` text that a log line, an error or a cache key shows for a Qdrant server.
+
+    The configured URL can hold userinfo, which the client sends as Basic authentication, and a
+    path, so no text shows the URL. An `http` or `https` URL shows as `server_label` shows it. A
+    `k8s://` address names a Service, so it shows the in-cluster DNS name `<service>.<namespace>`,
+    and `:<port>` when the port is a number. A URL that has no origin, and a `k8s://` address that
+    names no Service, show as `unknown`, never as their own text.
+    """
+    from devops_cli.ai.benchmark.labels import server_label
+    from devops_cli.config.constants import CONST_AI_BACKEND_HOST_UNKNOWN
+    from devops_cli.k8s.service_proxy import ServiceAddressError, is_service_url, parse_service_url
+
+    if not is_service_url(url):
+        return server_label(url)
+    try:
+        service = parse_service_url(url)
+    except ServiceAddressError:
+        return CONST_AI_BACKEND_HOST_UNKNOWN
+    label = f"{service.service}.{service.namespace}"
+    return f"{label}:{service.port}" if service.port.isdecimal() else label
+
+
 class QdrantClient:
     """Client for Qdrant vector database using official Qdrant Python SDK."""
 
@@ -185,7 +208,7 @@ class QdrantClient:
     ) -> None:
         parsed = urllib.parse.urlparse(base_url)
         if not parsed.scheme or not parsed.netloc:
-            raise InvalidURLError(base_url, reason="missing scheme or host")
+            raise InvalidURLError(base_url, reason="missing scheme or host in qdrant.url")
         self.base_url = urllib.parse.urlunparse(parsed).rstrip("/")
         self.api_key: str | None = api_key
         if self.api_key is None:
@@ -225,6 +248,11 @@ class QdrantClient:
         self._last_alive: tuple[float, bool] | None = None
         self._verified_collections: dict[str, int] = {}
         self._dim_mismatch_warned: set[str] = set()
+
+    @property
+    def server_label(self) -> str:
+        """The `host[:port]` text that names this client's server in a log line or a cache key."""
+        return qdrant_server_label(self.base_url)
 
     def _server_span_attributes(self) -> dict[str, Any]:
         """`server.address` and `server.port` of the Qdrant server that a span names.
@@ -339,7 +367,7 @@ class QdrantClient:
             res = self._execute_with_retry(lambda c: c.get_collections(), "list_collections")
             return [c.name for c in res.collections]
         except Exception as exc:
-            logger.debug("Failed to list Qdrant collections from %s: %s", self.base_url, exc)
+            logger.debug("Failed to list Qdrant collections from %s: %s", self.server_label, exc)
             raise QdrantClientError(f"Error connecting to Qdrant: {exc}") from exc
 
     def get_collection_info(self, name: str) -> dict[str, Any]:

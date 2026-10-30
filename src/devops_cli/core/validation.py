@@ -489,7 +489,7 @@ def _validate_dns_name_syntax(
     try:
         dns.name.from_text(host)
     except dns.exception.DNSException as exc:
-        msg = f"{purpose.capitalize()} URL '{url}' has invalid hostname '{host}'"
+        msg = f"{purpose.capitalize()} URL has invalid hostname '{host}'"
         if issubclass(error_cls, InvalidURLError):
             raise error_cls(url, reason=msg) from exc
         raise error_cls(msg) from exc
@@ -675,7 +675,7 @@ def validate_url(
         )
     if require_hostname and not parsed.host:
         raise InvalidURLError(
-            clean_url, reason=f"{purpose.capitalize()} URL '{url}' missing valid hostname"
+            clean_url, reason=f"{purpose.capitalize()} URL missing valid hostname"
         )
 
     if parsed.host:
