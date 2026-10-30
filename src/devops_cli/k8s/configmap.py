@@ -32,9 +32,10 @@ def _service_block(
     github_app: GitHubAppConfig,
     drain_timeout_seconds: int | None,
     poll_interval_seconds: int | None,
+    github_requests_per_hour: int | None,
 ) -> dict[str, Any]:
     """The ConfigMap's `service` section: the repositories, the GitHub App the Service acts as,
-    and the timings when set."""
+    and the timings and the hourly request budget when set."""
     clean_repos = [r.strip() for r in repos if r and r.strip()]
     if not clean_repos or _missing_app_settings(github_app):
         raise KubernetesContextError(
@@ -46,10 +47,12 @@ def _service_block(
         # The Service names no single repository for its tokens: the Job it makes does (#2667).
         "github_app": github_app.model_dump(mode="json", exclude={"token_repository"}),
     }
-    if drain_timeout_seconds is not None:
-        service["drain_timeout_seconds"] = drain_timeout_seconds
-    if poll_interval_seconds is not None:
-        service["poll_interval_seconds"] = poll_interval_seconds
+    optional = {
+        "drain_timeout_seconds": drain_timeout_seconds,
+        "poll_interval_seconds": poll_interval_seconds,
+        "github_requests_per_hour": github_requests_per_hour,
+    }
+    service.update({key: value for key, value in optional.items() if value is not None})
     return service
 
 
@@ -59,6 +62,7 @@ def render_devops_configmap_content(
     github_app: GitHubAppConfig,
     drain_timeout_seconds: int | None = None,
     poll_interval_seconds: int | None = None,
+    github_requests_per_hour: int | None = None,
 ) -> str:
     """The ConfigMap template with its service section set to `repos` and `github_app`.
 
@@ -75,7 +79,7 @@ def render_devops_configmap_content(
             "Could not locate standard service configuration block in devops ConfigMap template."
         )
     config["service"] = _service_block(
-        repos, github_app, drain_timeout_seconds, poll_interval_seconds
+        repos, github_app, drain_timeout_seconds, poll_interval_seconds, github_requests_per_hour
     )
     Settings.model_validate(config)
     data[_CONFIG_KEY] = yaml.dump(config, Dumper=_BlockDumper, sort_keys=False)
@@ -140,6 +144,13 @@ def render_active_devops_configmap(
 
     drain_timeout = active_settings.service.drain_timeout_seconds
     poll_interval = active_settings.service.poll_interval_seconds
+    # The Service keeps its own default unless a source sets the budget: the ConfigMap copies no
+    # default into the cluster (#2755).
+    budget = (
+        active_settings.service.github_requests_per_hour
+        if "github_requests_per_hour" in active_settings.service.model_fields_set
+        else None
+    )
 
     template_text = template_path.read_text(encoding="utf-8")
     return render_devops_configmap_content(
@@ -148,4 +159,5 @@ def render_active_devops_configmap(
         github_app=github_app,
         drain_timeout_seconds=drain_timeout,
         poll_interval_seconds=poll_interval,
+        github_requests_per_hour=budget,
     )

@@ -2,11 +2,11 @@
 
 ## 1. The ConfigMap renderer
 
-- [ ] 1.1 Add failing tests in `tests/test_k8s_configmap.py`: the rendered `service` section holds `github_requests_per_hour: 2000` when the active settings set it, holds none for the default, and `render_devops_configmap_content` writes a given value
+- [x] 1.1 Add failing tests in `tests/test_k8s_configmap.py`: the rendered `service` section holds `github_requests_per_hour: 2000` when the active settings set it, holds none for the default, and `render_devops_configmap_content` writes a given value
   - Verification: `uv run devops ci test tests/test_k8s_configmap.py` fails on the base
-- [ ] 1.2 Add the parameter to `_service_block`, `render_devops_configmap_content` and `render_active_devops_configmap` in `k8s/configmap.py`
+- [x] 1.2 Add the parameter to `_service_block`, `render_devops_configmap_content` and `render_active_devops_configmap` in `k8s/configmap.py`
   - Verification: `uv run devops ci test tests/test_k8s_configmap.py`
-- [ ] 1.3 Run `uv run ruff check`, `uv run ruff format --check` and `uv run mypy --strict` on the changed files
+- [x] 1.3 Run `uv run ruff check`, `uv run ruff format --check` and `uv run mypy --strict` on the changed files
   - Verification: `uv run devops ci lint`
 
 ## 2. The declaration and the documents
