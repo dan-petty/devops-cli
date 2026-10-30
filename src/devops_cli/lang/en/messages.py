@@ -1057,6 +1057,19 @@ class PRMessages:
     status_not_set: str = (
         "Pull request #{number} is {state}, but the Status of its item was not set: {error}"
     )
+    labels_not_set: str = (
+        "Pull request #{number} is open, but the labels of its title were not added: {error} "
+        "To add a label by hand, run: devops gh api -X POST repos/{repo}/issues/{number}/labels "
+        "-f labels[]=<label>"
+    )
+    labels_dry_run_heading: str = "Would add the labels of the title to the new pull request:"
+    labels_dry_run_condition: str = "the pull request opens and the labels file declares it"
+    labels_unreadable: str = "{path} can't be read as label specs: {error}"
+    labels_refused: str = "{labels} could not be added: {error}"
+    labels_scope_undeclared: str = (
+        "The scope `{scope}` of the title has no label: {path} does not declare {label}. "
+        "The pull request gets no scope label."
+    )
     gh_cli_required: str = (
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."
@@ -2015,6 +2028,15 @@ class RoadmapMessages:
     implement_paths_more: str = " and {count} more"
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
     implement_tool_other: str = "other"
+    implement_refusal_replacement: str = "Instead of `{program}`: {replacement}."
+    implement_refusal_allowed: str = (
+        "These programs are allowed: {programs}. Run the commands of the project with `uv run`, "
+        "for example `uv run devops ci test <file>`."
+    )
+    implement_refusal_operator: str = (
+        "Run one command in each call. Do not chain commands. "
+        "Do not use `cd`: every command runs in the checkout."
+    )
     implement_tool_line: str = "Tool call: {tool}, {outcome}."
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tick_turn: str = (
@@ -2028,6 +2050,9 @@ class RoadmapMessages:
     )
     implement_restored_ticks: str = (
         "Restored the checkboxes of these groups: {groups}. A step ticks only its own group."
+    )
+    implement_restored_text: str = (
+        "Restored the text of group {group}. A step ticks its tasks and does not edit them."
     )
     implement_stop_command_denied: str = (
         "The verification command {command} is not allowed. {program} is not one of: {allowed}."

@@ -81,6 +81,7 @@ uv run pre-commit install
 - **Branch Targeting**: Every topic branch targets `main`. A maintainer squash-merges the pull request.
 - **Drafts First**:
   - Open every pull request with `devops pr create`. It always opens a draft.
+  - `devops pr create` adds the labels that the title gives, with the rule of intake: `fix(ai): ...` gets `type/bug` and `scope/ai`. A scope that `.github/labels.yml` does not declare gets no label and a warning. Do not add these labels by hand. When a label cannot be added, the command names the pull request and the labels, and exits 1. The pull request stays open.
   - When all checks pass, mark the pull request ready with `devops pr ready <pr-number>`. This is the only way out of the draft.
 - **The Title Is the Changelog Line**:
   The pull request title is a Conventional Commit, and the `Semantic PR title` check enforces it. The squash commit takes the title as its subject, and GitHub adds ` (#<number>)` to it. release-please writes the changelog from these titles, so write the title for a reader of the changelog. The summary, the text after `<type>(<scope>): `, has at most 60 characters, and the `Semantic PR title` check refuses a longer one. The summary states the effect of the change. Put the evidence and the steps in the body or in the change folder:

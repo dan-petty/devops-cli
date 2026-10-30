@@ -5,15 +5,16 @@ did. `ToolCallLog` is a pydantic-ai `Hooks` capability. It writes one line to th
 stream for each tool call: the tool name, the program of a shell command, and the outcome. A line
 holds no other argument, no file content, no output and no text of a refusal, as an argument can
 hold a path or a secret and the text of one refusal repeats the whole command. The program is the
-first word of the command, as the shell reads it, and only when it is a program of the allowlist.
-Any other first word, such as an assignment with a secret in it or a path, is written as "other".
-The line has no reason for a refusal. The tool name and the program tell a refused program from a
-refused path.
+first word of the command, as the shell reads it, and only when it is a program that the project
+knows: a program of the allowlist, or a program of the table of replacements (#2773). Any other
+first word is written as "other", also a short bare word, as the model can read a password or a
+token from a file and run it as a command. The line has no reason for a refusal. The tool name and the program tell a refused program
+from a refused path.
 
-It also counts the shell commands that the shell refused by its policy and the calls that came
-back as a retry for another cause. A refusal of a file tool, such as a path outside the root, is
-an other retry. The reason of a stopped step holds both counts, so a person sees at once
-that the model kept asking for a program that the shell refuses.
+It also counts the shell commands that the shell refused by its policy, by program, and the calls
+that came back as a retry for another cause. A refusal of a file tool, such as a path outside the
+root, is an other retry. The reason of a stopped step holds both counts, so a person sees at once
+which program the model kept asking for.
 
 The line goes to the console stream, not to `logging`: a `devops` process has no handler for the
 level INFO, so such a line would never reach the Job log.
@@ -22,7 +23,8 @@ level INFO, so such a line would never reach the Job log.
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
@@ -38,9 +40,14 @@ from pydantic_ai.exceptions import (
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
-from devops_cli.config.commands import IMPLEMENT_ALLOWED_PROGRAMS
+from devops_cli.config.commands import IMPLEMENT_ALLOWED_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
+
+# The first words that the log may show. They are fixed in the code, so no text of the model
+# reaches the log, and the count of the programs in the reason stays small by design.
+_KNOWN_PROGRAMS = frozenset((*IMPLEMENT_ALLOWED_PROGRAMS, *IMPLEMENT_SHELL_REPLACEMENTS))
 
 
 class ToolOutcome(StrEnum):
@@ -53,7 +60,7 @@ class ToolOutcome(StrEnum):
     FAILED = "failed"
 
 
-def _refused(error: BaseException) -> bool:
+def is_policy_refusal(error: BaseException) -> bool:
     """Whether a `PermissionError` is in the cause chain of `error`: the shell and the file tools of
     the harness raise their refusals as a `ModelRetry` from a `PermissionError`, and pydantic-ai
     raises the retry error from that. The caller tells a shell command from a file path."""
@@ -65,34 +72,50 @@ def _refused(error: BaseException) -> bool:
     return False
 
 
-def _program(args: ValidatedToolArgs) -> str:
-    """The program of the `command` argument of a call: the first word, as the shell of the
-    harness reads it with `shlex`, when it is a program of the allowlist, else the word "other".
-    Empty when the call has no command or the command has no word. A first word is never logged
-    as it is, as it can be an assignment with a secret, or a path."""
+def command_word(args: ValidatedToolArgs) -> str | None:
+    """The first word of the `command` argument of a call, as the shell of the harness reads it
+    with `shlex`. `None` when the call has no command or the command has no word. The empty string
+    when `shlex` cannot read the command: no word of it is a program."""
     command = args.get("command")
     if not isinstance(command, str):
-        return ""
+        return None
     try:
         words = shlex.split(command)
     except ValueError:
-        return MESSAGES.roadmap.implement_tool_other
-    if not words:
         return ""
-    return (
-        words[0]
-        if words[0] in IMPLEMENT_ALLOWED_PROGRAMS
-        else MESSAGES.roadmap.implement_tool_other
-    )
+    return words[0] if words else None
+
+
+def logged_program(word: str | None) -> str:
+    """What the log shows for the first word of a command: the word when it is a known program,
+    else the word "other". Empty when there is no word. A first word can be an assignment with a
+    secret in it, a path, an escape sequence or a password, so no other word is written."""
+    if word is None:
+        return ""
+    if word in _KNOWN_PROGRAMS:
+        return word
+    return MESSAGES.roadmap.implement_tool_other
 
 
 @dataclass
 class ToolCallLog:
-    """The counters of one step, and the hooks that fill them. `refused` and `retried` count the
-    calls over all turns of the step."""
+    """The counters of one step, and the hooks that fill them. `refused` counts the refused shell
+    commands by program, and `retried` the other retries, over all turns of the step."""
 
-    refused: int = 0
+    refused: Counter[str] = field(default_factory=Counter[str])
     retried: int = 0
+
+    def refused_text(self) -> str:
+        """The refused commands for the reason of a stop: the programs from the most refused to the
+        least, such as "python 4, cd 2", or "0" when none. It lists at most
+        `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` programs. The rest join the count of "other"."""
+        if not self.refused:
+            return "0"
+        ranked = self.refused.most_common()
+        shown = Counter(dict(ranked[:CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS]))
+        if rest := sum(count for _, count in ranked[CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS:]):
+            shown[MESSAGES.roadmap.implement_tool_other] += rest
+        return ", ".join(f"{program} {count}" for program, count in shown.most_common())
 
     def hooks(self) -> Hooks[None]:
         """The capability for the agent of the step."""
@@ -100,7 +123,8 @@ class ToolCallLog:
 
     def _note(self, tool: str, program: str, outcome: ToolOutcome) -> None:
         """Count a refusal or a retry, and write the line of the call."""
-        self.refused += outcome is ToolOutcome.REFUSED
+        if outcome is ToolOutcome.REFUSED:
+            self.refused[program] += 1
         self.retried += outcome is ToolOutcome.RETRY
         texts = MESSAGES.roadmap
         line = (
@@ -122,11 +146,11 @@ class ToolCallLog:
     ) -> Any:
         """Run the call, write its line, and pass on the result or the error. The call that
         exceeds the limit of retries reaches here as `UnexpectedModelBehavior`."""
-        program = _program(args)
+        program = logged_program(command_word(args))
         try:
             result = await handler(args)
         except (ToolRetryError, UnexpectedModelBehavior) as error:
-            refused = bool(program) and _refused(error)
+            refused = bool(program) and is_policy_refusal(error)
             self._note(
                 call.tool_name, program, ToolOutcome.REFUSED if refused else ToolOutcome.RETRY
             )

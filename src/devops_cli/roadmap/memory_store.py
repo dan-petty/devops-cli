@@ -333,8 +333,9 @@ class InMemoryRoadmapStore(RoadmapStore):
         return list(self._roadmap.closures.get(number, []))
 
     def label_issue(self, number: int, label: str) -> None:
-        """Add `label` to issue `number`, keeping its other labels; a label it holds stays one."""
-        issue = self._require_issue(number, "roadmap.issue.label")
+        """Add `label` to issue or pull request `number`, keeping its other labels; a label it
+        holds stays one. GitHub labels a pull request through the issues endpoint (#2748)."""
+        issue = self._require_issue(number, "roadmap.issue.label", pull_request=True)
         if label not in issue.labels:
             self._relabel(issue, (*issue.labels, label))
         self._log("label_issue", number, value=label)
@@ -557,9 +558,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         closure = Closure(kind=kind, at=self._roadmap.clock(), reason=reason)
         self._roadmap.closures.setdefault(number, []).append(closure)
 
-    def _require_issue(self, number: int, operation: str) -> IssueRecord:
+    def _require_issue(
+        self, number: int, operation: str, *, pull_request: bool = False
+    ) -> IssueRecord:
         issue = self._roadmap.issues.get(number)
-        if issue is None or issue.pull_request:
+        if issue is None or (issue.pull_request and not pull_request):
             raise GitHubOperationError(
                 f"#{number} is not an issue of {self._roadmap.repo}.",
                 operation=operation,

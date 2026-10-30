@@ -460,6 +460,17 @@ def test_a_commit_that_a_hook_refuses_stops_the_step_and_resets_the_checkout(
     )
 
 
+# What the refusal adds to the text of the shell (#2773).
+ALLOWED_HINT = (
+    "These programs are allowed: `git`, `uv`, `ruff`, `mypy`. Run the commands of the project "
+    "with `uv run`, for example `uv run devops ci test <file>`."
+)
+OPERATOR_HINT = (
+    "Run one command in each call. Do not chain commands. "
+    "Do not use `cd`: every command runs in the checkout."
+)
+
+
 def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes_on(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -476,8 +487,8 @@ def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes
         "Done.",
         3,
         [
-            "Command 'curl' is not in the allowed list.",
-            "Shell operator ';' is not allowed.",
+            f"Command 'curl' is not in the allowed list. {ALLOWED_HINT}",
+            f"Shell operator ';' is not allowed. {OPERATOR_HINT}",
         ],
     )
 
@@ -495,8 +506,8 @@ def test_the_shell_tool_refuses_the_devops_cli_and_openspec(
     _step(store, checkout, script)
 
     assert script.tool_answers() == [
-        "Command 'devops' is not in the allowed list.",
-        "Command 'openspec' is not in the allowed list.",
+        f"Command 'devops' is not in the allowed list. {ALLOWED_HINT}",
+        f"Command 'openspec' is not in the allowed list. {ALLOWED_HINT}",
     ]
 
 
@@ -1233,10 +1244,68 @@ def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and
 
     assert (outcome.status, outcome.reason, outcome.requests, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE}\nRefused commands: 6. Other retries: 0.",
+        f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE}\nRefused commands: pytest 6. Other retries: 0.",
         6,
         True,
     )
+
+
+def test_the_reason_counts_the_refused_commands_by_program_from_the_most_refused(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        *(
+            tool_call("shell", command=f"{program} x")
+            for program in "cd python cd python python python".split()
+        )
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: python 4, cd 2. Other retries: 0.")
+
+
+def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """Five programs, one of them twice: the reason lists four, and the fifth joins `other`."""
+    script = ModelScript(
+        *(
+            tool_call("shell", command=f"{name} x")
+            for name in ("cat", "ls", "grep", "find", "head", "head")
+        )
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert constants.CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS == 4
+    assert outcome.reason.endswith(
+        "\nRefused commands: head 2, cat 1, ls 1, grep 1, other 1. Other retries: 0."
+    )
+
+
+def test_a_first_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: other 6. Other retries: 0.")
+    assert "hunter2" not in outcome.reason
+
+
+def test_a_short_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A password that the model read from a file is a short bare word, and the mask of secrets
+    leaves it as it is. The reason goes to a comment on GitHub, so it must not show the word."""
+    script = ModelScript(tool_call("shell", command="hunter2password x"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: other 6. Other retries: 0.")
+    assert "hunter2password" not in outcome.reason
 
 
 def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retries(
@@ -1307,7 +1376,7 @@ def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
 
     assert outcome.reason == (
         f"UnexpectedModelBehavior: {'x' * constants.CONST_ROADMAP_RUN_ERROR_CHARS}\n"
-        "Refused commands: 1. Other retries: 0."
+        "Refused commands: pytest 1. Other retries: 0."
     )
 
 
@@ -1319,7 +1388,7 @@ def test_the_counts_cover_the_extra_turn_for_the_ticks(
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: 7. Other retries: 0.")
+    assert outcome.reason.endswith("\nRefused commands: pytest 7. Other retries: 0.")
 
 
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────
