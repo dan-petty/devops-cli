@@ -9,6 +9,9 @@
 - [x] 1.3 Run `uv run ruff check`, `uv run ruff format --check` and `uv run mypy --strict` on the changed files
   - Verification: `uv run devops ci lint`
 
+- [x] 1.4 Keep the real failures of a round that a stop ends (review finding): add failing tests that a stop after a failed write, and a stop after a failure of the plan, end the stage job with that failure, and the same for the refine job; catch the stop in `apply_stage` and in the refine adapter and call `raise_for_failed` first
+  - Verification: `uv run devops ci test tests/test_roadmap_stage_apply.py tests/test_roadmap_refine.py`
+
 ## 2. Documentation
 
 - [x] 2.1 Say in `k8s/README.md` that a round which the stop ends does not count toward the suspension of a row, and run `uv run devops docs generate --sync-readme`

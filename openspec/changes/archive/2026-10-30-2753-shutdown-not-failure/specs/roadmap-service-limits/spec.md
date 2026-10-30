@@ -39,3 +39,14 @@ A round that ends with the error that the request budget raises when the Service
 #### Scenario: A stop in the stage job
 - **WHEN** a write of the stage job meets the stop error of the budget
 - **THEN** the stage job ends with that error, and it makes no failed item of it
+
+### Requirement: A stop of the Service does not hide a failed item
+When an item failed for a real reason before the stop, in the plan or in an earlier write, the stage job and the refine job SHALL end with the failure of those items, so the round counts.
+
+#### Scenario: A stop after a failed item
+- **WHEN** an item of the stage job failed for a real reason, in the plan or in an earlier write, and a later write meets the stop error of the budget
+- **THEN** the stage job ends with the failure of that item, and the round counts as a failed round
+
+#### Scenario: A stop in the refine job after a failed item
+- **WHEN** the model call failed for an item of the refine job, and a write meets the stop error of the budget
+- **THEN** the refine job ends with the failure of that item, and the round counts as a failed round
