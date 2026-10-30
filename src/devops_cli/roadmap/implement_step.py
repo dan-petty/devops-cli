@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import os
 import shlex
+import shutil
 import subprocess
 import tempfile
 import time
@@ -767,15 +768,17 @@ def _restore_tasks(inputs: StepInputs) -> None:
     that the run set. The job owns the file: it reads the verification commands from the text
     before the run, so no edit of the file changes what judges the work. So an edit never stops
     the step, and the line ends, the headings and every other group are those of before the run.
-    One line names the change when the file differed. A link at the path is removed first, so the
-    write never goes through it."""
+    One line names the change when the file differed. A link or a directory at the path is removed
+    first, so the write never goes through a link, and a link never reaches the commit."""
     lines = _file_lines(inputs.tasks_md)
     for number in _ticked_lines(inputs):
         lines[number] = lines[number].replace(_CHECKBOXES[0], _CHECKBOXES[1], 1)
     wanted = "".join(lines)
-    if _tasks_after(inputs) == wanted:
-        return
     path = inputs.change / "tasks.md"
+    if not path.is_symlink() and _tasks_after(inputs) == wanted:
+        return
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
     path.unlink(missing_ok=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(wanted, encoding="utf-8", newline="")

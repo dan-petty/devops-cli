@@ -390,6 +390,54 @@ def test_a_link_in_place_of_the_tasks_file_is_replaced_and_the_target_is_not_wri
     )
 
 
+def test_a_link_to_a_file_with_the_wanted_text_is_replaced_by_the_file(
+    store: InMemoryRoadmapStore, later_open: Path, tmp_path: Path, programs: ProcessFake
+) -> None:
+    wanted = TICKED.replace("- [x] Document", "- [ ] Document")
+    target = tmp_path / "copy.md"
+    target.write_text(wanted, encoding="utf-8")
+    tasks = later_open / TASKS_PATH
+
+    def link() -> None:
+        tasks.unlink()
+        tasks.symlink_to(target)
+
+    script = ModelScript(
+        tool_calls(*WORK, write_call(TASKS_PATH, wanted)), say("Done."), effects={2: link}
+    )
+
+    result = _step(store, later_open, script)
+
+    assert (result, tasks.is_symlink(), git(later_open, "ls-tree", "HEAD", TASKS_PATH)[:6]) == (
+        (StepStatus.DONE, ""),
+        False,
+        "100644",
+    )
+
+
+def test_a_directory_in_place_of_the_tasks_file_ends_the_step_with_a_stop_and_the_file(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    tasks = later_open / TASKS_PATH
+
+    def directory() -> None:
+        tasks.unlink()
+        tasks.mkdir()
+        (tasks / "inner.txt").write_text("inner\n", encoding="utf-8")
+
+    script = ModelScript(
+        tool_calls(*WORK, write_call(TASKS_PATH, TICKED)), say("Done."), effects={2: directory}
+    )
+
+    result = _step(store, later_open, script)
+
+    assert (result[0], tasks.is_file(), (later_open / TASKS_PATH).read_text(encoding="utf-8")) == (
+        StepStatus.STOPPED,
+        True,
+        LATER_OPEN,
+    )
+
+
 def test_a_group_that_the_model_ticks_in_part_gets_the_extra_turn_for_the_rest(
     store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
