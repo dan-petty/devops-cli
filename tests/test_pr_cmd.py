@@ -30,6 +30,16 @@ def no_status_write(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("devops_cli.commands.pr.set_delivered_status", MagicMock(), raising=False)
 
 
+@pytest.fixture(autouse=True)
+def no_label_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`pr create` adds the labels of the title (#2748); tests/test_pr_title_labels.py holds that.
+    These cases leave the labels alone. `raising=False` lets the cases run on a base that has no
+    such function."""
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._labels_recorded", MagicMock(return_value=True), raising=False
+    )
+
+
 class TestPrCommands:
     """Tests for devops pr subcommands."""
 

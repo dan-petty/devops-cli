@@ -112,6 +112,14 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def no_label_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`pr create` adds the labels of the title (#2748); tests/test_pr_title_labels.py holds that."""
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._labels_recorded", MagicMock(return_value=True), raising=False
+    )
+
+
 def _gh(**_: Any) -> MagicMock:
     return MagicMock(returncode=0, stdout="https://example.com/org/repo/pull/14\n", stderr="")
 

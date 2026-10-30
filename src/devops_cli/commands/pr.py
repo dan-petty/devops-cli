@@ -15,6 +15,7 @@ from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_PR_API_STATE_MAP,
     CONST_PR_UPDATE_AUTHOR,
+    CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
 )
@@ -59,7 +60,11 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+from devops_cli.roadmap import pull_labels
+from devops_cli.roadmap.commit_title import commit_scope
+from devops_cli.roadmap.github_store import label_args, repository_file_args
 from devops_cli.roadmap.pull_status import set_delivered_status
+from devops_cli.roadmap.title_labels import requested_labels
 
 logger = logging.getLogger(__name__)
 
@@ -891,24 +896,104 @@ def _fallback_create_pr(
     if res.returncode == 0:
         number = _print_created_pr_message(res.stdout, target_base)
         if number is not None:
-            _record_status(repo, number, CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
+            _finish_created_pr(repo, number, title, base)
         return True
     return False
 
 
-def _record_status(repo: str | None, number: int, status: str, state: str) -> None:
-    """Set `status` on the item that pull request `number` closes. A failure exits 1 and names the
-    pull request, which is already `state`, so the caller knows only the Status is missing."""
+def _status_recorded(repo: str | None, number: int, status: str, state: str) -> bool:
+    """Set `status` on the item that pull request `number` closes. A failure prints an error that
+    names the pull request, which is already `state`, so the caller knows only the Status is
+    missing, and returns False."""
     target = _target_repo(repo)
     if not target or "/" not in target:
-        return
+        return True
     try:
         set_delivered_status(target, number, status)
     except GitHubOperationError as exc:
         print_error(
             MESSAGES.pr.status_not_set.format(number=number, state=state, error=exc), safe=True
         )
-        raise typer.Exit(1) from exc
+        return False
+    return True
+
+
+def _record_status(repo: str | None, number: int, status: str, state: str) -> None:
+    """Set `status` as `_status_recorded` does, and exit 1 when it could not."""
+    if not _status_recorded(repo, number, status, state):
+        raise typer.Exit(1)
+
+
+def _labels_recorded(repo: str | None, number: int, title: str, base: str | None) -> bool:
+    """Add the labels that `title` gives to pull request `number` (#2748), as declared in the
+    labels file on `base`. A scope with no declared label gets a warning. A failure prints an
+    error that names the pull request, which stays open, and the labels, and returns False."""
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        return True
+    try:
+        given = pull_labels.read_title_labels(target, title, ref=base)
+        if given.undeclared_scope:
+            print_warning(
+                MESSAGES.pr.labels_scope_undeclared.format(
+                    scope=commit_scope(title),
+                    path=CONST_ROADMAP_LABELS_PATH,
+                    label=given.undeclared_scope,
+                ),
+                to_stderr=True,
+            )
+        pull_labels.add_pull_labels(target, number, given.labels)
+    except GitHubOperationError as exc:
+        print_error(
+            MESSAGES.pr.labels_not_set.format(repo=target, number=number, error=exc), safe=True
+        )
+        return False
+    return True
+
+
+def _plan_title_labels(repo: str | None, title: str, base: str | None) -> None:
+    """Print the requests that a real `devops pr create` would send to label the new pull request:
+    the read of the labels file, then one label request for each label the title asks for. The
+    number of the pull request is a placeholder. Nothing is read or sent."""
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        return
+    asked = [label for label in requested_labels(title) if label]
+    if not asked:
+        return
+    plan = [
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target}/contents/{CONST_ROADMAP_LABELS_PATH}",
+            argv=(
+                CONST_GH_CLI,
+                *repository_file_args(target, CONST_ROADMAP_LABELS_PATH, ref=base),
+            ),
+            condition="the pull request opens",
+        ),
+        *(
+            PlannedRequest(
+                method="POST",
+                target=f"repos/{target}/issues/<number>/labels",
+                argv=(CONST_GH_CLI, *label_args(target, "<number>", label)),
+                condition=MESSAGES.pr.labels_dry_run_condition,
+            )
+            for label in asked
+        ),
+    ]
+    render_request_plan(
+        MESSAGES.pr.labels_dry_run_heading, plan, (MESSAGES.dry_run.placeholders_note,)
+    )
+
+
+def _finish_created_pr(repo: str | None, number: int, title: str, base: str | None) -> None:
+    """Set the Status of the item that the new pull request closes, and give the pull request the
+    labels of its title. Each step runs when the other fails. The command exits 1 if either failed,
+    and the pull request stays open."""
+    status_set = _status_recorded(repo, number, CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
+    labels_set = _labels_recorded(repo, number, title, base)
+    if not (status_set and labels_set):
+        raise typer.Exit(1)
 
 
 @app.command("create")
@@ -927,7 +1012,9 @@ def create_pr(
     """Open a draft pull request, into the default branch unless --base names another.
 
     Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
-    review. It sets the Status of the roadmap item the pull request closes to In Progress.
+    review. It sets the Status of the roadmap item the pull request closes to In Progress. It also
+    adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
+    and scope/ai. A scope that .github/labels.yml does not declare gets no label and a warning.
     """
     _require_gh_cli()
     cmd = [CONST_GH_CLI, "pr", "create", "--draft", "--title", title, "--body", body]
@@ -946,11 +1033,13 @@ def create_pr(
         print_success(MESSAGES.pr.draft_created.format(url=url))
         last = url.rstrip("/").rsplit("/", 1)[-1]
         if last.isdigit():
-            _record_status(repo, int(last), CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
+            _finish_created_pr(repo, int(last), title, base)
         return
     print_success(
         MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base)
     )
+    if is_dry_run():
+        _plan_title_labels(repo, title, base)
 
 
 # =============================================================================

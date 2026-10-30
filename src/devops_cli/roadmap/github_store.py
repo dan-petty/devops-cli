@@ -687,7 +687,7 @@ class GitHubRoadmapStore(RoadmapStore):
         return [node.closure() for node in timeline.nodes]
 
     def label_issue(self, number: int, label: str) -> None:
-        """Add `label` to issue `number`; GitHub keeps its other labels."""
+        """Add `label` to issue or pull request `number`; GitHub keeps its other labels."""
         self._write(label_args(self._repo, number, label), f"label #{number} {label}")
         kept = (self._all or {}).get(number)
         if kept is not None and label not in kept.labels:
