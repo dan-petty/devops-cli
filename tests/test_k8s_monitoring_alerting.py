@@ -30,12 +30,12 @@ import yaml
 from devops_cli.config.constants import (
     CONST_GH_MUTATION_HTTP_METHODS,
     CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
+    CONST_SERVICE_METRIC_BUDGET_LIMIT,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
 )
-from devops_cli.config.defaults import DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR
 from devops_cli.prometheus.promql import selectors
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
@@ -170,6 +170,7 @@ SERVED_SERIES = frozenset(
         # The roadmap Service (#2472): the series of its /metrics, which k8s-monitoring's
         # annotation autodiscovery scrapes, and the instruments it sends over OTLP. A histogram
         # is a native histogram under the instrument's own name.
+        CONST_SERVICE_METRIC_BUDGET_LIMIT,
         CONST_SERVICE_METRIC_IDENTITY_REFUSED,
         CONST_SERVICE_METRIC_JOBS,
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
@@ -815,7 +816,7 @@ def _window_count(series: str, window: str) -> str:
 
 
 # The roadmap Service's rules (#2472), in file order: (alert, expression, wait, severity). The
-# GitHub request rule warns at 90% of the default hourly budget of the Service.
+# GitHub request rule warns at 90% of the hourly budget that the Service reports (#2755).
 ROADMAP_SERVICE_RULES = [
     (
         "RoadmapServiceIdentityRefused",
@@ -869,7 +870,7 @@ ROADMAP_SERVICE_RULES = [
         "RoadmapServiceGitHubRequestsHigh",
         "sum( "
         + _window_count('devops_cli_github_requests_total{job="roadmap-service"}', "1h")
-        + f" ) > {DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR * 9 // 10}",
+        + f' ) > on() 0.9 * max({CONST_SERVICE_METRIC_BUDGET_LIMIT}{{job="roadmap-service"}})',
         "0m",
         "warning",
     ),

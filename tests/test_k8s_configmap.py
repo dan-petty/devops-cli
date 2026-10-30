@@ -144,6 +144,59 @@ def test_render_active_devops_configmap_success(tmp_path: Path) -> None:
     )
 
 
+def _rendered_service(tmp_path: Path, service: ServiceConfig) -> dict[str, object]:
+    """The `service` section of the ConfigMap that the active settings render."""
+    devops_dir = tmp_path / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=Settings(service=service))
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+    section: dict[str, object] = inner["service"]
+    return section
+
+
+def test_a_deploy_renders_the_hourly_budget_that_the_active_settings_set(tmp_path: Path) -> None:
+    """The owner raised the budget to 2000 by hand; a deploy must keep it (#2755)."""
+    service = _rendered_service(
+        tmp_path,
+        ServiceConfig(repos=["active/repo"], github_app=APP, github_requests_per_hour=2000),
+    )
+
+    assert service["github_requests_per_hour"] == 2000
+
+
+def test_a_deploy_renders_a_budget_that_equals_the_default_when_a_source_sets_it(
+    tmp_path: Path,
+) -> None:
+    """A set value is rendered, so a later change of the default does not move the Service."""
+    service = _rendered_service(
+        tmp_path,
+        ServiceConfig(repos=["active/repo"], github_app=APP, github_requests_per_hour=500),
+    )
+
+    assert service["github_requests_per_hour"] == 500
+
+
+def test_a_deploy_renders_no_hourly_budget_when_the_active_settings_keep_the_default(
+    tmp_path: Path,
+) -> None:
+    service = _rendered_service(tmp_path, ServiceConfig(repos=["active/repo"], github_app=APP))
+
+    assert "github_requests_per_hour" not in service
+
+
+def test_render_devops_configmap_with_an_hourly_budget() -> None:
+    rendered = render_devops_configmap_content(
+        SAMPLE_TEMPLATE,
+        repos=["example/repo"],
+        github_app=APP,
+        github_requests_per_hour=2000,
+    )
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+
+    assert Settings.model_validate(inner).service.github_requests_per_hour == 2000
+
+
 def test_a_token_repository_of_the_active_config_is_not_rendered_into_the_service_section(
     tmp_path: Path,
 ) -> None:

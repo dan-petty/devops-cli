@@ -101,21 +101,36 @@ Each description in the group SHALL end with `(k8s/README.md, Roadmap service)`,
 
 ### Requirement: A high request volume warns
 
-`RoadmapServiceGitHubRequestsHigh` SHALL fire above 450 GitHub requests of the Service in 1 hour, 90% of the default hourly budget of 500. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests of the Service in 1 hour that the cache did not answer. Both SHALL count the first value of a series that starts in the hour, and SHALL NOT count the requests of a series from before the hour.
+`RoadmapServiceGitHubRequestsHigh` SHALL fire when the Service sent more GitHub requests in 1 hour than 90% of the budget in `devops_cli_service_budget_limit_requests`, and SHALL join the two with `on()`, because their `instance` labels differ. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests in 1 hour that the cache did not answer. Both SHALL count the first value of a new series, and SHALL NOT count a series from before the hour.
 
 #### Scenario: 600 GitHub requests in an hour
 
-- **WHEN** `promtool test rules` evaluates 600 GitHub requests of the Service in an hour
+- **WHEN** `promtool test rules` evaluates 600 GitHub requests of the Service in an hour and a reported limit of 500
 - **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 600
+
+#### Scenario: 400 GitHub requests in an hour with a limit of 500
+
+- **WHEN** `promtool test rules` evaluates 400 GitHub requests of the Service in an hour and a reported limit of 500
+- **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
+
+#### Scenario: 900 GitHub requests in an hour with a limit of 2000
+
+- **WHEN** `promtool test rules` evaluates 900 GitHub requests of the Service in an hour and a reported limit of 2000
+- **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
+
+#### Scenario: 1900 GitHub requests in an hour with a limit of 2000
+
+- **WHEN** `promtool test rules` evaluates 1900 GitHub requests of the Service in an hour and a reported limit of 2000
+- **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 1900
 
 #### Scenario: A GitHub request stream that starts in the hour
 
-- **WHEN** `promtool test rules` evaluates a new stream whose first sample is 300 and that grows by 20 every 5 minutes to 520
+- **WHEN** `promtool test rules` evaluates a new stream whose first sample is 300 and that grows by 20 every 5 minutes to 520, and a reported limit of 500
 - **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 520
 
 #### Scenario: A sparse GitHub request stream from before the hour
 
-- **WHEN** `promtool test rules` evaluates a stream with samples 2000, 2010 and 2020 at 50, 70 and 110 minutes, at 120 minutes
+- **WHEN** `promtool test rules` evaluates a stream with samples 2000, 2010 and 2020 at 50, 70 and 110 minutes, at 120 minutes, and a reported limit of 500
 - **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 #### Scenario: A model request stream that starts in the hour
