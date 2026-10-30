@@ -15,6 +15,8 @@ from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_PR_API_STATE_MAP,
     CONST_PR_UPDATE_AUTHOR,
+    CONST_ROADMAP_STATUS_IN_PROGRESS,
+    CONST_ROADMAP_STATUS_IN_REVIEW,
 )
 from devops_cli.config.defaults import (
     DEFAULT_PR_LIMIT,
@@ -57,6 +59,7 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+from devops_cli.roadmap.pull_status import set_delivered_status
 
 logger = logging.getLogger(__name__)
 
@@ -887,6 +890,21 @@ def _fallback_create_pr(
     return False
 
 
+def _record_status(repo: str | None, number: int, status: str, state: str) -> None:
+    """Set `status` on the item that pull request `number` closes. A failure exits 1 and names the
+    pull request, which is already `state`, so the caller knows only the Status is missing."""
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        return
+    try:
+        set_delivered_status(target, number, status)
+    except GitHubOperationError as exc:
+        print_error(
+            MESSAGES.pr.status_not_set.format(number=number, state=state, error=exc), safe=True
+        )
+        raise typer.Exit(1) from exc
+
+
 @app.command("create")
 def create_pr(
     title: Annotated[str, typer.Option("--title", "-t", help=HELP.options.title)],
@@ -903,7 +921,7 @@ def create_pr(
     """Open a draft pull request, into the default branch unless --base names another.
 
     Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
-    review.
+    review. It sets the Status of the roadmap item the pull request closes to In Progress.
     """
     _require_gh_cli()
     cmd = [CONST_GH_CLI, "pr", "create", "--draft", "--title", title, "--body", body]
@@ -920,6 +938,9 @@ def create_pr(
         raise typer.Exit(res.returncode)
     if url := res.stdout.strip():
         print_success(MESSAGES.pr.draft_created.format(url=url))
+        last = url.rstrip("/").rsplit("/", 1)[-1]
+        if last.isdigit():
+            _record_status(repo, int(last), CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
         return
     print_success(
         MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base)
@@ -1017,7 +1038,8 @@ def ready_pr(
     """Mark a draft pull request as ready for review once its checks pass.
 
     It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-    blocker of the merge-readiness verdict prints as a warning. --force skips the checks.
+    blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
+    sets the Status of the roadmap item the pull request closes to In Review.
     """
     _require_gh_cli()
     owner, repo_name = _split_target_repo(repo)
@@ -1044,6 +1066,7 @@ def ready_pr(
 
     _verify_pr_draft_transition(number, owner, repo_name)
     print_success(MESSAGES.pr.pr_marked_ready_success.format(number=number))
+    _record_status(repo, number, CONST_ROADMAP_STATUS_IN_REVIEW, "ready")
     if monitor:
         monitor_pr_command(number=number, repo=repo)
 

@@ -167,7 +167,7 @@ devops pr edit [OPTIONS] <number>
 Open a draft pull request, into the default branch unless --base names another.
 
 Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
-review.
+review. It sets the Status of the roadmap item the pull request closes to In Progress.
 
 ```bash
 devops pr create [OPTIONS]
@@ -191,7 +191,8 @@ devops pr create [OPTIONS]
 Mark a draft pull request as ready for review once its checks pass.
 
 It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-blocker of the merge-readiness verdict prints as a warning. --force skips the checks.
+blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
+sets the Status of the roadmap item the pull request closes to In Review.
 
 ```bash
 devops pr ready [OPTIONS] <number>

@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -125,6 +126,14 @@ class _GitHub:
 
     def threads(self, *threads: dict[str, Any]) -> None:
         self.answer(_THREADS, ProcessAnswer(stdout=_threads_page(*threads)))
+
+
+@pytest.fixture(autouse=True)
+def no_status_write() -> Iterator[None]:
+    """`pr create` and `pr ready` set the Status of the item the pull request closes (#2717);
+    tests/test_pr_status.py holds that. These cases leave the roadmap alone."""
+    with patch("devops_cli.commands.pr.set_delivered_status"):
+        yield
 
 
 @pytest.fixture

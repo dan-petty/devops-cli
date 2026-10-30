@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,14 @@ from tests.support.fakes.github import GitHubApiFake
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def no_status_write() -> Iterator[None]:
+    """`pr create` and `pr ready` set the Status of the item the pull request closes (#2717);
+    tests/test_pr_status.py holds that. These cases leave the roadmap alone."""
+    with patch("devops_cli.commands.pr.set_delivered_status"):
+        yield
 
 
 class TestPrCommands:
