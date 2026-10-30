@@ -14,5 +14,5 @@
 
 ## Workflow follow-up
 
-- The stage job and the implement job should give their pull requests the labels of the title with `title_labels`. A follow-up item covers both (see `design.md`).
+- The stage job and the implement job should give their pull requests the labels of the title with `title_labels`. Follow-up issue #2777 covers both (see `design.md`).
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
