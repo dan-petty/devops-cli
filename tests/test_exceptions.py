@@ -84,7 +84,7 @@ def test_validation_exceptions() -> None:
     url_err = InvalidURLError("ftp://example.com", "Unsupported scheme")
     assert isinstance(url_err, ValidationError)
     assert url_err.error_code == "INVALID_URL"
-    assert str(url_err) == "Invalid URL 'example.com': Unsupported scheme"
+    assert str(url_err) == "Invalid URL for server example.com: Unsupported scheme"
     assert url_err.details["url"] == "example.com"
 
 

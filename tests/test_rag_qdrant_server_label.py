@@ -6,6 +6,7 @@ No text that the client writes holds either. An address that is not a URL shows 
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from unittest.mock import MagicMock
 
@@ -105,26 +106,62 @@ def test_the_investigator_warning_names_the_server_by_host_and_port(
 
 
 @pytest.mark.parametrize(
-    "url",
+    ("url", "message"),
     [
-        "user:secret@example.com:6333/prefix/path",
-        "ftp://user:secret@example.com:6333/prefix/path",
-        "http://user:secret@:6333/prefix/path",
-        "http://user:secret@a..b.com/prefix/path",
+        (
+            "user:secret@example.com:6333/prefix/path",
+            "Invalid URL: missing scheme or host in qdrant.url",
+        ),
+        (
+            "ftp://user:secret@example.com:6333/prefix/path",
+            "Invalid URL for server example.com:6333: "
+            "Invalid Qdrant URL scheme 'ftp': must be http or https",
+        ),
+        (
+            "http://user:secret@:6333/prefix/path",
+            "Invalid URL: Qdrant URL missing valid hostname",
+        ),
+        (
+            "http://user:secret@a..b.com/prefix/path",
+            "Invalid URL for server a..b.com: Qdrant URL has invalid hostname 'a..b.com'",
+        ),
     ],
     ids=["no-scheme", "scheme", "no-host", "host-syntax"],
 )
-def test_the_error_for_an_invalid_url_names_no_userinfo_and_no_path(url: str) -> None:
+def test_the_error_for_an_invalid_url_names_no_userinfo_and_no_path(url: str, message: str) -> None:
     with pytest.raises(InvalidURLError) as raised:
         QdrantClient(url, allow_private_network=True, timeout=5.0)
 
     error = raised.value
+    assert str(error) == message
     assert _leaks(str(error)) == []
     assert _leaks(repr(error.details)) == []
 
 
+def test_the_error_for_a_label_with_no_origin_does_not_read_as_a_url() -> None:
+    assert str(
+        InvalidURLError("file:///etc/passwd", "Only http and https URLs may be requested")
+    ) == ("Invalid URL: Only http and https URLs may be requested")
+    assert str(InvalidURLError("ftp://example.com", "Unsupported scheme")) == (
+        "Invalid URL for server example.com: Unsupported scheme"
+    )
+
+
+def test_the_broker_veto_of_a_scheme_says_which_problem_it_is() -> None:
+    from devops_cli.http.broker import HttpClientBroker
+    from devops_cli.http.egress import EgressLevel
+
+    with HttpClientBroker() as broker:
+        client = broker.get_client(EgressLevel.PUBLIC)
+        request = client.build_request("GET", "file:///etc/passwd")
+        with pytest.raises(InvalidURLError) as raised:
+            client.send(request)
+
+    assert str(raised.value) == "Invalid URL: Only http and https URLs may be requested"
+
+
 @pytest.mark.parametrize("url", [_HTTP_URL, _K8S_URL], ids=["http", "k8s"])
-def test_the_search_cache_key_names_the_server_by_host_and_port(
+def test_the_search_cache_key_names_the_server_by_label_and_digest(
     monkeypatch: pytest.MonkeyPatch, url: str
 ) -> None:
     retriever.reset_search_verified_models()
@@ -133,6 +170,51 @@ def test_the_search_cache_key_names_the_server_by_host_and_port(
 
     retriever._verify_single_collection_for_search(client, "devops_code", "model-a")
 
-    host = "example.com:6333" if url == _HTTP_URL else "qdrant.devops:6333"
-    assert list(retriever._SEARCH_VERIFIED_MODELS) == [(host, "devops_code")]
+    ((label, digest, collection),) = retriever._SEARCH_VERIFIED_MODELS
+    assert (label, collection) == (client.server_label, "devops_code")
+    assert digest == hashlib.sha256(client.base_url.encode()).hexdigest()
+    assert _leaks(repr(retriever._SEARCH_VERIFIED_MODELS)) == []
+    retriever.reset_search_verified_models()
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("http://example.com", "https://example.com"),
+        ("http://example.com/qdrant-a", "http://example.com/qdrant-b"),
+    ],
+    ids=["scheme", "path-prefix"],
+)
+def test_two_servers_with_one_label_keep_two_cache_keys(
+    monkeypatch: pytest.MonkeyPatch, first: str, second: str
+) -> None:
+    """The second server is checked against its own model, not skipped or compared with the first."""
+    retriever.reset_search_verified_models()
+    recorded = {first: "model-a", second: "model-b"}
+    monkeypatch.setattr(
+        retriever, "_inspect_collection_model", lambda qdrant, name: recorded[qdrant.base_url]
+    )
+    one = QdrantClient(first, allow_private_network=True, timeout=5.0)
+    two = QdrantClient(second, allow_private_network=True, timeout=5.0)
+
+    retriever._verify_single_collection_for_search(one, "devops_code", "model-a")
+    with pytest.raises(Exception, match="model"):
+        retriever._verify_single_collection_for_search(two, "devops_code", "model-a")
+
+    assert len(retriever._SEARCH_VERIFIED_MODELS) == 2
+    retriever.reset_search_verified_models()
+
+
+def test_two_malformed_addresses_that_both_show_unknown_keep_two_cache_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    retriever.reset_search_verified_models()
+    monkeypatch.setattr(retriever, "_inspect_collection_model", lambda qdrant, name: "model-a")
+    first = MagicMock(base_url="k8s://devops", server_label="unknown")
+    second = MagicMock(base_url="k8s://staging", server_label="unknown")
+
+    retriever._verify_single_collection_for_search(first, "devops_code", "model-a")
+    retriever._verify_single_collection_for_search(second, "devops_code", "model-a")
+
+    assert len(retriever._SEARCH_VERIFIED_MODELS) == 2
     retriever.reset_search_verified_models()
