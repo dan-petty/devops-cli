@@ -1505,9 +1505,9 @@ CONST_SERVICE_FAILURES_FILENAME: Final[str] = "service-failures.json"
 # counted: the file keeps the count and not the cause (#2753).
 CONST_SERVICE_CAUSE_UNKNOWN: Final[str] = "unknown"
 # The Service's lanes (#1532): each repository has one worker per lane. The status lane runs the
-# job that refreshes the metrics, the model lane those that call the model, so a status-lane round
-# never waits for a model-lane round. A service app given no jobs runs its logging job in the
-# default lane.
+# jobs that call no model (the metrics and the submission of the implement Job, #2757). The model
+# lane runs the jobs that call the model, so a status-lane round never waits for a model-lane
+# round. A service app given no jobs runs its logging job in the default lane.
 CONST_SERVICE_LANE_STATUS: Final[str] = "status"
 CONST_SERVICE_LANE_MODEL: Final[str] = "model"
 CONST_SERVICE_LANE_DEFAULT: Final[str] = "default"

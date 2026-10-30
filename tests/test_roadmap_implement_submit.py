@@ -1,4 +1,4 @@
-"""The `implement` row of the Service's model lane: a round creates one runner Job for a Staged
+"""The `implement` row of the Service's status lane: a round creates one runner Job for a Staged
 item, creates no second one while a Job of the repository runs, and reports a Job that ended
 (#2667).
 
@@ -20,7 +20,7 @@ from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.run import MODEL_LANE_ROWS, JobOutcome
+from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.store import ImplementRecordKey, ItemField
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.kubernetes import FakeCluster, pod
@@ -36,7 +36,7 @@ from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug")
 
-IMPLEMENT_ROW = next(row for row in MODEL_LANE_ROWS if row.name == "implement")
+IMPLEMENT_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "implement")
 JOBS = ("batch", "v1", "jobs")
 CRONJOBS = ("batch", "v1", "cronjobs")
 MARKER = "<!-- devops roadmap implement -->"
@@ -103,16 +103,19 @@ def _comments(store: InMemoryRoadmapStore, number: int = 1) -> list[str]:
     return [comment.body for comment in store.comments_on(number)]
 
 
-def test_the_row_follows_stage_runs_on_a_clone_and_is_due_every_ten_minutes_and_on_a_first_run() -> (
+def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_every_ten_minutes() -> (
     None
 ):
-    names = [row.name for row in MODEL_LANE_ROWS]
+    """The row calls no model, so it is not on the model lane, where a long refine round would
+    hold it back (#2757)."""
+    names = [row.name for row in STATUS_LANE_ROWS]
     assert (
-        names[names.index("stage") + 1 :][:1],
+        names,
+        "implement" in [row.name for row in MODEL_LANE_ROWS],
         IMPLEMENT_ROW.needs_clone,
         IMPLEMENT_ROW.first_run_due,
         IMPLEMENT_ROW.interval,
-    ) == (["implement"], True, True, timedelta(minutes=10))
+    ) == (["metrics", "implement"], False, True, True, timedelta(minutes=10))
 
 
 def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for_its_repository(

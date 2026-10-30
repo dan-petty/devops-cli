@@ -1,7 +1,8 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's row, metrics, before the model lane's, intake, refine,
-stage and alternatives, so a burst of candidates never holds back the metrics (#1360). `devops roadmap run` runs the
+The due table runs the status lane's rows, metrics and implement, before the model lane's,
+intake, refine, stage and alternatives, so a burst of candidates never holds back the metrics
+(#1360), and a slow model never holds back the implement row (#2757). `devops roadmap run` runs the
 whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
 read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
@@ -625,8 +626,17 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         needs_clone=True,
         first_run_due=True,
     ),
+    JobRow(
+        name="implement",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES),
+        runner=_run_implement_adapter,
+        needs_clone=True,
+        first_run_due=True,
+    ),
 )
-"""The row that refreshes the metrics, which calls no model."""
+"""The rows that call no model: the one that refreshes the metrics, and the one that submits the
+implement Job, which only talks to the Kubernetes API and GitHub. The model runs in the Job, so
+a model-lane round that is still running never delays the row (#2757)."""
 
 MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -652,13 +662,6 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         needs_clone=True,
         first_run_due=True,
         cross_job_predicate=_stage_cross_job,
-    ),
-    JobRow(
-        name="implement",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES),
-        runner=_run_implement_adapter,
-        needs_clone=True,
-        first_run_due=True,
     ),
     JobRow(
         name="alternatives",
@@ -735,8 +738,9 @@ def build_stub_table(
     include_stage: bool | None = None,
     include_implement: bool | None = None,
 ) -> tuple[JobRow, ...]:
-    """The due table's rows, in its order, each running `runners`' stub for its job: intake,
-    plus metrics, refine, stage, implement and alternatives when asked for or given a stub."""
+    """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
+    implement, intake, refine, stage and alternatives. Intake is always in; the others are added
+    when asked for or given a stub."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
@@ -819,6 +823,11 @@ class _Poll:
         return row.due_rule(DueCheck(mine, self.now, last, self.repo_dir))
 
 
+def _lane_reads_changes(rows: Sequence[JobRow]) -> bool:
+    """Whether a row of the lane has a due rule: only a due rule judges changes."""
+    return any(row.due_rule is not None for row in rows)
+
+
 def _fetch_filtered_changes(
     rows: Sequence[JobRow],
     schedule: Mapping[str, datetime],
@@ -828,7 +837,7 @@ def _fetch_filtered_changes(
     """Fetch recent store changes excluding writes authored by the current session, which the
     store leaves out before it reads any job record (#1361). Only a due rule judges changes, so
     a lane with no row that has one, such as the status lane, reads none."""
-    if not any(r.due_rule is not None for r in rows):
+    if not _lane_reads_changes(rows):
         return []
     cutoff = _oldest_cutoff(rows, schedule, current_time)
     return store.changes_since(cutoff, except_actor=_current_actor(store))
@@ -949,14 +958,20 @@ def service_state_dir(data_dir: Path | str | None = None) -> Path:
 
 
 def _round_input(
-    changes: Sequence[Change], batch: Mapping[tuple[str, str, str], int], at: datetime
+    changes: Sequence[Change],
+    batch: Mapping[tuple[str, str, str], int],
+    at: datetime,
+    reads_changes: bool = True,
 ) -> str:
     """What the round's jobs read, as one digest a ledger record can keep: the changes since the
     oldest last success and, when the batch holds a trigger other than a poll, the time of the
-    round, so such a trigger is new input to every job."""
+    round, so such a trigger is new input to every job. A lane that reads no change has no input
+    that a poll can change, so its input holds the hour of the round: a suspended row tries again
+    in a later hour, once its fault is fixed (#2757)."""
     seen = [(change.kind.value, change.number, change.at.isoformat()) for change in changes]
     pushed = any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
-    read = json.dumps([seen, at.isoformat() if pushed else None])
+    hour = None if reads_changes else at.strftime("%Y-%m-%dT%H")
+    read = json.dumps([seen, at.isoformat() if pushed else None, hour])
     return hashlib.sha256(read.encode("utf-8")).hexdigest()
 
 
@@ -1032,7 +1047,7 @@ def _execute_due_rows(
     clone_error: Exception | None = None
     clone_jobs: list[str] = []
     error_entries: list[tuple[list[str], Exception]] = []
-    current = _round_input(changes, active_batch, current_time)
+    current = _round_input(changes, active_batch, current_time, _lane_reads_changes(rows))
 
     for row in rows:
         is_due = initially_due[row.name] or (
