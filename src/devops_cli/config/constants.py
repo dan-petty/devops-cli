@@ -1603,6 +1603,24 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "GH_PATH",
     "KUBE_EDITOR",
     "KUBECTL_EXTERNAL_DIFF",
+    # uv and npm (#2673). Each key names a program, or a directory of programs, that the tool
+    # starts: uv starts the interpreter of UV_PYTHON, the bin/python of the environment of
+    # VIRTUAL_ENV and UV_PROJECT_ENVIRONMENT, and an interpreter below UV_PYTHON_INSTALL_DIR when
+    # it prefers its own Python builds. npm starts the shell of script-shell for each script, passes
+    # node-options as NODE_OPTIONS to each script, starts the program of git for a git dependency
+    # and of editor for `npm config edit`, and loads the module of init-module for `npm init`.
+    # npm reads `npm_config_script-shell` as `npm_config_script_shell`, so `[_-]` matches both.
+    # npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: callers set
+    # them, and a caller names a file that it controls.
+    "UV_PYTHON",
+    "UV_PYTHON_INSTALL_DIR",
+    "UV_PROJECT_ENVIRONMENT",
+    "VIRTUAL_ENV",
+    "NPM_CONFIG_SCRIPT[_-]SHELL",
+    "NPM_CONFIG_NODE[_-]OPTIONS",
+    "NPM_CONFIG_GIT",
+    "NPM_CONFIG_EDITOR",
+    "NPM_CONFIG_INIT[_-]MODULE",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",

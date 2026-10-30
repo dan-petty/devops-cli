@@ -84,7 +84,6 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
         "LC_MESSAGES",
         "LC_COLLATE",
         "TZ",
-        "VIRTUAL_ENV",
         "PYTHONUNBUFFERED",
         "PYTHONDONTWRITEBYTECODE",
         "TRACEPARENT",
@@ -107,7 +106,9 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
 
 # uv's own settings reach a child `uv run`, so it keeps the interpreter, cache and Python install
 # directory the environment was built with instead of rebuilding it (#1735); a uv credential such
-# as UV_PUBLISH_TOKEN still matches a denied pattern.
+# as UV_PUBLISH_TOKEN still matches a denied pattern. The prefix lets UV_PYTHON,
+# UV_PYTHON_INSTALL_DIR and UV_PROJECT_ENVIRONMENT through from the environment of the person,
+# although a caller may not set them (#2673).
 DEFAULT_ALLOWED_ENV_PREFIXES: tuple[str, ...] = (
     "DEVOPS_CLI_",
     "OTEL_",
