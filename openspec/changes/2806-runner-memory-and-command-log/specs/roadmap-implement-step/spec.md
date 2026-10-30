@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Every tool call of a step writes one line to the Job log
-The agent of a step SHALL write one line to the standard error stream for each tool call, when the call ends. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist or a program of `IMPLEMENT_SHELL_REPLACEMENTS`, else the word `other`. Before a call that has a `command` runs, the agent SHALL write the line `Tool call: <tool>, started: <command>`. The command SHALL be the first word and the words after it, at most `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS` words, with secrets masked, control characters escaped, and cut to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS` characters. When the first word is not a known program, the command SHALL be the word `other`. No line SHALL hold a path or a content of a call that has no `command`, or any output.
+The agent of a step SHALL write one line to the standard error stream for each tool call, when the call ends. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist or a program of `IMPLEMENT_SHELL_REPLACEMENTS`, else the word `other`. Before a call that has a `command` runs, the agent SHALL write the line `Tool call: <tool>, started: <command>`. The command SHALL be the first word and the words after it, at most `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS` words, with the value of each `name=value` word that is not a number and each word with a space masked, other secrets masked, control characters escaped, and cut to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS` characters. When the first word is not a known program, the command SHALL be the word `other`. No line SHALL hold a path or a content of a call that has no `command`, or any output.
 
 #### Scenario: A refused program
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py`, and then ends its run
@@ -25,8 +25,16 @@ The agent of a step SHALL write one line to the standard error stream for each t
 - **WHEN** the command is `git remote add origin https://user:ghp_<token>@example.com/x.git`, with a GitHub token in place of `<token>`
 - **THEN** the line holds no part of the token
 
+#### Scenario: A value after a name
+- **WHEN** an argument has the form `name=value` and the value is not a number, for example `ai.api_key=<value>` or `http.extraheader=AUTHORIZATION: basic <value>`
+- **THEN** the line holds the name and the word `<masked>` in place of the value, and an argument with a number as the value, such as `--numprocesses=48`, stays as it is
+
+#### Scenario: Free text in an argument
+- **WHEN** an argument holds a space, as the message of a commit does
+- **THEN** the line holds the word `<masked>` in place of the argument
+
 #### Scenario: A control character in an argument
-- **WHEN** an argument holds a line break or an escape sequence
+- **WHEN** an argument holds an escape sequence or another control character that is no space
 - **THEN** the line is one line, and it holds the escaped form of the character
 
 #### Scenario: A call that returns

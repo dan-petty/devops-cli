@@ -2,9 +2,9 @@
 
 ## 1. The memory limit and the worker bound of the runner Job
 
-- [x] Write failing tests in `tests/test_k8s_runner.py`: the memory limit of the runner is 12 Gi and its request is 4 Gi; `PYTEST_XDIST_AUTO_NUM_WORKERS` equals the CPU limit; the Job that the template makes passes the admission policy.
+- [x] Write failing tests in `tests/test_k8s_runner.py`: the memory limit of the runner is 8 Gi and its request is 4 Gi; `PYTEST_XDIST_AUTO_NUM_WORKERS` equals the CPU limit; the Job that the template makes passes the admission policy.
   - Verification: `uv run devops ci test tests/test_k8s_runner.py tests/test_k8s_job_admission_policy.py`
-- [x] Change `k8s/devops/cronjob-runner.yaml`: memory limit 12 Gi, the worker variable, and the comments. Change `k8s/README.md` and `docs/ROUTINE_TASKS.md` where they state the numbers.
+- [x] Change `k8s/devops/cronjob-runner.yaml`: memory limit 8 Gi, the worker variable, and the comments. Change `k8s/README.md` and `docs/ROUTINE_TASKS.md` where they state the numbers.
   - Verification: `uv run devops ci test tests/test_k8s_runner.py tests/test_k8s_job_admission_policy.py`
 
 ## 2. The shell takes the worker bound
@@ -21,12 +21,23 @@
 - [x] Change `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/lang/en/messages.py` and `src/devops_cli/config/constants.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py tests/test_roadmap_implement_step.py`
 
-## 4. The documentation
+## 4. Review findings
+
+- [x] Write the failing test in `tests/test_subprocess_env_boundary.py` and add `PYTEST_XDIST_AUTO_NUM_WORKERS` to `DEFAULT_ALLOWED_ENV_VARS`, so that the `pytest` of `devops ci` gets the bound.
+  - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
+- [x] Write the failing tests for `name=value`, free text and flag arguments in `tests/test_roadmap_implement_tool_log.py`, and mask them in `logged_command`.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py`
+- [x] Lower the memory limit to 8 Gi so that it fits the smallest node, and name the unproven command in the proposal.
+  - Verification: `uv run devops ci test tests/test_k8s_runner.py tests/test_k8s_job_admission_policy.py`
+- [x] Fix the statements about the variables of the shell in the spec of `roadmap-implement-job`, `k8s/README.md` and `docs/ROUTINE_TASKS.md`.
+  - Verification: `uv run devops openspec check`
+
+## 5. The documentation
 
 - [ ] Regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 5. Archive
+## 6. Archive
 
 - [ ] Archive the change.
   - Verification: `uv run devops openspec archive 2806-runner-memory-and-command-log`
