@@ -2,9 +2,9 @@
 
 ## 1. One rule for the labels of a title
 
-- [ ] 1.1 In `tests/test_pr_title_labels.py`, assert that `title_labels` gives `type/bug` and `scope/ai` for `fix(ai): x`, only the type for `docs: x`, nothing for `A plain title`, and the undeclared label for `fix(zzz-unknown): x`, and verify that `uv run devops ci test tests/test_pr_title_labels.py` fails on the base
-- [ ] 1.2 Add `src/devops_cli/roadmap/title_labels.py` with `title_labels` and `declared_label_names`, make `_title_labels` and `_Run.declared` of `roadmap/intake.py` call them, and verify that `uv run devops ci test tests/test_pr_title_labels.py tests/test_roadmap_intake.py` passes
-- [ ] 1.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 1.1 In `tests/test_pr_title_labels.py`, assert that `title_labels` gives `type/bug` and `scope/ai` for `fix(ai): x`, only the type for `docs: x`, nothing for `A plain title`, and the undeclared label for `fix(zzz-unknown): x`, and verify that `uv run devops ci test tests/test_pr_title_labels.py` fails on the base
+- [x] 1.2 Add `src/devops_cli/roadmap/title_labels.py` with `title_labels` and `declared_label_names`, make `_title_labels` and `_Run.declared` of `roadmap/intake.py` call them, and verify that `uv run devops ci test tests/test_pr_title_labels.py tests/test_roadmap_intake.py` passes
+- [x] 1.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 2. devops pr create adds the labels
 
