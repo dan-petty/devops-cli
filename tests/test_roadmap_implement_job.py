@@ -14,7 +14,9 @@ from pathlib import Path
 
 import pytest
 from markdown_it import MarkdownIt
+from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
 
+from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
@@ -494,6 +496,38 @@ def test_the_stop_comment_of_a_cut_diff_says_that_it_is_cut(job_world: JobWorld)
     comment = job_world.issue_comments()[0]
     assert f"The job discarded this work. The diff is cut to {cut} characters. Read it" in comment
     assert len(comment) < 2 * cut
+
+
+def test_the_stop_comment_of_a_failed_model_call_holds_the_diff_of_the_discarded_work(
+    job_world: JobWorld,
+) -> None:
+    write = ("write_file", {"path": "CONTEXT.md", "content": "A note.\n"})
+    script = ModelScript(
+        tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
+        tool_calls(write),
+        ModelAPIError("example-model", "The provider broke."),
+    )
+
+    applied = job_world.run(script)
+
+    comment = job_world.issue_comments()[0]
+    assert (applied.stopped, applied.failed) == ((1,), ())
+    assert "Stopped at group 2." in comment
+    assert "ModelAPIError: model example-model" in comment
+    assert "+A note." in comment
+    assert "The job discarded this work." in comment
+
+
+def test_a_refused_key_stops_the_whole_run_and_not_only_the_item(job_world: JobWorld) -> None:
+    script = ModelScript(
+        tool_calls(*group_one_calls()), ModelHTTPError(401, "example-model", {"error": "no"})
+    )
+
+    with pytest.raises(AICredentialsError):
+        job_world.run(script)
+
+    assert job_world.issue_comments() == []
 
 
 def test_the_stop_comment_cuts_a_reason_that_is_too_long(job_world: JobWorld) -> None:
