@@ -15,6 +15,8 @@ from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_PR_API_STATE_MAP,
     CONST_PR_UPDATE_AUTHOR,
+    CONST_ROADMAP_STATUS_IN_PROGRESS,
+    CONST_ROADMAP_STATUS_IN_REVIEW,
 )
 from devops_cli.config.defaults import (
     DEFAULT_PR_LIMIT,
@@ -57,6 +59,7 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+from devops_cli.roadmap.pull_status import set_delivered_status
 
 logger = logging.getLogger(__name__)
 
@@ -795,17 +798,21 @@ def _find_existing_pr(owner: str, repo_name: str, head: str, base: str) -> dict[
     return None
 
 
-def _print_created_pr_message(stdout: str, base: str) -> None:
-    """Name the draft the REST API opened, by its URL, or by its base when the reply names none."""
+def _print_created_pr_message(stdout: str, base: str) -> int | None:
+    """Name the draft the REST API opened, by its URL, or by its base when the reply names none.
+    Return its number, or None when the reply names none."""
     try:
         data = json.loads(stdout) if stdout.strip() else {}
     except json.JSONDecodeError:
         data = {}
-    url = data.get("html_url") if isinstance(data, dict) else None
-    if url:
+    if not isinstance(data, dict):
+        data = {}
+    number = data.get("number")
+    if url := data.get("html_url"):
         print_success(MESSAGES.pr.draft_created.format(url=url))
-        return
-    print_success(MESSAGES.pr.draft_created_into.format(base=base))
+    else:
+        print_success(MESSAGES.pr.draft_created_into.format(base=base))
+    return number if isinstance(number, int) else None
 
 
 def _report_create_failure(res: Any, target_base: str | None) -> None:
@@ -882,9 +889,26 @@ def _fallback_create_pr(
     ]
     res = run_gh(cmd, check=False)
     if res.returncode == 0:
-        _print_created_pr_message(res.stdout, target_base)
+        number = _print_created_pr_message(res.stdout, target_base)
+        if number is not None:
+            _record_status(repo, number, CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
         return True
     return False
+
+
+def _record_status(repo: str | None, number: int, status: str, state: str) -> None:
+    """Set `status` on the item that pull request `number` closes. A failure exits 1 and names the
+    pull request, which is already `state`, so the caller knows only the Status is missing."""
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        return
+    try:
+        set_delivered_status(target, number, status)
+    except GitHubOperationError as exc:
+        print_error(
+            MESSAGES.pr.status_not_set.format(number=number, state=state, error=exc), safe=True
+        )
+        raise typer.Exit(1) from exc
 
 
 @app.command("create")
@@ -903,7 +927,7 @@ def create_pr(
     """Open a draft pull request, into the default branch unless --base names another.
 
     Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
-    review.
+    review. It sets the Status of the roadmap item the pull request closes to In Progress.
     """
     _require_gh_cli()
     cmd = [CONST_GH_CLI, "pr", "create", "--draft", "--title", title, "--body", body]
@@ -920,6 +944,9 @@ def create_pr(
         raise typer.Exit(res.returncode)
     if url := res.stdout.strip():
         print_success(MESSAGES.pr.draft_created.format(url=url))
+        last = url.rstrip("/").rsplit("/", 1)[-1]
+        if last.isdigit():
+            _record_status(repo, int(last), CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
         return
     print_success(
         MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base)
@@ -1017,7 +1044,8 @@ def ready_pr(
     """Mark a draft pull request as ready for review once its checks pass.
 
     It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-    blocker of the merge-readiness verdict prints as a warning. --force skips the checks.
+    blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
+    sets the Status of the roadmap item the pull request closes to In Review.
     """
     _require_gh_cli()
     owner, repo_name = _split_target_repo(repo)
@@ -1044,6 +1072,7 @@ def ready_pr(
 
     _verify_pr_draft_transition(number, owner, repo_name)
     print_success(MESSAGES.pr.pr_marked_ready_success.format(number=number))
+    _record_status(repo, number, CONST_ROADMAP_STATUS_IN_REVIEW, "ready")
     if monitor:
         monitor_pr_command(number=number, repo=repo)
 

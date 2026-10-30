@@ -1043,6 +1043,12 @@ class PRMessages:
     )
     # What `devops pr create` names as the base when --base is not given.
     create_default_base: str = "the default branch"
+    status_closing_unread: str = (
+        "The issues that the pull request closes could not be read: {error}"
+    )
+    status_not_set: str = (
+        "Pull request #{number} is {state}, but the Status of its item was not set: {error}"
+    )
     gh_cli_required: str = (
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."

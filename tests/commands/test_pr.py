@@ -16,6 +16,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -125,6 +126,15 @@ class _GitHub:
 
     def threads(self, *threads: dict[str, Any]) -> None:
         self.answer(_THREADS, ProcessAnswer(stdout=_threads_page(*threads)))
+
+
+@pytest.fixture(autouse=True)
+def no_status_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`pr create` and `pr ready` set the Status of the item the pull request closes (#2717);
+    tests/test_pr_status.py holds that. These cases leave the roadmap alone. `raising=False`
+    lets the cases run on a base that has no such function, so the replay of a fix sees them
+    pass there."""
+    monkeypatch.setattr("devops_cli.commands.pr.set_delivered_status", MagicMock(), raising=False)
 
 
 @pytest.fixture
