@@ -13,7 +13,6 @@ from __future__ import annotations
 import glob
 import os
 import shutil
-import stat
 import sys
 from collections.abc import Collection, Mapping
 from datetime import UTC, datetime
@@ -74,8 +73,6 @@ def _copy(source: Path, dest: Path, redact: Collection[KeyPath]) -> None:
         return
     partial = dest.with_name(f"{dest.name}.tmp")
     partial.write_bytes(redacted)
-    # Preserve the mode of the source file before replacing it
-    os.chmod(partial, stat.S_IMODE(source.stat().st_mode))
     shutil.copystat(source, partial)
     os.replace(partial, dest)
 
