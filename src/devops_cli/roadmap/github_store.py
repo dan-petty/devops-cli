@@ -142,6 +142,7 @@ class _MilestonePayload(BaseModel):
 
 
 class _IssuePayload(BaseModel):
+    id: int = 0
     number: int
     title: str
     html_url: str
@@ -180,6 +181,7 @@ class _IssuePayload(BaseModel):
     def record(self) -> IssueRecord:
         body, held = self.split()
         return IssueRecord(
+            id=self.id,
             number=self.number,
             title=self.title,
             url=self.html_url,
@@ -427,6 +429,17 @@ def create_issue_args(repo: str, title: str, body: str, labels: Sequence[str] = 
     return ["api", "-X", "POST", f"repos/{repo}/issues", *flags]
 
 
+def add_sub_issue_args(repo: str, parent: Number, child_id: Number) -> list[str]:
+    return [
+        "api",
+        "-X",
+        "POST",
+        f"repos/{repo}/issues/{parent}/sub_issues",
+        "-F",
+        f"sub_issue_id={child_id}",
+    ]
+
+
 def comment_args(repo: str, number: Number, body: str) -> list[str]:
     return ["api", "-X", "POST", comments_endpoint(repo, number), "-f", f"body={body}"]
 
@@ -621,6 +634,28 @@ class GitHubRoadmapStore(RoadmapStore):
             create_issue_args(self._repo, title, body, labels), f"open the issue {title[:64]!r}"
         )
         return self._kept(self._validate(written, _ISSUE, "issue after it was opened"))
+
+    def add_sub_issue(self, parent: int, child: int) -> None:
+        """Add issue `child` as a sub-issue of issue `parent`."""
+        if self._all is None or parent not in self._all:
+            self._require_issue(parent, "roadmap.add_sub_issue")
+        child_id = None
+        if self._all is not None and child in self._all and self._all[child].id:
+            child_id = self._all[child].id
+        if child_id is None:
+            child_payload = self._require_issue(child, "roadmap.add_sub_issue")
+            child_id = child_payload.id
+        self._write(
+            add_sub_issue_args(self._repo, parent, child_id),
+            f"link #{child} as a sub-issue of #{parent}",
+        )
+        if self._all is not None:
+            if parent in self._all:
+                p = self._all[parent]
+                self._all[parent] = p.model_copy(update={"sub_issues": p.sub_issues + 1})
+            if child in self._all:
+                c = self._all[child]
+                self._all[child] = c.model_copy(update={"parent": parent})
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, with no record block, raising if it is not an issue of
@@ -932,6 +967,7 @@ __all__ = [
     "GhRunner",
     "GitHubRoadmapStore",
     "ListingSession",
+    "add_sub_issue_args",
     "advisory_args",
     "closures_args",
     "comment_args",

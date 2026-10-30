@@ -668,6 +668,77 @@ def _split(
     return outcome.decision.outcome, outcome.decision.possible_duplicate, outcome.number, sent
 
 
+def test_a_candidate_filed_from_source_is_linked_as_a_sub_issue_of_that_issue(
+    roadmap: Roadmap, model_fake: ModelFake
+) -> None:
+    """When a new candidate's source is an issue of the same repository, intake links the filed
+    issue as a sub-issue of that source issue (#2035)."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY)
+    source = _link(parent)
+    outcome, _, filed, _ = _split(roadmap, model_fake, {}, source=source)
+    assert outcome is Outcome.PLACE
+    assert filed is not None
+    parent_record = next(i for i in roadmap.store.issues() if i.number == parent)
+    filed_record = next(i for i in roadmap.store.issues() if i.number == filed)
+    writes = [w.operation for w in roadmap.store.job_writes() if w.number == parent]
+    assert (parent_record.sub_issues, filed_record.parent, "add_sub_issue" in writes) == (
+        1,
+        parent,
+        True,
+    )
+
+
+def test_a_candidate_from_another_repository_source_is_not_linked_as_sub_issue(
+    roadmap: Roadmap, model_fake: ModelFake
+) -> None:
+    """When a candidate's source links an issue of another repository, intake links no sub-issue (#2035)."""
+    outcome, _, filed, _ = _split(
+        roadmap, model_fake, {}, source="https://github.com/other-org/other-repo/issues/99"
+    )
+    assert outcome is Outcome.PLACE
+    assert filed is not None
+    filed_record = next(i for i in roadmap.store.issues() if i.number == filed)
+    writes = [w.operation for w in roadmap.store.job_writes()]
+    assert (filed_record.parent, "add_sub_issue" in writes) == (None, False)
+
+
+def test_intake_plan_lists_sub_issue_write(roadmap: Roadmap) -> None:
+    """The plan of a candidate with source in the same repo lists the sub-issue write (#2035)."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY)
+    source = _link(parent)
+    model = FakeModel(proposals={STEP_B.title: REGRESSION})
+    candidate = replace(STEP_B, source=source)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
+    assert f"sub-issue of #{parent}" in plan.decisions[0].writes()
+    rendered = render_intake(plan, repo=REPO)
+    assert f"sub-issue of #{parent}" in rendered
+
+
+def test_a_dry_run_lists_the_sub_issue_write_when_source_is_an_issue(tmp_path: Path) -> None:
+    """A dry run with --source naming an issue of the repository lists the sub-issue write (#2035)."""
+    body_file = tmp_path / "body.md"
+    body_file.write_text("body text", encoding="utf-8")
+    output = _intake(
+        "--title",
+        "feat: split task",
+        "--body-file",
+        str(body_file),
+        "--source",
+        f"https://github.com/{REPO}/issues/42",
+        "--dry-run",
+    )
+    assert f"POST repos/{REPO}/issues/42/sub_issues" in output
+
+
+def test_intake_docstring_names_sub_issue_write_rule() -> None:
+    """The docstring of intake.py names the sub-issue write as an allowed extra write (#2035)."""
+    from devops_cli.roadmap import intake
+
+    doc = intake.__doc__ or ""
+    assert "Intake writes to no issue but the candidate" in doc
+    assert "sub-issue" in doc
+
+
 @pytest.mark.parametrize("anchor", ["", "#issuecomment-1"], ids=["issue", "comment-on-issue"])
 def test_a_part_is_never_a_duplicate_of_the_issue_its_source_names(
     roadmap: Roadmap, model_fake: ModelFake, anchor: str

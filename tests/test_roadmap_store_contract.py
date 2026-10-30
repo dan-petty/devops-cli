@@ -944,3 +944,14 @@ def test_repository_facts_are_those_seeded_for_the_repository(store: InMemoryRoa
         facts,
         None,
     )
+
+
+def test_add_sub_issue_links_child_to_parent(world: World) -> None:
+    parent = world.seed("parent")
+    child = world.seed("child")
+    world.store.add_sub_issue(parent, child)
+    parent_record = next(i for i in world.store.issues() if i.number == parent)
+    child_record = next(i for i in world.store.issues() if i.number == child)
+    assert (parent_record.sub_issues, child_record.parent) == (1, parent)
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        world.store.add_sub_issue(999, child)
