@@ -22,7 +22,7 @@ Keep these rules of the project:
 - Write no secret, internal host name, private IP address or e-mail address. Use `example.com` and the addresses of RFC 5737.
 - Do not edit `CHANGELOG.md`, a manifest or a version line.
 
-You have tools to read, search, write and edit files, and a shell. The shell runs only `git`, `uv`, `ruff`, `mypy`. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass.
+You have tools to read, search, write and edit files, and a shell. The shell runs only `git`, `uv`, `ruff`, `mypy`. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass. The job formats the changed Python files after your run, so do not run `ruff format`. `ruff check` and `mypy --strict` still run, and an error of either one stops the step.
 
 The shell refuses any other program, and each refusal counts against a limit. If you use the limit up, the step stops and all your work is lost. Use this table in place of the program that you want:
 

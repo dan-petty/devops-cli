@@ -277,7 +277,7 @@ def test_a_group_that_the_agent_completes_ends_done_with_one_commit(
     )
 
 
-def test_the_exit_checks_run_each_command_once_then_the_static_checks_on_the_changed_files(
+def test_the_exit_checks_format_first_run_each_command_once_then_the_static_checks_on_the_changed_files(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
@@ -286,11 +286,11 @@ def test_the_exit_checks_run_each_command_once_then_the_static_checks_on_the_cha
     uv = [call for call in programs.calls if call.argv[0] == "uv"]
     assert ([command_text(call) for call in uv], {call.cwd for call in uv}) == (
         [
+            f"uv run ruff format -- {py}",
             "uv run devops ci test tests/test_sample.py",
             "uv run devops docs check",
-            f"uv run ruff check {py}",
-            f"uv run ruff format --check {py}",
-            f"uv run mypy --strict {py}",
+            f"uv run ruff check -- {py}",
+            f"uv run mypy --strict -- {py}",
         ],
         {checkout},
     )
@@ -337,7 +337,7 @@ def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
 
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        "uv run ruff check src/sample.py tests/test_sample.py exited with status 1.\nE501 too long",
+        "uv run ruff check -- src/sample.py tests/test_sample.py exited with status 1.\nE501 too long",
         True,
     )
 
@@ -1653,7 +1653,7 @@ def test_a_fix_step_runs_the_verification_commands_of_every_group_of_the_change(
     )
 
     uv = [command_text(call) for call in programs.calls if call.argv[0] == "uv"]
-    assert uv[:2] == ["uv run devops ci test tests/test_sample.py", "uv run devops docs check"]
+    assert uv[1:3] == ["uv run devops ci test tests/test_sample.py", "uv run devops docs check"]
 
 
 def test_a_fix_step_that_ticks_a_task_ends_done_with_the_tasks_as_they_were(
