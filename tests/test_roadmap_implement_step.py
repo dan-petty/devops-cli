@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
+from pydantic_ai.exceptions import (
+    ModelAPIError,
+    ModelHTTPError,
+    ModelRequestTimeout,
+    UnexpectedModelBehavior,
+)
+from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai_harness.shell import Shell
 
 from devops_cli.ai.client.models import AICredentialsError
@@ -1309,6 +1315,116 @@ def test_the_counts_cover_the_extra_turn_for_the_ticks(
     outcome = _step(store, checkout, script)
 
     assert outcome.reason.endswith("\nRefused commands: 7. Other retries: 0.")
+
+
+# ── A model call that fails (#2731) ───────────────────────────────────────────────────────
+
+FAILED_CALLS = [
+    pytest.param(ModelAPIError("example-model", "The provider broke."), id="api-error"),
+    pytest.param(ModelHTTPError(503, "example-model", {"error": "busy"}), id="http-503"),
+    pytest.param(ModelRequestTimeout("example-model", 30), id="timeout"),
+]
+WORK_WITH_NOTE = ModelResponse(
+    parts=[TextPart("I write the test and the code."), *tool_calls(*WORK).parts]
+)
+
+
+@pytest.mark.parametrize("failure", FAILED_CALLS)
+def test_a_model_call_that_fails_stops_the_step_with_the_diff_of_the_work_and_the_spend(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, failure: ModelAPIError
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(WORK_WITH_NOTE, failure)
+
+    outcome = _step(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.reason.startswith(f"{type(failure).__name__}: "),
+        outcome.last_message,
+        outcome.requests,
+        outcome.input_tokens > 0,
+        is_clean_at(checkout, head),
+    ) == (StepStatus.STOPPED, True, "I write the test and the code.", 1, True, True)
+    assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
+    assert "diff --git a/tests/test_sample.py b/tests/test_sample.py" in outcome.diff
+
+
+def test_a_model_call_that_fails_gives_the_status_of_the_reply_in_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(ModelHTTPError(503, "example-model", {"error": "busy"}))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == (
+        "ModelHTTPError: status_code: 503, model_name: example-model, body: {'error': 'busy'}"
+    )
+
+
+def test_a_secret_in_the_message_of_a_failed_model_call_is_masked_in_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(ModelAPIError("example-model", f"The provider echoed {TOKEN}."))
+
+    outcome = _step(store, checkout, script)
+
+    assert TOKEN not in outcome.reason
+    assert "<masked-github-token>" in outcome.reason
+
+
+@pytest.mark.parametrize("failure", FAILED_CALLS)
+def test_a_model_call_that_fails_in_the_extra_turn_stops_the_step_with_the_diff_of_both_turns(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, failure: ModelAPIError
+) -> None:
+    """Every check passed in the first turn and only the ticks are missing: the diff is the work."""
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(tool_calls(*WORK), say(FORGOT), failure)
+
+    outcome = _step(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.reason.startswith(f"{type(failure).__name__}: "),
+        outcome.last_message,
+        outcome.requests,
+        is_clean_at(checkout, head),
+    ) == (StepStatus.STOPPED, True, FORGOT, 2, True)
+    assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
+    assert "diff --git a/tests/test_sample.py b/tests/test_sample.py" in outcome.diff
+
+
+def test_the_spend_of_a_failed_extra_turn_is_in_the_ledger(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, spend_ledger: SpendLedger
+) -> None:
+    script = ModelScript(
+        tool_calls(*WORK),
+        say(FORGOT),
+        tool_call("read_file", path="docs/SAMPLE.md"),
+        ModelAPIError("example-model", "The provider broke."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (_spend_rows(spend_ledger), outcome.requests) == (
+        [("agent_run", "implement", 1, 1), ("agent_run", "implement", 1, 1)],
+        3,
+    )
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_key_in_the_extra_turn_raises_after_the_checkout_is_reset(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, status: int
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(
+        tool_calls(*WORK), say(FORGOT), ModelHTTPError(status, "example-model", {"error": "no"})
+    )
+
+    with pytest.raises(AICredentialsError):
+        _step(store, checkout, script)
+
+    assert is_clean_at(checkout, head)
 
 
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────
