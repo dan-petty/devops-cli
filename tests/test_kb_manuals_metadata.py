@@ -68,7 +68,7 @@ def test_every_target_manual_has_valid_front_matter() -> None:
     for sub in CONST_KB_METADATA_TARGET_SUBDIRS:
         target_articles.extend(list_knowledge_base_articles(sub))
 
-    assert len(target_articles) == 60
+    assert len(target_articles) == 59
 
     for article in target_articles:
         rel = article.relative_to(kb_dir).as_posix()

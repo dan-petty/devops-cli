@@ -1,4 +1,4 @@
-"""Git repository operations using GitPython and git CLI subprocesses.
+"""Git repository operations through the process runner and the git CLI.
 
 Functionality:
 - URL normalization: forces HTTPS for web URLs while leaving SSH URLs intact.
@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
+import subprocess
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-
-import git as gitlib
 
 from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
@@ -45,6 +45,12 @@ from devops_cli.exceptions import (
 from devops_cli.models.git import BranchListing, ChangedFile
 
 logger = logging.getLogger(__name__)
+
+_HEADS_PREFIX = "refs/heads/"
+_REMOTES_PREFIX = "refs/remotes/"
+_CONFIG_KEY_UNSET = 1
+"""The exit status of `git config --get` for a key that is not set (git-config(1)). Any other
+status above 0 is a failure, such as a configuration file that cannot be read."""
 
 
 def _normalize_clone_url(url: str) -> str:
@@ -142,76 +148,113 @@ def _prepare_clone_url(url: str) -> str:
     return _normalize_clone_url(url)
 
 
+def _reason(proc: subprocess.CompletedProcess[str]) -> str:
+    """Why git failed, from its standard error, with credentials masked."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    return mask_secrets(proc.stderr.strip() or f"git exited with status {proc.returncode}")
+
+
+def _git(
+    repo_dir: Path,
+    *args: str,
+    read: bool = False,
+    input: str | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run `git -C <repo_dir> <args>` through the process runner. A read runs in a dry run."""
+    return run_subprocess(
+        ["git", "-C", str(repo_dir), *args], quiet=True, local_read=read, input=input, env=env
+    )
+
+
+def _checked(
+    repo_dir: Path,
+    *args: str,
+    operation: str,
+    read: bool = False,
+    input: str | None = None,
+    env: dict[str, str] | None = None,
+) -> str:
+    """The standard output of `git -C <repo_dir> <args>`; git's reason in a `GitOperationError`
+    when it exits with a status other than 0."""
+    proc = _git(repo_dir, *args, read=read, input=input, env=env)
+    if proc.returncode != 0:
+        raise GitOperationError(_reason(proc), operation=operation)
+    return proc.stdout.strip()
+
+
+def _remote_error(
+    verb: str, operation: str, repo_dir: Path, remote: str, reason: str
+) -> GitOperationError:
+    """The error of a fetch or pull that failed on `remote`, with the repository and remote."""
+    return GitOperationError(
+        f"Failed to {verb} remote '{remote}' in '{repo_dir}': {reason}",
+        operation=operation,
+        details={
+            "repository": str(repo_dir)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+            "remote": remote[:CONST_MAX_ERROR_DETAIL_LENGTH],
+        },
+    )
+
+
 def clone_repo(url: str, dest: Path) -> None:
     """Clone a repository to *dest*."""
     _validate_clone_dest(dest)
     normalized_url = _prepare_clone_url(url)
-    try:
-        gitlib.Repo.clone_from(normalized_url, str(dest))
-    except gitlib.GitCommandError as exc:
-        from devops_cli.security.sanitizer import mask_secrets
+    proc = run_subprocess(["git", "clone", "--", normalized_url, str(dest)], quiet=True)
+    if proc.returncode != 0:
+        raise GitOperationError(_reason(proc))
 
-        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
-        msg = mask_secrets(stderr.strip() or str(exc))
-        raise GitOperationError(msg) from exc
+
+def _remotes(repo_dir: Path, operation: str) -> list[str]:
+    """The names of the remotes of a repository."""
+    return _checked(repo_dir, "remote", operation=operation, read=True).splitlines()
 
 
 def fetch_all(repo_dir: Path) -> None:
     """Fetch all remotes with pruning."""
-    repo = gitlib.Repo(str(repo_dir))
-    for remote in repo.remotes:
-        try:
-            remote.fetch(prune=True)
-        except gitlib.GitCommandError as exc:
-            from devops_cli.security.sanitizer import mask_secrets
+    for remote in _remotes(repo_dir, "fetch"):
+        proc = _git(repo_dir, "fetch", "--prune", remote)
+        if proc.returncode != 0:
+            raise _remote_error("fetch", "fetch", repo_dir, remote, _reason(proc))
 
-            stderr = exc.stderr if isinstance(exc.stderr, str) else ""
-            reason = mask_secrets(stderr.strip() or str(exc))
-            raise GitOperationError(
-                f"Failed to fetch remote '{remote.name}' in '{repo_dir}': {reason}",
-                operation="fetch",
-                details={
-                    "repository": str(repo_dir)[:CONST_MAX_ERROR_DETAIL_LENGTH],
-                    "remote": str(remote.name)[:CONST_MAX_ERROR_DETAIL_LENGTH],
-                },
-            ) from exc
+
+def current_branch(repo_dir: Path) -> str:
+    """The name of the checked-out branch; empty when HEAD is detached."""
+    return _checked(repo_dir, "branch", "--show-current", operation="branch_current", read=True)
+
+
+def _tracking_remote(repo_dir: Path, branch: str) -> str:
+    """The remote that `branch` tracks, from its `branch.<name>.remote` setting; empty when it
+    tracks none, or only a local branch (`.`)."""
+    proc = _git(repo_dir, "config", "--get", f"branch.{branch}.remote", read=True)
+    if proc.returncode == _CONFIG_KEY_UNSET:
+        return ""
+    if proc.returncode != 0:
+        raise GitOperationError(_reason(proc), operation="pull")
+    remote = proc.stdout.strip()
+    return "" if remote == "." else remote
 
 
 def pull_tracking(repo_dir: Path) -> None:
     """Pull the current tracking branch if one is configured."""
-    repo = gitlib.Repo(str(repo_dir))
-    if repo.head.is_detached:
+    branch = current_branch(repo_dir)
+    remote = _tracking_remote(repo_dir, branch) if branch else ""
+    if not remote:
         return
-    tracking = repo.active_branch.tracking_branch()
-    if not tracking:
-        return
-    remote_name = tracking.remote_name
-    try:
-        remote = repo.remotes[remote_name]
-    except IndexError as exc:
+    if remote not in _remotes(repo_dir, "pull"):
         raise GitOperationError(
-            f"Remote '{remote_name}' configured for tracking in '{repo_dir}' not found",
+            f"Remote '{remote}' configured for tracking in '{repo_dir}' not found",
             operation="pull",
             details={
                 "repository": str(repo_dir)[:CONST_MAX_ERROR_DETAIL_LENGTH],
-                "remote": str(remote_name)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                "remote": remote[:CONST_MAX_ERROR_DETAIL_LENGTH],
             },
-        ) from exc
-    try:
-        remote.pull(repo.active_branch.name)
-    except gitlib.GitCommandError as exc:
-        from devops_cli.security.sanitizer import mask_secrets
-
-        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
-        reason = mask_secrets(stderr.strip() or str(exc))
-        raise GitOperationError(
-            f"Failed to pull remote '{remote_name}' in '{repo_dir}': {reason}",
-            operation="pull",
-            details={
-                "repository": str(repo_dir)[:CONST_MAX_ERROR_DETAIL_LENGTH],
-                "remote": str(remote_name)[:CONST_MAX_ERROR_DETAIL_LENGTH],
-            },
-        ) from exc
+        )
+    proc = _git(repo_dir, "pull", remote, branch)
+    if proc.returncode != 0:
+        raise _remote_error("pull", "pull", repo_dir, remote, _reason(proc))
 
 
 def create_branch(repo_dir: Path, branch_name: str) -> None:
@@ -223,17 +266,15 @@ def create_branch(repo_dir: Path, branch_name: str) -> None:
     """
     if branch_name.startswith("-"):
         raise InvalidBranchNameError(branch_name, reason="cannot start with a hyphen")
-    repo = gitlib.Repo(str(repo_dir))
-    if branch_name in [b.name for b in repo.branches]:
-        raise BranchAlreadyExistsError(branch_name)
-    status, _, stderr = repo.git.checkout(
-        "-b", branch_name, with_extended_output=True, with_exceptions=False
+    taken = _git(
+        repo_dir, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}", read=True
     )
-    if status:
-        from devops_cli.security.sanitizer import mask_secrets
-
+    if taken.returncode == 0:
+        raise BranchAlreadyExistsError(branch_name)
+    proc = _git(repo_dir, "checkout", "-b", branch_name)
+    if proc.returncode != 0:
         raise GitOperationError(
-            mask_secrets(stderr.strip()),
+            _reason(proc),
             operation="branch_create",
             details={"branch_name": branch_name[:CONST_MAX_ERROR_DETAIL_LENGTH]},
         )
@@ -251,20 +292,64 @@ def commit_snapshot(
     """Make `repo_dir` a new repository whose one commit holds `paths`, and return its id.
 
     The author, committer and both dates are the ones given, no hook runs and nothing is signed,
-    so the same files always give the same commit, whatever the git configuration.
+    so the same files always give the same commit, whatever the configuration of git on the host.
+    The commit is made with plumbing. `add` takes each path as one file name (`--literal-pathspecs`)
+    and the files as they are: no line-ending conversion, and no attributes file of the user or the
+    system. `commit-tree` reads the message from standard input as it is.
     """
-    repo = gitlib.Repo.init(str(repo_dir), initial_branch=CONST_GIT_MAIN_BRANCH)
-    repo.index.add(sorted(paths))
-    actor = gitlib.Actor(author, email)
-    commit = repo.index.commit(
-        message,
-        author=actor,
-        committer=actor,
-        author_date=date,
-        commit_date=date,
-        skip_hooks=True,
+    operation = "commit_snapshot"
+    when = date.isoformat()
+    identity = {
+        "GIT_AUTHOR_NAME": author,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_AUTHOR_DATE": when,
+        "GIT_COMMITTER_NAME": author,
+        "GIT_COMMITTER_EMAIL": email,
+        "GIT_COMMITTER_DATE": when,
+    }
+    init = run_subprocess(
+        ["git", "init", "--quiet", f"--initial-branch={CONST_GIT_MAIN_BRANCH}", str(repo_dir)],
+        quiet=True,
     )
-    return str(commit.hexsha)
+    if init.returncode != 0:
+        raise GitOperationError(_reason(init), operation=operation)
+    as_they_are = [
+        "--literal-pathspecs",
+        *("-c", "core.autocrlf=false"),
+        *("-c", "core.safecrlf=false"),
+        *("-c", f"core.attributesFile={os.devnull}"),
+    ]
+    _checked(repo_dir, *as_they_are, "add", "--force", "--", *sorted(paths), operation=operation)
+    tree = _checked(repo_dir, "write-tree", operation=operation)
+    commit = _checked(
+        repo_dir,
+        "commit-tree",
+        "--no-gpg-sign",
+        tree,
+        input=message,
+        env=identity,
+        operation=operation,
+    )
+    _checked(repo_dir, "update-ref", "HEAD", commit, operation=operation)
+    return commit
+
+
+def _branch_refs(repo_dir: Path) -> tuple[list[str], list[str]]:
+    """The names of the local branches and of the remote-tracking branches, each sorted."""
+    refs = _checked(
+        repo_dir,
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/heads",
+        "refs/remotes",
+        operation="branch_list",
+        read=True,
+    ).splitlines()
+    local = sorted(ref.removeprefix(_HEADS_PREFIX) for ref in refs if ref.startswith(_HEADS_PREFIX))
+    remote = sorted(
+        ref.removeprefix(_REMOTES_PREFIX) for ref in refs if ref.startswith(_REMOTES_PREFIX)
+    )
+    return local, remote
 
 
 def list_branches(
@@ -272,38 +357,38 @@ def list_branches(
     all_branches: bool = False,
 ) -> BranchListing:
     """Return a BranchListing with branch names and the current branch name."""
-    repo = gitlib.Repo(str(repo_dir))
-    current = "HEAD" if repo.head.is_detached else repo.active_branch.name
-    local = sorted(b.name for b in repo.branches)
+    current = current_branch(repo_dir) or "HEAD"
+    local, remote = _branch_refs(repo_dir)
     if not all_branches:
         return BranchListing(branches=local, current=current)
-    remote_names = [
-        ref.name for remote in repo.remotes for ref in remote.refs if not ref.name.endswith("/HEAD")
-    ]
+    remote_names = [name for name in remote if not name.endswith("/HEAD")]
     return BranchListing(branches=sorted(set(local) | set(remote_names)), current=current)
 
 
 def delete_merged_branches(repo_dir: Path, dry_run: bool = False) -> list[str]:
     """Delete local branches that have been merged into the default branch."""
-    repo = gitlib.Repo(str(repo_dir))
-    default = next(
-        (b.name for b in repo.branches if b.name in ("main", "master")),
-        repo.branches[0].name if repo.branches else None,
-    )
+    local, _ = _branch_refs(repo_dir)
+    default = next((name for name in local if name in ("main", "master")), None)
+    default = default or (local[0] if local else None)
     if not default:
         return []
 
-    merged_output = repo.git.branch("--merged", default)
-    merged = {b.strip().lstrip("* ") for b in merged_output.splitlines()}
+    merged_output = _checked(
+        repo_dir,
+        "branch",
+        "--merged",
+        default,
+        "--format=%(refname:lstrip=2)",
+        operation="branch_delete",
+        read=True,
+    )
+    merged = set(merged_output.splitlines())
     protected = {default, "main", "master"}
-    to_delete = [b for b in repo.branches if b.name in merged - protected]
-
-    deleted: list[str] = []
-    for branch in to_delete:
+    to_delete = [name for name in local if name in merged - protected]
+    for name in to_delete:
         if not dry_run:
-            repo.delete_head(branch, force=False)
-        deleted.append(branch.name)
-    return deleted
+            _checked(repo_dir, "branch", "--delete", "--", name, operation="branch_delete")
+    return to_delete
 
 
 def is_git_clean(repo_dir: Path) -> bool:

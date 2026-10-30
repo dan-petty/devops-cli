@@ -29,9 +29,15 @@ from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
-from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions import DevOpsCLIError, GitOperationError
 from devops_cli.git.branch_form import is_valid_slug
-from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
+from devops_cli.git.operations import (
+    clone_repo,
+    current_branch,
+    fetch_all,
+    iter_workspace_repos,
+    pull_tracking,
+)
 from devops_cli.git.worktree_add import ReclaimResult, add_worktree, reclaim_merged_worktrees
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
 from devops_cli.lang import HELP, MESSAGES
@@ -70,11 +76,8 @@ def _require_client() -> GitHubClient:
 
 def _current_branch(repo_dir: Path) -> str:
     try:
-        import git as gitlib
-
-        repo = gitlib.Repo(str(repo_dir))
-        return "HEAD detached" if repo.head.is_detached else repo.active_branch.name
-    except Exception:
+        return current_branch(repo_dir) or "HEAD detached"
+    except GitOperationError:
         return "unknown"
 
 

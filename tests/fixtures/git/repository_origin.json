@@ -1,0 +1,20 @@
+{
+ "scenario": "repository_origin",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "remote",
+    "get-url",
+    "origin"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "https://github.com/example/service.git\n",
+   "stderr": ""
+  }
+ ],
+ "result": "example/service"
+}

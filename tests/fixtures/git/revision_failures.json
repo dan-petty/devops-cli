@@ -1,0 +1,60 @@
+{
+ "scenario": "revision_failures",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "--literal-pathspecs",
+    "ls-tree",
+    "-z",
+    "--full-tree",
+    "nosuch",
+    "--",
+    "mod.py"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "env": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: Not a valid object name nosuch\n"
+  },
+  {
+   "argv": [
+    "git",
+    "merge-base",
+    "--",
+    "nosuch",
+    "main"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "env": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: Not a valid object name nosuch\n"
+  },
+  {
+   "argv": [
+    "git",
+    "diff",
+    "--name-status",
+    "-z",
+    "--find-renames",
+    "nosuch",
+    "--"
+   ],
+   "cwd": "{root}/repo",
+   "stdin": null,
+   "env": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: bad revision 'nosuch'\n"
+  }
+ ],
+ "result": {
+  "read": null,
+  "merge_base": "nosuch",
+  "changed": []
+ }
+}

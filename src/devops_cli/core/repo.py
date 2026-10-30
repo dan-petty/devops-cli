@@ -338,7 +338,7 @@ def _source_repository(package_dir: Path) -> Path | None:
     return _own_common_dir(checkout) if checkout is not None else None
 
 
-def own_source_state() -> tuple[str, str] | None:
+def own_source_state(package_dir: Path | None = None) -> tuple[str, str] | None:
     """The commit and the uncommitted changes of the checkout holding the running devops-cli's
     source, as `(HEAD, SHA-256 of git diff HEAD)`, or None for an installed copy or one outside
     any checkout (#1142).
@@ -347,9 +347,10 @@ def own_source_state() -> tuple[str, str] | None:
     a commit or an edit there while a review runs makes its later stages run other code than its
     earlier ones. A review compares this at its start and its end. Hashing the diff, not the list
     of changed files, sees a further edit to a file that is already modified; files git does not
-    track are not devops-cli's code and do not count.
+    track are not devops-cli's code and do not count. `package_dir` names another package
+    directory than the running one's.
     """
-    package_dir = _own_source_dir()
+    package_dir = package_dir or _own_source_dir()
     checkout = None if _is_installed_copy(package_dir) else nearest_checkout(package_dir)
     if checkout is None:
         return None

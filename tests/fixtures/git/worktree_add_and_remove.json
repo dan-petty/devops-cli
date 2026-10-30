@@ -1,0 +1,58 @@
+{
+ "scenario": "worktree_add_and_remove",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "add",
+    "--detach",
+    "{root}/worktrees/wt1",
+    "main"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "HEAD is now at 6954ff9 init\n",
+   "stderr": "Preparing worktree (detached HEAD 6954ff9)\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "remove",
+    "--force",
+    "{root}/worktrees/wt1"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "worktree",
+    "prune"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "added": true
+ }
+}

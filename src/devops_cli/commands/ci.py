@@ -701,6 +701,13 @@ def _npm_audit_cmds() -> list[list[str]]:
     ]
 
 
+# The git row records every scenario of the git fake again with the real git, outside pytest, and
+# fails when a committed transcript differs (#2146). `git` is on the stock runner.
+_GIT_TRANSCRIPTS_SCRIPT = (
+    "import sys; from tests.support.git_recording import main; sys.exit(main(['--check']))"
+)
+
+
 def get_check_specs() -> list[CheckSpec]:
     """Return the single ordered table of CI quality gate check specifications."""
     return [
@@ -848,6 +855,13 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "devops", "openspec", "check"],
             span_name="ci.step.openspec",
             metric_step="openspec",
+        ),
+        CheckSpec(
+            name="git",
+            display_title=MESSAGES.ci.git_transcripts,
+            cmd=["uv", "run", "python", "-c", _GIT_TRANSCRIPTS_SCRIPT],
+            span_name="ci.step.git",
+            metric_step="git",
         ),
     ]
 

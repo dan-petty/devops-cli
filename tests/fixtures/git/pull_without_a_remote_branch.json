@@ -1,0 +1,111 @@
+{
+ "scenario": "pull_without_a_remote_branch",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/untracked",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/untracked",
+    "config",
+    "--get",
+    "branch.main.remote"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 1,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/detached",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/orphaned",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/orphaned",
+    "config",
+    "--get",
+    "branch.main.remote"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "gone\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/orphaned",
+    "remote"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "untracked": [
+   "ok",
+   null
+  ],
+  "detached": [
+   "ok",
+   null
+  ],
+  "orphaned": [
+   "error",
+   "GitOperationError",
+   "Remote 'gone' configured for tracking in '{root}/orphaned' not found"
+  ]
+ }
+}

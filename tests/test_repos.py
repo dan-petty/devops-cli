@@ -28,8 +28,9 @@ from devops_cli.core.repo import (
     read_gitignore_patterns,
 )
 from devops_cli.main import app
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import github_json
-from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
@@ -902,44 +903,32 @@ def test_repos_sync_pull_and_errors(tmp_path: Path) -> None:
         assert res_err.exit_code == 1
 
 
-def test_repos_sync_reports_failures_and_exits_nonzero(
-    tmp_path: Path, git: Callable[..., None], process_fake: Any
-) -> None:
+def test_repos_sync_reports_failures_and_exits_nonzero(tmp_path: Path, git_fake: GitFake) -> None:
     """`repos sync` reports failed repos with git's reason, finishes remaining repos, and exits 1."""
     repos_dir = tmp_path / "repos"
-    bare1 = tmp_path / "bare1.git"
-    bare2 = tmp_path / "bare2.git"
-    bare1.mkdir()
-    bare2.mkdir()
-    git(bare1, "init", "--bare", "--initial-branch=main", "--quiet")
-    git(bare2, "init", "--bare", "--initial-branch=main", "--quiet")
-
     repo1 = repos_dir / "group" / "repo1"
     repo2 = repos_dir / "group" / "repo2"
-    git(tmp_path, "clone", "--quiet", str(bare1), str(repo1))
-    git(tmp_path, "clone", "--quiet", str(bare2), str(repo2))
+    for repo in (repo1, repo2):
+        (repo / ".git").mkdir(parents=True)
+    git_fake.answer(["git", "-C", str(repo1), "remote"], ProcessAnswer(stdout="origin\n"))
+    git_fake.answer(["git", "-C", str(repo2), "remote"], ProcessAnswer(stdout="origin\n"))
+    git_fake.answer(
+        ["git", "-C", str(repo1), "fetch"],
+        ProcessAnswer(returncode=128, stderr="fatal: Could not read from remote repository.\n"),
+    )
+    git_fake.answer(["git", "-C", str(repo2), "fetch"], ProcessAnswer())
+    git_fake.answer(["git", "-C", str(repo2), "branch"], ProcessAnswer(stdout="main\n"))
+    git_fake.answer(["git", "-C", str(repo2), "config"], ProcessAnswer(stdout="origin\n"))
+    git_fake.answer(["git", "-C", str(repo2), "pull"], ProcessAnswer())
 
-    (repo1 / "f.txt").write_text("1", encoding="utf-8")
-    git(repo1, "add", ".")
-    git(repo1, "commit", "--quiet", "-m", "init")
-    git(repo1, "push", "--quiet", "origin", "main")
+    res = runner.invoke(repos_app, ["sync", "--base-dir", str(repos_dir)])
 
-    (repo2 / "f.txt").write_text("2", encoding="utf-8")
-    git(repo2, "add", ".")
-    git(repo2, "commit", "--quiet", "-m", "init")
-    git(repo2, "push", "--quiet", "origin", "main")
-
-    # Make bare1 refuse fetch
-    objects_dir = bare1 / "objects"
-    objects_dir.chmod(0o000)
-
-    try:
-        res = runner.invoke(repos_app, ["sync", "--base-dir", str(repos_dir)])
-        assert res.exit_code == 1
-        assert "group/repo1" in res.output
-        assert "group/repo2" in res.output
-    finally:
-        objects_dir.chmod(0o755)
+    assert (
+        res.exit_code,
+        "group/repo1" in res.output,
+        "Could not read from remote repository" in res.output,
+        "group/repo2" in res.output,
+    ) == (1, True, True, True)
 
 
 def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:

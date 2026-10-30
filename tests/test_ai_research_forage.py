@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
-import git
 import pytest
 from typer.testing import CliRunner
 
@@ -19,11 +19,9 @@ from devops_cli.commands.ai import app as ai_app
 
 
 @pytest.fixture
-def forage_fixture_repo(tmp_path: Path) -> Path:
+def forage_fixture_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
     """Create an isolated offline repository fixture with imports, links, and git commits."""
-    repo = git.Repo.init(tmp_path)
-    repo.config_writer().set_value("user", "name", "Test Agent").release()
-    repo.config_writer().set_value("user", "email", "agent@example.com").release()
+    git(tmp_path, "init", "--quiet")
 
     src_dir = tmp_path / "pkg"
     docs_dir = tmp_path / "docs"
@@ -72,25 +70,16 @@ def forage_fixture_repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
 
-    repo.index.add(
-        [
-            "pkg/__init__.py",
-            "pkg/entry.py",
-            "pkg/processor.py",
-            "pkg/helper.py",
-            "pkg/cold_branch.py",
-            "docs/manual.md",
-        ]
-    )
-    repo.index.commit("Initial commit with code and docs")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "--quiet", "-m", "Initial commit with code and docs")
 
     # Co-change commit linking entry.py and manual.md
     manual_md.write_text(manual_md.read_text(encoding="utf-8") + "\n# Updated\n", encoding="utf-8")
     entry_py.write_text(
         entry_py.read_text(encoding="utf-8") + "\n# Co-change touch\n", encoding="utf-8"
     )
-    repo.index.add(["docs/manual.md", "pkg/entry.py"])
-    repo.index.commit("Link entry and manual")
+    git(tmp_path, "add", "docs/manual.md", "pkg/entry.py")
+    git(tmp_path, "commit", "--quiet", "-m", "Link entry and manual")
 
     return tmp_path
 

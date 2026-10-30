@@ -1094,13 +1094,16 @@ CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
         "GIT_TERMINAL_PROMPT",
         "GIT_AUTHOR_NAME",
         "GIT_AUTHOR_EMAIL",
+        "GIT_AUTHOR_DATE",
         "GIT_COMMITTER_NAME",
         "GIT_COMMITTER_EMAIL",
+        "GIT_COMMITTER_DATE",
     }
 )
 """The git keys that `build_subprocess_env` accepts from a caller (#2483). devops-cli sets
-`GIT_TERMINAL_PROMPT`, and a tool request sets the author and the committer (git(1)). None runs a
-program or writes a file. The guard refuses each other `GIT_` key, also one that git adds later."""
+`GIT_TERMINAL_PROMPT`, a tool request sets the author and the committer, and `commit_snapshot`
+sets their dates (git(1), #2146). None runs a program or writes a file. The guard refuses each
+other `GIT_` key, also one that git adds later."""
 CONST_GIT_GLOBAL_CONFIG_ENV: Final[frozenset[str]] = frozenset({"GIT_CONFIG_GLOBAL"})
 """The ambient key that a `git config --global` call names in `extra_allowed_env`, so that it
 writes the global file that the environment names, as it does in a shell (#2483)."""

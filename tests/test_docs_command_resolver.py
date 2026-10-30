@@ -219,9 +219,9 @@ def test_a_completion_option_never_installs_completion() -> None:
 def test_resolving_parses_without_invoking_or_spawning() -> None:
     """Verify a destructive command line resolves without its callback or a subprocess.
 
-    Importing a command module may spawn (GitPython runs `git version` on import), and
-    `devops docs check` imports every module to generate the docs anyway, so the module is
-    built before the guard and only the resolving runs inside it.
+    Building a command's tree imports its module, and `devops docs check` imports every module
+    to generate the docs anyway, so the module is built before the guard and only the resolving
+    runs inside it.
     """
     module_click_command(_COMMAND_SPECS["k8s"][0])
     with (

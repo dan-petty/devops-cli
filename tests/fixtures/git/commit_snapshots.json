@@ -1,0 +1,249 @@
+{
+ "scenario": "commit_snapshots",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "init",
+    "--quiet",
+    "--initial-branch=main",
+    "{root}/one"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/one",
+    "--literal-pathspecs",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.safecrlf=false",
+    "-c",
+    "core.attributesFile=/dev/null",
+    "add",
+    "--force",
+    "--",
+    "a.py",
+    "app/db.py"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/one",
+    "write-tree"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "a00be386265f39b69551419c8b71f3c093c9c5d3\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/one",
+    "commit-tree",
+    "--no-gpg-sign",
+    "a00be386265f39b69551419c8b71f3c093c9c5d3"
+   ],
+   "cwd": null,
+   "stdin": "The golden review set's files, for a path review\n",
+   "env": {
+    "GIT_AUTHOR_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_AUTHOR_EMAIL": "",
+    "GIT_AUTHOR_NAME": "devops-cli golden",
+    "GIT_COMMITTER_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_COMMITTER_EMAIL": "",
+    "GIT_COMMITTER_NAME": "devops-cli golden"
+   },
+   "returncode": 0,
+   "stdout": "63b6e3c00959a24f7f5badfa9508a96cca4504ae\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/one",
+    "update-ref",
+    "HEAD",
+    "63b6e3c00959a24f7f5badfa9508a96cca4504ae"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/one",
+    "rev-list",
+    "--count",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "1\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "init",
+    "--quiet",
+    "--initial-branch=main",
+    "{root}/two"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/two",
+    "--literal-pathspecs",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.safecrlf=false",
+    "-c",
+    "core.attributesFile=/dev/null",
+    "add",
+    "--force",
+    "--",
+    "a.py",
+    "app/db.py"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/two",
+    "write-tree"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "a00be386265f39b69551419c8b71f3c093c9c5d3\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/two",
+    "commit-tree",
+    "--no-gpg-sign",
+    "a00be386265f39b69551419c8b71f3c093c9c5d3"
+   ],
+   "cwd": null,
+   "stdin": "The golden review set's files, for a path review\n",
+   "env": {
+    "GIT_AUTHOR_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_AUTHOR_EMAIL": "",
+    "GIT_AUTHOR_NAME": "devops-cli golden",
+    "GIT_COMMITTER_DATE": "2026-10-03T00:00:00+00:00",
+    "GIT_COMMITTER_EMAIL": "",
+    "GIT_COMMITTER_NAME": "devops-cli golden"
+   },
+   "returncode": 0,
+   "stdout": "63b6e3c00959a24f7f5badfa9508a96cca4504ae\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/two",
+    "update-ref",
+    "HEAD",
+    "63b6e3c00959a24f7f5badfa9508a96cca4504ae"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/two",
+    "rev-list",
+    "--count",
+    "HEAD"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "1\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/one",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "commits": [
+   "63b6e3c00959a24f7f5badfa9508a96cca4504ae",
+   "63b6e3c00959a24f7f5badfa9508a96cca4504ae"
+  ],
+  "branch": "main",
+  "counts": [
+   "1",
+   "1"
+  ]
+ }
+}
