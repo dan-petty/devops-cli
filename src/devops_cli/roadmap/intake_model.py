@@ -26,7 +26,6 @@ from pydantic import BaseModel, ConfigDict, create_model
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
-    CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS,
     CONST_ROADMAP_MODEL_PRIORITIES,
     CONST_ROADMAP_SIZE_OPTIONS,
 )
@@ -41,11 +40,7 @@ _NOTHING_WRITTEN = "intake wrote nothing"
 
 def intake_system_prompt() -> str:
     """The system prompt for intake proposals."""
-    mappings = ", ".join(
-        f"`{prefix}` takes `{label}`"
-        for prefix, label in CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS.items()
-    )
-    return load_task_prompt(_SYSTEM_PROMPT).replace("{conventional_types}", mappings)
+    return load_task_prompt(_SYSTEM_PROMPT)
 
 
 class ModelEvidence(BaseModel):

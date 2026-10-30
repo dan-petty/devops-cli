@@ -21,7 +21,7 @@
   - `duplicate_reason`: one line saying why, or why not.
   - `related_to`: the `number` of the nearest shortlist item that is related to the candidate but asks for a different change, such as its umbrella item, a sibling or a neighbour, or `null`. When `duplicate_of` is a number, return `null`.
   - `related_reason`: one line that says what the two items share and how their changes differ, or an empty string.
-  - `type`: exactly one of the `types` values. Conventional Commit prefixes without their own label map as: `perf` takes `type/infra`, `build` takes `type/infra`, `ci` takes `type/infra`.
+  - `type`: exactly one of the `types` values. Code takes the type from the Conventional Commit prefix of the title, and uses your `type` only for a title with no such prefix.
   - `type_reason`: one line.
   - `priority`: exactly one of `P1-High`, `P2-Medium` or `P3-Low`. Never anything else: a person, or verified evidence, decides P0.
   - `priority_reason`: one line.

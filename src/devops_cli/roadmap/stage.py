@@ -56,7 +56,6 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
-    CONST_BRANCH_TYPES,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
@@ -82,6 +81,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
+from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.stage_change import (
@@ -160,13 +160,6 @@ class StageTarget:
     def branch(self) -> str:
         """The branch: `<type>/<issue>-<slug>`."""
         return branch_name(self.item.number, self.type_, self.slug)
-
-
-def commit_type(title: str) -> str | None:
-    """The Conventional Commit type of `title`, or None when it has none."""
-    head, colon, _ = title.partition(":")
-    kind = head.partition("(")[0].removesuffix("!")
-    return kind if colon and kind in CONST_BRANCH_TYPES else None
 
 
 def _slug_of(title: str) -> str:
@@ -1062,7 +1055,6 @@ __all__ = [
     "StageTarget",
     "StagedChange",
     "apply_stage",
-    "commit_type",
     "dry_run_stage",
     "emit_stage_results",
     "parse_filters",

@@ -236,7 +236,12 @@ def test_an_open_issue_with_no_priority_becomes_a_new_backlog_item_with_one_reas
         _labels(roadmap, number),
         comment.startswith(CONST_ROADMAP_INTAKE_REASON_MARKER),
         "P2-Medium" in comment and "useful, not urgent." in comment,
-    ) == (("New", "P2-Medium", "Medium", "Low", None), ("type/feature",), True, True)
+    ) == (
+        ("New", "P2-Medium", "Medium", "Low", None),
+        ("type/feature", "scope/cli"),
+        True,
+        True,
+    )
 
 
 def test_the_writes_follow_the_order_that_leaves_priority_last(roadmap: Roadmap) -> None:
@@ -260,6 +265,49 @@ def test_with_no_candidates_intake_embeds_nothing_and_asks_the_model_nothing(
     model = FakeModel()
     plan = roadmap.plan(model)
     assert (model.embedded, model.requests, plan.has_writes) == ([], [], False)
+
+
+# ── The type and scope labels come from the title (#2715) ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("title", "labels"),
+    [
+        ("fix(security): redact a URL user name", ("type/bug", "scope/security")),
+        ("feat(ci): run the audit on a schedule", ("type/feature", "scope/ci")),
+        ("perf(ci): shorten the Tests check", ("type/infra", "scope/ci")),
+        ("chore: update a pin", ("type/chore",)),
+        ("fix(zzz-unknown): a scope that has no label", ("type/bug",)),
+    ],
+)
+def test_the_title_gives_the_type_and_the_scope_label_and_the_model_picks_neither(
+    roadmap: Roadmap, title: str, labels: tuple[str, ...]
+) -> None:
+    number = roadmap.issue(title)
+    model = FakeModel(proposals={title: {"type": "type/security"}})
+    roadmap.run(model)
+    assert _labels(roadmap, number) == labels
+
+
+def test_a_scope_with_no_label_is_named_in_the_reason_comment(roadmap: Roadmap) -> None:
+    number = roadmap.issue("fix(zzz-unknown): a scope that has no label")
+    roadmap.run(FakeModel())
+    (comment,) = roadmap.comments(number)
+    assert ("scope/zzz-unknown" in comment, ".github/labels.yml" in comment) == (True, True)
+
+
+def test_a_title_with_no_type_takes_the_type_the_model_picks_and_gets_no_scope(
+    roadmap: Roadmap,
+) -> None:
+    number = roadmap.issue("The board is slow")
+    roadmap.run(FakeModel(proposals={"The board is slow": {"type": "type/bug"}}))
+    assert _labels(roadmap, number) == ("type/bug",)
+
+
+def test_a_type_or_scope_label_a_person_set_stays(roadmap: Roadmap) -> None:
+    number = roadmap.issue("fix(security): redact a URL", labels=("type/docs", "scope/ai"))
+    roadmap.run(FakeModel())
+    assert _labels(roadmap, number) == ("type/docs", "scope/ai")
 
 
 # ── The type/* labels `.github/labels.yml` declares (#1358) ─────────────────────
@@ -1853,8 +1901,8 @@ def test_an_off_list_proposal_skips_its_candidate_after_one_model_call(roadmap: 
     """The reply schema keeps the gateway model's values on their lists (#2370), and
     `chat_structured` asks again when a reply breaks it, so intake asks once: a proposal that
     still names a value off its list skips the candidate with the problem in the report."""
-    issue = roadmap.issue("perf(ci): bad type")
-    model = FakeModel(proposals={"perf(ci): bad type": {"type": "type/perf"}})
+    issue = roadmap.issue("A bad type")
+    model = FakeModel(proposals={"A bad type": {"type": "type/perf"}})
 
     plan = roadmap.plan(model)
     apply_intake(roadmap.store, plan)
@@ -1876,10 +1924,10 @@ def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(
     is skipped (#1677)."""
     body_file = tmp_path / "body.md"
     body_file.write_text("candidate body", encoding="utf-8")
-    fake_model.proposals["perf(ci): fail"] = {"type": "type/perf"}
+    fake_model.proposals["A failing candidate"] = {"type": "type/perf"}
     output = _intake(
         "--title",
-        "perf(ci): fail",
+        "A failing candidate",
         "--body-file",
         str(body_file),
         "--confirm",
@@ -1892,10 +1940,10 @@ def test_intake_confirm_over_existing_issues_exits_zero_when_skipped(
     opened: Roadmap, fake_model: FakeModel
 ) -> None:
     """A run over existing candidates keeps exit 0 and lists its skips (#1677)."""
-    issue = opened.issue("perf(ci): existing issue")
-    fake_model.proposals["perf(ci): existing issue"] = {"type": "type/perf"}
+    issue = opened.issue("An existing issue")
+    fake_model.proposals["An existing issue"] = {"type": "type/perf"}
     output = _intake("--confirm", exit_code=0)
-    assert f"#{issue} perf(ci): existing issue: skipped, nothing written" in output
+    assert f"#{issue} An existing issue: skipped, nothing written" in output
 
 
 def test_a_duplicate_of_written_as_text_is_read_against_the_shortlist(roadmap: Roadmap) -> None:

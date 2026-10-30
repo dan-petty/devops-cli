@@ -34,6 +34,10 @@
   color: "CFD3D7"
   description: "Dependency upgrades, tooling adjustments, or maintenance"
 
+- name: "type/epic"
+  color: "3E4B9E"
+  description: "High-level tracking epic or release parent issue coordinating deliverables"
+
 # ── Scope Labels ────────────────────────────────────────────────────────────
 - name: "scope/ai"
   color: "6F42C1"
@@ -82,6 +86,42 @@
 - name: "scope/infra"
   color: "5319E7"
   description: "Docker container images, DevContainers, and infrastructure tooling"
+
+- name: "scope/roadmap"
+  color: "0E8A16"
+  description: "The roadmap jobs: intake, refine, stage, implement and the Service that runs them"
+
+- name: "scope/docs"
+  color: "0075CA"
+  description: "Documents, guides, ADRs and generated references"
+
+- name: "scope/agent"
+  color: "6F42C1"
+  description: "AI agent instructions, skills and agent tooling"
+
+- name: "scope/terraform"
+  color: "5319E7"
+  description: "OpenTofu modules and the infrastructure they declare"
+
+- name: "scope/monitoring"
+  color: "FEF2C0"
+  description: "Grafana, Prometheus, Loki, alerts and dashboards"
+
+- name: "scope/deps"
+  color: "CFD3D7"
+  description: "Dependency pins, upgrades and the supply chain"
+
+- name: "scope/service"
+  color: "C2E0C6"
+  description: "The long-running devops Service and its lanes"
+
+- name: "scope/devcontainer"
+  color: "5319E7"
+  description: "The DevContainer, its image and its features"
+
+- name: "scope/valkey"
+  color: "FBCA04"
+  description: "Valkey caches, queues and their keys"
 
 - name: "autorelease: pending"
   color: "EDEDED"

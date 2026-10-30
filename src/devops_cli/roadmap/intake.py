@@ -31,8 +31,15 @@ Priority, which a run that stopped after filing leaves, is that issue: intake pl
 files nothing. A new candidate whose text holds what looks like a secret is refused before it
 reaches a model or GitHub.
 
+**The labels of the title.** The Conventional Commit title is the only source of the type and
+the scope (#2715). `fix(security): ...` gets `type/bug` and `scope/security`
+(`CONST_ROADMAP_COMMIT_TYPE_LABELS` maps each type). A scope that `.github/labels.yml` does not
+declare gets no label, and the reason comment names the label to add. A label the issue holds
+stays.
+
 **The proposal.** The model returns a type, a Priority from P1 to P3, Value and Effort, each
-with a one-line reason, and optionally one piece of evidence. The types it may pick are the
+with a one-line reason, and optionally one piece of evidence. Code uses its type only for a
+title with no Conventional Commit type. The types it may pick are the
 `type/*` labels `.github/labels.yml` declares, `type/epic` aside; a run reads the file at its
 first candidate, before any timeline read or model call, and stops with a `ConfigurationError`
 naming the repository when the file is missing or declares none (#1358). The candidate's text
@@ -97,6 +104,7 @@ from pydantic import ValidationError as InvalidLabelsError
 
 from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.config.constants import (
+    CONST_ROADMAP_COMMIT_TYPE_LABELS,
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_EVIDENCE_PATTERNS,
@@ -104,6 +112,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_MODEL_PRIORITIES,
     CONST_ROADMAP_P0_PRIORITIES,
+    CONST_ROADMAP_SCOPE_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
     CONST_ROADMAP_STATUS_NEW,
@@ -128,6 +137,7 @@ from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.commit_title import commit_scope, commit_type
 from devops_cli.roadmap.intake_model import (
     IntakeModel,
     ModelEvidence,
@@ -224,6 +234,12 @@ class Subject:
     def type_label(self) -> str | None:
         return next(
             (lb for lb in self.labels if lb.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX)), None
+        )
+
+    @property
+    def scope_label(self) -> str | None:
+        return next(
+            (lb for lb in self.labels if lb.startswith(CONST_ROADMAP_SCOPE_LABEL_PREFIX)), None
         )
 
     @property
@@ -462,10 +478,10 @@ class _Run:
     items: dict[int, Item]
 
     @cached_property
-    def types(self) -> tuple[str, ...]:
-        """The `type/*` labels `.github/labels.yml` declares, `type/epic` aside. A file that is
-        missing, is no label specs or declares none is a configuration error naming the
-        repository; any other failed read stays GitHub's error (#1358)."""
+    def declared(self) -> tuple[str, ...]:
+        """The names of the labels `.github/labels.yml` declares. A file that is missing or is
+        no label specs is a configuration error naming the repository; any other failed read
+        stays GitHub's error (#1358)."""
         path, texts = CONST_ROADMAP_LABELS_PATH, MESSAGES.roadmap
         where = {
             "repo": self.repo,
@@ -481,16 +497,68 @@ class _Run:
         except (yaml.YAMLError, InvalidLabelsError) as exc:
             unreadable = texts.intake_labels_unreadable.format(**where, error=str(exc)[:200])
             raise ConfigurationError(unreadable, details={"path": path}) from exc
+        return tuple(spec.name for spec in specs)
+
+    @cached_property
+    def types(self) -> tuple[str, ...]:
+        """The `type/*` labels the file declares, `type/epic` aside. A file that declares none is
+        a configuration error naming the repository (#1358)."""
         types = tuple(
-            spec.name
-            for spec in specs
-            if spec.name.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX)
-            and spec.name != CONST_ROADMAP_EPIC_LABEL
+            name
+            for name in self.declared
+            if name.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX) and name != CONST_ROADMAP_EPIC_LABEL
         )
         if not types:
-            untyped = texts.intake_labels_untyped.format(**where)
-            raise ConfigurationError(untyped, details={"path": path})
+            texts = MESSAGES.roadmap
+            untyped = texts.intake_labels_untyped.format(
+                repo=self.repo,
+                path=CONST_ROADMAP_LABELS_PATH,
+                ref=self.ref or texts.intake_placeholder_default_branch,
+            )
+            raise ConfigurationError(untyped, details={"path": CONST_ROADMAP_LABELS_PATH})
         return types
+
+    @cached_property
+    def scopes(self) -> frozenset[str]:
+        """The `scope/*` labels the file declares."""
+        return frozenset(
+            name for name in self.declared if name.startswith(CONST_ROADMAP_SCOPE_LABEL_PREFIX)
+        )
+
+
+@dataclass(frozen=True)
+class _TitleLabels:
+    """The labels the Conventional Commit title of a candidate gives (#2715): its `type/*` label,
+    its `scope/*` label, and the reason lines for the labels intake adds."""
+
+    type_label: str | None = None
+    scope_label: str | None = None
+    lines: tuple[tuple[str, str, str], ...] = ()
+
+
+def _title_labels(subject: Subject, run: _Run) -> _TitleLabels:
+    """The type and scope labels the title of `subject` gives. A label the issue already holds
+    stays, and gets no line. A type with no declared label gives none, and the model picks it. A
+    scope with no declared label gives none, and one line names the label to add."""
+    texts = MESSAGES.roadmap
+    kind = commit_type(subject.title)
+    type_label = CONST_ROADMAP_COMMIT_TYPE_LABELS.get(kind) if kind else None
+    lines: list[tuple[str, str, str]] = []
+    if type_label not in run.types:
+        type_label = None
+    elif subject.type_label is None:
+        lines.append(("Type", type_label, texts.intake_type_from_title.format(prefix=kind)))
+    scope = commit_scope(subject.title)
+    scope_label = f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" if scope else None
+    if scope_label and scope_label not in run.scopes:
+        undeclared = texts.intake_scope_undeclared.format(
+            scope=scope, path=CONST_ROADMAP_LABELS_PATH, label=scope_label
+        )
+        lines.append(("Scope", "none", undeclared))
+        scope_label = None
+    elif scope_label and subject.scope_label is None:
+        lines.append(("Scope", scope_label, texts.intake_scope_from_title.format(scope=scope)))
+    return _TitleLabels(type_label, scope_label, tuple(lines))
 
 
 def _subject(issue: IssueRecord) -> Subject:
@@ -873,11 +941,16 @@ def _reason_lines(
     fields: Sequence[tuple[ItemField, str]],
     priority: tuple[str, str],
     judgement: _Judgement,
+    title: _TitleLabels,
 ) -> tuple[tuple[str, str, str], ...]:
     """Each value intake sets that the reason comment gives, with its name and reason, then
-    the possible original or the related item, whose number the comment links."""
+    the possible original or the related item, whose number the comment links. The title gives
+    the reason of a type and a scope it sets."""
     reasons = {ItemField.VALUE: proposal.value_reason, ItemField.EFFORT: proposal.effort_reason}
-    lines = [("Type", type_label, proposal.type_reason)] if type_label else []
+    lines = [(name, value, why) for name, value, why in title.lines if name == "Type"]
+    if type_label and not lines:
+        lines = [("Type", type_label, proposal.type_reason)]
+    lines += [line for line in title.lines if line[0] == "Scope"]
     lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
     lines += [(f.value, value, reasons[f]) for f, value in fields if f in reasons]
     texts = MESSAGES.roadmap
@@ -1020,7 +1093,9 @@ class _Planner:
         shortlist: list[_Entry],
     ) -> IntakeDecision:
         shortlist_entries = {entry.number: entry for entry in shortlist if entry.number is not None}
-        needs_type = subject.type_label is None
+        needs_type = (
+            subject.type_label is None and _title_labels(subject, self.run).type_label is None
+        )
         try:
             raw = self.run.model.propose(request)
             judgement, proposal, subject = _resolve_raw(
@@ -1035,12 +1110,14 @@ class _Planner:
         return IntakeDecision(subject, Outcome.SKIP, reason=reason, notes=notes)
 
     def _place(self, subject: Subject, proposal: Proposal, judgement: _Judgement) -> IntakeDecision:
-        type_label = subject.type_label or proposal.type
+        title = _title_labels(subject, self.run)
+        type_label = subject.type_label or title.type_label or proposal.type
         priority = _priority(self.run.store, subject, proposal)
         placement = _placement(subject)
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
-        lines = _reason_lines(proposal, added, fields, priority, judgement)
+        scope_added = title.scope_label if subject.scope_label is None else None
+        lines = _reason_lines(proposal, added, fields, priority, judgement, title)
         comment = (
             None
             if _has_comment(self.run.store, subject, CONST_ROADMAP_INTAKE_REASON_MARKER)
@@ -1049,7 +1126,7 @@ class _Planner:
         return IntakeDecision(
             subject,
             Outcome.PLACE,
-            labels=(added,) if added else (),
+            labels=tuple(label for label in (added, scope_added) if label),
             placement=placement,
             fields=fields,
             priority=priority[0],
