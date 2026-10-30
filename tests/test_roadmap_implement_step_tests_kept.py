@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REASON_TESTS
+from devops_cli.config import constants
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
@@ -229,7 +229,7 @@ def test_a_test_file_that_does_not_parse_after_the_run_is_judged_by_the_static_c
 def test_the_reason_names_a_bounded_number_of_tests(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    count = CONST_ROADMAP_IMPLEMENT_REASON_TESTS + 2
+    count = constants.CONST_ROADMAP_IMPLEMENT_REASON_TESTS + 2
     many = "".join(f"def test_{n:02d}() -> None: ...\n" for n in range(count))
     (checkout / OLD_PATH).write_text(many, encoding="utf-8")
     git(checkout, "commit", "-q", "-am", "many tests")
@@ -237,7 +237,9 @@ def test_the_reason_names_a_bounded_number_of_tests(
 
     outcome = _run(store, checkout, script)
 
-    names = ", ".join(f"test_{n:02d}" for n in range(CONST_ROADMAP_IMPLEMENT_REASON_TESTS))
+    names = ", ".join(
+        f"test_{n:02d}" for n in range(constants.CONST_ROADMAP_IMPLEMENT_REASON_TESTS)
+    )
     assert outcome.reason == f"{REASON}{OLD_PATH}: {names} and 2 more"
 
 
