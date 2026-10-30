@@ -38,7 +38,12 @@ from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, capture_run_messages
 from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
 from pydantic_ai.conversation import Conversation
-from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
+from pydantic_ai.exceptions import (
+    ModelAPIError,
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+)
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
@@ -561,19 +566,36 @@ def _last_text(messages: Sequence[ModelMessage]) -> str:
     return texts[-1] if texts else ""
 
 
+def _with_counts(reason: str, log: ToolCallLog) -> str:
+    """`reason`, then the counts of refused and retried tool calls when either is not zero."""
+    if not (log.refused or log.retried):
+        return reason
+    counts = MESSAGES.roadmap.implement_stop_counts.format(refused=log.refused, retried=log.retried)
+    return f"{reason}\n{counts}"
+
+
 def _stop_reason(stopped: Exception, log: ToolCallLog) -> str:
     """The reason of a run that a pydantic-ai error ended (#2758): the class and the message of the
     error, then the counts of refused and retried tool calls when either is not zero. The message
     is masked first and cut after, so a cut cannot split a secret."""
-    texts = MESSAGES.roadmap
     message = mask_secrets(str(stopped)[:CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS]).strip()
-    reason = texts.implement_stop_reason.format(
+    reason = MESSAGES.roadmap.implement_stop_reason.format(
         error=type(stopped).__name__, message=message[:CONST_ROADMAP_IMPLEMENT_ERROR_CHARS]
     )
-    if not (log.refused or log.retried):
-        return reason
-    counts = texts.implement_stop_counts.format(refused=log.refused, retried=log.retried)
-    return f"{reason}\n{counts}"
+    return _with_counts(reason, log)
+
+
+def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
+    """The reason of a run that a failed model call ended (#2731): the class of the error, the HTTP
+    status when the reply has one, and the name of the model, then the counts of `_stop_reason`.
+    The message and the body of the reply stay out. They are text that the provider chose, and the
+    masker finds a secret by its form in a sentence, not by its key in the repr of a dict."""
+    texts = MESSAGES.roadmap
+    detail = texts.implement_model_call_model.format(model=failed.model_name)
+    if isinstance(failed, ModelHTTPError):
+        detail = texts.implement_model_call_status.format(status=failed.status_code, model=detail)
+    reason = texts.implement_stop_reason.format(error=type(failed).__name__, message=detail)
+    return _with_counts(reason, log)
 
 
 def _run_agent(
@@ -612,7 +634,7 @@ def _run_agent(
                 # Raised outside this handler, so a logged traceback holds no reply text.
                 error = refused
             else:
-                reason, last = _stop_reason(exc, log), _last_text(messages)
+                reason, last = _model_call_reason(exc, log), _last_text(messages)
         finally:
             replies = _new_replies(messages, conversation)
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
@@ -917,6 +939,16 @@ def _discarded_diff(source: Path, start: str) -> tuple[str, bool]:
     )
 
 
+def _read_discarded_diff(source: Path, start: str, reason: str) -> tuple[str, bool, str]:
+    """The discarded diff, whether it was cut, and `reason`. When git refuses to give the diff, the
+    diff is empty and the reason holds both why the step stopped and why it has no diff."""
+    try:
+        diff, cut = _discarded_diff(source, start)
+    except RoadmapImplementError as failure:
+        return "", False, f"{reason}\n{failure}"
+    return diff, cut, reason
+
+
 def _commit(source: Path, message: str) -> tuple[str, str]:
     """Commit the staged changes, with the hooks of the repository. The commit, and why the
     step stops when git refuses it."""
@@ -1024,7 +1056,7 @@ def _attempt(
     if not reason:
         commit, reason = _commit(source, f"{inputs.group.title} (#{item})")
     if reason:
-        diff, cut = _discarded_diff(source, start)
+        diff, cut, reason = _read_discarded_diff(source, start, reason)
         return outcome.model_copy(update={"reason": reason, "diff": diff, "diff_cut": cut})
     return outcome.model_copy(update={"status": StepStatus.DONE, "commit": commit})
 
