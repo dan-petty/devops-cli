@@ -18,7 +18,7 @@
 
 ## 3. The documentation
 
-- [ ] Regenerate the documentation with `devops docs generate --sync-readme`.
+- [x] Regenerate the documentation with `devops docs generate --sync-readme`.
   - Verification: `uv run devops docs check`
 
 ## 4. Archive
