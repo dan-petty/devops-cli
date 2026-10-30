@@ -512,3 +512,27 @@ def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_c
         True,
         True,
     )
+
+
+TRAFFIC_PANELS = (
+    "Views (14d Total & Uniques)",
+    "Git Clones & Uniques (14d)",
+    "Top Referral Sources (14 Days)",
+    "Popular Content Paths (14 Days)",
+)
+TRAFFIC_SOURCE = "devops gh metrics --emit-telemetry"
+
+
+def test_each_traffic_panel_names_the_workstation_command_that_sends_its_numbers() -> None:
+    """The roadmap Service sends no traffic gauge (#2752). Only a person's workstation does, so a
+    panel shows the last value of a workstation and can be old. Its description says so."""
+    dashboard = json.loads((DASHBOARDS_DIR / "project-metrics.json").read_text(encoding="utf-8"))
+    descriptions = {
+        panel["title"]: panel.get("description", "")
+        for panel in dashboard["panels"]
+        if panel["title"] in TRAFFIC_PANELS
+    }
+
+    assert {title: TRAFFIC_SOURCE in text for title, text in descriptions.items()} == dict.fromkeys(
+        TRAFFIC_PANELS, True
+    )

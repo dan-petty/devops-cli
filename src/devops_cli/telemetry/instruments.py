@@ -369,37 +369,37 @@ PROJECT_TRAFFIC_VIEWS = Instrument(
     "devops_cli_project_traffic_views",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository total page views count. The roadmap Service sends none, because its token cannot read traffic",
+    "GitHub repository total page views count",
 )
 PROJECT_TRAFFIC_VIEWS_UNIQUES = Instrument(
     "devops_cli_project_traffic_views_uniques",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository unique visitors count. The roadmap Service sends none, because its token cannot read traffic",
+    "GitHub repository unique visitors count",
 )
 PROJECT_TRAFFIC_CLONES = Instrument(
     "devops_cli_project_traffic_clones",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository total git clones count. The roadmap Service sends none, because its token cannot read traffic",
+    "GitHub repository total git clones count",
 )
 PROJECT_TRAFFIC_CLONES_UNIQUES = Instrument(
     "devops_cli_project_traffic_clones_uniques",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository unique cloners count. The roadmap Service sends none, because its token cannot read traffic",
+    "GitHub repository unique cloners count",
 )
 PROJECT_TRAFFIC_REFERRERS = Instrument(
     "devops_cli_project_traffic_referrers",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository traffic referrals count by referrer source. The roadmap Service sends none, because its token cannot read traffic",
+    "GitHub repository traffic referrals count by referrer source",
 )
 PROJECT_TRAFFIC_PATHS = Instrument(
     "devops_cli_project_traffic_paths",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository traffic page views by content path. The roadmap Service sends none, because its token cannot read traffic",
+    "GitHub repository traffic page views by content path",
 )
 PROJECT_STARS = Instrument(
     "devops_cli_project_stars",

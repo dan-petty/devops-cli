@@ -34,6 +34,10 @@ A gauge holds a snapshot, such as a project metric that the roadmap Service send
 every 15 minutes. Prometheus finds a plain selector only within five minutes of a
 sample, so a dashboard reads a gauge with `last_over_time(<metric>[$__range])`, and
 no gauge name ends in `_total`, which Prometheus keeps for counters.
+Only `devops gh metrics --emit-telemetry`, run with a person's `gh` login, sends the
+six `devops_cli_project_traffic_*` gauges. The roadmap Service sends none, because its
+token cannot read traffic. A traffic panel shows the last value that a workstation
+sent, and that value can be old.
 Prometheus 3 stores each histogram as a
 native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 `_count` series; query it with `histogram_quantile`, `histogram_avg` and
@@ -94,12 +98,12 @@ writes by name.
 | `devops_cli_project_ci_runs` | Gauge | `1` | CI workflow runs by name, status and conclusion. |
 | `devops_cli_project_items` | Gauge | `1` | Roadmap items, the issues with a priority label, by release, state, type and priority. The release is the first v* tag whose commits close the item. A label is empty when the item has no value for it. |
 | `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases. |
-| `devops_cli_project_traffic_views` | Gauge | `1` | GitHub repository total page views count. The roadmap Service sends none, because its token cannot read traffic. |
-| `devops_cli_project_traffic_views_uniques` | Gauge | `1` | GitHub repository unique visitors count. The roadmap Service sends none, because its token cannot read traffic. |
-| `devops_cli_project_traffic_clones` | Gauge | `1` | GitHub repository total git clones count. The roadmap Service sends none, because its token cannot read traffic. |
-| `devops_cli_project_traffic_clones_uniques` | Gauge | `1` | GitHub repository unique cloners count. The roadmap Service sends none, because its token cannot read traffic. |
-| `devops_cli_project_traffic_referrers` | Gauge | `1` | GitHub repository traffic referrals count by referrer source. The roadmap Service sends none, because its token cannot read traffic. |
-| `devops_cli_project_traffic_paths` | Gauge | `1` | GitHub repository traffic page views by content path. The roadmap Service sends none, because its token cannot read traffic. |
+| `devops_cli_project_traffic_views` | Gauge | `1` | GitHub repository total page views count. |
+| `devops_cli_project_traffic_views_uniques` | Gauge | `1` | GitHub repository unique visitors count. |
+| `devops_cli_project_traffic_clones` | Gauge | `1` | GitHub repository total git clones count. |
+| `devops_cli_project_traffic_clones_uniques` | Gauge | `1` | GitHub repository unique cloners count. |
+| `devops_cli_project_traffic_referrers` | Gauge | `1` | GitHub repository traffic referrals count by referrer source. |
+| `devops_cli_project_traffic_paths` | Gauge | `1` | GitHub repository traffic page views by content path. |
 | `devops_cli_project_stars` | Gauge | `1` | GitHub repository stargazers count. |
 | `devops_cli_project_forks` | Gauge | `1` | GitHub repository forks count. |
 | `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
