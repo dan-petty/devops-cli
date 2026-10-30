@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.4](https://github.com/dan-petty/devops-cli/compare/v0.21.3...v0.21.4) (2026-10-30)
+
+
+### Bug Fixes
+
+* **ai:** name each prewarm server by host and port ([#2737](https://github.com/dan-petty/devops-cli/issues/2737)) ([2e2e4fa](https://github.com/dan-petty/devops-cli/commit/2e2e4fac35935dcfadecb0f61001149a70e16fa8)), closes [#2676](https://github.com/dan-petty/devops-cli/issues/2676)
+* **ai:** the mcp benchmark tool takes no file path ([#2738](https://github.com/dan-petty/devops-cli/issues/2738)) ([5d5da15](https://github.com/dan-petty/devops-cli/commit/5d5da15ad20137be749557546227c30b952f59fc)), closes [#2704](https://github.com/dan-petty/devops-cli/issues/2704)
+* **config:** redact a removed credential in the config copies ([#2734](https://github.com/dan-petty/devops-cli/issues/2734)) ([f663344](https://github.com/dan-petty/devops-cli/commit/f663344b5b934c6bd64e436036e204c1641907c7)), closes [#2645](https://github.com/dan-petty/devops-cli/issues/2645)
+* **rag:** name the Qdrant server by host and port ([#2733](https://github.com/dan-petty/devops-cli/issues/2733)) ([39aca9d](https://github.com/dan-petty/devops-cli/commit/39aca9d7dffa8ebb3cb24553ab39ac8297c212ea)), closes [#2709](https://github.com/dan-petty/devops-cli/issues/2709)
+* **roadmap:** tick turn and kept diff for implement steps ([#2744](https://github.com/dan-petty/devops-cli/issues/2744)) ([890d2a6](https://github.com/dan-petty/devops-cli/commit/890d2a62e4e3b33a99bb88b9df6c3a67f89a24a5)), closes [#2721](https://github.com/dan-petty/devops-cli/issues/2721)
+* **security:** refuse the gh and kubectl keys that run a program ([#2732](https://github.com/dan-petty/devops-cli/issues/2732)) ([ad0bdf1](https://github.com/dan-petty/devops-cli/commit/ad0bdf1fc2db9acc02b4d432250954902b46a2d5)), closes [#2672](https://github.com/dan-petty/devops-cli/issues/2672)
+* **security:** refuse the keys that make a child write a file ([#2746](https://github.com/dan-petty/devops-cli/issues/2746)) ([1cd187e](https://github.com/dan-petty/devops-cli/commit/1cd187e9e4c999cf02ef5541343044196d6608b2)), closes [#2674](https://github.com/dan-petty/devops-cli/issues/2674)
+
 ## [0.21.3](https://github.com/dan-petty/devops-cli/compare/v0.21.2...v0.21.3) (2026-10-30)
 
 
