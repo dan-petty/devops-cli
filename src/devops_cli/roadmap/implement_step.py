@@ -992,13 +992,64 @@ def _verification_failure(source: Path, group: TaskGroup) -> str | None:
     return None
 
 
-def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
-    """Run `ruff check`, `ruff format --check` and `mypy --strict` on the changed Python files."""
-    files = [path for path in changed if path.endswith(".py")]
+def _python_files(changed: Sequence[str]) -> list[str]:
+    """The Python files of the changed paths."""
+    return [path for path in changed if path.endswith(".py")]
+
+
+def _paths_text(names: Sequence[str]) -> str:
+    """`names` as one line, cut to `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, with the count of
+    the rest."""
+    shown = names[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS]
+    paths = ", ".join(shown)
+    if len(names) > len(shown):
+        paths += MESSAGES.roadmap.implement_paths_more.format(count=len(names) - len(shown))
+    return paths
+
+
+def _link_failure(source: Path, files: Sequence[str]) -> str | None:
+    """Why the step stops when one of `files` is a symbolic link, else None. The formatter writes
+    through a link, also to a file outside the checkout, so no tool gets a link."""
+    links = [path for path in files if (source / path).is_symlink()]
+    if not links:
+        return None
+    return MESSAGES.roadmap.implement_stop_link.format(paths=_paths_text(links))
+
+
+def _format_failure(source: Path, changed: Sequence[str]) -> str | None:
+    """Run `ruff format` on the changed Python files, outside the shell of the agent, and stage
+    the files it changed. Git names them: the index holds the files as they were before the run.
+    Prints one line that names them. None when the formatter exits 0, else why the step stops.
+    A file name that starts with `-` follows `--`, so the tool reads it as a path."""
+    files = _python_files(changed)
     if not files:
         return None
-    for tool in ((BIN_RUFF, "check"), (BIN_RUFF, "format", "--check"), (BIN_MYPY, "--strict")):
-        argv = [BIN_UV, "run", *tool, *files]
+    link = _link_failure(source, files)
+    if link is not None:
+        return link
+    argv = [BIN_UV, "run", BIN_RUFF, "format", "--", *files]
+    failure = _command_failure(source, argv, shlex.join(argv))
+    if failure is not None:
+        return failure
+    names = _git_output(source, "diff", "--name-only", "-z", "--", *files)
+    formatted = sorted(name for name in names.split("\0") if name)
+    if formatted:
+        _git_output(source, "add", "--", *formatted)
+        print_muted(
+            MESSAGES.roadmap.implement_formatted.format(paths=_paths_text(formatted)),
+            to_stderr=True,
+        )
+    return None
+
+
+def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
+    """Run `ruff check` and `mypy --strict` on the changed Python files. `ruff check` fixes
+    nothing: a lint rule can point at a defect that the model must see."""
+    files = _python_files(changed)
+    if not files:
+        return None
+    for tool in ((BIN_RUFF, "check"), (BIN_MYPY, "--strict")):
+        argv = [BIN_UV, "run", *tool, "--", *files]
         failure = _command_failure(source, argv, shlex.join(argv))
         if failure is not None:
             return failure
@@ -1026,7 +1077,11 @@ def _exit_failure(source: Path, inputs: StepInputs, start: str) -> str | None:
     changed = _stage(source)
     if not changed:
         return MESSAGES.roadmap.implement_stop_no_change
-    return _verification_failure(source, inputs.group) or _static_failure(source, changed)
+    return (
+        _format_failure(source, changed)
+        or _verification_failure(source, inputs.group)
+        or _static_failure(source, changed)
+    )
 
 
 def _discarded_diff(source: Path, start: str) -> tuple[str, bool]:
@@ -1108,11 +1163,7 @@ def _foreign_change(source: Path, inputs: StepInputs, tree: str) -> str | None:
     others = sorted(name for name in names.split("\0") if name and name != tasks)
     if not others:
         return None
-    shown = others[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS]
-    paths = ", ".join(shown)
-    if len(others) > len(shown):
-        paths += MESSAGES.roadmap.implement_paths_more.format(count=len(others) - len(shown))
-    return MESSAGES.roadmap.implement_stop_tick_turn_changed.format(paths=paths)
+    return MESSAGES.roadmap.implement_stop_tick_turn_changed.format(paths=_paths_text(others))
 
 
 def _tick_turn(
