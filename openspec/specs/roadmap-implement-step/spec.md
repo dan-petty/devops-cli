@@ -184,7 +184,7 @@ The extra turn SHALL change no file except the `tasks.md` of the change. The ste
 - **THEN** the outcome reports three requests, and the spend ledger holds the tokens of the three replies
 
 ### Requirement: A stopped step reports a masked diff of its discarded work
-A step that ends as stopped SHALL read the diff of the work that it discards, from the commit where it started to the checkout, with the new files included and without any external diff program or text conversion. It SHALL mask secrets in the whole diff with `mask_secrets` first, then cut it to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters. The `StepOutcome` SHALL hold the result as `diff`, and SHALL set `diff_cut` when it cut the diff. A done step SHALL report an empty diff.
+A step that ends as stopped SHALL read the diff of the work that it discards, from its start commit to the checkout, new files included, with no external diff program or text conversion. It SHALL mask secrets in the diff with `mask_secrets` first, then cut it to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters. The `StepOutcome` SHALL hold the result as `diff`, and SHALL set `diff_cut` when it cut the diff or the part that it masked. A done step SHALL report an empty diff.
 
 #### Scenario: A stop after the agent wrote files
 - **WHEN** the agent writes `src/sample.py` and a new test file, and the step stops on a failed verification command
@@ -201,3 +201,21 @@ A step that ends as stopped SHALL read the diff of the work that it discards, fr
 #### Scenario: A done step
 - **WHEN** the step ends done
 - **THEN** its diff is empty and `diff_cut` is false
+
+### Requirement: The reason of the turn for the ticks names a bounded number of paths
+When the turn for the ticks changes other files, the reason of the stop SHALL name at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths in sorted order and SHALL give the count of the rest.
+
+#### Scenario: The turn changes many files
+- **WHEN** the model writes `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` plus 30 new files in the extra turn
+- **THEN** the reason names the first `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths in order and ends with `and 30 more`
+
+### Requirement: A stopped step reads a bounded diff that may hold bytes that are not UTF-8
+A stopped step SHALL give `mask_secrets` at most `CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS` characters of the diff, a multiple of `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS`, and SHALL set `diff_cut` when git printed more. It SHALL read the output of git with a replacement character for each byte that is not UTF-8, and SHALL raise no decode error.
+
+#### Scenario: A very large diff
+- **WHEN** the discarded work is longer than `CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS` characters
+- **THEN** `mask_secrets` gets at most that many characters, the diff of the outcome is cut to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters and `diff_cut` is true
+
+#### Scenario: A file that is not UTF-8
+- **WHEN** the discarded work holds a Latin-1 file
+- **THEN** the step reports stopped with a diff that holds a replacement character in place of each byte that is not UTF-8, and raises no error

@@ -26,7 +26,14 @@
 - [x] Regenerate the documentation, the help of `devops roadmap implement` and the term in `CONTEXT.md`.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 5. Archive
+## 5. The limits of the diff and the reason
+
+- [x] Write failing tests: the real runner replaces output bytes that are not UTF-8 (`tests/test_process_contract.py`); a stopped step with a Latin-1 file reports its diff, and masks at most `CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS` characters of a very large diff; the reason of the extra turn names at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths; the stop comment cuts a long reason.
+  - Verification: `uv run devops ci test tests/test_process_contract.py tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
+- [x] Decode the output of a text subprocess with `errors="replace"` in `src/devops_cli/core/process.py`, and add the constants and the cuts in `implement_step.py` and `implement_run.py`.
+  - Verification: `uv run devops ci test tests/test_process_contract.py tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
+
+## 6. Archive
 
 - [x] Archive the change.
   - Verification: `uv run devops openspec archive 2721-implement-tick-turn`

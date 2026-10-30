@@ -14,16 +14,16 @@ Two things in the design made one forgotten tick cost the whole step:
 - The instructions of the step and its user message name the exact path of the `tasks.md` of the change and the exact form of a tick (`- [ ]` to `- [x]`). They say that the step is not done until every task of the group is ticked.
 - The exit checks run in a new order. The group may change only in its checkboxes and no other group may change. Then each verification command and the static checks run. The check that every task is ticked runs last.
 - A step whose only fault is missing ticks gets one more model turn. The verification and the static checks have passed by then. The turn asks only for the ticks and lists the unticked tasks. It is the same conversation and the same `UsageLimits` as the first turn. The turn may change only `tasks.md`. The job checks this with git, and any other change stops the step. After the turn every exit check runs again.
-- A stopped step keeps the diff of its work. The step reads the diff of the discarded work, masks secrets in it (`devops_cli.security.sanitizer.mask_secrets`) and cuts it to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters. `StepOutcome` carries it. The job posts it in the stop comment in a fenced block. The fence is longer than any run of backticks in the diff, so no text of the diff can end the block.
-- A consumer observes the stop comment, the exit order and the `StepOutcome`, so the change carries spec deltas. It modifies three requirements of `roadmap-implement-step`, adds three requirements to it, and adds one requirement to `roadmap-implement-job`.
+- A stopped step keeps the diff of its work. The step reads the diff of the discarded work, masks secrets in the first `CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS` characters of it (`devops_cli.security.sanitizer.mask_secrets`) and cuts it to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters. The process runner decodes the output of git with a replacement character, so a file that is not UTF-8 raises no error. The reason of a stop is bounded: the tick turn names at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, and the stop comment cuts a reason to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters. `StepOutcome` carries it. The job posts it in the stop comment in a fenced block. The fence is longer than any run of backticks in the diff, so no text of the diff can end the block.
+- A consumer observes the stop comment, the exit order and the `StepOutcome`, so the change carries spec deltas. It modifies three requirements of `roadmap-implement-step`, adds five requirements to it, and adds two requirements to `roadmap-implement-job`.
 - This change fits one pull request.
 
 ## Capabilities
 
 ### Modified Capabilities
 
-- `roadmap-implement-step`: the exit checks and their order, the inputs of a step and the limits of a run change. Three requirements are added: the tick turn, the files that the turn may change, and the diff of a stopped step.
-- `roadmap-implement-job`: one added requirement, the stop comment holds the diff of the discarded work.
+- `roadmap-implement-step`: the exit checks and their order, the inputs of a step and the limits of a run change. Five requirements are added: the tick turn, the files that the turn may change, the diff of a stopped step, the paths in the reason of the turn, and the bounded diff read.
+- `roadmap-implement-job`: two added requirements, the stop comment holds the diff of the discarded work, and it cuts a long reason.
 
 ## Impact
 

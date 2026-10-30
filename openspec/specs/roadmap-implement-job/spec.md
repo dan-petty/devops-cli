@@ -136,6 +136,13 @@ When a step, the rebase, the documentation, the archive, a push or the checks st
 - **WHEN** the default branch gains a change that conflicts with the branch after the last group, or after the fix step
 - **THEN** the job aborts the rebase, `origin` holds the commits that passed, Status is Ready, and `implement.stopped` is `push`
 
+### Requirement: The stop comment cuts a long reason
+The job SHALL cut the reason of a stop to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters after it masks secrets in it, so that the stop comment stays below the limit of GitHub.
+
+#### Scenario: A reason that is too long
+- **WHEN** a step stops with a reason longer than `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters
+- **THEN** the comment holds the first `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters of the reason
+
 ### Requirement: The job record
 The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch` (the branch of the pull request), `implement.pr` (the pull request), `implement.stopped` and `implement.spend` in the job record of the item. The spend SHALL be the requests, input tokens and output tokens of every step the job ran.
 

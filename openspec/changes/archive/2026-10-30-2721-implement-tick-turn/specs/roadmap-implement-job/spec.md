@@ -16,3 +16,10 @@ When a step stops the item, the comment of the job SHALL also hold the masked di
 #### Scenario: A stop that is not a step
 - **WHEN** the rebase stops the item
 - **THEN** the comment holds no diff
+
+### Requirement: The stop comment cuts a long reason
+The job SHALL cut the reason of a stop to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters after it masks secrets in it, so that the stop comment stays below the limit of GitHub.
+
+#### Scenario: A reason that is too long
+- **WHEN** a step stops with a reason longer than `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters
+- **THEN** the comment holds the first `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters of the reason
