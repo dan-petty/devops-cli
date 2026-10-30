@@ -773,7 +773,8 @@ class TestPrCommands:
         replies = {
             "repos/o/r/pulls?head=": MagicMock(returncode=0, stdout="[]", stderr=""),
             "repos/o/r/pulls -f": MagicMock(
-                returncode=0, stdout=json.dumps({"html_url": "https://example.com/o/r/pull/9"})
+                returncode=0,
+                stdout=json.dumps({"html_url": "https://example.com/o/r/pull/9", "number": 9}),
             ),
             "repos/o/r": MagicMock(returncode=0, stdout=json.dumps({"default_branch": "trunk"})),
         }
@@ -786,6 +787,7 @@ class TestPrCommands:
             patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/x"),
             patch("devops_cli.commands.pr.run_gh", side_effect=gh) as mock_sub,
             patch("devops_cli.commands.pr.print_success") as said,
+            patch("devops_cli.commands.pr.set_delivered_status") as record,
         ):
             created = _fallback_create_pr(title="t", body="b", base=None, repo="o/r")
         post = mock_sub.call_args_list[-1].args[0]
@@ -794,7 +796,8 @@ class TestPrCommands:
             "base=trunk" in post,
             post[-2:],
             "https://example.com/o/r/pull/9" in str(said.call_args),
-        ) == (True, True, ["-F", "draft=true"], True)
+            record.call_args.args,
+        ) == (True, True, ["-F", "draft=true"], True, ("o/r", 9, "In Progress"))
 
     @pytest.mark.parametrize(
         "repository",

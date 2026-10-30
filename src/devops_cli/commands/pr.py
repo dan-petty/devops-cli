@@ -798,17 +798,21 @@ def _find_existing_pr(owner: str, repo_name: str, head: str, base: str) -> dict[
     return None
 
 
-def _print_created_pr_message(stdout: str, base: str) -> None:
-    """Name the draft the REST API opened, by its URL, or by its base when the reply names none."""
+def _print_created_pr_message(stdout: str, base: str) -> int | None:
+    """Name the draft the REST API opened, by its URL, or by its base when the reply names none.
+    Return its number, or None when the reply names none."""
     try:
         data = json.loads(stdout) if stdout.strip() else {}
     except json.JSONDecodeError:
         data = {}
-    url = data.get("html_url") if isinstance(data, dict) else None
-    if url:
+    if not isinstance(data, dict):
+        data = {}
+    number = data.get("number")
+    if url := data.get("html_url"):
         print_success(MESSAGES.pr.draft_created.format(url=url))
-        return
-    print_success(MESSAGES.pr.draft_created_into.format(base=base))
+    else:
+        print_success(MESSAGES.pr.draft_created_into.format(base=base))
+    return number if isinstance(number, int) else None
 
 
 def _report_create_failure(res: Any, target_base: str | None) -> None:
@@ -885,7 +889,9 @@ def _fallback_create_pr(
     ]
     res = run_gh(cmd, check=False)
     if res.returncode == 0:
-        _print_created_pr_message(res.stdout, target_base)
+        number = _print_created_pr_message(res.stdout, target_base)
+        if number is not None:
+            _record_status(repo, number, CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
         return True
     return False
 
