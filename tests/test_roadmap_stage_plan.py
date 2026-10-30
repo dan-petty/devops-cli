@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from devops_cli.ai.client.models import AIClientError, AICredentialsError, LLMResponse
 from devops_cli.ai.client.structured import StructuredOutputMixin
 from devops_cli.ai.context_packer import ContextPacker
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES
 from devops_cli.config.settings import AIConfig
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
@@ -549,6 +550,15 @@ def test_a_reply_with_a_blank_documentation_that_stays_blank_stops_the_item(
     assert (failure.number, failure.error) == (item, "StructuredOutputValidationError")
     assert failure.reason == "1 schema violation(s)"
     assert len(model.sent) == DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES + 1
+
+
+@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
+def test_the_prompts_say_what_a_group_names(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert "at least one path" in prompt
+    assert "`creates`" in prompt
+    assert "Every task has a text" in prompt
 
 
 # ── The OpenSpec validation ───────────────────────────────────────────────────

@@ -16,7 +16,7 @@
 
 ## 3. The prompt and the documentation
 
-- [ ] 3.1 Change `src/devops_cli/ai/tasks/roadmap_stage_change.md` so it says that a group names at least one file in `changes`, lists the files it needs in `reads`, lists a new file in `creates`, and gives every task a text. Regenerate the documents with `uv run devops docs generate --sync-readme`.
+- [x] 3.1 Change `src/devops_cli/ai/tasks/roadmap_stage_change.md` so it says that a group names at least one file in `changes`, lists the files it needs in `reads`, lists a new file in `creates`, and gives every task a text. Regenerate the documents with `uv run devops docs generate --sync-readme`.
   - Verification: `uv run devops ci docs`
 
 ## 4. Archive
