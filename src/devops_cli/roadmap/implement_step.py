@@ -1054,7 +1054,7 @@ def _extra_ask(source: Path, inputs: StepInputs, failure: _Failure | None) -> _A
         return None
     ticks = texts.implement_repair_turn_ticks.format(**_unticked_fields(source, inputs))
     message = texts.implement_repair_turn.format(
-        failure=failure.reason[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
+        failure=mask_secrets(failure.reason)[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
         ticks=ticks if unticked else "",
     )
     return _Ask(message, failure.repair_paths, texts.implement_stop_repair_turn_changed)

@@ -28,6 +28,7 @@ from devops_cli.roadmap.implement_step import (
     run_step,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.security.sanitizer import mask_secrets
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
     SHOUT_CODE,
@@ -364,3 +365,68 @@ def test_the_instructions_say_that_a_failed_static_check_gets_one_turn(
     inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
     assert "you get one more turn with the text of the error" in inputs.instructions
+
+
+def test_the_failure_text_in_the_message_is_masked(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    assert mask_secrets(token) != token
+    programs.answer(
+        lambda call: command_text(call).startswith("uv run ruff check"),
+        ProcessAnswer(returncode=1, stdout=f"token {token}\n"),
+    )
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), say("Cannot."))
+
+    _step(store, checkout, script)
+
+    assert token not in _prompt(script, 2)
+
+
+def test_an_extra_turn_that_commits_stops_the_step_and_the_checkout_returns_to_its_start(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    _lint_fails_on_an_unused_import(programs)
+    head = git(checkout, "rev-parse", "HEAD")
+    moved: list[str] = []
+
+    def agent_commits() -> None:
+        git(checkout, "add", "-A")
+        git(checkout, "commit", "-q", "-m", "own commit")
+        moved.append(git(checkout, "rev-parse", "HEAD"))
+
+    script = ModelScript(
+        tool_calls(*NOT_TICKED, TICK),
+        say("Done."),
+        tool_calls(REPAIR),
+        say("Fixed."),
+        effects={4: agent_commits},
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        f"The agent moved HEAD from {head} to {moved[0]}. A step makes the only commit.",
+        "",
+        True,
+    )
+
+
+def test_an_extra_turn_that_changes_the_verification_command_leaves_the_tasks_file_as_it_was(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    _lint_fails_on_an_unused_import(programs)
+    changed = TICKED.replace("`uv run devops ci test tests/test_sample.py`", "`true`")
+    assert changed != TICKED
+    script = ModelScript(
+        tool_calls(*NOT_TICKED, TICK),
+        say("Done."),
+        tool_calls(REPAIR, write_call(TASKS_PATH, changed)),
+        say("Fixed."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.status == StepStatus.DONE
+    assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
