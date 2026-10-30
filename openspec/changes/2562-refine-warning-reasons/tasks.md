@@ -2,9 +2,9 @@
 
 ## 1. The error carries its status and timeout
 
-- [ ] 1.1 Write failing tests in `tests/test_ai_client_error_reason.py`: the `reason` of an error with a status, a timeout and neither; an OpenAI-style HTTP 408 reply with the body `MODEL-TEXT` gives status 408 and a `reason` with no `MODEL-TEXT`; an error frame with a status in its body gives that status; a read timeout gives `timed_out`; and in `tests/test_roadmap_agent_run.py` `model_call_error` for `ModelHTTPError(504)` and `ModelTimeoutError`.
+- [x] 1.1 Write failing tests in `tests/test_ai_client_error_reason.py`: the `reason` of an error with a status, a timeout and neither; an OpenAI-style HTTP 408 reply with the body `MODEL-TEXT` gives status 408 and a `reason` with no `MODEL-TEXT`; an error frame with a status in its body gives that status; a read timeout gives `timed_out`; and in `tests/test_roadmap_agent_run.py` `model_call_error` for `ModelHTTPError(504)` and `ModelTimeoutError`.
   - Verification: `uv run devops ci test tests/test_ai_client_error_reason.py tests/test_roadmap_agent_run.py`
-- [ ] 1.2 Add `status`, `timed_out` and `reason` to `AIClientError` in `src/devops_cli/ai/client/models.py`. Set them in `_status_error` (`openai.py`), `_map_openai_error` for a timeout, `_format_status_error` and `_format_network_error` (`base.py`), the status branch of `claude.py`, and `model_call_error` (`roadmap/agent_run.py`).
+- [x] 1.2 Add `status`, `timed_out` and `reason` to `AIClientError` in `src/devops_cli/ai/client/models.py`. Set them in `_status_error` (`openai.py`), `_map_openai_error` for a timeout, `_format_status_error` and `_format_network_error` (`base.py`), the status branch of `claude.py`, and `model_call_error` (`roadmap/agent_run.py`).
   - Verification: `uv run devops ci test tests/test_ai_client_error_reason.py tests/test_roadmap_agent_run.py tests/test_ai_client_retries.py`
 
 ## 2. The two warnings

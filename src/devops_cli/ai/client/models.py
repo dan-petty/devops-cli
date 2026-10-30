@@ -6,6 +6,7 @@ import json
 import os
 from collections.abc import Mapping
 from enum import StrEnum
+from http.client import responses as http_phrases
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx2
@@ -62,7 +63,29 @@ class RequestPriority(StrEnum):
 
 
 class AIClientError(LLMInferenceError, RuntimeError):
-    """Raised when an AI provider request fails with a user-actionable message."""
+    """Raised when an AI provider request fails with a user-actionable message.
+
+    `status` is the HTTP status of the provider's reply, and `timed_out` says the call timed out;
+    the code that builds the error sets them where it knows them (#2562).
+    """
+
+    def __init__(
+        self, message: str, *, status: int | None = None, timed_out: bool = False, **kwargs: Any
+    ) -> None:
+        super().__init__(message, **kwargs)
+        self.status = status
+        self.timed_out = timed_out
+
+    @property
+    def reason(self) -> str:
+        """The error code, then `timeout` or the HTTP status with its phrase, when known. It holds
+        none of the message, which can quote the provider's reply."""
+        if self.timed_out:
+            return f"{self.error_code}, timeout"
+        if self.status is None:
+            return self.error_code
+        phrase = http_phrases.get(self.status, "")
+        return f"{self.error_code}, HTTP {self.status} {phrase}".rstrip()
 
 
 class ReplyRejectedError(AIClientError):

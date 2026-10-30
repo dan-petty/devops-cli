@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic_ai import RunContext
-from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
+from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, ModelTimeoutError
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
@@ -27,11 +27,16 @@ async def drain_events(_ctx: RunContext[None], events: AsyncIterable[AgentStream
 
 
 def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
-    """The job's class for a failed model call of a run, with no text of the model's reply.
-    `subject` names the run, such as `The investigation's`."""
+    """The job's class for a failed model call of a run, with no text of the model's reply, and
+    with the HTTP status or the timeout of the call (#2562). `subject` names the run, such as
+    `The investigation's`."""
     if isinstance(exc, ModelHTTPError) and exc.status_code in _REFUSED_KEY_STATUSES:
         return AICredentialsError(f"The model refused the key (HTTP {exc.status_code}).")
-    return AIClientError(f"{subject} model call failed ({type(exc).__name__}).")
+    return AIClientError(
+        f"{subject} model call failed ({type(exc).__name__}).",
+        status=exc.status_code if isinstance(exc, ModelHTTPError) else None,
+        timed_out=isinstance(exc, ModelTimeoutError),
+    )
 
 
 def record_run_spend(

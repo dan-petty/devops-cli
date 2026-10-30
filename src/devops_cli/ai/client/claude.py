@@ -268,7 +268,9 @@ def _map_anthropic_errors(self_obj: Any, failure: str) -> Iterator[None]:
         resp_text = exc.response.text if exc.response is not None else ""
         cleaned = _clean_http_error_body(resp_text)
         detail = f": {mask_secrets(cleaned)}" if cleaned else ""
-        raise AIClientError(f"Provider request failed with HTTP {exc.status_code}{detail}") from exc
+        raise AIClientError(
+            f"Provider request failed with HTTP {exc.status_code}{detail}", status=exc.status_code
+        ) from exc
     except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
         raise self_obj._connection_error(exc) from exc
     except httpx2.HTTPError as exc:

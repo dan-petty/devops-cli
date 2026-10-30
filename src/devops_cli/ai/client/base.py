@@ -124,16 +124,19 @@ class BaseLLMProviderMixin:
                 detail = f": {mask_secrets(cleaned)}"
         except Exception:
             pass
-        return AIClientError(f"Provider request failed with HTTP {status}{detail}")
+        return AIClientError(f"Provider request failed with HTTP {status}{detail}", status=status)
 
     def _format_network_error(self, exc: httpx2.HTTPError, failure: str) -> AIClientError:
         """Format network and transport errors with exception details."""
         from devops_cli.security.sanitizer import mask_secrets
 
         exc_msg = mask_secrets(str(exc)[:256])
+        timed_out = isinstance(exc, httpx2.TimeoutException)
         if exc_msg:
-            return AIClientError(f"{failure} ({exc.__class__.__name__}: {exc_msg})")
-        return AIClientError(failure)
+            return AIClientError(
+                f"{failure} ({exc.__class__.__name__}: {exc_msg})", timed_out=timed_out
+            )
+        return AIClientError(failure, timed_out=timed_out)
 
     def _provider_http_error(self, exc: httpx2.HTTPError, failure: str) -> AIClientError:
         """Format informative provider HTTP error with status code and sanitized detail."""
