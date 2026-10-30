@@ -77,7 +77,7 @@ def test_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> None
         "IfNotPresent",
         {
             "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "2Gi"},
-            "limits": {"cpu": "2", "memory": "12Gi", "ephemeral-storage": "6Gi"},
+            "limits": {"cpu": "2", "memory": "8Gi", "ephemeral-storage": "6Gi"},
         },
     )
 

@@ -84,16 +84,17 @@ spec:
               resources:
                 # The storage limit covers both volumes below (4 Gi and 1 Gi) and the log, so a
                 # step cannot fill the disk of the node. The memory request is the normal peak of
-                # a Job (1.24 GB at most over 11 Jobs). The memory limit is a burst class (#2806):
-                # a kill needs a real runaway, and the node has room. The CPU limit only slows a
-                # step, so it stays.
+                # a Job (1.24 GB at most over the 10 Jobs that did not run out of memory). The
+                # memory limit is a burst class (#2806): twice the 4.13 GB that the killed Job had
+                # reached, and below the 15 Gi that the smallest node can allocate, so a pod that
+                # lands on it cannot starve the node. The CPU limit only slows a step, so it stays.
                 requests:
                   cpu: "2"
                   memory: 4Gi
                   ephemeral-storage: 2Gi
                 limits:
                   cpu: "2"
-                  memory: 12Gi
+                  memory: 8Gi
                   ephemeral-storage: 6Gi
           volumes:
             - name: tmp
