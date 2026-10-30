@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A run that reaches a limit ends stopped
-`UsageLimits` SHALL cap a run at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls, and the extra turn for the ticks SHALL count against them. A run that reaches a limit, or breaks the rules of its tools past their retries, SHALL end as stopped with a reason that holds the class name and the message of the pydantic-ai error. The step SHALL mask secrets in the message with `mask_secrets`, then cut it to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters, and SHALL reset the checkout. The agent SHALL have no `delegate_task` tool.
+`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, or breaks the rules of its tools past their retries, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the message of the pydantic-ai error, masked and cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters. The agent SHALL have no `delegate_task` tool.
 
 #### Scenario: A model that never ends
 - **WHEN** the model calls a tool in every reply

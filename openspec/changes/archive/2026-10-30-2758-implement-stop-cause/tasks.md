@@ -16,10 +16,10 @@
 
 ## 3. The documentation
 
-- [ ] Regenerate the documentation, and update the term "Stop reason" in `CONTEXT.md` if it names the class only.
+- [x] Regenerate the documentation, and update the term "Stop reason" in `CONTEXT.md` if it names the class only.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 4. Archive
 
-- [ ] Archive the change.
+- [x] Archive the change.
   - Verification: `uv run devops openspec archive 2758-implement-stop-cause`
