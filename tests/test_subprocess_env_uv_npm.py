@@ -20,7 +20,9 @@ pytestmark = pytest.mark.live("python")
 # when it prefers its own Python builds (UV_MANAGED_PYTHON=1). npm starts the shell of
 # `script-shell` for each script, and `node-options` becomes NODE_OPTIONS for each script. npm
 # starts the program of `git` for a git dependency, the program of `editor` for `npm config edit`,
-# and loads the module of `init-module` for `npm init`.
+# the shell of `shell` for `npm explore`, and loads the module of `init-module` for `npm init`.
+# node-gyp, which `npm install` runs for a package with a binding.gyp, starts the interpreter of
+# `python` and of PYTHON.
 REFUSED_UV_NPM_KEYS: tuple[str, ...] = (
     "UV_PYTHON",
     "UV_PYTHON_INSTALL_DIR",
@@ -31,6 +33,9 @@ REFUSED_UV_NPM_KEYS: tuple[str, ...] = (
     "npm_config_git",
     "npm_config_editor",
     "npm_config_init_module",
+    "npm_config_shell",
+    "npm_config_python",
+    "PYTHON",
 )
 
 # npm reads an environment key such as `npm_config_script-shell` as the same setting as
@@ -107,18 +112,16 @@ def test_a_child_without_isolation_gets_the_uv_and_npm_program_keys_of_the_perso
     )
 
 
-def test_an_isolated_child_gets_the_uv_settings_of_the_person(
+def test_an_isolated_child_gets_the_uv_settings_that_the_runner_needs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The `UV_` prefix of the ambient allowlist keeps passing the uv settings of the person to an
-    isolated child, the three program keys included. A `uv run` of the gate on a CI runner needs
-    `UV_PYTHON` and `UV_PYTHON_INSTALL_DIR` to keep the interpreter that `uv sync` built (#1735).
-    The environment of the person is as trusted as `PATH`, which also decides what a child starts
-    (#2673)."""
+    isolated child. A `uv run` of the gate on a CI runner needs `UV_PYTHON` and
+    `UV_PYTHON_INSTALL_DIR` to keep the interpreter that `uv sync` built (#1735). The environment
+    of the person is as trusted as `PATH`, which also decides what a child starts (#2673)."""
     uv_keys = {
         "UV_PYTHON": "3.14",
         "UV_PYTHON_INSTALL_DIR": "/runner/example/python",
-        "UV_PROJECT_ENVIRONMENT": "/runner/example/venv",
         "UV_CACHE_DIR": "/runner/example/cache",
     }
     for key, value in uv_keys.items():
@@ -127,6 +130,24 @@ def test_an_isolated_child_gets_the_uv_settings_of_the_person(
     env = build_subprocess_env()
 
     assert {key: env.get(key) for key in uv_keys} == uv_keys
+
+
+def test_an_isolated_child_gets_no_uv_project_environment_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No file of the repository sets `UV_PROJECT_ENVIRONMENT`, and a probe showed that uv starts
+    the `bin/python` of the environment that it names, so the `UV_` prefix does not pass it,
+    in upper or lower case. With isolation off, the child gets it (#2673)."""
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/example/venv")
+    monkeypatch.setenv("uv_project_environment", "/example/venv")
+
+    isolated = build_subprocess_env()
+    not_isolated = build_subprocess_env(isolate_env=False)
+
+    assert (
+        sorted(k for k in isolated if k.upper() == "UV_PROJECT_ENVIRONMENT"),
+        "UV_PROJECT_ENVIRONMENT" in not_isolated,
+    ) == ([], True)
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
