@@ -35,6 +35,8 @@ None.
 - The premise holds. On `origin/main`, `OllamaProviderMixin._preload_single_ollama_url` returns the raw `url` as the key of the result, `_render_prewarm_results` and `preload` print or serialize that key, and `prewarm` emits `"model": str(target_model)`. A test with the real client and the shared network fakes shows `http://FAKE-2676-user@example.com:11434/?x=FAKE-2676-query` in the reply of the MCP tool and in the output of both commands.
 - The issue is not superseded. #2637 removed the `url` parameter of the tool, so the tool takes no URL from the model. It did not change the output. `server_label` of #2481 exists in `src/devops_cli/ai/benchmark/labels.py` and has no caller in the prewarm path.
 - The issue gives the label character set `a-zA-Z0-9._-`. Real Ollama model names hold `:` and `/` (`gemma4:26b`, `hf.co/org/repo:Q4_K_M`), and an existing test expects `gemma4:26b`. The change keeps `:` and `/`. The example of the issue, `my/model`@v2`.0!beta`, keeps `/` too.
+- The issue says a URL with no port shows as `example.net:80`. `server_label` drops the default port of the scheme, as the benchmarks do (#2481), so that URL shows as `example.com`. The change keeps this one naming rule.
+- `http://example.com` and `https://example.com` give the same label, so they merge into one node that is ok only when both are ok. A reader cannot tell which scheme failed. The change keeps the rule that a failure never hides.
 
 ## Existing Tool Considered
 
