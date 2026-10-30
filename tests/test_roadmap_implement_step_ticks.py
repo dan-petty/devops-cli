@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepStatus,
@@ -190,6 +191,113 @@ def test_a_group_that_the_model_adds_stops_the_step_with_the_group_named(
         StepStatus.STOPPED,
         "Group 3 changed. A step may change only its own group.",
     )
+
+
+def test_a_changed_bullet_of_a_ticked_later_group_stops_the_step(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    head = git(later_open, "rev-parse", "HEAD")
+    edited = EVERY_TICK.replace("- [x] Document", "* [x] Document")
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
+
+    result = _step(store, later_open, script)
+
+    assert (result, is_clean_at(later_open, head)) == ((StepStatus.STOPPED, EDITED), True)
+
+
+def test_a_line_that_the_model_adds_to_a_ticked_later_group_stops_the_step(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    prose = "Extra prose by the model.\n\n## Workflow follow-up"
+    edited = EVERY_TICK.replace("## Workflow follow-up", prose)
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
+
+    assert _step(store, later_open, script) == (StepStatus.STOPPED, EDITED)
+
+
+def test_a_line_that_the_model_adds_to_an_unticked_later_group_stops_the_step(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    prose = "Extra prose by the model.\n\n## Workflow follow-up"
+    edited = TICKED.replace("- [x] Document", "- [ ] Document").replace(
+        "## Workflow follow-up", prose
+    )
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
+
+    assert _step(store, later_open, script) == (StepStatus.STOPPED, EDITED)
+
+
+def test_a_tasks_file_with_lone_cr_line_ends_is_restored_on_the_right_line(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    lone = "# Tasks" + "\r" * 62 + "\n"
+    checkout = make_checkout(tmp_path, LATER_OPEN)
+    script = ModelScript(
+        tool_calls(*WORK, write_call(TASKS_PATH, EVERY_TICK.replace("# Tasks\n", lone, 1))),
+        say("Done."),
+    )
+
+    result = _step(store, checkout, script)
+
+    expected = TICKED.replace("- [x] Document", "- [ ] Document").replace("# Tasks\n", lone, 1)
+    assert (result, (checkout / TASKS_PATH).read_text(encoding="utf-8", newline="")) == (
+        (StepStatus.DONE, ""),
+        expected,
+    )
+
+
+def _hidden_edit() -> str:
+    """The `tasks.md` of a model that edits group 2 and then adds a copy of the first group 2."""
+    edited = LATER_OPEN.replace("Document the function", "Do evil things")
+    original = LATER_OPEN.split("## 2.")[1].split("## Workflow")[0]
+    return edited.replace("- [ ] Add", "- [x] Add") + f"\n## 2.{original}"
+
+
+def test_a_copy_of_a_group_that_hides_an_edit_of_it_stops_the_step(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    head = git(later_open, "rev-parse", "HEAD")
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, _hidden_edit())), say("Done."))
+
+    result = _step(store, later_open, script)
+
+    assert (result, is_clean_at(later_open, head)) == ((StepStatus.STOPPED, EDITED), True)
+
+
+def test_a_fix_step_that_hides_an_edit_behind_a_copy_of_a_group_stops(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(
+            write_call("src/sample.py", SHOUT_CODE),
+            write_call(TASKS_PATH, _hidden_edit().replace("- [x] Add", "- [ ] Add")),
+        ),
+        say("Fixed."),
+    )
+
+    outcome = run_fix_step(
+        store,
+        item=1,
+        fix=FixRequest(check="lint", log="E501"),
+        source=later_open,
+        model=script.model(),
+        window=WINDOW,
+    )
+
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        "The tasks changed. A fix step changes no task.",
+    )
+
+
+def test_a_change_whose_tasks_file_numbers_a_group_twice_is_refused(
+    store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    twice = TASKS.replace("## Workflow follow-up", "## 2. A copy\n\n- [ ] More\n\n## Workflow")
+    checkout = make_checkout(tmp_path, twice)
+
+    with pytest.raises(RoadmapImplementError, match="two groups numbered 2"):
+        build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
 
 def test_the_step_prints_one_line_that_names_the_restored_groups(
