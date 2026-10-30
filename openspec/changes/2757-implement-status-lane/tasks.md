@@ -14,7 +14,7 @@
 
 ## 3. The documentation
 
-- [ ] Name the lane of each row in `CONTEXT.md` (Lane) and in `k8s/README.md` (Roadmap service, step 16 and the rows list), and regenerate the documentation.
+- [x] Name the lane of each row in `CONTEXT.md` (Lane) and in `k8s/README.md` (Roadmap service, step 16 and the rows list), and regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 4. Archive
