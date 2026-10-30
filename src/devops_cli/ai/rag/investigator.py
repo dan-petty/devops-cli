@@ -237,7 +237,8 @@ def _get_or_create_retriever(
         )
         if not qdrant.is_alive():
             logger.debug(
-                "Qdrant vector store unreachable at %s, skipping RAG investigation", qdrant_url
+                "Qdrant vector store unreachable at %s, skipping RAG investigation",
+                qdrant.server_label,
             )
             return None
 

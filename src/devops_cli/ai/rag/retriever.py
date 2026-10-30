@@ -338,7 +338,7 @@ def _verify_single_collection_for_search(
     configured_model: str,
 ) -> None:
     """Check once per process that a collection's points were created with the configured model."""
-    key = (str(getattr(qdrant, "base_url", id(qdrant))), collection_name)
+    key = (str(getattr(qdrant, "server_label", id(qdrant))), collection_name)
     if key in _SEARCH_VERIFIED_MODELS:
         verified_model = _SEARCH_VERIFIED_MODELS[key]
         if verified_model and configured_model and verified_model != configured_model:
