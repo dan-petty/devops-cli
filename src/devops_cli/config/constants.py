@@ -1608,7 +1608,9 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # VIRTUAL_ENV and UV_PROJECT_ENVIRONMENT, and an interpreter below UV_PYTHON_INSTALL_DIR when
     # it prefers its own Python builds. npm starts the shell of script-shell for each script, passes
     # node-options as NODE_OPTIONS to each script, starts the program of git for a git dependency
-    # and of editor for `npm config edit`, and loads the module of init-module for `npm init`.
+    # and of editor for `npm config edit`, starts the shell of `npm explore`, and loads the module
+    # of init-module for `npm init`. node-gyp, which `npm install` runs for a package with a
+    # binding.gyp, starts the interpreter of npm_config_python and of PYTHON.
     # npm reads `npm_config_script-shell` as `npm_config_script_shell`, so `[_-]` matches both.
     # npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: callers set
     # them, and a caller names a file that it controls.
@@ -1621,6 +1623,9 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "NPM_CONFIG_GIT",
     "NPM_CONFIG_EDITOR",
     "NPM_CONFIG_INIT[_-]MODULE",
+    "NPM_CONFIG_SHELL",
+    "NPM_CONFIG_PYTHON",
+    "PYTHON",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",

@@ -7,8 +7,8 @@
 - **WHEN** a caller builds a child environment with the override `UV_PYTHON`, `UV_PYTHON_INSTALL_DIR`, `UV_PROJECT_ENVIRONMENT` or `VIRTUAL_ENV`, in upper or lower case
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
 
-#### Scenario: The shell, the options, the git program, the editor and the init module of npm
-- **WHEN** a caller builds a child environment with the override `npm_config_script_shell`, `npm_config_node_options`, `npm_config_git`, `npm_config_editor` or `npm_config_init_module`, in any case
+#### Scenario: The shell, the options, the git program, the editor, the init module and the interpreter of npm
+- **WHEN** a caller builds a child environment with the override `npm_config_script_shell`, `npm_config_node_options`, `npm_config_git`, `npm_config_editor`, `npm_config_init_module`, `npm_config_shell`, `npm_config_python` or `PYTHON`, in any case
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
 
 #### Scenario: The spelling with a hyphen
@@ -19,22 +19,22 @@
 - **WHEN** a caller runs a program with `run_subprocess` and the override `UV_PYTHON`
 - **THEN** `run_subprocess` raises `SecurityError` and the program does not start
 
-### Requirement: An isolated child gets no VIRTUAL_ENV and no npm program key from the environment
-With isolation on, `build_subprocess_env` SHALL keep `VIRTUAL_ENV` and each key that the previous requirement refuses for npm out of the child environment, in each spelling and case. With isolation off, the child gets the environment as it is. No key of `DEFAULT_ALLOWED_ENV_VARS` SHALL be `VIRTUAL_ENV`.
+### Requirement: An isolated child gets no VIRTUAL_ENV, UV_PROJECT_ENVIRONMENT and no npm program key from the environment
+With isolation on, `build_subprocess_env` SHALL keep `VIRTUAL_ENV`, `UV_PROJECT_ENVIRONMENT` and each key that the previous requirement refuses for npm out of the child environment, in each spelling and case. With isolation off, the child gets the environment as it is. No key of `DEFAULT_ALLOWED_ENV_VARS` SHALL be `VIRTUAL_ENV`.
 
 #### Scenario: The keys in the environment of the person
-- **WHEN** the environment holds `VIRTUAL_ENV` and the npm keys, and a caller builds a child environment with isolation on
+- **WHEN** the environment holds `VIRTUAL_ENV`, `UV_PROJECT_ENVIRONMENT` and the npm keys, and a caller builds a child environment with isolation on
 - **THEN** the child environment holds none of these keys
 
 #### Scenario: Isolation off
 - **WHEN** the environment holds `VIRTUAL_ENV` and `npm_config_script_shell`, and a caller builds a child environment with isolation off
 - **THEN** the child environment holds both keys with their values
 
-### Requirement: An isolated child gets the uv settings of the person
-With isolation on, `build_subprocess_env` SHALL keep each `UV_` key of the environment that no denied pattern matches, `UV_PYTHON`, `UV_PYTHON_INSTALL_DIR` and `UV_PROJECT_ENVIRONMENT` included, so that a `uv run` of the gate keeps the interpreter and the environment that the runner built.
+### Requirement: An isolated child gets the uv settings that the runner needs
+With isolation on, `build_subprocess_env` SHALL keep each `UV_` key of the environment that no denied pattern matches, `UV_PYTHON` and `UV_PYTHON_INSTALL_DIR` included, so that a `uv run` of the gate keeps the interpreter and the environment that the runner built.
 
 #### Scenario: The uv settings of a runner
-- **WHEN** the environment holds `UV_PYTHON`, `UV_PYTHON_INSTALL_DIR`, `UV_PROJECT_ENVIRONMENT` and `UV_CACHE_DIR`, and a caller builds a child environment with isolation on
+- **WHEN** the environment holds `UV_PYTHON`, `UV_PYTHON_INSTALL_DIR` and `UV_CACHE_DIR`, and a caller builds a child environment with isolation on
 - **THEN** the child environment holds each of these keys with its value
 
 ### Requirement: A uv or npm key that names no program or that names a file reaches the child
@@ -47,8 +47,8 @@ With isolation on, `build_subprocess_env` SHALL keep each `UV_` key of the envir
 ## MODIFIED Requirements
 
 ### Requirement: An isolated child gets no refused key from the environment
-With environment isolation on, `build_subprocess_env` SHALL keep each key that the caller override refuses out of the child environment when the key is in the environment of the process and the caller names no `extra_allowed_keys`. The one exception is the keys that the prefix `UV_` lets through: `UV_PYTHON`, `UV_PYTHON_INSTALL_DIR` and `UV_PROJECT_ENVIRONMENT`.
+With environment isolation on, `build_subprocess_env` SHALL keep each key that the caller override refuses out of the child environment when the key is in the environment of the process and the caller names no `extra_allowed_keys`. The one exception is the keys that the prefix `UV_` lets through: `UV_PYTHON` and `UV_PYTHON_INSTALL_DIR`.
 
 #### Scenario: Refused keys in the environment of the person
-- **WHEN** the environment holds `PYTHONPATH`, `PYTHONHOME`, `ZDOTDIR`, `NODE_OPTIONS`, `PERL5LIB`, `LD_PRELOAD`, `BASH_ENV` and each other refused key but the three uv keys, and a caller builds a child environment with isolation on
+- **WHEN** the environment holds `PYTHONPATH`, `PYTHONHOME`, `ZDOTDIR`, `NODE_OPTIONS`, `PERL5LIB`, `LD_PRELOAD`, `BASH_ENV` and each other refused key but the two uv keys, and a caller builds a child environment with isolation on
 - **THEN** the child environment holds none of these keys
