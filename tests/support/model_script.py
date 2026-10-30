@@ -1,14 +1,16 @@
 """A scripted pydantic-ai model for the tests of an agent run (#2664).
 
 `ModelScript` answers the nth model request with the nth scripted reply, and the last reply for
-every request after that. A reply is a `ModelResponse`, or an exception that the request raises.
-The model streams, as the harness's `Coder` and the jobs' runs ask for it. The script keeps the
-messages of each request and the names of the function tools each request offered.
+every request after that. A reply is a `ModelResponse`, an exception that the request raises, or
+an `InStream` error, which the request raises after its stream has begun. The model streams, as the
+harness's `Coder` and the jobs' runs ask for it. The script keeps the messages of each request and
+the names of the function tools each request offered.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai.messages import (
@@ -37,12 +39,20 @@ def say(text: str) -> ModelResponse:
     return ModelResponse(parts=[TextPart(text)])
 
 
+@dataclass(frozen=True)
+class InStream:
+    """A reply that fails after the stream has begun: the model streams a first text, then
+    `error` is raised. A request that does not stream raises `error` at once."""
+
+    error: Exception
+
+
 class ModelScript:
     """The scripted replies of a model, and what the model was asked."""
 
     def __init__(
         self,
-        *replies: ModelResponse | Exception,
+        *replies: ModelResponse | Exception | InStream,
         effects: Mapping[int, Callable[[], None]] | None = None,
     ) -> None:
         """`effects` maps the number of a request to what the agent's shell would have done by
@@ -61,13 +71,21 @@ class ModelScript:
         reply = self.replies[min(len(self.seen), len(self.replies)) - 1]
         if isinstance(reply, Exception):
             raise reply
+        if isinstance(reply, InStream):
+            raise reply.error
         return reply
 
     async def stream(
         self, messages: list[ModelMessage], info: AgentInfo
     ) -> AsyncIterator[str | DeltaToolCalls]:
         """The same reply as a stream."""
-        for index, part in enumerate(self(messages, info).parts):
+        try:
+            reply = self(messages, info)
+        except Exception as error:
+            if self._in_stream(len(self.seen)):
+                yield "A first text of the reply."
+            raise error
+        for index, part in enumerate(reply.parts):
             if isinstance(part, ToolCallPart):
                 yield {
                     index: DeltaToolCall(
@@ -78,6 +96,10 @@ class ModelScript:
                 }
             elif isinstance(part, TextPart):
                 yield part.content
+
+    def _in_stream(self, number: int) -> bool:
+        """Whether the nth request fails after its stream has begun."""
+        return isinstance(self.replies[min(number, len(self.replies)) - 1], InStream)
 
     def model(self) -> FunctionModel:
         """A `FunctionModel` that answers through this script, streamed or not."""

@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from pydantic_ai.exceptions import (
     ModelAPIError,
+    ModelContextWindowExceededError,
     ModelHTTPError,
     ModelRequestTimeout,
     UnexpectedModelBehavior,
@@ -70,7 +71,7 @@ from tests.support.implement_step import (
     the_whole_group,
     write_call,
 )
-from tests.support.model_script import ModelScript, say, tool_call, tool_calls
+from tests.support.model_script import InStream, ModelScript, say, tool_call, tool_calls
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1617,6 +1618,148 @@ def test_a_refused_key_in_the_extra_turn_raises_after_the_checkout_is_reset(
         _step(store, checkout, script)
 
     assert is_clean_at(checkout, head)
+
+
+# ── A model call that fails inside a stream is sent again (#2794) ─────────────────────────
+
+
+def _in_stream_400() -> InStream:
+    """The error that the gateway sends when Ollama cannot read a tool call of the model: the
+    stream is open, so the status 200 is sent, and the error object has the code "400"."""
+    body = {"message": XML_ERROR, "type": None, "param": None, "code": "400"}
+    return InStream(ModelHTTPError(400, "example-model", body, in_stream=True))
+
+
+def _history(messages: Sequence[Any]) -> list[Any]:
+    return [message.parts for message in messages]
+
+
+def test_a_400_inside_a_stream_is_sent_again_with_the_same_history_and_the_step_ends_done(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(*the_whole_group()), _in_stream_400(), say("The group is done.")
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, outcome.last_message) == (
+        StepStatus.DONE,
+        "",
+        "The group is done.",
+    )
+    assert len(script.seen) == 3
+    assert _history(script.seen[2]) == _history(script.seen[1])
+
+
+def test_a_400_inside_a_stream_at_the_first_request_is_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(_in_stream_400(), tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 3)
+    assert _history(script.seen[1]) == _history(script.seen[0])
+
+
+def test_a_400_inside_a_stream_on_every_send_stops_the_step_with_the_body(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(tool_calls(*WORK), _in_stream_400())
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        f"ModelHTTPError: HTTP 400, model example-model, body: {XML_ERROR}",
+        True,
+    )
+    assert len(script.seen) == 1 + 1 + constants.CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+    assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
+
+
+NOT_RESENT = [
+    pytest.param(
+        ModelHTTPError(400, "example-model", {"message": XML_ERROR}), id="before-the-stream"
+    ),
+    pytest.param(
+        ModelHTTPError(503, "example-model", {"message": "busy"}, in_stream=True),
+        id="status-503",
+    ),
+    pytest.param(
+        ModelHTTPError.for_category(
+            ModelContextWindowExceededError,
+            status_code=400,
+            model_name="example-model",
+            body={"message": "The prompt is too long."},
+            in_stream=True,
+        ),
+        id="context-window",
+    ),
+]
+
+
+@pytest.mark.parametrize("failure", NOT_RESENT)
+def test_other_failed_model_calls_are_not_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, failure: ModelHTTPError
+) -> None:
+    script = ModelScript(tool_calls(*WORK), InStream(failure))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 2)
+
+
+def test_a_400_inside_a_stream_in_the_extra_turn_is_sent_again(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(*WORK), say(FORGOT), _in_stream_400(), tool_calls(TICK), say("Ticked.")
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.last_message) == (StepStatus.DONE, "Ticked.")
+    assert _history(script.seen[3]) == _history(script.seen[2])
+
+
+def test_the_replies_before_a_send_again_count_against_the_request_limit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A fresh budget for the second send would let the run make more requests than the limit."""
+    read = tool_call("read_file", path="docs/SAMPLE.md")
+    script = ModelScript(read, _in_stream_400(), read)
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, REQUEST_LIMIT_REASON)
+    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS + 1
+
+
+def test_the_tool_calls_before_a_send_again_count_against_the_tool_call_limit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    batch = 4
+    reads = tool_calls(*[("read_file", {"path": "docs/SAMPLE.md"})] * batch)
+    script = ModelScript(reads, _in_stream_400(), reads)
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, TOOL_CALL_LIMIT_REASON)
+    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS // batch + 2
+
+
+def test_the_spend_of_a_failed_send_is_in_the_outcome_and_the_ledger(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, spend_ledger: SpendLedger
+) -> None:
+    script = ModelScript(_in_stream_400(), tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.requests == 3
+    assert [row[:2] for row in _spend_rows(spend_ledger)] == [("agent_run", "implement")] * 2
 
 
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────

@@ -2970,6 +2970,10 @@ CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 16000
 # The consecutive refusals that a tool may answer before the run ends, such as a command off the
 # allowlist. A refusal is the model's to correct, as the harness's own file tools allow five.
 CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
+# How many times a step sends a model request again when the provider fails it inside an open
+# stream with the status 400 (#2794): a tool call that the model ended early, which the next sample
+# can make whole. One resend keeps each call to two sends (#2500).
+CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS: Final[int] = 1
 CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS: Final[int] = 40000
 # The tokens of one packed file in the inputs of a step. The agent reads more with its tools.
 CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000

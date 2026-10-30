@@ -9,9 +9,9 @@
 
 ## 2. The resend
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_step.py`, with a way in `tests/support/model_script.py` to fail inside a stream: one failure then a good reply ends done with the same messages in both requests; every send fails and the step stops with the body and the count of requests; a 400 before a stream, a 503 and a context window error get no second request; one failure in the extra turn; the requests of both sends count in the limit of requests.
+- [x] Write failing tests in `tests/test_roadmap_implement_step.py`, with a way in `tests/support/model_script.py` to fail inside a stream: one failure then a good reply ends done with the same messages in both requests; every send fails and the step stops with the body and the count of requests; a 400 before a stream, a 503 and a context window error get no second request; one failure in the extra turn; the requests of both sends count in the limit of requests.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Add `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` to `src/devops_cli/config/constants.py`. Split `_run_agent` into a turn and a loop that resumes the conversation after an error of the generation inside a stream.
+- [x] Add `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` to `src/devops_cli/config/constants.py`. Split `_run_agent` into a turn and a loop that resumes the conversation after an error of the generation inside a stream.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
 
 ## 3. The documentation
