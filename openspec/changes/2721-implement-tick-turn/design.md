@@ -1,0 +1,24 @@
+# Design
+
+## Decisions
+
+- **Ticks are checked last, and missing ticks get one turn.** The model forgets a bookkeeping edit more often than it forgets the work. The exit checks of the step were: ticks, verification, static checks. They are now: shape of the tasks, verification, static checks, ticks. When the first three pass and only ticks are missing, the work is good and the step asks once. A step whose verification fails reports that failure, which is more useful than "not ticked".
+- **The turn is the same conversation.** `run_sync(conversation=previous.conversation)` carries the messages and the usage. The model sees what it did. `UsageLimits` is the same object, so the 80 requests and 240 tool calls cap both turns together. The turn cannot raise the cost of a step beyond the cap.
+- **The turn may change only `tasks.md`.** Before the turn the job stages the checkout and writes a tree (`git write-tree`). After the turn it stages the checkout again and lists the paths that differ from that tree (`git diff --cached --name-only -z`). Any path other than the `tasks.md` of the change stops the step. This keeps the turn from being a second fix on a fix (AGENTS.md rule 2).
+- **Every exit check runs again after the turn.** The turn can only change `tasks.md`, but the verification commands are the project's own commands and may read it. Running them again costs time only on the rare path of a forgotten tick, and it keeps one rule: a step commits only what the whole sequence passed.
+- **The path of `tasks.md` is in the user message.** The instructions are one fixed file. The path depends on the change. The user message gets a section "The tasks file" with the path in a code span, and the instructions say to look there. A fix step has no such section: it ticks nothing.
+- **The diff is read in the step, and posted by the job.** The step knows `start` and still holds the work when it stops. It runs `git add -A` and `git diff --cached --no-color --no-ext-diff --no-textconv <start>`. The two flags stop a diff driver that the agent could have put in `.git/config` or `.gitattributes` from running a program in the job's process. The step masks secrets in the whole diff first, then cuts it. A cut before the masking could split a secret and let half of it through. `StepOutcome.diff` holds the result and `diff_cut` says whether it was cut. The job renders it.
+- **The fence is longer than any backtick run.** The job computes the length as the longest run of backticks in the diff plus one, and at least three. By the rule of CommonMark no line of the diff can close such a block. The block is the last part of the comment that holds model text, and the text of the comment after it is the job's own.
+- **A step that raises keeps no diff.** A model call that fails raises an error out of the step, and the item stops with the class of the error. The issue asks for the diff of a stopped step. The step reports a stop only through its outcome, so only that path carries the diff.
+
+## Rejected alternatives
+
+- **Tick the tasks in the job, not in the model.** The job could tick every task once verification passes. A tick says that the work of the task is done. The job cannot tell which task a verification command covers, so it would tick tasks of work the model skipped. The model names the work it did, and the job checks the facts.
+- **Ask for the ticks in the first turn only, with a stronger prompt.** A prompt is a request, not a check. The first live run shows that a prompt of the same kind did not hold. The prompt change stays, since it costs nothing, but the check is the extra turn.
+- **A loop of tick turns.** One turn is enough for a model that was asked clearly. A second turn would pay again for the same fault. AGENTS.md rule 2 says stop at a second fix on a fix.
+- **`message_history=` in place of `conversation=`.** Probed on pydantic-ai 2.59.0: the usage restarts from zero, so the limits would cover each turn alone.
+- **A new agent run with a summary of the first.** It costs the full inputs again and the model loses what it read and wrote.
+- **Skip the second run of the verification commands.** It saves time and trusts that commands never read `tasks.md`. The rare path does not justify a rule that can be wrong.
+- **Push the discarded work to a branch.** A push of work that failed its checks starts CI on it, and the job would need a rule for the branch. A diff in the comment lets a person judge the work without a new branch.
+- **Mask only the lines that look like secrets.** A multi-line secret, such as a private key, spans lines. `mask_secrets` handles the patterns of the project, and the step calls it on the whole text.
+- **A tilde fence.** The diff can hold lines of tildes as well. A longer fence of backticks is safe by rule, with no case to test.
