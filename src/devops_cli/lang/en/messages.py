@@ -477,6 +477,8 @@ class RepoMessages:
         "worktree.",
         "If origin holds a staged branch for the issue, the run reads its authors with the log "
         "command and adds the worktree on that branch with --track.",
+        "If a local branch of the new name exists, no worktree uses it, and origin holds all its "
+        "commits, the run deletes that stray branch first.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
     worktrees_add_took_over: str = (
@@ -518,6 +520,14 @@ class RepoMessages:
     )
     worktrees_add_dry_run_needs_options: str = (
         "--dry-run cannot read the branches of origin. Give --type and --slug."
+    )
+    worktrees_add_stray_deleted: str = (
+        "Deleted the stray local branch {branch} at {commit}. No worktree uses it, and origin "
+        "holds all its commits."
+    )
+    worktrees_add_stray_unpushed: str = (
+        "The local branch {branch} has {count} commit(s) that origin does not hold, and no "
+        "worktree uses it. Push the commits or delete the branch, then run the command again."
     )
     worktrees_add_git_failed: str = "`git {command}` failed: {reason}"
     worktrees_add_bad_type: str = "'{type}' is not a branch type. Allowed types: {types}."

@@ -289,6 +289,117 @@ def test_a_local_branch_with_no_worktree_holds_nothing(
     assert standard_dir.is_dir()
 
 
+def _stray_branch(git: Git, repo: Path, branch: str, *, own_commit: bool = False) -> str:
+    """Make the local branch `branch` with no worktree, at the tip of main or with one commit of
+    its own; return its tip."""
+    git(repo, "branch", branch)
+    if own_commit:
+        git(repo, "switch", "-q", branch)
+        (repo / "stray.txt").write_text("stray\n", encoding="utf-8")
+        git(repo, "add", "stray.txt")
+        git(repo, "commit", "-m", "stray work")
+        git(repo, "switch", "-q", "main")
+    return _git_out(repo, "rev-parse", branch).stdout.strip()
+
+
+def test_a_stray_branch_at_the_tip_of_main_is_deleted_and_logged(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    standard_dir: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    branch = "feat/2337-worktrees-add"
+    tip = _stray_branch(git, repo, branch)
+
+    with caplog.at_level("INFO", logger="devops_cli.git.worktree_add"):
+        result = _add(cli, repo)
+
+    assert result.exit_code == 0, result.output
+    assert _git_out(standard_dir, "branch", "--show-current").stdout.strip() == branch
+    stray_lines = [r.getMessage() for r in caplog.records if "stray" in r.getMessage()]
+    assert len(stray_lines) == 1
+    assert branch in stray_lines[0]
+    assert tip in stray_lines[0]
+
+
+def test_a_stray_branch_with_a_commit_of_its_own_is_kept_and_named(
+    cli: Cli, repo: Path, git: Git, standard_dir: Path
+) -> None:
+    branch = "feat/2337-worktrees-add"
+    tip = _stray_branch(git, repo, branch, own_commit=True)
+
+    result = _add(cli, repo)
+
+    said = _said(result)
+    assert result.exit_code == 1
+    assert branch in said
+    assert "1 commit" in said
+    assert _git_out(repo, "rev-parse", branch).stdout.strip() == tip
+    assert not standard_dir.exists()
+
+
+def test_a_stray_branch_whose_commit_origin_holds_on_another_branch_is_deleted(
+    cli: Cli, repo: Path, git: Git, standard_dir: Path
+) -> None:
+    branch = "feat/2337-worktrees-add"
+    tip = _stray_branch(git, repo, branch, own_commit=True)
+    git(repo, "push", "origin", f"{tip}:refs/heads/fix/2338-other")
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 0, result.output
+    assert _git_out(standard_dir, "branch", "--show-current").stdout.strip() == branch
+    assert _git_out(standard_dir, "rev-parse", "HEAD").stdout.strip() != tip
+
+
+@pytest.mark.usefixtures("app")
+def test_a_stray_branch_of_a_staged_issue_is_deleted_before_the_takeover(
+    cli: Cli, repo: Path, origin: Path, git: Git, tmp_path: Path, standard_dir: Path
+) -> None:
+    pushed = _push_branch(origin, tmp_path, STAGED, BOT)
+    _stray_branch(git, repo, STAGED)
+
+    result = _add(cli, repo, extra=("--json",))
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["status"] == "took over"
+    assert _git_out(standard_dir, "rev-parse", "HEAD").stdout.strip() == pushed
+    upstream = _git_out(standard_dir, "rev-parse", "--abbrev-ref", "@{u}")
+    assert upstream.stdout.strip() == f"origin/{STAGED}"
+
+
+@pytest.mark.usefixtures("app")
+def test_a_stray_branch_of_a_staged_issue_with_its_own_commit_is_kept_and_named(
+    cli: Cli, repo: Path, origin: Path, git: Git, tmp_path: Path, standard_dir: Path
+) -> None:
+    _push_branch(origin, tmp_path, STAGED, BOT)
+    tip = _stray_branch(git, repo, STAGED, own_commit=True)
+
+    result = _add(cli, repo)
+
+    said = _said(result)
+    assert result.exit_code == 1
+    assert STAGED in said
+    assert "1 commit" in said
+    assert _git_out(repo, "rev-parse", STAGED).stdout.strip() == tip
+    assert not standard_dir.exists()
+
+
+def test_a_dry_run_deletes_no_stray_branch_and_says_that_a_run_can(
+    cli: Cli, repo: Path, git: Git, standard_dir: Path
+) -> None:
+    branch = "feat/2337-worktrees-add"
+    _stray_branch(git, repo, branch)
+
+    result = _add(cli, repo, extra=("--dry-run",))
+
+    assert result.exit_code == 0, result.output
+    assert "stray" in _said(result)
+    assert branch in _branches(repo)
+    assert not standard_dir.exists()
+
+
 def test_a_repository_without_origin_names_origin(
     cli: Cli, repo: Path, git: Git, standard_dir: Path
 ) -> None:

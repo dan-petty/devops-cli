@@ -10,10 +10,15 @@ list of the pull requests that close an issue also names the open release pull r
 A pushed branch is not a hold when the App wrote every commit of it past `origin/main`: the author
 of each commit, read with `git log --format=%an`, is the bot login of `service.github_app.slug`.
 The run then adds the worktree on that branch.
+
+A local branch of the name that the run is about to create, with no worktree, is a stray branch
+(#2724). The run deletes it when `origin/main` or a remote-tracking ref of `origin` holds every
+commit of it, and refuses to go on, with the branch named, when it has a commit that they lack.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -46,6 +51,8 @@ from devops_cli.lang import MESSAGES
 from devops_cli.security.sanitizer import mask_secrets
 
 _OPERATION = "worktrees add"
+
+logger = logging.getLogger(__name__)
 
 
 class ReclaimResult(BaseModel):
@@ -241,6 +248,44 @@ def _check_names(issue: int, pushed: _Pushed, type_: str | None, slug: str | Non
             )
 
 
+def _clear_stray_branch(repo_root: Path, branch: str) -> None:
+    """Delete the local `branch` when no worktree uses it and `origin` holds all its commits, so
+    that `git worktree add -b` does not refuse the name (#2724).
+
+    A worktree that uses the branch holds the issue, and `local_holder` refused it before. A
+    commit counts as held when `origin/main` or a remote-tracking ref of `origin` reaches it.
+    A stale remote-tracking ref only keeps a branch. A branch with a commit that `origin` lacks
+    is never deleted: the error names it and the number of those commits.
+    """
+    git = _git(repo_root)
+    tip = _run(
+        [*git, "for-each-ref", "--format=%(objectname)", f"{CONST_REFS_HEADS_PREFIX}{branch}"]
+    )
+    if not tip.strip():
+        return
+    count = int(
+        _run(
+            [
+                *git,
+                "rev-list",
+                "--count",
+                branch,
+                "--not",
+                _main_ref(),
+                f"--remotes={CONST_GIT_REMOTE_ORIGIN}",
+            ]
+        )
+    )
+    if count:
+        raise _failure(
+            MESSAGES.repos.worktrees_add_stray_unpushed.format(branch=branch, count=count)
+        )
+    _run([*git, "branch", "-D", branch])
+    logger.info(
+        MESSAGES.repos.worktrees_add_stray_deleted.format(branch=branch, commit=tip.strip())
+    )
+
+
 def _take_over(
     repo_root: Path, issue: int, pushed: _Pushed, directory: Path, reclaim: ReclaimResult
 ) -> WorktreeAddReport:
@@ -262,6 +307,7 @@ def _take_over(
     )
     authors = _run([*git, "log", "--format=%an", f"{_main_ref()}..{remote_branch}"]).splitlines()
     _check_authors(issue, branch, authors)
+    _clear_stray_branch(repo_root, branch)
     _run([*git, "worktree", "add", "--track", "-b", branch, str(directory), remote_branch])
     return WorktreeAddReport(
         issue=issue,
@@ -284,6 +330,7 @@ def _create(
     """Add the worktree on the new `branch` at the fetched `origin/main`."""
     _, fetch, _, create = _commands(repo_root, branch, directory)
     _run(fetch)
+    _clear_stray_branch(repo_root, branch)
     _run(create)
     return WorktreeAddReport(
         issue=issue,
