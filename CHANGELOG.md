@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.0](https://github.com/dan-petty/devops-cli/compare/v0.20.0...v0.21.0) (2026-10-29)
+
+
+### Features
+
+* **telemetry:** count the project items by release tag, not by milestone ([#2710](https://github.com/dan-petty/devops-cli/issues/2710)) ([253a97d](https://github.com/dan-petty/devops-cli/commit/253a97d48b306a95c1a73285fe593818a1d1b983))
+
+
+### Bug Fixes
+
+* **ai:** the MCP benchmark tool takes no server URL ([#2707](https://github.com/dan-petty/devops-cli/issues/2707)) ([7f7f84b](https://github.com/dan-petty/devops-cli/commit/7f7f84b9dc1b439f94e675cd687912f033330aba)), closes [#2638](https://github.com/dan-petty/devops-cli/issues/2638)
+* **rag:** name the Qdrant span server by host and port ([#2705](https://github.com/dan-petty/devops-cli/issues/2705)) ([57725c3](https://github.com/dan-petty/devops-cli/commit/57725c3a98c923639adcaa53df47a57314512d6e)), closes [#2459](https://github.com/dan-petty/devops-cli/issues/2459)
+* report a clear error for a merge-key unset ([#2697](https://github.com/dan-petty/devops-cli/issues/2697)) ([676d505](https://github.com/dan-petty/devops-cli/commit/676d505e30c206c48d585da4d56937a7bd51899f))
+* **roadmap:** take a plan that a person merged as a Planned item ([#2718](https://github.com/dan-petty/devops-cli/issues/2718)) ([043463b](https://github.com/dan-petty/devops-cli/commit/043463b6e8667b18303d9ec252ee0763c9240079)), closes [#2714](https://github.com/dan-petty/devops-cli/issues/2714)
+* **security:** pin tflint; remove dive and devops docker analyze-layers ([#2712](https://github.com/dan-petty/devops-cli/issues/2712)) ([244bafb](https://github.com/dan-petty/devops-cli/commit/244bafbf964bdb1f60a02abce1f39690e1c42937))
+* **vault:** the MCP tool vault_status takes no address ([#2706](https://github.com/dan-petty/devops-cli/issues/2706)) ([68c226c](https://github.com/dan-petty/devops-cli/commit/68c226c03aa75c02deb8516efdcbe5c03bd87e35)), closes [#2639](https://github.com/dan-petty/devops-cli/issues/2639)
+
+
+### Reverts
+
+* "fix: report a clear error for a merge-key unset" ([#2716](https://github.com/dan-petty/devops-cli/issues/2716)) ([bf5cf0e](https://github.com/dan-petty/devops-cli/commit/bf5cf0e8a0963bb04e316e4928f4b14d1c377d19))
+
 ## [0.20.0](https://github.com/dan-petty/devops-cli/compare/v0.19.0...v0.20.0) (2026-10-29)
 
 
