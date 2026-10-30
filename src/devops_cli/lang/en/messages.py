@@ -1983,6 +1983,8 @@ class RoadmapMessages:
     implement_paths_more: str = " and {count} more"
     implement_stop_reason: str = "{error}: {message}"
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
+    implement_tool_line: str = "Tool call: {tool}, {outcome}."
+    implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tick_turn: str = (
         "The checks of your group passed, but `{path}` still holds these tasks of your group "
         "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "

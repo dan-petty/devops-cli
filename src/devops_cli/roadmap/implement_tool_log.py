@@ -33,6 +33,8 @@ from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_PROGRAM_CHARS
+from devops_cli.lang import MESSAGES
+from devops_cli.output import print_muted
 from devops_cli.security.sanitizer import mask_secrets
 
 
@@ -79,9 +81,16 @@ class ToolCallLog:
         return Hooks(tool_execute=self._execute, tool_validate_error=self._invalid)
 
     def _note(self, tool: str, program: str, outcome: ToolOutcome) -> None:
-        """Count a refusal or a retry."""
+        """Count a refusal or a retry, and write the line of the call."""
         self.refused += outcome is ToolOutcome.REFUSED
         self.retried += outcome is ToolOutcome.RETRY
+        texts = MESSAGES.roadmap
+        line = (
+            texts.implement_tool_line_program.format(tool=tool, program=program, outcome=outcome)
+            if program
+            else texts.implement_tool_line.format(tool=tool, outcome=outcome)
+        )
+        print_muted(line, to_stderr=True, safe=True)
 
     async def _execute(
         self,

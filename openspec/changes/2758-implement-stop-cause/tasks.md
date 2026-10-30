@@ -9,9 +9,9 @@
 
 ## 2. The log line of each tool call
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_tool_log.py`: one line for each tool call with the outcomes `ok`, `refused`, `retry` and `failed`; the first word of a shell command and no other argument; no file content and no refusal text; a masked first word; a cut first word; no line for a call that the model never made.
+- [x] Write failing tests in `tests/test_roadmap_implement_tool_log.py`: one line for each tool call with the outcomes `ok`, `refused`, `retry` and `failed`; the first word of a shell command and no other argument; no file content and no refusal text; a masked first word; a cut first word; no line for a call that the model never made.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py`
-- [ ] Write the line in `ToolCallLog` with `print_muted(..., to_stderr=True)`, and give `build_agent` the capability.
+- [x] Write the line in `ToolCallLog` with `print_muted(..., to_stderr=True)`, and give `build_agent` the capability.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_tool_log.py tests/test_roadmap_implement_step.py`
 
 ## 3. The documentation
