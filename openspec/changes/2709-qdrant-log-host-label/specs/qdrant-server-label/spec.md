@@ -31,19 +31,41 @@ The debug line of `QdrantClient.list_collections` for a failure, and the debug l
 - **THEN** the log line is `Qdrant vector store unreachable at example.com:6333, skipping RAG investigation`
 
 ### Requirement: An invalid URL error never holds the URL
-`InvalidURLError` SHALL name its URL by `host[:port]`, or by `unknown`, in its message and in `details["url"]`. The errors of `QdrantClient` and of `validate_configured_service_url` for an invalid address SHALL hold no userinfo and no path.
+`InvalidURLError` SHALL hold no userinfo, no path and no URL text in its message and in `details["url"]`. The errors of `QdrantClient` and of `validate_configured_service_url` for an invalid address SHALL hold no userinfo and no path.
 
 #### Scenario: A URL with no scheme
 - **WHEN** `qdrant.url` is `user:secret@example.com:6333/prefix/path`
-- **THEN** the error message and `details` hold no `secret`, no `user` and no `prefix`
+- **THEN** the message is `Invalid URL: missing scheme or host in qdrant.url`
+- **AND** the message and `details` hold no `secret`, no `user` and no `prefix`
 
 #### Scenario: A URL with a scheme that the client refuses
 - **WHEN** `qdrant.url` is `ftp://user:secret@example.com:6333/prefix/path`
-- **THEN** the error message and `details` hold no `secret`, no `user`, no `prefix` and no `://`
+- **THEN** the message is `Invalid URL for server example.com:6333: Invalid Qdrant URL scheme 'ftp': must be http or https`
+- **AND** the message and `details` hold no `secret`, no `user`, no `prefix` and no `://`
 
-### Requirement: The search cache key names the server by its label
-The in-memory key that records a verified collection SHALL hold the label of the server, and SHALL NOT hold the URL.
+### Requirement: An invalid URL error names its server or the kind of problem
+When the URL has an origin, the message of `InvalidURLError` SHALL be `Invalid URL for server <label>: <reason>`. When it has none, the message SHALL be `Invalid URL: <reason>`, so the label `unknown` never reads as a URL. The reason SHALL tell the kind of problem. The reason of `QdrantClient` for an address with no scheme or host SHALL name the setting `qdrant.url`.
+
+#### Scenario: An address with no scheme or host names the setting
+- **WHEN** `qdrant.url` is `localhost:6333`
+- **THEN** the message is `Invalid URL: missing scheme or host in qdrant.url`
+
+#### Scenario: The broker refuses a scheme
+- **WHEN** a request for `file:///etc/passwd` reaches the HTTP broker
+- **THEN** the message is `Invalid URL: Only http and https URLs may be requested`
+
+### Requirement: The search cache key tells servers apart without holding the URL
+The in-memory key that records a verified collection SHALL hold the label of the server, the SHA-256 digest of the whole base URL, and the collection name. It SHALL NOT hold the URL. Two servers whose labels are equal SHALL have two keys when their base URLs differ.
 
 #### Scenario: A URL with userinfo
 - **WHEN** a collection is verified for a client with `qdrant.url` `http://user:secret@example.com:6333/prefix/path`
-- **THEN** the key is `("example.com:6333", <collection>)`
+- **THEN** the key is `("example.com:6333", <digest of the base URL>, <collection>)`
+- **AND** the key holds no `secret`, no `user` and no `prefix`
+
+#### Scenario: Servers that differ in scheme or path prefix
+- **WHEN** a collection is verified for `http://example.com` and for `https://example.com`, or for `http://example.com/qdrant-a` and for `http://example.com/qdrant-b`
+- **THEN** each server has its own key, and the model of the second server is checked against its own recorded model
+
+#### Scenario: Addresses with the label unknown
+- **WHEN** two clients have different base URLs and the label `unknown`
+- **THEN** each has its own key

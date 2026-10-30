@@ -208,7 +208,7 @@ class QdrantClient:
     ) -> None:
         parsed = urllib.parse.urlparse(base_url)
         if not parsed.scheme or not parsed.netloc:
-            raise InvalidURLError(base_url, reason="missing scheme or host")
+            raise InvalidURLError(base_url, reason="missing scheme or host in qdrant.url")
         self.base_url = urllib.parse.urlunparse(parsed).rstrip("/")
         self.api_key: str | None = api_key
         if self.api_key is None:
