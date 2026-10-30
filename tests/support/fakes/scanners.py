@@ -58,7 +58,9 @@ of its sections and two of its resources, and the names of the cluster and the c
 `example`. uv audit 0.12.23 ran on 2026-10-28 over a project whose `uv.lock` pins idna 3.6
 (#2106). No tools lock pins uv, and uv 0.13.6, which the images pin, writes a report of the same
 layout. kubeconform ran on 2026-10-28 over a manifest with two invalid resources and one custom
-resource with no schema (#2214).
+resource with no schema (#2214). tflint 0.65.0 ran on 2026-10-30 with `--format json --recursive`
+over a tree of two `.tf` files, one in `modules/network`; it exited 2 with six warnings of its
+bundled `terraform` ruleset, and the file name of each issue is relative to the tree (#2427).
 """
 
 from __future__ import annotations
