@@ -8,7 +8,7 @@ A tick is bookkeeping that the job owns. A model that did more than its group di
 
 ## What Changes
 
-- After each turn of the model, the step compares every other group with its base. A group that differs only in its checkboxes gets its checkbox state written back to the base state in `tasks.md`. The step logs one line that names the restored groups. Then it goes on with the checks of its own group.
+- After each turn of the model, the step compares every other group with its base. A group that differs only in its checkboxes gets its checkbox state written back to the base state in `tasks.md`. The step prints one line to the error stream, which the Job log holds, that names the restored groups. Then it goes on with the checks of its own group.
 - Any other difference in another group still stops the step: the title, the text of a task, a verification command, a task or a group added or removed.
 - The restore runs after the first turn and after the extra turn for the ticks (#2721). Every exit check reads the restored file, and the step stages the files after the restore, so the commit holds the restored `tasks.md`.
 - The own group keeps its rule: its checkboxes may change and its text may not. A fix step keeps its rule: it may change no task.

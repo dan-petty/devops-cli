@@ -2013,6 +2013,9 @@ class RoadmapMessages:
     implement_stop_group_changed: str = (
         "Group {group} changed. A step may change only its own group."
     )
+    implement_restored_ticks: str = (
+        "Restored the checkboxes of these groups: {groups}. A step ticks only its own group."
+    )
     implement_stop_command_denied: str = (
         "The verification command {command} is not allowed. {program} is not one of: {allowed}."
     )

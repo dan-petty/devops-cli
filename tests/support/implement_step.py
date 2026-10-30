@@ -116,6 +116,8 @@ def implement_checkout(tmp_path: Path) -> Path:
 
 TASKS_PATH = "openspec/changes/1-sample-change/tasks.md"
 TICKED = TASKS.replace("- [ ] Add", "- [x] Add")
+LATER_OPEN = TASKS.replace("- [x] Document", "- [ ] Document")
+EVERY_TICK = TICKED.replace("- [ ] Document", "- [x] Document")
 TEST_BODY = "def test_shout() -> None:\n    assert True\n"
 SHOUT_CODE = SAMPLE + '\n\ndef shout(text: str) -> str:\n    return text.upper() + "!"\n'
 CHECK = "uv run devops ci test tests/test_sample.py"

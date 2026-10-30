@@ -59,11 +59,11 @@ The extra turn SHALL change no file except the `tasks.md` of the change. The ste
 ## ADDED Requirements
 
 ### Requirement: A step restores the checkboxes of the other groups
-After each turn of the model, the step SHALL compare every group other than its own with its text before the run. A group that differs only in its checkboxes SHALL get the checkbox state of that text written back to `tasks.md`, and the step SHALL log one line that names the restored groups. The commit SHALL hold the restored file.
+After each turn of the model, the step SHALL compare every group other than its own with its text before the run. A group that differs only in its checkboxes SHALL get the checkbox state of that text written back to `tasks.md`, and the step SHALL print one line to the error stream that names the restored groups. The commit SHALL hold the restored file.
 
 #### Scenario: The model ticks a later group
 - **WHEN** the model completes group 1, ticks its tasks and the tasks of group 2, which was unticked, and ends its run
-- **THEN** the step reports done, the commit holds the work and `tasks.md` with group 1 ticked and group 2 unticked, and the step logs one line that names group 2
+- **THEN** the step reports done, the commit holds the work and `tasks.md` with group 1 ticked and group 2 unticked, and the step prints one line that names group 2
 
 #### Scenario: The model unticks an earlier group
 - **WHEN** the model works on group 2, ticks its tasks, and unticks a task of group 1, which was ticked

@@ -10,7 +10,7 @@
 - **A restore is checked.** After the write the step parses the file again and compares each restored group with its base. A group that still differs stops the step as changed. A wrong line number can then never reach a commit.
 - **The own group keeps its rule.** Its checkboxes may change, its text may not. The extra turn asks for the ticks of the own group only.
 - **A fix step keeps its rule.** It may change no task, checkboxes included. It restores nothing.
-- **The log line.** The restore logs one `info` line with the numbers of the restored groups. The text is in `MESSAGES`.
+- **The note goes to the console stream.** The restore prints one muted line to the error stream with the numbers of the restored groups, as the log of tool calls does (#2758). A `devops` process has no handler for the level INFO, so a line through `logging` would never reach the Job log. The text is in `MESSAGES`.
 - **The prompt.** It says to tick only the tasks of the own group, and why: a later group runs in its own step and ticks its own. The prompt is a request, and the restore is the check.
 
 ## Rejected alternatives

@@ -361,11 +361,11 @@ def test_a_task_left_unticked_after_the_extra_turn_stops_the_step(
     )
 
 
-def test_a_change_to_another_group_stops_the_step(
+def test_a_text_change_to_another_group_stops_the_step(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    other = TICKED.replace("- [x] Document", "- [ ] Document")
+    other = TICKED.replace("Document the function", "Describe the function")
     script = ModelScript(tool_calls(write_call(TASKS_PATH, other)), say("Done."))
 
     outcome = _step(store, checkout, script)
@@ -888,11 +888,13 @@ def test_an_extra_turn_that_changes_many_files_names_only_the_first_of_them(
     )
 
 
-def test_an_extra_turn_that_changes_another_group_stops_the_step(
+def test_an_extra_turn_that_edits_the_text_of_another_group_stops_the_step(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    untick = write_call(TASKS_PATH, TICKED.replace("- [x] Document", "- [ ] Document"))
+    untick = write_call(
+        TASKS_PATH, TICKED.replace("Document the function", "Describe the function")
+    )
     script = ModelScript(tool_calls(*WORK), say("Done."), tool_calls(untick), say("Ok."))
 
     outcome = _step(store, checkout, script)
