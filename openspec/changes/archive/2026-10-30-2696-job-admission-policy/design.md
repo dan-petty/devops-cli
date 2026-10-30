@@ -9,6 +9,9 @@
 - **`CREATE` and `UPDATE`.** The Role grants `create`, `get` and `list` on `jobs` and no `update` or `patch`, so RBAC refuses an update already. The policy covers `UPDATE` so that a Role that later gains the verb cannot change the pod template of an admitted Job. The pod template of a Job is immutable, so on an update the policy sees the same template.
 - **Literal values, checked against the template by a test.** The policy holds the image repository, the names and the bounds as literals. The test renders `k8s/devops`, builds the Job from CronJob `devops-cli-runner` with `build_job`, and evaluates the policy on it. A change to the template that the policy refuses fails in CI. The test also reads the user from the subject of the RoleBinding, so the two cannot drift apart.
 - **The image is the repository, with `:` or `@` after it.** A bare prefix test would admit `runner-evil` and `runner2`. The repository alone is the form of the template in git. Image Updater writes `runner:latest@sha256:<digest>` into the Application, which starts with `runner:`. The policy does not pin the tag or digest (see Guarantees).
+- **The pod label is pinned.** The NetworkPolicies of the stack select pods by `app.kubernetes.io/name`. `roadmap-service-egress` admits the label `roadmap-service` to TCP 6443. A Job pod that wore that label would take the API server port. So the policy requires `devops-cli-job`, which `build_job` sets on the pod and the Job.
+- **Fields that reach beyond the pod are refused.** `priorityClassName` can preempt other pods, `nodeName` skips the scheduler, `imagePullSecrets` names another Secret of the namespace, `manualSelector` lets a Job take over the pods of another Job, and `command` replaces the entrypoint of the image. The template sets none of them. `hostUsers` stays free: `false` only narrows the pod and `true` is the default.
+- **One run of the pod.** `completions` and `parallelism` must be 1 or not set. The API server sets both to 1 when neither is set, so a Job from the template passes.
 - **No `valueFrom` in `env`.** `envFrom` pins the Secrets by whole Secret, but `env[].valueFrom.secretKeyRef` reads one key of any Secret. The template has no `valueFrom`, and the Service sets plain values only.
 - **`envFrom` may be absent.** The rule is that no other source is named. A Job with no `envFrom` has less access, not more.
 - **The bounds come from the template.** `backoffLimit` is 0 ("a job that changed GitHub never runs twice"). `activeDeadlineSeconds` is set and at most 7200. The API server sets the default of `backoffLimit` (6) before admission, so a Job that leaves it out reaches the policy as 6 and is refused. The rules require the fields to be present, so a Job without them is refused too.
@@ -28,13 +31,13 @@
 
 ## Guarantees
 
-A Job that the Service makes in namespace `devops` has, at admission: the runner repository as its one image, no init container, ServiceAccount `devops-cli` with no token, only Secret `devops-cli` as a source of environment, only the three volumes of the template, no host namespace, no retry, and a deadline of two hours at most. So it cannot read another Secret, cannot mount a host path or a Secret volume, and cannot run an image from another repository.
+A Job that the Service makes in namespace `devops` has, at admission: the runner repository as its one image, no init container, ServiceAccount `devops-cli` with no token, only Secret `devops-cli` as a source of environment, only the three volumes of the template, no host namespace, no `command`, no `imagePullSecrets`, no `priorityClassName`, no `nodeName`, the pod label `app.kubernetes.io/name: devops-cli-job`, one run of its pod (`completions` and `parallelism`), no retry, and a deadline of two hours at most. So it cannot read another Secret, cannot mount a host path or a Secret volume, and cannot run an image from another repository.
 
 These are not guaranteed:
 
 - The tag or digest of the runner image. A Job can name another tag of the repository. Only the release workflow publishes to the repository.
 - The `args`, the `command` and the plain `env` values. The Service sets them for each item.
-- The resources, `nodeSelector`, `tolerations`, the number of Jobs and `parallelism`. The `restricted` Pod Security level, which the API server enforces on the pod, still applies to the pod.
+- The resources, `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs. The `restricted` Pod Security level, which the API server enforces on the pod, still applies to the pod.
 - The security context of the container. Pod Security `restricted` enforces it on the pod, not this policy.
 - Any other identity. A person with an admin role, Argo CD and the CLI user are not bound. A person with an admin role can delete the policy, and Argo CD restores it on the next sync (`selfHeal`).
 - The policy does not give the Service less than it has: the Service pod holds Secret `devops-cli` and all its environment.

@@ -3,11 +3,11 @@
 ## ADDED Requirements
 
 ### Requirement: An admission policy covers only the Jobs of the Service
-A ValidatingAdmissionPolicy and a binding SHALL apply to `CREATE` and `UPDATE` of `batch/v1` `jobs` in namespace `devops`, with `failurePolicy: Fail` and the action `Deny`. A match condition SHALL limit the policy to the user `system:serviceaccount:devops:roadmap-service`, which is the subject of the RoleBinding `roadmap-service-jobs`. The expressions SHALL use only standard CEL.
+A ValidatingAdmissionPolicy and a binding SHALL apply to `CREATE` and `UPDATE` of `batch/v1` `jobs` in namespace `devops`, with `failurePolicy: Fail` and the actions `Deny` and `Audit`. A match condition SHALL limit the policy to the user `system:serviceaccount:devops:roadmap-service`, which is the subject of the RoleBinding `roadmap-service-jobs`. The expressions SHALL use only standard CEL.
 
 #### Scenario: The scope is read
 - **WHEN** a test reads the rendered policy, binding and RoleBinding
-- **THEN** the rules cover `CREATE` and `UPDATE` of `jobs` only, the binding selects namespace `devops`, the failure policy is `Fail`, the action is `Deny`, and the user in the match condition equals the subject of the RoleBinding
+- **THEN** the rules cover `CREATE` and `UPDATE` of `jobs` only, the binding selects namespace `devops`, the failure policy is `Fail`, the actions are `Deny` and `Audit`, and the match condition is the equality of the request user with the subject of the RoleBinding
 
 #### Scenario: Another identity
 - **WHEN** the policy is evaluated for a Job that breaks a rule, made by the CLI user, Argo CD or the CronJob controller
@@ -26,6 +26,21 @@ The policy SHALL refuse a Job unless each `envFrom` names only Secret `devops-cl
 #### Scenario: A Job with another source or volume
 - **WHEN** the Job from the template changes in one way: a ConfigMap or another Secret in `envFrom`, an `env` with `valueFrom`, a `hostPath` volume, a Secret volume, a ConfigMap volume of another name, `hostNetwork`, `hostPID` or `hostIPC`
 - **THEN** the policy refuses the Job and names the rule
+
+### Requirement: The policy keeps a Job of the Service from reaching beyond its pod
+The policy SHALL refuse a Job unless the label `app.kubernetes.io/name` of its pod template is `devops-cli-job`, the pod sets no `priorityClassName`, `nodeName` or `imagePullSecrets`, the container sets no `command`, the Job sets no `manualSelector`, and `completions` and `parallelism` are 1 or not set.
+
+#### Scenario: A pod with the label of the Service
+- **WHEN** the Job from the template changes the label `app.kubernetes.io/name` of its pod to `roadmap-service`, to the name of another pod, or removes the labels
+- **THEN** the policy refuses the Job and names the rule
+
+#### Scenario: A Job that reaches beyond the pod
+- **WHEN** the Job from the template changes in one way: a `priorityClassName`, a `nodeName`, an `imagePullSecrets` entry, a container `command`, `manualSelector`, 2 for `completions`, or 2 for `parallelism`
+- **THEN** the policy refuses the Job and names the rule
+
+#### Scenario: The default values
+- **WHEN** the Job from the template names `completions: 1`, `parallelism: 1` and `manualSelector: false`
+- **THEN** the policy admits the Job
 
 ### Requirement: The policy bounds the run of a Job of the Service
 The policy SHALL refuse a Job unless it sets `backoffLimit: 0` and an `activeDeadlineSeconds` that is at most the value of CronJob `devops-cli-runner`. A Job that the Job builder makes from that CronJob SHALL pass the policy.
