@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.5](https://github.com/dan-petty/devops-cli/compare/v0.22.4...v0.22.5) (2026-10-30)
+
+
+### Bug Fixes
+
+* **roadmap:** keep the diff of a step when a model call fails ([#2781](https://github.com/dan-petty/devops-cli/issues/2781)) ([c6a837d](https://github.com/dan-petty/devops-cli/commit/c6a837d3afd274c647de87f3c093dacd2125c50f)), closes [#2731](https://github.com/dan-petty/devops-cli/issues/2731)
+* **roadmap:** name the repo and cause in refine warnings ([#2784](https://github.com/dan-petty/devops-cli/issues/2784)) ([85b3a67](https://github.com/dan-petty/devops-cli/commit/85b3a67bb98d732704c689bf6346ecb1aa7168e5)), closes [#2562](https://github.com/dan-petty/devops-cli/issues/2562)
+
 ## [0.22.4](https://github.com/dan-petty/devops-cli/compare/v0.22.3...v0.22.4) (2026-10-30)
 
 
