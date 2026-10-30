@@ -16,9 +16,9 @@
 
 ## 3. The diff of a stopped step
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_step.py` and `tests/test_roadmap_implement_job.py`: a stopped step reports the masked diff cut to a constant size; the stop comment holds the diff in a fenced block; a diff with a secret-looking string and a line of three backticks gives a comment with no secret and one fenced block that holds the whole diff.
+- [x] Write failing tests in `tests/test_roadmap_implement_step.py` and `tests/test_roadmap_implement_job.py`: a stopped step reports the masked diff cut to a constant size; the stop comment holds the diff in a fenced block; a diff with a secret-looking string and a line of three backticks gives a comment with no secret and one fenced block that holds the whole diff.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
-- [ ] Add `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS`, the fields `diff` and `diff_cut` of `StepOutcome`, the read of the diff in `implement_step.py`, and the fenced block in the stop comment of `implement_run.py` with its message.
+- [x] Add `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS`, the fields `diff` and `diff_cut` of `StepOutcome`, the read of the diff in `implement_step.py`, and the fenced block in the stop comment of `implement_run.py` with its message.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
 
 ## 4. The documentation

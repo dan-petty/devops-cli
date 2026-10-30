@@ -2123,10 +2123,15 @@ class RoadmapMessages:
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
         "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
-        "{last}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
+        "{last}{diff}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
         "Then comment `implement: retry`.{note}"
     )
     implement_comment_last_none: str = "none."
+    implement_comment_diff: str = (
+        "\n\nThe job discarded this work.{cut} Read it before you retry:\n\n"
+        "{fence}diff\n{diff}\n{fence}"
+    )
+    implement_comment_diff_cut: str = " The diff is cut to {limit} characters."
     implement_job_report: str = (
         "{marker}\nThe runner Job {name} ended: {state}.\n\nThe last lines of its log:\n\n{log}"
     )

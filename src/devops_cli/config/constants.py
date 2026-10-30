@@ -2936,6 +2936,10 @@ CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 6000
 CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS: Final[int] = 1000
 CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500
+# The longest diff, in characters, that a stopped step reports (#2721) and the job posts in the
+# stop comment. A comment holds at most 65,536 characters, and the comment also holds the reason
+# and the last message of the agent.
+CONST_ROADMAP_IMPLEMENT_DIFF_CHARS: Final[int] = 20000
 CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.

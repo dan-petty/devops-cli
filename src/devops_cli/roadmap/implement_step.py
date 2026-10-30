@@ -59,6 +59,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
+    CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
@@ -76,6 +77,7 @@ from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
+from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.store import Item, RoadmapStore
@@ -405,7 +407,9 @@ class StepStatus(StrEnum):
 class StepOutcome(BaseModel):
     """The report of a step. `reason` is why a stopped step stopped: the class of the pydantic-ai
     error that ended the run, or the first exit check that failed. `commit` is the commit of a
-    done step. `planned_requests` are the requests a dry run lists."""
+    done step. `diff` is the diff of the work that a stopped step discarded, with secrets masked
+    and cut to `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, and `diff_cut` says that it was
+    cut (#2721). `planned_requests` are the requests a dry run lists."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -416,6 +420,8 @@ class StepOutcome(BaseModel):
     reason: str = ""
     last_message: str = ""
     commit: str = ""
+    diff: str = ""
+    diff_cut: bool = False
     requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -782,6 +788,22 @@ def _exit_failure(source: Path, inputs: StepInputs, start: str) -> str | None:
     return _verification_failure(source, inputs.group) or _static_failure(source, changed)
 
 
+def _discarded_diff(source: Path, start: str) -> tuple[str, bool]:
+    """The diff from the commit `start` to the checkout, new files included: the work that a
+    stopped step is about to discard. Secrets are masked in the whole diff, then it is cut to
+    `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, as a cut first could split a secret and let
+    half of it through. No external diff program and no text conversion runs: the agent can write
+    the settings that name one. The diff, and whether it was cut."""
+    _git_output(source, "add", "-A")
+    raw = _git_output(
+        source, "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", start
+    )
+    masked = mask_secrets(raw)
+    return masked[:CONST_ROADMAP_IMPLEMENT_DIFF_CHARS], len(
+        masked
+    ) > CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
+
+
 def _commit(source: Path, message: str) -> tuple[str, str]:
     """Commit the staged changes, with the hooks of the repository. The commit, and why the
     step stops when git refuses it."""
@@ -874,7 +896,8 @@ def _attempt(
     if not reason:
         commit, reason = _commit(source, f"{inputs.group.title} (#{item})")
     if reason:
-        return outcome.model_copy(update={"reason": reason})
+        diff, cut = _discarded_diff(source, start)
+        return outcome.model_copy(update={"reason": reason, "diff": diff, "diff_cut": cut})
     return outcome.model_copy(update={"status": StepStatus.DONE, "commit": commit})
 
 

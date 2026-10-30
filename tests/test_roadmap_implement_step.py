@@ -24,6 +24,7 @@ from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS
 from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
@@ -995,6 +996,123 @@ def test_the_instructions_say_that_a_step_ends_only_when_every_task_is_ticked(
 
     assert "not done until every task of your group is ticked" in inputs.instructions
     assert "`- [ ]` to `- [x]`" in inputs.instructions
+
+
+# ── The diff of a stopped step (#2721) ────────────────────────────────────────────────────
+
+TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+
+
+def _stopped_on_docs(programs: ProcessFake) -> None:
+    programs.answer(
+        lambda call: command_text(call) == DOCS, ProcessAnswer(returncode=1, stdout="no docs\n")
+    )
+
+
+def test_a_stopped_step_reports_the_diff_of_the_work_it_discarded(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    _stopped_on_docs(programs)
+
+    outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
+
+    assert (outcome.status, outcome.diff_cut, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        False,
+        True,
+    )
+    assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
+    assert "+def shout(text: str) -> str:" in outcome.diff
+    assert "diff --git a/tests/test_sample.py b/tests/test_sample.py" in outcome.diff
+    assert "+def test_shout() -> None:" in outcome.diff
+    assert "+- [x] Add `shout` to `src/sample.py`" in outcome.diff
+
+
+def test_the_diff_of_a_stopped_step_holds_the_work_of_an_agent_that_committed(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    def agent_commits() -> None:
+        git(checkout, "add", "-A")
+        git(checkout, "commit", "-q", "-m", "own commit")
+
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, "+def shout(text: str) -> str:" in outcome.diff) == (
+        StepStatus.STOPPED,
+        True,
+    )
+
+
+def test_the_diff_of_a_stopped_step_is_masked(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    _stopped_on_docs(programs)
+    leaky = write_call("src/sample.py", SHOUT_CODE + f'\nTOKEN = "{TOKEN}"\n')
+
+    outcome = _step(store, checkout, ModelScript(tool_calls(leaky, TICK), say("Done.")))
+
+    assert (TOKEN in outcome.diff, "<masked-github-token>" in outcome.diff) == (False, True)
+
+
+def test_the_diff_of_a_stopped_step_is_cut_to_a_constant_size(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    _stopped_on_docs(programs)
+    long_file = write_call("docs/LONG.md", "y" * 3 * CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n")
+
+    outcome = _step(store, checkout, ModelScript(tool_calls(long_file, TICK), say("Done.")))
+
+    assert (len(outcome.diff), outcome.diff_cut) == (CONST_ROADMAP_IMPLEMENT_DIFF_CHARS, True)
+
+
+def test_the_diff_of_a_stopped_step_is_masked_before_it_is_cut(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A private key spans more lines than the cut keeps. A cut before the masking would leave
+    its first lines and no end marker, and the masking would find no key to mask."""
+    _stopped_on_docs(programs)
+    key = (
+        "-----BEGIN "
+        + "PRIVATE KEY-----\n"
+        + ("A" * 64 + "\n") * 400
+        + "-----END "
+        + "PRIVATE KEY-----\n"
+    )
+    file = write_call("docs/KEY.md", key + "y" * 3 * CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n")
+
+    outcome = _step(store, checkout, ModelScript(tool_calls(file, TICK), say("Done.")))
+
+    assert (len(outcome.diff), "PRIVATE KEY" in outcome.diff, "A" * 16 in outcome.diff) == (
+        CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
+        False,
+        False,
+    )
+    assert "<masked-private-key>" in outcome.diff
+
+
+def test_a_done_step_reports_no_diff(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
+
+    assert (outcome.status, outcome.diff, outcome.diff_cut) == (StepStatus.DONE, "", False)
+
+
+def test_a_stopped_step_reads_its_diff_with_no_external_program_and_no_text_conversion(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A diff driver that the agent sets in `.git/config` would run in the job's process."""
+    _stopped_on_docs(programs)
+
+    _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
+
+    diffs = [call.argv for call in programs.calls if call.argv[:2] == ("git", "diff")]
+    reading = [argv for argv in diffs if "--no-ext-diff" in argv]
+    assert reading
+    assert all("--no-textconv" in argv for argv in reading)
 
 
 # ── The fix step (#2665) ──────────────────────────────────────────────────────────────────

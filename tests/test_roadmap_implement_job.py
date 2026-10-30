@@ -13,7 +13,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from markdown_it import MarkdownIt
 
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
@@ -43,6 +45,7 @@ from tests.support.roadmap_stage import STAGE_REPO
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 MARKER = "<!-- devops roadmap implement -->"
+CUT = CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
 
 
 def _item(world: JobWorld, number: int = 1) -> tuple[str | None, dict[str, str | None]]:
@@ -424,7 +427,73 @@ def test_a_step_that_stops_returns_the_item_to_ready_with_a_comment_and_a_record
     assert "Stopped at group 2." in comments[0]
     assert "The agent changed no file." in comments[0]
     assert "I could not do group 2." in comments[0]
+    assert "The job discarded" not in comments[0]
     assert "implement: retry" in comments[0]
+
+
+TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+DIFF_TEXT = f"A note with a secret {TOKEN}\n```\nand a line that tries to close the block\n```\n"
+
+
+def _stop_with_a_dangerous_diff(job_world: JobWorld) -> str:
+    """Run the job to the stop of group 2, which writes `DIFF_TEXT` and ticks nothing."""
+    write = ("write_file", {"path": "CONTEXT.md", "content": DIFF_TEXT})
+    script = ModelScript(
+        tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
+        tool_calls(write),
+        say("Wrote the note."),
+        say("I did not tick."),
+    )
+    job_world.run(script)
+    comments = job_world.issue_comments()
+    assert len(comments) == 1
+    return comments[0]
+
+
+def test_the_stop_comment_holds_the_masked_diff_of_the_discarded_work_in_one_fenced_block(
+    job_world: JobWorld,
+) -> None:
+    comment = _stop_with_a_dangerous_diff(job_world)
+
+    tokens = MarkdownIt("commonmark").parse(comment)
+    fences = [token for token in tokens if token.type == "fence"]
+    text_after = [
+        token.content
+        for token in tokens[tokens.index(fences[0]) :]
+        if token.type == "inline" and "Ready again" in token.content
+    ]
+    assert (TOKEN in comment, len(fences), text_after != []) == (False, 1, True)
+    assert fences[0].info == "diff"
+    assert fences[0].markup == "````"
+    assert "+A note with a secret <masked-github-token>\n+```\n" in fences[0].content
+    assert "+and a line that tries to close the block\n+```\n" in fences[0].content
+    assert "diff --git a/CONTEXT.md b/CONTEXT.md" in fences[0].content
+
+
+def test_the_stop_comment_says_that_the_job_discarded_the_work_and_how_much_it_shows(
+    job_world: JobWorld,
+) -> None:
+    comment = _stop_with_a_dangerous_diff(job_world)
+
+    assert "The job discarded this work. Read it before you retry:" in comment
+
+
+def test_the_stop_comment_of_a_cut_diff_says_that_it_is_cut(job_world: JobWorld) -> None:
+    long_note = ("write_file", {"path": "CONTEXT.md", "content": "y" * 3 * CUT + "\n"})
+    script = ModelScript(
+        tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
+        tool_calls(long_note),
+        say("Wrote the note."),
+        say("I did not tick."),
+    )
+
+    job_world.run(script)
+
+    comment = job_world.issue_comments()[0]
+    assert f"The job discarded this work. The diff is cut to {CUT} characters. Read it" in comment
+    assert len(comment) < 2 * CUT
 
 
 def test_a_stop_pushes_the_commits_of_the_steps_that_passed_and_leaves_the_draft(
@@ -461,6 +530,7 @@ def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobW
         [],
     )
     assert "conflict" in job_world.issue_comments()[0].lower()
+    assert "The job discarded" not in job_world.issue_comments()[0]
     assert job_world.repo.git("worktree", "list").count("\n") == 0
     assert job_world.origin_log() == ["fix(roadmap): plan"]
 
