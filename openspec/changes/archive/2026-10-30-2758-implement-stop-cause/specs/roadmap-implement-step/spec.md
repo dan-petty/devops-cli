@@ -36,7 +36,7 @@
 ## ADDED Requirements
 
 ### Requirement: The reason of a stopped run counts the refused and the retried tool calls
-A step that stops on a pydantic-ai error SHALL count, over all its turns, the tool calls that a tool refused by its policy and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when either is not zero. A call counts as refused when a `PermissionError` is in the `__cause__` chain of the retry, and the step SHALL read no message text to tell the two apart.
+A step that stops on a pydantic-ai error SHALL count, over all its turns, the tool calls that a tool refused by its policy and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when either is not zero. A call counts as refused when it has a shell command and a `PermissionError` is in the `__cause__` chain of the retry. The step SHALL read no message text.
 
 #### Scenario: The call that exceeds the limit
 - **WHEN** the model is refused more often than `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES` times
@@ -50,16 +50,24 @@ A step that stops on a pydantic-ai error SHALL count, over all its turns, the to
 - **WHEN** the model calls the tool `read_file` without its `path` argument in every reply
 - **THEN** the reason ends with "Refused commands: 0. Other retries: 6."
 
+#### Scenario: A path outside the root
+- **WHEN** the model calls `read_file` with the path `/etc/passwd` in every reply
+- **THEN** the reason ends with "Refused commands: 0. Other retries: 6."
+
 #### Scenario: A run with no retry
 - **WHEN** the model calls `read_file` with a valid path in every reply until the request limit
 - **THEN** the reason holds the message of the error and holds neither count
 
 ### Requirement: Every tool call of a step writes one line to the Job log
-The agent of a step SHALL write one line to the standard error stream for each tool call. The line SHALL hold the name of the tool, the first word of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The line SHALL hold no other argument, no file content, no output and no text of a refusal.
+The agent of a step SHALL write one line to the standard error stream for each tool call. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist, else the word `other`. The line SHALL hold nothing else.
 
 #### Scenario: A refused program
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py --secret-flag=abc`, and then ends its run
-- **THEN** the standard error stream holds the line "Tool call: shell, program pytest, refused." and holds no text of the arguments
+- **THEN** the standard error stream holds the line "Tool call: shell, program other, refused." and holds no text of the arguments
+
+#### Scenario: A program of the allowlist
+- **WHEN** the model calls a tool with the command `git status`
+- **THEN** the line holds "program git"
 
 #### Scenario: A call that returns
 - **WHEN** the model calls `write_file` with a path and a content, and then ends its run
@@ -69,14 +77,21 @@ The agent of a step SHALL write one line to the standard error stream for each t
 - **WHEN** the model calls `read_file` without its `path` argument
 - **THEN** the standard error stream holds the line "Tool call: read_file, retry."
 
-#### Scenario: A secret as the first word
-- **WHEN** the model calls the shell tool with a command whose first word is a token in the form of a GitHub token
-- **THEN** the line holds the mask in place of the token
+#### Scenario: A first word that is no program
+- **WHEN** the first word of a shell command is an assignment such as `API_KEY=hunter2`, a path, a token, an escape sequence, or the command has an unclosed quote
+- **THEN** the line holds "program other" and holds no part of the word
 
-#### Scenario: A long first word
-- **WHEN** the first word of a shell command is longer than `CONST_ROADMAP_IMPLEMENT_PROGRAM_CHARS` characters
-- **THEN** the line holds the word cut to that length
+#### Scenario: A refused path
+- **WHEN** the model calls `read_file` with a path outside the root
+- **THEN** the standard error stream holds the line "Tool call: read_file, retry."
 
 #### Scenario: A call that the tool reports as failed
 - **WHEN** a tool reports a failed call
 - **THEN** the standard error stream holds the line "Tool call: <tool>, failed."
+
+### Requirement: The table of a stopped step shows the reason as text
+The table of `devops roadmap implement` SHALL print the reason and the last message as text. A bracket in either SHALL NOT be read as markup, and SHALL NOT raise an error.
+
+#### Scenario: A reason with a closing tag
+- **WHEN** the reason of a stopped step is "Tool x [/oops] failed"
+- **THEN** the table holds that text
