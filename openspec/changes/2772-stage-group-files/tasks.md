@@ -9,9 +9,9 @@
 
 ## 2. The comment names the missing paths
 
-- [ ] 2.1 Write failing tests in `tests/test_roadmap_stage_apply.py`: the comment names a changed path that is no file and no group creates; it names nothing for a created path or an existing file; the item is staged in both cases.
+- [x] 2.1 Write failing tests in `tests/test_roadmap_stage_apply.py`: the comment names a changed path that is no file and no group creates; it names nothing for a created path or an existing file; the item is staged in both cases.
   - Verification: `uv run devops ci test tests/test_roadmap_stage_apply.py`
-- [ ] 2.2 Add `missing_paths` to `src/devops_cli/roadmap/stage_change.py`, keep its result in `StagedChange`, and write the warning line in the comment in `src/devops_cli/roadmap/stage.py`.
+- [x] 2.2 Add `missing_paths` to `src/devops_cli/roadmap/stage_change.py`, keep its result in `StagedChange`, and write the warning line in the comment in `src/devops_cli/roadmap/stage.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_apply.py`
 
 ## 3. The prompt and the documentation

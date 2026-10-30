@@ -407,19 +407,29 @@ class MeasuredGroup:
     tokens: int
 
 
+def _file_at(root: Path, path: str) -> Path | None:
+    """The file at `path` under `root`, or None when `path` leaves `root` or holds no file."""
+    try:
+        found = safe_resolve_subpath(root, path)
+    except SecurityError:
+        return None
+    return found if found.is_file() else None
+
+
 def _packed_tokens(root: Path, paths: Sequence[str], limit: int) -> int:
     """The tokens of the files at `paths` under `root`, packed. A path that holds no file is a
     file the step creates, and costs nothing to read. A file is packed to at most `limit`."""
     packer = ContextPacker(PackingConfig(max_tokens=limit))
-    total = 0
-    for path in dict.fromkeys(paths):
-        try:
-            found = safe_resolve_subpath(root, path)
-        except SecurityError:
-            continue
-        if found.is_file():
-            total += packer.pack_file(found).packed_tokens
-    return total
+    files = (_file_at(root, path) for path in dict.fromkeys(paths))
+    return sum(packer.pack_file(found).packed_tokens for found in files if found is not None)
+
+
+def missing_paths(root: Path, groups: Sequence[StageGroup]) -> tuple[str, ...]:
+    """The paths that the groups change, each once, that hold no file under `root` and that no
+    group creates: a person checks them, as a new file the model did not mark looks the same."""
+    created = {path for group in groups for path in group.creates}
+    changed = dict.fromkeys(path for group in groups for path in group.changes)
+    return tuple(path for path in changed if path not in created and _file_at(root, path) is None)
 
 
 def measure_groups(
