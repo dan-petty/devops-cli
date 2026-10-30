@@ -10,14 +10,14 @@ Issue #2731. A model call that fails in a step of `devops roadmap implement` rai
 - `_attempt` is not changed. It already builds a stopped outcome with the masked diff when the run holds a reason, for the first turn and for the extra turn. The extra turn adds its partial spend to the spend of the first turn through `_Run.then`.
 - A `ModelHTTPError` with the status 401 or 403 still raises `AICredentialsError` after the checkout is reset. It stops the whole run, as before.
 - `_implement_item` and `apply_implement` are not changed. They still stop an item that raises `AIClientError` for another cause, such as a failed `git` command, and they still stop the run on `AICredentialsError`.
-- A consumer observes the stop reason and the diff in the stop comment, so the change carries a spec delta. It modifies one requirement of `roadmap-implement-step` and adds one.
+- A consumer observes the stop reason and the diff in the stop comment, so the change carries a spec delta. It adds three requirements to `roadmap-implement-step`.
 - This change fits one pull request.
 
 ## Capabilities
 
 ### Modified Capabilities
 
-- `roadmap-implement-step`: the requirement "A run that reaches a limit ends stopped" now covers a failed model call, with the three new scenarios. The requirement "A refused key stops the run" is added.
+- `roadmap-implement-step`: the requirements "A failed model call ends the step stopped", "A failed model call gives a reason with no text of the provider" and "A refused key stops the whole run" are added.
 
 ## Impact
 

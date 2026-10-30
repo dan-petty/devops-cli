@@ -1,37 +1,9 @@
 # Spec Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: A run that reaches a limit ends stopped
-`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, breaks the rules of its tools past their retries, or ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. For a limit or a broken rule, the reason SHALL hold the class and the message of the pydantic-ai error, masked and cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it. The agent SHALL have no `delegate_task` tool.
-
-#### Scenario: A model that never ends
-- **WHEN** the model calls a tool in every reply
-- **THEN** the step reports stopped with a reason that starts with `UsageLimitExceeded: ` and holds the message of the error, the model got `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests at most, and the checkout is reset
-
-#### Scenario: A model that calls too many tools
-- **WHEN** the model calls more tools than `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` before it reaches the request limit
-- **THEN** the step reports stopped with a reason that starts with `UsageLimitExceeded: `, and the checkout is reset
-
-#### Scenario: The tools of the agent
-- **WHEN** the step makes its first request
-- **THEN** the function tools offered are `read_file`, `write_file`, `edit_file`, `list_files`, `grep` and `shell`
-
-#### Scenario: The extra turn shares the budget
-- **WHEN** the first turn used all but one of the model requests and the extra turn needs two
-- **THEN** the step reports stopped with a reason that starts with `UsageLimitExceeded: `, and the model got `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests at most over both turns
-
-#### Scenario: A model that keeps calling a refused program
-- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply
-- **THEN** the step reports stopped with a reason that starts with `UnexpectedModelBehavior: Tool 'shell' exceeded max retries count of 5.`, and the checkout is reset
-
-#### Scenario: A secret in the message of the error
-- **WHEN** the message of the pydantic-ai error holds a token in the form of a GitHub token
-- **THEN** the reason holds the mask in place of the token
-
-#### Scenario: A long message of the error
-- **WHEN** the message of the pydantic-ai error is longer than `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters
-- **THEN** the message in the reason is cut to that length, and the counts of the next requirement are still in the reason
+### Requirement: A failed model call ends the step stopped
+A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it.
 
 #### Scenario: A model call fails in the first turn
 - **WHEN** the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`
@@ -40,8 +12,6 @@
 #### Scenario: A model call fails in the extra turn
 - **WHEN** the first turn passes every check and leaves a task unticked, and the model call of the extra turn for the ticks raises one of those errors
 - **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of the work of the first turn, the requests of both turns, and the last text of the first turn, and the checkout is reset
-
-## ADDED Requirements
 
 ### Requirement: A failed model call gives a reason with no text of the provider
 The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status when it has one, and the name of the model. It SHALL NOT hold the message or the body of the reply. When git cannot give the diff of the discarded work, the outcome SHALL hold an empty diff, and the reason SHALL hold the text of the git error after the reason of the stop.
