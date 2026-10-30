@@ -1,5 +1,5 @@
-"""The ticks of the other groups (#2767): a step restores the checkboxes of every group but its
-own, and stops on any other change to another group.
+"""The tasks file of a step (#2767, #2790): the job writes `tasks.md` back to its text before the
+run, and applies only the ticks of the own group. No edit of the file stops the step.
 
 The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real on a checkout in
 `tmp_path`; every other program is answered by `process_fake`.
@@ -31,7 +31,6 @@ from tests.support.implement_step import (
     TICKED,
     WINDOW,
     git,
-    is_clean_at,
     make_checkout,
     write_call,
 )
@@ -40,8 +39,8 @@ from tests.support.model_script import ModelScript, say, tool_calls
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 WORK = (write_call("tests/test_sample.py", TEST_BODY), write_call("src/sample.py", SHOUT_CODE))
-EDITED = "Group 2 changed. A step may change only its own group."
-NOTE = "Restored the checkboxes of these groups: {groups}. A step ticks only its own group."
+NOTE = "Restored the tasks.md of the change 1-sample-change. A step only ticks the tasks of its own group."
+BASE = TICKED.replace("- [x] Document", "- [ ] Document")
 
 
 @pytest.fixture
@@ -141,105 +140,89 @@ def test_the_extra_turn_that_ticks_a_later_group_is_restored(
     )
 
 
-def test_a_text_edit_of_a_later_group_stops_the_step_with_the_group_named(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
-) -> None:
-    head = git(later_open, "rev-parse", "HEAD")
-    edited = EVERY_TICK.replace("Document the function", "Describe the function")
-    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
-
-    result = _step(store, later_open, script)
-
-    assert (result, is_clean_at(later_open, head)) == ((StepStatus.STOPPED, EDITED), True)
-
-
-def test_a_ticked_task_of_a_later_group_with_an_edited_command_stops_the_step(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
-) -> None:
-    edited = EVERY_TICK.replace(
+EDITS = {
+    "text": EVERY_TICK.replace("Document the function", "Describe the function"),
+    "command": EVERY_TICK.replace(
         "Verification: `uv run devops docs check`\n\n## Workflow",
         "Verification: `uv run devops docs check --all`\n\n## Workflow",
-    )
-    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
-
-    assert _step(store, later_open, script) == (StepStatus.STOPPED, EDITED)
-
-
-def test_a_text_edit_of_a_later_group_in_the_extra_turn_stops_the_step(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
-) -> None:
-    edited = EVERY_TICK.replace("Document the function", "Describe the function")
-    script = ModelScript(
-        tool_calls(*WORK),
-        say("The work is done."),
-        tool_calls(write_call(TASKS_PATH, edited)),
-        say("Ok."),
-    )
-
-    assert _step(store, later_open, script) == (StepStatus.STOPPED, EDITED)
-
-
-def test_a_group_that_the_model_adds_stops_the_step_with_the_group_named(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
-) -> None:
-    added = EVERY_TICK.replace(
+    ),
+    "added group": EVERY_TICK.replace(
         "## Workflow follow-up", "## 3. A third group\n\n- [x] Do more\n\n## Workflow follow-up"
-    )
-    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, added)), say("Done."))
+    ),
+    "removed group": EVERY_TICK.split("## 2.")[0]
+    + "## Workflow"
+    + EVERY_TICK.split("## Workflow")[1],
+    "bullet": EVERY_TICK.replace("- [x] Document", "* [x] Document"),
+    "added line": EVERY_TICK.replace(
+        "## Workflow follow-up", "Extra prose by the model.\n\n## Workflow follow-up"
+    ),
+    "outside every group": EVERY_TICK.replace("# Tasks\n", "# Tasks\n\nThe model was here.\n", 1),
+    "follow-up section": EVERY_TICK.replace("A plain bullet", "A changed bullet"),
+    "unticked group with a line": BASE.replace(
+        "## Workflow follow-up", "Extra prose by the model.\n\n## Workflow follow-up"
+    ).replace("- [ ] Add", "- [x] Add"),
+}
 
-    assert _step(store, later_open, script) == (
-        StepStatus.STOPPED,
-        "Group 3 changed. A step may change only its own group.",
-    )
 
-
-def test_a_changed_bullet_of_a_ticked_later_group_stops_the_step(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+@pytest.mark.parametrize("edited", EDITS.values(), ids=EDITS.keys())
+def test_an_edit_of_the_tasks_file_beyond_the_ticks_of_the_group_is_undone(
+    edited: str, store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
-    head = git(later_open, "rev-parse", "HEAD")
-    edited = EVERY_TICK.replace("- [x] Document", "* [x] Document")
     script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
 
     result = _step(store, later_open, script)
 
-    assert (result, is_clean_at(later_open, head)) == ((StepStatus.STOPPED, EDITED), True)
+    assert (result, _committed_tasks(later_open)) == ((StepStatus.DONE, ""), BASE)
 
 
-def test_a_line_that_the_model_adds_to_a_ticked_later_group_stops_the_step(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
-) -> None:
-    prose = "Extra prose by the model.\n\n## Workflow follow-up"
-    edited = EVERY_TICK.replace("## Workflow follow-up", prose)
-    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
-
-    assert _step(store, later_open, script) == (StepStatus.STOPPED, EDITED)
-
-
-def test_a_line_that_the_model_adds_to_an_unticked_later_group_stops_the_step(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
-) -> None:
-    prose = "Extra prose by the model.\n\n## Workflow follow-up"
-    edited = TICKED.replace("- [x] Document", "- [ ] Document").replace(
-        "## Workflow follow-up", prose
-    )
-    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
-
-    assert _step(store, later_open, script) == (StepStatus.STOPPED, EDITED)
-
-
-def test_a_tasks_file_with_lone_cr_line_ends_is_restored_on_the_right_line(
+def test_a_number_that_the_model_deletes_from_a_task_of_a_later_group_is_restored(
     store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
 ) -> None:
-    lone = "# Tasks" + "\r" * 62 + "\n"
-    checkout = make_checkout(tmp_path, LATER_OPEN)
-    script = ModelScript(
-        tool_calls(*WORK, write_call(TASKS_PATH, EVERY_TICK.replace("# Tasks\n", lone, 1))),
-        say("Done."),
+    numbered = LATER_OPEN.replace("- [ ] Document", "- [ ] 2.1 Document")
+    checkout = make_checkout(tmp_path, numbered)
+    edited = numbered.replace("- [ ] Add", "- [x] Add").replace(
+        "- [ ] 2.1 Document", "- [x] Document"
     )
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, edited)), say("Done."))
 
     result = _step(store, checkout, script)
 
-    expected = TICKED.replace("- [x] Document", "- [ ] Document").replace("# Tasks\n", lone, 1)
+    assert (result, _committed_tasks(checkout)) == (
+        (StepStatus.DONE, ""),
+        numbered.replace("- [ ] Add", "- [x] Add"),
+    )
+
+
+def test_an_edit_of_a_later_group_in_the_extra_turn_is_undone(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(*WORK),
+        say("The work is done."),
+        tool_calls(write_call(TASKS_PATH, EDITS["text"])),
+        say("Ok."),
+    )
+
+    assert (_step(store, later_open, script), _committed_tasks(later_open)) == (
+        (StepStatus.DONE, ""),
+        BASE,
+    )
+
+
+LONE = "# Tasks" + "\r" * 62 + "\n"
+
+
+@pytest.mark.parametrize("written", [LONE, "# Tasks\n"], ids=["lone CR kept", "lone CR dropped"])
+def test_a_tasks_file_with_lone_cr_line_ends_is_written_back_and_ticked_on_the_right_lines(
+    written: str, store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    checkout = make_checkout(tmp_path, LATER_OPEN.replace("# Tasks\n", LONE, 1))
+    ticked = EVERY_TICK.replace("# Tasks\n", written, 1)
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, ticked)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    expected = BASE.replace("# Tasks\n", LONE, 1)
     assert (result, (checkout / TASKS_PATH).read_text(encoding="utf-8", newline="")) == (
         (StepStatus.DONE, ""),
         expected,
@@ -253,18 +236,17 @@ def _hidden_edit() -> str:
     return edited.replace("- [ ] Add", "- [x] Add") + f"\n## 2.{original}"
 
 
-def test_a_copy_of_a_group_that_hides_an_edit_of_it_stops_the_step(
+def test_a_copy_of_a_group_that_hides_an_edit_of_it_changes_nothing_in_the_commit(
     store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
-    head = git(later_open, "rev-parse", "HEAD")
     script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, _hidden_edit())), say("Done."))
 
     result = _step(store, later_open, script)
 
-    assert (result, is_clean_at(later_open, head)) == ((StepStatus.STOPPED, EDITED), True)
+    assert (result, _committed_tasks(later_open)) == ((StepStatus.DONE, ""), BASE)
 
 
-def test_a_fix_step_that_hides_an_edit_behind_a_copy_of_a_group_stops(
+def test_a_fix_step_that_hides_an_edit_behind_a_copy_of_a_group_leaves_the_tasks_as_they_were(
     store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(
@@ -284,9 +266,10 @@ def test_a_fix_step_that_hides_an_edit_behind_a_copy_of_a_group_stops(
         window=WINDOW,
     )
 
-    assert (outcome.status, outcome.reason) == (
-        StepStatus.STOPPED,
-        "The tasks changed. A fix step changes no task.",
+    assert (outcome.status, outcome.reason, _committed_tasks(later_open)) == (
+        StepStatus.DONE,
+        "",
+        LATER_OPEN,
     )
 
 
@@ -300,7 +283,7 @@ def test_a_change_whose_tasks_file_numbers_a_group_twice_is_refused(
         build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
 
-def test_the_step_prints_one_line_that_names_the_restored_groups(
+def test_the_step_prints_one_line_that_names_the_change_it_restores(
     store: InMemoryRoadmapStore,
     later_open: Path,
     programs: ProcessFake,
@@ -311,10 +294,10 @@ def test_the_step_prints_one_line_that_names_the_restored_groups(
     _step(store, later_open, script)
 
     notes = [line for line in capsys.readouterr().err.splitlines() if "Restored" in line]
-    assert notes == [NOTE.format(groups="2")]
+    assert notes == [NOTE]
 
 
-def test_the_step_prints_one_line_for_all_the_groups_it_restores_in_a_turn(
+def test_the_step_prints_one_line_when_the_model_edits_many_groups_in_a_turn(
     store: InMemoryRoadmapStore,
     tmp_path: Path,
     programs: ProcessFake,
@@ -330,10 +313,10 @@ def test_the_step_prints_one_line_for_all_the_groups_it_restores_in_a_turn(
     _step(store, checkout, script)
 
     notes = [line for line in capsys.readouterr().err.splitlines() if "Restored" in line]
-    assert notes == [NOTE.format(groups="2, 3")]
+    assert notes == [NOTE]
 
 
-def test_the_step_prints_no_note_when_no_other_group_changed(
+def test_the_step_prints_no_note_when_the_model_only_ticks_its_own_group(
     store: InMemoryRoadmapStore,
     later_open: Path,
     programs: ProcessFake,
@@ -365,7 +348,7 @@ def test_a_tasks_file_with_crlf_line_ends_keeps_them_when_the_restore_writes_it(
     )
 
 
-def test_a_fix_step_that_ticks_a_task_of_any_group_still_stops(
+def test_a_fix_step_that_ticks_a_task_of_any_group_leaves_the_tasks_as_they_were(
     store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(
@@ -378,10 +361,91 @@ def test_a_fix_step_that_ticks_a_task_of_any_group_still_stops(
         store, item=1, fix=fix, source=later_open, model=script.model(), window=WINDOW
     )
 
-    assert (outcome.status, outcome.reason) == (
-        StepStatus.STOPPED,
-        "The tasks changed. A fix step changes no task.",
+    assert (outcome.status, outcome.reason, _committed_tasks(later_open)) == (
+        StepStatus.DONE,
+        "",
+        LATER_OPEN,
     )
+
+
+def test_a_link_in_place_of_the_tasks_file_is_replaced_and_the_target_is_not_written(
+    store: InMemoryRoadmapStore, later_open: Path, tmp_path: Path, programs: ProcessFake
+) -> None:
+    target = tmp_path / "outside.txt"
+    target.write_text("outside\n", encoding="utf-8")
+    tasks = later_open / TASKS_PATH
+
+    def link() -> None:
+        tasks.unlink()
+        tasks.symlink_to(target)
+
+    script = ModelScript(tool_calls(*WORK), say("Done."), effects={2: link})
+
+    result = _step(store, later_open, script)
+
+    assert (result[0], target.read_text(encoding="utf-8"), tasks.is_symlink()) == (
+        StepStatus.STOPPED,
+        "outside\n",
+        False,
+    )
+
+
+def test_a_group_that_the_model_ticks_in_part_gets_the_extra_turn_for_the_rest(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    first_only = LATER_OPEN.replace("- [ ] Add the failing", "- [x] Add the failing")
+    script = ModelScript(
+        tool_calls(*WORK, write_call(TASKS_PATH, first_only)),
+        say("The work is done."),
+        tool_calls(write_call(TASKS_PATH, EVERY_TICK)),
+        say("Ticked."),
+    )
+
+    result = _step(store, later_open, script)
+
+    last = [str(getattr(part, "content", "")) for part in script.seen[2][-1].parts][-1]
+    assert (result, "- [ ] Add `shout`" in last, "Add the failing" in last) == (
+        (StepStatus.DONE, ""),
+        True,
+        False,
+    )
+    assert _committed_tasks(later_open) == BASE
+
+
+def test_a_group_that_the_model_ticks_in_part_and_not_more_stops_with_the_first_unticked_task(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    first_only = LATER_OPEN.replace("- [ ] Add the failing", "- [x] Add the failing")
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, first_only)), say("Done."))
+
+    assert _step(store, later_open, script) == (
+        StepStatus.STOPPED,
+        "A task of the group is not ticked: [ ] Add `shout` to `src/sample.py`",
+    )
+
+
+def test_a_model_that_adds_a_task_to_its_group_and_ticks_all_gets_no_tick(
+    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
+) -> None:
+    added = BASE.replace("- [x] Add `shout`", "- [x] Do more\n- [x] Add `shout`")
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, added)), say("Done."))
+
+    assert _step(store, later_open, script) == (
+        StepStatus.STOPPED,
+        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
+        "for `src/sample.py`",
+    )
+
+
+def test_a_step_that_unticks_a_task_of_its_own_done_group_keeps_it_ticked(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    checkout = make_checkout(tmp_path, EVERY_TICK)
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, LATER_OPEN)), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout)) == ((StepStatus.DONE, ""), EVERY_TICK)
 
 
 def test_the_instructions_say_to_tick_only_the_tasks_of_the_group_and_give_the_reason(
