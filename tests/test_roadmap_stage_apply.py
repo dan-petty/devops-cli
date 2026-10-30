@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.exceptions import GitHubOperationError, ServiceStoppingError
+from devops_cli import exceptions
+from devops_cli.exceptions import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StageApplied, apply_stage, parse_filters, plan_stage
 from devops_cli.roadmap.stage_change import StageSplit
@@ -24,6 +25,7 @@ from tests.support.roadmap_stage import (
     validate_args,
     write_big_file,
 )
+from tests.support.service_stop import stop_error
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -199,7 +201,7 @@ class _CommentRefused(InMemoryRoadmapStore):
     def comment(self, number: int, body: str) -> None:
         if number == self.refused:
             if self.stop:
-                raise ServiceStoppingError("the Service is stopping")
+                raise stop_error()
             raise GitHubOperationError("comment refused", operation="roadmap.issue.comment")
         super().comment(number, body)
 
@@ -238,7 +240,7 @@ def test_a_stop_of_the_service_ends_the_run_and_is_no_failed_item(
     stuck = make_stage_proposal(groups=[heavy])
     model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
 
-    with pytest.raises(ServiceStoppingError):
+    with pytest.raises(exceptions.ServiceStoppingError):
         _stage(store, stage_repo, step_tokens=6000)
 
 

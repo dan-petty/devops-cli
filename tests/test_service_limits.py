@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter
 
+from devops_cli import exceptions
 from devops_cli.ai.client import network
 from devops_cli.config.constants import (
     CONST_SERVICE_BUDGET_FILENAME,
@@ -39,7 +40,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_GH_MAX_RETRIES, DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
-from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError, ServiceStoppingError
+from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github import rate_limiter, session_transport
 from devops_cli.github.request_scope import request_labels
@@ -61,6 +62,7 @@ from devops_cli.telemetry.tracer import reset_tracer
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json, quota_headers
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.service_stop import stop_error
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 REPO_A, REPO_B = "example-org/repo1", "example-org/repo2"
@@ -386,7 +388,7 @@ def test_a_request_the_budget_has_no_room_for_ends_when_the_budget_is_closed() -
     _send(budget, 2)
     budget.close()
 
-    with pytest.raises(ServiceStoppingError) as raised:
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
         budget.admit()
 
     assert (raised.value.details, budget.spent()) == ({"limit": 2}, 2)
@@ -599,8 +601,8 @@ def test_a_success_clears_the_record_of_failed_rounds() -> None:
 # ── A stop is not a failed round (#2753) ───────────────────────────────────────────────────
 
 
-def _stopping() -> ServiceStoppingError:
-    return ServiceStoppingError("the request does not wait: the Service is stopping")
+def _stopping() -> RoadmapRunError:
+    return stop_error()
 
 
 class _Rounds:
