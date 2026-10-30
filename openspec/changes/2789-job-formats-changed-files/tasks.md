@@ -2,9 +2,9 @@
 
 ## 1. The format run
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_step_format.py`: unformatted correct code ends done with the formatted file in the commit and one line that names it; a formatted file prints no line; the format command names only the changed Python files; a lint error after the format run still stops the step; a format command that exits 2 stops the step with its output; a format command that runs out of time stops the step; the format run is the first command. Change the list of commands in `tests/test_roadmap_implement_step.py`.
+- [x] Write failing tests in `tests/test_roadmap_implement_step_format.py`: unformatted correct code ends done with the formatted file in the commit and one line that names it; a formatted file prints no line; the format command names only the changed Python files; a lint error after the format run still stops the step; a format command that exits 2 stops the step with its output; a format command that runs out of time stops the step; the format run is the first command. Change the list of commands in `tests/test_roadmap_implement_step.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_format.py`
-- [ ] In `src/devops_cli/roadmap/implement_step.py`, add the format run to `_exit_failure`: run `uv run ruff format` on the changed Python files with `_command_failure`, stage the files that `git diff --name-only -z` lists, and print one line from `src/devops_cli/lang/en/messages.py`. Remove the `ruff format --check` row from `_static_failure`.
+- [x] In `src/devops_cli/roadmap/implement_step.py`, add the format run to `_exit_failure`: run `uv run ruff format` on the changed Python files with `_command_failure`, stage the files that `git diff --name-only -z` lists, and print one line from `src/devops_cli/lang/en/messages.py`. Remove the `ruff format --check` row from `_static_failure`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_format.py tests/test_roadmap_implement_step.py tests/test_roadmap_implement_step_ticks.py tests/test_roadmap_implement_step_own_text.py tests/test_roadmap_implement_job.py`
 
 ## 2. The prompt
