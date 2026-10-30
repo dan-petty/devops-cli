@@ -16,15 +16,15 @@
 
 ## 3. The documentation
 
-- [x] 3.1 Regenerate the documentation.
+- [ ] 3.1 Regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 4. Archive
 
-- [x] 4.1 Archive the change.
+- [ ] 4.1 Archive the change.
   - Verification: `uv run devops openspec archive 2562-refine-warning-reasons`
 
 ## Workflow follow-up
 
-- The implement step builds its stop reason from `str(stopped)`, which holds the `body` of an `UnexpectedModelBehavior`. The follow-up is issue #2778.
+- The implement step builds its stop reason from `str(stopped)`, which holds the `body` of an `UnexpectedModelBehavior`. The follow-up issue is filed with `devops roadmap intake`.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
