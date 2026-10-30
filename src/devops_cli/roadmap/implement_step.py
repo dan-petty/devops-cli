@@ -41,6 +41,7 @@ from pydantic_ai.conversation import Conversation
 from pydantic_ai.exceptions import (
     AgentRunError,
     ModelAPIError,
+    ModelHTTPError,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
@@ -50,6 +51,7 @@ from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
 from pydantic_ai_harness.shell import Shell
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 
+from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
 from devops_cli.ai.task_loader import load_task_prompt
@@ -599,6 +601,16 @@ def _last_text(messages: Sequence[ModelMessage]) -> str:
     return texts[-1] if texts else ""
 
 
+def _with_counts(reason: str, log: ToolCallLog) -> str:
+    """`reason`, then the counts of refused and retried tool calls when either is not zero."""
+    if not (log.refused or log.retried):
+        return reason
+    counts = MESSAGES.roadmap.implement_stop_counts.format(
+        refused=log.refused_text(), retried=log.retried
+    )
+    return f"{reason}\n{counts}"
+
+
 def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
     """The reason of a run that a pydantic-ai error ended (#2758): the class and the message of the
     error, then the counts of refused and retried tool calls when either is not zero. It reads
@@ -607,10 +619,20 @@ def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
     reason = texts.run_stop_reason.format(
         error=type(stopped).__name__, message=bounded_text(stopped.message)
     )
-    if not (log.refused or log.retried):
-        return reason
-    counts = texts.implement_stop_counts.format(refused=log.refused_text(), retried=log.retried)
-    return f"{reason}\n{counts}"
+    return _with_counts(reason, log)
+
+
+def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
+    """The reason of a run that a failed model call ended (#2731): the class of the error, the HTTP
+    status when the reply has one, and the name of the model, then the counts of `_stop_reason`.
+    The message and the body of the reply stay out. They are text that the provider chose, and the
+    masker finds a secret by its form in a sentence, not by its key in the repr of a dict."""
+    texts = MESSAGES.roadmap
+    detail = texts.implement_model_call_model.format(model=failed.model_name)
+    if isinstance(failed, ModelHTTPError):
+        detail = texts.implement_model_call_status.format(status=failed.status_code, model=detail)
+    reason = texts.run_stop_reason.format(error=type(failed).__name__, message=detail)
+    return _with_counts(reason, log)
 
 
 def _run_agent(
@@ -622,14 +644,15 @@ def _run_agent(
 ) -> _Run:
     """One turn of the agent under the limits of a step, and its spend as one record. With
     `conversation`, the turn continues it: its messages and its usage carry over, so the limits
-    count both turns. Raises the client error that refine raises when a model call fails."""
+    count both turns. A failed model call ends the turn as stopped, with the replies that came before
+    it, as a limit does. Raises `AICredentialsError` when the model refuses the key."""
     limits = UsageLimits(
         request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     )
     reason = last = ""
     kept = None
-    error = None
+    error: AICredentialsError | None = None
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
@@ -643,8 +666,12 @@ def _run_agent(
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
             reason, last = _stop_reason(stopped, log), _last_text(messages)
         except ModelAPIError as exc:
-            # Raised outside this handler, so a logged traceback holds no reply text.
-            error = model_call_error(exc, "The step's")
+            refused = model_call_error(exc, "The step's")
+            if isinstance(refused, AICredentialsError):
+                # Raised outside this handler, so a logged traceback holds no reply text.
+                error = refused
+            else:
+                reason, last = _model_call_reason(exc, log), _last_text(messages)
         finally:
             replies = _new_replies(messages, conversation)
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
@@ -1021,6 +1048,16 @@ def _discarded_diff(source: Path, start: str) -> tuple[str, bool]:
     )
 
 
+def _read_discarded_diff(source: Path, start: str, reason: str) -> tuple[str, bool, str]:
+    """The discarded diff, whether it was cut, and `reason`. When git refuses to give the diff, the
+    diff is empty and the reason holds both why the step stopped and why it has no diff."""
+    try:
+        diff, cut = _discarded_diff(source, start)
+    except RoadmapImplementError as failure:
+        return "", False, f"{reason}\n{failure}"
+    return diff, cut, reason
+
+
 def _commit(source: Path, message: str) -> tuple[str, str]:
     """Commit the staged changes, with the hooks of the repository. The commit, and why the
     step stops when git refuses it."""
@@ -1128,7 +1165,7 @@ def _attempt(
     if not reason:
         commit, reason = _commit(source, f"{inputs.group.title} (#{item})")
     if reason:
-        diff, cut = _discarded_diff(source, start)
+        diff, cut, reason = _read_discarded_diff(source, start, reason)
         return outcome.model_copy(update={"reason": reason, "diff": diff, "diff_cut": cut})
     return outcome.model_copy(update={"status": StepStatus.DONE, "commit": commit})
 
@@ -1146,10 +1183,11 @@ def run_step(
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
     The step commits the group as `<group title> (#<item>)` when every exit check passes, and
-    otherwise resets the checkout to the commit it started at, also when the agent made commits or the run raises. It reads the
-    item once and writes nothing to GitHub. Raises `RoadmapImplementError` for a step it
-    refuses to start, and the client error of a failed model call. With `fix`, the step makes the
-    failed check pass and ticks no task (`run_fix_step`).
+    otherwise resets the checkout to the commit it started at, also when the agent made commits or
+    the run raises. It reads the item once and writes nothing to GitHub. A failed model call ends
+    the step as stopped, with the diff of the work. Raises `RoadmapImplementError` for a step it
+    refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
+    step makes the failed check pass and ticks no task (`run_fix_step`).
     """
     inputs = build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix)
     _require_clean(source)
