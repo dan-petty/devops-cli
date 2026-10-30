@@ -10,6 +10,7 @@ one differs (`tests/support/git_recording.py`).
 
 from __future__ import annotations
 
+import getpass
 import json
 import socket
 import subprocess
@@ -256,6 +257,13 @@ def test_a_changed_transcript_and_a_transcript_without_a_scenario_are_reported()
     ) == (True, True)
 
 
+@pytest.fixture
+def other_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A user and a host whose names the texts of a test do not hold, as no run's name is fixed."""
+    monkeypatch.setattr(getpass, "getuser", lambda: "nobody-at-all")
+    monkeypatch.setattr(socket, "gethostname", lambda: "elsewhere-host")
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -267,17 +275,19 @@ def test_a_changed_transcript_and_a_transcript_without_a_scenario_are_reported()
         "/media/disk/repo",
     ],
 )
-def test_host_data_is_also_a_path_in_a_system_directory(text: str) -> None:
+def test_host_data_is_also_a_path_in_a_system_directory(text: str, other_host: None) -> None:
     """A host path is any directory of the root of a host, not only the ones of a user."""
     assert host_data_in(text) != []
 
 
-def test_a_reference_or_a_file_name_that_holds_a_directory_name_is_no_host_path() -> None:
+def test_a_reference_or_a_file_name_that_holds_a_directory_name_is_no_host_path(
+    other_host: None,
+) -> None:
     """Only a path that starts at the root is a host path."""
     assert host_data_in("refs/heads/etc/x and docs/opt/y and {root}/repo") == []
 
 
-def test_host_data_is_the_host_name(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_host_data_is_the_host_name(other_host: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """A message of git that names the host leaks it, so the name is host data."""
     monkeypatch.setattr(socket, "gethostname", lambda: "build-box7")
 
@@ -297,7 +307,7 @@ def test_host_data_is_the_host_name(monkeypatch: pytest.MonkeyPatch) -> None:
     ],
 )
 def test_host_data_is_a_host_path_or_an_address_outside_example_com(
-    text: str, found: list[str]
+    text: str, found: list[str], other_host: None
 ) -> None:
     """A transcript may hold the placeholder and example.com, and nothing else of a host."""
     assert host_data_in(text) == found
