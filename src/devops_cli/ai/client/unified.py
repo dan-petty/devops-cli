@@ -236,18 +236,19 @@ class LLMClient(
         return self._cache
 
     def _connection_error(self, exc: Exception) -> AIClientError:
+        """The error for a provider that cannot be reached; `timed_out` says the cause was a
+        timeout (#2562)."""
+        return AIClientError(
+            self._unreachable_message(), timed_out=isinstance(exc, httpx2.TimeoutException)
+        )
+
+    def _unreachable_message(self) -> str:
         provider = self._config.provider
         if provider == "ollama":
-            return AIClientError(
-                "Cannot connect to Ollama. Start Ollama, or run: devops ai config --provider ollama --ollama-urls <urls>"
-            )
+            return "Cannot connect to Ollama. Start Ollama, or run: devops ai config --provider ollama --ollama-urls <urls>"
         if provider == "claude":
-            return AIClientError(
-                "Cannot connect to Claude API. Check network access and api_base_url (devops ai config --provider claude --api-base-url <url>)."
-            )
-        return AIClientError(
-            "Cannot connect to AI provider API. Check network access, api_base_url, and API key."
-        )
+            return "Cannot connect to Claude API. Check network access and api_base_url (devops ai config --provider claude --api-base-url <url>)."
+        return "Cannot connect to AI provider API. Check network access, api_base_url, and API key."
 
     @property
     def backend_type(self) -> str:

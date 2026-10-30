@@ -255,7 +255,9 @@ def _map_anthropic_errors(self_obj: Any, failure: str) -> Iterator[None]:
     try:
         yield
     except anthropic.APIConnectionError as exc:
-        raise self_obj._connection_error(exc) from exc
+        error = self_obj._connection_error(exc)
+        error.timed_out = isinstance(exc, anthropic.APITimeoutError)
+        raise error from exc
     except anthropic.APIStatusError as exc:
         if exc.status_code in (401, 403):
             from devops_cli.ai.client.models import credentials_error

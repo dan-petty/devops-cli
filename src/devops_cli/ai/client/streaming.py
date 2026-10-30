@@ -388,7 +388,8 @@ def _read_failures(provider_name: str) -> Iterator[None]:
         raise AIClientError(f"{provider_name} stream could not be read: {str(exc)[:256]}") from exc
     except httpx2.RequestError as exc:
         raise AIClientError(
-            f"{provider_name} streaming connection terminated unexpectedly: {str(exc)[:256]}"
+            f"{provider_name} streaming connection terminated unexpectedly: {str(exc)[:256]}",
+            timed_out=isinstance(exc, httpx2.TimeoutException),
         ) from exc
 
 

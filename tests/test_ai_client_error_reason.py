@@ -45,13 +45,16 @@ def _failure(client: LLMClient) -> AIClientError:
 @pytest.mark.parametrize(
     ("facts", "reason"),
     [
-        ({"status": 408}, "LLM_INFERENCE_ERROR, HTTP 408 Request Timeout"),
+        ({"status": 408}, "LLM_INFERENCE_ERROR, timeout (HTTP 408 Request Timeout)"),
         ({"status": 599}, "LLM_INFERENCE_ERROR, HTTP 599"),
         ({"timed_out": True}, "LLM_INFERENCE_ERROR, timeout"),
-        ({"status": 504, "timed_out": True}, "LLM_INFERENCE_ERROR, timeout"),
+        (
+            {"status": 504, "timed_out": True},
+            "LLM_INFERENCE_ERROR, timeout (HTTP 504 Gateway Timeout)",
+        ),
         ({}, "LLM_INFERENCE_ERROR"),
     ],
-    ids=["status", "status-with-no-phrase", "timeout", "timeout-wins", "neither"],
+    ids=["status", "status-with-no-phrase", "timeout", "timeout-and-status", "neither"],
 )
 def test_the_reason_is_the_code_then_the_status_or_the_timeout(
     facts: dict[str, Any], reason: str
@@ -74,7 +77,7 @@ def test_a_reply_with_a_status_gives_the_status_and_not_the_body(
     assert (error.status, error.timed_out, error.reason) == (
         408,
         False,
-        "LLM_INFERENCE_ERROR, HTTP 408 Request Timeout",
+        "LLM_INFERENCE_ERROR, timeout (HTTP 408 Request Timeout)",
     )
 
 
@@ -86,7 +89,10 @@ def test_an_error_frame_with_a_status_gives_that_status(monkeypatch: pytest.Monk
 
     error = _failure(_client())
 
-    assert (error.status, error.reason) == (408, "LLM_INFERENCE_ERROR, HTTP 408 Request Timeout")
+    assert (error.status, error.reason) == (
+        408,
+        "LLM_INFERENCE_ERROR, timeout (HTTP 408 Request Timeout)",
+    )
 
 
 def test_a_call_that_times_out_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -139,3 +145,62 @@ def test_a_transport_timeout_of_the_shared_client_says_so() -> None:
     )
 
     assert error.reason == "LLM_INFERENCE_ERROR, timeout"
+
+
+def _claude_client() -> LLMClient:
+    return LLMClient(
+        AIConfig(
+            provider="claude",
+            model="claude-test",
+            api_base_url="http://example.com",
+            allow_private_network=True,
+            max_retries=1,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+
+
+def _ollama_client() -> LLMClient:
+    return LLMClient(
+        AIConfig(
+            provider="ollama",
+            model="llama3",
+            ollama_urls=["http://ollama.example.com:11434"],
+            max_retries=1,
+        ),
+        cache_enabled=False,
+    )
+
+
+def _time_out(request: httpx2.Request) -> httpx2.Response:
+    raise httpx2.ConnectTimeout("connect timed out", request=request)
+
+
+@pytest.mark.parametrize(
+    ("make_client", "handler", "status", "timed_out"),
+    [
+        (_claude_client, _time_out, None, True),
+        (_ollama_client, _time_out, None, True),
+        (_ollama_client, lambda request: httpx2.Response(500, text=_MODEL_TEXT), 500, False),
+    ],
+    ids=["claude-timeout", "ollama-timeout", "ollama-status"],
+)
+def test_a_provider_that_builds_its_own_error_gives_the_status_or_the_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    make_client: Any,
+    handler: Any,
+    status: int | None,
+    timed_out: bool,
+) -> None:
+    """The Claude and Ollama paths build their error without the gateway mixin."""
+    client = make_client()
+    route_client(client, monkeypatch, handler)
+
+    error = _failure(client)
+
+    assert (error.status, error.timed_out, _MODEL_TEXT in error.reason) == (
+        status,
+        timed_out,
+        False,
+    )

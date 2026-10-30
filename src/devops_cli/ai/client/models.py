@@ -6,6 +6,7 @@ import json
 import os
 from collections.abc import Mapping
 from enum import StrEnum
+from http import HTTPStatus
 from http.client import responses as http_phrases
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -62,6 +63,10 @@ class RequestPriority(StrEnum):
         return self.weight >= other.weight
 
 
+# The HTTP statuses that say the call ran out of time: Request Timeout and Gateway Timeout.
+_TIMEOUT_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.GATEWAY_TIMEOUT})
+
+
 class AIClientError(LLMInferenceError, RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message.
 
@@ -78,14 +83,19 @@ class AIClientError(LLMInferenceError, RuntimeError):
 
     @property
     def reason(self) -> str:
-        """The error code, then `timeout` or the HTTP status with its phrase, when known. It holds
-        none of the message, which can quote the provider's reply."""
-        if self.timed_out:
-            return f"{self.error_code}, timeout"
+        """The error code, then `timeout` when the call timed out or the status says so (408,
+        504), then the HTTP status with its phrase when known. It holds none of the message, which
+        can quote the provider's reply."""
+        timed_out = self.timed_out or self.status in _TIMEOUT_STATUSES
         if self.status is None:
-            return self.error_code
+            return f"{self.error_code}, timeout" if timed_out else self.error_code
         phrase = http_phrases.get(self.status, "")
-        return f"{self.error_code}, HTTP {self.status} {phrase}".rstrip()
+        status = f"HTTP {self.status} {phrase}".rstrip()
+        return (
+            f"{self.error_code}, timeout ({status})"
+            if timed_out
+            else f"{self.error_code}, {status}"
+        )
 
 
 class ReplyRejectedError(AIClientError):
