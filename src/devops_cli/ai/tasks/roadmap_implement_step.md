@@ -24,6 +24,24 @@ Keep these rules of the project:
 
 You have tools to read, search, write and edit files, and a shell. The shell runs only `git`, `uv`, `ruff`, `mypy`. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass.
 
-The tool `write_file` does not create a directory. To create one, run `uv run python -c 'import pathlib; pathlib.Path("dir").mkdir(parents=True)'` with your path in place of `dir`.
+The shell refuses any other program, and each refusal counts against a limit. If you use the limit up, the step stops and all your work is lost. Use this table in place of the program that you want:
+
+| Program | Instead |
+| :--- | :--- |
+| `python` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
+| `python3` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
+| `pytest` | `uv run pytest` |
+| `pip` | nothing. The lockfile gives the dependencies |
+| `pip3` | nothing. The lockfile gives the dependencies |
+| `cat` | the tool `read_file` |
+| `head` | the tool `read_file` |
+| `tail` | the tool `read_file` |
+| `ls` | the tool `list_files` |
+| `find` | the tool `list_files` |
+| `grep` | the tool `grep` |
+| `rg` | the tool `grep` |
+| `cd` | nothing. Every command runs in the checkout |
+
+The tool `write_file` does not create a directory. To create one, run `uv run python -c '__import__("pathlib").Path("dir").mkdir(parents=True)'` with your path in place of `dir`.
 
 When you finish, reply with one short message. Say what you changed and what each verification command returned.

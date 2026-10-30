@@ -2018,6 +2018,15 @@ class RoadmapMessages:
     implement_stop_reason: str = "{error}: {message}"
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
     implement_tool_other: str = "other"
+    implement_refusal_replacement: str = "Instead of `{program}`: {replacement}."
+    implement_refusal_allowed: str = (
+        "These programs are allowed: {programs}. Run the commands of the project with `uv run`, "
+        "for example `uv run devops ci test <file>`."
+    )
+    implement_refusal_operator: str = (
+        "Run one command in each call. Do not chain commands. "
+        "Do not use `cd`: every command runs in the checkout."
+    )
     implement_tool_line: str = "Tool call: {tool}, {outcome}."
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tick_turn: str = (

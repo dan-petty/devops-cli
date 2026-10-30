@@ -84,6 +84,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
+from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -533,10 +534,10 @@ def build_agent(
     model: Any, source: Path, instructions: str, window: int, home: Path, log: ToolCallLog
 ) -> Agent[None, str]:
     """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
-    scratch `home`, and the hooks of `log` for its tool calls (#2758). It has no `delegate_task`
-    tool, so the limits of a run cover the whole step, and it loads no instruction file of the
-    checkout, so its context is the inputs of the step. The shell is no security boundary: the
-    runner of the step is the sandbox."""
+    scratch `home`, the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
+    tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
+    and it loads no instruction file of the checkout, so its context is the inputs of the step. The
+    shell is no security boundary: the runner of the step is the sandbox."""
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
@@ -548,7 +549,7 @@ def build_agent(
         model,
         output_type=str,
         retries={"tools": CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES},
-        capabilities=[LocalWorkspace(source), tuned, log.hooks()],
+        capabilities=[LocalWorkspace(source), tuned, shell_refusal_hooks(), log.hooks()],
     )
 
 
@@ -601,7 +602,7 @@ def _stop_reason(stopped: Exception, log: ToolCallLog) -> str:
     )
     if not (log.refused or log.retried):
         return reason
-    counts = texts.implement_stop_counts.format(refused=log.refused, retried=log.retried)
+    counts = texts.implement_stop_counts.format(refused=log.refused_text(), retried=log.retried)
     return f"{reason}\n{counts}"
 
 
