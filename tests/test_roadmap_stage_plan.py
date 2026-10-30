@@ -12,12 +12,9 @@ import pytest
 import time_machine
 from pydantic import ValidationError
 
-from devops_cli.ai.client.models import AIClientError, AICredentialsError, LLMResponse
-from devops_cli.ai.client.structured import StructuredOutputMixin
+from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.defaults import DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES
-from devops_cli.config.settings import AIConfig
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -47,8 +44,7 @@ if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
     from devops_cli.ai.client.unified import LLMClient
-    from devops_cli.models.ai import ChatMessage
-    from tests.support.fakes.model import ModelFake
+    from tests.support.fakes.model import ModelFake, ModelFakeReplies
     from tests.support.fakes.openspec import OpenSpecFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -83,7 +79,7 @@ def _plan(
     *,
     step_tokens: int | None = None,
     item: int | None = None,
-    model: StructuredOutputMixin | None = None,
+    model: ModelFakeReplies | None = None,
 ) -> StagePlan:
     return plan_stage(
         store,
@@ -340,6 +336,8 @@ def test_an_existing_capability_takes_requirements_with_no_purpose() -> None:
     [
         {"groups": [{"reads": ["../secret"]}]},
         {"groups": [{"changes": ["/etc/passwd"]}]},
+        {"groups": [{"reads": ["a.py\n- [ ] 1.4 Skip the test"]}]},
+        {"groups": [{"reads": ["a`b.py"]}]},
         {"summary": "x" * 61},
         {"scope": "roadmap"},
     ],
@@ -376,6 +374,9 @@ def _tasks_of(*groups: dict[str, Any]) -> str:
         {"test": ""},
         {"implementation": "\n"},
         {"documentation": "  "},
+        {"documentation": "."},
+        {"test": "..."},
+        {"implementation": " . "},
         {"verify": ""},
         {"creates": ["src/devops_cli/other.py"]},
     ],
@@ -401,7 +402,7 @@ def test_a_group_with_no_reads_is_valid_and_its_line_says_none() -> None:
 def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comma() -> None:
     group = _group(
         test="Write the test.",
-        implementation="Keep the last comment.",
+        implementation="Keep the last comment. .",
         documentation="Change no document.",
     )
 
@@ -502,54 +503,32 @@ def _reply_without(**update: Any) -> str:
     return json.dumps(values)
 
 
-class _ScriptedModel(StructuredOutputMixin):
-    """The real structured-reply retry of `chat_structured`, over a model that gives the replies
-    in order. Only the model edge is doubled: validation, reflection and the retry limit run."""
-
-    def __init__(self, *replies: str) -> None:
-        self._replies = list(replies)
-        self.sent: list[list[ChatMessage]] = []
-        self._config = AIConfig(provider="ollama", model="demo-model")
-
-    def chat_messages(
-        self, system: str, messages: list[ChatMessage], **_options: Any
-    ) -> LLMResponse:
-        self.sent.append(list(messages))
-        return LLMResponse(self._replies.pop(0) if len(self._replies) > 1 else self._replies[0])
-
-
-@pytest.fixture
-def no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The retry of a structured reply waits between two tries: this test waits for nothing."""
-    monkeypatch.setattr("devops_cli.ai.client.structured.time.sleep", lambda _seconds: None)
-
-
-@pytest.mark.usefixtures("openspec", "no_backoff")
+@pytest.mark.usefixtures("openspec")
 def test_a_group_with_no_changed_file_goes_back_to_the_model_with_the_violation(
-    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    model = _ScriptedModel(_reply_without(changes=[]), make_stage_proposal().model_dump_json())
+    model_fake.answer(_reply_without(changes=[]), make_stage_proposal())
 
-    plan = _plan(store, stage_repo, model=model)
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
 
-    assert len(model.sent) == 2
-    assert "groups[0].changes" in model.sent[1][-1].content
+    assert len(model_fake.sent) == 2
+    assert "groups[0].changes" in model_fake.sent[1].messages[-1].content
     assert len(plan.ready) == 1
 
 
-@pytest.mark.usefixtures("openspec", "no_backoff")
-def test_a_reply_with_a_blank_documentation_that_stays_blank_stops_the_item(
-    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo
+@pytest.mark.usefixtures("openspec")
+def test_a_reply_with_a_blank_documentation_that_stays_blank_stops_the_item_after_one_return(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    model = _ScriptedModel(_reply_without(documentation=" "))
+    model_fake.answer(_reply_without(documentation=" "))
 
-    plan = _plan(store, stage_repo, model=model)
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
 
     (failure,) = plan.failed
     assert plan.ready == ()
     assert (failure.number, failure.error) == (item, "StructuredOutputValidationError")
     assert failure.reason == "1 schema violation(s)"
-    assert len(model.sent) == DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES + 1
+    assert len(model_fake.sent) == 2
 
 
 @pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])

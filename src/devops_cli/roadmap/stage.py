@@ -28,7 +28,7 @@ item (`OverBudget`). The job validates the change with `openspec validate --stri
 directory when the binary is on `PATH`; a failure goes back to the model once, and a second one
 stops the item. A reply the rules refuse (`check_proposal`) takes the same one return. A group that
 changes no file, or has a blank text, fails the schema of the reply, and `chat_structured` sends it
-back. The comment on the item names each changed path that is no file on the default branch and
+back once (`_REPLY_RETURNS`). The comment on the item names each changed path that is no file on the default branch and
 that no group creates (`missing_paths`); it never stops the item. The plan
 writes nothing to git or to GitHub. A model call that fails skips its item; rejected credentials
 stop the run.
@@ -360,6 +360,9 @@ _SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
 _DEFAULT_WINDOW: Final[int] = 8192
+# A reply that fails its schema goes back to the model once, with the violations; a second one
+# stops the item.
+_REPLY_RETURNS: Final[int] = 1
 
 
 @dataclass(frozen=True)
@@ -507,7 +510,10 @@ class _Planner:
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
         return self._client.chat_structured(
-            load_task_prompt(task), json.dumps(request, ensure_ascii=False, indent=1), schema
+            load_task_prompt(task),
+            json.dumps(request, ensure_ascii=False, indent=1),
+            schema,
+            max_retries=_REPLY_RETURNS,
         )
 
     def _settle(

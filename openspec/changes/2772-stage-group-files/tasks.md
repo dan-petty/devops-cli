@@ -19,7 +19,14 @@
 - [x] 3.1 Change `src/devops_cli/ai/tasks/roadmap_stage_change.md` so it says that a group names at least one file in `changes`, lists the files it needs in `reads`, lists a new file in `creates`, and gives every task a text. Regenerate the documents with `uv run devops docs generate --sync-readme`.
   - Verification: `uv run devops ci docs`
 
-## 4. Archive
+## 4. The review findings
 
-- [ ] 4.1 Archive the change.
+- [x] 4.1 Write failing tests in `tests/test_roadmap_stage_plan.py`: a task text of only full stops, a path with a new line or a backtick, and a second invalid reply after one return. Use `ModelFake.checking_replies` in `tests/support/fakes/model.py` for the retry.
+  - Verification: `uv run devops ci test tests/test_roadmap_stage_plan.py`
+- [x] 4.2 Add the type `Sentence` and the path check to `src/devops_cli/roadmap/stage_change.py`, and pass `max_retries=1` in `src/devops_cli/roadmap/stage.py`.
+  - Verification: `uv run devops ci test tests/test_roadmap_stage_plan.py tests/test_roadmap_stage_apply.py`
+
+## 5. Archive
+
+- [ ] 5.1 Archive the change.
   - Verification: `uv run devops openspec archive 2772-stage-group-files`

@@ -35,6 +35,8 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.ai.client.models import LLMResponse
+from devops_cli.ai.client.structured import StructuredOutputMixin
+from devops_cli.config.settings import AIConfig
 
 
 def deterministic_embedding(text: str, dimension: int = 128) -> list[float]:
@@ -364,6 +366,12 @@ class ModelFake(Model):
                     pass
         return answer.content
 
+    def checking_replies(self) -> ModelFakeReplies:
+        """A client over this fake whose `chat_structured` runs the real check of a reply: it
+        validates each reply, sends the violations back, and stops at the retry limit. The fake
+        still answers and records every request, so `sent` holds the corrections too."""
+        return ModelFakeReplies(self)
+
     def embed(self, texts: str | Sequence[str], dimension: int = 128) -> list[list[float]]:
         """Return deterministic unit embeddings for the given text or sequence of texts."""
         text_list = [texts] if isinstance(texts, str) else list(texts)
@@ -594,3 +602,24 @@ class ModelFake(Model):
         if isinstance(pattern, re.Pattern):
             return lambda text: bool(pattern.search(text))
         return lambda text: pattern in text
+
+
+class ModelFakeReplies(StructuredOutputMixin):
+    """The real structured-reply retry of `chat_structured` over a `ModelFake`.
+
+    Only the model edge is faked. Validation, reflection and the retry limit run for real.
+    The retry waits no time, as `backoff_seconds` is zero unless a caller sets it.
+    """
+
+    def __init__(self, fake: ModelFake) -> None:
+        self._fake = fake
+        self._config = AIConfig(provider="ollama", model=fake.model_name)
+
+    def chat_messages(self, system: str, messages: list[Any], **options: Any) -> LLMResponse:
+        """Answer from the fake, which records the request."""
+        return self._fake.chat_messages(system, messages, **options)
+
+    def chat_structured(self, system: str, *args: Any, **options: Any) -> Any:
+        """The real `chat_structured`, with no wait between two tries."""
+        options.setdefault("backoff_seconds", 0.0)
+        return super().chat_structured(system, *args, **options)

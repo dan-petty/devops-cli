@@ -2406,6 +2406,7 @@ class RoadmapMessages:
     # The empty value of `reads` ends in no stop of its own: `stage_group_files` ends the sentence.
     stage_group_no_reads: str = "none"
     stage_group_new: str = " (new)"
+    stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
     stage_title_lead: str = "plan #{number} "
     stage_pull_request_body: str = (

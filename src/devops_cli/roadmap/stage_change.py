@@ -11,6 +11,7 @@ the context packer.
 
 from __future__ import annotations
 
+import string
 import textwrap
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -56,15 +57,21 @@ _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
 _TESTS_DIRECTORY: Final[str] = "tests/"
 _DOCUMENT_SUFFIX: Final[str] = ".md"
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
+_SENTENCE_END: Final[str] = f"{string.whitespace}."
 _REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 
 # ── The reply ─────────────────────────────────────────────────────────────────
 
 
+def _is_plain(path: str) -> bool:
+    """Whether `path` can stand in a code span of one line: no backtick, no control character."""
+    return "`" not in path and path.isprintable()
+
+
 def _repository_path(path: str) -> str:
-    """A path inside the repository: relative, with no `..`."""
+    """A path inside the repository: relative, with no `..`, and fit for a code span."""
     parts = PurePosixPath(path)
-    if not path or parts.is_absolute() or ".." in parts.parts:
+    if not path or parts.is_absolute() or ".." in parts.parts or not _is_plain(path):
         raise ValueError(MESSAGES.roadmap.stage_bad_path.format(path=path))
     return path
 
@@ -78,6 +85,19 @@ def _capability_name(name: str) -> str:
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
 # A text of a task group: at least one character once the whitespace around it is stripped.
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _sentence(text: str) -> str:
+    """The text of a task without the full stops at its end, as the writer joins a comma to it.
+    A text that holds only stops and spaces has nothing left, and the schema refuses it."""
+    kept = text.rstrip(_SENTENCE_END)
+    if not kept:
+        raise ValueError(MESSAGES.roadmap.stage_blank_text)
+    return kept
+
+
+# The text of a task that the writer joins to the words after it: it ends in no full stop.
+Sentence = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_sentence)]
 
 
 class _Reply(BaseModel):
@@ -131,9 +151,9 @@ class StageGroup(_Reply):
     reads: list[RepositoryPath] = Field(default_factory=list)
     changes: list[RepositoryPath] = Field(min_length=1)
     creates: list[RepositoryPath] = Field(default_factory=list)
-    test: Text
-    implementation: Text
-    documentation: Text
+    test: Sentence
+    implementation: Sentence
+    documentation: Sentence
     verify: Text
 
     @model_validator(mode="after")
@@ -317,21 +337,17 @@ def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
 
 
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its files, and its three tasks. A task
-    text loses its final full stop, as a comma follows it."""
+    """The group as `tasks.md` holds it, numbered `index`: its files, and its three tasks."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
         reads=_paths(group.reads) or texts.stage_group_no_reads,
         changes=_paths(group.changes, group.creates),
     )
-    test, implementation, documentation = (
-        task.rstrip(".") for task in (group.test, group.implementation, group.documentation)
-    )
     return (
         f"## {index}. {group.title}\n\n{files}\n\n"
-        f"- [ ] {index}.1 {test}, and verify that `{group.verify}` fails on the base\n"
-        f"- [ ] {index}.2 {implementation}, and verify that `{group.verify}` passes\n"
-        f"- [ ] {index}.3 {documentation}, "
+        f"- [ ] {index}.1 {group.test}, and verify that `{group.verify}` fails on the base\n"
+        f"- [ ] {index}.2 {group.implementation}, and verify that `{group.verify}` passes\n"
+        f"- [ ] {index}.3 {group.documentation}, "
         f"run `{_REGENERATE_DOCUMENTS}`, and verify that `uv run devops ci docs` passes\n"
     )
 
