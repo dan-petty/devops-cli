@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 from devops_cli.config.settings import load_settings, remove_config_key, reset_settings_cache
 from devops_cli.exceptions import ConfigurationError
@@ -320,3 +321,72 @@ def test_a_removal_of_a_credential_stops_when_a_copy_is_not_yaml_and_changes_not
         _WITH_SECRET,
     )
     assert _SECRET not in raised.value.message
+
+
+def test_a_removal_of_a_credential_drops_each_comment_that_holds_its_value(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """A note such as `# was <value>` is part of the copy, so the copy drops it. Every other
+    comment stays."""
+    _use(
+        isolate_devops_cli_config,
+        f"ai:\n  # the old key was {_SECRET}\n  api_key: {_SECRET}  # was {_SECRET}\n"
+        "  # the next line holds the model\n  model: qwen3  # keep\n",
+    )
+    clock.move_to(_REMOVED_AT)
+
+    remove_config_key("ai.api_key")
+
+    [copy] = _copies(isolate_devops_cli_config.parent)
+    text = copy.read_text(encoding="utf-8")
+    assert _SECRET not in text
+    assert yaml.safe_load(text) == {
+        "ai": {"api_key": "***REDACTED***", "model": "qwen3"},
+    }
+    assert "# the next line holds the model\n  model: qwen3  # keep\n" in text
+
+
+@pytest.mark.parametrize(
+    ("copy", "message"),
+    [
+        (b"ai:\n  api_key: \xff\xfe\n", "it is not valid YAML (UnicodeDecodeError)."),
+        (b"- ai.api_key\n- other\n", "it does not hold a YAML mapping."),
+        (f"ai.api_key={_SECRET}\n".encode(), "it does not hold a YAML mapping."),
+    ],
+    ids=["not-utf-8", "list", "text-line"],
+)
+def test_a_removal_of_a_credential_stops_when_a_copy_is_not_a_yaml_mapping(
+    isolate_devops_cli_config: Path, clock: ClockFake, copy: bytes, message: str
+) -> None:
+    """The command cannot find a credential in such a copy, so it stops before the file changes,
+    with an error that names the copy and quotes no text."""
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    broken = isolate_devops_cli_config.parent / "config.yaml.bak-20261001-000000"
+    broken.write_bytes(copy)
+    clock.move_to(_REMOVED_AT)
+
+    with pytest.raises(ConfigurationError) as raised:
+        remove_config_key("ai.api_key")
+
+    assert raised.value.message == f"Cannot read {broken}: {message}"
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == _WITH_SECRET
+    assert _names(isolate_devops_cli_config.parent) == ["config.yaml", broken.name]
+
+
+def test_a_removal_of_a_credential_keeps_the_line_ends_of_each_copy(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """A file with CRLF line ends gives a copy with CRLF line ends, and only the credential
+    changes."""
+    crlf = _WITH_SECRET.replace("\n", "\r\n")
+    isolate_devops_cli_config.write_bytes(crlf.encode())
+    reset_settings_cache()
+    older = isolate_devops_cli_config.parent / "config.yaml.bak-20261001-000000"
+    older.write_bytes(crlf.encode())
+    clock.move_to(_REMOVED_AT)
+
+    remove_config_key("ai.api_key")
+
+    expected = crlf.replace(_SECRET, _REDACTED).encode()
+    [first, second] = _copies(isolate_devops_cli_config.parent)
+    assert (first.read_bytes(), second.read_bytes()) == (expected, expected)
