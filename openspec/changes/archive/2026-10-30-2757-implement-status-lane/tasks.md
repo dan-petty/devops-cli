@@ -12,12 +12,17 @@
 - [x] Write tests in `tests/test_roadmap_github_store.py`: two stores on one fake issue, a field write with a refine mark against a mark write of `implement.job`, and a body write against a mark write. Each keeps all keys. Check that both fail when the lock of the store is taken out.
   - Verification: `uv run devops ci test tests/test_roadmap_github_store.py`
 
-## 3. The documentation
+## 3. A suspended row wakes with no webhook
+
+- [x] Write a failing test in `tests/test_roadmap_run.py`: three failed poll rounds suspend `implement`, the fault is fixed, and a poll round of a later hour runs the row. Add the hour of the round to the input of a round of a lane that reads no change (`_round_input` in `src/devops_cli/roadmap/run.py`).
+  - Verification: `uv run devops ci test tests/test_roadmap_run.py`
+
+## 4. The documentation
 
 - [x] Name the lane of each row in `CONTEXT.md` (Lane) and in `k8s/README.md` (Roadmap service, step 16 and the rows list), and regenerate the documentation.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 4. Archive
+## 5. Archive
 
 - [x] Archive the change.
   - Verification: `uv run devops openspec archive 2757-implement-status-lane`
