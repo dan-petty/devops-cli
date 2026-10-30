@@ -11,7 +11,7 @@
 
 ## 2. Documentation
 
-- [ ] 2.1 Say in `k8s/README.md` that a round which the stop ends does not count toward the suspension of a row, and run `uv run devops docs generate --sync-readme`
+- [x] 2.1 Say in `k8s/README.md` that a round which the stop ends does not count toward the suspension of a row, and run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs`
 
 ## Workflow follow-up
