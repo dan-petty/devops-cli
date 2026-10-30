@@ -11,9 +11,9 @@
 
 ## 2. The prompt
 
-- [ ] Write a failing test in `tests/test_roadmap_implement_step_own_text.py`: the instructions say that the job writes the whole file back and keeps only the ticks of the group.
+- [x] Write a failing test in `tests/test_roadmap_implement_step_own_text.py`: the instructions say that the job writes the whole file back and keeps only the ticks of the group.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_own_text.py`
-- [ ] Change `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
+- [x] Change `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_own_text.py tests/test_ai_task_implement.py`
 
 ## 3. The documentation

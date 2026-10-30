@@ -339,6 +339,17 @@ def test_the_instructions_say_not_to_edit_the_text_of_a_task_and_what_to_do_with
     ) in inputs.instructions
 
 
+def test_the_instructions_say_that_the_job_writes_the_whole_file_back(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+
+    assert (
+        "The job writes the whole file back as it was before your run, and keeps only your ticks "
+        "of the tasks of your group."
+    ) in inputs.instructions
+
+
 TRAILING = TASKS.replace(
     "and `uv run devops docs check`\n", "and `uv run devops docs check`  \n", 1
 )
