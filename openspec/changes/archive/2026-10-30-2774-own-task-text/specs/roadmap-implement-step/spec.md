@@ -79,7 +79,7 @@ After the restore, the text of each other group SHALL equal its text before the 
 ## ADDED Requirements
 
 ### Requirement: A step writes the text of its own group back
-After each turn of the model, the step SHALL write the text of its own group from before the run back to `tasks.md`, when the group holds the same tasks in the same order under the same heading. It SHALL keep the checkbox state that the model set, and print one line to the error stream that names the group. A change of the checkboxes only SHALL print no line. The verification commands SHALL be those of the text before the run. A fix step SHALL change no task.
+After each turn of the model, the step SHALL write the raw lines of the region of its own group from before the run back to `tasks.md`, when the group keeps its tasks, their order and its heading. The region runs from the heading to the next numbered group. The step SHALL keep the checkboxes that the model set, print one line that names the group when the file changed, and run the verification commands of the text before the run. A fix step SHALL change no task.
 
 #### Scenario: The model rewrites the text of a task
 - **WHEN** the model writes its files, rewrites the text of task 1.1 in `tasks.md` to name another file, ticks the tasks of group 1, and ends its run
@@ -104,6 +104,18 @@ After each turn of the model, the step SHALL write the text of its own group fro
 #### Scenario: A file with CRLF line ends
 - **WHEN** the `tasks.md` has CRLF line ends and the model rewrites the text of a task of group 1
 - **THEN** the committed `tasks.md` keeps its CRLF line ends and the text from before the run
+
+#### Scenario: A section that the model adds inside or after the group
+- **WHEN** the model adds a `##` section with a ticked task inside group 1, or between group 1 and group 2, and ticks the tasks of group 1
+- **THEN** the step reports done, and the commit holds the region of group 1 from before the run, with no added section and no repeated line
+
+#### Scenario: A tick keeps the bytes of the group
+- **WHEN** the last line of group 1 ends with two spaces and the model only ticks its tasks
+- **THEN** the step reports done, the commit holds the two spaces, and the step prints no line about the group
+
+#### Scenario: Mixed line ends
+- **WHEN** the heading of group 1 ends with CRLF, its other lines end with LF, and the model rewrites a task and ticks the group
+- **THEN** the committed group holds the CRLF heading and the LF lines of before the run
 
 #### Scenario: A fix step edits a task
 - **WHEN** a fix step edits the text of a task of group 1
