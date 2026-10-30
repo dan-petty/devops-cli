@@ -1,0 +1,19 @@
+# Tasks
+
+## 1. The MCP benchmark tool takes no file path
+
+- [x] Add failing tests: the schema of the tool holds no `output`, `document` and `code`. A call that gives one fails, changes no file in a real directory and sends no request
+  - Verification: `uv run devops ci test tests/test_ai_benchmark_mcp_tool.py`
+- [x] Leave `output`, `document` and `code` out of the entry of `ai benchmark` in `_PATH_PARAM_RESTRICTIONS`
+  - Verification: `uv run devops ci test tests/test_ai_benchmark_mcp_tool.py tests/test_ai_benchmark.py tests/test_embedding_benchmark.py tests/test_mcp.py tests/test_fastmcp_contracts.py`
+- [x] Regenerate the documentation
+  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
+
+## 2. Archive
+
+- [ ] Archive the change
+  - Verification: `uv run devops openspec archive 2704-mcp-benchmark-no-path-options`
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

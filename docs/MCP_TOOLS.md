@@ -202,12 +202,9 @@ Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks
 | `benchmark_type` | `string` | No | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
 | `tasks_filter` | `string` | No | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
 | `concurrency` | `integer` | No | `4` | Number of concurrent model server workers (default: automatic per model count). |
-| `output` | `string` | No | - | Destination path for output report or artifacts. |
 | `format_type` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `explain` | `boolean` | No | `False` | Explain benchmark metrics, terminology, and mathematical formulas. |
-| `document` | `string` | No | - | Path to large test document for in-memory tokenization and section retrieval. |
-| `code` | `string` | No | - | Path to a source directory whose code chunks are the embedding corpus, each queried by its path (relative to the directory) and its symbol names, in place of --document. |
 | `samples` | `integer` | No | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
 
 ### `ai_chaos_model`
