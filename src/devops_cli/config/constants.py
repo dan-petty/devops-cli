@@ -1557,11 +1557,9 @@ CONST_EXIT_COMMAND_NOT_FOUND: int = 127
 # `fnmatch` patterns of the upper-case keys that `build_subprocess_env` refuses from a caller
 # (#2205, #2429). Sources: the page above each family, and the sudo env_delete list.
 CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
-    # ld.so(8), iconv(1), dyld(1)
-    "LD_AUDIT",
-    "LD_LIBRARY_PATH",
-    "LD_ORIGIN_PATH",
-    "LD_PRELOAD",
+    # ld.so(8), iconv(1), dyld(1). Each LD_ key, as the sudo env_delete list has it (#2674): the
+    # loader keys load a library, and LD_DEBUG_OUTPUT and LD_PROFILE_OUTPUT make it write a file
+    "LD_*",
     "GCONV_PATH",
     "DYLD_*",
     # bash(1)
@@ -1603,6 +1601,15 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "GH_PATH",
     "KUBE_EDITOR",
     "KUBECTL_EXTERNAL_DIFF",
+    # The keys that make a child write a file that the caller names (#2674). They load no code.
+    # curl(1): curl, git over HTTPS and the ssl module of Python write the TLS secrets of each
+    # connection to SSLKEYLOGFILE, and curl writes a QUIC log to the directory of QLOGDIR.
+    # node(1): Node.js writes coverage data to the directory of NODE_V8_COVERAGE and its warnings
+    # to the file of NODE_REDIRECT_WARNINGS. The LD_ keys of the loader are the pattern above.
+    "SSLKEYLOGFILE",
+    "QLOGDIR",
+    "NODE_V8_COVERAGE",
+    "NODE_REDIRECT_WARNINGS",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",
