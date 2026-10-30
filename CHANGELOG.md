@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.7](https://github.com/dan-petty/devops-cli/compare/v0.22.6...v0.22.7) (2026-10-30)
+
+
+### Bug Fixes
+
+* **roadmap:** a failed ruff or mypy check gets one repair turn ([#2796](https://github.com/dan-petty/devops-cli/issues/2796)) ([77e7f7c](https://github.com/dan-petty/devops-cli/commit/77e7f7c4f51f2730697f91886ab59cfdff51a414)), closes [#2795](https://github.com/dan-petty/devops-cli/issues/2795)
+* **roadmap:** show the 400 body and resend a failed stream once ([#2797](https://github.com/dan-petty/devops-cli/issues/2797)) ([034aa0e](https://github.com/dan-petty/devops-cli/commit/034aa0e672998c70239f3c871f5884c743dc3277)), closes [#2794](https://github.com/dan-petty/devops-cli/issues/2794)
+
 ## [0.22.6](https://github.com/dan-petty/devops-cli/compare/v0.22.5...v0.22.6) (2026-10-30)
 
 
