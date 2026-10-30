@@ -13,7 +13,7 @@ What `devops roadmap implement` reads, runs, checks, commits and reports when it
 - **THEN** the step reports done, the checkout holds one new commit titled `The first group (#7)`, that commit holds the three files, and the tasks of group 1 are ticked in the commit
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the group changed only in its checkboxes and no other group changed beyond its checkboxes, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A task left unticked after the first three checks first gets the extra turn of the requirement "A step asks once for the missing ticks".
+The exit checks SHALL run in this order: the own group keeps its tasks and no other group changed beyond its checkboxes, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A task left unticked after the first three checks first gets the extra turn of the requirement "A step asks once for the missing ticks".
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -37,6 +37,14 @@ The exit checks SHALL run in this order: the group changed only in its checkboxe
 
 #### Scenario: A task that the agent removes
 - **WHEN** the model removes a task of group 1 from the `tasks.md` and ticks the others
+- **THEN** the step reports stopped with the reason that the tasks of group 1 changed, and the checkout is reset
+
+#### Scenario: A task that the agent moves
+- **WHEN** the model swaps the texts of two tasks of group 1 and ticks them
+- **THEN** the step reports stopped with the reason that the tasks of group 1 changed, and the checkout is reset
+
+#### Scenario: A heading that the agent changes
+- **WHEN** the model changes the heading of group 1
 - **THEN** the step reports stopped with the reason that the tasks of group 1 changed, and the checkout is reset
 
 #### Scenario: A tasks file that is gone
@@ -91,11 +99,11 @@ The user message of the model SHALL hold the title, problem statement and accept
 - **THEN** the step raises `RoadmapImplementError` that names the pattern
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The shell SHALL run with `HOME` set to a temporary directory of the step, so that the configuration and credentials of the user's home do not reach it. The shell is no security boundary.
+The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters, and SHALL add a hint. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
-- **THEN** the call returns the refusal that `curl` is not in the allowed list, no process starts, and the run ends with the last message of the model
+- **THEN** the call returns the refusal that `curl` is not in the allowed list followed by the list of the allowed programs, no process starts, and the run ends with the last message of the model
 
 #### Scenario: The devops command
 - **WHEN** the model calls the shell tool with `devops gh api -X POST repos/example/roadmap/issues`
@@ -103,7 +111,31 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 
 #### Scenario: A second command
 - **WHEN** the model calls the shell tool with `git status; curl http://example.com`
-- **THEN** the call returns a refusal that names the operator, and no process starts
+- **THEN** the call returns a refusal that names the operator and states the rule of one command in each call, and no process starts
+
+#### Scenario: A habit of the table
+- **WHEN** the model calls the shell tool with `python -m pytest`
+- **THEN** the refusal holds "Instead of `python`: `uv run python`" and says that `python -m pip` is not to run, and no process starts
+
+#### Scenario: A long word
+- **WHEN** the model calls the shell tool with a first word of 5000 characters
+- **THEN** the refusal holds the text of the shell cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters, then the hint
+
+#### Scenario: A file command
+- **WHEN** the model calls the shell tool with `cat README.md`
+- **THEN** the refusal names the tool `read_file`
+
+#### Scenario: A change of directory
+- **WHEN** the model calls the shell tool with `cd src`
+- **THEN** the refusal says that `cd` is not needed because every command runs in the checkout
+
+#### Scenario: The retry limit is unchanged
+- **WHEN** the model calls the shell tool with `python -V` in every reply
+- **THEN** the model got five refusals with a hint, and the sixth call ends the run as before
+
+#### Scenario: The prompt and the table agree
+- **WHEN** the table `IMPLEMENT_SHELL_REPLACEMENTS` or `IMPLEMENT_SHELL_PROGRAMS` differs from the prompt of the step, or a shell command of the prompt holds an operator that the shell refuses
+- **THEN** a test fails
 
 ### Requirement: A run that reaches a limit ends stopped
 `UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, or breaks the rules of its tools past their retries, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the message of the pydantic-ai error, masked and cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters. The agent SHALL have no `delegate_task` tool.
@@ -237,7 +269,7 @@ A stopped step SHALL give `mask_secrets` at most `CONST_ROADMAP_IMPLEMENT_DIFF_R
 - **THEN** the step reports stopped with a diff that holds a replacement character in place of each byte that is not UTF-8, and raises no error
 
 ### Requirement: The reason of a stopped run counts the refused and the retried tool calls
-A step that stops on a pydantic-ai error SHALL count, over all its turns, the tool calls that a tool refused by its policy and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when either is not zero. A call counts as refused when it has a shell command and a `PermissionError` is in the `__cause__` chain of the retry. The step SHALL read no message text.
+A step that stops on a pydantic-ai error SHALL count the tool calls that a tool refused by its policy, by program, and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when a count is not zero. It SHALL list at most `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` programs, most refused first, and join the rest to `other`. A call counts as refused when it has a shell command and a `PermissionError` is in its `__cause__` chain.
 
 #### Scenario: The call that exceeds the limit
 - **WHEN** the model is refused more often than `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES` times
@@ -245,7 +277,15 @@ A step that stops on a pydantic-ai error SHALL count, over all its turns, the to
 
 #### Scenario: Refused commands
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and the shell allows only `git`, `uv`, `ruff` and `mypy`
-- **THEN** the reason ends with a new line and "Refused commands: 6. Other retries: 0."
+- **THEN** the reason ends with a new line and "Refused commands: pytest 6. Other retries: 0."
+
+#### Scenario: Refused commands of two programs
+- **WHEN** the model is refused `python` four times and `cd` twice, and then the run ends
+- **THEN** the reason ends with "Refused commands: python 4, cd 2."
+
+#### Scenario: Refused commands of many programs
+- **WHEN** the model is refused more distinct programs than `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS`
+- **THEN** the reason lists that number of programs and the count of `other` holds the rest
 
 #### Scenario: Arguments that fail validation
 - **WHEN** the model calls the tool `read_file` without its `path` argument in every reply
@@ -260,11 +300,11 @@ A step that stops on a pydantic-ai error SHALL count, over all its turns, the to
 - **THEN** the reason holds the message of the error and holds neither count
 
 ### Requirement: Every tool call of a step writes one line to the Job log
-The agent of a step SHALL write one line to the standard error stream for each tool call. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist, else the word `other`. The line SHALL hold nothing else.
+The agent of a step SHALL write one line to the standard error stream for each tool call. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist or a program of `IMPLEMENT_SHELL_REPLACEMENTS`, else the word `other`. The line SHALL hold nothing else.
 
 #### Scenario: A refused program
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py --secret-flag=abc`, and then ends its run
-- **THEN** the standard error stream holds the line "Tool call: shell, program other, refused." and holds no text of the arguments
+- **THEN** the standard error stream holds the line "Tool call: shell, program pytest, refused." and holds no text of the arguments
 
 #### Scenario: A program of the allowlist
 - **WHEN** the model calls a tool with the command `git status`
@@ -279,8 +319,12 @@ The agent of a step SHALL write one line to the standard error stream for each t
 - **THEN** the standard error stream holds the line "Tool call: read_file, retry."
 
 #### Scenario: A first word that is no program
-- **WHEN** the first word of a shell command is an assignment such as `API_KEY=hunter2`, a path, a token, an escape sequence, or the command has an unclosed quote
+- **WHEN** the first word of a shell command is an assignment such as `API_KEY=hunter2`, a path, a word with a space or a quote, an escape sequence, or the command has an unclosed quote
 - **THEN** the line holds "program other" and holds no part of the word
+
+#### Scenario: A short bare word that is no known program
+- **WHEN** the first word of a shell command is a short bare word such as `hunter2password` that the model read from a file
+- **THEN** the line and the reason of a stopped run hold "other" and not the word
 
 #### Scenario: A refused path
 - **WHEN** the model calls `read_file` with a path outside the root
@@ -317,7 +361,7 @@ After each turn of the model, the step SHALL compare every group other than its 
 - **THEN** the step reports done, and the committed `tasks.md` has the later group unticked on its own line
 
 ### Requirement: A change of another group beyond its checkboxes stops the step
-After the restore, the text of each other group SHALL equal its text before the run. Any difference beyond the checkboxes SHALL stop the step with the group named: a title, a task, a command, a bullet or a line changed, added or removed. A group number that two groups hold after the run SHALL stop the step, and one that two groups hold before the run SHALL be refused before the step starts. The own group SHALL keep its rule. A fix step SHALL change no task and restore nothing.
+After the restore, the text of each other group SHALL equal its text before the run. Any difference beyond the checkboxes SHALL stop the step with the group named: a title, a task, a command, a bullet or a line changed, added or removed. A group number that two groups hold after the run SHALL stop the step, and one that two groups hold before the run SHALL be refused before the step starts. The own group follows its own requirement. A fix step SHALL change no task and restore nothing.
 
 #### Scenario: The model ticks a later group and edits its text
 - **WHEN** the model ticks a task of group 2 and also changes the text of that task
@@ -383,3 +427,46 @@ A model call that fails with a `ModelHTTPError` of the status 401 or 403 SHALL r
 #### Scenario: A refused key in a job
 - **WHEN** the model call of the first step of an item raises a `ModelHTTPError` with the status 401
 - **THEN** `apply_implement` raises `AICredentialsError`, and the item gets no stop comment
+
+### Requirement: A step writes the text of its own group back
+After each turn of the model, the step SHALL write the raw lines of the region of its own group from before the run back to `tasks.md`, when the group keeps its tasks, their order and its heading. The region runs from the heading to the next numbered group. The step SHALL keep the checkboxes that the model set, print one line that names the group when the file changed, and run the verification commands of the text before the run. A fix step SHALL change no task.
+
+#### Scenario: The model rewrites the text of a task
+- **WHEN** the model writes its files, rewrites the text of task 1.1 in `tasks.md` to name another file, ticks the tasks of group 1, and ends its run
+- **THEN** the step reports done, the commit holds `tasks.md` with the text of group 1 from before the run and its tasks ticked, and the step prints one line that names group 1
+
+#### Scenario: The model rewrites the text in the extra turn
+- **WHEN** the model leaves a task unticked, and in the extra turn rewrites the text of that task and ticks it
+- **THEN** the step reports done, and the commit holds the text from before the run with the task ticked
+
+#### Scenario: The model rewrites a verification command to one that passes
+- **WHEN** the model replaces the command of a `Verification:` line of group 1 with a command that exits 0, and the original command exits 1
+- **THEN** the step runs only the original command, reports stopped, the reason names the original command, and the checkout is reset
+
+#### Scenario: The model rewrites a line that is no task
+- **WHEN** the model changes a paragraph of group 1 that is no task, and ticks the tasks
+- **THEN** the step reports done, and the commit holds the paragraph from before the run
+
+#### Scenario: The model ticks and changes nothing else
+- **WHEN** the model ticks the tasks of group 1 and changes no text
+- **THEN** the step reports done, and the step prints no line about the group
+
+#### Scenario: A file with CRLF line ends
+- **WHEN** the `tasks.md` has CRLF line ends and the model rewrites the text of a task of group 1
+- **THEN** the committed `tasks.md` keeps its CRLF line ends and the text from before the run
+
+#### Scenario: A section that the model adds inside or after the group
+- **WHEN** the model adds a `##` section with a ticked task inside group 1, or between group 1 and group 2, and ticks the tasks of group 1
+- **THEN** the step reports done, and the commit holds the region of group 1 from before the run, with no added section and no repeated line
+
+#### Scenario: A tick keeps the bytes of the group
+- **WHEN** the last line of group 1 ends with two spaces and the model only ticks its tasks
+- **THEN** the step reports done, the commit holds the two spaces, and the step prints no line about the group
+
+#### Scenario: Mixed line ends
+- **WHEN** the heading of group 1 ends with CRLF, its other lines end with LF, and the model rewrites a task and ticks the group
+- **THEN** the committed group holds the CRLF heading and the LF lines of before the run
+
+#### Scenario: A fix step edits a task
+- **WHEN** a fix step edits the text of a task of group 1
+- **THEN** the step reports stopped with the reason that a fix step changes no task

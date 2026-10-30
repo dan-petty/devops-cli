@@ -3001,6 +3001,9 @@ CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
 # is slower than linear, and the message of an error can hold a long reply of the model.
 CONST_ROADMAP_IMPLEMENT_ERROR_CHARS: Final[int] = 500
 CONST_ROADMAP_IMPLEMENT_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMENT_ERROR_CHARS
+# The most programs that the reason of a stopped run lists in its count of refused commands
+# (#2773). The programs beyond that join the count of "other".
+CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS: Final[int] = 4
 CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.

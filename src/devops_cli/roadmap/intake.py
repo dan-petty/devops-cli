@@ -99,12 +99,11 @@ from functools import cached_property
 from urllib.parse import urlsplit
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as InvalidLabelsError
 
 from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.config.constants import (
-    CONST_ROADMAP_COMMIT_TYPE_LABELS,
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_EVIDENCE_PATTERNS,
@@ -135,7 +134,6 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
-from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope, commit_type
 from devops_cli.roadmap.intake_model import (
@@ -161,9 +159,9 @@ from devops_cli.roadmap.store import (
     item_of,
     select_items,
 )
+from devops_cli.roadmap.title_labels import declared_label_names, title_labels
 from devops_cli.security.sanitizer import redact_text
 
-_LABEL_SPECS = TypeAdapter(list[LabelSpec])
 logger = logging.getLogger(__name__)
 
 
@@ -490,14 +488,14 @@ class _Run:
         }
         try:
             text = self.store.repository_file(path, ref=self.ref)
-            specs = _LABEL_SPECS.validate_python(yaml.safe_load(text))
+            names = declared_label_names(text)
         except GitHubFileNotFoundError as exc:
             missing = texts.intake_labels_missing.format(**where)
             raise ConfigurationError(missing, details={"path": path}) from exc
         except (yaml.YAMLError, InvalidLabelsError) as exc:
             unreadable = texts.intake_labels_unreadable.format(**where, error=str(exc)[:200])
             raise ConfigurationError(unreadable, details={"path": path}) from exc
-        return tuple(spec.name for spec in specs)
+        return names
 
     @cached_property
     def types(self) -> tuple[str, ...]:
@@ -541,24 +539,22 @@ def _title_labels(subject: Subject, run: _Run) -> _TitleLabels:
     stays, and gets no line. A type with no declared label gives none, and the model picks it. A
     scope with no declared label gives none, and one line names the label to add."""
     texts = MESSAGES.roadmap
-    kind = commit_type(subject.title)
-    type_label = CONST_ROADMAP_COMMIT_TYPE_LABELS.get(kind) if kind else None
+    found = title_labels(subject.title, run.declared)
     lines: list[tuple[str, str, str]] = []
-    if type_label not in run.types:
-        type_label = None
-    elif subject.type_label is None:
-        lines.append(("Type", type_label, texts.intake_type_from_title.format(prefix=kind)))
+    if found.type_label and subject.type_label is None:
+        prefix = commit_type(subject.title)
+        lines.append(("Type", found.type_label, texts.intake_type_from_title.format(prefix=prefix)))
     scope = commit_scope(subject.title)
-    scope_label = f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" if scope else None
-    if scope_label and scope_label not in run.scopes:
+    if found.undeclared_scope:
         undeclared = texts.intake_scope_undeclared.format(
-            scope=scope, path=CONST_ROADMAP_LABELS_PATH, label=scope_label
+            scope=scope, path=CONST_ROADMAP_LABELS_PATH, label=found.undeclared_scope
         )
         lines.append(("Scope", "none", undeclared))
-        scope_label = None
-    elif scope_label and subject.scope_label is None:
-        lines.append(("Scope", scope_label, texts.intake_scope_from_title.format(scope=scope)))
-    return _TitleLabels(type_label, scope_label, tuple(lines))
+    elif found.scope_label and subject.scope_label is None:
+        lines.append(
+            ("Scope", found.scope_label, texts.intake_scope_from_title.format(scope=scope))
+        )
+    return _TitleLabels(found.type_label, found.scope_label, tuple(lines))
 
 
 def _subject(issue: IssueRecord) -> Subject:
