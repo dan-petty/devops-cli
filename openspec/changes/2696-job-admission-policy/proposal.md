@@ -19,7 +19,7 @@ Today this gives the Service no new secret: the Service pod holds Secret `devops
 - A test in `tests/test_k8s_job_admission_policy.py` renders `k8s/devops`, evaluates the CEL of the policy with an open CEL library against the Job that `build_job` makes from CronJob `devops-cli-runner`, and against Jobs that break each rule. A change to the template that the policy refuses fails in CI.
 - The dev dependency `cel-expr-python`.
 - `k8s/README.md` describes the policy and what it does and does not guarantee. The line that says the policy is planned changes to describe it.
-- A consumer observes a manifest, so the change carries a spec delta: one added requirement in the capability `roadmap-implement-runner`.
+- A consumer observes a manifest, so the change carries a spec delta: four added requirements in the capability `roadmap-implement-runner`.
 - The change needs no change in Argo CD. AppProject `homelab` already allows every cluster-scoped kind, and Application `devops` syncs `k8s/devops` through the overlay with prune and self-heal. Rollout is Argo CD after the merge.
 - This change fits one pull request.
 
@@ -31,7 +31,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-runner`: one added requirement, the admission policy that pins the Jobs of the Service.
+- `roadmap-implement-runner`: four added requirements: the scope of the admission policy, and the rules that pin the image, the account, the secrets, the volumes, the host and the run of the Jobs of the Service.
 
 ## Impact
 

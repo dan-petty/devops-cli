@@ -9,5 +9,5 @@
 
 ## 2. The documentation
 
-- [ ] Describe the policy, its guarantees and what it does not guarantee in `k8s/README.md` (Runner Jobs, the Role line, the file tree, the follow-up line), and regenerate the documents
+- [x] Describe the policy, its guarantees and what it does not guarantee in `k8s/README.md` (Runner Jobs, the Role line, the file tree, the follow-up line), and regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme .`
