@@ -1979,6 +1979,15 @@ class RoadmapMessages:
     implement_fix_title: str = "Make check {check} pass"
     implement_fix_task: str = "[ ] Make check `{check}` pass"
     implement_stop_unticked: str = "A task of the group is not ticked: {task}"
+    implement_stop_tick_turn_changed: str = (
+        "The extra turn for the ticks changed files other than the tasks file: {paths}."
+    )
+    implement_tick_turn: str = (
+        "The checks of your group passed, but `{path}` still holds these tasks of your group "
+        "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "
+        "done. Change nothing else in that file and change no other file. Then reply with one "
+        "short message."
+    )
     implement_stop_group_changed: str = (
         "Group {group} changed. A step may change only its own group."
     )

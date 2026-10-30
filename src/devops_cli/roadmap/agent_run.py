@@ -3,7 +3,7 @@ that keeps a long reply inside the gateway's tunnel, and the spend record of a r
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -35,7 +35,7 @@ def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
 
 
 def record_run_spend(
-    model: Any, messages: list[ModelMessage], seconds: float, *, stage: str
+    model: Any, messages: Sequence[ModelMessage], seconds: float, *, stage: str
 ) -> None:
     """One spend record for the run's model replies, under `stage`; none when the run got no
     reply. A model the bridge sends to a gateway names the gateway's URL in `served_by`, and its

@@ -422,7 +422,7 @@ def test_a_step_that_stops_returns_the_item_to_ready_with_a_comment_and_a_record
     assert len(comments) == 1
     assert comments[0].startswith(MARKER)
     assert "Stopped at group 2." in comments[0]
-    assert "A task of the group is not ticked" in comments[0]
+    assert "The agent changed no file." in comments[0]
     assert "I could not do group 2." in comments[0]
     assert "implement: retry" in comments[0]
 

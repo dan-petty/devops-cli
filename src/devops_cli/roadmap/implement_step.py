@@ -9,9 +9,11 @@ first request and refuses a step that does not fit the window of `ai.tasks.imple
 
 The run is one pydantic-ai agent on the harness's `Coder`, tuned where its parts are public: a
 shell with an allowlist, a smaller cap on each tool result, and the window of the task. The step
-judges the exit, not the model: the tasks of the group are ticked, the verification commands pass,
-and the static checks pass on the changed files. Then it commits the checkout, or it resets it.
-A step writes nothing to GitHub.
+judges the exit, not the model: the tasks of the group change only in their checkboxes, the
+verification commands pass, the static checks pass on the changed files, and every task is ticked.
+A model that did the work and forgot the ticks gets one more turn of the same conversation, which
+may change only `tasks.md` (#2721). Then the step commits the checkout, or it resets it. A step
+writes nothing to GitHub.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, capture_run_messages
 from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
+from pydantic_ai.conversation import Conversation
 from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.usage import UsageLimits
@@ -480,14 +483,27 @@ def build_agent(
 
 @dataclass(frozen=True)
 class _Run:
-    """What a run left: why it ended early (the class of the pydantic-ai error, or empty), the
-    last text of the model, and what it spent."""
+    """What a turn left: why it ended early (the class of the pydantic-ai error, or empty), the
+    last text of the model, what it spent, and the conversation to continue when it ended."""
 
     reason: str
     last_message: str
     requests: int
     input_tokens: int
     output_tokens: int
+    conversation: Conversation | None = None
+
+    def then(self, later: _Run) -> _Run:
+        """This turn followed by `later`, which continued its conversation: the end and the last
+        text of `later`, and the spend of both."""
+        return _Run(
+            reason=later.reason,
+            last_message=later.last_message or self.last_message,
+            requests=self.requests + later.requests,
+            input_tokens=self.input_tokens + later.input_tokens,
+            output_tokens=self.output_tokens + later.output_tokens,
+            conversation=later.conversation,
+        )
 
 
 def _last_text(messages: Sequence[ModelMessage]) -> str:
@@ -502,38 +518,57 @@ def _last_text(messages: Sequence[ModelMessage]) -> str:
     return texts[-1] if texts else ""
 
 
-def _run_agent(agent: Agent[None, str], model: Any, message: str) -> _Run:
-    """Run the agent under the limits of a step and record its spend. Raises the client error
-    that refine raises when a model call fails."""
+def _run_agent(
+    agent: Agent[None, str], model: Any, message: str, conversation: Conversation | None = None
+) -> _Run:
+    """One turn of the agent under the limits of a step, and its spend as one record. With
+    `conversation`, the turn continues it: its messages and its usage carry over, so the limits
+    count both turns. Raises the client error that refine raises when a model call fails."""
     limits = UsageLimits(
         request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     )
     reason = last = ""
+    kept = None
     error = None
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
-            last = agent.run_sync(
-                message, usage_limits=limits, event_stream_handler=drain_events
-            ).output
+            result = agent.run_sync(
+                message,
+                conversation=conversation,
+                usage_limits=limits,
+                event_stream_handler=drain_events,
+            )
+            last, kept = result.output, result.conversation
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
             reason, last = type(stopped).__name__, _last_text(messages)
         except ModelAPIError as exc:
             # Raised outside this handler, so a logged traceback holds no reply text.
             error = model_call_error(exc, "The step's")
         finally:
-            record_run_spend(model, messages, time.monotonic() - started, stage="implement")
+            replies = _new_replies(messages, conversation)
+            record_run_spend(model, replies, time.monotonic() - started, stage="implement")
     if error is not None:
         raise error
-    replies = [reply for reply in messages if isinstance(reply, ModelResponse)]
     return _Run(
         reason=reason,
         last_message=last,
         requests=len(replies),
         input_tokens=sum(reply.usage.input_tokens for reply in replies),
         output_tokens=sum(reply.usage.output_tokens for reply in replies),
+        conversation=kept,
     )
+
+
+def _new_replies(
+    messages: Sequence[ModelMessage], conversation: Conversation | None
+) -> list[ModelResponse]:
+    """The model's replies of this turn: the messages of a run that continues a conversation hold
+    its history first, and the replies only ever append."""
+    replies = [message for message in messages if isinstance(message, ModelResponse)]
+    history = conversation.messages if conversation else []
+    return replies[sum(isinstance(message, ModelResponse) for message in history) :]
 
 
 # ── The exit checks ───────────────────────────────────────────────────────────────────────
@@ -605,28 +640,44 @@ def _fix_tasks_failure(inputs: StepInputs, after: dict[int, TaskGroup]) -> str |
     return None
 
 
-def _tasks_failure(inputs: StepInputs) -> str | None:
-    """The first rule of the tasks that the run broke: the group changed beyond its checkboxes,
-    a task of the group is not ticked, or another group changed. A fix step may change no task."""
-    texts = MESSAGES.roadmap
-    number = inputs.group.number
+def _groups_after(inputs: StepInputs) -> dict[int, TaskGroup] | None:
+    """The groups of the `tasks.md` as the run left it, or None when the file is gone or is not
+    UTF-8 text."""
     try:
         tasks_md = (inputs.change / "tasks.md").read_text(encoding="utf-8")
     except OSError, UnicodeDecodeError:
+        return None
+    return {g.number: g for g in parse_task_groups(tasks_md)}
+
+
+def _unticked(inputs: StepInputs) -> tuple[GroupTask, ...]:
+    """The tasks of the group that the run left unticked. A fix step ticks no task, and a file
+    that the run broke has none: `_tasks_failure` reports it."""
+    after = _groups_after(inputs)
+    mine = after.get(inputs.group.number) if after is not None else None
+    if mine is None or inputs.fix is not None:
+        return ()
+    return tuple(task for task in mine.tasks if not task.ticked)
+
+
+def _tasks_failure(inputs: StepInputs) -> str | None:
+    """The first rule of the tasks that the run broke: the group changed beyond its checkboxes,
+    or another group changed. A fix step may change no task. The ticks are no rule of this check:
+    `_unticked_failure` judges them last."""
+    texts = MESSAGES.roadmap
+    number = inputs.group.number
+    after = _groups_after(inputs)
+    if after is None:
         return (
             texts.implement_stop_fix_tasks_changed
             if inputs.fix
             else texts.implement_stop_tasks_edited.format(group=number)
         )
-    after = {g.number: g for g in parse_task_groups(tasks_md)}
     if inputs.fix is not None:
         return _fix_tasks_failure(inputs, after)
     mine = after.get(number)
     if mine is None or _shape(mine) != _shape(inputs.group):
         return texts.implement_stop_tasks_edited.format(group=number)
-    unticked = next((task for task in mine.tasks if not task.ticked), None)
-    if unticked is not None:
-        return texts.implement_stop_unticked.format(task=unticked.text)
     before = {g.number: g for g in inputs.groups}
     changed = sorted(
         other
@@ -634,6 +685,14 @@ def _tasks_failure(inputs: StepInputs) -> str | None:
         if _whole(before.get(other)) != _whole(after.get(other))
     )
     return texts.implement_stop_group_changed.format(group=changed[0]) if changed else None
+
+
+def _unticked_failure(inputs: StepInputs) -> str | None:
+    """Why the step stops when a task of the group is not ticked, else None."""
+    unticked = _unticked(inputs)
+    if not unticked:
+        return None
+    return MESSAGES.roadmap.implement_stop_unticked.format(task=unticked[0].text)
 
 
 def _command_failure(source: Path, argv: Sequence[str], shown: str) -> str | None:
@@ -700,7 +759,8 @@ def _stage(source: Path) -> list[str]:
 
 def _exit_failure(source: Path, inputs: StepInputs, start: str) -> str | None:
     """The first exit check that fails, or None when every one passes. The step makes the only
-    commit, so a checkout that left `start` fails the first check."""
+    commit, so a checkout that left `start` fails the first check. The ticks are judged last, by
+    `_unticked_failure`, as a step with a task unticked gets a turn for them first."""
     head = _head(source)
     if head != start:
         return MESSAGES.roadmap.implement_stop_head_moved.format(start=start, head=head)
@@ -733,16 +793,63 @@ def _end_agent_processes() -> None:
         end_leftover_processes()
 
 
+def _turn(
+    agent: Agent[None, str], model: Any, message: str, conversation: Conversation | None = None
+) -> _Run:
+    """One turn of the agent. When it ends, so does every process of the agent's shell, before
+    the job runs a program that gets the session's token."""
+    try:
+        return _run_agent(agent, model, message, conversation)
+    finally:
+        _end_agent_processes()
+
+
+def _tree(source: Path) -> str:
+    """The tree of the checkout as it is now, new files included."""
+    _stage(source)
+    return _git_output(source, "write-tree").strip()
+
+
+def _foreign_change(source: Path, inputs: StepInputs, tree: str) -> str | None:
+    """Why the step stops when the checkout differs from `tree` in a file other than the
+    `tasks.md` of the change, else None."""
+    _git_output(source, "add", "-A")
+    names = _git_output(source, "diff", "--cached", "--name-only", "--no-renames", "-z", tree)
+    tasks = (inputs.change / "tasks.md").relative_to(source).as_posix()
+    others = sorted(name for name in names.split("\0") if name and name != tasks)
+    if not others:
+        return None
+    return MESSAGES.roadmap.implement_stop_tick_turn_changed.format(paths=", ".join(others))
+
+
+def _tick_turn(
+    agent: Agent[None, str], model: Any, source: Path, inputs: StepInputs, start: str, first: _Run
+) -> tuple[_Run, str]:
+    """The one extra turn of a step whose checks passed and whose agent left tasks unticked: the
+    same conversation and the same limits, a message that asks only for the ticks. The turn and
+    the first together, and why the step stops, if it does. The turn may change only `tasks.md`.
+    Every exit check runs again after it."""
+    tasks_md = (inputs.change / "tasks.md").relative_to(source).as_posix()
+    tasks = "\n".join(f"- {task.text}" for task in _unticked(inputs))
+    message = MESSAGES.roadmap.implement_tick_turn.format(path=tasks_md, tasks=tasks)
+    tree = _tree(source)
+    run = first.then(_turn(agent, model, message, first.conversation))
+    reason = (
+        run.reason or _foreign_change(source, inputs, tree) or _exit_failure(source, inputs, start)
+    )
+    return run, reason or ""
+
+
 def _attempt(
     source: Path, model: Any, window: int, inputs: StepInputs, item: int, start: str
 ) -> StepOutcome:
     """Run the agent, then judge the exit and commit."""
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
         agent = build_agent(model, source, inputs.instructions, window, Path(home))
-        try:
-            run = _run_agent(agent, model, inputs.message)
-        finally:
-            _end_agent_processes()
+        run = _turn(agent, model, inputs.message)
+        reason = run.reason or _exit_failure(source, inputs, start) or ""
+        if not reason and _unticked(inputs):
+            run, reason = _tick_turn(agent, model, source, inputs, start, run)
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,
@@ -753,7 +860,7 @@ def _attempt(
         input_tokens=run.input_tokens,
         output_tokens=run.output_tokens,
     )
-    reason = run.reason or _exit_failure(source, inputs, start)
+    reason = reason or _unticked_failure(inputs) or ""
     commit = ""
     if not reason:
         commit, reason = _commit(source, f"{inputs.group.title} (#{item})")

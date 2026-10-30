@@ -2,9 +2,9 @@
 
 ## 1. The tick turn
 
-- [ ] Write failing tests in `tests/test_roadmap_implement_step.py` and `tests/support/implement_step.py`: a step whose verification passes and whose agent forgot the ticks gets one extra turn, ends done, and changes only `tasks.md` in that turn; a turn that changes another file stops the step; a turn that leaves a task unticked stops the step; a failed verification runs no turn; the two turns share one budget; the spend counts both turns.
+- [x] Write failing tests in `tests/test_roadmap_implement_step.py` and `tests/support/implement_step.py`: a step whose verification passes and whose agent forgot the ticks gets one extra turn, ends done, and changes only `tasks.md` in that turn; a turn that changes another file stops the step; a turn that leaves a task unticked stops the step; a failed verification runs no turn; the two turns share one budget; the spend counts both turns.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
-- [ ] Change `src/devops_cli/roadmap/implement_step.py` and `src/devops_cli/lang/en/messages.py`: run the ticks check last, run the extra turn on the same conversation, check with git that the turn changed only `tasks.md`, and count the spend of both turns.
+- [x] Change `src/devops_cli/roadmap/implement_step.py` and `src/devops_cli/lang/en/messages.py`: run the ticks check last, run the extra turn on the same conversation, check with git that the turn changed only `tasks.md`, and count the spend of both turns.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
 
 ## 2. The instructions and the inputs
