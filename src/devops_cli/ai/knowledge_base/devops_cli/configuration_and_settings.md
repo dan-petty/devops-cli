@@ -141,7 +141,8 @@ devops config get github.default_org
 devops config audit-keys
 
 # Remove a plaintext credential from the file that the audit names: store it in the keyring
-# first, with --from-file <path> for a multi-line one, and delete the .bak copy of the file after
+# first, with --from-file <path> for a multi-line one. The .bak copies of the file show the
+# removed value as ***REDACTED***
 devops config set <key>
 DEVOPS_CLI_CONFIG=<file> devops config unset <key>
 
