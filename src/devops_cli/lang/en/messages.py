@@ -329,9 +329,7 @@ class ConfigMessages:
         "2. Remove the plaintext value from its file: "
         "'DEVOPS_CLI_CONFIG=<file> devops config unset <key>'. "
         "Quote <file> and <key> for the shell.\n"
-        "A key that is not a config option needs only step 2. "
-        "Step 2 keeps a copy of the file, <file>.bak-<time>, that still holds the value. "
-        "Delete the copy by hand."
+        "A key that is not a config option needs only step 2."
     )
 
 

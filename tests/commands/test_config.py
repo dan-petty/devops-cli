@@ -92,6 +92,31 @@ def test_config_unset_removes_a_key_that_stops_every_command_from_loading_the_se
     assert (loaded.exit_code, loaded.output) == (0, "ollama\n")
 
 
+def test_config_unset_of_a_credential_leaves_no_file_that_holds_its_value(
+    cli: Any, isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """The copy that the command names shows the removed credential as a placeholder (#2645)."""
+    _use(isolate_devops_cli_config, "ai:\n  provider: ollama\n  api_key: FAKE-2645-value\n")
+    clock.move_to(datetime(2026, 10, 24, 23, 30, 5, tzinfo=UTC))
+    backup = isolate_devops_cli_config.with_name("config.yaml.bak-20261024-233005")
+
+    result = cli("config", "unset", "ai.api_key")
+
+    assert (result.exit_code, result.output) == (
+        0,
+        f"Removed ai.api_key from {isolate_devops_cli_config}:3.\n"
+        f"The file before the change is in {backup}.\n",
+    )
+    assert [
+        path.name
+        for path in isolate_devops_cli_config.parent.iterdir()
+        if "FAKE-2645" in path.read_text("utf-8")
+    ] == []
+    assert backup.read_text(encoding="utf-8") == (
+        "ai:\n  provider: ollama\n  api_key: '***REDACTED***'\n"
+    )
+
+
 def test_config_get_reports_a_config_file_that_is_not_yaml_on_one_line_with_no_file_text(
     cli: Any, isolate_devops_cli_config: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

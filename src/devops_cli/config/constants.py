@@ -43,6 +43,9 @@ CONST_PROJECT_CONFIG_CANDIDATES: Final[tuple[str, ...]] = (
 CONST_CONFIG_BACKUP_INFIX: Final[str] = ".bak-"
 CONST_CONFIG_BACKUP_STAMP_FORMAT: Final[str] = "%Y%m%d-%H%M%S"
 CONST_CONFIG_BACKUPS_KEPT: Final[int] = 10
+# The value that a copy of a config file shows for a credential that a removal took out of the file
+# (#2645). A person sees that a value was there, and the copy does not hold it.
+CONST_CONFIG_REDACTED_VALUE: Final[str] = "***REDACTED***"
 # The `action` of the audit record that each write of a config file appends (#1921).
 CONST_AUDIT_ACTION_CONFIG_WRITE: Final[str] = "config_write"
 # The command that removes a key from the active config file without a load of the settings, and

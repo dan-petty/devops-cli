@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 from devops_cli.config.settings import load_settings, remove_config_key, reset_settings_cache
 from devops_cli.exceptions import ConfigurationError
@@ -181,3 +182,214 @@ def test_a_removal_from_a_file_that_is_not_yaml_names_the_file_and_quotes_no_lin
         f"Cannot read {isolate_devops_cli_config}: it is not valid YAML (ScannerError).",
         1,
     )
+
+
+_SECRET = "FAKE-2645-value"
+_WITH_SECRET = f"""\
+# devops-cli settings of this workstation
+ai:
+  provider: ollama
+  api_key: {_SECRET}
+  model: qwen3   # the model of every task
+"""
+_REDACTED = "'***REDACTED***'"
+
+
+def _copies(directory: Path) -> list[Path]:
+    return sorted(directory.glob("config.yaml.bak-*"))
+
+
+def _holders_of(directory: Path, text: str) -> list[str]:
+    """The names of the files in `directory` that hold `text`."""
+    return [path.name for path in sorted(directory.iterdir()) if text in path.read_text("utf-8")]
+
+
+def test_a_removal_of_a_credential_leaves_no_file_that_holds_its_value(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """The copy shows the removed credential as a placeholder, and it keeps every other line, so
+    a person can still undo the removal of another key (#2645)."""
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    clock.move_to(_REMOVED_AT)
+
+    removal = remove_config_key("ai.api_key")
+
+    assert removal.backup == str(isolate_devops_cli_config.with_name(f"config.yaml.bak-{_STAMP}"))
+    assert _holders_of(isolate_devops_cli_config.parent, _SECRET) == []
+    assert Path(removal.backup).read_text(encoding="utf-8") == _WITH_SECRET.replace(
+        _SECRET, _REDACTED
+    )
+
+
+def test_a_removal_of_a_credential_redacts_it_in_each_copy_that_an_earlier_write_made(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """A write of another key before the removal copied the file with the credential in it. The
+    removal redacts the credential there too, and keeps the newest ten copies."""
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    directory = isolate_devops_cli_config.parent
+    older = [f"config.yaml.bak-20261001-0000{second:02d}" for second in range(10)]
+    for name in older:
+        (directory / name).write_text(_WITH_SECRET, encoding="utf-8")
+    without_key = "ai:\n  provider: ollama\n"
+    (directory / older[3]).write_text(without_key, encoding="utf-8")
+    clock.move_to(_REMOVED_AT)
+
+    remove_config_key("ai.api_key")
+
+    assert [path.name for path in _copies(directory)] == [*older[1:], f"config.yaml.bak-{_STAMP}"]
+    assert _holders_of(directory, _SECRET) == []
+    assert (directory / older[3]).read_text(encoding="utf-8") == without_key
+    assert (directory / older[4]).read_text(encoding="utf-8") == _WITH_SECRET.replace(
+        _SECRET, _REDACTED
+    )
+
+
+def test_a_removal_of_a_section_redacts_each_credential_in_it(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    _use(isolate_devops_cli_config, f"{_WITH_SECRET}grafana:\n  token: {_SECRET}-grafana\n")
+    clock.move_to(_REMOVED_AT)
+
+    remove_config_key("ai")
+
+    [copy] = _copies(isolate_devops_cli_config.parent)
+    assert copy.read_text(encoding="utf-8") == (
+        f"{_WITH_SECRET.replace(_SECRET, _REDACTED)}grafana:\n  token: {_SECRET}-grafana\n"
+    )
+
+
+def test_a_removal_of_a_key_that_is_no_credential_keeps_the_copy_as_the_file_was(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    clock.move_to(_REMOVED_AT)
+
+    removal = remove_config_key("ai.model")
+
+    assert Path(removal.backup or "").read_text(encoding="utf-8") == _WITH_SECRET
+
+
+def test_a_copy_of_a_credential_removal_keeps_the_mode_of_the_file(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    isolate_devops_cli_config.chmod(0o600)
+    clock.move_to(_REMOVED_AT)
+
+    removal = remove_config_key("ai.api_key")
+
+    assert Path(removal.backup or "").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_removal_leaves_a_copy_that_holds_no_value_to_hide_as_it_is(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """A copy with an empty credential, or with the placeholder, holds nothing to redact."""
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    directory = isolate_devops_cli_config.parent
+    empty = "ai:\n  api_key: ''\n"
+    placeholder = f"ai:\n  api_key: {_REDACTED}\n"
+    (directory / "config.yaml.bak-20261001-000000").write_text(empty, encoding="utf-8")
+    (directory / "config.yaml.bak-20261001-000001").write_text(placeholder, encoding="utf-8")
+    clock.move_to(_REMOVED_AT)
+
+    remove_config_key("ai.api_key")
+
+    assert [path.read_text(encoding="utf-8") for path in _copies(directory)[:2]] == [
+        empty,
+        placeholder,
+    ]
+
+
+def test_a_removal_of_a_credential_stops_when_a_copy_is_not_yaml_and_changes_nothing(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """A copy that the command cannot read could hold the credential, so the command does not
+    remove the credential from the file and leave that copy."""
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    directory = isolate_devops_cli_config.parent
+    broken = directory / "config.yaml.bak-20261001-000000"
+    broken.write_text(f"ai:\n  api_key: {_SECRET}: x\n", encoding="utf-8")
+    clock.move_to(_REMOVED_AT)
+
+    with pytest.raises(ConfigurationError) as raised:
+        remove_config_key("ai.api_key")
+
+    assert (raised.value.message, isolate_devops_cli_config.read_text(encoding="utf-8")) == (
+        f"Cannot read {broken}: it is not valid YAML (ScannerError).",
+        _WITH_SECRET,
+    )
+    assert _SECRET not in raised.value.message
+
+
+def test_a_removal_of_a_credential_drops_each_comment_that_holds_its_value(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """A note such as `# was <value>` is part of the copy, so the copy drops it. Every other
+    comment stays."""
+    _use(
+        isolate_devops_cli_config,
+        f"ai:\n  # the old key was {_SECRET}\n  api_key: {_SECRET}  # was {_SECRET}\n"
+        "  # the next line holds the model\n  model: qwen3  # keep\n"
+        f"github:\n  accounts:\n    - one  # {_SECRET}\n    - two  # keep too\n",
+    )
+    clock.move_to(_REMOVED_AT)
+
+    remove_config_key("ai.api_key")
+
+    [copy] = _copies(isolate_devops_cli_config.parent)
+    text = copy.read_text(encoding="utf-8")
+    assert _SECRET not in text
+    assert yaml.safe_load(text) == {
+        "ai": {"api_key": "***REDACTED***", "model": "qwen3"},
+        "github": {"accounts": ["one", "two"]},
+    }
+    assert "- two  # keep too\n" in text
+    assert "# the next line holds the model\n  model: qwen3  # keep\n" in text
+
+
+@pytest.mark.parametrize(
+    ("copy", "message"),
+    [
+        (b"ai:\n  api_key: \xff\xfe\n", "it is not valid YAML (UnicodeDecodeError)."),
+        (b"- ai.api_key\n- other\n", "it does not hold a YAML mapping."),
+        (f"ai.api_key={_SECRET}\n".encode(), "it does not hold a YAML mapping."),
+    ],
+    ids=["not-utf-8", "list", "text-line"],
+)
+def test_a_removal_of_a_credential_stops_when_a_copy_is_not_a_yaml_mapping(
+    isolate_devops_cli_config: Path, clock: ClockFake, copy: bytes, message: str
+) -> None:
+    """The command cannot find a credential in such a copy, so it stops before the file changes,
+    with an error that names the copy and quotes no text."""
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+    broken = isolate_devops_cli_config.parent / "config.yaml.bak-20261001-000000"
+    broken.write_bytes(copy)
+    clock.move_to(_REMOVED_AT)
+
+    with pytest.raises(ConfigurationError) as raised:
+        remove_config_key("ai.api_key")
+
+    assert raised.value.message == f"Cannot read {broken}: {message}"
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == _WITH_SECRET
+    assert _names(isolate_devops_cli_config.parent) == ["config.yaml", broken.name]
+
+
+def test_a_removal_of_a_credential_keeps_the_line_ends_of_each_copy(
+    isolate_devops_cli_config: Path, clock: ClockFake
+) -> None:
+    """A file with CRLF line ends gives a copy with CRLF line ends, and only the credential
+    changes."""
+    crlf = _WITH_SECRET.replace("\n", "\r\n")
+    isolate_devops_cli_config.write_bytes(crlf.encode())
+    reset_settings_cache()
+    older = isolate_devops_cli_config.parent / "config.yaml.bak-20261001-000000"
+    older.write_bytes(crlf.encode())
+    clock.move_to(_REMOVED_AT)
+
+    remove_config_key("ai.api_key")
+
+    expected = crlf.replace(_SECRET, _REDACTED).encode()
+    [first, second] = _copies(isolate_devops_cli_config.parent)
+    assert (first.read_bytes(), second.read_bytes()) == (expected, expected)

@@ -11,7 +11,7 @@ import threading
 import time
 import types
 import typing
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -1531,16 +1531,22 @@ def _write_changes(dest_path: Path, changed: dict[tuple[str, ...], Any]) -> None
     _write_content(dest_path, previous, content)
 
 
-def _write_content(dest_path: Path, previous: bytes | None, content: bytes) -> Path | None:
+def _write_content(
+    dest_path: Path,
+    previous: bytes | None,
+    content: bytes,
+    redact: Collection[tuple[str, ...]] = (),
+) -> Path | None:
     """Write `content` into `dest_path` when it differs from the `previous` content: copy the file
     first, and then record the write in the audit log. Return the copy, or None when the write
-    changes nothing or the file did not exist."""
+    changes nothing or the file did not exist. `redact` names the key paths of the credentials
+    that the write removes: no copy of the file holds their values afterwards (#2645)."""
     from devops_cli.config import write_history
 
     if content == previous:
         return None
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    backup = write_history.back_up(dest_path)
+    backup = write_history.back_up(dest_path, redact)
     tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_bytes(content)
     os.replace(tmp, dest_path)
@@ -1556,12 +1562,15 @@ def remove_config_key(
     The removal edits the text of the file (`round_trip`) and loads no settings, so it also removes
     a key that stops the settings from loading (#2201). It keeps every other line and comment. A
     write first copies the file beside itself, and then records the removed key in the audit log,
-    as a save does. A dry run returns the same removal, with no copy, and writes nothing. A key that
-    the file does not hold raises ConfigurationError, and the file stays as it is.
+    as a save does. A copy shows the value of each credential that the removal takes out of the
+    file, and of the same credential in each older copy, as `***REDACTED***`, so the removal leaves
+    no copy that holds the credential (#2645). A dry run returns the same removal, with no copy,
+    and writes nothing. A key that the file does not hold raises ConfigurationError, and the file
+    stays as it is.
     """
     import difflib
 
-    from devops_cli.config import round_trip
+    from devops_cli.config import round_trip, write_history
     from devops_cli.models.config import ConfigKeyRemoval
 
     dest_path = target_path or get_active_config_path()
@@ -1584,7 +1593,8 @@ def remove_config_key(
     )
     backup = None
     if not dry_run:
-        backup = _write_content(dest_path, previous, content.encode("utf-8"))
+        credentials = write_history.credential_paths(previous, path, _SECRET_FIELDS)
+        backup = _write_content(dest_path, previous, content.encode("utf-8"), credentials)
         reset_settings_cache()
     return ConfigKeyRemoval(
         path=str(dest_path),

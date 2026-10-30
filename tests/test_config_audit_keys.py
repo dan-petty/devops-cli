@@ -338,18 +338,17 @@ def test_the_flow_that_the_alert_names_keeps_a_multi_line_credential_whole(
     assert (removal.exit_code, audit.exit_code) == (0, 0)
 
 
-def test_config_audit_keys_alert_says_to_quote_the_values_and_to_delete_the_copy(
+def test_config_audit_keys_alert_says_to_quote_the_values_and_names_no_copy_to_delete(
     cli: Callable[..., Any], global_config_with_a_secret: Path
 ) -> None:
     """A section name can hold shell syntax, so the alert says to quote the file and the key. The
-    removal keeps a copy of the file that still holds the value, and the audit does not scan the
-    copy, so the alert says to delete it (#2645)."""
+    removal leaves no copy that holds the value, so the alert names no copy to delete (#2645)."""
     result = cli("config", "audit-keys")
 
     alert = _words(result.output[result.output.index("Security Alert") :])
     assert "Quote <file> and <key> for the shell." in alert
-    assert "keeps a copy of the file, <file>.bak-<time>, that still holds the value" in alert
-    assert "Delete the copy by hand." in alert
+    assert ".bak-" not in alert
+    assert "Delete the copy" not in alert
 
 
 @pytest.mark.parametrize("name_is_in_a_leak", [True, False])

@@ -912,8 +912,9 @@ class DocGenerator:
             "To edit another file, run `DEVOPS_CLI_CONFIG=<file> devops config unset <key>`. "
             "`devops config audit-keys` names this command for each plaintext secret that it "
             "finds. Store a credential before you remove it: use `devops config set <key>`, with "
-            "`--from-file <path>` for a multi-line one. The copy of the file holds the removed "
-            "value, so delete it for a secret.",
+            "`--from-file <path>` for a multi-line one. The copy of the file, and each older copy, "
+            "shows a credential that the command removes as `***REDACTED***`, so no copy holds "
+            "its value.",
             "",
             "`devops config set` takes a key that names a settings field with a value, or a "
             "credential. For any other key, it exits 1 with `Unknown config key: '<key>'` before "
