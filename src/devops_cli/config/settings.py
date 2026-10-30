@@ -7,6 +7,7 @@ import json
 import logging
 import operator
 import os
+import stat
 import threading
 import time
 import types
@@ -1553,6 +1554,9 @@ def _write_content(
     backup = write_history.back_up(dest_path, redact)
     tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_bytes(content)
+    # Preserve the mode of the existing file or set default 0600 for new files
+    mode = stat.S_IMODE(dest_path.stat().st_mode) if dest_path.is_file() else 0o600
+    os.chmod(tmp, mode)
     os.replace(tmp, dest_path)
     write_history.record_write(dest_path, previous, content, backup)
     return backup
