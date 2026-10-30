@@ -1140,6 +1140,7 @@ k8s/
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
 │   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicies, PVC, ServiceAccount and Role
 │       ├── kustomization.yaml
+│       ├── admissionpolicy.yaml
 │       ├── deployment.yaml
 │       ├── ingress.yaml
 │       ├── middleware.yaml
