@@ -14,7 +14,9 @@ Issue #2715 made the title the only source of the labels of an issue. A pull req
 - The rule is one function, `title_labels` in the new module `roadmap/title_labels.py`. Intake calls it too. The mapping from title to label stays in `CONST_ROADMAP_COMMIT_TYPE_LABELS`. The parse of the label file moves out of intake into the same module.
 - A label is added with `RoadmapStore.label_issue`. It posts to the `issues/{number}/labels` endpoint, which GitHub also uses for pull requests. The in-memory store accepts a pull request number for this call, as GitHub does.
 - The pull request exists when the labels are added. When the label file cannot be read, or a label cannot be added, the command prints an error that names the pull request, the labels, and the reason. It exits 1. It never closes or deletes the pull request. The write of the Status (#2717) and the write of the labels both run. Each failure is reported, and the exit status is 1 if either failed.
-- A dry run changes nothing: `gh pr create` returns a planned request with no number, so the command reads and writes no label.
+- A dry run changes nothing: `gh pr create` returns a planned request with no number, so the command reads and writes no label. It lists the read of the label file and the label requests of the title, with `<number>` as the placeholder.
+- The warning for an undeclared scope goes to stderr. The error for a label that was not added also gives the command that adds a label by hand.
+- The label audit only checks that a `type/` and a `scope/` label are present. It does not compare them with the title. The change meets the criterion of the issue by presence: a test runs the audit on a pull request that the command labeled. A check of a label against the title is out of scope.
 - The stage job and the implement job open pull requests through their own client. They do not use this helper in this change (see Design). A follow-up item covers them.
 - The change carries a spec delta, because a command, its messages and its exit status are observable. It adds the capability `pr-title-labels`.
 - This change fits one pull request.

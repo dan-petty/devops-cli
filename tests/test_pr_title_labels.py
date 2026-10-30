@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.pr import app
 from devops_cli.core.process import PlannedProcessResult
+from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ChangeKind
@@ -141,9 +142,10 @@ def test_a_scope_with_no_declared_label_gets_a_warning_and_no_label(
     assert (
         result.exit_code,
         _labeled(roadmap_store),
-        "scope/zzz-unknown" in result.output,
-        LABELS_PATH in result.output,
-    ) == (0, {(pull, "type/bug")}, True, True)
+        "scope/zzz-unknown" in result.stderr,
+        LABELS_PATH in result.stderr,
+        "scope/zzz-unknown" in result.stdout,
+    ) == (0, {(pull, "type/bug")}, True, True, False)
 
 
 @pytest.mark.usefixtures("status")
@@ -165,9 +167,10 @@ def test_a_refused_label_exits_1_names_it_and_leaves_the_pull_request(
         "pull/1" in result.output or "#1" in result.output,
         "type/bug" in result.output,
         "HTTP 422" in result.output,
+        f"repos/{REPO}/issues/{pull}/labels" in result.output,
         _labeled(roadmap_store),
         commands,
-    ) == (1, True, True, True, {(pull, "scope/ai")}, [["gh", "pr", "create"]])
+    ) == (1, True, True, True, True, {(pull, "scope/ai")}, [["gh", "pr", "create"]])
 
 
 @pytest.mark.usefixtures("pull")
@@ -227,12 +230,26 @@ def test_the_rest_fallback_gives_the_labels_too(
     )
 
 
+@pytest.mark.usefixtures("status")
+@pytest.mark.parametrize("title", ["fix(ai): a title", "feat(security)!: a title"])
+def test_the_audit_finds_no_mismatch_after_create(
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, title: str
+) -> None:
+    from devops_cli.github.labels import audit_repository_labels
+
+    result, _ = _create(runner, title)
+    held = [{"name": label} for number, label in sorted(_labeled(roadmap_store)) if number == pull]
+    findings = audit_repository_labels([{"number": pull, "title": title, "labels": held}])
+    assert (result.exit_code, findings) == (0, [])
+
+
 def test_a_dry_run_reads_no_label_file_and_adds_no_label(
     runner: CliRunner,
     roadmap_store: InMemoryRoadmapStore,
     roadmap_store_repos: list[str],
     status: MagicMock,
 ) -> None:
+    set_dry_run(True)
     planned = PlannedProcessResult(method="gh", argv=("gh", "pr", "create"))
     with (
         patch("shutil.which", return_value="/usr/bin/gh"),
@@ -245,3 +262,29 @@ def test_a_dry_run_reads_no_label_file_and_adds_no_label(
         set(),
         0,
     )
+
+
+def test_a_dry_run_lists_the_label_requests_of_the_title(
+    runner: CliRunner, roadmap_store_repos: list[str]
+) -> None:
+    set_dry_run(True)
+    planned = PlannedProcessResult(method="gh", argv=("gh", "pr", "create"))
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.commands.pr.run_gh", return_value=planned),
+    ):
+        result = runner.invoke(
+            app, ["create", "--title", "fix(ai): a title", "--repo", REPO, "--base", "feat/base"]
+        )
+    lines = result.stdout.splitlines()
+    assert (result.exit_code, roadmap_store_repos) == (0, [])
+    assert [
+        any(f"repos/{REPO}/contents/.github/labels.yml?ref=feat%2Fbase" in line for line in lines),
+        any(
+            f"repos/{REPO}/issues/<number>/labels" in line and "type/bug" in line for line in lines
+        ),
+        any(
+            f"repos/{REPO}/issues/<number>/labels" in line and "scope/ai" in line for line in lines
+        ),
+        any("placeholder" in line for line in lines),
+    ] == [True, True, True, True]

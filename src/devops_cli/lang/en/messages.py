@@ -1058,8 +1058,12 @@ class PRMessages:
         "Pull request #{number} is {state}, but the Status of its item was not set: {error}"
     )
     labels_not_set: str = (
-        "Pull request #{number} is open, but the labels of its title were not added: {error}"
+        "Pull request #{number} is open, but the labels of its title were not added: {error} "
+        "To add a label by hand, run: devops gh api -X POST repos/{repo}/issues/{number}/labels "
+        "-f labels[]=<label>"
     )
+    labels_dry_run_heading: str = "Would add the labels of the title to the new pull request:"
+    labels_dry_run_condition: str = "the pull request opens and the labels file declares it"
     labels_unreadable: str = "{path} can't be read as label specs: {error}"
     labels_refused: str = "{labels} could not be added: {error}"
     labels_scope_undeclared: str = (

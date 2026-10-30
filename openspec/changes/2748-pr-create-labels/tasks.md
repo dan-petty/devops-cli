@@ -12,6 +12,12 @@
 - [x] 2.2 Add `src/devops_cli/roadmap/pull_labels.py`, let the in-memory store accept a pull request number in `label_issue`, and call the labels from `devops pr create` on both paths with the messages in `lang/en/messages.py`, and verify that `uv run devops ci test tests/test_pr_title_labels.py tests/test_pr_cmd.py tests/test_pr_status.py` passes
 - [x] 2.3 Name the labels in the help of `devops pr create`, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
+## 3. Review findings
+
+- [x] 3.1 In `tests/test_pr_title_labels.py`, assert that the warning is on stderr and not on stdout, that a dry run lists the label requests, that the audit finds no mismatch after create, and that the error names the command for a label by hand, and verify that the first two fail on the previous commit
+- [x] 3.2 Print the warning with `to_stderr=True`, add `requested_labels` and `_plan_title_labels`, and add the command to `labels_not_set`, and verify that `uv run devops ci test tests/test_pr_title_labels.py tests/test_pr_cmd.py tests/test_pr_status.py` passes
+- [x] 3.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+
 ## Workflow follow-up
 
 - The stage job and the implement job should give their pull requests the labels of the title with `title_labels`. Follow-up issue #2777 covers both (see `design.md`).

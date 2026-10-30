@@ -46,16 +46,24 @@ def declared_label_names(text: str) -> tuple[str, ...]:
     return tuple(spec.name for spec in _LABEL_SPECS.validate_python(yaml.safe_load(text)))
 
 
+def requested_labels(title: str) -> tuple[str | None, str | None]:
+    """The `type/*` label and the `scope/*` label that `title` asks for, declared or not. A title
+    with no type or no scope asks for nothing for it."""
+    kind = commit_type(title)
+    scope = commit_scope(title)
+    return (
+        CONST_ROADMAP_COMMIT_TYPE_LABELS.get(kind) if kind else None,
+        f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" if scope else None,
+    )
+
+
 def title_labels(title: str, declared: Collection[str]) -> TitleLabels:
     """The labels that `title` gives, from the label names `declared`. A type with no declared
     label gives none. A scope with no declared label gives none, and is named in
     `undeclared_scope`. A title with no type or no scope gives nothing for it."""
-    kind = commit_type(title)
-    type_label = CONST_ROADMAP_COMMIT_TYPE_LABELS.get(kind) if kind else None
+    type_label, scope_label = requested_labels(title)
     if type_label not in declared:
         type_label = None
-    scope = commit_scope(title)
-    scope_label = f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" if scope else None
     if scope_label and scope_label not in declared:
         return TitleLabels(type_label, None, scope_label)
     return TitleLabels(type_label, scope_label)

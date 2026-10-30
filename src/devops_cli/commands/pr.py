@@ -62,7 +62,9 @@ from devops_cli.output import (
 )
 from devops_cli.roadmap import pull_labels
 from devops_cli.roadmap.commit_title import commit_scope
+from devops_cli.roadmap.github_store import label_args, repository_file_args
 from devops_cli.roadmap.pull_status import set_delivered_status
+from devops_cli.roadmap.title_labels import requested_labels
 
 logger = logging.getLogger(__name__)
 
@@ -937,13 +939,51 @@ def _labels_recorded(repo: str | None, number: int, title: str, base: str | None
                     scope=commit_scope(title),
                     path=CONST_ROADMAP_LABELS_PATH,
                     label=given.undeclared_scope,
-                )
+                ),
+                to_stderr=True,
             )
         pull_labels.add_pull_labels(target, number, given.labels)
     except GitHubOperationError as exc:
-        print_error(MESSAGES.pr.labels_not_set.format(number=number, error=exc), safe=True)
+        print_error(
+            MESSAGES.pr.labels_not_set.format(repo=target, number=number, error=exc), safe=True
+        )
         return False
     return True
+
+
+def _plan_title_labels(repo: str | None, title: str, base: str | None) -> None:
+    """Print the requests that a real `devops pr create` would send to label the new pull request:
+    the read of the labels file, then one label request for each label the title asks for. The
+    number of the pull request is a placeholder. Nothing is read or sent."""
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        return
+    asked = [label for label in requested_labels(title) if label]
+    if not asked:
+        return
+    plan = [
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target}/contents/{CONST_ROADMAP_LABELS_PATH}",
+            argv=(
+                CONST_GH_CLI,
+                *repository_file_args(target, CONST_ROADMAP_LABELS_PATH, ref=base),
+            ),
+            condition="the pull request opens",
+        ),
+        *(
+            PlannedRequest(
+                method="POST",
+                target=f"repos/{target}/issues/<number>/labels",
+                argv=(CONST_GH_CLI, *label_args(target, "<number>", label)),
+                condition=MESSAGES.pr.labels_dry_run_condition,
+            )
+            for label in asked
+        ),
+    ]
+    render_request_plan(
+        MESSAGES.pr.labels_dry_run_heading, plan, (MESSAGES.dry_run.placeholders_note,)
+    )
 
 
 def _finish_created_pr(repo: str | None, number: int, title: str, base: str | None) -> None:
@@ -998,6 +1038,8 @@ def create_pr(
     print_success(
         MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base)
     )
+    if is_dry_run():
+        _plan_title_labels(repo, title, base)
 
 
 # =============================================================================
