@@ -20,7 +20,6 @@ from devops_cli.core.process import PlannedProcessResult
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ChangeKind
-from devops_cli.roadmap.title_labels import TitleLabels, declared_label_names, title_labels
 
 REPO = "example/roadmap"
 LABELS_PATH = ".github/labels.yml"
@@ -31,23 +30,31 @@ DECLARED = ("type/bug", "type/docs", "type/feature", "scope/ai", "scope/security
 @pytest.mark.parametrize(
     ("title", "expected"),
     [
-        ("fix(ai): a title", TitleLabels("type/bug", "scope/ai")),
-        ("feat(security)!: a title", TitleLabels("type/feature", "scope/security")),
-        ("docs: a title", TitleLabels("type/docs", None)),
-        ("A plain title", TitleLabels(None, None)),
-        ("fix(zzz-unknown): a title", TitleLabels("type/bug", None, "scope/zzz-unknown")),
-        ("chore(ai): a title", TitleLabels(None, "scope/ai")),
+        ("fix(ai): a title", ("type/bug", "scope/ai", None)),
+        ("feat(security)!: a title", ("type/feature", "scope/security", None)),
+        ("docs: a title", ("type/docs", None, None)),
+        ("A plain title", (None, None, None)),
+        ("fix(zzz-unknown): a title", ("type/bug", None, "scope/zzz-unknown")),
+        ("chore(ai): a title", (None, "scope/ai", None)),
     ],
 )
-def test_the_title_gives_the_declared_labels(title: str, expected: TitleLabels) -> None:
-    assert title_labels(title, DECLARED) == expected
+def test_the_title_gives_the_declared_labels(
+    title: str, expected: tuple[str | None, str | None, str | None]
+) -> None:
+    from devops_cli.roadmap.title_labels import TitleLabels, title_labels
+
+    assert title_labels(title, DECLARED) == TitleLabels(*expected)
 
 
 def test_the_labels_of_a_title_are_its_type_then_its_scope() -> None:
+    from devops_cli.roadmap.title_labels import title_labels
+
     assert title_labels("fix(ai): a title", DECLARED).labels == ("type/bug", "scope/ai")
 
 
 def test_the_declared_names_come_from_the_labels_file() -> None:
+    from devops_cli.roadmap.title_labels import declared_label_names
+
     text = '- name: "type/bug"\n  color: "d73a4a"\n- name: "scope/ai"\n  color: "0e8a16"\n'
     assert declared_label_names(text) == ("type/bug", "scope/ai")
 
