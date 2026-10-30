@@ -47,7 +47,6 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Tiktoken** | Tokenizer | Fast BPE token counting and LLM context window budgeting. | [tiktoken.md](devops_cli/libraries/tiktoken.md) |
 | **JSON Repair** | LLM Resilience | Resilient parser repairing malformed and truncated JSON payloads from LLMs. | [json_repair.md](devops_cli/libraries/json_repair.md) |
 | **Qdrant Client** | Vector Search | Local and remote vector database for RAG context indexing and search. | [qdrant_client.md](devops_cli/libraries/qdrant_client.md) |
-| **GitPython** | Git VCS | Object-oriented Git inspection, diff generation, and branch operations. | [gitpython.md](devops_cli/libraries/gitpython.md) |
 | **Cryptography** | X.509 & TLS | Rust-backed X.509 Certificate Authority, TLS leaf cert, and Ed25519 engine. | [cryptography.md](devops_cli/libraries/cryptography.md) |
 | **Kubernetes Client** | K8s SDK | Official Python client for Kubernetes cluster management and diagnostics. | [kubernetes.md](devops_cli/libraries/kubernetes.md) |
 | **Docker SDK** | Containers | Python client for Docker Engine daemon, real-time stats, and lifecycle. | [docker.md](devops_cli/libraries/docker.md) |

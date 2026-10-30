@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import git as gitlib
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 
 from devops_cli.config.constants import CONST_GITHUB_KNOWN_HOSTS_LINES
 from devops_cli.exceptions import GitOperationError
 from devops_cli.git.operations import _ensure_known_host, clone_repo
-from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 # Published fingerprints from https://api.github.com/meta (.ssh_key_fingerprints)
 # and https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
@@ -166,12 +166,12 @@ def test_junk_known_hosts_lines_do_not_skip_pinning(junk_line: str, tmp_path: Pa
         "https://github.com/org/repo.git",
     ],
 )
-def test_clone_repo_pins_known_hosts_for_all_spellings(url: str, tmp_path: Path) -> None:
+def test_clone_repo_pins_known_hosts_for_all_spellings(
+    url: str, tmp_path: Path, git_fake: GitFake
+) -> None:
     """The write runs for every URL passed to clone_repo with no URL filtering."""
-    with (
-        patch("devops_cli.git.operations._ensure_known_host") as mock_ensure,
-        patch("devops_cli.git.operations.gitlib.Repo.clone_from"),
-    ):
+    git_fake.answer(["git", "clone"], ProcessAnswer())
+    with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
         clone_repo(url, tmp_path / "dest")
         assert mock_ensure.call_count == 1
 
@@ -181,19 +181,18 @@ def test_clone_repo_pins_known_hosts_for_all_spellings(url: str, tmp_path: Path)
 # =============================================================================
 
 
-def test_clone_repo_wraps_git_command_error_with_masked_stderr(tmp_path: Path) -> None:
-    """GitCommandError is wrapped in GitOperationError carrying masked stderr."""
+def test_clone_repo_wraps_a_failed_clone_with_masked_stderr(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
+    """A clone that git refuses raises GitOperationError carrying masked stderr."""
     ssh_err = (
         "Host key for github.com has changed and you have requested strict checking.\n"
         "Host key verification failed.\n"
         "fatal: Could not read from remote repository 'https://user:secret@example.com/o/r.git'."
     )
-    fake_cmd_err = gitlib.GitCommandError("clone", 128, stderr=ssh_err)
+    git_fake.answer(["git", "clone"], ProcessAnswer(returncode=128, stderr=ssh_err))
 
-    with (
-        patch("devops_cli.git.operations._ensure_known_host"),
-        patch("devops_cli.git.operations.gitlib.Repo.clone_from", side_effect=fake_cmd_err),
-    ):
+    with patch("devops_cli.git.operations._ensure_known_host"):
         with pytest.raises(GitOperationError) as exc_info:
             clone_repo("git@github.com:org/repo.git", tmp_path / "dest")
 
@@ -206,17 +205,15 @@ def test_clone_repo_wraps_git_command_error_with_masked_stderr(tmp_path: Path) -
 
 
 def test_devops_repos_clone_cli_exits_nonzero_with_no_traceback(
-    tmp_path: Path, cli: Callable[..., Any]
+    tmp_path: Path, cli: Callable[..., Any], git_fake: GitFake
 ) -> None:
     """CLI devops repos clone exits non-zero with clean error and no traceback on failure."""
-    fake_cmd_err = gitlib.GitCommandError(
-        "clone", 128, stderr="Host key verification failed for github.com"
+    git_fake.answer(
+        ["git", "clone"],
+        ProcessAnswer(returncode=128, stderr="Host key verification failed for github.com"),
     )
 
-    with (
-        patch("devops_cli.git.operations._ensure_known_host"),
-        patch("devops_cli.git.operations.gitlib.Repo.clone_from", side_effect=fake_cmd_err),
-    ):
+    with patch("devops_cli.git.operations._ensure_known_host"):
         dest = tmp_path / "clone_target"
         res = cli(["repos", "clone", "git@github.com:org/repo.git", str(dest)])
         assert (res.exit_code != 0, "Traceback" not in res.output) == (True, True)

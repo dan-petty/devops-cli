@@ -1,0 +1,144 @@
+{
+ "scenario": "merged_branches",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/work",
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "refs/heads/feat/merged\nrefs/heads/feat/open\nrefs/heads/main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/work",
+    "branch",
+    "--merged",
+    "main",
+    "--format=%(refname:lstrip=2)"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "feat/merged\nmain\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/work",
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "refs/heads/feat/merged\nrefs/heads/feat/open\nrefs/heads/main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/work",
+    "branch",
+    "--merged",
+    "main",
+    "--format=%(refname:lstrip=2)"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "feat/merged\nmain\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/work",
+    "branch",
+    "--delete",
+    "--",
+    "feat/merged"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "Deleted branch feat/merged (was f3bffc8).\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/work",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/work",
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "refs/heads/feat/open\nrefs/heads/main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/empty",
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "dry_run": [
+   "feat/merged"
+  ],
+  "deleted": [
+   "feat/merged"
+  ],
+  "left": [
+   "feat/open",
+   "main"
+  ],
+  "empty": []
+ }
+}

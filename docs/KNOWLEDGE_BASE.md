@@ -1,13 +1,13 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **76 operational and architectural manuals**
+The bundled Knowledge Base provides **75 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
 
 ## Division 1: DevOps CLI Information (`devops_cli/`)
 
-**Total Articles**: 39 manuals covering internals, configuration, tasks, and libraries.
+**Total Articles**: 38 manuals covering internals, configuration, tasks, and libraries.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -19,7 +19,6 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `libraries` | [`docker.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/docker.md) | Docker |
 | `libraries` | [`fastapi_uvicorn.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/fastapi_uvicorn.md) | Fastapi Uvicorn |
 | `libraries` | [`fastmcp.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/fastmcp.md) | Fastmcp |
-| `libraries` | [`gitpython.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/gitpython.md) | Gitpython |
 | `libraries` | [`httpx2.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/httpx2.md) | Httpx2 |
 | `libraries` | [`json_repair.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/json_repair.md) | Json Repair |
 | `libraries` | [`keyring.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/keyring.md) | Keyring |

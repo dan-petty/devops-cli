@@ -1,0 +1,38 @@
+{
+ "scenario": "fetch_refused",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "remote"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "origin\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "fetch",
+    "--prune",
+    "origin"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: '{root}/missing.git' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n"
+  }
+ ],
+ "result": [
+  "error",
+  "GitOperationError",
+  "Failed to fetch remote 'origin' in '{root}/repo': fatal: '{root}/missing.git' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists."
+ ]
+}

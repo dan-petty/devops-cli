@@ -100,8 +100,8 @@ def _reference(line: int, owner: str, *tokens: SourceArgvToken) -> DevopsArgvRef
 def command_trees() -> None:
     """Build every command module's tree once, as `devops docs check` has before it resolves.
 
-    Importing a command module may spawn (GitPython runs `git version` on import), so the
-    trees are built before any test patches `subprocess.Popen`, and outside its call phase.
+    Building a command's tree imports its module, so the trees are built once, before any test
+    patches `subprocess.Popen`, and outside its call phase.
     """
     for module_path, _ in _COMMAND_SPECS.values():
         module_click_command(module_path)

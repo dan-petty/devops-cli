@@ -2245,6 +2245,84 @@ def test_data_dir_invariant_detects_violations() -> None:
     assert len(detected) == 3
 
 
+_DIRECT_START_FUNCTIONS = frozenset({"run", "Popen", "check_output", "check_call", "call"})
+
+
+def _starts_git(node: ast.Call) -> bool:
+    """Whether the call is a direct start of a program (`subprocess.run` and the like) whose
+    argument list begins with `git` or `CONST_GIT_CLI`."""
+    func = node.func
+    if not (
+        isinstance(func, ast.Attribute)
+        and func.attr in _DIRECT_START_FUNCTIONS
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "subprocess"
+        and node.args
+        and isinstance(node.args[0], ast.List | ast.Tuple)
+        and node.args[0].elts
+    ):
+        return False
+    first = node.args[0].elts[0]
+    return (isinstance(first, ast.Constant) and first.value == "git") or (
+        isinstance(first, ast.Name) and first.id == "CONST_GIT_CLI"
+    )
+
+
+def _git_seam_offenders(trees: Mapping[Path, ast.Module], src: Path) -> list[str]:
+    """Each `file:line` of `src` that imports GitPython or starts git by a way other than the
+    process runner."""
+    offenders: list[str] = []
+    for path, tree in sorted(trees.items()):
+        rel = path.relative_to(src).as_posix()
+        for node in ast.walk(tree):
+            line = getattr(node, "lineno", 0)
+            if isinstance(node, ast.Import) and any(
+                alias.name.split(".")[0] == "git" for alias in node.names
+            ):
+                offenders.append(f"{rel}:{line} imports GitPython")
+            elif (
+                isinstance(node, ast.ImportFrom)
+                and node.level == 0
+                and (node.module or "").split(".")[0] == "git"
+            ):
+                offenders.append(f"{rel}:{line} imports GitPython")
+            elif isinstance(node, ast.Call) and _starts_git(node):
+                offenders.append(f"{rel}:{line} starts git outside the process runner")
+    return offenders
+
+
+def test_every_start_of_git_goes_through_the_process_runner(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
+    """No module of `src/` imports GitPython, which starts git through its own `Popen`, or starts
+    git with `subprocess` directly. The process runner is the one seam of git, so the git fake sees
+    every start (#2146)."""
+    src = REPO_ROOT / "src" / "devops_cli"
+
+    assert _git_seam_offenders(parsed_source_trees, src) == []
+
+
+def test_the_git_seam_check_names_a_gitpython_import_and_a_direct_start(tmp_path: Path) -> None:
+    """The check reports `import git`, `from git import`, and a `subprocess` call whose argument
+    list begins with git, and not a runner call or a module of devops-cli named git."""
+    sources = {
+        "a.py": "import git\n",
+        "b.py": "from git.exc import GitError\n",
+        "c.py": "import subprocess\nsubprocess.run(['git', 'status'])\n",
+        "d.py": "import subprocess\nsubprocess.Popen([CONST_GIT_CLI, 'log'])\n",
+        "e.py": "from devops_cli.git import operations\nrun_subprocess(['git', 'status'])\n",
+        "f.py": "import subprocess\nsubprocess.run(['ls'])\n",
+    }
+    trees = {tmp_path / name: ast.parse(text) for name, text in sources.items()}
+
+    assert _git_seam_offenders(trees, tmp_path) == [
+        "a.py:1 imports GitPython",
+        "b.py:1 imports GitPython",
+        "c.py:2 starts git outside the process runner",
+        "d.py:2 starts git outside the process runner",
+    ]
+
+
 # mutmut reads a comment holding both as a `no mutate` pragma (`_parse_pragma_token`). They stay
 # here, not in src, where a line holding both would itself be one.
 _MUTMUT_PRAGMA_MARKERS = ("# pragma:", "no mutate")

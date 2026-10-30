@@ -1,0 +1,119 @@
+{
+ "scenario": "branch_creation",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "show-ref",
+    "--verify",
+    "--quiet",
+    "refs/heads/feature/x"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 1,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "checkout",
+    "-b",
+    "feature/x"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: cannot lock ref 'refs/heads/feature/x': 'refs/heads/feature' exists; cannot create 'refs/heads/feature/x'\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "show-ref",
+    "--verify",
+    "--quiet",
+    "refs/heads/main"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "show-ref",
+    "--verify",
+    "--quiet",
+    "refs/heads/feat/test"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 1,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "checkout",
+    "-b",
+    "feat/test"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": "Switched to a new branch 'feat/test'\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "feat/test\n",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "refused": [
+   "error",
+   "GitOperationError",
+   "fatal: cannot lock ref 'refs/heads/feature/x': 'refs/heads/feature' exists; cannot create 'refs/heads/feature/x'"
+  ],
+  "taken": [
+   "error",
+   "BranchAlreadyExistsError",
+   "Branch 'main' already exists"
+  ],
+  "hyphen": [
+   "error",
+   "InvalidBranchNameError",
+   "Invalid branch name '-invalid': cannot start with a hyphen"
+  ],
+  "new": [
+   "ok",
+   null
+  ],
+  "current": "feat/test"
+ }
+}

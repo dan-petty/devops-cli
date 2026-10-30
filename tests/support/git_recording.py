@@ -6,11 +6,11 @@ starts runs through `RecordingRunner`, which keeps its arguments, directory, sta
 code, standard output and standard error. The scratch directory differs on every recording, so the
 record holds `{root}` in its place. The scenario's return value is kept as its result.
 
-The `devops ci` row `git` runs this module with `--check` on the stock runner. It records every
+The `devops ci` row `git` runs `main(["--check"])` on the stock runner. It records every
 scenario again and fails when a committed transcript differs, or when a transcript has no scenario.
 Record again after a change to a scenario, or to a command that the code starts, with:
 
-    uv run python -m tests.support.git_recording
+    uv run python -c "import sys; from tests.support.git_recording import main; sys.exit(main([]))"
 
 `tests/test_git_contract.py` replays the committed transcripts and starts no program.
 """
@@ -22,7 +22,6 @@ import getpass
 import json
 import re
 import subprocess
-import sys
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -236,14 +235,13 @@ def main(argv: Sequence[str]) -> int:
         if report:
             print(f"The committed git transcripts differ from {version}:")
             print("\n".join(report))
-            print("Record them again: uv run python -m tests.support.git_recording")
+            print(
+                "Record them again: uv run python -c "
+                '"import sys; from tests.support.git_recording import main; sys.exit(main([]))"'
+            )
             return 1
         print(f"The {len(recorded)} git transcripts match {version}.")
         return 0
     write_all(recorded)
     print(f"Recorded {len(recorded)} git transcripts with {version}.")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

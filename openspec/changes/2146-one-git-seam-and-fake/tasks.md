@@ -7,17 +7,17 @@
 - [x] Add `GitFake`, the `git_fake` fixture and the refusal of real git in a test that uses it
   - Verification: `uv run devops ci test tests/test_git_contract.py`
 - [x] Add the recorder (`tests/support/git_recording.py`) and record the transcripts with the real git
-  - Verification: `uv run python -m tests.support.git_recording --check`
+  - Verification: `uv run python -c "import sys; from tests.support.git_recording import main; sys.exit(main(['--check']))"`
 - [x] Give `own_source_state` a package directory parameter, and move `tests/test_git_worktree.py`, `tests/test_core_repo.py` and the tests of `tests/test_git_operations.py` that need no GitPython to the fake
   - Verification: `uv run devops ci test tests/test_git_worktree.py tests/test_core_repo.py tests/test_git_operations.py`
 
 ## 2. The GitPython users run git through the runner
 
-- [ ] Add failing tests: the invariant that no module of `src/` imports GitPython, and the scenarios and tests of `clone_repo`, `fetch_all`, `pull_tracking`, `create_branch`, `commit_snapshot`, `list_branches`, `delete_merged_branches`, `current_branch` and `extract_git_co_changes`
+- [x] Add failing tests: the invariant that no module of `src/` imports GitPython, and the scenarios and tests of `clone_repo`, `fetch_all`, `pull_tracking`, `create_branch`, `commit_snapshot`, `list_branches`, `delete_merged_branches`, `current_branch` and `extract_git_co_changes`
   - Verification: `uv run devops ci test tests/test_architectural_invariants.py tests/test_git_contract.py tests/test_git_operations.py`
-- [ ] Move the three users to the runner, accept the two date keys in `CONST_GIT_ACCEPTED_ENV`, and move `tests/test_git_operations.py`, `tests/test_ssh_host_keys.py`, `tests/test_ai_research_forage.py` and `tests/test_review_score.py` to the fake or to the `git` fixture
+- [x] Move the three users to the runner, accept the two date keys in `CONST_GIT_ACCEPTED_ENV`, and move `tests/test_git_operations.py`, `tests/test_ssh_host_keys.py`, `tests/test_ai_research_forage.py` and `tests/test_review_score.py` to the fake or to the `git` fixture
   - Verification: `uv run devops ci test tests/test_git_operations.py tests/test_ssh_host_keys.py tests/test_ai_research_forage.py tests/test_review_score.py tests/test_subprocess_env_boundary.py tests/test_repos.py`
-- [ ] Remove GitPython from `pyproject.toml` and `uv.lock`
+- [x] Remove GitPython from `pyproject.toml` and `uv.lock`
   - Verification: `uv run devops ci deps lockfile`
 
 ## 3. The row that records the transcripts again

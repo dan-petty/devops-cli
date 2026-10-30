@@ -1,0 +1,165 @@
+{
+ "scenario": "co_changes",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "rev-list",
+    "--max-count=100",
+    "HEAD",
+    "--",
+    "a.py"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n45bc05424172ba1e1ea7106b0713e41436768933\ndb6d9b3bb2a5ba44890197d38c77409e8cdbabc6\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "log",
+    "--no-walk=unsorted",
+    "--stdin",
+    "--diff-merges=first-parent",
+    "--no-renames",
+    "--name-only",
+    "-z",
+    "--format=%x1e%H"
+   ],
+   "cwd": null,
+   "stdin": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n45bc05424172ba1e1ea7106b0713e41436768933\ndb6d9b3bb2a5ba44890197d38c77409e8cdbabc6\n",
+   "returncode": 0,
+   "stdout": "\u001e0e4a5ae14e5443dbd2af6d94283d76ca3afde109\u0000\na.py\u0000d.py\u0000sp ace.py\u0000\u001e45bc05424172ba1e1ea7106b0713e41436768933\u0000\na.py\u0000b.py\u0000\u001edb6d9b3bb2a5ba44890197d38c77409e8cdbabc6\u0000\na.py\u0000b.py\u0000c.py\u0000",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "rev-list",
+    "--max-count=1",
+    "HEAD",
+    "--",
+    "a.py"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "log",
+    "--no-walk=unsorted",
+    "--stdin",
+    "--diff-merges=first-parent",
+    "--no-renames",
+    "--name-only",
+    "-z",
+    "--format=%x1e%H"
+   ],
+   "cwd": null,
+   "stdin": "0e4a5ae14e5443dbd2af6d94283d76ca3afde109\n",
+   "returncode": 0,
+   "stdout": "\u001e0e4a5ae14e5443dbd2af6d94283d76ca3afde109\u0000\na.py\u0000d.py\u0000sp ace.py\u0000",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "rev-list",
+    "--max-count=100",
+    "HEAD",
+    "--",
+    "lonely.py"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "6b5b8278b217dddb0d80109854c7c859e6f0758b\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/repo",
+    "log",
+    "--no-walk=unsorted",
+    "--stdin",
+    "--diff-merges=first-parent",
+    "--no-renames",
+    "--name-only",
+    "-z",
+    "--format=%x1e%H"
+   ],
+   "cwd": null,
+   "stdin": "6b5b8278b217dddb0d80109854c7c859e6f0758b\n",
+   "returncode": 0,
+   "stdout": "\u001e6b5b8278b217dddb0d80109854c7c859e6f0758b\u0000\nlonely.py\u0000",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "a": [
+   {
+    "source": "a.py",
+    "target": "b.py",
+    "edge_type": "git_co_change",
+    "detail": "2 co-commits",
+    "weight": 0.667
+   },
+   {
+    "source": "a.py",
+    "target": "d.py",
+    "edge_type": "git_co_change",
+    "detail": "1 co-commits",
+    "weight": 0.333
+   },
+   {
+    "source": "a.py",
+    "target": "sp ace.py",
+    "edge_type": "git_co_change",
+    "detail": "1 co-commits",
+    "weight": 0.333
+   },
+   {
+    "source": "a.py",
+    "target": "c.py",
+    "edge_type": "git_co_change",
+    "detail": "1 co-commits",
+    "weight": 0.333
+   }
+  ],
+  "latest_only": [
+   {
+    "source": "a.py",
+    "target": "d.py",
+    "edge_type": "git_co_change",
+    "detail": "1 co-commits",
+    "weight": 1.0
+   },
+   {
+    "source": "a.py",
+    "target": "sp ace.py",
+    "edge_type": "git_co_change",
+    "detail": "1 co-commits",
+    "weight": 1.0
+   }
+  ],
+  "alone": []
+ }
+}

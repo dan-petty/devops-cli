@@ -21,14 +21,25 @@ import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.research.edges import extract_git_co_changes
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name, own_source_state, reset_repo_caches
 from devops_cli.git.operations import (
+    clone_repo,
+    commit_snapshot,
+    create_branch,
+    current_branch,
+    delete_merged_branches,
+    fetch_all,
     get_latest_git_tag,
     is_git_clean,
+    list_branches,
     list_changed_files,
+    pull_tracking,
     read_file_at_revision,
     resolve_merge_base,
 )
@@ -315,3 +326,211 @@ def repository_origin(ws: Workspace) -> Any:
     reset_repo_caches()
     with ws.environment():
         return get_repo_origin_name(ws.path("repo"))
+
+
+def _seeded_remote(ws: Workspace, clone: str = "clone") -> None:
+    """`remote.git` is a bare repository with `f.txt` on `main`, pushed from `clone`, which keeps
+    `origin` as its upstream."""
+    ws.git("remote.git", "init", "--quiet", "--bare", "-b", "main")
+    ws.git(".", "clone", "--quiet", "remote.git", clone)
+    ws.write(f"{clone}/f.txt", "one\n")
+    _commit(ws, clone, "one")
+    ws.git(clone, "push", "--quiet", "-u", "origin", "main")
+
+
+def _commit_and_push(ws: Workspace, clone: str, name: str) -> None:
+    """Add the file `name` to `clone` and push it to `origin`."""
+    ws.write(f"{clone}/{name}", f"{name}\n")
+    _commit(ws, clone, name)
+    ws.git(clone, "push", "--quiet", "origin", "main")
+
+
+@scenario
+def branch_creation(ws: Workspace) -> Any:
+    """`repo` holds one commit on `main` and the branch `feature`. A branch `feature/x` cannot be
+    made beside `feature`; `main` is taken; `feat/test` is new and becomes the current branch."""
+    repo = ws.path("repo")
+    ws.git("repo", "init", "--quiet", "-b", "main")
+    ws.git("repo", "commit", "--quiet", "--allow-empty", "-m", "init")
+    ws.git("repo", "branch", "feature")
+    with ws.environment():
+        return {
+            "refused": outcome(lambda: create_branch(repo, "feature/x"), ws),
+            "taken": outcome(lambda: create_branch(repo, "main"), ws),
+            "hyphen": outcome(lambda: create_branch(repo, "-invalid"), ws),
+            "new": outcome(lambda: create_branch(repo, "feat/test"), ws),
+            "current": current_branch(repo),
+        }
+
+
+@scenario
+def branch_listing(ws: Workspace) -> Any:
+    """`clone` is on `main`, with the local branch `feat/xyz`, the remote branches
+    `origin/feat/remote` and `origin/main`, and `origin/HEAD`. The listings are read on the branch
+    and with HEAD detached."""
+    clone = ws.path("clone")
+    _seeded_remote(ws)
+    ws.git("clone", "branch", "feat/xyz")
+    ws.git("clone", "push", "--quiet", "origin", "main:feat/remote")
+    ws.git("clone", "fetch", "--quiet", "origin")
+    ws.git("clone", "remote", "set-head", "origin", "main")
+    with ws.environment():
+        on_branch = (list_branches(clone), list_branches(clone, all_branches=True))
+        ws.git("clone", "checkout", "--quiet", "--detach")
+        detached = list_branches(clone)
+        return {
+            "local": on_branch[0].model_dump(),
+            "all": on_branch[1].model_dump(),
+            "detached": detached.model_dump(),
+        }
+
+
+@scenario
+def merged_branches(ws: Workspace) -> Any:
+    """`work` is on `main`, which holds the merged branch `feat/merged`; `feat/open` is not
+    merged. `empty` has no commit."""
+    work, empty = ws.path("work"), ws.path("empty")
+    ws.git("work", "init", "--quiet", "-b", "main")
+    ws.git("work", "commit", "--quiet", "--allow-empty", "-m", "init")
+    ws.git("work", "branch", "feat/merged")
+    ws.git("work", "switch", "--quiet", "-c", "feat/open")
+    ws.git("work", "commit", "--quiet", "--allow-empty", "-m", "open")
+    ws.git("work", "switch", "--quiet", "main")
+    ws.git("empty", "init", "--quiet", "-b", "main")
+    with ws.environment():
+        return {
+            "dry_run": delete_merged_branches(work, dry_run=True),
+            "deleted": delete_merged_branches(work),
+            "left": list_branches(work).branches,
+            "empty": delete_merged_branches(empty),
+        }
+
+
+@scenario
+def fetch_and_pull_updates(ws: Workspace) -> Any:
+    """`clone2` is one commit behind `origin/main` after `clone1` pushes it; it fetches and pulls
+    to catch up."""
+    clone2 = ws.path("clone2")
+    _seeded_remote(ws, "clone1")
+    ws.git(".", "clone", "--quiet", "remote.git", "clone2")
+    _commit_and_push(ws, "clone1", "g.txt")
+    with ws.environment():
+        fetch_all(clone2)
+        pull_tracking(clone2)
+        return {"head": current_branch(clone2)}
+
+
+@scenario
+def pull_divergent(ws: Workspace) -> Any:
+    """`diverged` has a commit that `origin/main` lacks, and `origin/main` has one that `diverged`
+    lacks, so a pull cannot fast-forward."""
+    diverged = ws.path("diverged")
+    _seeded_remote(ws, "pusher")
+    ws.git(".", "clone", "--quiet", "remote.git", "diverged")
+    _commit_and_push(ws, "pusher", "g.txt")
+    ws.write("diverged/h.txt", "h\n")
+    _commit(ws, "diverged", "local")
+    with ws.environment():
+        return outcome(lambda: pull_tracking(diverged), ws)
+
+
+@scenario
+def pull_without_a_remote_branch(ws: Workspace) -> Any:
+    """A pull does nothing in `untracked`, whose branch has no upstream, and in `detached`, whose
+    HEAD is detached. In `orphaned` the branch tracks the remote `gone`, which does not exist."""
+    for name in ("untracked", "detached", "orphaned"):
+        ws.git(name, "init", "--quiet", "-b", "main")
+        ws.git(name, "commit", "--quiet", "--allow-empty", "-m", "init")
+    ws.git("detached", "checkout", "--quiet", "--detach")
+    ws.git("orphaned", "config", "branch.main.remote", "gone")
+    ws.git("orphaned", "config", "branch.main.merge", "refs/heads/main")
+    with ws.environment():
+        return {
+            name: outcome(lambda name=name: pull_tracking(ws.path(name)), ws)
+            for name in ("untracked", "detached", "orphaned")
+        }
+
+
+@scenario
+def fetch_refused(ws: Workspace) -> Any:
+    """`repo` has the remote `origin` at a path that holds no repository."""
+    ws.git("repo", "init", "--quiet", "-b", "main")
+    ws.git("repo", "remote", "add", "origin", str(ws.path("missing.git")))
+    with ws.environment():
+        return outcome(lambda: fetch_all(ws.path("repo")), ws)
+
+
+@scenario
+def clone(ws: Workspace) -> Any:
+    """`remote.git` holds `f.txt` on `main`. It is cloned to `first`; `missing.git` is no
+    repository."""
+    _seeded_remote(ws, "seed")
+    with ws.environment():
+        return {
+            "cloned": outcome(lambda: clone_repo(str(ws.path("remote.git")), ws.path("first")), ws),
+            "missing": outcome(
+                lambda: clone_repo(str(ws.path("missing.git")), ws.path("second")), ws
+            ),
+        }
+
+
+@scenario
+def commit_snapshots(ws: Workspace) -> Any:
+    """`one` and `two` hold the same two files. Each becomes a repository of one commit made with
+    one author, no e-mail, one date and one message."""
+    when = datetime(2026, 10, 3, tzinfo=UTC)
+    commits = []
+    counts = []
+    with ws.environment():
+        for name in ("one", "two"):
+            ws.write(f"{name}/app/db.py", "query = f'{x}'\n")
+            ws.write(f"{name}/a.py", "x = 1\n")
+            commits.append(
+                commit_snapshot(
+                    ws.path(name),
+                    ["app/db.py", "a.py"],
+                    "The golden review set's files, for a path review\n",
+                    author="devops-cli golden",
+                    email="",
+                    date=when,
+                )
+            )
+            count = run_subprocess(
+                ["git", "-C", str(ws.path(name)), "rev-list", "--count", "HEAD"],
+                quiet=True,
+                local_read=True,
+            )
+            counts.append(count.stdout.strip())
+        return {"commits": commits, "branch": current_branch(ws.path("one")), "counts": counts}
+
+
+@scenario
+def co_changes(ws: Workspace) -> Any:
+    """In `repo`, `a.py` changes in three commits: with `b.py` and `c.py`, with `b.py`, and with
+    `d.py` and `sp ace.py`. A merge brings a branch that changes `e.py`. `lonely.py` is committed
+    alone."""
+    repo = ws.path("repo")
+    ws.git("repo", "init", "--quiet", "-b", "main")
+    for name in ("a.py", "b.py", "c.py"):
+        ws.write(f"repo/{name}", "v1\n")
+    _commit(ws, "repo", "first")
+    for name in ("a.py", "b.py"):
+        ws.write(f"repo/{name}", "v2\n")
+    _commit(ws, "repo", "second")
+    for name in ("a.py", "d.py", "sp ace.py"):
+        ws.write(f"repo/{name}", "v3\n")
+    _commit(ws, "repo", "third")
+    ws.git("repo", "switch", "--quiet", "-c", "side")
+    ws.write("repo/e.py", "e\n")
+    _commit(ws, "repo", "side")
+    ws.git("repo", "switch", "--quiet", "main")
+    ws.git("repo", "merge", "--quiet", "--no-ff", "-m", "merge", "side")
+    ws.write("repo/lonely.py", "x\n")
+    _commit(ws, "repo", "lonely")
+
+    def edges(name: str, limit: int = 100) -> list[dict[str, Any]]:
+        found = extract_git_co_changes(repo / name, repo, limit)
+        return [edge.model_dump() for edge in found]
+
+    with ws.environment():
+        return {"a": edges("a.py"), "latest_only": edges("a.py", 1), "alone": edges("lonely.py")}

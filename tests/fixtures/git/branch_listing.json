@@ -1,0 +1,120 @@
+{
+ "scenario": "branch_listing",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone",
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "refs/heads/feat/xyz\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/feat/remote\nrefs/remotes/origin/main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone",
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "refs/heads/feat/xyz\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/feat/remote\nrefs/remotes/origin/main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone",
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "refs/heads/feat/xyz\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/feat/remote\nrefs/remotes/origin/main\n",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "local": {
+   "branches": [
+    "feat/xyz",
+    "main"
+   ],
+   "current": "main"
+  },
+  "all": {
+   "branches": [
+    "feat/xyz",
+    "main",
+    "origin/feat/remote",
+    "origin/main"
+   ],
+   "current": "main"
+  },
+  "detached": {
+   "branches": [
+    "feat/xyz",
+    "main"
+   ],
+   "current": "HEAD"
+  }
+ }
+}

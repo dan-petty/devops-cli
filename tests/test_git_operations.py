@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import subprocess
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import git as gitlib
 import pytest
 
 from devops_cli.exceptions import (
@@ -29,6 +26,7 @@ from devops_cli.git.operations import (
     list_changed_files,
     pull_tracking,
     read_file_at_revision,
+    reset_known_host_cache,
     resolve_merge_base,
 )
 from devops_cli.models.git import ChangedFile
@@ -103,161 +101,6 @@ def test_ensure_known_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert known_hosts.read_text(encoding="utf-8") == content
 
 
-def test_clone_repo_ensures_github_known_host_for_all_urls(tmp_path: Path) -> None:
-    """Verify clone_repo ensures host keys are known for all clone URLs."""
-    with (
-        patch("devops_cli.git.operations._ensure_known_host") as mock_known_host,
-        patch("devops_cli.git.operations.gitlib.Repo.clone_from") as mock_clone_from,
-    ):
-        clone_repo("git@github.com:example/repo.git", tmp_path / "repo")
-        clone_repo("https://github.com/example/repo2.git", tmp_path / "repo2")
-
-    assert (mock_known_host.call_count, mock_clone_from.call_count) == (2, 2)
-
-
-def test_fetch_all(tmp_path: Path) -> None:
-    """Verify fetch_all calls remote.fetch on all remotes."""
-    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_remote = MagicMock()
-        mock_repo.remotes = [mock_remote]
-        mock_repo_cls.return_value = mock_repo
-
-        fetch_all(tmp_path)
-        mock_remote.fetch.assert_called_once_with(prune=True)
-
-        # Exception handling
-        mock_remote.name = "origin"
-        mock_remote.fetch.side_effect = gitlib.GitCommandError("fetch", "network error")
-        with pytest.raises(GitOperationError) as exc_info:
-            fetch_all(tmp_path)
-        assert (
-            "network error" in str(exc_info.value),
-            str(tmp_path) in str(exc_info.value),
-            "origin" in str(exc_info.value),
-            exc_info.value.details["operation"],
-            exc_info.value.details["repository"],
-            exc_info.value.details["remote"],
-        ) == (True, True, True, "fetch", str(tmp_path), "origin")
-
-
-def test_pull_tracking(tmp_path: Path) -> None:
-    """Verify pull_tracking pulls tracking branch when configured."""
-    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_repo.head.is_detached = False
-        mock_tracking = MagicMock(remote_name="origin")
-        mock_branch = MagicMock()
-        mock_branch.name = "main"
-        mock_branch.tracking_branch.return_value = mock_tracking
-        mock_repo.active_branch = mock_branch
-        mock_remote = MagicMock()
-        mock_repo.remotes = {"origin": mock_remote}
-        mock_repo_cls.return_value = mock_repo
-
-        pull_tracking(tmp_path)
-        mock_remote.pull.assert_called_once_with("main")
-
-
-def _init_repo(git: Callable[..., None], repo: Path) -> None:
-    git(repo, "init", "--quiet", "-b", "main")
-    git(repo, "commit", "--quiet", "--allow-empty", "-m", "init")
-
-
-def _current_branch(repo: Path) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), "branch", "--show-current"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
-def test_create_branch(tmp_path: Path, git: Callable[..., None]) -> None:
-    """create_branch creates the branch from HEAD and checks it out; bad or taken names raise."""
-    # The hyphen guard runs before the repository is opened.
-    with pytest.raises(InvalidBranchNameError, match="cannot start with a hyphen"):
-        create_branch(tmp_path, "-invalid")
-
-    _init_repo(git, tmp_path)
-    with pytest.raises(BranchAlreadyExistsError, match="already exists"):
-        create_branch(tmp_path, "main")
-
-    create_branch(tmp_path, "feat/test")
-    assert _current_branch(tmp_path) == "feat/test"
-
-
-def test_create_branch_raises_gits_reason_when_git_refuses(
-    tmp_path: Path, git: Callable[..., None]
-) -> None:
-    """A branch git refuses raises GitOperationError with git's own reason."""
-    _init_repo(git, tmp_path)
-    git(tmp_path, "branch", "feature")
-
-    with pytest.raises(GitOperationError, match="'refs/heads/feature' exists") as raised:
-        create_branch(tmp_path, "feature/x")
-
-    assert (raised.value.details["operation"], raised.value.details["branch_name"]) == (
-        "branch_create",
-        "feature/x",
-    )
-
-
-def test_list_branches(tmp_path: Path) -> None:
-    """Verify list_branches returns local and remote branch listings."""
-    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_repo.head.is_detached = False
-        mock_repo.active_branch.name = "main"
-        mock_b1 = MagicMock()
-        mock_b1.name = "main"
-        mock_b2 = MagicMock()
-        mock_b2.name = "feat/xyz"
-        mock_repo.branches = [mock_b1, mock_b2]
-
-        mock_remote = MagicMock()
-        mock_ref1 = MagicMock()
-        mock_ref1.name = "origin/feat/remote"
-        mock_ref_head = MagicMock()
-        mock_ref_head.name = "origin/HEAD"
-        mock_remote.refs = [mock_ref1, mock_ref_head]
-        mock_repo.remotes = [mock_remote]
-        mock_repo_cls.return_value = mock_repo
-
-        # Local only
-        listing_local = list_branches(tmp_path, all_branches=False)
-        assert listing_local.current == "main"
-        assert listing_local.branches == ["feat/xyz", "main"]
-
-        # All branches
-        listing_all = list_branches(tmp_path, all_branches=True)
-        assert "origin/feat/remote" in listing_all.branches
-        assert "origin/HEAD" not in listing_all.branches
-
-
-def test_delete_merged_branches(tmp_path: Path) -> None:
-    """Verify delete_merged_branches identifies and removes non-protected merged branches."""
-    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_main = MagicMock()
-        mock_main.name = "main"
-        mock_feat = MagicMock()
-        mock_feat.name = "feat/merged"
-        mock_repo.branches = [mock_main, mock_feat]
-        mock_repo.git.branch.return_value = "  main\n* feat/merged\n"
-        mock_repo_cls.return_value = mock_repo
-
-        # Dry run
-        deleted_dry = delete_merged_branches(tmp_path, dry_run=True)
-        assert deleted_dry == ["feat/merged"]
-        mock_repo.delete_head.assert_not_called()
-
-        # Actual run
-        deleted_act = delete_merged_branches(tmp_path, dry_run=False)
-        assert deleted_act == ["feat/merged"]
-        mock_repo.delete_head.assert_called_once_with(mock_feat, force=False)
-
-
 def test_is_git_clean_and_get_latest_tag(git_fake: GitFake, tmp_path: Path) -> None:
     """is_git_clean is true for a tree with no change, and get_latest_git_tag gives the newest
     tag, or None when the repository has none."""
@@ -282,42 +125,6 @@ def test_is_git_clean_and_get_latest_tag_report_a_git_that_cannot_run(
     git_fake.answer(["git"], ProcessAnswer(side_effect=OSError("git error")))
 
     assert (is_git_clean(tmp_path), get_latest_git_tag(tmp_path)) == (False, None)
-
-
-def test_git_operations_edge_cases(tmp_path: Path) -> None:
-    """Verify pull_tracking error handling, delete_merged_branches empty branches, and keyscan failure."""
-    # 1. pull_tracking raises GitOperationError on GitCommandError
-    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_repo.head.is_detached = False
-        mock_branch = MagicMock()
-        mock_tracking = MagicMock()
-        mock_tracking.remote_name = "origin"
-        mock_branch.tracking_branch.return_value = mock_tracking
-        mock_branch.name = "main"
-        mock_repo.active_branch = mock_branch
-        mock_remote = MagicMock()
-        mock_remote.pull.side_effect = gitlib.GitCommandError("pull", "network down")
-        mock_repo.remotes = {"origin": mock_remote}
-        mock_repo_cls.return_value = mock_repo
-
-        with pytest.raises(GitOperationError) as exc_info:
-            pull_tracking(tmp_path)
-        assert (
-            "network down" in str(exc_info.value),
-            str(tmp_path) in str(exc_info.value),
-            "origin" in str(exc_info.value),
-            exc_info.value.details["operation"],
-            exc_info.value.details["repository"],
-            exc_info.value.details["remote"],
-        ) == (True, True, True, "pull", str(tmp_path), "origin")
-
-    # 2. delete_merged_branches with no default branch
-    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_repo.branches = []
-        mock_repo_cls.return_value = mock_repo
-        assert delete_merged_branches(tmp_path) == []
 
 
 def test_validate_clone_dest_and_prepare_clone_url(tmp_path: Path) -> None:
@@ -468,104 +275,229 @@ def test_revision_helpers_report_a_failed_git_call(git_fake: GitFake, tmp_path: 
     assert results == (None, "nosuch", [])
 
 
-def test_commit_snapshot_makes_the_same_one_commit_of_the_same_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The id is the one `git commit` gives these files with that identity, date and message."""
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    when = datetime(2026, 10, 3, tzinfo=UTC)
-    commits = []
-    for name in ("one", "two"):
-        (tmp_path / name / "app").mkdir(parents=True)
-        (tmp_path / name / "app" / "db.py").write_text("query = f'{x}'\n")
-        (tmp_path / name / "a.py").write_text("x = 1\n")
-        commits.append(
-            commit_snapshot(
-                tmp_path / name,
-                ["app/db.py", "a.py"],
-                "The golden review set's files, for a path review\n",
-                author="devops-cli golden",
-                email="",
-                date=when,
-            )
-        )
-    repo = gitlib.Repo(tmp_path / "one")
+def _git_words(fake: GitFake, repo: Path) -> list[list[str]]:
+    """The arguments each git call had after `git -C <repo>`."""
+    return [list(call.argv[3:]) for call in fake.calls if call.argv[2:3] == (str(repo),)]
 
-    assert (commits, repo.active_branch.name, len(list(repo.iter_commits()))) == (
-        ["63b6e3c00959a24f7f5badfa9508a96cca4504ae"] * 2,
-        "main",
-        1,
+
+def test_clone_repo_ensures_github_known_host_for_all_urls(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """Verify clone_repo ensures host keys are known for all clone URLs, and clones the URL
+    that it normalized."""
+    git_fake.answer(["git", "clone"], ProcessAnswer())
+    with patch("devops_cli.git.operations._ensure_known_host") as mock_known_host:
+        clone_repo("git@github.com:example/repo.git", tmp_path / "repo")
+        clone_repo("github.com/example/repo2.git", tmp_path / "repo2")
+
+    assert (mock_known_host.call_count, [list(call.argv) for call in git_fake.calls]) == (
+        2,
+        [
+            ["git", "clone", "--", "git@github.com:example/repo.git", str(tmp_path / "repo")],
+            ["git", "clone", "--", "https://github.com/example/repo2.git", str(tmp_path / "repo2")],
+        ],
     )
 
 
-def test_fetch_all_refused_by_bare_remote_raises_git_operation_error(
-    tmp_path: Path, git: Callable[..., None]
+def test_clone_repo_clones_a_repository_and_gives_gits_reason_for_a_missing_one(
+    git_fake: GitFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A bare remote that refuses fetch raises GitOperationError with repository, remote, and reason."""
-    bare = tmp_path / "remote.git"
-    bare.mkdir()
-    git(bare, "init", "--bare", "--initial-branch=main", "--quiet")
-    repo = tmp_path / "clone"
-    git(tmp_path, "clone", "--quiet", str(bare), str(repo))
-    (repo / "file.txt").write_text("content", encoding="utf-8")
-    git(repo, "add", ".")
-    git(repo, "commit", "--quiet", "-m", "init")
-    git(repo, "push", "--quiet", "origin", "main")
+    """A repository is cloned; one that does not exist raises GitOperationError with git's text."""
+    git_fake.replay("clone")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    reset_known_host_cache()
 
-    objects_dir = bare / "objects"
-    objects_dir.chmod(0o000)
-    try:
-        with pytest.raises(GitOperationError) as raised:
-            fetch_all(repo)
-    finally:
-        objects_dir.chmod(0o755)
+    clone_repo(str(tmp_path / "remote.git"), tmp_path / "first")
+    with pytest.raises(GitOperationError) as raised:
+        clone_repo(str(tmp_path / "missing.git"), tmp_path / "second")
+
+    reset_known_host_cache()
+
+    assert str(raised.value) == f"fatal: repository '{tmp_path / 'missing.git'}' does not exist"
+
+
+def test_fetch_all_fetches_each_remote_with_pruning(git_fake: GitFake, tmp_path: Path) -> None:
+    """fetch_all lists the remotes and fetches each one with `--prune`."""
+    git_fake.replay("fetch_and_pull_updates")
+    clone = tmp_path / "clone2"
+
+    fetch_all(clone)
+
+    assert _git_words(git_fake, clone) == [["remote"], ["fetch", "--prune", "origin"]]
+
+
+def test_fetch_all_refused_by_the_remote_raises_git_operation_error(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """A remote that git cannot fetch raises GitOperationError with repository, remote, and reason."""
+    git_fake.replay("fetch_refused")
+    repo = tmp_path / "repo"
+
+    with pytest.raises(GitOperationError) as raised:
+        fetch_all(repo)
+
+    msg = str(raised.value)
+    assert (
+        str(tmp_path / "missing.git") in msg,
+        raised.value.details["operation"],
+        raised.value.details["repository"],
+        raised.value.details["remote"],
+    ) == (True, "fetch", str(repo), "origin")
+
+
+def test_pull_tracking_pulls_the_tracked_branch_from_its_remote(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """pull_tracking reads the branch and the remote it tracks, and pulls that branch."""
+    git_fake.replay("fetch_and_pull_updates")
+    clone = tmp_path / "clone2"
+
+    pull_tracking(clone)
+
+    assert _git_words(git_fake, clone) == [
+        ["branch", "--show-current"],
+        ["config", "--get", "branch.main.remote"],
+        ["remote"],
+        ["pull", "origin", "main"],
+    ]
+
+
+def test_pull_tracking_divergent_branch_raises_git_operation_error(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """A divergent tracking branch that cannot fast-forward raises GitOperationError."""
+    git_fake.replay("pull_divergent")
+    repo = tmp_path / "diverged"
+
+    with pytest.raises(GitOperationError) as raised:
+        pull_tracking(repo)
 
     msg = str(raised.value)
     assert (
         str(repo) in msg,
-        "origin" in msg,
+        "divergent branches" in msg,
         raised.value.details["operation"],
         raised.value.details["repository"],
         raised.value.details["remote"],
-    ) == (True, True, "fetch", str(repo), "origin")
+    ) == (True, True, "pull", str(repo), "origin")
 
 
-def test_pull_tracking_divergent_branch_raises_git_operation_error(
-    tmp_path: Path, git: Callable[..., None]
+def test_pull_tracking_does_nothing_without_a_remote_branch_and_names_a_missing_remote(
+    git_fake: GitFake, tmp_path: Path
 ) -> None:
-    """A divergent tracking branch that cannot fast-forward raises GitOperationError."""
-    bare = tmp_path / "remote.git"
-    bare.mkdir()
-    git(bare, "init", "--bare", "--initial-branch=main", "--quiet")
+    """A branch with no upstream and a detached HEAD pull nothing; a branch that tracks a remote
+    that does not exist raises GitOperationError."""
+    git_fake.replay("pull_without_a_remote_branch")
 
-    clone1 = tmp_path / "clone1"
-    git(tmp_path, "clone", "--quiet", str(bare), str(clone1))
-    (clone1 / "file1.txt").write_text("c1", encoding="utf-8")
-    git(clone1, "add", ".")
-    git(clone1, "commit", "--quiet", "-m", "commit 1")
-    git(clone1, "push", "--quiet", "origin", "main")
+    pull_tracking(tmp_path / "untracked")
+    pull_tracking(tmp_path / "detached")
+    with pytest.raises(GitOperationError, match="Remote 'gone' configured for tracking") as raised:
+        pull_tracking(tmp_path / "orphaned")
 
-    clone2 = tmp_path / "clone2"
-    git(tmp_path, "clone", "--quiet", str(bare), str(clone2))
-
-    (clone1 / "file2.txt").write_text("c2", encoding="utf-8")
-    git(clone1, "add", ".")
-    git(clone1, "commit", "--quiet", "-m", "commit 2")
-    git(clone1, "push", "--quiet", "origin", "main")
-
-    (clone2 / "file3.txt").write_text("c3", encoding="utf-8")
-    git(clone2, "add", ".")
-    git(clone2, "commit", "--quiet", "-m", "commit 3")
-
-    with pytest.raises(GitOperationError) as raised:
-        pull_tracking(clone2)
-
-    msg = str(raised.value)
     assert (
-        str(clone2) in msg,
-        "origin" in msg,
-        raised.value.details["operation"],
-        raised.value.details["repository"],
+        [call for call in _git_words(git_fake, tmp_path / "untracked") if call[0] == "pull"],
         raised.value.details["remote"],
-    ) == (True, True, "pull", str(clone2), "origin")
+    ) == ([], "gone")
+
+
+def test_create_branch(git_fake: GitFake, tmp_path: Path) -> None:
+    """create_branch creates the branch from HEAD and checks it out; bad or taken names raise."""
+    git_fake.replay("branch_creation")
+    repo = tmp_path / "repo"
+
+    # The hyphen guard runs before git.
+    with pytest.raises(InvalidBranchNameError, match="cannot start with a hyphen"):
+        create_branch(repo, "-invalid")
+    with pytest.raises(BranchAlreadyExistsError, match="already exists"):
+        create_branch(repo, "main")
+    create_branch(repo, "feat/test")
+
+    assert _git_words(git_fake, repo) == [
+        ["show-ref", "--verify", "--quiet", "refs/heads/main"],
+        ["show-ref", "--verify", "--quiet", "refs/heads/feat/test"],
+        ["checkout", "-b", "feat/test"],
+    ]
+
+
+def test_create_branch_raises_gits_reason_when_git_refuses(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """A branch git refuses raises GitOperationError with git's own reason."""
+    git_fake.replay("branch_creation")
+
+    with pytest.raises(GitOperationError, match="'refs/heads/feature' exists") as raised:
+        create_branch(tmp_path / "repo", "feature/x")
+
+    assert (raised.value.details["operation"], raised.value.details["branch_name"]) == (
+        "branch_create",
+        "feature/x",
+    )
+
+
+def test_list_branches(git_fake: GitFake, tmp_path: Path) -> None:
+    """list_branches gives the local branches, the remote ones on request without `origin/HEAD`,
+    and `HEAD` as the current branch when it is detached."""
+    git_fake.replay("branch_listing")
+    clone = tmp_path / "clone"
+
+    local = list_branches(clone, all_branches=False)
+    everything = list_branches(clone, all_branches=True)
+    detached = list_branches(clone)
+
+    assert (local.model_dump(), everything.branches, detached.current) == (
+        {"branches": ["feat/xyz", "main"], "current": "main"},
+        ["feat/xyz", "main", "origin/feat/remote", "origin/main"],
+        "HEAD",
+    )
+
+
+def test_delete_merged_branches(git_fake: GitFake, tmp_path: Path) -> None:
+    """delete_merged_branches removes the merged branches that are not protected, and only names
+    them on a dry run; a repository with no branch has nothing to delete."""
+    git_fake.replay("merged_branches")
+    work = tmp_path / "work"
+
+    dry = delete_merged_branches(work, dry_run=True)
+    deleted = delete_merged_branches(work, dry_run=False)
+    empty = delete_merged_branches(tmp_path / "empty")
+
+    assert (dry, deleted, empty) == (["feat/merged"], ["feat/merged"], [])
+    assert [w for w in _git_words(git_fake, work) if w[0] == "branch" and "--delete" in w] == [
+        ["branch", "--delete", "--", "feat/merged"]
+    ]
+
+
+def test_commit_snapshot_makes_the_same_one_commit_of_the_same_files(
+    git_fake: GitFake, tmp_path: Path
+) -> None:
+    """The id is the one `git commit-tree` gives these files with that identity, date and message
+    (the golden review set pins it); the commit is made with the author and date in the
+    environment and the message on standard input, and no hook or signature."""
+    git_fake.replay("commit_snapshots")
+    when = datetime(2026, 10, 3, tzinfo=UTC)
+    message = "The golden review set's files, for a path review\n"
+    commits = [
+        commit_snapshot(
+            tmp_path / name,
+            ["app/db.py", "a.py"],
+            message,
+            author="devops-cli golden",
+            email="",
+            date=when,
+        )
+        for name in ("one", "two")
+    ]
+    commit_call = next(call for call in git_fake.calls if "commit-tree" in call.argv)
+
+    assert (commits, commit_call.stdin, commit_call.env) == (
+        ["63b6e3c00959a24f7f5badfa9508a96cca4504ae"] * 2,
+        message,
+        {
+            "GIT_AUTHOR_NAME": "devops-cli golden",
+            "GIT_AUTHOR_EMAIL": "",
+            "GIT_AUTHOR_DATE": "2026-10-03T00:00:00+00:00",
+            "GIT_COMMITTER_NAME": "devops-cli golden",
+            "GIT_COMMITTER_EMAIL": "",
+            "GIT_COMMITTER_DATE": "2026-10-03T00:00:00+00:00",
+        },
+    )

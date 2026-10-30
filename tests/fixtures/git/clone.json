@@ -1,0 +1,44 @@
+{
+ "scenario": "clone",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "clone",
+    "--",
+    "{root}/remote.git",
+    "{root}/first"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": "Cloning into '{root}/first'...\ndone.\n"
+  },
+  {
+   "argv": [
+    "git",
+    "clone",
+    "--",
+    "{root}/missing.git",
+    "{root}/second"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: repository '{root}/missing.git' does not exist\n"
+  }
+ ],
+ "result": {
+  "cloned": [
+   "ok",
+   null
+  ],
+  "missing": [
+   "error",
+   "GitOperationError",
+   "fatal: repository '{root}/missing.git' does not exist"
+  ]
+ }
+}

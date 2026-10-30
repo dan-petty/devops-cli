@@ -1,0 +1,107 @@
+{
+ "scenario": "fetch_and_pull_updates",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone2",
+    "remote"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "origin\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone2",
+    "fetch",
+    "--prune",
+    "origin"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": "From {root}/remote\n   3b84c4d..548bfb4  main       -> origin/main\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone2",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone2",
+    "config",
+    "--get",
+    "branch.main.remote"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "origin\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone2",
+    "remote"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "origin\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone2",
+    "pull",
+    "origin",
+    "main"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "Updating 3b84c4d..548bfb4\nFast-forward\n g.txt | 1 +\n 1 file changed, 1 insertion(+)\n create mode 100644 g.txt\n",
+   "stderr": "From {root}/remote\n * branch            main       -> FETCH_HEAD\n"
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/clone2",
+    "branch",
+    "--show-current"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "returncode": 0,
+   "stdout": "main\n",
+   "stderr": ""
+  }
+ ],
+ "result": {
+  "head": "main"
+ }
+}

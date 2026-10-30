@@ -36,7 +36,7 @@ graph TD
         K8S["kubernetes<br/>K8s API & Pods"]
         DOCKER["docker<br/>Engine Daemon SDK"]
         CRYPTO["cryptography<br/>X.509 CA & TLS"]
-        GIT["gitpython & gidgethub<br/>Git & GitHub APIs"]
+        GIT["gidgethub<br/>GitHub API"]
         OTEL["opentelemetry-otlp<br/>Tempo Tracing"]
         FASTMCP["fastmcp<br/>MCP Server Protocol"]
         FASTAPI["fastapi & uvicorn<br/>REST API Engine"]
@@ -169,12 +169,6 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 ---
 
 ### 4. Git, GitHub & DevSecOps Subsystems
-
-#### `gitpython` ([Dedicated Manual](libraries/gitpython.md))
-- **Pinned Version**: `gitpython==3.2.1`
-- **Ecosystem Role**: Python interface for interacting with Git repositories, inspecting commits, reading tree objects, and managing tracking branches.
-- **Codebase Integration**:
-  - `devops_cli.git`: Retrieves current branch name, diffs (`git.diff`), unstaged files, and commit logs with defensive error handling.
 
 #### `gidgethub`
 - **Pinned Version**: `gidgethub==6.0.0`

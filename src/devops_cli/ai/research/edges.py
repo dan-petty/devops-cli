@@ -13,6 +13,7 @@ from markdown_it import MarkdownIt
 
 from devops_cli.ai.research.models import ForageEdge
 from devops_cli.config.defaults import DEFAULT_AI_FORAGE_MAX_COMMITS
+from devops_cli.core.process import run_subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -234,36 +235,81 @@ def extract_markdown_links(file_path: Path, repo_root: Path) -> list[ForageEdge]
     return edges
 
 
+def _git_commits_of(repo_root: Path, rel_path: str, max_commits: int) -> list[str]:
+    """The newest commits that changed `rel_path`, at most `max_commits`; none when git fails."""
+    proc = run_subprocess(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "rev-list",
+            f"--max-count={max_commits}",
+            "HEAD",
+            "--",
+            rel_path,
+        ],
+        quiet=True,
+        local_read=True,
+    )
+    if proc.returncode != 0:
+        logger.debug("Failed listing commits of %s at %s: %s", rel_path, repo_root, proc.stderr)
+        return []
+    return proc.stdout.split()
+
+
+def _git_files_by_commit(repo_root: Path, commits: list[str]) -> list[list[str]]:
+    """The files each commit changed, in one process. A merge shows its change against its first
+    parent, and a rename shows as the new path alone.
+
+    `-z` ends every path with NUL, so a path with a quote or a newline stays whole; `%x1e` starts
+    each commit's record.
+    """
+    proc = run_subprocess(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "log",
+            "--no-walk=unsorted",
+            "--stdin",
+            "--diff-merges=first-parent",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            "--format=%x1e%H",
+        ],
+        input="\n".join(commits) + "\n",
+        quiet=True,
+        local_read=True,
+    )
+    if proc.returncode != 0:
+        logger.debug("Failed reading the files of commits at %s: %s", repo_root, proc.stderr)
+        return []
+    records = proc.stdout.split("\x1e")[1:]
+    return [
+        [name for name in record.partition("\0")[2].removeprefix("\n").split("\0") if name]
+        for record in records
+    ]
+
+
 def extract_git_co_changes(
     file_path: Path,
     repo_root: Path,
     max_commits: int = DEFAULT_AI_FORAGE_MAX_COMMITS,
 ) -> list[ForageEdge]:
-    """Extract co-change edges from git history using GitPython."""
+    """Extract co-change edges from git history: the files that changed in the same commits."""
     try:
-        import git
-
-        repo = git.Repo(repo_root)
         rel_path = file_path.relative_to(repo_root).as_posix()
-        commits = list(repo.iter_commits(paths=rel_path, max_count=max_commits))
-    except (git.exc.GitError, OSError, ValueError) as exc:
-        logger.debug("Failed opening git repo at %s: %s", repo_root, exc)
+    except ValueError as exc:
+        logger.debug("%s is not under %s: %s", file_path, repo_root, exc)
         return []
-
+    commits = _git_commits_of(repo_root, rel_path, max_commits)
     if not commits:
         return []
 
     counts: Counter[str] = Counter()
-    for commit in commits:
-        try:
-            files_dict = commit.stats.files
-        except (git.exc.GitError, OSError, ValueError) as exc:
-            logger.debug("Failed reading commit stats for %s: %s", commit.hexsha, exc)
-            files_dict = {}
-        for changed in files_dict.keys():
-            changed_str = str(changed)
-            if changed_str != rel_path:
-                counts[changed_str] += 1
+    for files in _git_files_by_commit(repo_root, commits):
+        counts.update(name for name in files if name != rel_path)
 
     edges: list[ForageEdge] = []
     for other, count in counts.most_common():
