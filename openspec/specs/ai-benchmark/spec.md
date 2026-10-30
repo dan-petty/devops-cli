@@ -10,7 +10,7 @@ The MCP tool `ai_benchmark` SHALL publish no `servers` parameter, and SHALL refu
 
 #### Scenario: The tool schema
 - **WHEN** an MCP client lists the tools
-- **THEN** `ai_benchmark` publishes the parameters `models`, `provider`, `benchmark_type`, `tasks_filter`, `concurrency`, `output`, `format_type`, `dry_run`, `explain`, `document`, `code` and `samples`, and no other
+- **THEN** `ai_benchmark` publishes the parameters `models`, `provider`, `benchmark_type`, `tasks_filter`, `concurrency`, `format_type`, `dry_run`, `explain` and `samples`, and no other
 
 #### Scenario: A call that gives servers
 - **WHEN** a client calls `ai_benchmark` with `servers` set to a loopback URL, and `ai.allow_private_network` is false
@@ -31,3 +31,10 @@ The MCP tool `ai_benchmark` SHALL publish no `servers` parameter, and SHALL refu
 #### Scenario: A person types the server
 - **WHEN** a person runs `devops ai benchmark --servers http://example.com:11435 --models m1`, or `--models m1@http://example.com:11435`
 - **THEN** the command sends its requests to `example.com:11435` and exits 0
+
+### Requirement: The MCP benchmark tool takes no file path
+The MCP tool `ai_benchmark` SHALL publish no `output`, `document` or `code` parameter. A call that gives one SHALL fail before any command runs, with no file written, no file read and no request sent. The tool SHALL return its report in its reply. The command `devops ai benchmark` SHALL keep `--output`, `--document` and `--code`. A person types the paths, so the command writes and reads the paths that they name.
+
+#### Scenario: A call that gives a path
+- **WHEN** a client calls `ai_benchmark` with `output`, `document` or `code` set to a path in an existing directory
+- **THEN** the call fails with an error that names that parameter, the directory holds the same files as before, and the socket gets no dial and no written byte
