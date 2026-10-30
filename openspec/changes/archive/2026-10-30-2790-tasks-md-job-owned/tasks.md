@@ -6,6 +6,8 @@
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_ticks.py tests/test_roadmap_implement_step_own_text.py`
 - [x] Replace the stops of `tasks.md` in `src/devops_cli/roadmap/implement_step.py` with one restore: `StepInputs` holds the raw text of the file before the run, the step writes that text with the ticks of the own group, and `_exit_failure` calls it where `_tasks_failure` was. Delete `_tasks_failure`, `_whole`, `_shape`, `_same_tasks`, `_restored_wrong`, `_restore_ticks`, `_restore_own_text`, `_own_group_failure`, `_other_groups_failure`, `_fix_tasks_failure`, `_region_bounds`, `TaskGroup.first_line`, `StepInputs.region` and `StepInputs.groups`. Delete the five messages that only the stops used and add the one for the note in `src/devops_cli/lang/en/messages.py`. Change the help of `devops roadmap implement` in `src/devops_cli/lang/en/help.py`.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step_ticks.py tests/test_roadmap_implement_step_own_text.py tests/test_roadmap_implement_step.py tests/test_roadmap_implement_job.py`
+- [x] Remove a link or a directory at the path of `tasks.md` before the restore writes it, and write the failing tests first: a link to a file with the text to write, and a directory.
+  - Verification: `uv run devops ci test tests/test_roadmap_implement_step_ticks.py`
 - [x] Rewrite the tests in `tests/test_roadmap_implement_step.py` that expect a stop for an edit of `tasks.md`, and delete the tests whose stop is gone.
   - Verification: `uv run devops ci test tests/test_roadmap_implement_step.py`
 

@@ -75,6 +75,13 @@ The extra turn SHALL change no file except the `tasks.md` of the change. The ste
 - **WHEN** the first turn took two model requests and the extra turn took one
 - **THEN** the outcome reports three requests, and the spend ledger holds the tokens of the three replies
 
+### Requirement: A step makes the only commit
+The first exit check SHALL be that `HEAD` is still the commit where the step started.
+
+#### Scenario: A commit by the agent
+- **WHEN** the agent commits its work with `git`, and ticks the tasks
+- **THEN** the step reports stopped with the reason that `HEAD` moved, makes no commit, and the checkout is back at the commit where the step started
+
 ## REMOVED Requirements
 
 ### Requirement: A step restores the checkboxes of the other groups
@@ -133,6 +140,10 @@ After each turn of the model, the step SHALL write the `tasks.md` of the change 
 #### Scenario: The model removes or garbles the file
 - **WHEN** the model removes `tasks.md`, or writes bytes that are not UTF-8 to it, and ticks nothing else
 - **THEN** the step writes the file from before the run, and the unticked tasks of the group give the extra turn
+
+#### Scenario: A link or a directory in place of the file
+- **WHEN** the model replaces `tasks.md` with a link to a file that holds the text to write, or with a directory
+- **THEN** the step removes the link or the directory and writes the file, and the commit holds a regular file
 
 #### Scenario: A file with CRLF or lone CR line ends
 - **WHEN** the `tasks.md` has CRLF line ends, or many lone CR line ends before the groups, and the model ticks its group and a later group

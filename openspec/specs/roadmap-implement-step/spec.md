@@ -56,7 +56,7 @@ The exit checks SHALL run in this order: the agent made no commit, each verifica
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
 
 ### Requirement: A step makes the only commit
-The first exit check SHALL be that `HEAD` is still the commit where the step started. A `tasks.md` that is missing or is not UTF-8 text SHALL count as a change to the tasks of the group.
+The first exit check SHALL be that `HEAD` is still the commit where the step started.
 
 #### Scenario: A commit by the agent
 - **WHEN** the agent commits its work with `git`, and ticks the tasks
@@ -424,6 +424,10 @@ After each turn of the model, the step SHALL write the `tasks.md` of the change 
 #### Scenario: The model removes or garbles the file
 - **WHEN** the model removes `tasks.md`, or writes bytes that are not UTF-8 to it, and ticks nothing else
 - **THEN** the step writes the file from before the run, and the unticked tasks of the group give the extra turn
+
+#### Scenario: A link or a directory in place of the file
+- **WHEN** the model replaces `tasks.md` with a link to a file that holds the text to write, or with a directory
+- **THEN** the step removes the link or the directory and writes the file, and the commit holds a regular file
 
 #### Scenario: A file with CRLF or lone CR line ends
 - **WHEN** the `tasks.md` has CRLF line ends, or many lone CR line ends before the groups, and the model ticks its group and a later group
