@@ -12,8 +12,10 @@ from __future__ import annotations
 import ast
 from collections import Counter
 from collections.abc import Iterator, Mapping
+from typing import Protocol
 
 _TEST_PREFIX = "test_"
+_TESTS_DIR = "tests"
 _BLOCKS = (ast.stmt, ast.ExceptHandler, ast.match_case)
 
 # The names of the tests of one file, or None when the file does not parse.
@@ -77,3 +79,37 @@ def lost_tests(
         if gone:
             lost[path] = gone
     return lost
+
+
+class GitOutput(Protocol):
+    """A git command in the checkout. It returns what the command printed and raises when git
+    fails."""
+
+    def __call__(self, *args: str) -> str: ...
+
+
+def _changes(git: GitOutput, start: str) -> Iterator[tuple[str, str]]:
+    """The status and the path of each Python file under `tests/` that differs between the commit
+    `start` and the index. Renames are off, so a move is a delete plus an add whatever the git
+    settings are."""
+    listing = git(
+        "diff", "--cached", "--name-status", "--no-renames", "-z", start, "--", _TESTS_DIR
+    ).split("\0")
+    for status, path in zip(listing[0::2], listing[1::2], strict=False):
+        if path.endswith(".py"):
+            yield status, path
+
+
+def lost_since(git: GitOutput, start: str) -> dict[str, list[str]]:
+    """The tests that each test file lost between the commit `start` and the index, for the paths
+    in sorted order (`lost_tests`). The index holds the files as the commit would. A file that was
+    added has no tests at the start. A file that was deleted, or replaced by a link, has none
+    after the run."""
+    before: dict[str, FileTests] = {}
+    after: dict[str, FileTests] = {}
+    for status, path in _changes(git, start):
+        if status != "A":
+            before[path] = defined_tests(git("show", f"{start}:{path}"))
+        if status not in ("D", "T"):
+            after[path] = defined_tests(git("show", f":{path}"))
+    return lost_tests(before, after)

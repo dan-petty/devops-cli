@@ -2074,6 +2074,11 @@ class RoadmapMessages:
         "The agent made a symbolic link: {paths}. The step does not format a link."
     )
     implement_stop_no_change: str = "The agent changed no file."
+    implement_stop_tests_lost: str = (
+        "The agent removed tests that existed at the start of the step. "
+        "A step may add tests. It may not remove or rename one.\n{files}"
+    )
+    implement_tests_lost_file: str = "{path}: {tests}"
     implement_stop_head_moved: str = (
         "The agent moved HEAD from {start} to {head}. A step makes the only commit."
     )
