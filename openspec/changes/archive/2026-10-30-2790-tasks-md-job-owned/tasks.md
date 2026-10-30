@@ -23,5 +23,5 @@
 
 ## 4. Archive
 
-- [ ] Archive the change.
+- [x] Archive the change.
   - Verification: `uv run devops openspec archive 2790-tasks-md-job-owned`
