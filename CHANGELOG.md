@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.2](https://github.com/dan-petty/devops-cli/compare/v0.21.1...v0.21.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **roadmap:** the status label follows the pull request ([#2723](https://github.com/dan-petty/devops-cli/issues/2723)) ([4435a21](https://github.com/dan-petty/devops-cli/commit/4435a21916cec508c1072fcc5caa6d52bd0c1de0)), closes [#2717](https://github.com/dan-petty/devops-cli/issues/2717)
+
 ## [0.21.1](https://github.com/dan-petty/devops-cli/compare/v0.21.0...v0.21.1) (2026-10-30)
 
 
