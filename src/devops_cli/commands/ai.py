@@ -78,7 +78,7 @@ from devops_cli.output import (
     write_text_file,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
-from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL, emit
+from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL, bounded_label, emit
 from devops_cli.telemetry.tracer import trace_span
 
 app = new_typer(
@@ -534,10 +534,10 @@ def preload() -> None:
         f"Preloading model [bold cyan]{settings.ai.model}[/bold cyan] across Ollama nodes...",
         prefix=False,
     )
-    results = client.preload_models()
-    for url, ok in results.items():
+    results = _results_by_server(client.preload_models())
+    for server, ok in results.items():
         status = "[green]✓ preloaded[/green]" if ok else "[red]✗ failed[/red]"
-        print_info(f"  {url}: {status}", prefix=False)
+        print_info(f"  {server}: {status}", prefix=False)
 
 
 # =============================================================================
@@ -690,6 +690,21 @@ def _resolve_prewarm_urls(
     return [configured_urls[0]]
 
 
+def _results_by_server(results: dict[str, bool]) -> dict[str, bool]:
+    """Key the result of each configured URL by the `host[:port]` of its server (#2676).
+
+    The URL can hold a user name, a password or a query value, so no output shows it. Two URLs
+    with one host and port make one node, which is ok only when both URLs are ok.
+    """
+    from devops_cli.ai.benchmark.labels import server_label
+
+    by_server: dict[str, bool] = {}
+    for url, ok in results.items():
+        label = server_label(url)
+        by_server[label] = by_server.get(label, True) and ok
+    return by_server
+
+
 def _render_prewarm_results(
     results: dict[str, bool],
     model: str,
@@ -700,6 +715,7 @@ def _render_prewarm_results(
 ) -> bool:
     """Render prewarm or eviction results to console or serialized output."""
     action = "Eviction" if is_evict else "Prewarming"
+    results = _results_by_server(results)
     all_ok = bool(results) and all(results.values())
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
@@ -833,7 +849,7 @@ def prewarm(
             AI_PREWARMS_TOTAL,
             1.0,
             {
-                "model": str(target_model),
+                "model": bounded_label(str(target_model)),
                 "evict": str(evict).lower(),
                 "outcome": "ok" if success else "failed",
             },

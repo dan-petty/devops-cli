@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from devops_cli.config.constants import CONST_METRIC_LABEL_MAX_LENGTH, CONST_METRIC_LABEL_UNSAFE_RE
+
 
 class InstrumentKind(StrEnum):
     """How a metric accumulates."""
@@ -506,6 +508,15 @@ def emit(instrument: Instrument, value: float, attributes: dict[str, Any] | None
         )
 
 
+def bounded_label(value: str) -> str:
+    """A label value that a caller set, cut to a safe length and set of characters.
+
+    Each character outside `CONST_METRIC_LABEL_UNSAFE_RE`'s allowed set becomes `_`, and the
+    text keeps at most `CONST_METRIC_LABEL_MAX_LENGTH` characters.
+    """
+    return CONST_METRIC_LABEL_UNSAFE_RE.sub("_", value)[:CONST_METRIC_LABEL_MAX_LENGTH]
+
+
 def backend_name(served_by: str | None) -> str:
     """A serving backend's short name: its host's first label, e.g. `ollama-16gib` or `ollama-0`."""
     if not served_by:
@@ -580,5 +591,6 @@ __all__ = [
     "Instrument",
     "InstrumentKind",
     "backend_name",
+    "bounded_label",
     "emit",
 ]

@@ -551,3 +551,115 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
         result = cli("ai", "prewarm", "--url", "http://example.com:11434")
 
         assert (result.exit_code, recorder.requested_hosts) == (0, ["example.com:11434"])
+
+
+_SERVER_URL_WITH_SECRETS = "http://FAKE-2676-user@example.com:11434/?x=FAKE-2676-query"
+_SECRET_TEXT = ("FAKE-2676-user", "FAKE-2676-query", "http://")
+
+
+@pytest.mark.usefixtures("keyring_store")
+class TestPrewarmNamesEachServerByHostAndPort:
+    """A reply names a server as `host[:port]`, never as the URL in `ai.ollama_urls` (#2676)."""
+
+    @pytest.fixture
+    def served(self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]) -> None:
+        """One configured server whose URL holds a user name and a query value, and a 200 reply."""
+        config(ai={"provider": "ollama", "ollama_urls": [_SERVER_URL_WITH_SECRETS]})
+        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+
+    @pytest.mark.usefixtures("served")
+    @pytest.mark.parametrize("json_output", [False, True], ids=["table", "json"])
+    async def test_the_tool_reply_shows_no_url_text(self, json_output: bool) -> None:
+        """The reply of `ai_prewarm` holds `example.com:11434` and none of the URL text."""
+        failed, reply = await _call_prewarm_tool({"json_output": json_output})
+
+        assert (
+            failed,
+            "example.com:11434" in reply,
+            [text for text in _SECRET_TEXT if text in reply],
+        ) == (False, True, [])
+
+    @pytest.mark.usefixtures("served")
+    def test_the_json_nodes_are_keyed_by_host_and_port(self, cli: Callable[..., Any]) -> None:
+        """`devops ai prewarm --json` keys `nodes` by `host:port`."""
+        result = cli("ai", "prewarm", "--json")
+
+        assert (result.exit_code, json.loads(result.output)["nodes"]) == (
+            0,
+            {"example.com:11434": True},
+        )
+
+    @pytest.mark.usefixtures("served")
+    def test_the_preload_command_shows_no_url_text(self, cli: Callable[..., Any]) -> None:
+        """`devops ai preload` prints `example.com:11434` and none of the URL text."""
+        result = cli("ai", "preload")
+
+        assert (
+            result.exit_code,
+            "example.com:11434" in result.output,
+            [text for text in _SECRET_TEXT if text in result.output],
+        ) == (0, True, [])
+
+    @pytest.mark.parametrize(
+        ("nodes", "outcome"),
+        [
+            ({"http://u@example.com:1/?a=b": True, "http://example.com:1/c": False}, "failed"),
+            ({"http://u@example.com:1/?a=b": True, "http://example.com:1/c": True}, "ok"),
+        ],
+        ids=["one failed", "both ok"],
+    )
+    def test_two_urls_of_one_server_make_one_node_that_holds_a_failure(
+        self,
+        cli: Callable[..., Any],
+        model_fake: ModelFake,
+        nodes: dict[str, bool],
+        outcome: str,
+    ) -> None:
+        """Two URLs with one host and port show as one node, which is ok only if both are ok."""
+        model_fake.set_preload_results(nodes)
+
+        result = cli("ai", "prewarm", "--json")
+
+        assert (result.exit_code, json.loads(result.output)["nodes"]) == (
+            0 if outcome == "ok" else 1,
+            {"example.com:1": outcome == "ok"},
+        )
+
+
+class TestPrewarmCounterModelLabel:
+    """The label `model` of `devops_cli_ai_prewarms_total` is short and holds only safe characters,
+    because the calling model sets it (#2676)."""
+
+    @pytest.mark.parametrize(
+        ("model", "label"),
+        [
+            ("gemma4:26b", "gemma4:26b"),
+            ("hf.co/org/repo:Q4_K_M", "hf.co/org/repo:Q4_K_M"),
+            ("my/model`@v2`.0!beta", "my/model__v2_.0_beta"),
+            ("name\nwith line\tbreaks", "name_with_line_breaks"),
+            ("m" * 300, "m" * 128),
+        ],
+        ids=["tag", "registry path", "symbols", "control characters", "long"],
+    )
+    def test_the_label_is_bounded(
+        self,
+        app: Any,
+        model_fake: ModelFake,
+        otlp: FakeCollector,
+        model: str,
+        label: str,
+    ) -> None:
+        """The counter holds the model as a label of safe characters and at most 128 of them."""
+        result = runner.invoke(app, ["ai", "prewarm", "--model", model, "--single-node"])
+
+        assert (result.exit_code, [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)]) == (
+            0,
+            [label],
+        )
+
+    @pytest.fixture
+    def app(self) -> Any:
+        from devops_cli.main import app
+
+        return app
