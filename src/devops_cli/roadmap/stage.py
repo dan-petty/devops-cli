@@ -902,27 +902,37 @@ def _write_each(
 def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> StageApplied:
     """Writes the plan: removes the staged branches of closed items, stages each ready change,
     and stops each item whose group is over the budget. A write that fails stops its item, and
-    the others go on; rejected GitHub credentials stop the run."""
+    the others go on; rejected GitHub credentials stop the run. The stop of the Service stops
+    the run too, but it is no failed item: when an item failed before it, the run fails with
+    that item (#2753)."""
     checkout = Path(source)
     removed: list[int] = []
     staged: list[int] = []
     stopped: list[int] = []
     failed: list[StageFailure] = []
-    _write_each(
-        [(r.item, partial(_remove_staged, store, plan.repo, checkout, r)) for r in plan.removals],
-        removed,
-        failed,
+    phases = (
+        (
+            [
+                (r.item, partial(_remove_staged, store, plan.repo, checkout, r))
+                for r in plan.removals
+            ],
+            removed,
+        ),
+        (
+            [
+                (c.target.item, partial(_stage_one, store, plan.repo, checkout, c))
+                for c in plan.ready
+            ],
+            staged,
+        ),
+        ([(o.target.item, partial(_stop_on_budget, store, o)) for o in plan.over_budget], stopped),
     )
-    _write_each(
-        [(c.target.item, partial(_stage_one, store, plan.repo, checkout, c)) for c in plan.ready],
-        staged,
-        failed,
-    )
-    _write_each(
-        [(o.target.item, partial(_stop_on_budget, store, o)) for o in plan.over_budget],
-        stopped,
-        failed,
-    )
+    try:
+        for writes, done in phases:
+            _write_each(writes, done, failed)
+    except ServiceStoppingError:
+        raise_for_failed([*plan.failed, *failed])
+        raise
     return StageApplied(tuple(staged), tuple(stopped), tuple(failed), tuple(removed))
 
 

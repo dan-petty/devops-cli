@@ -509,10 +509,15 @@ def _run_refine_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Run refine job and return JobOutcome; it fails, once the other items are written, when the
-    model call failed for any item."""
+    model call failed for any item. The stop of the Service ends the run, but the items that
+    failed before it still fail the run (#2753)."""
     source = _job_clone("refine", clone_path)
     plan = plan_refine(store, repo=repo, source=source)
-    readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
+    try:
+        readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
+    except ServiceStoppingError:
+        raise_for_failed_items(plan)
+        raise
     raise_for_failed_items(plan, readied)
     return JobOutcome(set_ready=readied > 0)
 
