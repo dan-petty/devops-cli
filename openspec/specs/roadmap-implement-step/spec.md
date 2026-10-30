@@ -106,7 +106,7 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **THEN** the call returns a refusal that names the operator, and no process starts
 
 ### Requirement: A run that reaches a limit ends stopped
-`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` model requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, or breaks the rules of its tools past their retries, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the message of the pydantic-ai error, masked and cut to `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters. The agent SHALL have no `delegate_task` tool.
+`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, or breaks its tools' rules past their retries, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the `message` of the pydantic-ai error, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, never its `body`. The agent SHALL have no `delegate_task` tool.
 
 #### Scenario: A model that never ends
 - **WHEN** the model calls a tool in every reply
@@ -133,8 +133,12 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **THEN** the reason holds the mask in place of the token
 
 #### Scenario: A long message of the error
-- **WHEN** the message of the pydantic-ai error is longer than `CONST_ROADMAP_IMPLEMENT_ERROR_CHARS` characters
+- **WHEN** the message of the pydantic-ai error is longer than `CONST_ROADMAP_RUN_ERROR_CHARS` characters
 - **THEN** the message in the reason is cut to that length, and the counts of the next requirement are still in the reason
+
+#### Scenario: The body of the error
+- **WHEN** the pydantic-ai error has the message `The reply broke the rules.` and the body `MODEL-TEXT`
+- **THEN** the reason is `UnexpectedModelBehavior: The reply broke the rules.`, with no `MODEL-TEXT`
 
 ### Requirement: The step writes nothing to GitHub and a dry run makes no request
 The step SHALL read the item once and SHALL write no issue, comment, label or milestone. With `--dry-run` it SHALL make no request of any kind, SHALL start no model run, SHALL change nothing in the checkout, and SHALL return a `StepOutcome` marked as a dry run that lists the requests a run makes.
