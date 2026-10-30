@@ -2,12 +2,17 @@
 
 A step that stops discards its checkout, so the Job log is the only evidence of what the agent
 did. `ToolCallLog` is a pydantic-ai `Hooks` capability. It writes one line to the standard error
-stream for each tool call: the tool name, the first word of a shell command, and the outcome. A
-line holds no other argument, no file content, no output and no text of a refusal, as an argument
-can hold a path or a secret and the text of one refusal repeats the whole command.
+stream for each tool call: the tool name, the program of a shell command, and the outcome. A line
+holds no other argument, no file content, no output and no text of a refusal, as an argument can
+hold a path or a secret and the text of one refusal repeats the whole command. The program is the
+first word of the command, as the shell reads it, and only when it is a program of the allowlist.
+Any other first word, such as an assignment with a secret in it or a path, is written as "other".
+The line has no reason for a refusal. The tool name and the program tell a refused program from a
+refused path.
 
-It also counts the calls that a tool refused by its policy and the calls that came back as a
-retry for another cause. The reason of a stopped step holds both counts, so a person sees at once
+It also counts the shell commands that the shell refused by its policy and the calls that came
+back as a retry for another cause. A refusal of a file tool, such as a path outside the root, is
+an other retry. The reason of a stopped step holds both counts, so a person sees at once
 that the model kept asking for a program that the shell refuses.
 
 The line goes to the console stream, not to `logging`: a `devops` process has no handler for the
@@ -16,6 +21,7 @@ level INFO, so such a line would never reach the Job log.
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -32,10 +38,9 @@ from pydantic_ai.exceptions import (
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_PROGRAM_CHARS
+from devops_cli.config.commands import IMPLEMENT_ALLOWED_PROGRAMS
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
-from devops_cli.security.sanitizer import mask_secrets
 
 
 class ToolOutcome(StrEnum):
@@ -49,9 +54,9 @@ class ToolOutcome(StrEnum):
 
 
 def _refused(error: BaseException) -> bool:
-    """Whether a `PermissionError` is in the cause chain of `error`: the shell of the harness
-    raises its refusals as a `ModelRetry` from a `PermissionError`, and pydantic-ai raises the
-    retry error from that."""
+    """Whether a `PermissionError` is in the cause chain of `error`: the shell and the file tools of
+    the harness raise their refusals as a `ModelRetry` from a `PermissionError`, and pydantic-ai
+    raises the retry error from that. The caller tells a shell command from a file path."""
     cause = error.__cause__
     while cause is not None:
         if isinstance(cause, PermissionError):
@@ -61,11 +66,24 @@ def _refused(error: BaseException) -> bool:
 
 
 def _program(args: ValidatedToolArgs) -> str:
-    """The first word of the `command` argument of a call, masked and cut, or empty when the call
-    has none."""
+    """The program of the `command` argument of a call: the first word, as the shell of the
+    harness reads it with `shlex`, when it is a program of the allowlist, else the word "other".
+    Empty when the call has no command or the command has no word. A first word is never logged
+    as it is, as it can be an assignment with a secret, or a path."""
     command = args.get("command")
-    words = command.split(maxsplit=1) if isinstance(command, str) else []
-    return mask_secrets(words[0])[:CONST_ROADMAP_IMPLEMENT_PROGRAM_CHARS] if words else ""
+    if not isinstance(command, str):
+        return ""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return MESSAGES.roadmap.implement_tool_other
+    if not words:
+        return ""
+    return (
+        words[0]
+        if words[0] in IMPLEMENT_ALLOWED_PROGRAMS
+        else MESSAGES.roadmap.implement_tool_other
+    )
 
 
 @dataclass
@@ -108,8 +126,10 @@ class ToolCallLog:
         try:
             result = await handler(args)
         except (ToolRetryError, UnexpectedModelBehavior) as error:
-            retry = ToolOutcome.REFUSED if _refused(error) else ToolOutcome.RETRY
-            self._note(call.tool_name, program, retry)
+            refused = bool(program) and _refused(error)
+            self._note(
+                call.tool_name, program, ToolOutcome.REFUSED if refused else ToolOutcome.RETRY
+            )
             raise
         except ToolFailedError:
             self._note(call.tool_name, program, ToolOutcome.FAILED)

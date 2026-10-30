@@ -1983,6 +1983,7 @@ class RoadmapMessages:
     implement_paths_more: str = " and {count} more"
     implement_stop_reason: str = "{error}: {message}"
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
+    implement_tool_other: str = "other"
     implement_tool_line: str = "Tool call: {tool}, {outcome}."
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tick_turn: str = (

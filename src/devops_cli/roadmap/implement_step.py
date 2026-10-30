@@ -1025,6 +1025,7 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
     """Print the outcome in the format `fmt`: a table, or the model's fields as JSON or YAML."""
     from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
     from devops_cli.output import print_key_values, write_stdout
+    from devops_cli.output.markup import escape_text
     from devops_cli.output.serialization import emit_serialized
 
     if fmt != CONST_OUTPUT_FORMAT_TABLE:
@@ -1039,12 +1040,12 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
     labels = texts.implement_labels
     rows = {
         labels["status"]: outcome.status.value,
-        labels["reason"]: outcome.reason,
+        labels["reason"]: escape_text(outcome.reason),
         labels["commit"]: outcome.commit,
         labels["requests"]: str(outcome.requests),
         labels["input_tokens"]: str(outcome.input_tokens),
         labels["output_tokens"]: str(outcome.output_tokens),
-        labels["last_message"]: outcome.last_message,
+        labels["last_message"]: escape_text(outcome.last_message),
     }
     title = texts.implement_title.format(
         item=outcome.item, group=outcome.group, title=outcome.title

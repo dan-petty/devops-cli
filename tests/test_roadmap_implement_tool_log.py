@@ -12,7 +12,6 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelRetry, ToolFailed
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_PROGRAM_CHARS
 from devops_cli.roadmap.implement_step import StepOutcome, run_step
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -48,7 +47,7 @@ def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().err.splitlines()
 
 
-def test_a_refused_program_is_logged_with_its_first_word_and_no_argument(
+def test_a_refused_program_is_logged_as_other_with_no_argument(
     store: InMemoryRoadmapStore,
     checkout: Path,
     programs: ProcessFake,
@@ -61,7 +60,70 @@ def test_a_refused_program_is_logged_with_its_first_word_and_no_argument(
 
     _step(store, checkout, script)
 
-    assert _lines(capsys) == ["Tool call: shell, program pytest, refused."]
+    assert _lines(capsys) == ["Tool call: shell, program other, refused."]
+
+
+def _program_line(command: str, capsys: pytest.CaptureFixture[str]) -> str:
+    """The line of one call of a tool that has a `command` argument and takes any command."""
+
+    def shell(command: str) -> str:
+        return "the output"
+
+    Agent(
+        ModelScript(tool_call("shell", command=command), say("Done.")).model(),
+        tools=[shell],
+        capabilities=[ToolCallLog().hooks()],
+    ).run_sync("go")
+    return capsys.readouterr().err.strip()
+
+
+@pytest.mark.parametrize("program", ["git", "uv", "ruff", "mypy", "openspec", "devops"])
+def test_a_program_of_the_allowlist_is_logged_by_name(
+    capsys: pytest.CaptureFixture[str], program: str
+) -> None:
+    assert _program_line(f"{program} --flag=x 'a b'", capsys) == (
+        f"Tool call: shell, program {program}, ok."
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "API_KEY=hunter2 uv run x",
+        "PASSWORD=hunter2 git status",
+        f"{TOKEN} run",
+        "/home/user/secret-dir/tool run",
+        "\x1b[31mred git",
+        "'unclosed quote",
+        "pytest tests/test_sample.py",
+        "'git status'",
+        "''",
+    ],
+)
+def test_a_first_word_that_is_no_allowed_program_is_logged_as_other(
+    capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    assert _program_line(command, capsys) == "Tool call: shell, program other, ok."
+
+
+@pytest.mark.parametrize("command", ["", "   "])
+def test_a_command_with_no_program_is_logged_with_no_program(
+    capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    assert _program_line(command, capsys) == "Tool call: shell, ok."
+
+
+def test_a_secret_as_the_first_word_never_reaches_the_log_of_a_step(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"), say("Done."))
+
+    _step(store, checkout, script)
+
+    assert _lines(capsys) == ["Tool call: shell, program other, refused."]
 
 
 def test_a_call_that_returns_is_logged_with_neither_its_path_nor_its_content(
@@ -93,35 +155,21 @@ def test_a_call_that_fails_validation_is_logged_as_a_retry_with_no_program(
     assert _lines(capsys) == ["Tool call: read_file, retry."]
 
 
-def test_a_secret_as_the_first_word_is_masked_in_the_line(
+def test_a_refused_path_is_a_retry_and_not_a_refused_command(
     store: InMemoryRoadmapStore,
     checkout: Path,
     programs: ProcessFake,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    script = ModelScript(tool_call("shell", command=f"{TOKEN} run"), say("Done."))
+    """The file tools raise `PermissionError` for a path outside the root. That is no refused
+    shell command, so it counts as another retry and its line has no program."""
+    script = ModelScript(tool_call("read_file", path="/etc/passwd"), say("Done."))
 
     _step(store, checkout, script)
 
     err = capsys.readouterr().err
-    assert TOKEN not in err
-    assert err.splitlines() == ["Tool call: shell, program <masked-github-token>, refused."]
-
-
-def test_a_long_first_word_is_cut_in_the_line(
-    store: InMemoryRoadmapStore,
-    checkout: Path,
-    programs: ProcessFake,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    word = "a" * (3 * CONST_ROADMAP_IMPLEMENT_PROGRAM_CHARS)
-    script = ModelScript(tool_call("shell", command=f"{word} run"), say("Done."))
-
-    _step(store, checkout, script)
-
-    assert _lines(capsys) == [
-        f"Tool call: shell, program {'a' * CONST_ROADMAP_IMPLEMENT_PROGRAM_CHARS}, refused."
-    ]
+    assert err.splitlines() == ["Tool call: read_file, retry."]
+    assert "passwd" not in err
 
 
 def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
@@ -130,7 +178,10 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
     def fine() -> str:
         return "the output"
 
-    def forbidden() -> str:
+    def forbidden(command: str) -> str:
+        raise ModelRetry("not here") from PermissionError("not here")
+
+    def outside(path: str) -> str:
         raise ModelRetry("not here") from PermissionError("not here")
 
     def again() -> str:
@@ -140,11 +191,18 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
         raise ToolFailed("the workspace is read-only")
 
     script = ModelScript(
-        tool_calls(("fine", {}), ("forbidden", {}), ("again", {}), ("broken", {})), say("Done.")
+        tool_calls(
+            ("fine", {}),
+            ("forbidden", {"command": "x"}),
+            ("outside", {"path": "/y"}),
+            ("again", {}),
+            ("broken", {}),
+        ),
+        say("Done."),
     )
     log = ToolCallLog()
     agent = Agent(
-        script.model(), tools=[fine, forbidden, again, broken], capabilities=[log.hooks()]
+        script.model(), tools=[fine, forbidden, outside, again, broken], capabilities=[log.hooks()]
     )
 
     agent.run_sync("go")
@@ -154,8 +212,9 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
             "Tool call: again, retry.",
             "Tool call: broken, failed.",
             "Tool call: fine, ok.",
-            "Tool call: forbidden, refused.",
+            "Tool call: forbidden, program other, refused.",
+            "Tool call: outside, retry.",
         ],
         1,
-        1,
+        2,
     )

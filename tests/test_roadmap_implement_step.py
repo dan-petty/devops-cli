@@ -44,6 +44,7 @@ from devops_cli.roadmap.implement_step import (
     run_step,
     shell_environment,
 )
+from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
@@ -532,8 +533,6 @@ def test_the_shell_gets_the_interpreter_that_uv_is_told_to_use(
 def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     tmp_path: Path, checkout: Path
 ) -> None:
-    from devops_cli.roadmap.implement_tool_log import ToolCallLog
-
     agent = build_agent(
         ModelScript(say("x")).model(), checkout, "go", WINDOW, tmp_path / "home", ToolCallLog()
     )
@@ -1250,6 +1249,16 @@ def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retr
         f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE.replace('shell', 'read_file')}\n"
         "Refused commands: 0. Other retries: 6.",
     )
+
+
+def test_a_model_that_asks_for_a_path_outside_the_root_counts_other_retries_not_refused_commands(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_call("read_file", path="/etc/passwd"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith("\nRefused commands: 0. Other retries: 6.")
 
 
 def test_a_run_that_reaches_the_request_limit_stops_with_the_message_and_no_count(

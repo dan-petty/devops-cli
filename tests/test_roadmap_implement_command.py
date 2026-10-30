@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.client import factory
+from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, render_outcome
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -329,3 +330,21 @@ def test_a_step_needs_its_item(cli: Callable[..., Any], implement_checkout: Path
 
     assert result.exit_code == 1
     assert "needs --item" in " ".join(result.output.split())
+
+
+def test_a_reason_with_a_closing_tag_prints_in_the_table(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The reason holds the message of a pydantic-ai error (#2758), which can hold brackets."""
+    outcome = StepOutcome(
+        item=1,
+        group=1,
+        title="Make the sample shout",
+        status=StepStatus.STOPPED,
+        reason="Tool x [/oops] failed",
+        last_message="Run [/it] now",
+    )
+
+    render_outcome(outcome, REPO, "table")
+
+    assert "Tool x [/oops] failed" in capsys.readouterr().out.replace("\n", " ")
