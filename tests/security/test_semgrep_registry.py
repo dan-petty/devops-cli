@@ -223,7 +223,7 @@ def test_a_ruleset_over_the_size_cap_is_refused_and_caches_nothing(
         pytest.param(b"rules:\n- id: 7\n", id="rule-with-a-number-for-an-id"),
         pytest.param(b"rules:\n- just a string\n", id="rule-that-is-not-a-mapping"),
         pytest.param(b"\xff\xfe", id="not-text"),
-        pytest.param(b"rules: " + b"[" * 100_000 + b"]" * 100_000, id="nested-past-the-loader"),
+        pytest.param(b"rules: " + b"[" * 30_000 + b"]" * 30_000, id="nested-past-the-loader"),
     ],
 )
 def test_a_body_that_is_not_a_ruleset_is_refused_and_caches_nothing(
@@ -243,11 +243,11 @@ def test_a_body_that_is_not_a_ruleset_is_refused_and_caches_nothing(
 def test_a_body_nested_past_the_loader_leaves_the_earlier_cache_and_exits_with_the_refusal(
     cli: Callable[..., Any], stub_web: StubWeb
 ) -> None:
-    """The loader overflows its stack on 200 KB of brackets, far under the size cap."""
+    """The loader overflows its stack on 60 KB of brackets, far under the size cap."""
     serve(stub_web, FIRST_RULESET)
     fetch_registry_ruleset("p/default")
     paths = registry_cache_paths("p/default")
-    serve(stub_web, b"rules: " + b"[" * 100_000 + b"]" * 100_000, etag=SECOND_ETAG)
+    serve(stub_web, b"rules: " + b"[" * 30_000 + b"]" * 30_000, etag=SECOND_ETAG)
 
     result = cli("review", "rules", "fetch")
 

@@ -58,7 +58,9 @@ _PROJECT = {
 
 
 @pytest.fixture
-def project(tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch) -> Path:
+def runner_project(
+    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> Path:
     """The project committed on `main`, checked out on a topic branch, as the working directory."""
     root = tmp_path / "project"
     for relative, text in _PROJECT.items():
@@ -88,77 +90,79 @@ def _changed_run() -> tuple[list[str], str]:
     return response["details"]["targets"], result.output
 
 
-def test_a_changed_nested_test_module_is_selected(project: Path, git: Callable[..., None]) -> None:
-    _commit(project, git, "tests/ai/review/stages/test_c.py")
+def test_a_changed_nested_test_module_is_selected(
+    runner_project: Path, git: Callable[..., None]
+) -> None:
+    _commit(runner_project, git, "tests/ai/review/stages/test_c.py")
     assert _changed_run()[0] == ["tests/ai/review/stages/test_c.py"]
 
 
 def test_a_changed_source_module_selects_the_test_module_named_for_it_not_those_beside_it(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """`devops_cli.ai.review.pipeline` selects `tests/ai/review/test_pipeline.py`, named for it at
     any depth; `test_a.py` and `test_b.py` beside it neither name nor import it, so they do not
     run (#1312)."""
-    _commit(project, git, "src/devops_cli/ai/review/pipeline.py")
+    _commit(runner_project, git, "src/devops_cli/ai/review/pipeline.py")
     assert _changed_run()[0] == ["tests/ai/review/test_pipeline.py"]
 
 
 def test_a_flat_tree_maps_a_source_module_by_its_name_and_its_importers(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
-    _commit(project, git, "src/devops_cli/commands/scan.py")
+    _commit(runner_project, git, "src/devops_cli/commands/scan.py")
     assert _changed_run()[0] == ["tests/test_reports.py", "tests/test_scan.py"]
 
 
 def test_a_changed_conftest_of_fixtures_selects_its_directory(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """A fixture reaches every test beside and below its conftest, none of which imports it."""
-    _commit(project, git, "tests/ai/conftest.py")
+    _commit(runner_project, git, "tests/ai/conftest.py")
     assert _changed_run()[0] == ["tests/ai"]
 
 
 def test_a_changed_conftest_with_a_hook_selects_the_whole_suite(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """pytest calls a `pytest_*` hook of every conftest for every test, so one in `tests/ai/`
     can change the outcome of a test in any directory (#1312)."""
-    conftest = project / "tests" / "ai" / "conftest.py"
+    conftest = runner_project / "tests" / "ai" / "conftest.py"
     conftest.write_text(conftest.read_text(encoding="utf-8") + _HOOK, encoding="utf-8")
-    git(project, "commit", "-q", "-am", "hook")
+    git(runner_project, "commit", "-q", "-am", "hook")
     assert _changed_run()[0] == ["tests"]
 
 
 def test_a_changed_support_module_that_defines_a_fixture_selects_the_whole_suite(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """A support module that defines a fixture reaches any test, through the fixture its
     registration makes every test's, not only the test module importing it (#1312)."""
-    _commit(project, git, "tests/support/stages.py")
+    _commit(runner_project, git, "tests/support/stages.py")
     assert _changed_run()[0] == ["tests"]
 
 
 def test_a_changed_plain_support_module_selects_the_test_modules_importing_it(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """A support module that registers nothing reaches only the test modules importing it
     (#1312)."""
-    _commit(project, git, "tests/support/paths.py")
+    _commit(runner_project, git, "tests/support/paths.py")
     assert _changed_run()[0] == ["tests/test_paths.py"]
 
 
 @pytest.mark.parametrize("committed", [False, True], ids=["staged", "committed"])
 def test_a_renamed_support_module_selects_the_whole_suite_through_its_old_path(
-    project: Path, git: Callable[..., None], committed: bool
+    runner_project: Path, git: Callable[..., None], committed: bool
 ) -> None:
     """A `git mv`, staged or committed, is listed as its old path deleted and its new path
     added, so a renamed support module reaches every test through the old path, which may have
     registered a fixture and whose importers the move may have broken, not only the test module
     that already imports the new name (#1312)."""
-    git(project, "mv", "tests/support/paths.py", "tests/support/roots.py")
+    git(runner_project, "mv", "tests/support/paths.py", "tests/support/roots.py")
     if committed:
-        git(project, "commit", "-q", "-m", "rename")
-    changed = _changed_paths(project)
+        git(runner_project, "commit", "-q", "-m", "rename")
+    changed = _changed_paths(runner_project)
     assert (
         {"tests/support/paths.py", "tests/support/roots.py"} <= set(changed),
         [path for path in changed if " -> " in path],
@@ -167,33 +171,38 @@ def test_a_renamed_support_module_selects_the_whole_suite_through_its_old_path(
 
 
 def test_a_changed_support_subpackage_init_selects_the_test_modules_importing_its_modules(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """A support subpackage's `__init__.py` runs before any module of the subpackage, so it
     selects the test modules importing one; its directory, which holds no test module, is not
     handed to pytest (#1312)."""
-    _commit(project, git, "tests/support/fakes/__init__.py")
+    _commit(runner_project, git, "tests/support/fakes/__init__.py")
     assert _changed_run()[0] == ["tests/test_fake_github.py"]
 
 
 def test_a_deleted_support_module_selects_the_whole_suite(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """A deleted support module cannot be read, so whether it registered a fixture cannot be
     known, and it selects the whole suite, not only the tests a change beside it maps to
     (#1312)."""
-    git(project, "rm", "-q", "tests/support/paths.py")
-    _commit(project, git, "tests/test_scan.py")
+    git(runner_project, "rm", "-q", "tests/support/paths.py")
+    _commit(runner_project, git, "tests/test_scan.py")
     assert _changed_run()[0] == ["tests"]
 
 
 def test_a_renamed_source_module_selects_by_its_new_path_and_its_old_one(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """A staged `git mv` is read from `git status --porcelain --no-renames` as the old path
     deleted and the new one added: the new path selects the test module named for it, and the
     old one those still named for it or importing it, which the move may break (#1312)."""
-    git(project, "mv", "src/devops_cli/commands/scan.py", "src/devops_cli/commands/scanner.py")
+    git(
+        runner_project,
+        "mv",
+        "src/devops_cli/commands/scan.py",
+        "src/devops_cli/commands/scanner.py",
+    )
     assert _changed_run()[0] == [
         "tests/test_reports.py",
         "tests/test_scan.py",
@@ -202,17 +211,17 @@ def test_a_renamed_source_module_selects_by_its_new_path_and_its_old_one(
 
 
 def test_a_deleted_test_module_is_not_passed_to_pytest(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
-    git(project, "rm", "-q", "tests/test_old.py")
-    _commit(project, git, "tests/test_scan.py")
+    git(runner_project, "rm", "-q", "tests/test_old.py")
+    _commit(runner_project, git, "tests/test_scan.py")
     assert _changed_run()[0] == ["tests/test_scan.py"]
 
 
 def test_an_unmapped_source_is_named_and_the_mapped_tests_run(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
-    _commit(project, git, "src/devops_cli/commands/scan.py", "src/devops_cli/orphan.py")
+    _commit(runner_project, git, "src/devops_cli/commands/scan.py", "src/devops_cli/orphan.py")
     targets, output = _changed_run()
     assert (targets, "No test module covers src/devops_cli/orphan.py" in output) == (
         ["tests/test_reports.py", "tests/test_scan.py"],
@@ -221,13 +230,13 @@ def test_an_unmapped_source_is_named_and_the_mapped_tests_run(
 
 
 def test_an_untracked_test_package_is_selected_beside_a_committed_change(
-    project: Path, git: Callable[..., None]
+    runner_project: Path, git: Callable[..., None]
 ) -> None:
     """Each file of a new test package not yet added is listed, not its directory: its test
     module runs, and its `__init__.py` selects its own directory, as a conftest does, instead of
     being named as a source no test module covers (#1312)."""
-    _commit(project, git, "src/devops_cli/commands/scan.py")
-    fresh = project / "tests" / "fresh"
+    _commit(runner_project, git, "src/devops_cli/commands/scan.py")
+    fresh = runner_project / "tests" / "fresh"
     fresh.mkdir()
     (fresh / "__init__.py").write_text("", encoding="utf-8")
     (fresh / "test_fresh.py").write_text("def test_fresh() -> None: ...\n", encoding="utf-8")
@@ -238,7 +247,7 @@ def test_an_untracked_test_package_is_selected_beside_a_committed_change(
     )
 
 
-def test_no_change_runs_the_whole_suite(project: Path) -> None:
+def test_no_change_runs_the_whole_suite(runner_project: Path) -> None:
     assert _changed_run()[0] == ["tests"]
 
 

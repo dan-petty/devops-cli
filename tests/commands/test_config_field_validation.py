@@ -25,11 +25,6 @@ from devops_cli.telemetry.tracer import _resolve_telemetry_settings
 runner = CliRunner()
 
 
-@pytest.fixture(autouse=True)
-def _reset_cache() -> None:
-    reset_settings_cache()
-
-
 def _set_project_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str) -> Path:
     cfg = tmp_path / "config.yaml"
     cfg.write_text(content, encoding="utf-8")

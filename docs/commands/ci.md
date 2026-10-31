@@ -286,6 +286,22 @@ devops ci deps [OPTIONS]
 
 ---
 
+## `devops ci test-settings`
+
+**Verify test configuration settings and environment variables.**
+
+```bash
+devops ci test-settings [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ci maintain`
 
 **Run automated toolchain, dependency freshness, and lockfile maintenance checks.**

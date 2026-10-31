@@ -96,7 +96,7 @@ def bwrap(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def tree(tmp_path: Path) -> Path:
+def kube_tree(tmp_path: Path) -> Path:
     """An empty tree outside any checkout, as Popeye scans."""
     root = (tmp_path / "tree").resolve()
     root.mkdir()
@@ -147,17 +147,17 @@ def _kube_api_run(process_fake: ProcessFake) -> tuple[str, ...]:
     return run.argv
 
 
-def test_no_other_scanner_can_select_the_kube_api_network_profile(tree: Path) -> None:
+def test_no_other_scanner_can_select_the_kube_api_network_profile(kube_tree: Path) -> None:
     """A request for the tool of each scanner other than Popeye that selects the profile is
     refused. A request for Popeye that selects it is accepted."""
     others = sorted(tool for name, tool in _scanner_tools().items() if name != "popeye")
     refused = []
     for tool in others:
         with pytest.raises(ValidationError, match="kube-api"):
-            _request(tree, tool, network=KubeApiNetwork())
+            _request(kube_tree, tool, network=KubeApiNetwork())
         refused.append(tool)
 
-    accepted = _request(tree, network=KubeApiNetwork(context="example"))
+    accepted = _request(kube_tree, network=KubeApiNetwork(context="example"))
 
     assert (len(refused), refused == others, accepted.network) == (
         len(_scanner_tools()) - 1,
@@ -167,14 +167,14 @@ def test_no_other_scanner_can_select_the_kube_api_network_profile(tree: Path) ->
 
 
 def test_a_popeye_request_from_another_program_cannot_select_the_profile(
-    tree: Path, tmp_path: Path
+    kube_tree: Path, tmp_path: Path
 ) -> None:
     """A program can start another binary under the name of Popeye, so a request that names one
     cannot select the profile."""
     program = _stand_in(tmp_path / "elsewhere" / "popeye")
 
     with pytest.raises(ValidationError, match="program"):
-        _request(tree, program=program, network=KubeApiNetwork())
+        _request(kube_tree, program=program, network=KubeApiNetwork())
 
 
 def test_only_the_popeye_scanner_selects_a_network() -> None:
@@ -200,24 +200,26 @@ def test_only_the_popeye_scanner_selects_a_network() -> None:
     )
 
 
-def test_the_direct_executor_runs_no_network_profile(tree: Path, process_fake: ProcessFake) -> None:
+def test_the_direct_executor_runs_no_network_profile(
+    kube_tree: Path, process_fake: ProcessFake
+) -> None:
     """The direct executor gives a tool the whole network of the host, so it refuses a request
     that selects a profile, and starts nothing."""
     with pytest.raises(SandboxError, match="kube-api"):
-        DirectToolExecutor().run(_request(tree, network=KubeApiNetwork()))
+        DirectToolExecutor().run(_request(kube_tree, network=KubeApiNetwork()))
 
     assert process_fake.calls == []
 
 
 def test_the_record_of_a_run_names_the_network_of_the_tool(
-    tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
+    kube_tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
 ) -> None:
     """The direct executor gives a tool the network of the host, the sandbox gives it none, and
     the sandbox with the profile gives Popeye the profile."""
-    direct = DirectToolExecutor().run(_request(tree, "gitleaks"))
+    direct = DirectToolExecutor().run(_request(kube_tree, "gitleaks"))
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
-    sandbox = executor.run(_request(tree, "gitleaks"))
-    kube_api = executor.run(_request(tree, network=KubeApiNetwork()))
+    sandbox = executor.run(_request(kube_tree, "gitleaks"))
+    kube_api = executor.run(_request(kube_tree, network=KubeApiNetwork()))
 
     assert (direct.run.network, sandbox.run.network, kube_api.run.network) == (
         "host",
@@ -227,14 +229,14 @@ def test_the_record_of_a_run_names_the_network_of_the_tool(
 
 
 def test_a_kube_api_run_reaches_the_api_server_only_through_kubectl_proxy_and_socat(
-    tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
+    kube_tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
 ) -> None:
     """Outside the sandbox, a shell starts `kubectl proxy` for the context on a socket of a scratch
     directory, with the methods and paths that it refuses, then bubblewrap. bubblewrap keeps
     `--unshare-all`, binds the scratch directory read-only, and starts a shell that relays the
     loopback port to the socket with `socat`, then Popeye under `prlimit`."""
     SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap)).run(
-        _request(tree, network=KubeApiNetwork())
+        _request(kube_tree, network=KubeApiNetwork())
     )
 
     host, sandbox = _split(_kube_api_run(process_fake), bwrap)
@@ -290,7 +292,7 @@ def test_a_kube_api_run_reaches_the_api_server_only_through_kubectl_proxy_and_so
 
 
 def test_a_relay_runs_only_with_a_request_that_selects_the_kube_api_profile(
-    tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
+    kube_tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
 ) -> None:
     """The command of a request that selects no network profile gets no relay, so no other tool
     reaches the API server through a relay that a caller gives it. A request that selects
@@ -298,9 +300,9 @@ def test_a_relay_runs_only_with_a_request_that_selects_the_kube_api_profile(
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
 
     with kube_api_relay(None) as relay, pytest.raises(SandboxError, match="gitleaks"):
-        executor.command(_request(tree, "gitleaks"), relay)
+        executor.command(_request(kube_tree, "gitleaks"), relay)
     with pytest.raises(SandboxError, match="kube-api"):
-        executor.command(_request(tree, network=KubeApiNetwork()))
+        executor.command(_request(kube_tree, network=KubeApiNetwork()))
 
     assert [_is_config_view(call) for call in process_fake.calls] == [True]
 
@@ -338,13 +340,13 @@ def _refused(flag: str, value: str) -> bool:
 
 
 def test_the_proxy_refuses_every_method_that_writes_and_every_path_past_the_api_server(
-    tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
+    kube_tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
 ) -> None:
     """The filters that the run gives `kubectl proxy` refuse each method that changes a resource
     and each path that reaches a process, a port or a server behind the API server. They let
     through each method and path that Popeye reads with."""
     SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap)).run(
-        _request(tree, network=KubeApiNetwork())
+        _request(kube_tree, network=KubeApiNetwork())
     )
 
     host, _sandbox = _split(_kube_api_run(process_fake), bwrap)
@@ -360,7 +362,7 @@ def test_the_proxy_refuses_every_method_that_writes_and_every_path_past_the_api_
 
 @pytest.mark.parametrize(("context", "expected_context"), [(None, "example"), ("other", "other")])
 def test_the_relay_kubeconfig_names_the_loopback_port_and_the_context_with_no_credentials(
-    tree: Path,
+    kube_tree: Path,
     bwrap: Path,
     user_kubeconfig: Path,
     process_fake: ProcessFake,
@@ -382,7 +384,7 @@ def test_the_relay_kubeconfig_names_the_loopback_port_and_the_context_with_no_cr
         ProcessAnswer(side_effect=read_kubeconfig),
     )
     SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap)).run(
-        _request(tree, network=KubeApiNetwork(context=context))
+        _request(kube_tree, network=KubeApiNetwork(context=context))
     )
 
     host, _sandbox = _split(_kube_api_run(process_fake), bwrap)
@@ -415,7 +417,7 @@ def test_the_relay_kubeconfig_names_the_loopback_port_and_the_context_with_no_cr
     ],
 )
 def test_a_context_that_the_kubeconfig_does_not_have_starts_nothing(
-    tree: Path, bwrap: Path, process_fake: ProcessFake, context: str | None, cause: str
+    kube_tree: Path, bwrap: Path, process_fake: ProcessFake, context: str | None, cause: str
 ) -> None:
     """A context that the kubeconfig of the user does not have, or no kubeconfig, stops the run
     after kubectl reads the kubeconfig, before the proxy, the sandbox or the tool starts."""
@@ -423,14 +425,14 @@ def test_a_context_that_the_kubeconfig_does_not_have_starts_nothing(
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
 
     with pytest.raises(SandboxError, match=cause):
-        executor.run(_request(tree, network=KubeApiNetwork(context=context)))
+        executor.run(_request(kube_tree, network=KubeApiNetwork(context=context)))
 
     assert [_is_config_view(call) for call in process_fake.calls] == [True]
 
 
 @pytest.mark.parametrize("program", ["sh", "socat", "kubectl", "setpriv"])
 def test_a_host_without_a_program_of_the_relay_runs_no_kube_api_request(
-    tree: Path,
+    kube_tree: Path,
     bwrap: Path,
     user_kubeconfig: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -446,20 +448,20 @@ def test_a_host_without_a_program_of_the_relay_runs_no_kube_api_request(
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
 
     with pytest.raises(SandboxUnavailableError, match=program):
-        executor.run(_request(tree, network=KubeApiNetwork()))
+        executor.run(_request(kube_tree, network=KubeApiNetwork()))
 
     assert (process_fake.calls, executor.refusal) == ([], None)
 
 
 def test_the_sandbox_binds_the_user_database_for_popeye_only(
-    tree: Path, bwrap: Path, process_fake: ProcessFake
+    kube_tree: Path, bwrap: Path, process_fake: ProcessFake
 ) -> None:
     """Popeye stops at start when it cannot find the user, so the sandbox binds `/etc/passwd`
     read-only for Popeye, and not for another tool."""
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
 
-    popeye = _binds(executor.command(_request(tree)))
-    gitleaks = _binds(executor.command(_request(tree, "gitleaks")))
+    popeye = _binds(executor.command(_request(kube_tree)))
+    gitleaks = _binds(executor.command(_request(kube_tree, "gitleaks")))
 
     passwd = ["--ro-bind", "/etc/passwd", "/etc/passwd"]
     assert (passwd in popeye, passwd in gitleaks) == (True, False)

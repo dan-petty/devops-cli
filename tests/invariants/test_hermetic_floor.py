@@ -3,6 +3,7 @@ default, per-test process-wide state resets, and shared `config` and `cli` fixtu
 
 from __future__ import annotations
 
+import ast
 import os
 import socket
 from collections.abc import Callable
@@ -465,3 +466,108 @@ def test_a_config_write_outside_the_run_fails_at_the_write_naming_the_test(
     named = {test for test in failing for line in refused if f"::{test} (call)" in line}
     assert named == failing
     assert _tree(outside) == {**before, "notes.txt": "notes\n"}
+
+
+def test_test_modules_repeat_no_floor_resets() -> None:
+    """None of the 15 autouse fixtures repeating floor resets remain in test modules (#2173)."""
+    import ast
+
+    target_fixtures = {
+        ("tests/k8s/test_k8s_service_proxy.py", "clear_configuration_cache"),
+        ("tests/security/test_secret_resolution.py", "_reset_resolver_singleton"),
+        ("tests/telemetry/test_telemetry_logfire.py", "_clean_logfire_state"),
+        ("tests/ai/rag/test_rag_kb_sync.py", "clean_kb_sync_state"),
+        ("tests/core/test_gitignore_evaluation.py", "clear_indexes"),
+        ("tests/ai/client/test_ai_request_priority.py", "_clean_state"),
+        ("tests/k8s/test_k8s_service.py", "reset_k8s_service"),
+        ("tests/ai/client/test_ollama_dynamic_leasing.py", "_reset_slots"),
+        ("tests/ai/mcp/test_fastmcp_contracts.py", "reset_domain_gate"),
+        ("tests/k8s/test_k8s_context_resolution.py", "clear_context_cache"),
+        ("tests/commands/test_config_field_validation.py", "_reset_cache"),
+        ("tests/ai/rag/test_rag_investigator.py", "_reset_investigation_cache"),
+        ("tests/commands/test_ci_dry_run.py", "reset_dry_run_state"),
+        ("tests/dry_run/test_consolidation_dry_run_decorator.py", "reset_dry_run_state"),
+        ("tests/commands/test_review_rules_pack.py", "_reset_dry_run"),
+    }
+
+    found: list[str] = []
+    for rel_path, fixture_name in target_fixtures:
+        full_path = REPO_ROOT / rel_path
+        if not full_path.exists():
+            continue
+        try:
+            tree = ast.parse(full_path.read_text(encoding="utf-8"), filename=str(full_path))
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == fixture_name:
+                found.append(f"{rel_path}:{fixture_name}")
+
+    assert not found, f"Autouse floor reset fixtures still present: {found}"
+
+
+def _is_fixture_def(node: ast.AST) -> bool:
+    if not isinstance(node, ast.FunctionDef):
+        return False
+    return any(
+        (isinstance(d, ast.Name) and d.id == "fixture")
+        or (isinstance(d, ast.Attribute) and d.attr == "fixture")
+        or (
+            isinstance(d, ast.Call)
+            and isinstance(d.func, (ast.Name, ast.Attribute))
+            and (
+                getattr(d.func, "id", None) == "fixture"
+                or getattr(d.func, "attr", None) == "fixture"
+            )
+        )
+        for d in node.decorator_list
+    )
+
+
+def test_project_and_tree_fixtures_are_distinct() -> None:
+    """The project and tree fixtures must not be defined under identical names across test modules (#2173)."""
+    project_defs: list[str] = []
+    tree_defs: list[str] = []
+    tests_root = REPO_ROOT / "tests"
+
+    for path in sorted(tests_root.rglob("*.py")):
+        if "support" in path.parts or path.name == "conftest.py":
+            continue
+        try:
+            tree_ast = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except Exception:
+            continue
+        for node in ast.walk(tree_ast):
+            if not _is_fixture_def(node):
+                continue
+            assert isinstance(node, ast.FunctionDef)
+            if node.name == "project":
+                project_defs.append(str(path.relative_to(REPO_ROOT)))
+            elif node.name == "tree":
+                tree_defs.append(str(path.relative_to(REPO_ROOT)))
+
+    assert len(project_defs) <= 1, f"Multiple 'project' fixtures found: {project_defs}"
+    assert len(tree_defs) <= 1, f"Multiple 'tree' fixtures found: {tree_defs}"
+
+
+def test_dead_test_helper_files_are_deleted() -> None:
+    """The five test files that test test helpers or conftest rather than src/ are deleted (#2173)."""
+    dead_files = [
+        "tests/ai/client/test_model_fixture.py",
+        "tests/core/test_support_waits.py",
+        "tests/core/test_support_hung_children.py",
+        "tests/config/test_per_test_timeout.py",
+        "tests/core/test_openblas_worker_threads.py",
+    ]
+    existing = [f for f in dead_files if (REPO_ROOT / f).exists()]
+    assert not existing, f"Dead test helper files still exist: {existing}"
+
+
+def test_test_settings_ci_row_registered() -> None:
+    """The test-settings check spec is registered in get_check_specs() (#2173)."""
+    from devops_cli.commands.ci import get_check_spec, get_check_specs
+
+    spec_names = {s.name for s in get_check_specs()}
+    assert "test-settings" in spec_names, "test-settings row missing from get_check_specs()"
+    spec = get_check_spec("test-settings")
+    assert "check_test_settings" in " ".join(spec.cmd)

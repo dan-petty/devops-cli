@@ -72,7 +72,7 @@ def _invoke(*args: str, head: tuple[int, str] = HEAD) -> tuple[Result, list[tupl
 
 
 @pytest.fixture
-def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def ci_repeat_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A checked tree holding one test file, as the root the CI command verifies."""
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_x.py").write_text("def test_x() -> None: ...\n", encoding="utf-8")
@@ -132,7 +132,9 @@ def test_repeat_stops_at_the_seed_that_breaks_order_dependent_tests(
     ) == ({"passed": 2}, 1, ["--randomly-seed=2", "--randomly-seed=3"], True)
 
 
-def test_each_repeat_runs_the_targets_serially_with_the_next_seed(project: Path) -> None:
+def test_each_repeat_runs_the_targets_serially_with_the_next_seed(
+    ci_repeat_project: Path,
+) -> None:
     """Run i of N runs the targets in the project root on one process (-n gives way to -n 0)
     with seed S+i, keeping -v, -k and -x ahead of the shuffle options."""
     result, calls = _invoke(*"--repeat 3 --seed 10 -n 4 -v -k unit -x -- tests/test_x.py".split())
@@ -143,25 +145,25 @@ def test_each_repeat_runs_the_targets_serially_with_the_next_seed(project: Path)
             (
                 [*UV_RUN_PYTEST, "-n", "0", "-v", "-k", "unit", "-x", "-p", "randomly"]
                 + [f"--randomly-seed={seed}", "tests/test_x.py"],
-                project,
+                ci_repeat_project,
             )
             for seed in (10, 11, 12)
         ],
     )
 
 
-def test_the_first_seed_defaults_to_heads_commit_hash(project: Path) -> None:
+def test_the_first_seed_defaults_to_heads_commit_hash(ci_repeat_project: Path) -> None:
     """Without --seed, the first seed is HEAD's leading eight hex digits read as an integer."""
     result, calls = _invoke("--repeat", "2", "tests/test_x.py")
 
     assert (result.exit_code, calls[0], [cmd[-2] for cmd, _cwd in calls[1:]]) == (
         0,
-        (["git", "rev-parse", "HEAD"], project),
+        (["git", "rev-parse", "HEAD"], ci_repeat_project),
         ["--randomly-seed=3735928559", "--randomly-seed=3735928560"],
     )
 
 
-def test_an_unreadable_head_asks_for_a_seed(project: Path) -> None:
+def test_an_unreadable_head_asks_for_a_seed(ci_repeat_project: Path) -> None:
     """When HEAD cannot be read, the command names --seed and runs no tests."""
     result, calls = _invoke("--repeat", "2", "tests/test_x.py", head=(128, ""))
 
@@ -173,7 +175,7 @@ def test_an_unreadable_head_asks_for_a_seed(project: Path) -> None:
     ) == (1, [["git", "rev-parse", "HEAD"]], True, True)
 
 
-def test_the_gate_and_a_plain_run_stay_in_file_order(project: Path) -> None:
+def test_the_gate_and_a_plain_run_stay_in_file_order(ci_repeat_project: Path) -> None:
     """No gate check and no run without --repeat enables pytest-randomly; --repeat is off by
     default."""
     result, calls = _invoke("tests/test_x.py")
@@ -187,9 +189,11 @@ def test_the_gate_and_a_plain_run_stay_in_file_order(project: Path) -> None:
 
 
 @pytest.mark.parametrize("paths", [(), ("tests/conftest.py",)], ids=["no-paths", "trigger-file"])
-def test_repeat_refuses_to_shuffle_the_whole_suite(project: Path, paths: tuple[str, ...]) -> None:
+def test_repeat_refuses_to_shuffle_the_whole_suite(
+    ci_repeat_project: Path, paths: tuple[str, ...]
+) -> None:
     """When nothing narrows the run to test files, --repeat exits 1 and starts no process."""
-    (project / "tests" / "conftest.py").write_text("", encoding="utf-8")
+    (ci_repeat_project / "tests" / "conftest.py").write_text("", encoding="utf-8")
 
     result, calls = _invoke("--repeat", "2", *paths)
 
@@ -249,7 +253,7 @@ def test_the_changed_test_job_reruns_added_or_modified_test_files() -> None:
 
 
 def test_a_dry_run_plans_every_repeat_and_starts_no_process(
-    project: Path, monkeypatch: pytest.MonkeyPatch
+    ci_repeat_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """--dry-run prints the planned command of each repeat run and runs none of them."""
     started: list[list[str]] = []

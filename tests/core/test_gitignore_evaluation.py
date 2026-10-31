@@ -5,20 +5,11 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from devops_cli.core.gitignore import (
     GitignoreIndex,
     get_index,
     is_within_git_dir,
-    reset_indexes,
 )
-
-
-@pytest.fixture(autouse=True)
-def clear_indexes() -> None:
-    """Evaluators are cached per repository root; tests must not share them."""
-    reset_indexes()
 
 
 def make_repo(tmp_path: Path, files: dict[str, str]) -> Path:

@@ -6,20 +6,12 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.ci import app, get_check_specs
-from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.dry_run import is_dry_run
 
 # Pre-warm standard library system cache so uname is not invoked by platform internals
 platform.processor()
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def reset_dry_run_state() -> None:
-    """Ensure dry-run state is clean before and after each test."""
-    set_dry_run(False)
-    yield
-    set_dry_run(False)
 
 
 @pytest.fixture
@@ -181,6 +173,7 @@ def test_other_ci_subcommands_dry_run(recorder: list[list[str]]) -> None:
         ["uv-check", "--dry-run"],
         ["lockfile", "--dry-run"],
         ["outdated", "--dry-run"],
+        ["test-settings", "--dry-run"],
     ]
     for subcmd in subcmds:
         res = runner.invoke(app, subcmd)

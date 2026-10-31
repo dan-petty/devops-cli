@@ -1441,6 +1441,7 @@ class CIMessages:
     run_timed_out: str = (
         "{command} ran past its {timeout} timeout and was stopped with every process it started."
     )
+    test_settings: str = "test settings (pytest timeout and conftest environment)"
     pytest_coverage: str = "pytest & coverage"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"

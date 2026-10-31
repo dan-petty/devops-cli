@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import threading
-from collections.abc import Iterator
 
 import pytest
 
@@ -15,21 +14,12 @@ from devops_cli.ai.client.network import (
     acquire_ollama_slot,
     get_ollama_active_leases,
     get_ollama_waiting_counts,
-    reset_ollama_slots,
 )
 from devops_cli.telemetry.instruments import AI_OLLAMA_SLOT_WAIT
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 NODE = "http://example.com:11434"
-
-
-@pytest.fixture(autouse=True)
-def _reset_slots() -> Iterator[None]:
-    """Ensure clean slot state before and after each test."""
-    reset_ollama_slots()
-    yield
-    reset_ollama_slots()
 
 
 def test_acquire_ollama_slot_distributes_least_loaded() -> None:

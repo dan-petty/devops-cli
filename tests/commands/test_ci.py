@@ -522,6 +522,24 @@ def test_ci_outdated_command(monkeypatch) -> None:
     assert (result.exit_code, any("tree" in c and "--outdated" in c for c in called)) == (0, True)
 
 
+def test_ci_test_settings_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = []
+
+    def mock_run(
+        cmd: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        called.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["test-settings"])
+    assert (result.exit_code, any("check_test_settings" in " ".join(c) for c in called)) == (
+        0,
+        True,
+    )
+
+
 def test_ci_uv_check_and_lockfile_failures(monkeypatch) -> None:
     def mock_run_fail(cmd, *args, **kwargs):
         return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="failed")
@@ -531,7 +549,13 @@ def test_ci_uv_check_and_lockfile_failures(monkeypatch) -> None:
     res_uv = runner.invoke(app, ["uv-check"])
     res_lock = runner.invoke(app, ["lockfile"])
     res_outdated = runner.invoke(app, ["outdated"])
-    assert (res_uv.exit_code, res_lock.exit_code, res_outdated.exit_code) == (1, 1, 1)
+    res_settings = runner.invoke(app, ["test-settings"])
+    assert (
+        res_uv.exit_code,
+        res_lock.exit_code,
+        res_outdated.exit_code,
+        res_settings.exit_code,
+    ) == (1, 1, 1, 1)
 
 
 def test_ci_python_version_check_failure(monkeypatch) -> None:
@@ -540,6 +564,10 @@ def test_ci_python_version_check_failure(monkeypatch) -> None:
     result = runner.invoke(app, ["typecheck"])
     assert result.exit_code == 1
     assert "Strict Python 3.14+ requirement failed" in result.output
+
+    res_settings = runner.invoke(app, ["test-settings"])
+    assert res_settings.exit_code == 1
+    assert "Strict Python 3.14+ requirement failed" in res_settings.output
 
 
 def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
@@ -2379,6 +2407,7 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
         ("outdated", "outdated"),
         ("devcontainer", "devcontainer"),
         ("deps", "deps"),
+        ("test-settings", "test-settings"),
     ],
 )
 def test_subcommand_dispatches_exact_table_row_cmd(

@@ -707,6 +707,11 @@ _GIT_TRANSCRIPTS_SCRIPT = (
     "import sys; from tests.support.git_recording import main; sys.exit(main(['--check']))"
 )
 
+# The test-settings row checks pyproject.toml timeout settings and tests/conftest.py environment (#2173).
+_TEST_SETTINGS_SCRIPT = (
+    "import sys; from tests.support.check_test_settings import main; sys.exit(main())"
+)
+
 
 def get_check_specs() -> list[CheckSpec]:
     """Return the single ordered table of CI quality gate check specifications."""
@@ -862,6 +867,13 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "python", "-c", _GIT_TRANSCRIPTS_SCRIPT],
             span_name="ci.step.git",
             metric_step="git",
+        ),
+        CheckSpec(
+            name="test-settings",
+            display_title=MESSAGES.ci.test_settings,
+            cmd=["uv", "run", "python", "-c", _TEST_SETTINGS_SCRIPT],
+            span_name="ci.step.test_settings",
+            metric_step="test_settings",
         ),
     ]
 
@@ -2180,6 +2192,24 @@ def deps(
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     spec = get_check_spec("deps")
+    if not _run(spec.cmd):
+        raise typer.Exit(1)
+
+
+@app.command(name="test-settings")
+@dry_run_class("request-plan")
+def test_settings(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Verify test configuration settings and environment variables."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    spec = get_check_spec("test-settings")
     if not _run(spec.cmd):
         raise typer.Exit(1)
 

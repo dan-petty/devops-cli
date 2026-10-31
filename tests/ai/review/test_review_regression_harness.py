@@ -37,7 +37,7 @@ _MALFORMED_FIELD = {"external_dependencies": ["requests"]}
 
 
 @pytest.fixture
-def project(tmp_path: Path) -> Path:
+def review_golden_project(tmp_path: Path) -> Path:
     """The golden source files, in a project that declares Python 3.14."""
     root = tmp_path / "project"
     for rel, source in _GOLDEN["files"].items():
@@ -76,16 +76,22 @@ def _through_the_pipeline(findings: list[dict[str, Any]], project: Path) -> list
 
 
 @pytest.mark.parametrize("case", _GOLDEN["real_defects"], ids=lambda c: c["id"])
-def test_a_real_defect_reaches_the_report(case: dict[str, Any], project: Path) -> None:
+def test_a_real_defect_reaches_the_report(
+    case: dict[str, Any], review_golden_project: Path
+) -> None:
     """Verify a real defect survives parsing, consolidation and the report."""
-    reported = _through_the_pipeline([_finding(case)], project)
+    reported = _through_the_pipeline([_finding(case)], review_golden_project)
 
     assert [(f.title, f.status in _DISMISSED) for f in reported] == [(case["title"], False)]
 
 
 @pytest.mark.parametrize("group", _GOLDEN["distinct_groups"], ids=lambda g: g["id"])
-def test_distinct_real_defects_stay_distinct(group: dict[str, Any], project: Path) -> None:
+def test_distinct_real_defects_stay_distinct(
+    group: dict[str, Any], review_golden_project: Path
+) -> None:
     """Verify different defects in one file are not merged on the way to the report."""
-    reported = _through_the_pipeline([_finding(f) for f in group["findings"]], project)
+    reported = _through_the_pipeline(
+        [_finding(f) for f in group["findings"]], review_golden_project
+    )
 
     assert len(reported) == len(group["findings"])

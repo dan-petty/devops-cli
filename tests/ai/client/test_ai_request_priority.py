@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import threading
-from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -15,22 +14,11 @@ from devops_cli.ai.client.network import (
     current_request_priority,
     get_ollama_waiting_counts,
     request_priority_scope,
-    reset_ollama_slots,
 )
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
-from devops_cli.telemetry.tracer import get_tracer, reset_tracer
+from devops_cli.telemetry.tracer import get_tracer
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
-
-
-@pytest.fixture(autouse=True)
-def _clean_state() -> Iterator[None]:
-    """Ensure clean slot state and reset tracer before and after each test."""
-    reset_ollama_slots()
-    reset_tracer()
-    yield
-    reset_ollama_slots()
-    reset_tracer()
 
 
 def test_request_priority_hierarchy_and_weights() -> None:

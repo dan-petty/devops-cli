@@ -441,6 +441,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("ci", "run"),
             ("ci", "security"),
             ("ci", "test"),
+            ("ci", "test-settings"),
             ("ci", "typecheck"),
             ("ci", "uv-check"),
             ("cloudflare", "access", "policies"),
