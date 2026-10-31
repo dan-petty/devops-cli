@@ -2,9 +2,9 @@
 
 ## 1. The words of the error
 
-- [x] Write failing tests in `tests/roadmap/test_roadmap_implement_step.py`: the real body of #2747 keeps its quoted words; a token in a quoted word is masked; the echo cases of #2794 still end at `=` or `;`. Change the parameters of the echo test if a quote rule is in them.
+- [x] Write failing tests in `tests/roadmap/test_roadmap_implement_step.py`: the real body of #2747 shows the error text of the wrapper; a token in the wrapper is masked; the echo cases of #2794 still end at `=` or `;`; a quoted secret in colon form is hidden, with and without the wrapper.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step.py`
-- [x] Remove `_BODY_QUOTED` from `body_error_text` in `src/devops_cli/roadmap/agent_run.py` and update its docstring and comment.
+- [x] Unwrap the gateway wrapper in `body_error_text` in `src/devops_cli/roadmap/agent_run.py` with `_BODY_WRAPPED`, and keep `_BODY_QUOTED`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step.py`
 
 ## 2. The line that names the failure

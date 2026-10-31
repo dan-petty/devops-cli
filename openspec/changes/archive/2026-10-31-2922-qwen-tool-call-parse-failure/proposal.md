@@ -4,14 +4,14 @@
 
 Issue #2922. The implement Job for #2747 stopped at group 1 with the reason `ModelHTTPError: HTTP 400, model devops-coder, body: litellm.BadRequestError: Ollama_chatException - KeyError: <text>, Got unexpected response from Ollama: {<text>: <text>}`. The stop of #2656 on the day before had the same cause. Two faults hide the cause:
 
-- The text of the body hides every quoted word (#2794), so the words `XML syntax error on line 70: unexpected EOF` are not in the comment.
+- The text of the body hides every quoted word (#2794), so the words `XML syntax error on line 70: unexpected EOF` are not in the comment. The gateway quotes them in `{'error': '...'}`.
 - The comment does not say that the provider could not parse a tool call of the model.
 
 The cause itself is in Ollama (see Feasibility). A new sample of the model can be whole, but the second send of #2797 failed too, so the step discarded its work.
 
 ## What Changes
 
-- `body_error_text` keeps the quoted words of the error text of a body. It still masks the text with `mask_secrets`, cuts it to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, keeps the first line, and stops at the first `=` or `;`. That stop is where the echo of the model begins in `raw='...'` of Ollama. A quoted secret is hidden by the masker, as it is in every other stop text.
+- `body_error_text` reads the error text of the gateway wrapper `{'error': '<text>'}` at the end of the first line, and drops the rest of the line. The text inside still goes through every guard of #2794: `mask_secrets`, the cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, the hiding of each quoted part, and the stop at the first `=` or `;`. Text with no wrapper goes through the same guards. So a quoted word that holds a secret with no known form stays hidden.
 - The reason of a step that a failed model call ended gets one more line when the call failed inside an open stream with the status 400 (the error that the step sends again). The line says that the provider failed inside the stream, that tool call parsing failed is a known cause, and names the upstream issue. The line comes from the fields of the error (`in_stream`, `status_code`), not from its text, so it holds for every model.
 - No manifest changes, no new model route, no new prompt rule. The evidence in Feasibility does not support them (see the design).
 - A consumer observes the reason, so the change carries a spec delta. It modifies one requirement of `roadmap-implement-step`.
@@ -21,7 +21,7 @@ The cause itself is in Ollama (see Feasibility). A new sample of the model can b
 
 ### Modified Capabilities
 
-- `roadmap-implement-step`: the reason of a failed model call keeps the quoted words of the error text, and names the failure of the generation inside a stream.
+- `roadmap-implement-step`: the reason of a failed model call shows the error text inside the gateway wrapper, and names the failure of the generation inside a stream.
 
 ## Impact
 
@@ -46,6 +46,6 @@ So the cause is outside this repository, and no change of image, model setting o
 
 ## Existing Tool Considered
 
-`mask_secrets` (`devops_cli.security.sanitizer`) already finds a secret by its form, so the change removes the blanking of quoted words and keeps the masker. pydantic-ai gives `ModelHTTPError.in_stream` and `.status_code`, which the step already uses for the resend (`_generation_failed`). The change reuses that test for the new line. It builds no parser and no matcher of the provider text. Estimated cost of what it builds: about 15 lines of code, 60 lines of tests, about 60k tokens of agent work, and one hour of elapsed time. The upkeep is small.
+`mask_secrets` (`devops_cli.security.sanitizer`) already finds a secret by its form, so the change keeps the masker and the hiding of quoted parts, and unwraps only the known shape of the gateway. pydantic-ai gives `ModelHTTPError.in_stream` and `.status_code`, which the step already uses for the resend (`_generation_failed`). The change reuses that test for the new line. It builds no parser and no matcher of the provider text. Estimated cost of what it builds: about 20 lines of code, 90 lines of tests, about 60k tokens of agent work, and one hour of elapsed time. The upkeep is small.
 
-The change deletes `_BODY_QUOTED`, the pattern that hides quoted text in `body_error_text`, and the one-sentence rule about quoted parts in the spec.
+The unwrap is one anchored pattern, `_BODY_WRAPPED`. It reads a dict repr with one key. `ast.literal_eval` would need the start of the dict, and a parse error would need a fallback. The pattern fails safe: a text that does not match is hidden as before.
