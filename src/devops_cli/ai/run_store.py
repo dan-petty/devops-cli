@@ -518,6 +518,24 @@ def get_baseline(
     return None
 
 
+def find_baseline_run(
+    subject_or_run: str,
+    mechanism: Mechanism | None = None,
+    root: Path | None = None,
+) -> RunRecord | None:
+    """Find a baseline record by subject key or run ID, with or without mechanism."""
+    run = get_run(subject_or_run, root=root)
+    mech = mechanism or (run.mechanism if run else None)
+    subj_key = run.subject_key if run else subject_or_run
+    if mech:
+        return get_baseline(mech, subj_key, root=root)
+    for m in Mechanism:
+        found = get_baseline(m, subj_key, root=root)
+        if found is not None:
+            return found
+    return None
+
+
 def list_baselines(root: Path | None = None) -> list[BaselineRecord]:
     """List all configured baselines, newest first."""
     base = baselines_dir(root)
@@ -920,6 +938,38 @@ def check_regression(
     )
 
 
+def announce_runs(saved: list[SavedRun], *, to_stderr: bool = False) -> None:
+    """Say where runs were kept, and whether other workstations can see them.
+
+    Commands writing JSON or Markdown to stdout announce on stderr, keeping their output parseable.
+    """
+    if not saved:
+        return
+    from devops_cli.output import escape_text, get_stderr_console, print_info, print_success
+
+    console = get_stderr_console() if to_stderr else None
+    first = saved[0]
+    kept = (
+        f"{first.record.mechanism.value} run {first.record.run_id} → "
+        f"[bold]{escape_text(str(first.path))}[/bold]"
+        if len(saved) == 1
+        else f"{len(saved)} {first.record.mechanism.value} runs → "
+        f"[bold]{escape_text(str(first.path.parent))}[/bold]"
+    )
+    print_success(f"Saved {kept}", console=console)
+    if not first.shared:
+        print_info(
+            f"Kept on this workstation only: {escape_text(first.detail)}.",
+            prefix=False,
+            console=console,
+        )
+
+
+def announce_run(saved: SavedRun, *, to_stderr: bool = False) -> None:
+    """Say where a run was kept, and whether other workstations can see it."""
+    announce_runs([saved], to_stderr=to_stderr)
+
+
 __all__ = [
     "INDEX_PREFIX",
     "AmbiguousRunIdError",
@@ -934,6 +984,8 @@ __all__ = [
     "RunIndexNotConfiguredError",
     "RunRecord",
     "SavedRun",
+    "announce_run",
+    "announce_runs",
     "baselines_dir",
     "check_regression",
     "compare_runs",
@@ -941,6 +993,7 @@ __all__ = [
     "digest",
     "extract_metrics",
     "file_digest",
+    "find_baseline_run",
     "gateway_pool",
     "get_baseline",
     "get_run",

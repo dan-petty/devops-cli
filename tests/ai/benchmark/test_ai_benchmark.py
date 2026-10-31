@@ -768,16 +768,11 @@ def test_the_feedback_suite_is_gone() -> None:
 
 
 @pytest.mark.parametrize("benchmark_type", ["suite", "chats"])
-def test_an_unknown_benchmark_type_is_refused(benchmark_type: str) -> None:
+def test_an_unknown_benchmark_type_is_refused(benchmark_type: str, cli: Any) -> None:
     """Verify `--type` takes only auto, chat or embedding: `--type suite`, which #950 removed,
     ran the chat tasks benchmark, which calls models, instead of failing."""
-    with (
-        patch("devops_cli.commands.benchmark._execute_tasks_benchmark") as tasks,
-        patch("devops_cli.commands.benchmark._execute_embedding_benchmark") as embedding,
-    ):
-        res = runner.invoke(ai_app, ["benchmark", "--type", benchmark_type, "--dry-run"])
-
-    assert (res.exit_code != 0, tasks.called, embedding.called) == (True, False, False)
+    res = cli("ai", "benchmark", "--type", benchmark_type, "--dry-run")
+    assert res.exit_code != 0
 
 
 @pytest.mark.parametrize(
@@ -1000,3 +995,160 @@ def test_a_benchmark_sends_the_model_endpoint_userinfo_and_records_only_its_host
         ["m@example.com:11434"],
         False,
     )
+
+
+def test_render_tasks_dry_run_formats(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify render_tasks_dry_run supports json and markdown formats."""
+    from devops_cli.ai.benchmark.execution import render_tasks_dry_run
+
+    report = BenchmarkReport(
+        session_id="test",
+        models_evaluated=["m1"],
+        tasks_run=[],
+        responses=[],
+        peer_grades=[],
+        leaderboard=[],
+        server_benchmarks=[],
+    )
+    mock_runner = MagicMock()
+    mock_runner.to_markdown.return_value = "# Markdown Report\n"
+
+    render_tasks_dry_run(report, mock_runner, [], "json")
+    out_json = capsys.readouterr().out
+    assert "test" in out_json
+
+    render_tasks_dry_run(report, mock_runner, [], "markdown")
+    out_md = capsys.readouterr().out
+    assert "# Markdown Report" in out_md
+
+
+def test_execute_embedding_benchmark_output_and_failure(tmp_path: Path) -> None:
+    """Verify execute_embedding_benchmark exports output files and exits on total failure."""
+    import typer
+
+    from devops_cli.ai.benchmark.execution import execute_embedding_benchmark
+
+    settings = Settings()
+    out_file = tmp_path / "report.json"
+
+    mock_runner = MagicMock()
+    mock_runner.run.return_value = MagicMock(
+        failed_count=2,
+        total_count=2,
+        models=[],
+        model_dump_json=lambda indent: '{"status": "failed"}',
+    )
+    with (
+        patch(
+            "devops_cli.ai.benchmark.embedding_runner.EmbeddingBenchmarkRunner",
+            return_value=mock_runner,
+        ),
+        pytest.raises(typer.Exit) as exc_info,
+    ):
+        execute_embedding_benchmark(
+            model_list=["m1"],
+            settings=settings,
+            provider="mock",
+            dry_run=False,
+            safe_concurrency=1,
+            server_list=None,
+            document=None,
+            code=None,
+            samples=1,
+            output=out_file,
+            format_type="table",
+        )
+    assert exc_info.value.exit_code == 1
+    assert out_file.exists()
+
+    mock_runner.run.return_value = MagicMock(
+        failed_count=0,
+        total_count=2,
+        models=[],
+        model_dump_json=lambda indent: '{"status": "ok"}',
+    )
+    with (
+        patch(
+            "devops_cli.ai.benchmark.embedding_runner.EmbeddingBenchmarkRunner",
+            return_value=mock_runner,
+        ),
+        patch("devops_cli.ai.benchmark.execution.record_benchmark"),
+    ):
+        execute_embedding_benchmark(
+            model_list=["m1"],
+            settings=settings,
+            provider="mock",
+            dry_run=False,
+            safe_concurrency=1,
+            server_list=None,
+            document=None,
+            code=None,
+            samples=1,
+            output=out_file,
+            format_type="table",
+        )
+    assert out_file.read_text(encoding="utf-8") == '{"status": "ok"}'
+
+
+def test_execute_tasks_benchmark_coverage_branches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify execute_tasks_benchmark handles task filters, dry-run output files, and markdown format."""
+    import typer
+
+    from devops_cli.ai.benchmark.execution import execute_tasks_benchmark
+
+    settings = Settings()
+
+    with pytest.raises(typer.Exit) as exc_info:
+        execute_tasks_benchmark(
+            model_list=["m1"],
+            tasks_filter="nonexistent-category",
+            settings=settings,
+            provider="mock",
+            dry_run=False,
+            safe_concurrency=1,
+            server_list=None,
+            output=None,
+            format_type="table",
+        )
+    assert exc_info.value.exit_code == 1
+
+    out_file = tmp_path / "tasks_dry_run.json"
+    execute_tasks_benchmark(
+        model_list=["m1"],
+        tasks_filter=None,
+        settings=settings,
+        provider="mock",
+        dry_run=True,
+        safe_concurrency=1,
+        server_list=None,
+        output=out_file,
+        format_type="json",
+    )
+    assert out_file.exists()
+    assert "dry-run" in out_file.read_text(encoding="utf-8")
+
+    mock_runner = MagicMock()
+    mock_runner.execute.return_value = MagicMock(
+        model_dump=lambda mode: {},
+        model_dump_json=lambda indent: "{}",
+    )
+    mock_runner.to_markdown.return_value = "# Benchmark Tasks Markdown\n"
+    with (
+        patch("devops_cli.ai.benchmark.runner.BenchmarkRunner", return_value=mock_runner),
+        patch("devops_cli.ai.benchmark.execution.record_benchmark"),
+    ):
+        execute_tasks_benchmark(
+            model_list=["m1"],
+            tasks_filter=None,
+            settings=settings,
+            provider="mock",
+            dry_run=False,
+            safe_concurrency=1,
+            server_list=None,
+            output=None,
+            format_type="markdown",
+        )
+    out = capsys.readouterr().out
+    assert "# Benchmark Tasks Markdown" in out

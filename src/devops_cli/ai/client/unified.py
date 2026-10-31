@@ -254,7 +254,7 @@ class LLMClient(
     def backend_type(self) -> str:
         """Return the AI provider backend type (e.g. ollama, claude, copilot, openai)."""
         p = getattr(self._config, "provider", "ollama")
-        return str(p) if isinstance(p, str) else "mock"
+        return str(p or "ollama")
 
     def _configured_urls(self) -> list[str]:
         """The endpoint URLs that the configuration gives the current provider."""

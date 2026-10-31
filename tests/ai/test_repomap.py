@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import ast
+import json
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from devops_cli.ai.repomap import (
+    DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES,
     FileMapNode,
     SymbolNode,
     _discover_repo_files,
@@ -109,11 +112,12 @@ def test_parse_file_symbols_oversized_file(
 ) -> None:
     """Verify parse_file_symbols rejects files exceeding size threshold with a structured warning."""
     src_file = tmp_path / "large.py"
-    src_file.write_text("x = 1\n", encoding="utf-8")
+    with open(src_file, "wb") as f:
+        f.seek(DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES + 1)
+        f.write(b"\n")
 
     with caplog.at_level(logging.WARNING):
-        with patch("devops_cli.ai.repomap.MAX_REPOMAP_FILE_SIZE_BYTES", 2):
-            result = parse_file_symbols(src_file, tmp_path)
+        result = parse_file_symbols(src_file, tmp_path)
 
     assert result is None
     assert any("exceeds maximum limit" in record.message for record in caplog.records)
@@ -140,11 +144,12 @@ def test_polyglot_to_file_node_oversized_file(
 ) -> None:
     """Verify _polyglot_to_file_node rejects files exceeding size limit and logs warning."""
     ts_file = tmp_path / "massive.ts"
-    ts_file.write_text("export class Engine { start(): void {} }", encoding="utf-8")
+    with open(ts_file, "wb") as f:
+        f.seek(DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES + 1)
+        f.write(b"\n")
 
     with caplog.at_level(logging.WARNING):
-        with patch("devops_cli.ai.repomap.MAX_REPOMAP_FILE_SIZE_BYTES", 5):
-            node = _polyglot_to_file_node(ts_file, tmp_path)
+        node = _polyglot_to_file_node(ts_file, tmp_path)
 
     assert node is None
     assert any("exceeds maximum limit" in record.message for record in caplog.records)
@@ -272,10 +277,10 @@ def test_is_file_excluded_symlink_oserror() -> None:
 
 def test_is_file_excluded_gitignored(tmp_path: Path) -> None:
     """Verify _is_file_excluded returns True when file is ignored by git."""
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
     sample_file = tmp_path / "ignored.py"
     sample_file.write_text("x = 1\n", encoding="utf-8")
-    with patch("devops_cli.ai.repomap.is_ignored_by_git", return_value=True):
-        assert _is_file_excluded(sample_file, include_tests=False, repo_root=tmp_path) is True
+    assert _is_file_excluded(sample_file, include_tests=False, repo_root=tmp_path) is True
 
 
 def test_polyglot_to_file_node_stat_oserror(
@@ -338,7 +343,59 @@ def test_generate_repo_map_escaped_file(tmp_path: Path) -> None:
 
     inside_dir = tmp_path / "inside"
     inside_dir.mkdir()
+    try:
+        (inside_dir / "link.py").symlink_to(secret_file)
+    except OSError:
+        pytest.skip("Symlink creation not supported on platform")
 
-    with patch("devops_cli.ai.repomap._discover_repo_files", return_value=[secret_file]):
-        nodes = generate_repo_map(root_dir=inside_dir, max_files=10)
+    nodes = generate_repo_map(root_dir=inside_dir, max_files=10)
     assert len(nodes) == 0
+
+
+def test_repomap_generation(tmp_path: Path) -> None:
+    """Verify AST repository map generation and formatting."""
+    src_file = tmp_path / "sample.py"
+    src_file.write_text(
+        'class Calculator:\n    """Simple calculator."""\n    def add(self, a: int, b: int) -> int:\n        return a + b\n\ndef helper() -> str:\n    return "ok"\n',
+        encoding="utf-8",
+    )
+    node = parse_file_symbols(src_file, tmp_path)
+    assert node is not None
+    assert len(node.symbols) == 2
+    assert node.symbols[0].name == "Calculator"
+    assert node.symbols[1].name == "helper"
+
+    text = render_repo_map_text([node])
+    assert "class Calculator" in text
+    assert "def add" in text
+    assert "def helper" in text
+
+
+def test_repomap_cli(tmp_path: Path, cli: Any) -> None:
+    """Verify devops ai repomap CLI command."""
+    res = cli("--dry-run", "ai", "repomap", "--target", str(tmp_path))
+    assert res.exit_code == 0
+
+    sample = tmp_path / "sample.py"
+    sample.write_text("def hello() -> None:\n    pass\n", encoding="utf-8")
+
+    res_json = cli("ai", "repomap", "--target", str(tmp_path), "--max-files", "5", "--json")
+    assert res_json.exit_code == 0
+    data = json.loads(res_json.output)
+    assert (data.get("files_count") == 1, len(data.get("files", [])) == 1) == (True, True)
+
+
+def test_repomap_maps_the_nested_worktree_it_runs_in(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops ai repomap` from a worktree under `.claude/worktrees/` maps that worktree's
+    sources, not the checkout around it (#582)."""
+    main, nested = nested_worktree
+    for tree, module in ((main, "main_only"), (nested, "worktree_only")):
+        (tree / "src").mkdir()
+        (tree / "src" / f"{module}.py").write_text("def size() -> int:\n    return 1\n")
+    monkeypatch.chdir(nested)
+
+    mapped = [node.path for node in generate_repo_map()]
+
+    assert mapped == ["src/worktree_only.py"]

@@ -23,6 +23,7 @@ from devops_cli.ai.run_store import (
     compare_runs,
     diff_setup,
     extract_metrics,
+    find_baseline_run,
     get_baseline,
     get_run,
     list_baselines,
@@ -273,17 +274,28 @@ def test_baseline_management(run_env: Path, fake_index: FakeValkey) -> None:
     b2 = set_baseline(rec2)
 
     found_b1 = get_baseline(rec1.mechanism, rec1.subject_key)
+    found_via_helper = find_baseline_run(rec1.run_id)
     baselines = list_baselines()
 
     assert (
         b1.run_id,
         found_b1 is not None and found_b1.run_id == rec1.run_id,
+        found_via_helper is not None and found_via_helper.run_id == rec1.run_id,
         [b.run_id for b in baselines],
     ) == (
         rec1.run_id,
         True,
+        True,
         [b2.run_id, b1.run_id],
     )
+
+    assert find_baseline_run("nonexistent-subject-key") is None
+    from devops_cli.ai.run_store import announce_runs
+
+    announce_runs([])
+
+    ambig_res = cli.invoke(ai_runs.app, ["baseline", "show", rec1.run_id[:4]])
+    assert ambig_res.exit_code == 1
 
 
 def test_check_regression_verdicts() -> None:
