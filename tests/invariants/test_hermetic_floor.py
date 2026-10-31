@@ -571,3 +571,95 @@ def test_test_settings_ci_row_registered() -> None:
     assert "test-settings" in spec_names, "test-settings row missing from get_check_specs()"
     spec = get_check_spec("test-settings")
     assert "check_test_settings" in " ".join(spec.cmd)
+
+
+def test_host_path_access_to_proc_or_tiktoken_fails_with_edge_name(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test attempting to open /proc or /usr/local/share/tiktoken fails naming the edge (#2165)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        def test_proc_access():
+            with open("/proc/mounts", "r") as f:
+                f.read()
+
+        def test_tiktoken_share_access():
+            with open("/usr/local/share/tiktoken/test.bpe", "r") as f:
+                f.read()
+        """,
+    )
+    result.assert_outcomes(failed=2, errors=2)
+    output = result.stdout.str()
+    assert "host path reached without a fake: /proc/mounts" in output
+    assert "host path reached without a fake: /usr/local/share/tiktoken/test.bpe" in output
+
+
+def test_tokenizer_cache_points_to_empty_directory_by_default(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TIKTOKEN_CACHE_DIR and DATA_GYM_CACHE_DIR point to an empty directory in the floor (#2165)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import os
+        from pathlib import Path
+        from devops_cli.ai.context_budget import count_tokens
+
+        def test_cache_is_isolated():
+            tiktoken_dir = Path(os.environ["TIKTOKEN_CACHE_DIR"])
+            data_gym_dir = Path(os.environ["DATA_GYM_CACHE_DIR"])
+            assert tiktoken_dir.is_dir()
+            assert not list(tiktoken_dir.iterdir())
+            assert data_gym_dir.is_dir()
+            assert not list(data_gym_dir.iterdir())
+            # Falls back to character heuristic ceil(11 / 4) == 3 uniformly on all hosts
+            assert count_tokens("hello world") == 3
+        """,
+    )
+    result.assert_outcomes(passed=1)
+
+
+def test_scanner_fake_path_contains_only_stand_ins_and_interpreter(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """scanner_fake sets PATH with only fake.bin_dir and the Python interpreter directory (#2165)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import os
+        import sys
+        from pathlib import Path
+
+        def test_path(scanner_fake):
+            paths = os.environ["PATH"].split(os.pathsep)
+            assert len(paths) == 2
+            assert paths[0] == str(scanner_fake.bin_dir)
+            assert paths[1] == str(Path(sys.executable).parent)
+        """,
+    )
+    result.assert_outcomes(passed=1)
+
+
+def test_no_host_decided_skips_in_test_suite() -> None:
+    """No test in the test suite skips based on host filesystem, permissions, or symlinks (#2165)."""
+    import re
+
+    host_skip_patterns = [
+        re.compile(r"pytest\.skip\([^)]*symlink", re.IGNORECASE),
+        re.compile(r"pytest\.skip\([^)]*filesystem rejects", re.IGNORECASE),
+        re.compile(r"pytest\.skip\([^)]*this user reads a file", re.IGNORECASE),
+    ]
+    violations: list[str] = []
+    tests_root = REPO_ROOT / "tests"
+    for py_file in tests_root.rglob("*.py"):
+        if py_file.name == "test_hermetic_floor.py":
+            continue
+        text = py_file.read_text(encoding="utf-8")
+        for pattern in host_skip_patterns:
+            if pattern.search(text):
+                violations.append(f"{py_file.relative_to(REPO_ROOT)}: matches {pattern.pattern}")
+    assert not violations, f"Host-decided skips found: {violations}"

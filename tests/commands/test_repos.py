@@ -776,10 +776,7 @@ def test_a_worktree_whose_path_is_not_utf8_checks_itself(
     """Verify a worktree at a path holding Latin-1 bytes, which git writes into its `.git`
     file unchanged, is still recognised as a live linked worktree of its main checkout."""
     latin1 = workspace_with_worktrees.main / ".claude" / "worktrees" / os.fsdecode(b"caf\xe9")
-    try:
-        latin1.mkdir(parents=True)
-    except OSError:
-        pytest.skip("the filesystem rejects file names that are not UTF-8")
+    latin1.mkdir(parents=True)
     _make_worktree(workspace_with_worktrees.main, latin1, "latin1")
 
     assert (

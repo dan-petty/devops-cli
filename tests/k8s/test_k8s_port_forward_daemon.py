@@ -15,15 +15,16 @@ from devops_cli.k8s.port_forward_daemon import (
     PortForwardDaemonManager,
     PortForwardInfo,
     get_daemon_manager,
+    process_start_ticks,
     reset_daemon_manager,
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def _own_start_ticks() -> int:
-    """This process's start time in clock ticks after boot, field 22 of /proc/self/stat."""
-    stat = Path("/proc/self/stat").read_bytes()
-    return int(stat[stat.rindex(b")") + 2 :].split()[19])
+    """This process's start time in clock ticks after boot."""
+    ticks = process_start_ticks(os.getpid())
+    return ticks if ticks is not None else 1000
 
 
 def test_port_forward_info_model() -> None:

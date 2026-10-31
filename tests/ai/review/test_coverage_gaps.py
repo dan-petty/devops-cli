@@ -13,8 +13,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from tests.support.fakes.tool_executor import ToolAnswer
@@ -35,14 +33,8 @@ def _project(root: Path, modules: dict[str, str]) -> Path:
 
 
 def _unreadable(path: Path) -> None:
-    """Take every permission off `path`. The test skips where this user still reads the file, as
-    root does."""
+    """Take every permission off `path`."""
     path.chmod(0)
-    try:
-        path.read_bytes()
-    except PermissionError:
-        return
-    pytest.skip("this user reads a file whatever its mode")
 
 
 def _gap_rows(report: str) -> list[str]:

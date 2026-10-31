@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib.resources import files
@@ -245,10 +246,19 @@ class ScannerFake(ToolExecutorFake):
 @pytest.fixture
 def scanner_fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ScannerFake:
     """The recorded security scanners and tool canaries, on PATH and answered for the whole test."""
+    import shutil
+
     from devops_cli.security.tool_executor import DirectToolExecutor, SandboxToolExecutor
 
     fake = ScannerFake(recorded_scanner_runs(), tmp_path / "scanner-bin")
-    monkeypatch.setenv("PATH", os.pathsep.join([str(fake.bin_dir), os.environ.get("PATH", "")]))
+    real_git = shutil.which("git")
+    if real_git:
+        git_target = fake.bin_dir / "git"
+        if not git_target.exists():
+            git_target.symlink_to(real_git)
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(fake.bin_dir), str(Path(sys.executable).parent)])
+    )
     for executor_class in (DirectToolExecutor, SandboxToolExecutor):
         # On the class, so that the fake also answers an executor made before the test.
         monkeypatch.setattr(executor_class, "run", _answering(fake, executor_class.run))
