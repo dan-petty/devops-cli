@@ -84,6 +84,27 @@ def _table_headers(tokens: list[Token]) -> Iterator[tuple[str, ...]]:
             header.append(tokens[index + 1].content.strip())
 
 
+def _table_rows(tokens: list[Token], header: tuple[str, ...]) -> list[tuple[str, ...]]:
+    """The body rows of the table whose header cells are `header`; the cell text keeps its code
+    marks."""
+    rows: list[tuple[str, ...]] = []
+    current: list[str] | None = None
+    matched = False
+    for index, token in enumerate(tokens):
+        if token.type == "thead_open":
+            matched = False
+        elif token.type == "th_open":
+            matched = matched or tokens[index + 1].content.strip() == header[0]
+        elif token.type == "tr_open" and matched:
+            current = []
+        elif token.type == "td_open" and current is not None:
+            current.append(tokens[index + 1].content.strip())
+        elif token.type == "tr_close" and current:
+            rows.append(tuple(current))
+            current = None
+    return [row for row in rows if len(row) == len(header)]
+
+
 def _fence_languages(tokens: list[Token]) -> set[str]:
     """The info string of each fenced code block."""
     return {token.info.strip() for token in tokens if token.type == "fence"}
@@ -137,7 +158,23 @@ def workflow_problems(text: str) -> list[str]:
         problems.append("the transition table is missing")
     if "mermaid" not in _fence_languages(tokens):
         problems.append("the diagram is missing")
+    problems += _retry_problems(tokens)
     return problems
+
+
+def _retry_problems(tokens: list[Token]) -> list[str]:
+    """The retry comment is read on a stopped Item. A stop sets Ready, so a row of the retry
+    comment must not start from In progress and must name the record key of the stop."""
+    retry_rows = [
+        row for row in _table_rows(tokens, TRANSITION_COLUMNS) if "implement: retry" in row[1]
+    ]
+    if not retry_rows:
+        return ["the retry transition is missing"]
+    return [
+        f"the retry transition starts from {row[0]}"
+        for row in retry_rows
+        if "`status/in-progress`" in row[0] or "`implement.stopped`" not in row[0]
+    ]
 
 
 def _document() -> str:
@@ -190,3 +227,17 @@ def test_document_without_the_transition_table_fails() -> None:
 def test_document_without_the_diagram_fails() -> None:
     removed = _document().replace("```mermaid", "```text")
     assert "the diagram is missing" in workflow_problems(removed)
+
+
+def test_document_with_a_retry_from_in_progress_fails() -> None:
+    wrong = _document().replace(
+        "| `status/ready` or `status/planned`, with `implement.stopped` |",
+        "| `status/in-progress` |",
+    )
+    assert wrong != _document()
+    assert any(p.startswith("the retry transition starts from") for p in workflow_problems(wrong))
+
+
+def test_document_without_the_retry_transition_fails() -> None:
+    removed = _document().replace("implement: retry", "implement: again")
+    assert "the retry transition is missing" in workflow_problems(removed)

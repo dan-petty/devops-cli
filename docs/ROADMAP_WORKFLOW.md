@@ -39,15 +39,16 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
 | :--- | :--- | :--- | :--- |
 | No state | A candidate is placed by intake | `status/new` | Service job, agentic coder or person |
 | `status/new` | Refine finds the Item whole | `status/ready` | Service job or person |
-| `status/ready` | Refine finds an open question, or a covering tool | `status/new` | Service job |
+| `status/ready` | Refine finds the proposal not ready: a gap, an open question, a split or a block | `status/new` | Service job |
 | `status/ready` or `status/planned` | A person returns the Item with evidence | `status/new` | Person or agentic coder |
 | `status/ready` | The stage job opens a draft plan pull request | `status/ready` | Service job |
 | `status/ready` | A person merges the plan pull request (G1) and the Service finds the change folder on the default branch | `status/planned` | Service job |
 | `status/ready` or `status/planned` | The Service makes a runner Job for the Item | `status/in-progress` | Service job |
-| `status/ready` or `status/planned` | `devops pr create` opens a pull request that closes the Item | `status/in-progress` | Agentic coder or person |
+| No state, `status/new`, `status/ready` or `status/planned` | `devops pr create` opens a pull request that closes the Item | `status/in-progress` | Agentic coder or person |
 | `status/in-progress` | The checks pass and the pull request is marked ready | `status/in-review` | Runner Job, or `devops pr ready` |
+| No state, `status/new`, `status/ready` or `status/planned` | `devops pr ready` marks a pull request that closes the Item | `status/in-review` | Agentic coder or person |
 | `status/in-progress` | A step stops, or the Job ends with the Item not finished | `status/ready`, then `status/planned` when the plan is on the default branch | Runner Job or Service job |
-| `status/in-progress` | A person comments `implement: retry` after a stop | The same state, and the stop is cleared | Person |
+| `status/ready` or `status/planned`, with `implement.stopped` | A trusted person (the owner, a member or a collaborator) comments `implement: retry` after the stop comment | The same state. The next round of row `implement` takes the Item, then it is `status/in-progress` | Person, then Service job |
 | `status/in-review` | A person merges the pull request (G2) and the issue closes | Closed, with no `status/*` label | Person, then the workflow `clear-status.yml` |
 | Closed | A person merges the release pull request (G3) | Released | Person, then release-please |
 | Any state | A person sets a `status/*` label by hand | That label | Person |
@@ -61,11 +62,11 @@ Claims are a second family of labels. An Item has at most one `owner/*` label.
 | No owner | A person claims the Item | `owner/human` | Person |
 | `owner/service` | A person claims the Item | `owner/human` | Person |
 | `owner/service` | The Job ends and a round reports it | No owner | Service job |
-| `owner/agent` or `owner/human` | The owner releases the Item | No owner | The owner |
+| `owner/agent` or `owner/human` | A person or an agent runs `devops roadmap release` | No owner | Person or agentic coder |
 | `owner/agent` or `owner/human` | Another actor claims the Item | Refused. The Service takes no claimed Item | Service job, agentic coder |
 | Any owner | The issue closes | No owner | Workflow `clear-status.yml` |
 
-A claim of an agent or a person ends a running Job at its next task group. The Job pushes nothing and opens no pull request.
+A claim of an agent or a person ends a running Job at its next task group. The Job pushes nothing and opens no pull request. No job releases the claim of an agent or a person.
 
 ## Labels and record keys
 
@@ -75,7 +76,7 @@ The labels on the issue hold the state. The job record holds the facts behind it
 | :--- | :--- | :--- | :--- |
 | New | `status/new` | Intake, or `devops roadmap return` | `refine.body_hash`, `refine.section_hash`, `refine.next_step` |
 | Ready | `status/ready` | Refine, a stop, or the status sync | `stage.pr`, `stage.branch` (Staged), `implement.stopped` (stopped) |
-| Planned | `status/planned` | The status sync of the Service | The change folder on the default branch. No key |
+| Planned | `status/planned` | The status sync of the Service | The change folder on the default branch, or a merged `stage.pr` |
 | In progress | `status/in-progress` | The Service, `devops pr create`, or the runner Job | `implement.job` with no `implement.job_state` |
 | In review | `status/in-review` | The runner Job, or `devops pr ready` | `implement.pr` |
 | Blocked | `status/blocked` | A person | None. Only a person sets it today |
@@ -103,14 +104,12 @@ These are all the keys of the job record, by the job that writes them:
 
 ## The stop and retry path
 
-This is the path as the code has it today.
+This is the path as the code has it today. The log comment, the suspension of a row and the other details are in [k8s/README.md](../k8s/README.md), Roadmap service step 16, and Runner Jobs.
 
-1. A step stops, a conflict arises, a command fails, or a check fails twice. The runner Job pushes the commits that passed. It comments the step, the reason, the last message of the agent and the masked diff of the work it discarded.
-2. The Job sets `status/ready`, and records the step in `implement.stopped`. The Service shows `status/planned` again when it sees the plan on the default branch.
-3. A Job that ends with the Item still in progress, or Ready with no stop, is a stop that the runner could not write. A pod that the kernel killed is one example. The next round of row `implement` sets the Item to Ready and records `implement.stopped` as `job`.
-4. Every Job that ended gets a comment on its Item with the last 40 lines of its log, masked of secrets. The round records `implement.job_state` as `succeeded`, `failed` or `gone`, and removes `owner/service`.
-5. The Service makes no Job for a stopped Item. A person (the owner, a member or a collaborator) comments `implement: retry` after the stop comment. The next round takes the Item again, with its branch and its draft pull request.
-6. A row that fails 3 rounds in a row is suspended in the failures ledger. It waits for new input. The metric `devops_cli_service_job_suspended` shows it.
+1. A step stops, a conflict arises, a command fails, or a check fails twice. The runner Job pushes the commits that passed and comments the stop on the issue.
+2. The Job sets `status/ready` and records the step in `implement.stopped`. The Service shows `status/planned` again when it sees the plan on the default branch.
+3. A Job that ends with the Item still in progress, or Ready with no stop, is a stop that the runner could not write. The next round of row `implement` sets the Item to Ready and records `implement.stopped` as `job`.
+4. The Service makes no Job for a stopped Item. A trusted person comments `implement: retry` after the stop comment. The next round takes the Item again, with its branch and its draft pull request.
 
 A Status of Ready after a stop looks like an Item that never ran. The comment on the issue is the only sign of the stop. The change that fixes this is in Planned changes.
 
@@ -126,13 +125,7 @@ Only a person passes a gate. No agent and no Service job merges a pull request.
 
 ## The manual path
 
-A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. Run the command from a checkout of this repository:
-
-```bash
-uv run devops k8s run-job --template runner --repo <owner/name> -- roadmap implement --repo <owner/name> --item <number> --confirm
-```
-
-The option `--repo` is needed twice today. The first one sets the one repository that the Job's token may use. The second one names the repository that the job acts on. The runner Job refuses to run a step when the two differ. Add `--dry-run` to see the Job before you make it. Read the Jobs with `kubectl -n devops get jobs -l implement-repo`. The same stop and retry path applies.
+A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. The command `devops k8s run-job --template runner` makes the Job. Its options, and the rule for `--repo`, are in [k8s/README.md](../k8s/README.md), Runner Jobs. The same stop and retry path applies.
 
 ## The diagram
 
