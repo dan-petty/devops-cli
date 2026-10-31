@@ -2,14 +2,15 @@
 
 One pure function derives the Status. The sweep writes it with the family replace of the store, and
 only for an open item that holds Ready or Planned with the label that a job last wrote. The roadmap
-is in memory, and the one pull request that the sweep may read is routed through the GitHub fake.
+is in memory. The runner Job and `devops pr ready` set In Review, and the stop path of #2912 sets
+Blocked, so the function does not derive them.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from devops_cli.exceptions import GitHubRateLimitError, RoadmapItemChangedError
+from devops_cli.exceptions import GitHubOperationError, GitHubRateLimitError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.status_sync import (
@@ -79,10 +80,6 @@ def _pull(api: GitHubApiFake, *, draft: bool, state: str = "open") -> None:
         (StatusFacts(), "Ready"),
         (StatusFacts(plan_merged=True), "Planned"),
         (StatusFacts(plan_merged=True, job_active=True), "In Progress"),
-        (StatusFacts(plan_merged=True, pull_ready=True), "In Review"),
-        (StatusFacts(plan_merged=True, job_active=True, pull_ready=True), "In Progress"),
-        (StatusFacts(plan_merged=True, job_active=True, blocked=True), "Blocked"),
-        (StatusFacts(blocked=True), "Blocked"),
     ],
 )
 def test_the_status_follows_the_facts_in_one_order(facts: StatusFacts, status: str) -> None:
@@ -133,33 +130,6 @@ def test_an_item_whose_job_was_reported_is_not_held(store: InMemoryRoadmapStore)
     assert (synced.changed, _status(store, number)) == ((), "Planned")
 
 
-@pytest.mark.parametrize(("draft", "status"), [(False, "In Review"), (True, "Planned")])
-def test_the_pull_request_of_the_delivery_decides_in_review(
-    store: InMemoryRoadmapStore, github_api: GitHubApiFake, draft: bool, status: str
-) -> None:
-    number = _job_item(store, "Planned", implement_pr=str(DELIVERY_PULL))
-    _pull(github_api, draft=draft)
-
-    sync_statuses(store, repo=STAGE_REPO, planned=_plans(number))
-
-    assert _status(store, number) == status
-
-
-def test_a_stopped_item_or_a_running_job_costs_no_pull_request_read(
-    store: InMemoryRoadmapStore, github_api: GitHubApiFake
-) -> None:
-    stopped = _job_item(store, "Planned", implement_pr="9", implement_stopped="group 1")
-    running = _job_item(store, "Planned", implement_pr="9", implement_job="devops-cli-runner-1")
-
-    sync_statuses(store, repo=STAGE_REPO, planned=_plans(stopped, running))
-
-    assert (github_api.requested, _status(store, stopped), _status(store, running)) == (
-        [],
-        "Planned",
-        "In Progress",
-    )
-
-
 @pytest.mark.parametrize("status", ["New", "In Progress", "In Review", "Blocked"])
 def test_an_item_in_another_status_is_never_written(
     store: InMemoryRoadmapStore, status: str
@@ -189,7 +159,7 @@ def test_a_label_that_a_person_set_is_not_reverted(store: InMemoryRoadmapStore) 
 
     synced = sync_statuses(store, repo=STAGE_REPO, planned=_plans(number))
 
-    assert (synced.changed, _status(store, number)) == ((), "Ready")
+    assert (synced.changed, synced.failed, _status(store, number)) == ((), (), "Ready")
 
 
 def test_a_label_that_a_person_added_next_to_the_recorded_one_stays(
@@ -200,7 +170,7 @@ def test_a_label_that_a_person_added_next_to_the_recorded_one_stays(
 
     synced = sync_statuses(store, repo=STAGE_REPO, planned=_plans(number))
 
-    assert (synced.changed, _status(store, number)) == ((), "In Progress")
+    assert (synced.changed, synced.failed, _status(store, number)) == ((), (), "In Progress")
 
 
 def test_an_item_that_no_job_ever_labeled_is_left_alone(store: InMemoryRoadmapStore) -> None:
@@ -210,30 +180,68 @@ def test_an_item_that_no_job_ever_labeled_is_left_alone(store: InMemoryRoadmapSt
 
     synced = sync_statuses(store, repo=STAGE_REPO, planned=_plans(number))
 
-    assert (synced.changed, _status(store, number)) == ((), "Ready")
+    assert (synced.changed, synced.failed, _status(store, number)) == ((), (), "Ready")
 
 
-def test_a_change_of_a_person_between_the_read_and_the_write_raises(
+def test_a_change_of_a_person_after_the_cached_read_is_not_written_over(
     store: InMemoryRoadmapStore,
 ) -> None:
+    """The sweep reads the issue again before it writes. A label that a person set since the
+    cached read stays, and the sweep reports no failure."""
     number = _job_item(store, "Ready")
-    read = _item(store, number)
+    cached = _item(store, number)
     store.remove_label(number, "status/ready")
     store.add_label(number, "status/blocked")
 
-    with pytest.raises(RoadmapItemChangedError) as raised:
-        sync_status(store, read, StatusFacts(plan_merged=True))
+    written = sync_status(store, cached, StatusFacts(plan_merged=True))
 
-    assert ("Blocked" in str(raised.value), _status(store, number)) == (True, "Blocked")
+    assert (written, _status(store, number)) == (None, "Blocked")
+
+
+def test_a_write_of_another_lane_after_the_cached_read_is_not_written_over(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The model lane reads its items before a model run of minutes. The status lane may mark a
+    Job in the meantime. The stale view neither fails nor turns In Progress back to Planned."""
+    number = _job_item(store, "Ready")
+    cached = _item(store, number)
+    store.remove_label(number, "status/ready")
+    store.add_label(number, "status/in-progress")
+
+    written = sync_status(store, cached, StatusFacts(plan_merged=True))
+
+    assert (written, _status(store, number)) == (None, "In Progress")
+
+
+def test_an_issue_that_closed_after_the_cached_read_gets_no_label(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The workflow `clear-status` removes the labels when an issue closes. A write from a view
+    that is older than the close would leave a label on a closed issue."""
+    number = _job_item(store, "Ready")
+    cached = _item(store, number)
+    store.close_by_hand(number, CloseReason.COMPLETED)
+
+    written = sync_status(store, cached, StatusFacts(plan_merged=True))
+
+    assert (written, _status(store, number)) == (None, "Ready")
 
 
 def test_one_item_that_fails_does_not_stop_the_others(
-    store: InMemoryRoadmapStore, github_api: GitHubApiFake
+    store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    broken = _job_item(store, "Planned", implement_pr="8")
+    broken = _job_item(store, "Planned")
     fine = _job_item(store, "Ready")
+    write = InMemoryRoadmapStore.set_field
 
-    synced = sync_statuses(store, repo=STAGE_REPO, planned=_plans(broken, fine))
+    def refuse(self: InMemoryRoadmapStore, item: Item, *args: object, **kwargs: object) -> None:
+        if item.number == broken:
+            raise GitHubOperationError("The write failed.", operation="roadmap.item.set_field")
+        write(self, item, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(InMemoryRoadmapStore, "set_field", refuse)
+
+    synced = sync_statuses(store, repo=STAGE_REPO, planned=_plans(fine))
 
     assert (synced.changed, [failure.number for failure in synced.failed]) == ((fine,), [broken])
 
@@ -241,37 +249,48 @@ def test_one_item_that_fails_does_not_stop_the_others(
 def test_a_rate_limit_stops_the_sweep(
     store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from devops_cli.github.client import GitHubClient
-
     for _ in range(2):
-        _job_item(store, "Planned", implement_pr="9")
-    read: list[int] = []
+        _job_item(store, "Ready")
+    written: list[int] = []
 
-    def refuse(self: GitHubClient, repo: str, number: int) -> None:
-        read.append(number)
-        raise GitHubRateLimitError("No requests are left.", operation="roadmap.read")
+    def refuse(self: InMemoryRoadmapStore, item: Item, *args: object, **kwargs: object) -> None:
+        written.append(item.number)
+        raise GitHubRateLimitError("No requests are left.", operation="roadmap.write")
 
-    monkeypatch.setattr(GitHubClient, "get_pull_status", refuse)
+    monkeypatch.setattr(InMemoryRoadmapStore, "set_field", refuse)
 
     with pytest.raises(GitHubRateLimitError, match="No requests are left"):
-        sync_statuses(store, repo=STAGE_REPO, planned=NO_PLANS)
+        sync_statuses(store, repo=STAGE_REPO, planned=_plans(1, 2))
 
-    assert len(read) == 1
+    assert len(written) == 1
 
 
-def test_a_round_with_nothing_to_write_sends_no_request(
+def test_a_sweep_sends_no_request_to_github_but_the_label_writes(
     store: InMemoryRoadmapStore, github_api: GitHubApiFake
 ) -> None:
     ready = _job_item(store, "Ready")
+    planned = _job_item(store, "Ready", implement_pr=str(DELIVERY_PULL))
 
-    synced = sync_statuses(store, repo=STAGE_REPO, planned=NO_PLANS)
+    synced = sync_statuses(store, repo=STAGE_REPO, planned=_plans(planned))
 
-    assert (synced.changed, github_api.requested, _status(store, ready)) == ((), [], "Ready")
+    assert (synced.changed, github_api.requested, _status(store, ready)) == (
+        (planned,),
+        [],
+        "Ready",
+    )
 
 
-def test_the_facts_of_a_merged_plan_pull_request(store: InMemoryRoadmapStore) -> None:
+def test_the_facts_of_an_item_with_a_merged_plan_and_no_job(store: InMemoryRoadmapStore) -> None:
     number = _job_item(store, "Ready")
 
-    facts = facts_of(_item(store, number), repo=STAGE_REPO, plan_merged=True)
+    facts = facts_of(_item(store, number), plan_merged=True)
 
     assert facts == StatusFacts(plan_merged=True)
+
+
+def test_the_facts_of_an_item_that_a_job_holds(store: InMemoryRoadmapStore) -> None:
+    number = _job_item(store, "Planned", implement_job="devops-cli-runner-1")
+
+    facts = facts_of(_item(store, number), plan_merged=True)
+
+    assert facts == StatusFacts(plan_merged=True, job_active=True)

@@ -348,7 +348,9 @@ def plan_implement(
         repo=repo,
         source=checkout,
         remote_heads=read_remote_heads(checkout),
-        planned=planned or read_planned_changes(checkout, operation=GIT_OPERATION),
+        planned=(
+            read_planned_changes(checkout, operation=GIT_OPERATION) if planned is None else planned
+        ),
         pull_status=lambda pull: client.get_pull_status(repo, pull),
     )
     if item_number is not None:

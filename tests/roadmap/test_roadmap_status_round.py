@@ -146,15 +146,16 @@ def test_a_person_who_moves_the_label_keeps_it_through_every_round(
     number = seed_staged(store, labels=("type/bug", "effort/high"))
     store.set_field(_held(store, number), ItemField.STATUS, "Ready")
     merge_plan(stage_repo, number)
-    store.remove_label(number, "status/ready")
+    IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+    assert _labels(store, number) == ["status/planned"]
+
+    # A person moves Planned back to Ready, a Status that the Service writes from.
+    store.remove_label(number, "status/planned")
     store.add_label(number, "status/ready")
-    store.add_label(number, "status/new")
-    store.remove_label(number, "status/ready")
-
     IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
     IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
 
-    assert _labels(store, number) == ["status/new"]
+    assert _labels(store, number) == ["status/ready"]
 
 
 def test_the_row_stage_ready_sets_planned_for_a_plan_pull_request_that_merged(

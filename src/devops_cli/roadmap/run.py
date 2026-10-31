@@ -554,7 +554,9 @@ def _run_stage_adapter(
     plan = plan_stage(store, repo=repo, source=source, filters=parse_filters(()))
     applied = apply_stage(store, plan, source=source)
     emit_stage_results(plan, applied)
-    synced = sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned else None
+    synced = (
+        sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
+    )
     raise_for_failed([*plan.failed, *applied.failed])
     if synced is not None:
         raise_for_failed(synced.failed, summary=MESSAGES.roadmap.status_sync_failed)

@@ -102,7 +102,7 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
     if not status.is_open_draft:
         store.set_marks(item, {StageRecordKey.READY: str(number)})
         if status.merged:
-            sync_status(store, item, facts_of(item, repo=repo, plan_merged=True))
+            sync_status(store, item, facts_of(item, plan_merged=True))
         return _Outcome.SETTLED
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)
