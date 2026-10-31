@@ -33,8 +33,6 @@ from devops_cli.core.process import (
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 
-pytestmark = pytest.mark.live("python")
-
 
 def test_build_subprocess_env_allowlist_and_denylist(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -585,6 +583,7 @@ def test_a_caller_override_with_a_null_byte_is_refused(
     )
 
 
+@pytest.mark.live("python")
 def test_run_subprocess_isolates_real_child_process(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -610,6 +609,7 @@ def test_run_subprocess_isolates_real_child_process(
     assert "ALLOWLISTED_TEST_MARKER" not in child_env
 
 
+@pytest.mark.live("python")
 def test_run_subprocess_forwards_explicit_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_subprocess explicitly forwards caller-provided env vars."""
     monkeypatch.setenv("AMBIENT_LEAK_CHECK", "ambient_value_to_drop")
@@ -623,6 +623,7 @@ def test_run_subprocess_forwards_explicit_env(monkeypatch: pytest.MonkeyPatch) -
     assert "AMBIENT_LEAK_CHECK" not in child_env
 
 
+@pytest.mark.live("python")
 @pytest.mark.anyio
 async def test_run_subprocess_async_isolates_child_process(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -644,6 +645,7 @@ async def test_run_subprocess_async_isolates_child_process(
     assert "AWS_SECRET_ACCESS_KEY" not in child_env
 
 
+@pytest.mark.live("python")
 def test_run_json_subprocess_inherits_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_json_subprocess benefits from the same environment isolation."""
     monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))

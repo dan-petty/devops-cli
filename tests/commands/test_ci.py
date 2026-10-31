@@ -56,10 +56,7 @@ from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until, wait_while_running
 
-pytestmark = [
-    pytest.mark.usefixtures("refuse_nested_test_runs"),
-    pytest.mark.live("devops", "bash", "python", "ruff"),
-]
+pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 
 runner = CliRunner()
 
@@ -1871,6 +1868,7 @@ def image_change_repo(tmp_path: Path) -> Path:
     return work
 
 
+@pytest.mark.live("bash")
 def test_image_change_detection_flags_source_changes(image_change_repo: Path) -> None:
     """A change under src/ marks the image as needing a rebuild.
 
@@ -1896,6 +1894,7 @@ def test_image_change_detection_flags_source_changes(image_change_repo: Path) ->
     assert "src/devops_cli/module.py" in stdout
 
 
+@pytest.mark.live("bash")
 def test_image_change_detection_skips_unrelated_changes(image_change_repo: Path) -> None:
     """A documentation-only change leaves the published image untouched."""
     import subprocess
@@ -2046,6 +2045,7 @@ def _lint_from(worktree: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, li
     return result.exit_code, cwds
 
 
+@pytest.mark.live("python")
 def test_lint_fails_on_an_error_only_the_worktree_has(
     nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2058,6 +2058,7 @@ def test_lint_fails_on_an_error_only_the_worktree_has(
     assert (exit_code, set(cwds)) == (1, {nested.resolve()})
 
 
+@pytest.mark.live("python")
 def test_lint_ignores_an_error_only_the_main_checkout_has(
     nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3029,6 +3030,7 @@ def _stop_driver(driver: subprocess.Popen[bytes]) -> None:
 STOP_SIGNALS = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
 
 
+@pytest.mark.live("devops")
 @pytest.mark.usefixtures("default_signal_dispositions")
 @pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
 def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
@@ -3060,6 +3062,7 @@ def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
         )
 
 
+@pytest.mark.live("devops")
 @pytest.mark.usefixtures("default_signal_dispositions")
 @pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
 def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(

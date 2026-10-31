@@ -24,10 +24,7 @@ from tests.support.hung_children import (
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
-pytestmark = [
-    pytest.mark.usefixtures("refuse_nested_test_runs", "default_signal_dispositions"),
-    pytest.mark.live("true", "sh", "false", "sleep", "echo", "python", "pwd"),
-]
+pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs", "default_signal_dispositions")
 
 # A run's timeout counts from when it starts waiting for its child. A test that returns the spawn
 # only once the child has written its pids needs a short one: the child hangs, so it always fires.
@@ -38,6 +35,7 @@ def _raise_file_not_found(*_args: Any, **_kwargs: Any) -> None:
     raise FileNotFoundError(2, "No such file or directory")
 
 
+@pytest.mark.live("echo")
 def test_run_subprocess_success() -> None:
     proc = run_subprocess(["echo", "hello"])
     assert proc.returncode == 0
@@ -51,6 +49,7 @@ def test_run_subprocess_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "not found" in proc.stderr.lower()
 
 
+@pytest.mark.live("echo")
 @pytest.mark.anyio
 async def test_run_subprocess_async_success() -> None:
     proc = await run_subprocess_async(["echo", "hello async"])
@@ -66,12 +65,14 @@ async def test_run_subprocess_async_not_found(monkeypatch: pytest.MonkeyPatch) -
     assert "not found" in proc.stderr.lower()
 
 
+@pytest.mark.live("false")
 @pytest.mark.anyio
 async def test_run_subprocess_async_non_zero() -> None:
     proc = await run_subprocess_async(["false"])
     assert proc.returncode != 0
 
 
+@pytest.mark.live("false")
 def test_run_subprocess_check_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_subprocess error handling with check=True and timeouts."""
     import subprocess
@@ -96,6 +97,7 @@ def test_run_subprocess_check_and_timeout(monkeypatch: pytest.MonkeyPatch) -> No
         set_dry_run(False)
 
 
+@pytest.mark.live("false", "sleep")
 @pytest.mark.anyio
 async def test_run_subprocess_async_check_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_subprocess_async error handling with check=True and timeouts."""
@@ -128,6 +130,7 @@ def test_run_subprocess_cwd_security() -> None:
         run_subprocess(["echo", "hi"], cwd=Path("/etc"))
 
 
+@pytest.mark.live("pwd")
 def test_run_subprocess_runs_in_the_runtime_root() -> None:
     """Only a sandbox workspace refuses /run (#1115); a subprocess may still run there."""
     proc = run_subprocess(["pwd"], cwd=Path("/run"))
@@ -148,6 +151,7 @@ async def test_run_subprocess_async_cwd_security() -> None:
         await run_subprocess_async(["echo", "hi"], cwd=Path("/etc"))
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_run_subprocess_async_timeout_kills_process_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -243,6 +247,7 @@ def _spawn_once_started(monkeypatch: pytest.MonkeyPatch, watch: HungChildWatch) 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_once_started)
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_a_cancelled_run_stops_its_whole_process_group(tmp_path: Path) -> None:
     """Cancelling run_subprocess_async, as Ctrl-C cancels the task `asyncio.run` drives, stops
@@ -258,6 +263,7 @@ async def test_a_cancelled_run_stops_its_whole_process_group(tmp_path: Path) -> 
         assert (started, await _until(watch.stopped)) == (True, True)
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_a_cancelled_run_sends_its_group_sigint_first_so_its_teardown_runs(
     tmp_path: Path,
@@ -277,6 +283,7 @@ async def test_a_cancelled_run_sends_its_group_sigint_first_so_its_teardown_runs
         assert (started, await _until(watch.stopped), marker.is_file()) == (True, True, True)
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_a_further_cancellation_during_the_stop_cannot_skip_its_sigkill(
     tmp_path: Path,
@@ -307,6 +314,7 @@ async def test_a_further_cancellation_during_the_stop_cannot_skip_its_sigkill(
         ) == (True, True, True, False)
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_a_cancellation_while_the_child_starts_still_stops_its_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -338,6 +346,7 @@ async def test_a_cancellation_while_the_child_starts_still_stops_its_group(
         assert (started, await _until(watch.stopped)) == (True, True)
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_a_cancellation_after_the_child_exited_still_stops_the_members_left(
     tmp_path: Path,
@@ -391,6 +400,7 @@ class _ExitedProcess:
         raise ProcessLookupError
 
 
+@pytest.mark.live("true")
 @pytest.mark.anyio
 async def test_a_cancellation_after_the_child_exited_stays_a_cancellation(
     monkeypatch: pytest.MonkeyPatch,
@@ -417,6 +427,7 @@ async def test_a_cancellation_after_the_child_exited_stays_a_cancellation(
         await run
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_a_run_that_hangs_after_its_summary_line_is_stopped_at_its_bound_with_its_group(
     tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
@@ -442,6 +453,7 @@ async def test_a_run_that_hangs_after_its_summary_line_is_stopped_at_its_bound_w
         )
 
 
+@pytest.mark.live("sh")
 @pytest.mark.anyio
 async def test_a_timed_out_check_is_stopped_with_sigterm_first_and_reports_as_before(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
