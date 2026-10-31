@@ -1,0 +1,23 @@
+# Design
+
+## Decisions
+
+- **A row of its own on the status lane.** The row `stage_ready` follows `implement`. It calls no model and needs no clone, so a model-lane round never delays it (#2757), and the owner sees a green plan leave the draft state within 10 minutes of its last check, and not within an hour. The interval is `DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES` (10), the interval of `implement`. The row follows `implement` so that a Staged item with a green draft gets its Job first: the Job records `implement.job`, and the row leaves such an item alone.
+- **The record decides what the row reads.** An item counts when it is open, its record holds a `stage.pr` that is a number, `stage.ready` is not that number, and `implement.job` is not set. `store.items()` is the listing the store holds for the round, so a round with no such item sends no request. `stage.ready` keeps the pull request that left the draft state out of every later round. The key holds the number and not a flag, so a new stage pull request of the same item (a new number in `stage.pr`) counts again.
+- **One read of the pull request, then one of the checks.** `get_pull_status` gives the state, the draft flag and the head commit. A pull request that is closed, merged or ready (marked by a person, or by an earlier round whose record write failed) is recorded and not touched. An open draft goes to `read_check_runs` at its head commit. `ready_to_mark` judges the result: `CheckVerdictSummary.is_passing`, which is true when every check ended and passed or was skipped, and false for a failed, cancelled or unread check, for a running check, and for a head with no check yet (`no checks reported` is pending).
+- **`ready_to_mark` is the seam of #2867.** It takes one `StageDraft` (the item, the pull request status and the checks) and returns a bool. The model-based judgement of #2867 replaces its body, and `mark_stage_ready` stays as it is.
+- **Mark first, record second.** `mark_ready` runs, and then `stage.ready` is set. When the record write fails, the next round reads a pull request that is not a draft and records it, so the pull request is marked once.
+- **A failure stops one item.** `write_each` of `stage.py` runs each item. A failed read or a failed `gh pr ready` adds a `StageFailure` and the next item still runs, and the round then fails naming each item through `raise_for_failed`. Rejected credentials and the stop of the Service stop the round.
+- **Check runs only.** See Feasibility: the token has no `statuses` permission, and the repository sets no commit status.
+- **The implement job keeps its rule.** A Staged item needs an open draft. A plan pull request that the row marked ready is a plan that waits for a person to merge it, and the item is Planned from then on. The implement job and its spec do not change.
+
+## Rejected alternatives
+
+- **A step of the row `implement`.** The row waits while a Job of the repository runs and reports Jobs that ended. A read of pull requests inside it would run only when no Job runs, and a failed `gh pr ready` would fail the row that submits Jobs. The two duties share no data.
+- **A step of the row `stage`.** The row is on the model lane and due every hour, and a long model round delays it. The owner's case was a delay of more than an hour.
+- **A GraphQL mutation through the session (gidgethub).** The session sends REST only, and the transport would need a GraphQL path with its own pacing and its error classes for one call. `mark_ready` already sends the call through `gh`, which the Service image carries, and the implement job must keep working with it. The check that "the two paths use one function for the call" is true by construction.
+- **`read_commit_checks` as it is.** Its call to the commit status endpoint needs a permission that the App does not hold, and so it fails closed on every pull request. Adding the permission to the App is a change that only a person may make, and the repository sets no commit status.
+- **`mergeable_state` `clean`.** It covers the required checks only. The owner's rule is "all checks pass".
+- **No `stage.ready` record.** Each ready plan that waits for a merge would cost one read every 10 minutes, 6 an hour for each plan. The record costs 2 requests once.
+- **Read the check runs before the pull request.** The head commit of the stage job is in `stage.sha`, but a person may push to the branch. The read of the pull request (one request) proves the state and the head.
+- **Mark ready the pull request of an item with a Job.** The implement job works on that pull request and marks it ready itself after the last group. The row leaves it alone.
