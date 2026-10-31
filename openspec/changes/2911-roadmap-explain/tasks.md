@@ -20,12 +20,16 @@
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py tests/roadmap/test_roadmap_explain_command.py`
 - [x] 3.2 Write `src/devops_cli/roadmap/explain.py` and `explain_requests` in `src/devops_cli/roadmap/request_plan.py`; add `devops roadmap explain` with the class `request-plan`, its help and its messages
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py tests/roadmap/test_roadmap_explain_command.py tests/invariants/test_dry_run_class_ratchet.py`
+- [x] 3.3 Read the heads of `origin` and the plans once in `explain_item` and give them to both jobs, so a real run makes the reads that the dry run lists
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py`
 
 ## 4. The documents and the archive
 
 - [x] 4.1 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
-- [ ] 4.2 Archive the change
+- [x] 4.2 Remove the line of #2911 from "Planned changes" in `docs/ROADMAP_WORKFLOW.md` and name `devops roadmap explain` in the notes of the steps
+  - Verification: `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
+- [ ] 4.3 Archive the change
   - Verification: `uv run devops openspec archive 2911-roadmap-explain`
 
 ## Workflow follow-up
