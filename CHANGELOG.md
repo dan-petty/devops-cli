@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.29.0](https://github.com/dan-petty/devops-cli/compare/v0.28.0...v0.29.0) (2026-10-31)
+
+
+### Features
+
+* **ai:** declare local ai commands make no external request ([#2888](https://github.com/dan-petty/devops-cli/issues/2888)) ([306f016](https://github.com/dan-petty/devops-cli/commit/306f016b37aa44c1afa230063d16096759c7a00c)), closes [#2247](https://github.com/dan-petty/devops-cli/issues/2247)
+
 ## [0.28.0](https://github.com/dan-petty/devops-cli/compare/v0.27.0...v0.28.0) (2026-10-31)
 
 
