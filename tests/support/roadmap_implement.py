@@ -43,6 +43,14 @@ BODY = (
     "## Acceptance criteria\n\n- The job keeps every comment.\n"
 )
 
+# The labels file of the repository: it declares the scope of `TITLE`, and no other scope.
+LABELS_FILE = """\
+- name: type/bug
+  color: D73A4A
+- name: scope/roadmap
+  color: 0E8A16
+"""
+
 PROPOSAL = (
     "# Proposal\n\n## Why\n\nThe job drops the last comment of a thread (#1). It must keep it.\n\n"
     "## What Changes\n\n- The job keeps every comment.\n"
@@ -503,6 +511,7 @@ def _world(
                 {"number": PULL, "html_url": f"https://example.com/pull/{PULL}"}, status=201
             ),
         )
+    roadmap_store.seed_file(".github/labels.yml", LABELS_FILE)
     seed_staged(roadmap_store, record=not planned)
     return JobWorld(repo, roadmap_store, api, programs, PullFake(api, programs, repo), clock)
 

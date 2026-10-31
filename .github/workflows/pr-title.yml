@@ -34,15 +34,19 @@ jobs:
             agents
             ai
             argo
+            argocd
             ci
             cli
             cloudflare
             config
+            contributing
             deps
             devcontainer
             docker
             docs
             exceptions
+            fail-to-pass
+            gate
             gh
             git
             github
@@ -53,6 +57,7 @@ jobs:
             mcp
             monitoring
             openspec
+            output
             pr
             rag
             release
@@ -60,6 +65,8 @@ jobs:
             review
             roadmap
             sandbox
+            scan
+            sdlc
             security
             service
             telemetry

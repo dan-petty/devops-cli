@@ -187,6 +187,34 @@
   color: "E99695"
   description: "Vault leases, secrets and their lifecycle"
 
+- name: "scope/argocd"
+  color: "EF7B4D"
+  description: "Argo CD sync, projects and the devops application"
+
+- name: "scope/contributing"
+  color: "0075CA"
+  description: "The rules of CONTRIBUTING.md and their checks"
+
+- name: "scope/fail-to-pass"
+  color: "B60205"
+  description: "The fail-to-pass replay of a fix"
+
+- name: "scope/scan"
+  color: "D93F0B"
+  description: "The devops scan command and its scanners"
+
+- name: "scope/sdlc"
+  color: "0E8A16"
+  description: "The software development life cycle and its phases"
+
+- name: "scope/gate"
+  color: "FBCA04"
+  description: "The quality gate and its checks"
+
+- name: "scope/output"
+  color: "C2E0C6"
+  description: "Output formats of commands: JSON, YAML and tables"
+
 - name: "autorelease: pending"
   color: "EDEDED"
   description: "The release pull request that release-please keeps open"

@@ -87,7 +87,7 @@ uv run pre-commit install
   The pull request title is a Conventional Commit, and the `Semantic PR title` check enforces it. The squash commit takes the title as its subject, and GitHub adds ` (#<number>)` to it. release-please writes the changelog from these titles, so write the title for a reader of the changelog. The scope is one of the `scope/*` labels of `.github/labels.yml`, or `main` for the release pull request, and the check refuses another scope. To use a new scope, declare its label in `.github/labels.yml` and add the scope to the `scopes` list of `.github/workflows/pr-title.yml` in the same pull request. The summary, the text after `<type>(<scope>): `, has at most 60 characters, and the `Semantic PR title` check refuses a longer one. The summary states the effect of the change. Put the evidence and the steps in the body or in the change folder:
   ```
   feat(k8s): add automated minikube helm adoption check
-  fix(runner): prevent thread pool executor blocking on tool timeout
+  fix(ai): prevent thread pool executor blocking on tool timeout
   docs(sdlc): add enterprise lifecycle manual
   ```
   Before `1.0.0` nothing is a breaking change, so a title has no `!` and a body has no `BREAKING CHANGE:` footer. Only these types add a line to the changelog:
@@ -121,7 +121,7 @@ This table holds the naming rules of the project. Each rule names the check that
 | Artifact | Form | Check |
 | :--- | :--- | :--- |
 | Branch | `<type>/<issue>-<slug>` | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks the form. `devops repos worktrees add` makes a branch in this form. |
-| Pull request title and commit subject | `<type>(<scope>): <summary>`, with a summary of at most 60 characters | The `Semantic PR title` check for the title: its form and the length of its summary. None for a commit on a branch. |
+| Pull request title and commit subject | `<type>(<scope>): <summary>`, with a summary of at most 60 characters | The `Semantic PR title` check for the title: its form, its scope and the length of its summary. None for a commit on a branch. |
 | Change folder | `<issue>-<slug>`, archived as `<YYYY-MM-DD>-<issue>-<slug>` | `devops openspec check` and `tests/test_change_folders.py`. |
 | Python module, class, function and variable | PEP 8 | Ruff `N`. |
 | Constant | `_<NAME>` in the one module that reads it. `<NAME>` in the `constants.py` of a package when several of its modules read it. `CONST_<NAME>` in `config/constants.py`, or `DEFAULT_<NAME>` for a tunable value in `config/defaults.py`, when modules of two or more packages import it ("Closed Lists and Standard Parsers" above). A `DEFAULT_<NAME>` that a settings field takes as its default is read only in `config/`: a module elsewhere reads the loaded setting, or `setting_default("<key>")` where it has no settings | `tests/invariants/test_source_tree.py` finds each read of a setting's default outside `config/`. |

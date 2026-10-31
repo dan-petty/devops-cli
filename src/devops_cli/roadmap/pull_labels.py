@@ -18,13 +18,13 @@ from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.title_labels import TitleLabels, declared_label_names, title_labels
 
 
-def read_title_labels(repo: str, title: str, *, ref: str | None) -> TitleLabels:
-    """The labels that `title` gives, checked against `.github/labels.yml` of `repo` on `ref` (the
-    default branch when None). A file that is missing, or is no list of label specs, or a read that
-    fails, raises `GitHubOperationError` that names the file."""
-    text = roadmap_store.get_roadmap_store(repo).repository_file(CONST_ROADMAP_LABELS_PATH, ref=ref)
+def declared_labels(store: roadmap_store.RoadmapStore, *, ref: str | None) -> tuple[str, ...]:
+    """The names of the labels that `.github/labels.yml` declares in the repository of `store` on
+    `ref` (the default branch when None). A file that is missing, or is no list of label specs, or
+    a read that fails, raises `GitHubOperationError` that names the file."""
+    text = store.repository_file(CONST_ROADMAP_LABELS_PATH, ref=ref)
     try:
-        declared = declared_label_names(text)
+        return declared_label_names(text)
     except (yaml.YAMLError, ValidationError) as exc:
         raise GitHubOperationError(
             MESSAGES.pr.labels_unreadable.format(
@@ -33,6 +33,13 @@ def read_title_labels(repo: str, title: str, *, ref: str | None) -> TitleLabels:
             operation="pr.labels",
             details={"path": CONST_ROADMAP_LABELS_PATH},
         ) from exc
+
+
+def read_title_labels(repo: str, title: str, *, ref: str | None) -> TitleLabels:
+    """The labels that `title` gives, checked against `.github/labels.yml` of `repo` on `ref` (the
+    default branch when None). A file that is missing, or is no list of label specs, or a read that
+    fails, raises `GitHubOperationError` that names the file."""
+    declared = declared_labels(roadmap_store.get_roadmap_store(repo), ref=ref)
     return title_labels(title, declared)
 
 

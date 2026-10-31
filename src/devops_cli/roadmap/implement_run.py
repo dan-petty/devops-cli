@@ -84,6 +84,7 @@ from devops_cli.roadmap.implement_step import (
     run_step,
     section_text,
 )
+from devops_cli.roadmap.pull_labels import declared_labels
 from devops_cli.roadmap.stage_change import closing_keyword_in, delivery_title, safe_text
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
@@ -405,7 +406,7 @@ class _ItemRun:
         try:
             created = get_github_session().client.create_draft_pull(
                 self.repo,
-                title=delivery_title(self.target.item.title),
+                title=self._delivery_title(),
                 body=texts.implement_pull_body_draft.format(number=self.number),
                 head=self.branch,
                 base=self.default,
@@ -419,6 +420,12 @@ class _ItemRun:
         self.pull = created.number
         self.store.set_marks(self._fresh(), {ImplementRecordKey.PR: str(created.number)})
         return created.number
+
+    def _delivery_title(self) -> str:
+        """The title of the pull request: the title of the issue, with a scope that
+        `.github/labels.yml` declares on the default branch and no other (#2800)."""
+        declared = declared_labels(self.store, ref=None)
+        return delivery_title(self.target.item.title, declared)
 
     def _archived_name(self) -> str:
         """The folder `openspec archive` made for the change: `<date>-<issue>-<slug>`."""
@@ -449,7 +456,7 @@ class _ItemRun:
             number=self.number, why=self._why(archived), archived=archived
         )
         client = get_github_session().client
-        client.update_pull(self.repo, pull, title=delivery_title(self.target.item.title), body=body)
+        client.update_pull(self.repo, pull, title=self._delivery_title(), body=body)
         lines = "\n".join(self._outcome_line(o) for o in self.outcomes)
         comment = texts.implement_pull_comment.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=lines or "-"

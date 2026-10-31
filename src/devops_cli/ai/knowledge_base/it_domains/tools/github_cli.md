@@ -47,7 +47,7 @@ gh auth login
 gh auth status
 
 # Create a draft pull request into main (devops pr create always opens a draft)
-devops pr create --title "feat(serve): FastAPI service engine" \
+devops pr create --title "feat(service): FastAPI service engine" \
   --body "Implements FastAPI service engine with OpenAPI docs."
 
 # Mark the draft ready for review once its checks pass

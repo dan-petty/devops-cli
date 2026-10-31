@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 LONG_SUMMARY = "Report a clear error when a merge key is unset in the file"
+# The label names that .github/labels.yml declares, as far as these tests need them.
+DECLARED = ("scope/cli", "scope/config", "scope/roadmap")
 
 
 def _summary_of(title: str) -> str:
@@ -89,13 +91,15 @@ def test_the_staging_pull_request_of_a_bug_and_a_feature_has_the_docs_type_and_t
 
 
 def test_the_delivery_title_is_the_title_of_the_issue() -> None:
-    assert delivery_title("fix(config): report a clear error") == (
+    assert delivery_title("fix(config): report a clear error", DECLARED) == (
         "fix(config): report a clear error"
     )
 
 
 def test_the_delivery_title_keeps_the_type_and_the_scope_and_cuts_the_summary_at_a_word() -> None:
-    title = delivery_title("perf(roadmap): " + "read the tree of the default branch once " * 3)
+    title = delivery_title(
+        "perf(roadmap): " + "read the tree of the default branch once " * 3, DECLARED
+    )
 
     head, _, summary = title.partition(": ")
     assert (head, len(summary) <= SUMMARY_MAX_CHARS, summary.endswith("...")) == (
@@ -106,4 +110,14 @@ def test_the_delivery_title_keeps_the_type_and_the_scope_and_cuts_the_summary_at
 
 
 def test_the_delivery_title_drops_the_mark_of_a_breaking_change() -> None:
-    assert delivery_title("feat(cli)!: add a flag") == "feat(cli): add a flag"
+    assert delivery_title("feat(cli)!: add a flag", DECLARED) == "feat(cli): add a flag"
+
+
+def test_the_delivery_title_drops_a_scope_that_no_label_declares() -> None:
+    """The `Semantic PR title` check refuses a scope that `.github/labels.yml` does not declare
+    (#2800), so the delivery pull request keeps only a declared scope."""
+    assert (
+        delivery_title("fix(floor): report a clear error", DECLARED),
+        delivery_title("fix(cli, floor): report a clear error", DECLARED),
+        delivery_title("fix: report a clear error", DECLARED),
+    ) == ("fix: report a clear error",) * 3

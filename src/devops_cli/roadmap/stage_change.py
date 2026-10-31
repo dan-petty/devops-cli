@@ -31,10 +31,12 @@ from pydantic import (
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
+from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
 from devops_cli.core.paths import safe_resolve_subpath
 from devops_cli.exceptions import SecurityError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.refine import sanitize_text
 
 # The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming): the part
@@ -389,14 +391,19 @@ def staging_title(number: int, summary: str) -> str:
     return f"{_STAGING_TYPE}: {lead}{shortened}"
 
 
-def delivery_title(issue_title: str) -> str:
+def delivery_title(issue_title: str, declared: Collection[str]) -> str:
     """The title of the pull request that delivers the code of an item (#2714): the type and the
     scope of the issue's title, and its summary cut at a word to `SUMMARY_MAX_CHARS`. The staging
     pull request has the type `docs(openspec)`, which the delivery must not keep. A mark of a
-    breaking change is dropped: the project has none before 1.0.0."""
+    breaking change is dropped: the project has none before 1.0.0. A scope whose `scope/*` label is
+    not in `declared` is dropped too, because the `Semantic PR title` check refuses it (#2800)."""
     head, _, summary = issue_title.partition(":")
+    head = head.strip().removesuffix("!")
+    scope = commit_scope(issue_title)
+    if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
+        head = head.partition("(")[0]
     shortened = textwrap.shorten(safe_text(summary), SUMMARY_MAX_CHARS, placeholder=_ELLIPSIS)
-    return f"{head.strip().removesuffix('!')}: {shortened}"
+    return f"{head}: {shortened}"
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
