@@ -38,6 +38,7 @@ def _seed(
     body: str = "",
     author: str = "OWNER",
     state: GitHubState = GitHubState.OPEN,
+    sub_issues: int = 0,
 ) -> int:
     return store.seed_issue(
         title,
@@ -46,6 +47,7 @@ def _seed(
         fields={ItemField.STATUS: status, ItemField.PRIORITY: priority},
         author_association=author,
         state=state,
+        sub_issues=sub_issues,
     )
 
 
@@ -190,6 +192,23 @@ def test_an_item_that_is_started_or_to_split_is_left_out(
 
     assert selection.selected == ()
     assert reason in _reasons(selection)[number]
+
+
+@pytest.mark.parametrize(
+    ("labels", "sub_issues"),
+    [(("type/epic",), 0), (BUG, 2), (("type/epic",), 3)],
+    ids=["epic-label", "sub-issues", "epic-with-sub-issues"],
+)
+def test_a_tracker_is_left_out_under_the_wide_default_filter(
+    store: InMemoryRoadmapStore, labels: tuple[str, ...], sub_issues: int
+) -> None:
+    tracker = _seed(store, "feat(roadmap): the tracker", labels=labels, sub_issues=sub_issues)
+    plain = _seed(store, "fix(roadmap): a plain bug")
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER)
+
+    assert _numbers(selection) == [plain]
+    assert "tracker" in _reasons(selection)[tracker]
 
 
 def test_an_item_of_an_account_without_write_access_is_left_out(

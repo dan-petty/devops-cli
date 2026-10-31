@@ -13,7 +13,7 @@ checks of the draft have passed (`stage_ready`).
 families all apply. With no `--filter` the job takes the filter of the setting
 `roadmap.stage.filter`, by default every Ready item. It leaves out an item
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
-It also leaves out an item with the label `needs-split`, an item whose author has no write access
+It also leaves out an item with the label `needs-split`, a tracker (sub-issues or the label `type/epic`), an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
@@ -62,6 +62,7 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
+    CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
@@ -220,6 +221,7 @@ class _Judge:
         checks = [
             self._not_ready,
             self._needs_split,
+            self._tracker,
             self._author,
             self._title,
             self._dependency,
@@ -241,6 +243,12 @@ class _Judge:
         return (
             MESSAGES.roadmap.stage_left_needs_split if _NEEDS_SPLIT_LABEL in item.labels else None
         )
+
+    def _tracker(self, item: Item) -> str | None:
+        """A tracker has sub-issues or the label `type/epic`: its sub-issues deliver it, so no
+        plan of its own makes sense (#1985)."""
+        is_tracker = item.sub_issues > 0 or CONST_ROADMAP_EPIC_LABEL in item.labels
+        return MESSAGES.roadmap.stage_left_tracker if is_tracker else None
 
     def _author(self, item: Item) -> str | None:
         if item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS:

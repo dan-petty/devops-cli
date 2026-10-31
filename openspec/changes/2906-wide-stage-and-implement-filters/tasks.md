@@ -14,12 +14,19 @@
 - [x] Set `DEFAULT_IMPLEMENT_FILTERS` in `src/devops_cli/roadmap/implement.py` and update its comment and module text. Update the `implement` help text in `src/devops_cli/lang/en/help.py`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_implement_planned.py tests/roadmap/test_roadmap_implement_job.py`
 
-## 3. The documentation
+## 3. The review findings
+
+- [x] Write failing tests in `tests/roadmap/test_roadmap_stage_selection.py`: under the default filter an item with the label `type/epic`, an item with sub-issues and an item with both are left out with the tracker reason, and a plain bug is staged.
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py`
+- [x] Add `Item.sub_issues` in `src/devops_cli/roadmap/store.py`, the check `_tracker` in `src/devops_cli/roadmap/stage.py` and the text `stage_left_tracker` in `src/devops_cli/lang/en/messages.py`. State in the proposal that the per-round limit is the only bound on open drafts.
+  - Verification: `uv run devops ci test tests/roadmap`
+
+## 4. The documentation
 
 - [ ] Regenerate the documents.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 4. Archive
+## 5. Archive
 
 - [ ] Archive the change.
   - Verification: `uv run devops openspec archive 2906-wide-stage-and-implement-filters`

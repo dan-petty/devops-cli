@@ -48,3 +48,17 @@ A run SHALL take the items that the filter names with the highest priority first
 #### Scenario: The type of the branch
 - **WHEN** the plan stages a feature titled `feat(cli): add a flag` and a docs item titled `docs(k8s): fix a path`
 - **THEN** the branches start with `feat/` and `docs/`
+
+### Requirement: The job leaves out a tracker
+The job SHALL leave out an item that has sub-issues or the label `type/epic`, and the plan SHALL give the reason. Its sub-issues deliver it, so it gets no plan of its own.
+
+#### Scenario: A tracker under the default filter
+- **WHEN** the roadmap holds a Ready item with the label `type/epic`, a Ready item with two sub-issues and a Ready plain bug, and the command runs with no filter
+- **THEN** the plan stages the plain bug only, and it names the tracker reason for the other two
+
+### Requirement: The limit bounds a round, not the open drafts
+`--limit` SHALL be the only bound on the staging drafts. The job SHALL NOT take fewer items because staging draft pull requests are open. A person merges or closes the plans.
+
+#### Scenario: Drafts stay open
+- **WHEN** three staging drafts are open and the roadmap holds more Ready items
+- **THEN** the next round still stages up to `--limit` items

@@ -12,6 +12,7 @@ Issue #2906. The default filters of the stage job and of the implement job name 
 - The specs `roadmap-stage` and `roadmap-implement-job` carry the new defaults.
 - The order of selection does not change. Both jobs sort the items that the filter names by priority, P0 first, and then by issue number, lowest first (`stage.priority_order`). An item with no priority goes last. A test holds that a P0 item goes before a P3 item.
 - The live ConfigMap changes when the owner syncs it. This change does not touch the cluster.
+- The stage job leaves out a tracker: an item with sub-issues or the label `type/epic`. The wide filter would take it otherwise.
 - A consumer observes the defaults of a command and of a setting, so the change carries a spec delta.
 - This change fits one pull request.
 
@@ -24,13 +25,13 @@ Issue #2906. The default filters of the stage job and of the implement job name 
 
 ## Impact
 
-- `src/devops_cli/config/defaults.py`, `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/stage.py` (module text), `src/devops_cli/lang/en/help.py`, `k8s/devops/configmap.example.yaml`.
+- `src/devops_cli/config/defaults.py`, `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/stage.py` (module text and the tracker check), `src/devops_cli/roadmap/store.py` (`Item.sub_issues`), `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `k8s/devops/configmap.example.yaml`.
 - `tests/roadmap/test_roadmap_stage_settings.py`, `tests/roadmap/test_roadmap_stage_selection.py`, `tests/roadmap/test_roadmap_implement_selection.py`, `tests/k8s/test_k8s_configmap.py`.
 - The documents that `devops docs generate --sync-readme` writes.
 
 ## What the wider filter touches
 
-Before, both jobs touched Ready P0 and P1 bugs. Now they touch every Ready item. On 2026-10-31 more than 80 Ready items exist. They are bugs, features, refactors, tests, docs items, chores and `type/infra` items with the title types `perf`, `build` and `ci`, of priority P1 to P3. No open issue has the label `type/epic`. The jobs do not read `type/*` labels to build anything. They read the Conventional Commit type of the title, and the other checks of the jobs do not depend on a bug:
+Before, both jobs touched Ready P0 and P1 bugs. Now they touch every Ready item. On 2026-10-31 more than 80 Ready items exist. They are bugs, features, refactors, tests, docs items, chores and `type/infra` items with the title types `perf`, `build` and `ci`, of priority P1 to P3. The jobs do not read `type/*` labels to build anything. They read the Conventional Commit type of the title, and the other checks of the jobs do not depend on a bug:
 
 - **Branch and title.** `stage._target_of` takes the type from the title of the issue (`commit_title.commit_type`), and `branch_name` makes `<type>/<issue>-<slug>`. `delivery_title` keeps the type and the scope of the issue title. So a feature gets `feat/…`, a docs item `docs/…`, a test item `test/…`. The staging pull request has the type `docs(openspec)` for every item. A title with no type is left out of both jobs with a reason (`_Judge._title`, `implement.py`).
 - **Closing text.** `implement_pull_body` is `Closes #<issue>` for every item. The staging body is `Plans #<issue>` for every item.
@@ -38,7 +39,8 @@ Before, both jobs touched Ready P0 and P1 bugs. Now they touch every Ready item.
 - **The fix step.** `implement_step_fix` is the name of the step that repairs a failed check. It is no type.
 - **Checks.** `uv run devops ci` runs for every type. The step runs the verification command of the group.
 - **Security items.** The job opens a draft pull request. Only a person merges it. The step shell runs only git, uv, ruff and mypy in a runner pod, so it cannot change a secret, a host or the cluster. The label rules of #2846 (declared scopes only) work on the title scope, not on a type.
-- **Cost.** The stage job takes at most 3 items a round, every 60 minutes. With a wide filter it uses the model more often than before. The implement job still takes one item a round. This is the owner's decision.
+- **Cost.** The stage job takes at most 3 items a round, every 60 minutes. With a wide filter it uses the model more often than before. The implement job still takes one item a round and waits while a Job runs. The per-round limit is the only bound. No setting caps the total of open staging draft pull requests: if no person merges the plans, up to 71 drafts (the Ready items on 2026-10-31) can stay open, each with one CI run. This is accepted by design on the owner's decision. A person merges or closes the plans, and the spec records this in the requirement "The limit bounds a round, not the open drafts".
+- **Trackers.** The wide filter would also take a tracker. `store.Item` now holds `sub_issues` (the count that `IssueRecord` already holds), and the stage job leaves out an item with sub-issues or the label `type/epic` with a reason. On 2026-10-31 no Ready item is a tracker, so the guard is for the future and not for today. A label such as `question` is no guard: `.github/labels.yml` declares no such label, so no code can read it. A question or discussion item gets a plan, and a person reads that plan in the draft pull request.
 - **Medium and high effort.** The stage job plans them. The implement job leaves them Staged until a person starts the work, as it did with #2147 and #2747.
 
 ## Feasibility
