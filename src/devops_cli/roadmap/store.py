@@ -173,13 +173,15 @@ class AlternativesRecordKey(StrEnum):
 class StageRecordKey(StrEnum):
     """What the stage job records in an Item's job record (#2654): the staged branch, the number
     of its draft pull request, the commit it ends on, the task groups with their measures in
-    tokens, and the task group over the budget that stopped the item, which a person decides."""
+    tokens, the task group over the budget that stopped the item, which a person decides, and the
+    file cap in tokens of the measure that made the stop: a stop under another cap is stale."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
     SHA = "stage.sha"
     GROUPS = "stage.groups"
     NEEDS_SPLIT = "stage.needs_split"
+    FILE_CAP = "stage.file_cap"
 
 
 class ImplementRecordKey(StrEnum):

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli import exceptions
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.exceptions import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import ended_by_stop
@@ -30,9 +31,9 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    heavy_group,
     seed_stageable,
     validate_args,
-    write_big_file,
 )
 from tests.support.service_stop import stop_error
 
@@ -157,7 +158,8 @@ def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
         item.job_record[StageRecordKey.SHA],
         [g[0] for g in groups],
         item.job_record.get(StageRecordKey.NEEDS_SPLIT),
-    ) == (BRANCH, "5", sha, ["Keep the last comment"], None)
+        item.job_record.get(StageRecordKey.FILE_CAP),
+    ) == (BRANCH, "5", sha, ["Keep the last comment"], None, None)
 
 
 def test_the_comment_names_a_changed_path_that_exists_nowhere_and_the_item_is_staged(
@@ -215,8 +217,7 @@ def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
     model_fake: ModelFake,
     github_api: GitHubApiFake,
 ) -> None:
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     model_fake.answer(make_stage_proposal(groups=[heavy]), StageSplit(groups=[heavy]))
 
     applied = _stage(store, stage_repo, step_tokens=6000)
@@ -229,6 +230,7 @@ def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
     item = store.item(1)
     assert item is not None
     assert (item.job_record[StageRecordKey.NEEDS_SPLIT] or "").startswith("Keep the last comment (")
+    assert item.job_record[StageRecordKey.FILE_CAP] == str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS)
     assert StageRecordKey.BRANCH not in item.job_record
     assert _pushed(stage_repo) == ["main"]
     assert github_api.requested == []
@@ -256,8 +258,7 @@ def test_a_comment_that_fails_for_a_stopped_item_leaves_the_others_stopped(
     store = _CommentRefused(repo=STAGE_REPO)
     store.refused = seed_stageable(store)
     other = seed_stageable(store, "fix(roadmap): the job drops a label")
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     stuck = make_stage_proposal(groups=[heavy])
     model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
 
@@ -274,8 +275,7 @@ def test_a_comment_that_fails_for_a_stopped_item_leaves_the_others_stopped(
 
 def _stuck_stage(stage_repo: StageRepo, model_fake: ModelFake, store: _CommentRefused) -> StagePlan:
     """The plan for two items whose group is over the budget, so each gets a comment."""
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     stuck = make_stage_proposal(groups=[heavy])
     model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
     return plan_stage(

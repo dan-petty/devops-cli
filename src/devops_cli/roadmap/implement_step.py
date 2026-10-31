@@ -18,7 +18,6 @@ writes nothing to GitHub.
 
 from __future__ import annotations
 
-import io
 import os
 import shlex
 import shutil
@@ -26,15 +25,13 @@ import subprocess
 import tempfile
 import time
 from collections import Counter
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field, replace
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from markdown_it import MarkdownIt
-from markdown_it.token import Token
 from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, capture_run_messages
@@ -55,8 +52,7 @@ from pydantic_ai_harness.shell import Shell
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 
 from devops_cli.ai.client.models import AICredentialsError
-from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
-from devops_cli.ai.context_packer import ContextPacker, PackingConfig
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import (
     BIN_GIT,
@@ -73,7 +69,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
-    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
@@ -104,133 +99,29 @@ from devops_cli.roadmap.agent_run import (
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
+from devops_cli.roadmap.step_files import (
+    CHECKBOXES,
+    MARKDOWN,
+    GroupTask,
+    TaskGroup,
+    file_lines,
+    named_files,
+    packed_file,
+    parse_task_groups,
+)
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.store import Item, RoadmapStore
 
-_MARKDOWN = MarkdownIt("commonmark")
-_CHECKBOXES = ("[ ]", "[x]", "[X]")
-_VERIFICATION = "Verification:"
 _CHANGE_DOCUMENTS = ("proposal.md", "design.md", "tasks.md")
 _PROMPT = "roadmap_implement_step.md"
-
-
-@dataclass(frozen=True)
-class GroupTask:
-    """One task of a group: its text with the checkbox, and whether it is ticked. `line` is the
-    zero-based line of the task in its file, or -1 for a task that no file holds. It is no part of
-    the comparison: a blank line that moves a task changes no task."""
-
-    text: str
-    ticked: bool
-    verification: tuple[str, ...] = ()
-    paths: tuple[str, ...] = ()
-    line: int = field(default=-1, compare=False)
-
-
-@dataclass(frozen=True)
-class TaskGroup:
-    """A numbered `##` section of a `tasks.md`: its tasks, and its text from its heading to the
-    next `##` heading."""
-
-    number: int
-    title: str
-    tasks: tuple[GroupTask, ...]
-    text: str
-
-    @property
-    def verification_commands(self) -> tuple[str, ...]:
-        """The code spans of the `Verification:` lines of the tasks, each once, in file order."""
-        return tuple(dict.fromkeys(c for task in self.tasks for c in task.verification))
-
-    @property
-    def named_paths(self) -> tuple[str, ...]:
-        """The code spans of the text of the tasks, each once: the files the group may name."""
-        return tuple(dict.fromkeys(p for task in self.tasks for p in task.paths))
-
-
-def _code_spans(inline: Token) -> tuple[str, ...]:
-    """The code spans of an inline token."""
-    return tuple(child.content for child in inline.children or () if child.type == "code_inline")
-
-
-def _list_items(tokens: Sequence[Token]) -> Iterator[Sequence[Token]]:
-    """The tokens of each top-level list item of `tokens`."""
-    start = 0
-    for index, token in enumerate(tokens):
-        if token.type == "list_item_open" and token.level == 1:
-            start = index
-        elif token.type == "list_item_close" and token.level == 1:
-            yield tokens[start : index + 1]
-
-
-def _task_of(item: Sequence[Token]) -> GroupTask | None:
-    """The task a list item is, or None when its text starts with no checkbox."""
-    lines = [token for token in item if token.type == "inline"]
-    if not lines or lines[0].content[:3] not in _CHECKBOXES:
-        return None
-    verification = tuple(
-        command
-        for line in lines[1:]
-        if line.content.startswith(_VERIFICATION)
-        for command in _code_spans(line)
-    )
-    return GroupTask(
-        text=lines[0].content,
-        ticked=lines[0].content[:3] != _CHECKBOXES[0],
-        verification=verification,
-        paths=_code_spans(lines[0]),
-        line=lines[0].map[0] if lines[0].map else -1,
-    )
-
-
-def _headings(tokens: Sequence[Token], tag: str) -> list[tuple[int, int, str]]:
-    """The index, the first line and the text of each heading of `tag`."""
-    return [
-        (index, token.map[0], tokens[index + 1].content)
-        for index, token in enumerate(tokens)
-        if token.type == "heading_open" and token.tag == tag and token.map is not None
-    ]
-
-
-def _file_lines(text: str) -> list[str]:
-    """The lines of `text` with their line ends, split as markdown-it splits: at `\\n`, `\\r` and
-    `\\r\\n`, and nowhere else. `"".join` of the lines is `text`. The line numbers of the tokens
-    index this list."""
-    return io.StringIO(text, newline="").readlines()
-
-
-def parse_task_groups(tasks_md: str) -> list[TaskGroup]:
-    """The numbered groups of a `tasks.md`, in file order. A `##` section whose heading is not
-    `<n>. <title>`, such as `## Workflow follow-up`, is no group, and ends the one before it."""
-    tokens = _MARKDOWN.parse(tasks_md)
-    lines = [line.rstrip("\r\n") for line in _file_lines(tasks_md)]
-    headings = _headings(tokens, "h2")
-    groups: list[TaskGroup] = []
-    for position, (index, first_line, heading) in enumerate(headings):
-        number, dot, title = heading.partition(". ")
-        if not dot or not number.isdigit():
-            continue
-        last = headings[position + 1] if position + 1 < len(headings) else None
-        end_index = last[0] if last else len(tokens)
-        end_line = last[1] if last else len(lines)
-        tasks = (_task_of(item) for item in _list_items(tokens[index:end_index]))
-        groups.append(
-            TaskGroup(
-                number=int(number),
-                title=title,
-                tasks=tuple(task for task in tasks if task is not None),
-                text="\n".join(lines[first_line:end_line]).rstrip(),
-            )
-        )
-    return groups
 
 
 def section_text(body: str, titles: frozenset[str]) -> str:
     """The text of each section of `body` whose heading is one of `titles`, heading included.
     A section ends at the next heading of its level or a higher one."""
-    tokens = _MARKDOWN.parse(body)
+    tokens = MARKDOWN.parse(body)
     lines = body.splitlines()
     marks = [
         (token.map[0], int(token.tag[1:]), tokens[index + 1].content)
@@ -277,26 +168,6 @@ def find_change(source: Path, item: int, *, archived: bool = False) -> Path:
     return found[0]
 
 
-def _packed(path: Path) -> str:
-    """A file for the inputs: a Python file as its signatures, any other as its start."""
-    if path.suffix == ".py":
-        config = PackingConfig(
-            max_tokens=CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS, strip_private=False
-        )
-        return ContextPacker().pack_file(path, config=config).content
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return truncate_to_token_limit(text, CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS)
-
-
-def named_files(source: Path, group: TaskGroup) -> list[Path]:
-    """The files of the checkout that the group names: each code span of its tasks that is an
-    existing file inside the checkout. A span that names a file that does not exist yet is
-    left out."""
-    root = source.resolve()
-    resolved = (Path(os.path.normpath(root / span)) for span in group.named_paths)
-    return [path for path in resolved if path.is_relative_to(root) and os.path.isfile(path)]
-
-
 @dataclass(frozen=True)
 class FixRequest:
     """A failed check for a fix step (#2665): its name, and its log. The step reads the last
@@ -338,7 +209,7 @@ class StepInputs:
 def _files_section(source: Path, group: TaskGroup) -> str:
     """The packed files of the group, each under its path."""
     parts = [
-        f"## {path.relative_to(source.resolve())}\n\n```\n{_packed(path)}\n```"
+        f"## {path.relative_to(source.resolve())}\n\n```\n{packed_file(path)}\n```"
         for path in named_files(source, group)
     ]
     return "# Files the group names (signatures only)\n\n" + "\n\n".join(parts) if parts else ""
@@ -848,9 +719,9 @@ def _restore_tasks(inputs: StepInputs) -> None:
     the step, and the line ends, the headings and every other group are those of before the run.
     One line names the change when the file differed. A link or a directory at the path is removed
     first, so the write never goes through a link, and a link never reaches the commit."""
-    lines = _file_lines(inputs.tasks_md)
+    lines = file_lines(inputs.tasks_md)
     for number in _ticked_lines(inputs):
-        lines[number] = lines[number].replace(_CHECKBOXES[0], _CHECKBOXES[1], 1)
+        lines[number] = lines[number].replace(CHECKBOXES[0], CHECKBOXES[1], 1)
     wanted = "".join(lines)
     path = inputs.change / "tasks.md"
     if not path.is_symlink() and _tasks_after(inputs) == wanted:
