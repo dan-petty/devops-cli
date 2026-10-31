@@ -75,6 +75,10 @@
   color: "24292E"
   description: "GitHub Projects v2, Views, Milestones, Labels, and PR automation"
 
+- name: "scope/git"
+  color: "24292E"
+  description: "Git commands, git configuration, and git credential handling"
+
 - name: "scope/release"
   color: "1D76DB"
   description: "The release-please workflow, the changelog and the published artifacts"
