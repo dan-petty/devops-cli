@@ -99,12 +99,12 @@ When the closing issues cannot be read or the Status cannot be written, the comm
 - **WHEN** the read of the closing issues fails with "HTTP 502"
 - **THEN** the command exits 1 and its message names the reason
 
-### Requirement: A closed issue holds no Status label
-The workflow `.github/workflows/clear-status.yml` SHALL remove every `status/*` label of an issue when the issue closes, and SHALL remove no other label.
+### Requirement: A closed issue holds no Status and no Owner label
+The workflow `.github/workflows/clear-status.yml` SHALL remove every `status/*` label and every `owner/*` label of an issue when the issue closes, and SHALL remove no other label.
 
 #### Scenario: A merge closes an issue
-- **WHEN** an issue that holds `status/in-review` and `type/bug` closes
-- **THEN** the workflow removes `status/in-review` and keeps `type/bug`
+- **WHEN** an issue that holds `status/in-review`, `owner/agent` and `type/bug` closes
+- **THEN** the workflow removes `status/in-review` and `owner/agent` and keeps `type/bug`
 
 ### Requirement: Two writers of one issue keep each other's keys of the job record
 Each write of the job record of an issue (a field write with its marks, a mark write and a body write) SHALL read the issue, and SHALL send its `PATCH`, before another write of the process reads that issue. A write SHALL change only the keys it names and keep every other key of the record that the issue holds at its read. This holds for stores that different lanes of the Service opened.
@@ -116,6 +116,25 @@ Each write of the job record of an issue (a field write with its marks, a mark w
 #### Scenario: A body write and a mark write
 - **WHEN** one store writes a new body to an issue, and while it holds its read, a second store sets `implement.job`
 - **THEN** the issue holds the new body, and its record holds `implement.job`
+
+### Requirement: One label family holds the owner of an Item
+The roadmap store SHALL read an Item's Owner from the family `owner/service`, `owner/agent` and `owner/human`, and SHALL write it with the rules of the other fields: a job replaces the family, the record names the value the job set, and a write raises `RoadmapItemChangedError` when someone changed the owner since the store read it. An Item with no label of the family SHALL have no owner. `.github/labels.yml` SHALL declare the label of every value of every field.
+
+#### Scenario: An issue with an owner label
+- **WHEN** an issue holds `priority/p2-medium` and `owner/agent`
+- **THEN** its Item has the Owner `Agent`
+
+#### Scenario: A person adds a label to a claim of the Service
+- **WHEN** a job set the Owner `Service`, and a person adds `owner/human` and leaves `owner/service`
+- **THEN** the next read gives the Item the Owner `Human`
+
+#### Scenario: A person changed the owner after the read
+- **WHEN** a job read an Item with no owner, a person then set `owner/human`, and the job sets the Owner `Service`
+- **THEN** the write raises `RoadmapItemChangedError` and the issue holds `owner/human`
+
+#### Scenario: The labels file declares the labels
+- **WHEN** a test reads `.github/labels.yml`
+- **THEN** it declares `owner/service`, `owner/agent`, `owner/human` and the label of every value of Status, Priority, Value and Effort
 
 ### Requirement: The Status family has six labels
 The Status family SHALL hold `status/new`, `status/ready`, `status/planned`, `status/in-progress`, `status/in-review` and `status/blocked`, in this order. `.github/labels.yml` SHALL declare each of them.

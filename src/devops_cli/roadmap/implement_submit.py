@@ -53,6 +53,7 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, job_name
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
 from devops_cli.roadmap.implement import (
     GIT_OPERATION,
     ImplementTarget,
@@ -71,11 +72,13 @@ _GONE = "gone"
 @dataclass(frozen=True)
 class SubmitResult:
     """What a round did: the Jobs it reported, whether a running Job held it, the Job it created,
-    and the items whose Status it could not set."""
+    and the item it left because an agent or a person claimed it after the plan (#2910), and the
+    items whose Status it could not set."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
     created: str | None = None
+    left: int | None = None
     status_failed: tuple[StageFailure, ...] = ()
 
 
@@ -102,7 +105,10 @@ def _unreported(store: RoadmapStore) -> list[tuple[Item, str]]:
 def _settles_as_stop(item: Item) -> bool:
     """Whether an item that a Job ended is a stop that nobody wrote: it is In Progress, or Ready or
     Planned and not stopped. Any other Status, In Review and Done included, is the Job's own
-    result."""
+    result. An item that an agent or a person claimed is theirs, and the Job ended its run for that
+    claim."""
+    if claimed_by(item) is not None:
+        return False
     stopped = _record(item, ImplementRecordKey.STOPPED)
     return item.status == CONST_ROADMAP_STATUS_IN_PROGRESS or (
         item.status in {CONST_ROADMAP_STATUS_READY, CONST_ROADMAP_STATUS_PLANNED} and not stopped
@@ -151,7 +157,7 @@ def _report(
     log = _log_of(jobs, name) if ended else ""
     stops = _settles_as_stop(item)
     store.comment(item.number, _comment(name, state, log, stopped=stops))
-    store.set_marks(_fresh(store, item.number), {ImplementRecordKey.JOB_STATE: state})
+    service_release(store, item.number, {ImplementRecordKey.JOB_STATE: state})
     if stops:
         store.set_field(
             _fresh(store, item.number),
@@ -176,17 +182,18 @@ def _report_ended(
 
 def _create(
     store: RoadmapStore, jobs: ClusterJobs, repo: str, target: ImplementTarget, label: str
-) -> str:
-    """Record the Job on the item, then create it. The record comes first: a record that fails
-    after the create would leave a Job that no item names, and a Job that dies early would leave
-    its item eligible for a new Job in every round. A create that fails takes the record back. A
-    round that dies between the two leaves a record of a Job that does not exist, which the next
-    round reports as gone and stops the item for."""
+) -> str | None:
+    """Claim the item and record the Job on it, then create the Job. The record comes first: a
+    record that fails after the create would leave a Job that no item names, and a Job that dies
+    early would leave its item eligible for a new Job in every round. A create that fails takes the
+    record and the claim back. A round that dies between the two leaves a record of a Job that does
+    not exist, which the next round reports as gone and stops the item for. The name of the Job, or
+    None, with nothing written, when an agent or a person claimed the item since the plan."""
     number = target.item.number
     name = job_name(template=RUNNER_TEMPLATE)
-    store.set_marks(
-        _fresh(store, number), {ImplementRecordKey.JOB: name, ImplementRecordKey.JOB_STATE: None}
-    )
+    marks = {ImplementRecordKey.JOB: name, ImplementRecordKey.JOB_STATE: None}
+    if not service_claim(store, number, marks):
+        return None
     try:
         jobs.create(
             ["roadmap", "implement", "--repo", repo, "--item", str(number), "--confirm"],
@@ -196,7 +203,7 @@ def _create(
             name=name,
         )
     except ClusterJobError:
-        store.set_marks(_fresh(store, number), {ImplementRecordKey.JOB: None})
+        service_release(store, number, {ImplementRecordKey.JOB: None})
         raise
     return name
 
@@ -228,9 +235,15 @@ def run_implement_round(
     )
     if not plan.selected:
         return SubmitResult(reported=reported, status_failed=failed)
+    number = plan.selected[0].item.number
     created = _create(store, api, repo, plan.selected[0], label)
     failed = sync_statuses(store, repo=repo, planned=planned).failed
-    return SubmitResult(reported=reported, created=created, status_failed=failed)
+    return SubmitResult(
+        reported=reported,
+        created=created,
+        left=number if created is None else None,
+        status_failed=failed,
+    )
 
 
 __all__ = ["SubmitResult", "repository_label", "run_implement_round"]

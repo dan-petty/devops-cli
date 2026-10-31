@@ -9,6 +9,7 @@ edges, and the CronJob template is the committed manifest `k8s/devops/cronjob-ru
 from __future__ import annotations
 
 import copy
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -522,3 +523,125 @@ def test_the_args_of_a_job_hold_only_the_repository_and_the_number_of_the_item_n
         "--confirm",
     ]
     assert hostile not in str(job)
+
+
+# ── The claim of the Service (#2910) ──────────────────────────────────────────────────────
+
+
+def _owner(store: InMemoryRoadmapStore, number: int = 1) -> tuple[str | None, list[str]]:
+    item = store.item(number)
+    assert item is not None
+    return item.owner, [label for label in item.labels if label.startswith("owner/")]
+
+
+def test_a_round_claims_the_item_for_the_job_it_creates(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+
+    _round(store, staged_repo)
+
+    (job,) = _jobs(kube)
+    assert (_owner(store, number), _record(store, number)["implement.job"]) == (
+        ("Service", ["owner/service"]),
+        job["metadata"]["name"],
+    )
+
+
+def test_the_round_that_reports_the_job_releases_the_item(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    item = store.item(number)
+    assert item is not None
+    store.set_field(item, ItemField.STATUS, "In Review")
+    _end(kube, "Complete")
+
+    _round(store, staged_repo)
+
+    assert (_owner(store, number), _record(store, number)["implement.job_state"]) == (
+        (None, []),
+        "succeeded",
+    )
+
+
+def test_a_create_that_the_api_refuses_leaves_the_item_with_no_owner(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    number = seed_staged(store)
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise ApiException(status=403, reason="Forbidden")
+
+    monkeypatch.setattr(kube.custom_objects, "create_namespaced_custom_object", refuse)
+
+    with pytest.raises(ClusterJobError, match="403"):
+        _round(store, staged_repo)
+
+    assert (_owner(store, number), _record(store, number).get("implement.job")) == (
+        (None, []),
+        None,
+    )
+
+
+def test_a_person_who_claims_after_the_plan_gets_no_job_and_the_round_does_not_fail(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    number = seed_staged(store)
+    real_plan = plan_implement
+
+    def plan_then_claim(*args: Any, **kwargs: Any) -> Any:
+        plan = real_plan(*args, **kwargs)
+        store.as_actor("alice").add_label(number, "owner/human")
+        return plan
+
+    monkeypatch.setattr("devops_cli.roadmap.implement_submit.plan_implement", plan_then_claim)
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        outcome = _round(store, staged_repo)
+
+    assert f"Left #{number}: an agent or a person claimed it since the plan." in caplog.messages
+    assert (outcome, _creates(kube), _owner(store, number), _record(store, number)) == (
+        JobOutcome(),
+        [],
+        ("Human", ["owner/human"]),
+        {"stage.branch": "fix/1-the-job-drops-a-comment", "stage.pr": "5"},
+    )
+
+
+def test_the_report_of_a_job_keeps_the_claim_of_a_person_and_stops_nothing(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The job ended its run at a group boundary because a person claimed the item: it leaves
+    the item In Progress, which is the person's now, not a stop that nobody wrote."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    item = store.item(number)
+    assert item is not None
+    store.set_field(item, ItemField.STATUS, "In Progress")
+    store.as_actor("alice").add_label(number, "owner/human")
+    _end(kube, "Complete")
+
+    _round(store, staged_repo)
+
+    held = store.item(number)
+    assert held is not None
+    assert (held.status, _owner(store, number), _record(store, number)) == (
+        "In Progress",
+        ("Human", ["owner/human"]),
+        {
+            **_record(store, number),
+            "implement.job_state": "succeeded",
+        },
+    )
+    assert "implement.stopped" not in _record(store, number)

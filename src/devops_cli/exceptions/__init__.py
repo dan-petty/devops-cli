@@ -43,6 +43,7 @@ from devops_cli.exceptions.k8s import (
 )
 from devops_cli.exceptions.roadmap import (
     RoadmapAlternativesError,
+    RoadmapClaimError,
     RoadmapImplementError,
     RoadmapIntakeError,
     RoadmapItemChangedError,
@@ -135,6 +136,7 @@ __all__ = [
     "LogfireConfigurationError",
     "RegistryReadError",
     "RoadmapAlternativesError",
+    "RoadmapClaimError",
     "RoadmapImplementError",
     "RoadmapIntakeError",
     "RoadmapItemChangedError",

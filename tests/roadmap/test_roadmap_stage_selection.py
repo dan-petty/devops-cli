@@ -400,3 +400,36 @@ def test_one_item_by_number_must_be_an_item(store: InMemoryRoadmapStore) -> None
     assert selection.selected == ()
     assert selection.left_out == (LeftOut(number=number, reason=_reasons(selection)[number]),)
     assert "no Priority" in _reasons(selection)[number]
+
+
+@pytest.mark.parametrize(
+    ("owner", "reason"),
+    [("owner/human", "It is claimed by human."), ("owner/agent", "It is claimed by agent.")],
+)
+def test_an_item_that_an_agent_or_a_person_claimed_is_left_out(
+    store: InMemoryRoadmapStore, owner: str, reason: str
+) -> None:
+    number = _seed(store, labels=(*BUG, owner))
+
+    selection = _select(store)
+
+    assert (selection.selected, _reasons(selection)) == ((), {number: reason})
+
+
+def test_a_named_item_that_an_agent_claimed_is_left_out(store: InMemoryRoadmapStore) -> None:
+    number = _seed(store, labels=(*BUG, "owner/agent"))
+
+    selection = _select(store, item=number)
+
+    assert (selection.selected, _reasons(selection)) == (
+        (),
+        {number: "It is claimed by agent."},
+    )
+
+
+def test_an_item_that_the_service_holds_is_staged_as_one_with_no_owner(
+    store: InMemoryRoadmapStore,
+) -> None:
+    held = _seed(store, labels=(*BUG, "owner/service"))
+
+    assert _numbers(_select(store)) == [held]

@@ -29,6 +29,12 @@ and the draft and takes them over as a Staged item.
 item: the job pushes the commits that passed, comments the step, the reason and the last message
 of the agent, sets Status Ready, and records `implement.stopped`. It does not run the item again
 until a person comments `implement: retry`.
+
+**A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. The job
+reads the item before each unticked task group, when a step stops, and before the push. When an
+agent or a person holds it by then, the job ends the item at once: it pushes nothing, opens no
+pull request, comments why, and changes neither the Status nor the owner. The groups that passed stay in the
+worktree, which the job removes; the new owner starts from the branch on `origin`.
 """
 
 from __future__ import annotations
@@ -40,6 +46,7 @@ import textwrap
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +78,7 @@ from devops_cli.exceptions import (
 from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
 from devops_cli.roadmap.implement_pull import WatchKind, failed_log, mark_ready, watch_pull
@@ -117,6 +125,25 @@ class _StopError(Exception):
         self.diff_cut = diff_cut
 
 
+class _ClaimedError(Exception):
+    """An agent or a person claimed the item: the job's own signal that the run ends at the next
+    group boundary, caught where the item's run ends. `owner` is the claim in lower case and
+    `boundary` says where the run ended."""
+
+    def __init__(self, owner: str, boundary: str) -> None:
+        super().__init__(owner)
+        self.owner = owner
+        self.boundary = boundary
+
+
+class _Ended(StrEnum):
+    """How the run of an item ended."""
+
+    READY = "ready"
+    STOPPED = "stopped"
+    YIELDED = "yielded"
+
+
 @dataclass(frozen=True)
 class ImplementFailure:
     """An item whose run failed in a way that left it alone: the class of the error and why."""
@@ -129,12 +156,14 @@ class ImplementFailure:
 
 @dataclass(frozen=True)
 class ImplementApplied:
-    """What a run did: the items it took to a ready pull request, the items it stopped, and the
-    items whose stop or finish could not be written."""
+    """What a run did: the items it took to a ready pull request, the items it stopped, the items
+    it ended because an agent or a person claimed them (#2910), and the items whose stop or finish
+    could not be written."""
 
     ready: tuple[int, ...] = ()
     stopped: tuple[int, ...] = ()
     failed: tuple[ImplementFailure, ...] = ()
+    yielded: tuple[int, ...] = ()
 
 
 def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
@@ -305,6 +334,7 @@ class _ItemRun:
         self._start()
         self._groups()
         self._finish_change()
+        self._require_unclaimed(MESSAGES.roadmap.implement_boundary_end)
         pull = self._push()
         self._pull_request(pull)
         self._checks(pull)
@@ -342,6 +372,13 @@ class _ItemRun:
                 reason += texts.implement_stop_abort_failed.format(output=_tail(aborted.stderr))
             raise _StopError(self.step, reason, push=push_on_conflict) from exc
 
+    def _require_unclaimed(self, boundary: str) -> None:
+        """Raise `_ClaimedError` when an agent or a person holds the item now (#2910). The
+        Service's own claim holds nothing against the job."""
+        owner = claimed_by(self._fresh())
+        if owner is not None:
+            raise _ClaimedError(owner, boundary)
+
     def _groups(self) -> None:
         change = self._active_change()
         if change is None:
@@ -352,6 +389,9 @@ class _ItemRun:
             if all(task.ticked for task in group.tasks):
                 continue
             self.step = _step_label(group.number)
+            self._require_unclaimed(
+                MESSAGES.roadmap.implement_boundary_group.format(group=group.number)
+            )
             outcome = run_step(
                 self.store,
                 item=self.number,
@@ -520,6 +560,32 @@ class _ItemRun:
             ),
         )
 
+    # ── The end for a claim ──
+
+    def yield_to(self, claimed: _ClaimedError) -> None:
+        """Tell the item why the run ended. Nothing is pushed and no pull request is opened, and
+        the Status and the owner stay as the new owner has them."""
+        self.store.comment(
+            self.number,
+            MESSAGES.roadmap.implement_comment_claimed.format(
+                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+                owner=claimed.owner,
+                boundary=claimed.boundary,
+            ),
+        )
+
+    def end_stopped(self, stop: _StopError) -> _Ended:
+        """End a run that a step stopped. A claim that came while the step ran is the end of the
+        run at this boundary: the stop pushes nothing then, opens no pull request and sets no
+        Status (#2910)."""
+        try:
+            self._require_unclaimed(MESSAGES.roadmap.implement_boundary_stop.format(step=stop.step))
+        except _ClaimedError as claimed:
+            self.yield_to(claimed)
+            return _Ended.YIELDED
+        self.stop(stop)
+        return _Ended.STOPPED
+
     # ── The stop ──
 
     def stop(self, stop: _StopError) -> None:
@@ -578,16 +644,18 @@ def _implement_item(
     *,
     model: Any,
     window: int,
-) -> bool:
-    """Run one item. True when its pull request is ready, False when the item is stopped."""
+) -> _Ended:
+    """Run one item: how its run ended (`_Ended`)."""
     default = default_branch(source, operation=GIT_OPERATION)
     with _worktree(source, target) as path:
         run = _ItemRun(store, repo, path, target, model, window, default)
         try:
             run.execute()
+        except _ClaimedError as claimed:
+            run.yield_to(claimed)
+            return _Ended.YIELDED
         except _StopError as stop:
-            run.stop(stop)
-            return False
+            return run.end_stopped(stop)
         except AICredentialsError, GitHubUnauthenticatedError:
             raise
         except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
@@ -595,9 +663,8 @@ def _implement_item(
             reason = texts.implement_stop_error.format(
                 error=type(exc).__name__, message=mask_secrets(str(exc))
             )
-            run.stop(_StopError(run.step, reason))
-            return False
-    return True
+            return run.end_stopped(_StopError(run.step, reason))
+    return _Ended.READY
 
 
 def apply_implement(
@@ -618,13 +685,12 @@ def apply_implement(
     deny_environment_reads()
     adopt_orphans()
     checkout = Path(source)
-    ready: list[int] = []
-    stopped: list[int] = []
+    ended: dict[_Ended, list[int]] = {kind: [] for kind in _Ended}
     failed: list[ImplementFailure] = []
     for target in plan.selected:
         item = target.item
         try:
-            done = _implement_item(store, plan.repo, checkout, target, model=model, window=window)
+            how = _implement_item(store, plan.repo, checkout, target, model=model, window=window)
         except AICredentialsError, GitHubUnauthenticatedError:
             raise
         except (DevOpsCLIError, AIClientError) as exc:
@@ -634,8 +700,13 @@ def apply_implement(
                 )
             )
             continue
-        (ready if done else stopped).append(item.number)
-    return ImplementApplied(tuple(ready), tuple(stopped), tuple(failed))
+        ended[how].append(item.number)
+    return ImplementApplied(
+        tuple(ended[_Ended.READY]),
+        tuple(ended[_Ended.STOPPED]),
+        tuple(failed),
+        tuple(ended[_Ended.YIELDED]),
+    )
 
 
 def raise_for_failed(failures: Sequence[ImplementFailure]) -> None:

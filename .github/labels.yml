@@ -294,6 +294,20 @@
   color: "C2E0C6"
   description: "Effort Low: little work"
 
+# One label of the family `owner/*` claims an item (#2910). An item has at most one owner. A
+# person's claim beats the Service's claim, and the Service takes no claimed item.
+- name: "owner/service"
+  color: "BFDADC"
+  description: "Owner Service: the roadmap Service works on the item in a Job"
+
+- name: "owner/agent"
+  color: "5319E7"
+  description: "Owner Agent: an agentic coder works on the item"
+
+- name: "owner/human"
+  color: "0E8A16"
+  description: "Owner Human: a person works on the item"
+
 # ── Roadmap Labels ──────────────────────────────────────────────────────────
 - name: "needs-split"
   color: "FBCA04"

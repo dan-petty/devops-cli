@@ -360,3 +360,37 @@ def test_a_dry_run_lists_the_requests_of_a_run_and_makes_none(
         any(command.endswith("pr ready <pull request>") for command in commands),
         any("rebase origin/main" in command for command in commands),
     ) == (True, (), [], [], True, True, True)
+
+
+@pytest.mark.parametrize(
+    ("owner", "reason"),
+    [("owner/human", "It is claimed by human."), ("owner/agent", "It is claimed by agent.")],
+)
+def test_an_item_that_an_agent_or_a_person_claimed_is_left_out(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, owner: str, reason: str
+) -> None:
+    number = seed_staged(store, labels=("type/bug", "effort/low", owner))
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, _reasons(plan)) == ((), {number: reason})
+
+
+def test_a_named_item_that_an_agent_claimed_is_left_out(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    number = seed_staged(store, labels=("type/bug", "effort/low", "owner/agent"))
+
+    plan = _plan(store, staged_repo, item=number)
+
+    assert (plan.selected, _reasons(plan)) == ((), {number: "It is claimed by agent."})
+
+
+def test_an_item_that_the_service_holds_is_selected(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    number = seed_staged(store, labels=("type/bug", "effort/low", "owner/service"))
+
+    plan = _plan(store, staged_repo)
+
+    assert [target.item.number for target in plan.selected] == [number]

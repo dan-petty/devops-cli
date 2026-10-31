@@ -294,6 +294,20 @@ def test_confirm_reports_a_stopped_item_and_exits_0(
     assert "Took 0 item(s) to a ready pull request, stopped 1." in result.output
 
 
+def test_confirm_reports_an_item_that_a_person_claimed_during_the_run(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    script = two_groups()
+    script.effects[2] = lambda: job_world.store.as_actor("alice").add_label(1, "owner/human")
+    factory.set_llm_client_override(script.model())
+
+    result = _job(cli, job_world, "--confirm")
+
+    assert result.exit_code == 0
+    assert "Took 0 item(s) to a ready pull request, stopped 0." in result.output
+    assert "Left 1 item(s) to the owner that claimed them." in result.output
+
+
 def test_the_job_dry_run_makes_no_request_and_lists_the_requests_of_a_run(
     cli: Callable[..., Any], job_world: JobWorld
 ) -> None:

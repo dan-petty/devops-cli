@@ -79,6 +79,26 @@ class RoadmapItemChangedError(GitHubOperationError):
         )
 
 
+class RoadmapClaimError(DevOpsCLIError):
+    """Raised when a claim of a roadmap Item is refused, because another owner holds it or
+    because the issue is no Item (#2910).
+
+    Nothing is written. `owner` names the owner that holds the Item, when one does.
+    """
+
+    error_code = "ROADMAP_ITEM_CLAIMED"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        owner: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.owner = owner
+        super().__init__(message, details={"owner": owner, **(details or {})})
+
+
 class RoadmapRefineError(DevOpsCLIError):
     """Raised after a refine run in which the model call failed for one or more items.
 

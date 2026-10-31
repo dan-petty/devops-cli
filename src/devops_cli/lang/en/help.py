@@ -1340,7 +1340,11 @@ class RoadmapCommandHelp:
         "checks, runs one fix step for a failed check, "
         "and marks the pull request ready. A step that fails stops the item: the job comments why "
         "and shows the masked diff of the discarded work, sets the Status to Ready, and runs the "
-        "item again only after a comment 'implement: retry'. The job never merges. --confirm runs steps only when the setting "
+        "item again only after a comment 'implement: retry'. The job leaves out an item that an "
+        "agent or a person claimed with a label owner/agent or owner/human. When one claims an "
+        "item that a running job works on, the job ends it at the next group boundary, with no "
+        "push and no pull request. The job never merges. --confirm runs steps only when the "
+        "setting "
         "roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell "
         "of the agent is no security boundary."
     )
@@ -1441,6 +1445,24 @@ class RoadmapCommandHelp:
         "Make no request: print the requests a run makes, in order, with placeholders for "
         "values a read gives."
     )
+    claim: str = (
+        "Claim an item for an agent or a person with the label owner/agent or owner/human. An "
+        "item has one owner. A person can take an item from the Service. The jobs stage and "
+        "implement take no item that an agent or a person claimed."
+    )
+    claim_arg: str = "The issue or item number to claim."
+    claim_as: str = "Who claims the item: agent or human."
+    claim_confirm: str = "Make the write to GitHub: set the owner label."
+    claim_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
+    release: str = (
+        "Release an item: remove its owner/* label, whoever holds it. No job removes the claim "
+        "of an agent or a person."
+    )
+    release_arg: str = "The issue or item number to release."
+    release_confirm: str = "Make the write to GitHub: remove the owner label."
 
 
 @dataclass(frozen=True)

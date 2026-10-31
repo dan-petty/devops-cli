@@ -21,7 +21,8 @@ families all apply. With no filter the job takes the Ready and Planned items of 
 Service sets `status/planned` once the plan is on the default branch (`status_sync.py`, #2920). An
 item that the filter names, and that the job leaves out, is in the plan with its reason: its Status
 is neither Ready nor Planned (an item In Progress stays while its record names a runner Job that no
-round reported: that Job plans its own item), it is neither Staged nor Planned, a step stopped it
+round reported: that Job plans its own item), an agent or a person claimed it (#2910), it is
+neither Staged nor Planned, a step stopped it
 and no person cleared the stop,
 its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
 a commit by anyone but the App, a worktree holds the issue, its pull request is not an open
@@ -66,6 +67,7 @@ from devops_cli.git.worktree_add import (
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes, tasks_on_default
@@ -221,6 +223,8 @@ class _Judge:
         texts = MESSAGES.roadmap
         if not _takeable_status(item):
             return texts.implement_left_not_ready.format(status=item.status or "none")
+        if (owner := claimed_by(item)) is not None:
+            return texts.item_left_claimed.format(owner=owner)
         route = self._route(item)
         if route is None:
             return self._not_taken(item)

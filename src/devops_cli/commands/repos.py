@@ -38,7 +38,12 @@ from devops_cli.git.operations import (
     parse_clone_destination,
     pull_tracking,
 )
-from devops_cli.git.worktree_add import ReclaimResult, add_worktree, reclaim_merged_worktrees
+from devops_cli.git.worktree_add import (
+    ReclaimResult,
+    WorktreeAddReport,
+    add_worktree,
+    reclaim_merged_worktrees,
+)
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -52,6 +57,7 @@ from devops_cli.output import (
     track_progress,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
+from devops_cli.roadmap.claim import claim_as_agent, claim_request_lines
 from devops_cli.security.sanitizer import mask_secrets
 
 app = new_typer(help=HELP.repos.app, no_args_is_help=True)
@@ -472,6 +478,32 @@ def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
         )
 
 
+def _claimed(report: WorktreeAddReport, *, origin: str | None, dry_run: bool) -> WorktreeAddReport:
+    """The report with the claim of the issue for an agent (#2910): the claim runs after the
+    worktree exists and never stops the command. A dry run lists the requests of the claim and
+    makes none. An origin that is no GitHub repository has no roadmap to claim on."""
+    if origin is None:
+        return report
+    if dry_run:
+        lines = claim_request_lines(origin, report.issue)
+        return report.model_copy(update={"requests": [*report.requests, *lines]})
+    error = claim_as_agent(origin, report.issue)
+    return report.model_copy(update={"claimed": error is None, "claim_error": error})
+
+
+def _render_claim(report: WorktreeAddReport) -> None:
+    """Print the claim of the issue after the worktree: a warning when it was not made."""
+    if report.claim_error:
+        print_warning(
+            MESSAGES.repos.worktrees_add_not_claimed.format(
+                issue=report.issue, reason=report.claim_error
+            ),
+            prefix=False,
+        )
+    elif report.claimed:
+        print_info(MESSAGES.repos.worktrees_add_claimed.format(issue=report.issue), prefix=False)
+
+
 def _render_add_report(report: Any) -> None:
     """Print what `add` did, or the commands that its dry run lists."""
     from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
@@ -542,7 +574,8 @@ def worktrees_add(
     because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
     the standard directory or a pushed branch of origin already holds. A pushed branch whose
     commits past origin/main all have the App as author is a staged branch: the command adds the
-    worktree on it and takes --type and --slug from it.
+    worktree on it and takes --type and --slug from it. After the worktree exists, the command
+    claims the issue for an agent with the label owner/agent. It only warns if the claim fails.
     """
     is_plan = dry_run or is_dry_run()
     if is_plan and (branch_type is None or slug is None):
@@ -565,14 +598,19 @@ def worktrees_add(
         # Each removal is shown before a later refusal can hide it.
         for item in reclaimed.removed:
             _render_prune_item(item)
-    report = add_worktree(
-        root, issue=issue, type_=branch_type, slug=slug, dry_run=is_plan, reclaim=reclaimed
+    report = _claimed(
+        add_worktree(
+            root, issue=issue, type_=branch_type, slug=slug, dry_run=is_plan, reclaim=reclaimed
+        ),
+        origin=get_repo_origin_name(root),
+        dry_run=is_plan,
     )
 
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(report.model_dump(), resolved)
     else:
         _render_add_report(report)
+        _render_claim(report)
 
 
 @worktrees_app.command("prune")

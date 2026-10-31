@@ -476,12 +476,16 @@ class RepoMessages:
         "command and adds the worktree on that branch with --track.",
         "If a local branch of the new name exists, no worktree uses it, and origin holds all its "
         "commits, the run deletes that stray branch first.",
+        "A run also claims the issue for an agent with the label owner/agent on the roadmap of "
+        "origin. The claim lists the requests of the label write.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
     worktrees_add_took_over: str = (
         "Took over the staged branch {branch} in worktree {path}. Commits by the App: {commits}."
     )
     worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
+    worktrees_add_claimed: str = "Claimed #{issue} for an agent."
+    worktrees_add_not_claimed: str = "#{issue} is not claimed for an agent: {reason}"
     worktrees_add_no_origin: str = (
         "The repository has no remote named origin, so the branches of origin cannot be read. "
         "Add the remote."
@@ -1835,6 +1839,21 @@ class RoadmapMessages:
         "run reads the issue again and plans with that change."
     )
     item_value_unset: str = "unset"
+    # The claim of an Item (#2910).
+    claim_not_item: str = "#{number} is not an item of the roadmap."
+    claim_held: str = (
+        "#{number} is claimed by {owner}. An item has one owner at a time: release it first. "
+        "Only a person can take an item from the Service."
+    )
+    claim_closed: str = "#{number} is closed. A closed issue takes no claim."
+    claim_no_owner: str = "none"
+    claim_plan: str = "Item #{number}: {title}\nOwner: {current} -> {target}"
+    claim_plan_only: str = "Plan only: pass --confirm to apply."
+    claim_done: str = "Item #{number} is claimed by {owner}."
+    claim_released: str = "Item #{number} has no owner."
+    claim_unchanged: str = "Item #{number} has the owner {owner} already. Nothing was written."
+    claim_release_unchanged: str = "Item #{number} has no owner. Nothing was written."
+    item_left_claimed: str = "It is claimed by {owner}."
     field_value_unknown: str = "{value!r} is not a {field} value; the values are {values}."
     record_unreadable: str = (
         "The job record block of {issue} holds no JSON object of text values, so it reads as "
@@ -2192,6 +2211,16 @@ class RoadmapMessages:
         "sandbox, with a narrow token and no other credential. This process ran no step."
     )
     implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
+    implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
+    implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
+    implement_boundary_group: str = "the start of group {group}"
+    implement_boundary_end: str = "the end of the last group"
+    implement_boundary_stop: str = "the stop of {step}"
+    implement_comment_claimed: str = (
+        "{marker}\nThe job ended at {boundary}: {owner} claimed the item. It pushed nothing and "
+        "opened no pull request. The groups that passed stay out of the branch. To give the item "
+        "back to the Service, release it and set its Status to Ready."
+    )
     implement_job_failed_item: str = "#{number} ({error}{reason})"
     implement_job_failed: str = "{count} item(s) failed: {items}"
     implement_step_group: str = "group {group}"
