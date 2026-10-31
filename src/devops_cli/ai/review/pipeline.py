@@ -638,13 +638,9 @@ def _admit_scanner_findings(
 
 
 def _is_scannable_manifest(path: Path) -> bool:
-    """Report whether path is a scannable Kubernetes manifest or a mock test path."""
+    """Report whether path is a scannable Kubernetes manifest."""
     if not path.exists():
-        from unittest.mock import NonCallableMock
-
-        from devops_cli.security.kubelinter import run_kubelinter_scan
-
-        return isinstance(run_kubelinter_scan, NonCallableMock)
+        return False
     from devops_cli.security.kubeconform import is_kubernetes_manifest
 
     return is_kubernetes_manifest(path)

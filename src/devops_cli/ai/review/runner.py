@@ -46,7 +46,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, load_settings
-from devops_cli.core.process import run_subprocess as _run_subprocess
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import ConfigurationError
@@ -531,7 +531,7 @@ def _list_git_tracked_candidates(
         is_ignored_by_git(repo_root, root) if root.resolve() != repo_root.resolve() else False
     )
     if not root_ignored:
-        result = _run_subprocess(
+        result = run_subprocess(
             [
                 "git",
                 "-C",
@@ -727,7 +727,7 @@ _is_allowed_review_boundary = is_allowed_review_boundary
 
 def _detect_remote_default_branch(repo_path: Path) -> str:
     """The origin's default branch as `origin/<name>`, or empty when the clone records none."""
-    res_sym = _run_subprocess(
+    res_sym = run_subprocess(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         capture_output=True,
         text=True,
@@ -746,7 +746,7 @@ def detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRA
     reviewed only its last commit, under conventions its earlier commits set (#946). With no
     base found, `preferred_base` is returned and the diff against it fails.
     """
-    res = _run_subprocess(
+    res = run_subprocess(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{preferred_base}"],
         capture_output=True,
         text=True,
@@ -756,7 +756,7 @@ def detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRA
     if res.returncode == 0:
         return preferred_base
 
-    branches_proc = _run_subprocess(
+    branches_proc = run_subprocess(
         ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/", "refs/remotes/origin/"],
         capture_output=True,
         text=True,
@@ -928,7 +928,7 @@ def _prepare_watch_content(
 
 def _get_current_git_branch(repo_path: Path) -> str:
     """Return active git branch name if HEAD is attached, otherwise empty string."""
-    proc = _run_subprocess(
+    proc = run_subprocess(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         capture_output=True,
         text=True,
@@ -942,7 +942,7 @@ def _get_current_git_branch(repo_path: Path) -> str:
 
 def _has_uncommitted_working_tree_changes(repo_path: Path) -> bool:
     """Return True if working tree has staged or unstaged modifications."""
-    proc = _run_subprocess(
+    proc = run_subprocess(
         ["git", "diff", "HEAD"],
         capture_output=True,
         text=True,
@@ -958,7 +958,7 @@ def _resolve_main_branch_fallback_base(repo_path: Path, branch_name: str) -> str
 
     tag = get_latest_git_tag(repo_path)
     if tag:
-        tag_diff = _run_subprocess(
+        tag_diff = run_subprocess(
             ["git", "diff", f"{tag}...{branch_name}"],
             capture_output=True,
             text=True,
@@ -968,7 +968,7 @@ def _resolve_main_branch_fallback_base(repo_path: Path, branch_name: str) -> str
         if tag_diff.returncode == 0 and tag_diff.stdout.strip():
             return tag
 
-    parent_proc = _run_subprocess(
+    parent_proc = run_subprocess(
         ["git", "rev-parse", "--verify", "--quiet", f"{branch_name}~1"],
         capture_output=True,
         text=True,
@@ -1070,21 +1070,21 @@ def _prepare_branch_content(
     print_info(diffing_msg, prefix=False)
 
     if is_working_tree:
-        diff_proc = _run_subprocess(
+        diff_proc = run_subprocess(
             ["git", "diff", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_path,
         )
     else:
-        diff_proc = _run_subprocess(
+        diff_proc = run_subprocess(
             ["git", "diff", f"{effective_base}...{target_branch}"],
             capture_output=True,
             text=True,
             cwd=repo_path,
         )
         if diff_proc.returncode != 0:
-            diff_proc = _run_subprocess(
+            diff_proc = run_subprocess(
                 ["git", "diff", effective_base, target_branch],
                 capture_output=True,
                 text=True,

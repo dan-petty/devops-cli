@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -28,6 +27,7 @@ from devops_cli.ai.review.runner import (
 from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
 from devops_cli.models.git import ChangedFile
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 _MERGE_BASE = "c0ffee593"
 _BASE_MOD = "def legacy_helper():\n    return 0\n\n\ndef keep():\n    return 1\n"
@@ -145,18 +145,12 @@ def _write_cached_analysis(path: Path, removed: dict[str, list[str]], repo: Path
     return path
 
 
-def _fake_git_cli(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    """`git diff` prints the reviewed diff; any other git call fails."""
-    if args[:2] == ["git", "diff"]:
-        return subprocess.CompletedProcess(args, 0, stdout=_MOD_DIFF, stderr="")
-    return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
-
-
 def _branch_review_metadata(
     repo: Path,
     targets: tuple[str, str, bool],
     changes: list[ChangedFile],
     texts: dict[tuple[str, str], str],
+    process_fake: ProcessFake,
 ) -> tuple[dict[str, list[tuple[Any, ...]]], dict[str, FileAnalysisMeta]]:
     """Prepare a branch review through fake git helpers, whose files have `texts` by (revision,
     path), and run its pre-analysis; every git question the review asks is logged."""
@@ -174,10 +168,18 @@ def _branch_review_metadata(
         asked["reads"].append((revision, rel_path))
         return texts.get((revision, rel_path))
 
+    process_fake.answer(
+        "git",
+        ProcessAnswer(returncode=1, stdout="", stderr=""),
+    )
+    process_fake.answer(
+        "git diff",
+        ProcessAnswer(returncode=0, stdout=_MOD_DIFF),
+    )
+
     with (
         patch("devops_cli.ai.review.runner._resolve_branch_targets", return_value=targets),
         patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
-        patch("devops_cli.ai.review.runner._run_subprocess", side_effect=_fake_git_cli),
         patch("devops_cli.git.operations.resolve_merge_base", side_effect=merge_base),
         patch("devops_cli.git.operations.list_changed_files", side_effect=list_changes),
         patch("devops_cli.git.operations.read_file_at_revision", side_effect=read),
@@ -189,7 +191,9 @@ def _branch_review_metadata(
     return asked, metadata
 
 
-def test_a_branch_review_reads_each_changed_file_at_the_merge_base(review_repo: Path) -> None:
+def test_a_branch_review_reads_each_changed_file_at_the_merge_base(
+    review_repo: Path, process_fake: ProcessFake
+) -> None:
     """Verify a branch review's pre-analysis gets the delta with no earlier `devops ai analyze
     branch` run: `mod.py` is read at the merge base, not the base branch's name, a renamed file
     at its old path, and an added file never, all of its symbols being added. Each head is read
@@ -212,7 +216,7 @@ def test_a_branch_review_reads_each_changed_file_at_the_merge_base(review_repo: 
     }
 
     asked, metadata = _branch_review_metadata(
-        review_repo, ("feature", "main", False), changes, texts
+        review_repo, ("feature", "main", False), changes, texts, process_fake
     )
 
     assert (
@@ -274,11 +278,15 @@ def test_a_branch_review_takes_its_head_from_the_branch_not_the_checkout(
     )
 
 
-def test_a_working_tree_review_reads_head(review_repo: Path) -> None:
+def test_a_working_tree_review_reads_head(review_repo: Path, process_fake: ProcessFake) -> None:
     """Verify a review of uncommitted changes compares the files on disk with `HEAD`, with no
     merge base."""
     asked, metadata = _branch_review_metadata(
-        review_repo, ("main", "HEAD", True), [_MOD_MODIFIED], {("HEAD", "mod.py"): _BASE_MOD}
+        review_repo,
+        ("main", "HEAD", True),
+        [_MOD_MODIFIED],
+        {("HEAD", "mod.py"): _BASE_MOD},
+        process_fake,
     )
 
     assert (asked, _delta(metadata["mod.py"])) == (
