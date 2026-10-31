@@ -433,7 +433,7 @@ def sync_branch_protection_requests(
     return requests
 
 
-def _apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) -> bool:
+def apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) -> bool:
     """Push branch protection update to GitHub via gh CLI."""
     cmd = [CONST_GH_CLI, *sync_branch_protection_args(repo, branch)]
     payload_str = json.dumps(payload)
@@ -488,7 +488,7 @@ def sync_branch_protection(
                     continue
 
                 payload = build_protection_payload(pol)
-                _apply_remote_protection(repo, pol.branch, payload)
+                apply_remote_protection(repo, pol.branch, payload)
                 synced.append(pol.branch)
             except GitHubOperationError as exc:
                 logger.error("Sync failed for branch %s: %s", pol.branch, exc)

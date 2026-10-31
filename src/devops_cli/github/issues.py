@@ -86,7 +86,7 @@ def _parse_issue_assignees(raw_assignees: Any) -> list[str]:
     return logins
 
 
-def _parse_single_issue(item: dict[str, Any]) -> GitHubIssue:
+def parse_issue(item: dict[str, Any]) -> GitHubIssue:
     """Transform raw GitHub issue dictionary into a typed GitHubIssue model."""
     raw_m = item.get("milestone")
     milestone_title: str | None = None
@@ -125,7 +125,7 @@ def _filter_rest_issues(
     for item in raw_list:
         if not isinstance(item, dict) or "pull_request" in item or "number" not in item:
             continue
-        parsed = _parse_single_issue(item)
+        parsed = parse_issue(item)
         if milestone and parsed.milestone != milestone:
             continue
         issues.append(parsed)
@@ -134,7 +134,7 @@ def _filter_rest_issues(
     return issues
 
 
-def _fetch_issues_rest(
+def fetch_issues_rest(
     repo: str,
     state: str = "open",
     milestone: str | None = None,
@@ -226,11 +226,11 @@ def get_repository_issues(
         try:
             raw_list = json.loads(res.stdout)
             if isinstance(raw_list, list):
-                return [_parse_single_issue(item) for item in raw_list if isinstance(item, dict)]
+                return [parse_issue(item) for item in raw_list if isinstance(item, dict)]
         except Exception as exc:
             logger.debug("Failed to parse issues: %s", exc)
 
-    return _fetch_issues_rest(
+    return fetch_issues_rest(
         repo,
         state=state,
         milestone=milestone,
@@ -260,7 +260,7 @@ def get_repository_issue(repo: str, number: int) -> GitHubIssue:
             operation="issue_view",
             details={"repo": repo, "number": number},
         )
-    return _parse_single_issue(item)
+    return parse_issue(item)
 
 
 _EMPTY_FIELD = "—"
@@ -315,7 +315,7 @@ def create_issue_requests(
     return [planned_gh(args, f"repos/{repo}/issues")]
 
 
-def _build_create_issue_cmd(
+def build_create_issue_cmd(
     repo: str,
     title: str,
     body: str = "",
@@ -349,7 +349,7 @@ def _parse_created_issue(
         try:
             data = json.loads(cleaned)
             if data and "number" in data:
-                return _parse_single_issue(data)
+                return parse_issue(data)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             logger.debug("Failed to parse JSON issue payload: %s", exc)
     return GitHubIssue(
@@ -371,7 +371,7 @@ def create_repository_issue(
     labels: list[str] | None = None,
 ) -> GitHubIssue:
     """Create a new GitHub issue with taxonomy labels and milestone linkage."""
-    cmd = _build_create_issue_cmd(repo, title, body, milestone, labels)
+    cmd = build_create_issue_cmd(repo, title, body, milestone, labels)
     res = run_gh(cmd, check=False, quiet=True)
     assigned_milestone = milestone
     if (
@@ -379,10 +379,10 @@ def create_repository_issue(
         and milestone
         and "could not add to milestone" in (res.stderr or res.stdout)
     ):
-        fallback_cmd = _build_create_issue_cmd(repo, title, body, None, labels)
+        fallback_cmd = build_create_issue_cmd(repo, title, body, None, labels)
         res = run_gh(fallback_cmd, check=False, quiet=True)
         if res.returncode == 0:
-            m_num = _resolve_milestone_number(repo, milestone)
+            m_num = resolve_milestone_number(repo, milestone)
             created_num = _extract_issue_number(res.stdout)
             if m_num and created_num:
                 patch_cmd = [
@@ -544,7 +544,7 @@ def _find_milestone_match(items: Iterable[Any], title: str) -> int | None:
     )
 
 
-def _resolve_milestone_number(repo: str, milestone: str | int | None) -> int | None:
+def resolve_milestone_number(repo: str, milestone: str | int | None) -> int | None:
     """Resolve a milestone number, or else its exact title, into its GitHub milestone number."""
     if _is_trivial_milestone(milestone):
         return None
@@ -567,7 +567,7 @@ def _resolve_milestone_number(repo: str, milestone: str | int | None) -> int | N
     )
 
 
-def _resolve_updated_labels(
+def resolve_updated_labels(
     repo: str,
     number: int,
     labels: list[str] | None,

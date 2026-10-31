@@ -251,7 +251,7 @@ def reset_project_caches() -> None:
     _PROJECT_OWNER_ARG_CACHE.clear()
 
 
-def _get_authenticated_user() -> str | None:
+def get_authenticated_user() -> str | None:
     """Retrieve the username of the currently authenticated GitHub CLI user."""
     global _CURRENT_USER_CACHE
     if _CURRENT_USER_CACHE is not None:
@@ -266,7 +266,7 @@ def _get_authenticated_user() -> str | None:
 def _project_login(owner: str) -> str:
     """The login a board read names its owner by; `@me` is the signed-in user's."""
     login = owner.strip()
-    return (_get_authenticated_user() or login) if login == "@me" else login
+    return (get_authenticated_user() or login) if login == "@me" else login
 
 
 def _gh_command(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -274,7 +274,7 @@ def _gh_command(args: list[str]) -> subprocess.CompletedProcess[str]:
     return run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
 
 
-def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
+def read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
     """The error a read of `what` that exited non-zero raises: the class the gh classifier
     names from gh's stderr, else a failed read of `what` quoting stderr, or stdout when gh wrote
     nothing to stderr. A board read's `--owner <login>` has no `@me` fallback, so an owner
@@ -316,7 +316,7 @@ def _read_lookup_failure(
     )
 
 
-def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | None:
+def find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | None:
     """Attempt to locate a remote project via GitHub REST API."""
     for endpoint in _OWNER_BOARD_ENDPOINTS:
         proc = run_gh([CONST_GH_CLI, *_owner_boards_args(endpoint, owner)], check=False, quiet=True)
@@ -351,14 +351,14 @@ def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | N
     return None
 
 
-def _resolve_project_owner_arg(owner: str) -> str:
+def resolve_project_owner_arg(owner: str) -> str:
     """Normalize owner argument for gh project CLI commands without hardcoding usernames."""
     clean_owner = owner.strip()
     if clean_owner == "@me":
         return "@me"
     if clean_owner in _PROJECT_OWNER_ARG_CACHE:
         return _PROJECT_OWNER_ARG_CACHE[clean_owner]
-    current_user = _get_authenticated_user()
+    current_user = get_authenticated_user()
     if current_user and clean_owner.lower() == current_user:
         return "@me"
     return clean_owner
@@ -383,9 +383,9 @@ def _run_project_cli(
     return proc
 
 
-def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | None:
+def find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | None:
     """Fallback to searching projects via gh project list CLI."""
-    owner_arg = _resolve_project_owner_arg(owner)
+    owner_arg = resolve_project_owner_arg(owner)
     proc = _run_project_cli([CONST_GH_CLI, *_project_list_args(owner_arg)], owner_arg=owner_arg)
     if proc.returncode != 0:
         raise _read_lookup_failure(proc, what=f"{owner} projects", operation="find_remote_project")
@@ -416,7 +416,7 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
     return _find_project_in_list(projects, name_or_short)
 
 
-def _find_project_via_repo(owner: str, repo: str, name_or_short: str) -> dict[str, Any] | None:
+def find_project_via_repo(owner: str, repo: str, name_or_short: str) -> dict[str, Any] | None:
     """Locate an existing remote project linked to the target repository."""
     proc = run_gh([CONST_GH_CLI, *_repository_boards_args(owner, repo)], check=False, quiet=True)
     if proc.returncode != 0:
@@ -461,12 +461,10 @@ def find_remote_project(
 ) -> dict[str, Any] | None:
     """Locate an existing remote project by title or short name, checking linked repository first."""
     if repo:
-        matched = _find_project_via_repo(owner, repo, name_or_short)
+        matched = find_project_via_repo(owner, repo, name_or_short)
         if matched:
             return matched
-    return _find_project_via_rest(owner, name_or_short) or _find_project_via_cli(
-        owner, name_or_short
-    )
+    return find_project_via_rest(owner, name_or_short) or find_project_via_cli(owner, name_or_short)
 
 
 def find_project_by_template(owner: str, repo: str, template: ProjectTemplate) -> int | None:
@@ -485,7 +483,7 @@ def _template_names(template: ProjectTemplate) -> list[str]:
 
 def create_remote_project(owner: str, title: str) -> dict[str, Any]:
     """Create a new remote GitHub Projects v2 board."""
-    current_user = _get_authenticated_user()
+    current_user = get_authenticated_user()
     if current_user and "github-actions" in current_user:
         raise GitHubOperationError(
             f"GitHub Actions runner ('{current_user}') does not have permission to create user-owned Projects v2 "
@@ -494,7 +492,7 @@ def create_remote_project(owner: str, title: str) -> dict[str, Any]:
             operation="create_remote_project",
             details={"owner": owner, "title": title},
         )
-    owner_arg = _resolve_project_owner_arg(owner)
+    owner_arg = resolve_project_owner_arg(owner)
     proc = _run_project_cli(
         [
             CONST_GH_CLI,
@@ -560,7 +558,7 @@ def link_project_to_repository(project_number: int, owner: str, repo: str) -> bo
     """Link a GitHub Projects v2 board to a target repository."""
     clean_owner = owner.strip()
     if clean_owner == "@me":
-        current_user = _get_authenticated_user()
+        current_user = get_authenticated_user()
         clean_owner = current_user or "@me"
     clean_repo_name = repo.split("/")[-1] if "/" in repo else repo
     full_repo = f"{clean_owner}/{clean_repo_name}"
@@ -650,7 +648,7 @@ def project_workflows_requests(
     return requests
 
 
-def _fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
+def fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
     """Query raw ProjectV2 workflow nodes via GraphQL."""
     cmd = [CONST_GH_CLI, *project_workflows_args(proj_id)]
     proc = run_gh(cmd, check=False, quiet=True)
@@ -679,7 +677,7 @@ def get_project_workflows(
     if not proj_id:
         return []
 
-    nodes = _fetch_project_workflow_nodes(str(proj_id))
+    nodes = fetch_project_workflow_nodes(str(proj_id))
     clean_owner = owner.split("/")[0] if "/" in owner else owner
     base_url = f"https://github.com/users/{clean_owner}/projects/{project_number}/workflows"
     return [
@@ -713,9 +711,9 @@ def field_create_args(owner_arg: str, project_number: int | str, field: ProjectF
     return cmd
 
 
-def _provision_single_field(owner: str, project_number: int, field: ProjectField) -> bool:
+def provision_single_field(owner: str, project_number: int, field: ProjectField) -> bool:
     """Provision a single custom field in a GitHub Projects v2 board."""
-    owner_arg = _resolve_project_owner_arg(owner)
+    owner_arg = resolve_project_owner_arg(owner)
     cmd = field_create_args(owner_arg, project_number, field)
     proc = _run_project_cli(cmd, owner_arg=owner_arg)
     if proc.returncode != 0:
@@ -737,12 +735,12 @@ def _provision_single_field(owner: str, project_number: int, field: ProjectField
     return True
 
 
-def _fetch_existing_fields_by_name(owner: str, project_number: int) -> dict[str, Any]:
+def fetch_existing_fields_by_name(owner: str, project_number: int) -> dict[str, Any]:
     """Retrieve existing fields indexed by lowercase name through fail-closed FieldListingPayload."""
 
     login = _project_login(owner)
     what = f"project #{project_number} fields"
-    listing = _gh_read(
+    listing = gh_read(
         field_list_args(login, project_number), FieldListingPayload, what, "fetch_project_fields"
     )
     _require_whole(
@@ -761,11 +759,11 @@ def provision_remote_project_fields(
     edits an existing board's options: a person edits them in the board's field settings,
     which keep ids.
     """
-    owner_arg = _resolve_project_owner_arg(owner)
-    existing_fields_by_name = _fetch_existing_fields_by_name(owner, project_number)
+    owner_arg = resolve_project_owner_arg(owner)
+    existing_fields_by_name = fetch_existing_fields_by_name(owner, project_number)
     missing = [field for field in fields if field.name.lower() not in existing_fields_by_name]
     return [
-        field.name for field in missing if _provision_single_field(owner_arg, project_number, field)
+        field.name for field in missing if provision_single_field(owner_arg, project_number, field)
     ]
 
 
@@ -784,7 +782,7 @@ def _normalize_field_value(raw: Any) -> str | None:
     return str(raw)
 
 
-def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
+def extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
     """Extract custom field mapping from project item, handling case variance."""
     fields_by_lower = {str(k).lower(): _normalize_field_value(v) for k, v in it.items()}
     return {
@@ -796,14 +794,14 @@ def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
     }
 
 
-def _gh_read[Payload: BaseModel](
+def gh_read[Payload: BaseModel](
     args: list[str], model: type[Payload], what: str, operation: str = "fetch_project_items"
 ) -> Payload:
     """One read through `run_gh`, which charges a GraphQL reply the points its `rateLimit`
     reports; raises when GitHub can't be read or answers malformed."""
     proc = _gh_command(args)
     if proc.returncode != 0:
-        raise _read_failure(proc, what, operation)
+        raise read_failure(proc, what, operation)
     if not proc.stdout or not proc.stdout.strip():
         raise GitHubUnreadError(
             f"GitHub returned empty {what}.",
@@ -820,7 +818,7 @@ def _gh_read[Payload: BaseModel](
         ) from exc
 
 
-def _read_board(login: str, project_number: int) -> dict[str, dict[str, str | None]]:
+def read_board(login: str, project_number: int) -> dict[str, dict[str, str | None]]:
     """Every card on the board not archived, by its issue or pull request URL, with its fields.
 
     The read starts with the roadmap store's budget query (#1125), whose reply reports GraphQL's
@@ -832,7 +830,7 @@ def _read_board(login: str, project_number: int) -> dict[str, dict[str, str | No
     the board cannot be read whole, so a failed read never looks like an empty board.
     """
     what = f"project #{project_number} items"
-    probe = _gh_read(
+    probe = gh_read(
         board_budget_args(login, project_number, ""),
         BoardBudgetPayload,
         MESSAGES.project.budget_read.format(what=what),
@@ -849,7 +847,7 @@ def _read_board(login: str, project_number: int) -> dict[str, dict[str, str | No
     for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
         if page > 1:
             require_floor(budget, what, page)
-        read = _gh_read(
+        read = gh_read(
             board_items_args(login, project_number, "", after=after), BoardItemsPage, what
         )
         budget = read.rate_limit
@@ -867,7 +865,7 @@ def _read_board(login: str, project_number: int) -> dict[str, dict[str, str | No
         incomplete=after is not None,
     )
     return {
-        url: _extract_item_fields(entry)
+        url: extract_item_fields(entry)
         for entry in listing.values()
         if (url := _extract_item_url(entry))
     }
@@ -892,7 +890,7 @@ def _require_whole(
         )
 
 
-def _read_field_options(login: str, project_number: int) -> dict[str, tuple[str, ...]]:
+def read_field_options(login: str, project_number: int) -> dict[str, tuple[str, ...]]:
     """The board's own fields' options by field name, which are the values a write can set.
 
     Raises when the fields can't be read whole or the board has no Status options, so an unread
@@ -900,7 +898,7 @@ def _read_field_options(login: str, project_number: int) -> dict[str, tuple[str,
     """
 
     what = f"project #{project_number} fields"
-    listing = _gh_read(
+    listing = gh_read(
         field_list_args(login, project_number), FieldListingPayload, what, "fetch_project_fields"
     )
     _require_whole(
@@ -945,7 +943,7 @@ def _planned_listing(repo: str, kind: str, state: str) -> PlannedRequest:
     )
 
 
-def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, Any]]:
+def fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, Any]]:
     """Retrieve candidate issues from the repository via GitHub API.
 
     The issues endpoint also returns pull requests, without their merge state; those come
@@ -1043,7 +1041,7 @@ def plan_item_changes(
     return []
 
 
-def _fetch_repository_prs(repo: str, state: str = "open") -> list[dict[str, Any]]:
+def fetch_repository_prs(repo: str, state: str = "open") -> list[dict[str, Any]]:
     """Retrieve candidate PRs from the repository via GitHub API."""
     return _fetch_repository_list(repo, "pulls", state)
 
@@ -1211,10 +1209,10 @@ def reconcile_project_custom_fields(
     GraphQL's points fall below the floor or a write fails, and the result says which.
     """
     login = _project_login(owner)
-    board = _read_board(login, project_number)
-    options = _read_field_options(login, project_number)
-    issues = _fetch_repository_issues(repo, state=state)
-    prs = _fetch_repository_prs(repo, state=state)
+    board = read_board(login, project_number)
+    options = read_field_options(login, project_number)
+    issues = fetch_repository_issues(repo, state=state)
+    prs = fetch_repository_prs(repo, state=state)
     on_board = [item for item in issues + prs if _item_url(item) in board]
     planned = _plan_changes(on_board, board, options[ItemField.STATUS])
     for change in planned:
@@ -1488,7 +1486,7 @@ def sync_remote_project(
     )
 
 
-def _map_view_layout(layout: str) -> str:
+def map_view_layout(layout: str) -> str:
     """Map template layout string to GraphQL ProjectV2ViewLayout enum."""
     cleaned = layout.strip().lower()
     if "board" in cleaned:
@@ -1525,7 +1523,7 @@ def audit_views_requests(owner: str, repo: str, template: ProjectTemplate) -> li
 
 def create_project_view_args(project_id: str, name: str, layout: str) -> list[str]:
     """Arguments for creating a project view via GraphQL mutation."""
-    layout_enum = _map_view_layout(layout)
+    layout_enum = map_view_layout(layout)
     mutation = (
         f"mutation {{ createProjectV2View(input: {{ projectId: {json.dumps(project_id)}, "
         f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
@@ -1535,7 +1533,7 @@ def create_project_view_args(project_id: str, name: str, layout: str) -> list[st
 
 def rename_default_view_args(view_id: str, name: str, layout: str) -> list[str]:
     """Arguments for renaming default View 1 via GraphQL mutation."""
-    layout_enum = _map_view_layout(layout)
+    layout_enum = map_view_layout(layout)
     mutation = (
         f"mutation {{ updateProjectV2View(input: {{ viewId: {json.dumps(view_id)}, "
         f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
@@ -1586,7 +1584,7 @@ def get_remote_project_views(
     return proj.get("id"), proj.get("number"), views
 
 
-def _create_project_view(project_id: str, name: str, layout: str) -> bool:
+def create_project_view(project_id: str, name: str, layout: str) -> bool:
     """Create a project view via GraphQL mutation."""
     cmd = create_project_view_args(project_id, name, layout)
     proc = run_gh(
@@ -1597,7 +1595,7 @@ def _create_project_view(project_id: str, name: str, layout: str) -> bool:
     return proc.returncode == 0
 
 
-def _rename_default_view(view_id: str, name: str, layout: str) -> bool:
+def rename_default_view(view_id: str, name: str, layout: str) -> bool:
     """Rename default View 1 via GraphQL mutation."""
     cmd = rename_default_view_args(view_id, name, layout)
     proc = run_gh(
@@ -1631,12 +1629,12 @@ def sync_remote_project_views(owner: str, repo: str, template: ProjectTemplate) 
 
         if "view 1" in existing_by_name and not created and not existing:
             view1_id = existing_by_name["view 1"].get("id", "")
-            if _rename_default_view(view1_id, tv.name, tv.layout):
+            if rename_default_view(view1_id, tv.name, tv.layout):
                 created.append(tv.name)
                 del existing_by_name["view 1"]
                 continue
 
-        if _create_project_view(proj_id, tv.name, tv.layout):
+        if create_project_view(proj_id, tv.name, tv.layout):
             created.append(tv.name)
 
     return {
@@ -1647,7 +1645,7 @@ def sync_remote_project_views(owner: str, repo: str, template: ProjectTemplate) 
     }
 
 
-def _list_projects_via_rest(owner: str) -> list[dict[str, Any]]:
+def list_projects_via_rest(owner: str) -> list[dict[str, Any]]:
     """List projects using GitHub REST API."""
     for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
         cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
@@ -1689,9 +1687,9 @@ def _format_project_list_entry(p: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _list_projects_via_cli(owner: str) -> list[dict[str, Any]]:
+def list_projects_via_cli(owner: str) -> list[dict[str, Any]]:
     """List projects using gh project list CLI command."""
-    owner_arg = _resolve_project_owner_arg(owner)
+    owner_arg = resolve_project_owner_arg(owner)
     cmd = [CONST_GH_CLI, "project", "list", "--owner", owner_arg, "--format", "json"]
     proc = _run_project_cli(cmd, owner_arg=owner_arg)
     if proc.returncode != 0:
@@ -1754,7 +1752,7 @@ def project_list_requests(owner: str) -> list[PlannedRequest]:
 
 def list_remote_projects(owner: str) -> list[dict[str, Any]]:
     """List GitHub Projects v2 boards belonging to the user or organization."""
-    return _list_projects_via_rest(owner) or _list_projects_via_cli(owner)
+    return list_projects_via_rest(owner) or list_projects_via_cli(owner)
 
 
 def audit_remote_project_views(owner: str, repo: str, template: ProjectTemplate) -> dict[str, Any]:

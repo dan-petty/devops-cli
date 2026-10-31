@@ -6,15 +6,14 @@ import datetime
 import json
 import logging
 import subprocess
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.gh import app as gh_app
+from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.github.metrics import (
     ItemCountMetric,
@@ -26,22 +25,22 @@ from devops_cli.github.metrics import (
     TrafficReferrerMetric,
     TrafficSummaryMetric,
     WorkflowRunMetric,
-    _build_milestone_metric,
-    _calculate_pass_rate,
-    _classify_workflow_conclusion,
-    _count_bullet_commits,
-    _extract_commits_and_prs,
-    _get_git_tag_entries,
-    _parse_tag_datetime,
+    build_milestone_metric,
+    calculate_pass_rate,
+    classify_workflow_conclusion,
     collect_project_metrics_report,
+    count_bullet_commits,
     emit_project_metrics_telemetry,
+    extract_commits_and_prs,
     get_ci_workflow_metrics,
+    get_git_tag_entries,
     get_item_metrics,
     get_item_releases,
     get_label_taxonomy_metrics,
     get_milestone_metrics,
     get_release_cadence_metrics,
     get_repository_traffic_metrics,
+    parse_tag_datetime,
     reset_refused_paths,
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
@@ -62,9 +61,17 @@ from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
-runner = CliRunner()
+if TYPE_CHECKING:
+    from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+    from tests.support.cli import CliRunnerFixture
+
 REPO = "example/test-repo"
 PLANNED = "2026-11-01"
+
+
+def _fresh_quota_payload() -> str:
+    fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
+    return json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
 
 
 def _roadmap_store(github: GitHubFake) -> GitHubRoadmapStore:
@@ -92,8 +99,8 @@ def _repository_with_items() -> GitHubFake:
 def test_parse_tag_datetime_valid_and_invalid() -> None:
     """Verify ISO string parsing and fallback behavior."""
     iso_date = "2026-09-28T12:00:00+00:00"
-    parsed_utc = _parse_tag_datetime(iso_date)
-    fallback = _parse_tag_datetime("not-a-date")
+    parsed_utc = parse_tag_datetime(iso_date)
+    fallback = parse_tag_datetime("not-a-date")
 
     assert (
         parsed_utc.year,
@@ -107,12 +114,14 @@ def test_parse_tag_datetime_valid_and_invalid() -> None:
     assert isinstance(fallback, datetime.datetime)
 
 
-def test_get_git_tag_entries_success(process_fake: ProcessFake, tmp_path: Path) -> None:
+def test_get_git_tag_entries_returns_chronological_tags(
+    process_fake: ProcessFake, tmp_path: Path
+) -> None:
     """Verify git tag discovery, as a local read in the root, and chronological sorting."""
     raw_output = "v0.2.21|2026-09-20T10:00:00Z\nv0.2.20|2026-09-19T10:00:00Z\n"
     process_fake.answer(["git", "tag"], ProcessAnswer(stdout=raw_output))
 
-    entries = _get_git_tag_entries(tmp_path)
+    entries = get_git_tag_entries(tmp_path)
 
     call = process_fake.calls[0]
     assert ([tag for tag, _ in entries], call.argv[:3], call.cwd, call.local_read) == (
@@ -132,7 +141,7 @@ def test_get_git_tag_entries_without_git_logs_the_missing_program(
     )
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
-        entries = _get_git_tag_entries(tmp_path)
+        entries = get_git_tag_entries(tmp_path)
 
     assert (entries, "Executable 'git' not found" in caplog.text) == ([], True)
 
@@ -146,7 +155,7 @@ def test_count_bullet_commits() -> None:
         "* docs: update changelog\n"
         "* a\n"
     )
-    count = _count_bullet_commits(body)
+    count = count_bullet_commits(body)
     assert count == 3
 
 
@@ -157,7 +166,7 @@ def test_extract_commits_and_prs(process_fake: ProcessFake, tmp_path: Path) -> N
     body = "* feat(core): item 1 (#101)\n* fix(core): item 2 (#102)\n* fix(core): item 3 (#101)\n"
     process_fake.answer(["git", "log"], ProcessAnswer(stdout=body))
 
-    commits, prs = _extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21")
+    commits, prs = extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21")
 
     assert (
         (commits, prs),
@@ -172,18 +181,20 @@ def test_extract_commits_and_prs_without_git(process_fake: ProcessFake, tmp_path
         "git", ProcessAnswer(returncode=127, stderr="Executable 'git' not found in PATH")
     )
 
-    assert _extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21") == (1, 0)
+    assert extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21") == (1, 0)
 
 
-def test_get_release_cadence_metrics(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_get_release_cadence_metrics(process_fake: ProcessFake, tmp_path: Path) -> None:
     """Verify release cadence interval calculation and reverse-chronological ordering."""
-    entries = [
-        ("v0.2.20", datetime.datetime(2026, 9, 10, 0, 0, tzinfo=datetime.UTC)),
-        ("v0.2.21", datetime.datetime(2026, 9, 12, 12, 0, tzinfo=datetime.UTC)),
-        ("v0.2.22", datetime.datetime(2026, 9, 15, 0, 0, tzinfo=datetime.UTC)),
-    ]
-    monkeypatch.setattr("devops_cli.github.metrics._get_git_tag_entries", lambda _: entries)
-    monkeypatch.setattr("devops_cli.github.metrics._extract_commits_and_prs", lambda *_: (10, 5))
+    tag_output = (
+        "v0.2.20|2026-09-10T00:00:00+00:00\n"
+        "v0.2.21|2026-09-12T12:00:00+00:00\n"
+        "v0.2.22|2026-09-15T00:00:00+00:00\n"
+    )
+    process_fake.answer(["git", "tag"], ProcessAnswer(stdout=tag_output))
+    process_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="10\n"))
+    body = "* item 1 (#1)\n* item 2 (#2)\n* item 3 (#3)\n* item 4 (#4)\n* item 5 (#5)\n"
+    process_fake.answer(["git", "log"], ProcessAnswer(stdout=body))
 
     metrics = get_release_cadence_metrics(tmp_path, limit=2)
     assert len(metrics) == 2
@@ -198,18 +209,19 @@ def test_get_release_cadence_metrics(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         "v0.2.21",
         2.5,
     )
+    assert (metrics[0].commit_count, metrics[0].pr_count) == (10, 5)
 
 
 def test_calculate_pass_rate_and_conclusion() -> None:
     """Verify pass rate percentage calculation and conclusion classification."""
-    rate_100 = _calculate_pass_rate(10, 0)
-    rate_50 = _calculate_pass_rate(5, 5)
-    rate_zero = _calculate_pass_rate(0, 0)
+    rate_100 = calculate_pass_rate(10, 0)
+    rate_50 = calculate_pass_rate(5, 5)
+    rate_zero = calculate_pass_rate(0, 0)
 
-    c_success = _classify_workflow_conclusion("success")
-    c_failure = _classify_workflow_conclusion("failure")
-    c_timed_out = _classify_workflow_conclusion("timed_out")
-    c_other = _classify_workflow_conclusion("cancelled")
+    c_success = classify_workflow_conclusion("success")
+    c_failure = classify_workflow_conclusion("failure")
+    c_timed_out = classify_workflow_conclusion("timed_out")
+    c_other = classify_workflow_conclusion("cancelled")
 
     assert (rate_100, rate_50, rate_zero) == (100.0, 50.0, 100.0)
     assert (c_success, c_failure, c_timed_out, c_other) == (
@@ -220,7 +232,7 @@ def test_calculate_pass_rate_and_conclusion() -> None:
     )
 
 
-def test_get_ci_workflow_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_ci_workflow_metrics(process_fake: ProcessFake) -> None:
     """Verify CI workflow aggregation and pass rate calculation."""
     fake_runs = {
         "workflow_runs": [
@@ -229,9 +241,14 @@ def test_get_ci_workflow_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
             {"name": "Deploy", "conclusion": "success"},
         ]
     }
-    mock_client = MagicMock()
-    mock_client.api.return_value = json.dumps(fake_runs)
-    monkeypatch.setattr("devops_cli.github.metrics.GhCliClient", lambda: mock_client)
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/actions/runs?per_page=10"],
+        ProcessAnswer(stdout=json.dumps(fake_runs)),
+    )
 
     results = get_ci_workflow_metrics("example/repo", limit=10)
     assert len(results) == 2
@@ -257,25 +274,30 @@ def test_get_ci_workflow_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_get_ci_workflow_metrics_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_ci_workflow_metrics_error(process_fake: ProcessFake) -> None:
     """Verify get_ci_workflow_metrics returns empty list on API error."""
-    mock_client = MagicMock()
-    mock_client.api.side_effect = RuntimeError("network error")
-    monkeypatch.setattr("devops_cli.github.metrics.GhCliClient", lambda: mock_client)
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/actions/runs?per_page=50"],
+        ProcessAnswer(returncode=1, stderr="network error"),
+    )
 
     results = get_ci_workflow_metrics("example/repo")
     assert results == []
 
 
-def test_build_milestone_metric_and_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_milestone_metric_and_filter(process_fake: ProcessFake) -> None:
     """Verify milestone metric extraction, completion percentage, and filtering."""
     raw_open = {"title": "2026-10-01", "state": "open", "open_issues": 3, "closed_issues": 7}
     raw_closed = {"title": "2026-09-24", "state": "closed", "open_issues": 0, "closed_issues": 10}
     raw_empty = {"title": "2026-10-08", "state": "open", "open_issues": 0, "closed_issues": 0}
 
-    m_open = _build_milestone_metric(raw_open)
-    m_closed = _build_milestone_metric(raw_closed)
-    m_empty = _build_milestone_metric(raw_empty)
+    m_open = build_milestone_metric(raw_open)
+    m_closed = build_milestone_metric(raw_closed)
+    m_empty = build_milestone_metric(raw_empty)
 
     assert (m_open.completion_rate, m_closed.completion_rate, m_empty.completion_rate) == (
         70.0,
@@ -283,9 +305,14 @@ def test_build_milestone_metric_and_filter(monkeypatch: pytest.MonkeyPatch) -> N
         0.0,
     )
 
-    mock_client = MagicMock()
-    mock_client.api.return_value = json.dumps([raw_open, raw_closed])
-    monkeypatch.setattr("devops_cli.github.metrics.GhCliClient", lambda: mock_client)
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/milestones?state=all&per_page=100"],
+        ProcessAnswer(stdout=json.dumps([raw_open, raw_closed])),
+    )
 
     filtered = get_milestone_metrics("example/repo", milestone_filter="2026-10-01")
     assert len(filtered) == 1
@@ -296,16 +323,21 @@ def test_build_milestone_metric_and_filter(monkeypatch: pytest.MonkeyPatch) -> N
     )
 
 
-def test_get_label_taxonomy_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_label_taxonomy_metrics(process_fake: ProcessFake) -> None:
     """Verify label taxonomy extraction and aggregation."""
     issues = [
         {"labels": [{"name": "team/core"}, {"name": "scope/cli"}]},
         {"labels": [{"name": "team/core"}, {"name": "team/infra"}]},
         {"labels": ["scope/cli", "unscoped-label"]},
     ]
-    mock_client = MagicMock()
-    mock_client.api.return_value = json.dumps(issues)
-    monkeypatch.setattr("devops_cli.github.metrics.GhCliClient", lambda: mock_client)
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
+    )
+    process_fake.answer(
+        ["gh", "api", "--paginate", "repos/example/repo/issues?state=open&per_page=100"],
+        ProcessAnswer(stdout=json.dumps(issues)),
+    )
 
     metrics = get_label_taxonomy_metrics("example/repo")
     team_core = next((m for m in metrics if m.label == "team/core"), None)
@@ -478,15 +510,8 @@ def test_a_given_root_is_walked_as_it_is_even_inside_another_checkout(
     ) == (["v0.2.0", "v0.1.0"], [])
 
 
-def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_emit_project_metrics_telemetry(otlp: FakeCollector) -> None:
     """Verify OpenTelemetry emission for all project metric series."""
-    emitted: list[tuple[Any, float, dict[str, str] | None]] = []
-
-    def fake_emit(instrument: Any, value: float, attributes: dict[str, str] | None = None) -> None:
-        emitted.append((instrument.name, value, attributes))
-
-    monkeypatch.setattr("devops_cli.github.metrics.emit", fake_emit)
-
     report = ProjectMetricsReport(
         repo="example/repo",
         generated_at="2026-10-02 00:00:00 UTC",
@@ -531,7 +556,7 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
     )
 
     emit_project_metrics_telemetry(report)
-    instrument_names = [e[0] for e in emitted]
+    instrument_names = {m["name"] for m in otlp.metrics}
 
     expected_instruments = {
         "devops_cli_project_releases",
@@ -549,7 +574,7 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
         "devops_cli_project_traffic_referrers",
         "devops_cli_project_traffic_paths",
     }
-    assert expected_instruments.issubset(set(instrument_names))
+    assert expected_instruments.issubset(instrument_names)
 
 
 def _snapshot(*items: ItemCountMetric) -> ProjectMetricsReport:
@@ -605,68 +630,73 @@ def test_a_label_set_with_no_items_is_sent_as_zero_once(otlp: FakeCollector) -> 
     )
 
 
-def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_gh_metrics_formats_tables_and_json(
+    cli: CliRunnerFixture, process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+) -> None:
     """Verify devops gh metrics execution with interactive and JSON outputs."""
-    report = ProjectMetricsReport(
-        repo="example/repo",
-        generated_at="2026-10-02 00:00:00 UTC",
-        total_releases=1,
-        average_cadence_days=2.5,
-        releases=[
-            ReleaseCadenceMetric(
-                tag="v0.2.25",
-                published_at="2026-10-01",
-                days_since_prev=2.5,
-                commit_count=10,
-                pr_count=8,
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
+    )
+    tag_output = "v0.2.25|2026-10-01T00:00:00+00:00\n"
+    process_fake.answer(["git", "tag"], ProcessAnswer(stdout=tag_output))
+    process_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="10\n"))
+    process_fake.answer(["git", "log"], ProcessAnswer(stdout="* item (#1)\n"))
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/actions/runs"],
+        ProcessAnswer(
+            stdout=json.dumps(
+                {"workflow_runs": [{"name": "CI Quality Gate", "conclusion": "success"}]}
             )
-        ],
-        workflow_runs=[
-            WorkflowRunMetric(
-                workflow="CI Quality Gate",
-                total_runs=1,
-                passed=1,
-                failed=0,
-                other=0,
-                pass_rate=100.0,
+        ),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/milestones"],
+        ProcessAnswer(
+            stdout=json.dumps(
+                [{"title": "2026-10-01", "state": "open", "open_issues": 2, "closed_issues": 8}]
             )
-        ],
-        milestones=[
-            MilestoneMetric(
-                milestone="2026-10-01",
-                state="open",
-                open_items=2,
-                closed_items=8,
-                total_items=10,
-                completion_rate=80.0,
-            )
-        ],
-        taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=5)],
-        traffic=TrafficSummaryMetric(
-            views_count=100,
-            views_uniques=40,
-            clones_count=50,
-            clones_uniques=20,
-            stars=15,
-            forks=4,
-            referrers=[TrafficReferrerMetric(referrer="github.com", count=30, uniques=15)],
-            paths=[TrafficPathMetric(path="/docs", title="Docs", count=45, uniques=20)],
+        ),
+    )
+    process_fake.answer(
+        ["gh", "api", "--paginate", "repos/example/repo/issues"],
+        ProcessAnswer(stdout=json.dumps([{"labels": [{"name": "type/bug"}]}])),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/views"],
+        ProcessAnswer(stdout=json.dumps({"count": 100, "uniques": 40})),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/clones"],
+        ProcessAnswer(stdout=json.dumps({"count": 50, "uniques": 20})),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/popular/referrers"],
+        ProcessAnswer(stdout=json.dumps([{"referrer": "github.com", "count": 30, "uniques": 15}])),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/popular/paths"],
+        ProcessAnswer(
+            stdout=json.dumps([{"path": "/docs", "title": "Docs", "count": 45, "uniques": 20}])
+        ),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo"],
+        ProcessAnswer(
+            stdout=json.dumps({"stargazers_count": 15, "forks_count": 4, "open_issues_count": 10})
         ),
     )
 
-    monkeypatch.setattr("devops_cli.commands.gh.collect_project_metrics_report", lambda **_: report)
-    monkeypatch.setattr("devops_cli.commands.gh.emit_project_metrics_telemetry", lambda _: None)
-
     # 1. Plain text / tables
-    result_tables = runner.invoke(gh_app, ["metrics", "--repo", "example/repo", "--emit-telemetry"])
+    result_tables = cli("gh", "metrics", "--repo", "example/repo", "--emit-telemetry")
     assert result_tables.exit_code == 0
     assert (
-        "Engineering Velocity & Project Metrics" in result_tables.stdout,
-        "v0.2.25" in result_tables.stdout,
-        "Top Referral Sources" in result_tables.stdout,
-        "Popular Content Paths" in result_tables.stdout,
-        "GitHub Stars:" in result_tables.stdout,
-        "14-Day Traffic:" in result_tables.stdout,
+        "Engineering Velocity & Project Metrics" in result_tables.output,
+        "v0.2.25" in result_tables.output,
+        "Top Referral Sources" in result_tables.output,
+        "Popular Content Paths" in result_tables.output,
+        "GitHub Stars:" in result_tables.output,
+        "14-Day Traffic:" in result_tables.output,
     ) == (
         True,
         True,
@@ -677,36 +707,49 @@ def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     # 2. JSON output
-    result_json = runner.invoke(gh_app, ["metrics", "--repo", "example/repo", "--json"])
+    result_json = cli("gh", "metrics", "--repo", "example/repo", "--json")
     assert result_json.exit_code == 0
-    parsed = json.loads(result_json.stdout)
+    parsed = json.loads(result_json.output)
     assert (parsed["repo"], parsed["total_releases"], parsed["average_cadence_days"]) == (
         "example/repo",
         1,
-        2.5,
+        0.0,
     )
 
 
-def test_get_repository_traffic_metrics_success_and_fallback(
-    monkeypatch: pytest.MonkeyPatch,
+def test_get_repository_traffic_metrics_falls_back_when_not_permitted(
+    process_fake: ProcessFake,
 ) -> None:
     """Verify repository traffic queries and resilient fallback on API error."""
-    from devops_cli.github.client import GhCliClient
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/views"],
+        ProcessAnswer(stdout=json.dumps({"count": 150, "uniques": 45, "views": []})),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/clones"],
+        ProcessAnswer(stdout=json.dumps({"count": 80, "uniques": 20, "clones": []})),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/popular/referrers"],
+        ProcessAnswer(stdout=json.dumps([{"referrer": "github.com", "count": 60, "uniques": 30}])),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/traffic/popular/paths"],
+        ProcessAnswer(
+            stdout=json.dumps([{"path": "/repo", "title": "Repo", "count": 100, "uniques": 40}])
+        ),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo"],
+        ProcessAnswer(
+            stdout=json.dumps({"stargazers_count": 25, "forks_count": 5, "open_issues_count": 12})
+        ),
+    )
 
-    def mock_api_success(self: GhCliClient, endpoint: str) -> str:
-        if endpoint == "repos/example/repo/traffic/views":
-            return json.dumps({"count": 150, "uniques": 45, "views": []})
-        if endpoint == "repos/example/repo/traffic/clones":
-            return json.dumps({"count": 80, "uniques": 20, "clones": []})
-        if endpoint == "repos/example/repo/traffic/popular/referrers":
-            return json.dumps([{"referrer": "github.com", "count": 60, "uniques": 30}])
-        if endpoint == "repos/example/repo/traffic/popular/paths":
-            return json.dumps([{"path": "/repo", "title": "Repo", "count": 100, "uniques": 40}])
-        if endpoint == "repos/example/repo":
-            return json.dumps({"stargazers_count": 25, "forks_count": 5, "open_issues_count": 12})
-        return "{}"
-
-    monkeypatch.setattr(GhCliClient, "api", mock_api_success)
     traffic = get_repository_traffic_metrics("example/repo")
     assert (
         traffic.views_count,
@@ -731,10 +774,15 @@ def test_get_repository_traffic_metrics_success_and_fallback(
     )
 
     # Test fallback on API error
-    def mock_api_fail(self: GhCliClient, endpoint: str) -> str:
-        raise RuntimeError("API rate limited")
-
-    monkeypatch.setattr(GhCliClient, "api", mock_api_fail)
+    reset_refused_paths()
+    process_fake.answer(
+        ["gh", "api"],
+        ProcessAnswer(returncode=1, stderr="API rate limited"),
+    )
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
+    )
     fallback = get_repository_traffic_metrics("example/repo")
     assert (
         fallback.views_count,
@@ -766,7 +814,7 @@ def test_get_git_tag_entries_when_git_runs_out_of_time(
     )
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
-        entries = _get_git_tag_entries(tmp_path)
+        entries = get_git_tag_entries(tmp_path)
 
     assert (entries, "git tag timed out" in caplog.text) == ([], True)
 
@@ -778,7 +826,7 @@ def test_extract_commits_and_prs_counts_one_commit_for_a_count_git_does_not_give
     process_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="not-a-number\n"))
     process_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
 
-    assert _extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21") == (1, 0)
+    assert extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21") == (1, 0)
 
 
 # ── The traffic of a repository under the App (#2752) ─────────────────────────
@@ -815,7 +863,10 @@ def _github(
     """A fake GitHub at the `gh` edge, with the process acting as the App or as a person."""
     github = GitHubFake("example/repo", traffic_answer=traffic_answer)
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
-    monkeypatch.setattr("devops_cli.github.metrics.acts_as_github_app", lambda: app, raising=False)
+    if app:
+        monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "mock-app-key")
+    else:
+        monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
     return github
 
 
@@ -981,19 +1032,40 @@ def test_a_new_process_asks_a_refused_path_again(monkeypatch: pytest.MonkeyPatch
 
 
 def test_the_command_prints_that_the_app_collected_no_traffic(
+    cli: CliRunnerFixture,
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
+    roadmap_store: InMemoryRoadmapStore,
 ) -> None:
     """A report with no traffic prints "not collected" and no count of views."""
-    report = ProjectMetricsReport(
-        repo="example/repo",
-        generated_at="2026-10-30 00:00:00 UTC",
-        traffic=TrafficSummaryMetric(traffic_collected=False, stars=3),
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "mock-app-key")
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=_fresh_quota_payload()),
     )
-    monkeypatch.setattr("devops_cli.commands.gh.collect_project_metrics_report", lambda **_: report)
+    process_fake.answer(["git", "tag"], ProcessAnswer(stdout=""))
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/actions/runs"],
+        ProcessAnswer(stdout=json.dumps({"workflow_runs": []})),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo/milestones"],
+        ProcessAnswer(stdout=json.dumps([])),
+    )
+    process_fake.answer(
+        ["gh", "api", "--paginate", "repos/example/repo/issues"],
+        ProcessAnswer(stdout=json.dumps([])),
+    )
+    process_fake.answer(
+        ["gh", "api", "repos/example/repo"],
+        ProcessAnswer(
+            stdout=json.dumps({"stargazers_count": 3, "forks_count": 0, "open_issues_count": 0})
+        ),
+    )
 
-    result = runner.invoke(gh_app, ["metrics", "--repo", "example/repo"])
+    result = cli("gh", "metrics", "--repo", "example/repo")
 
-    assert (result.exit_code, "not collected" in result.stdout, "0 views" in result.stdout) == (
+    assert (result.exit_code, "not collected" in result.output, "0 views" in result.output) == (
         0,
         True,
         False,

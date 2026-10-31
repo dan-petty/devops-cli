@@ -172,7 +172,7 @@ class ProjectMetricsReport(BaseModel):
     traffic: TrafficSummaryMetric = Field(default_factory=TrafficSummaryMetric)
 
 
-def _parse_tag_datetime(date_str: str) -> datetime.datetime:
+def parse_tag_datetime(date_str: str) -> datetime.datetime:
     """Parse git or ISO date string into UTC datetime object."""
     cleaned = date_str.strip()
     try:
@@ -199,7 +199,7 @@ def _git_output(root: Path, *args: str, timeout: float) -> str | None:
     return done.stdout
 
 
-def _get_git_tag_entries(root: Path) -> list[tuple[str, datetime.datetime]]:
+def get_git_tag_entries(root: Path) -> list[tuple[str, datetime.datetime]]:
     """Return release git tags sorted chronologically by creation date."""
     output = _git_output(
         root, "tag", "-l", "v*", "--format=%(refname:short)|%(creatordate:iso8601)", timeout=15
@@ -215,13 +215,13 @@ def _get_git_tag_entries(root: Path) -> list[tuple[str, datetime.datetime]]:
         tag = tag.strip()
         if not tag:
             continue
-        entries.append((tag, _parse_tag_datetime(raw_date)))
+        entries.append((tag, parse_tag_datetime(raw_date)))
 
     entries.sort(key=lambda pair: pair[1])
     return entries
 
 
-def _count_bullet_commits(body: str) -> int:
+def count_bullet_commits(body: str) -> int:
     """Count bulleted commit items embedded within a squash merge commit message."""
     bullets = [
         line.strip()
@@ -231,7 +231,7 @@ def _count_bullet_commits(body: str) -> int:
     return len(bullets)
 
 
-def _extract_commits_and_prs(root: Path, prev_tag: str | None, tag: str) -> tuple[int, int]:
+def extract_commits_and_prs(root: Path, prev_tag: str | None, tag: str) -> tuple[int, int]:
     """Calculate commits count and merged pull requests count between two tags."""
     rev_range = f"{prev_tag}..{tag}" if prev_tag else tag
     count = _git_output(root, "rev-list", "--count", rev_range, timeout=10)
@@ -241,7 +241,7 @@ def _extract_commits_and_prs(root: Path, prev_tag: str | None, tag: str) -> tupl
         commit_count = 1
     body = _git_output(root, "log", "--pretty=format:%s%n%b", rev_range, timeout=15) or ""
 
-    bullet_count = _count_bullet_commits(body)
+    bullet_count = count_bullet_commits(body)
     effective_commits = max(commit_count, bullet_count)
     prs = set(_PR_NUMBER_RE.findall(body))
     return effective_commits, len(prs)
@@ -256,7 +256,7 @@ def get_item_releases(root: Path) -> dict[int, str]:
     """
     releases: dict[int, str] = {}
     prev_tag: str | None = None
-    for tag, _ in _get_git_tag_entries(root):
+    for tag, _ in get_git_tag_entries(root):
         rev_range = f"{prev_tag}..{tag}" if prev_tag else tag
         body = _git_output(root, "log", "--format=%B", rev_range, timeout=15) or ""
         for number in _CLOSING_REF_RE.findall(body):
@@ -267,7 +267,7 @@ def get_item_releases(root: Path) -> dict[int, str]:
 
 def get_release_cadence_metrics(root: Path, limit: int = 10) -> list[ReleaseCadenceMetric]:
     """Compute release frequency, interval cadence, and PR counts across releases."""
-    tag_entries = _get_git_tag_entries(root)
+    tag_entries = get_git_tag_entries(root)
     if not tag_entries:
         return []
 
@@ -276,7 +276,7 @@ def get_release_cadence_metrics(root: Path, limit: int = 10) -> list[ReleaseCade
         prev_dt = tag_entries[idx - 1][1] if idx > 0 else dt
         prev_tag = tag_entries[idx - 1][0] if idx > 0 else None
         interval_days = round((dt - prev_dt).total_seconds() / 86400.0, 1) if idx > 0 else 0.0
-        commits, prs = _extract_commits_and_prs(root, prev_tag, tag)
+        commits, prs = extract_commits_and_prs(root, prev_tag, tag)
         metrics.append(
             ReleaseCadenceMetric(
                 tag=tag,
@@ -291,7 +291,7 @@ def get_release_cadence_metrics(root: Path, limit: int = 10) -> list[ReleaseCade
     return list(reversed(metrics[-limit:]))
 
 
-def _calculate_pass_rate(passed: int, failed: int) -> float:
+def calculate_pass_rate(passed: int, failed: int) -> float:
     """Calculate pass rate percentage bounded between 0 and 100."""
     total = passed + failed
     if total <= 0:
@@ -299,7 +299,7 @@ def _calculate_pass_rate(passed: int, failed: int) -> float:
     return round((passed / total) * 100.0, 1)
 
 
-def _classify_workflow_conclusion(
+def classify_workflow_conclusion(
     conclusion: str,
 ) -> tuple[int, int, int]:
     """Map workflow run conclusion to (passed, failed, other) deltas."""
@@ -327,7 +327,7 @@ def get_ci_workflow_metrics(repo: str, limit: int = 50) -> list[WorkflowRunMetri
     for run in runs:
         name = run.get("name") or "Workflow"
         conclusion = str(run.get("conclusion") or "").lower()
-        passed_delta, failed_delta, other_delta = _classify_workflow_conclusion(conclusion)
+        passed_delta, failed_delta, other_delta = classify_workflow_conclusion(conclusion)
 
         if name not in aggregates:
             aggregates[name] = {"total": 0, "passed": 0, "failed": 0, "other": 0}
@@ -347,7 +347,7 @@ def get_ci_workflow_metrics(repo: str, limit: int = 50) -> list[WorkflowRunMetri
                 passed=stats["passed"],
                 failed=stats["failed"],
                 other=stats["other"],
-                pass_rate=_calculate_pass_rate(stats["passed"], stats["failed"]),
+                pass_rate=calculate_pass_rate(stats["passed"], stats["failed"]),
             )
         )
 
@@ -355,7 +355,7 @@ def get_ci_workflow_metrics(repo: str, limit: int = 50) -> list[WorkflowRunMetri
     return results
 
 
-def _build_milestone_metric(raw: dict[str, Any]) -> MilestoneMetric:
+def build_milestone_metric(raw: dict[str, Any]) -> MilestoneMetric:
     """Transform raw GitHub milestone payload into MilestoneMetric model."""
     title = str(raw.get("title", ""))
     state = str(raw.get("state", "open"))
@@ -397,7 +397,7 @@ def get_milestone_metrics(repo: str, milestone_filter: str | None = None) -> lis
     for item in payload:
         if not isinstance(item, dict):
             continue
-        m = _build_milestone_metric(item)
+        m = build_milestone_metric(item)
         if milestone_filter and m.milestone != milestone_filter:
             continue
         metrics.append(m)

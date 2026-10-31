@@ -124,7 +124,7 @@ class _FailingLabelClient:
     ],
     ids=["operation-error", "type-error"],
 )
-def test_sync_propagates_client_failure(error: Exception) -> None:
+def test_sync_propagates_client_error(error: Exception) -> None:
     """A failed label mutation reaches the caller as the client raised it (#961).
 
     A TypeError raised inside the call used to be caught and the call retried without the

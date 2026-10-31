@@ -184,7 +184,7 @@ def _extract_timeline_author(evt: dict[str, Any]) -> str:
     return ""
 
 
-class _CopilotTimeline(NamedTuple):
+class CopilotTimeline(NamedTuple):
     """What a pull request's issue timeline says of Copilot: whether a pass is running, the event
     that says so, and why the timeline could not be read, if it could not."""
 
@@ -202,24 +202,24 @@ def _ends_copilot_pass(evt: dict[str, Any], copilot_review_ids: frozenset[int]) 
 
 
 def _process_single_timeline_event(
-    evt: dict[str, Any], state: _CopilotTimeline, copilot_review_ids: frozenset[int]
-) -> _CopilotTimeline:
+    evt: dict[str, Any], state: CopilotTimeline, copilot_review_ids: frozenset[int]
+) -> CopilotTimeline:
     """What the timeline says of Copilot once `evt` is read: its start event runs a pass, and its
     review's `reviewed` event ends it."""
     evt_name = str(evt.get("event") or "")
     if evt_name == "copilot_work_started":
-        return _CopilotTimeline(working=True, event=evt_name)
+        return CopilotTimeline(working=True, event=evt_name)
     if evt_name == "reviewed" and _ends_copilot_pass(evt, copilot_review_ids):
-        return _CopilotTimeline(event=evt_name)
+        return CopilotTimeline(event=evt_name)
     return state
 
 
-def _timeline_copilot_state(
+def timeline_copilot_state(
     events: Iterable[Any], copilot_review_ids: frozenset[int]
-) -> _CopilotTimeline:
+) -> CopilotTimeline:
     """What a timeline's events, in order, say of Copilot, its own reviews named by
     `copilot_review_ids`."""
-    state = _CopilotTimeline()
+    state = CopilotTimeline()
     for evt in events:
         if isinstance(evt, dict):
             state = _process_single_timeline_event(evt, state, copilot_review_ids)
@@ -253,7 +253,7 @@ def _copilot_review_ids(reviews: Iterable[Any]) -> frozenset[int]:
     return frozenset(review_id for review_id in ids if type(review_id) is int)
 
 
-def _is_copilot_changes_recommended(body: str) -> bool:
+def is_copilot_changes_recommended(body: str) -> bool:
     """Detect if Copilot review heading recommends changes, excluding 'no changes'."""
     if not body:
         return False
@@ -272,7 +272,7 @@ def _check_review_changes_requested(review: dict[str, Any] | None) -> tuple[bool
         return False, "", ""
     state = str(review.get("state", "")).upper()
     body = str(review.get("body", ""))
-    has_changes = state == "CHANGES_REQUESTED" or _is_copilot_changes_recommended(body)
+    has_changes = state == "CHANGES_REQUESTED" or is_copilot_changes_recommended(body)
     last_time = str(review.get("submittedAt") or review.get("submitted_at") or "")
     return has_changes, state, last_time
 
@@ -296,16 +296,16 @@ def _extract_proc_error(proc: Any) -> str:
     return f"Exit code {getattr(proc, 'returncode', 1)}"
 
 
-def _query_timeline_copilot_state(
+def query_timeline_copilot_state(
     owner: str, repo_name: str, pr_number: int, copilot_review_ids: frozenset[int]
-) -> _CopilotTimeline:
+) -> CopilotTimeline:
     """Read every page of the pull request's issue timeline for Copilot's review events, its own
     reviews named by `copilot_review_ids`, or why the timeline could not be read."""
     timeline = f"/repos/{owner}/{repo_name}/issues/{pr_number}/timeline?per_page={DEFAULT_GH_REST_PER_PAGE}"
     try:
-        return _timeline_copilot_state(get_github_session().paginate(timeline), copilot_review_ids)
+        return timeline_copilot_state(get_github_session().paginate(timeline), copilot_review_ids)
     except GitHubOperationError as exc:
-        return _CopilotTimeline(error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
+        return CopilotTimeline(error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
 
 
 def _build_changes_status(
@@ -337,7 +337,7 @@ def _build_changes_status(
     )
 
 
-def _detect_copilot_status(
+def detect_copilot_status(
     owner: str,
     repo_name: str,
     pr_number: int,
@@ -352,7 +352,7 @@ def _detect_copilot_status(
     read therefore reads as running for this one call, and the monitor sees the pass end on its
     next poll.
     """
-    timeline = _query_timeline_copilot_state(
+    timeline = query_timeline_copilot_state(
         owner, repo_name, pr_number, _copilot_review_ids(reviews)
     )
     err = reviews_err or getattr(reviews, "error", "") or timeline.error
@@ -361,7 +361,7 @@ def _detect_copilot_status(
 
 def _copilot_review_status(
     reviews: list[dict[str, Any]],
-    timeline: _CopilotTimeline,
+    timeline: CopilotTimeline,
     unresolved_threads: list[ReviewThread] | None,
     err: str,
 ) -> CopilotReviewStatus:
@@ -432,7 +432,7 @@ def fetch_pr_details(
         raise GitHubOperationError(f"Failed to parse PR #{pr_number} data: {exc}") from exc
 
 
-def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> RawReviewsList:
+def fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> RawReviewsList:
     """Read every page of a PR's reviews, or none and the reason they could not be read."""
     reviews = (
         f"/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews?per_page={DEFAULT_GH_REST_PER_PAGE}"
@@ -461,7 +461,7 @@ def _extract_latest_reviews_by_user(
     return latest_by_user
 
 
-def _resolve_review_decision(
+def resolve_review_decision(
     raw_reviews: list[dict[str, Any]], head_sha: str | None = None
 ) -> str | None:
     """Derive aggregate review decision from latest state per reviewer targeting head_sha."""
@@ -539,8 +539,8 @@ def get_pr_monitoring_status(
         return status
     verdict = assess_merge_readiness(pr_data, owner, repo_name, pr_number, runner=runner)
     threads_read = BlockerKind.THREADS_UNREAD not in verdict.kinds
-    raw_reviews = _fetch_raw_reviews(owner, repo_name, pr_number)
-    copilot_status = _detect_copilot_status(
+    raw_reviews = fetch_raw_reviews(owner, repo_name, pr_number)
+    copilot_status = detect_copilot_status(
         owner,
         repo_name,
         pr_number,
@@ -548,7 +548,7 @@ def get_pr_monitoring_status(
         unresolved_threads=list(verdict.threads_to_show) if threads_read else None,
         reviews_err=raw_reviews.error,
     )
-    review_decision = _resolve_review_decision(raw_reviews, head_sha=head_sha)
+    review_decision = resolve_review_decision(raw_reviews, head_sha=head_sha)
     status.copilot_status = copilot_status
     status.review_decision = review_decision
     status.has_changes_requested = (

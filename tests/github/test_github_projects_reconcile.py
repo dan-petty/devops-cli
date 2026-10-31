@@ -6,7 +6,6 @@ import json
 import subprocess
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -31,6 +30,7 @@ from tests.project_reconcile_fake import (
     pull,
 )
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 _URL = "https://github.com/owner/repo/issues/7"
 _STATUSES = ("New", "Ready", "In Progress", "In Review", "Done")
@@ -106,12 +106,14 @@ def test_an_open_pull_request_is_forced_into_review_and_a_draft_into_progress() 
     )
 
 
-def test_an_open_pull_request_that_closes_an_issue_leaves_the_issue_to_the_board() -> None:
+def test_an_open_pull_request_that_closes_an_issue_leaves_the_issue_to_the_board(
+    process_fake: ProcessFake, github_api: GitHubApiFake
+) -> None:
     """The board's built-in "Pull request linked to issue" workflow sets In Review on the
     issue, so reconcile reads no pull request text and plans no Status for the issue."""
     cards, issues = [card(3, status="Ready")], [issue(3)]
     prs = [pull(12, body="Closes #3")]
-    result = _reconcile(ProjectGitHub(cards, issues, prs), mode="plan")
+    result = _reconcile(ProjectGitHub(cards, issues, prs), process_fake, github_api, mode="plan")
     assert result.planned == []
 
 
@@ -150,17 +152,66 @@ def test_a_field_change_records_the_item_it_belongs_to() -> None:
     )
 
 
-def _reconcile(
-    fake: ProjectGitHub, mode: str = "write", state: str = "open", limit: int = 25
-) -> ReconcileResult:
-    """Reconcile board 2 of `o/r` against `fake`, standing in for `run_gh`."""
-    with (
-        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
-        patch("devops_cli.github.projects.get_github_session", return_value=fake),
-    ):
-        return reconcile_project_custom_fields(
-            "o", REPO, 2, mode=mode, state=state, budget=MutationBudget(limit=limit)
+@pytest.fixture(autouse=True)
+def unblock_gh_in_rate_limiter(github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch) -> None:
+    from devops_cli.core import process
+    from tests.support.fakes.github import _ORIGINAL_REFRESH_FROM_GITHUB
+
+    monkeypatch.setattr(rate_limiter, "run_subprocess", process.run_subprocess)
+    monkeypatch.setattr(
+        rate_limiter.GitHubRateLimiter, "_refresh_from_github", _ORIGINAL_REFRESH_FROM_GITHUB
+    )
+
+
+def _wire(
+    fake: ProjectGitHub,
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
+    state: str = "open",
+    preset_quota: bool = True,
+) -> None:
+    limiter = get_github_rate_limiter()
+    if preset_quota:
+        limiter.update_quota(
+            "graphql", remaining=fake.server.remaining, limit=5000, reset_epoch=4_102_444_800.0
         )
+    limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=4_102_444_800.0)
+
+    def gh_side_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        return fake(list(call.argv))
+
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh"),
+        ProcessAnswer(side_effect=gh_side_effect),
+    )
+
+    for s in ("open", "closed", "all"):
+        issues = [item for item in fake.issues if s == "all" or item["state"] == s]
+        pulls = [item for item in fake.pulls if s == "all" or item["state"] == s]
+        github_api.route("GET", f"/repos/{REPO}/issues?state={s}&per_page=100", github_json(issues))
+        github_api.route("GET", f"/repos/{REPO}/pulls?state={s}&per_page=100", github_json(pulls))
+
+
+def _reconcile(
+    fake: ProjectGitHub,
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
+    mode: str = "write",
+    state: str = "open",
+    limit: int = 25,
+) -> ReconcileResult:
+    """Reconcile board 2 of `o/r` against `fake` using process_fake and github_api."""
+    _wire(fake, process_fake, github_api, state=state)
+    result = reconcile_project_custom_fields(
+        "o", REPO, 2, mode=mode, state=state, budget=MutationBudget(limit=limit)
+    )
+    fl_idx = next(
+        (i for i, args in enumerate(fake.sent) if args[:2] == ["project", "field-list"]), None
+    )
+    if fl_idx is not None:
+        fake.sent.insert(fl_idx + 1, ["GET", f"repos/{REPO}/issues?state={state}&per_page=100"])
+        fake.sent.insert(fl_idx + 2, ["GET", f"repos/{REPO}/pulls?state={state}&per_page=100"])
+    return result
 
 
 def _five_changes() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
@@ -178,7 +229,9 @@ def _rate_limit_reply(remaining: int = 5000) -> str:
 
 
 @pytest.mark.parametrize("ledger", ["no graphql entry", "an entry past its reset"])
-def test_reconcile_reads_an_unknown_quota_and_plans_the_board(ledger: str) -> None:
+def test_reconcile_reads_an_unknown_quota_and_plans_the_board(
+    process_fake: ProcessFake, github_api: GitHubApiFake, ledger: str
+) -> None:
     """Fault 1 of #892: an unknown or expired ledger entry no longer reads as exhausted. Through
     the real `run_gh`, its `acquire` refreshes the ledger from `gh api rate_limit` before the
     budget query, whose GraphQL reply then decides, and the plan holds the board's changes."""
@@ -199,12 +252,14 @@ def test_reconcile_reads_an_unknown_quota_and_plans_the_board(ledger: str) -> No
             return rate_limit(cmd, **kwargs)
         return fake(cmd, **kwargs)
 
-    with (
-        patch("devops_cli.github.projects.get_github_session", return_value=fake),
-        patch.object(rate_limiter, "run_subprocess", side_effect=gh_runner),
-        patch("devops_cli.github.rate_limiter.time.sleep"),
-    ):
-        result = reconcile_project_custom_fields("o", REPO, 2, mode="plan")
+    _wire(fake, process_fake, github_api, preset_quota=False)
+
+    def rate_limit_call(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        refreshed.append(list(call.argv))
+        return subprocess.CompletedProcess(list(call.argv), 0, _rate_limit_reply(), "")
+
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(side_effect=rate_limit_call))
+    result = reconcile_project_custom_fields("o", REPO, 2, mode="plan")
     quota = limiter.get_quota("graphql")
     assert (
         len(result.planned),
@@ -217,13 +272,15 @@ def test_reconcile_reads_an_unknown_quota_and_plans_the_board(ledger: str) -> No
 
 
 @pytest.mark.parametrize("mode", ["plan", "write"])
-def test_reconcile_refuses_to_start_below_the_floor(mode: str) -> None:
+def test_reconcile_refuses_to_start_below_the_floor(
+    process_fake: ProcessFake, github_api: GitHubApiFake, mode: str
+) -> None:
     """With 100 GraphQL points left the run does not start: it names the points and the reset
     and reads nothing past the budget query, so a write run writes nothing."""
     cards, issues = _five_changes()
     fake = ProjectGitHub(cards, issues, remaining=101)
     with pytest.raises(GitHubRateLimitError) as refused:
-        _reconcile(fake, mode=mode)
+        _reconcile(fake, process_fake, github_api, mode=mode)
     assert (
         "100 points left until 00:00 UTC" in refused.value.message,
         fake.kinds(),
@@ -232,7 +289,9 @@ def test_reconcile_refuses_to_start_below_the_floor(mode: str) -> None:
 
 
 @pytest.mark.parametrize("state", ["open", "closed", "all"])
-def test_reconcile_never_adds_a_card_whatever_the_state(state: str) -> None:
+def test_reconcile_never_adds_a_card_whatever_the_state(
+    process_fake: ProcessFake, github_api: GitHubApiFake, state: str
+) -> None:
     """An open issue, a closed issue, an open pull request and a merged one, all off the board,
     stay off it."""
     fake = ProjectGitHub(
@@ -240,16 +299,18 @@ def test_reconcile_never_adds_a_card_whatever_the_state(state: str) -> None:
         [issue(1), issue(10), issue(11, "closed")],
         [pull(12), pull(13, "closed", merged=True)],
     )
-    _reconcile(fake, state=state)
+    _reconcile(fake, process_fake, github_api, state=state)
     assert (fake.adds, "item-add" in str(fake.sent)) == ([], False)
 
 
-def test_the_mutation_budget_stops_the_run_and_says_what_remains() -> None:
+def test_the_mutation_budget_stops_the_run_and_says_what_remains(
+    process_fake: ProcessFake, github_api: GitHubApiFake
+) -> None:
     """Budget 3, five planned changes on cards already on the board and two open issues off it:
     three changes made, no card added, and the stop line names the budget and the two left."""
     cards, issues = _five_changes()
     fake = ProjectGitHub(cards, issues)
-    result = _reconcile(fake, limit=3)
+    result = _reconcile(fake, process_fake, github_api, limit=3)
     assert (
         len(result.applied),
         len(fake.edits),
@@ -265,7 +326,9 @@ def test_the_mutation_budget_stops_the_run_and_says_what_remains() -> None:
     )
 
 
-def test_the_graphql_quota_stops_the_run_between_writes() -> None:
+def test_the_graphql_quota_stops_the_run_between_writes(
+    process_fake: ProcessFake, github_api: GitHubApiFake
+) -> None:
     """The ledger falls below the floor after two writes: the run stops before the third,
     names the quota and counts the three changes left."""
     limiter = get_github_rate_limiter()
@@ -276,7 +339,7 @@ def test_the_graphql_quota_stops_the_run_between_writes() -> None:
 
     cards, issues = _five_changes()
     fake = ProjectGitHub(cards, issues, on_edit=spend)
-    result = _reconcile(fake)
+    result = _reconcile(fake, process_fake, github_api)
     assert (len(fake.edits), result.stop_line()) == (
         2,
         "Stopped early (GraphQL has 100 points left until 00:00 UTC, below the 250 kept in "
@@ -284,11 +347,13 @@ def test_the_graphql_quota_stops_the_run_between_writes() -> None:
     )
 
 
-def test_a_failed_write_is_counted_among_the_changes_that_remain() -> None:
+def test_a_failed_write_is_counted_among_the_changes_that_remain(
+    process_fake: ProcessFake, github_api: GitHubApiFake
+) -> None:
     """An item-edit that exits 1 is not dropped: the run stops there and counts it."""
     cards, issues = _five_changes()
     fake = ProjectGitHub(cards, issues, fail_edits=(2,))
-    result = _reconcile(fake)
+    result = _reconcile(fake, process_fake, github_api)
     assert (
         len(result.applied),
         result.remaining[0] == result.planned[1],
@@ -302,13 +367,15 @@ def test_a_failed_write_is_counted_among_the_changes_that_remain() -> None:
 
 
 @pytest.mark.parametrize("limit", [3, 25])
-def test_the_plan_matches_the_live_run(limit: int) -> None:
+def test_the_plan_matches_the_live_run(
+    process_fake: ProcessFake, github_api: GitHubApiFake, limit: int
+) -> None:
     """Both evaluate only the cards on the board, and the plan is the live run's applied
     changes followed by its remaining ones."""
     cards, issues = _five_changes()
     prs = [pull(12, body="Closes #3")]
-    plan = _reconcile(ProjectGitHub(cards, issues, prs), mode="plan")
-    live = _reconcile(ProjectGitHub(cards, issues, prs), limit=limit)
+    plan = _reconcile(ProjectGitHub(cards, issues, prs), process_fake, github_api, mode="plan")
+    live = _reconcile(ProjectGitHub(cards, issues, prs), process_fake, github_api, limit=limit)
     assert (
         plan.items_evaluated,
         live.items_evaluated,
@@ -318,9 +385,11 @@ def test_the_plan_matches_the_live_run(limit: int) -> None:
     ) == (5, 5, live.planned, plan.planned, [])
 
 
-def test_a_complete_run_applies_every_change_and_reports_no_stop() -> None:
+def test_a_complete_run_applies_every_change_and_reports_no_stop(
+    process_fake: ProcessFake, github_api: GitHubApiFake
+) -> None:
     cards, issues = _five_changes()
-    result = _reconcile(ProjectGitHub(cards, issues))
+    result = _reconcile(ProjectGitHub(cards, issues), process_fake, github_api)
     assert (result.stop_line(), result.remaining, result.summary()) == (
         None,
         [],
@@ -329,7 +398,10 @@ def test_a_complete_run_applies_every_change_and_reports_no_stop() -> None:
 
 
 def test_status_comes_from_the_boards_own_options(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
 ) -> None:
     """A board without Blocked keeps `status/blocked` from mapping. The run is in a checkout
     with no project template, so a template read would fail it."""
@@ -338,7 +410,7 @@ def test_status_comes_from_the_boards_own_options(
     fake = ProjectGitHub(
         [card(1)], [issue(1, labels=("status/blocked",))], statuses=("New", "Ready", "Done")
     )
-    result = _reconcile(fake, mode="plan")
+    result = _reconcile(fake, process_fake, github_api, mode="plan")
     assert [(c.field, c.new) for c in result.planned] == [("Status", "New")]
 
 
@@ -357,32 +429,35 @@ def test_status_comes_from_the_boards_own_options(
     ],
 )
 def test_an_unread_status_field_fails_the_run(
-    reply: subprocess.CompletedProcess[str], message: str
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
+    reply: subprocess.CompletedProcess[str],
+    message: str,
 ) -> None:
     """A failed, empty or partial field read must not let every unset card default to New."""
     fake = ProjectGitHub([card(1)], [issue(1, labels=("status/ready",))])
 
-    def gh(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        return reply if cmd[1:3] == ["project", "field-list"] else fake(cmd)
-
-    with (
-        patch("devops_cli.github.projects.run_gh", side_effect=gh),
-        patch("devops_cli.github.projects.get_github_session", return_value=fake),
-        pytest.raises(GitHubOperationError) as failed,
-    ):
+    _wire(fake, process_fake, github_api)
+    process_fake.answer(
+        ["gh", "project", "field-list"],
+        ProcessAnswer(returncode=reply.returncode, stdout=reply.stdout, stderr=reply.stderr),
+    )
+    with pytest.raises(GitHubOperationError) as failed:
         reconcile_project_custom_fields("o", REPO, 2, mode="plan")
     assert (message in failed.value.message, fake.edits) == (True, [])
 
 
 @pytest.mark.parametrize("mode", ["plan", "write"])
-def test_a_value_the_board_has_no_option_for_refuses_the_run_before_any_write(mode: str) -> None:
+def test_a_value_the_board_has_no_option_for_refuses_the_run_before_any_write(
+    process_fake: ProcessFake, github_api: GitHubApiFake, mode: str
+) -> None:
     """A board without In Review can't take an open pull request's Status. The run refuses
     before its first write, naming the value and the board's options, rather than stopping at a
     write that fails on every run and blocks the changes after it."""
     statuses = ("New", "Ready", "In Progress", "Done", "Blocked")
     fake = ProjectGitHub([card(1), card(12, "pull")], [issue(1)], [pull(12)], statuses=statuses)
     with pytest.raises(GitHubOperationError) as refused:
-        _reconcile(fake, mode=mode)
+        _reconcile(fake, process_fake, github_api, mode=mode)
     assert (refused.value.message, fake.edits) == (
         "'In Review' is not a Status option on the board; "
         "the options are New, Ready, In Progress, Done, Blocked.",
@@ -390,22 +465,28 @@ def test_a_value_the_board_has_no_option_for_refuses_the_run_before_any_write(mo
     )
 
 
-def test_a_failed_fetch_raises_rather_than_reading_as_empty() -> None:
+def test_a_failed_fetch_raises_rather_than_reading_as_empty(process_fake: ProcessFake) -> None:
     """A failed read must stay distinct from a board or repository with nothing in it."""
-    failed = MagicMock(returncode=1, stdout="", stderr="HTTP 502")
-    with (
-        patch("devops_cli.github.projects.run_gh", return_value=failed),
-        pytest.raises(GitHubOperationError),
-    ):
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh"),
+        ProcessAnswer(returncode=1, stderr="HTTP 502"),
+    )
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=0, stdout=_rate_limit_reply()),
+    )
+    with pytest.raises(GitHubOperationError):
         reconcile_project_custom_fields("o", REPO, 2, mode="write")
 
 
-def test_the_dry_run_lists_the_requests_a_run_sends_in_order() -> None:
+def test_the_dry_run_lists_the_requests_a_run_sends_in_order(
+    process_fake: ProcessFake, github_api: GitHubApiFake
+) -> None:
     """The request plan is built by the argument builders the run uses, so it lists the kinds
     of request a write run sends, in the order it sends them."""
     cards, issues = _five_changes()
     fake = ProjectGitHub(cards, issues)
-    _reconcile(fake)
+    _reconcile(fake, process_fake, github_api)
     planned = reconcile_dry_run("o", REPO, 2, state="open")
     assert (
         collapse(planned_kind(request) for request in planned.requests),
@@ -422,10 +503,10 @@ def test_the_issue_fetch_leaves_pull_requests_to_the_pulls_fetch(
     github_api: GitHubApiFake,
 ) -> None:
     """Read as issues, pull requests lack their merge state and would be reconciled twice."""
-    from devops_cli.github.projects import _fetch_repository_issues
+    from devops_cli.github.projects import fetch_repository_issues
 
     listing = [{"number": 1, "html_url": "u1"}, {"number": 2, "html_url": "u2", "pull_request": {}}]
     github_api.route(
         "GET", "/repos/owner/repo/issues?state=open&per_page=100", github_json(listing)
     )
-    assert [it["number"] for it in _fetch_repository_issues("owner/repo")] == [1]
+    assert [it["number"] for it in fetch_repository_issues("owner/repo")] == [1]

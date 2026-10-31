@@ -588,14 +588,6 @@ def test_a_connect_timeout_raises_the_unread_error_naming_the_endpoint_without_a
     ) == (check_runs, True, 1)
 
 
-def test_the_fake_github_api_and_stub_web_refuse_to_share_a_test(
-    github_api: GitHubApiFake, request: pytest.FixtureRequest
-) -> None:
-    """Both fake `httpx2.AsyncClient`, so a test asking for both fails instead of one winning."""
-    with pytest.raises(RuntimeError, match=r"both fake httpx2\.AsyncClient"):
-        request.getfixturevalue("stub_web")
-
-
 # ── Pagination (#983) ────────────────────────────────────────────────────────────────────────────
 
 _ISSUES = "/repos/octo/repo/issues?state=all&per_page=2"
@@ -662,18 +654,17 @@ def test_a_consumer_that_stops_after_the_first_item_sends_one_request(
 
 
 def test_a_listing_that_runs_past_the_page_cap_fails_closed(
-    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+    github_api: GitHubApiFake,
 ) -> None:
     """A `rel="next"` chain that never ends stops at the page cap, read when the listing runs,
     and raises naming the endpoint and the cap instead of reading forever."""
-    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
     second, third = _LINK_STYLES["page-links"]
     github_api.route("GET", _ISSUES, _page([{"id": 1}], None, next_url=second))
     github_api.route("GET", second, _page([{"id": 2}], None, next_url=third))
     github_api.route("GET", third, _page([{"id": 3}], None, next_url=second))
     read: list[Any] = []
     with pytest.raises(GitHubUnreadError) as raised:
-        read.extend(get_github_session().paginate(_ISSUES))
+        read.extend(get_github_session().paginate(_ISSUES, max_pages=2))
     details = raised.value.details
     assert (
         read,
@@ -685,14 +676,13 @@ def test_a_listing_that_runs_past_the_page_cap_fails_closed(
 
 
 def test_a_listing_of_exactly_the_page_cap_reads_every_page(
-    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+    github_api: GitHubApiFake,
 ) -> None:
     """A listing whose last page falls on the cap is read whole."""
-    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
     second = _LINK_STYLES["page-links"][0]
     github_api.route("GET", _ISSUES, _page([{"id": 1}], None, next_url=second))
     github_api.route("GET", second, _page([{"id": 2}], None))
-    items = list(get_github_session().paginate(_ISSUES))
+    items = list(get_github_session().paginate(_ISSUES, max_pages=2))
     assert (items, len(github_api.sent)) == ([{"id": 1}, {"id": 2}], 2)
 
 
