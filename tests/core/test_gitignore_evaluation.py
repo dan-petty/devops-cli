@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from devops_cli.core.gitignore import (
     GitignoreIndex,
@@ -11,10 +11,13 @@ from devops_cli.core.gitignore import (
     is_within_git_dir,
 )
 
+if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
+
 
 def make_repo(tmp_path: Path, files: dict[str, str]) -> Path:
-    """Create a real git repository with the given files."""
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    """Create a repository directory structure with the given files."""
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -22,21 +25,13 @@ def make_repo(tmp_path: Path, files: dict[str, str]) -> Path:
     return tmp_path
 
 
-def git_says_ignored(repo: Path, relative: str) -> bool:
-    """Ask git itself whether a path is ignored."""
-    result = subprocess.run(
-        ["git", "-C", str(repo), "check-ignore", "-q", "--", relative],
-        capture_output=True,
-    )
-    return result.returncode == 0
-
-
-def assert_matches_git(repo: Path, relative: str, is_dir: bool | None = None) -> None:
-    """Assert the in-memory verdict equals git's own."""
+def assert_is_ignored(
+    repo: Path, relative: str, expected: bool, is_dir: bool | None = None
+) -> None:
+    """Assert the in-memory verdict equals the expected git ignore evaluation."""
     index = GitignoreIndex(repo_root=repo)
     ours = index.is_ignored(repo / relative, is_dir=is_dir)
-    theirs = git_says_ignored(repo, relative)
-    assert ours == theirs, f"{relative}: ours={ours} git={theirs}"
+    assert ours is expected, f"{relative}: ours={ours} expected={expected}"
 
 
 # =============================================================================
@@ -47,8 +42,8 @@ def assert_matches_git(repo: Path, relative: str, is_dir: bool | None = None) ->
 def test_a_root_pattern_is_honoured(tmp_path: Path) -> None:
     """The case the previous implementation already handled."""
     repo = make_repo(tmp_path, {".gitignore": "*.log\n", "app.log": "", "app.py": ""})
-    assert_matches_git(repo, "app.log", is_dir=False)
-    assert_matches_git(repo, "app.py", is_dir=False)
+    assert_is_ignored(repo, "app.log", True, is_dir=False)
+    assert_is_ignored(repo, "app.py", False, is_dir=False)
 
 
 def test_a_nested_gitignore_is_honoured(tmp_path: Path) -> None:
@@ -66,8 +61,8 @@ def test_a_nested_gitignore_is_honoured(tmp_path: Path) -> None:
             "pkg/ok.txt": "",
         },
     )
-    assert_matches_git(repo, "pkg/secret.txt", is_dir=False)
-    assert_matches_git(repo, "pkg/ok.txt", is_dir=False)
+    assert_is_ignored(repo, "pkg/secret.txt", True, is_dir=False)
+    assert_is_ignored(repo, "pkg/ok.txt", False, is_dir=False)
 
 
 def test_a_deeper_gitignore_overrides_a_shallower_one(tmp_path: Path) -> None:
@@ -81,8 +76,8 @@ def test_a_deeper_gitignore_overrides_a_shallower_one(tmp_path: Path) -> None:
             "pkg/drop.txt": "",
         },
     )
-    assert_matches_git(repo, "pkg/keep.txt", is_dir=False)
-    assert_matches_git(repo, "pkg/drop.txt", is_dir=False)
+    assert_is_ignored(repo, "pkg/keep.txt", False, is_dir=False)
+    assert_is_ignored(repo, "pkg/drop.txt", True, is_dir=False)
 
 
 def test_negation_re_includes_a_file(tmp_path: Path) -> None:
@@ -90,26 +85,26 @@ def test_negation_re_includes_a_file(tmp_path: Path) -> None:
     repo = make_repo(
         tmp_path, {".gitignore": "*.log\n!keep.log\n", "keep.log": "", "other.log": ""}
     )
-    assert_matches_git(repo, "keep.log", is_dir=False)
-    assert_matches_git(repo, "other.log", is_dir=False)
+    assert_is_ignored(repo, "keep.log", False, is_dir=False)
+    assert_is_ignored(repo, "other.log", True, is_dir=False)
 
 
 def test_a_directory_only_pattern_does_not_match_a_file(tmp_path: Path) -> None:
     """`build/` names a directory; a file called `build` is not ignored."""
     repo = make_repo(tmp_path, {".gitignore": "build/\n", "build": ""})
-    assert_matches_git(repo, "build", is_dir=False)
+    assert_is_ignored(repo, "build", False, is_dir=False)
 
 
 def test_a_directory_only_pattern_matches_a_directory(tmp_path: Path) -> None:
     """The same pattern does match when the path is a directory."""
     repo = make_repo(tmp_path, {".gitignore": "build/\n", "build/out.txt": ""})
-    assert_matches_git(repo, "build", is_dir=True)
+    assert_is_ignored(repo, "build", True, is_dir=True)
 
 
 def test_a_file_inside_an_ignored_directory_is_ignored(tmp_path: Path) -> None:
     """Everything under an excluded directory is excluded."""
     repo = make_repo(tmp_path, {".gitignore": "build/\n", "build/out.txt": ""})
-    assert_matches_git(repo, "build/out.txt", is_dir=False)
+    assert_is_ignored(repo, "build/out.txt", True, is_dir=False)
 
 
 def test_a_negation_inside_an_ignored_directory_cannot_re_include(tmp_path: Path) -> None:
@@ -122,27 +117,27 @@ def test_a_negation_inside_an_ignored_directory_cannot_re_include(tmp_path: Path
         tmp_path,
         {".gitignore": "build/\n", "build/.gitignore": "!keep.txt\n", "build/keep.txt": ""},
     )
-    assert_matches_git(repo, "build/keep.txt", is_dir=False)
+    assert_is_ignored(repo, "build/keep.txt", True, is_dir=False)
 
 
 def test_an_anchored_pattern_matches_only_at_its_own_level(tmp_path: Path) -> None:
     """A leading slash anchors a pattern to the directory of its .gitignore."""
     repo = make_repo(tmp_path, {".gitignore": "/root.txt\n", "root.txt": "", "pkg/root.txt": ""})
-    assert_matches_git(repo, "root.txt", is_dir=False)
-    assert_matches_git(repo, "pkg/root.txt", is_dir=False)
+    assert_is_ignored(repo, "root.txt", True, is_dir=False)
+    assert_is_ignored(repo, "pkg/root.txt", False, is_dir=False)
 
 
 def test_an_unanchored_pattern_matches_at_any_depth(tmp_path: Path) -> None:
     """A bare name matches in any directory beneath the ignore file."""
     repo = make_repo(tmp_path, {".gitignore": "notes.txt\n", "notes.txt": "", "a/b/notes.txt": ""})
-    assert_matches_git(repo, "notes.txt", is_dir=False)
-    assert_matches_git(repo, "a/b/notes.txt", is_dir=False)
+    assert_is_ignored(repo, "notes.txt", True, is_dir=False)
+    assert_is_ignored(repo, "a/b/notes.txt", True, is_dir=False)
 
 
 def test_a_double_star_pattern_spans_directories(tmp_path: Path) -> None:
     """`**` crosses separators where `*` does not."""
     repo = make_repo(tmp_path, {".gitignore": "a/**/target.txt\n", "a/b/c/target.txt": ""})
-    assert_matches_git(repo, "a/b/c/target.txt", is_dir=False)
+    assert_is_ignored(repo, "a/b/c/target.txt", True, is_dir=False)
 
 
 def test_the_repository_local_exclude_file_is_honoured(tmp_path: Path) -> None:
@@ -151,7 +146,7 @@ def test_the_repository_local_exclude_file_is_honoured(tmp_path: Path) -> None:
     exclude = repo / ".git" / "info" / "exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
     exclude.write_text("*.tmp\n", encoding="utf-8")
-    assert_matches_git(repo, "scratch.tmp", is_dir=False)
+    assert_is_ignored(repo, "scratch.tmp", True, is_dir=False)
 
 
 def test_a_committed_rule_can_override_the_local_exclude(tmp_path: Path) -> None:
@@ -160,7 +155,7 @@ def test_a_committed_rule_can_override_the_local_exclude(tmp_path: Path) -> None
     exclude = repo / ".git" / "info" / "exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
     exclude.write_text("*.tmp\n", encoding="utf-8")
-    assert_matches_git(repo, "scratch.tmp", is_dir=False)
+    assert_is_ignored(repo, "scratch.tmp", False, is_dir=False)
 
 
 # =============================================================================
@@ -237,18 +232,15 @@ def test_the_index_is_reused_per_repository_root(tmp_path: Path) -> None:
     assert get_index(repo) is get_index(repo)
 
 
-def test_evaluation_does_not_spawn_git(tmp_path: Path) -> None:
+def test_evaluation_does_not_spawn_git(tmp_path: Path, git_fake: GitFake) -> None:
     """The whole point: a miss used to cost a process spawn, and a miss is the common case.
 
     Most files in a repository are not ignored, so the slow path ran per file.
     """
-    from unittest.mock import patch
-
     repo = make_repo(tmp_path, {".gitignore": "*.log\n", "app.py": ""})
     index = GitignoreIndex(repo_root=repo)
-    with patch("subprocess.run") as spawn:
-        index.is_ignored(repo / "app.py", is_dir=False)
-    spawn.assert_not_called()
+    assert index.is_ignored(repo / "app.py", is_dir=False) is False
+    assert git_fake.call_count == 0
 
 
 # =============================================================================

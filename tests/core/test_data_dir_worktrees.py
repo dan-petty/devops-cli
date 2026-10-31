@@ -15,7 +15,6 @@ import asyncio
 import json
 import os
 import shutil
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -38,68 +37,157 @@ from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.exceptions import SecurityError
 from devops_cli.review.session import ReviewSessionStore
 from devops_cli.server.routes.workspace import list_workspaces
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 _A_FORTNIGHT_AGO = time.time() - 14 * 86400
 
 
+def _make_bare_repo(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (path / "objects").mkdir(parents=True, exist_ok=True)
+    (path / "refs").mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _make_worktree(
+    main: Path, linked: Path, name: str = "feature", *, relative_paths: bool = False
+) -> None:
+    linked.parent.mkdir(parents=True, exist_ok=True)
+    linked.mkdir(parents=True, exist_ok=True)
+    wt_git = (
+        main / ".git" / "worktrees" / name
+        if (main / ".git").is_dir()
+        else main / "worktrees" / name
+    )
+    wt_git.mkdir(parents=True, exist_ok=True)
+    if relative_paths:
+        rel_git = os.path.relpath(wt_git, linked)
+        (linked / ".git").write_text(f"gitdir: {rel_git}\n", encoding="utf-8")
+        rel_target = os.path.relpath(linked / ".git", wt_git)
+        (wt_git / "gitdir").write_text(f"{rel_target}\n", encoding="utf-8")
+    else:
+        (linked / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+        (wt_git / "gitdir").write_text(f"{linked / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt_git / "HEAD").write_text(f"ref: refs/heads/{name}\n", encoding="utf-8")
+
+
+def _make_submodule(superproject: Path, submodule_rel: str) -> Path:
+    sub = superproject / submodule_rel
+    sub.parent.mkdir(parents=True, exist_ok=True)
+    sub.mkdir(parents=True, exist_ok=True)
+    mod_git = superproject / ".git" / "modules" / submodule_rel
+    mod_git.mkdir(parents=True, exist_ok=True)
+    (sub / ".git").write_text(f"gitdir: {mod_git}\n", encoding="utf-8")
+    return sub
+
+
+def _list_worktrees_answer(call: ProcessCall) -> ProcessAnswer:
+    if os.environ.get("PATH") == "":
+        return ProcessAnswer(returncode=127, stderr="git: command not found\n")
+    cwd = Path(call.cwd) if call.cwd else Path.cwd()
+    main = main_worktree_root(cwd)
+    wt_dir = main / ".git" / "worktrees" if (main / ".git").is_dir() else main / "worktrees"
+    entries = [f"worktree {main.resolve()}"]
+    if wt_dir.is_dir():
+        for d in sorted(wt_dir.iterdir()):
+            if d.is_dir() and (d / "gitdir").is_file():
+                target = (d / "gitdir").read_text(encoding="utf-8").strip()
+                target_path = (d / target).resolve() if not os.path.isabs(target) else Path(target)
+                entries.append(f"worktree {target_path.parent.resolve()}")
+    return ProcessAnswer(returncode=0, stdout="\0".join(entries) + "\0")
+
+
+def _ls_files_answer(call: ProcessCall) -> ProcessAnswer:
+    if os.environ.get("PATH") == "":
+        return ProcessAnswer(returncode=127, stderr="git: command not found\n")
+    return ProcessAnswer(returncode=0, stdout="")
+
+
+@pytest.fixture(autouse=True)
+def _setup_git_fake(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and "worktree" in call.argv and "list" in call.argv),
+        _list_worktrees_answer,
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        _ls_files_answer,
+    )
+
+
 @pytest.fixture
-def init_repo(git: Callable[..., None]) -> Callable[[Path], Path]:
+def init_repo() -> Callable[[Path], Path]:
     """Create a repository with one commit at a given path, so worktrees can be added to it."""
 
     def init(main: Path) -> Path:
-        main.mkdir(parents=True)
-        git(main, "init", "--quiet")
+        main.mkdir(parents=True, exist_ok=True)
+        (main / ".git").mkdir(parents=True, exist_ok=True)
         (main / "README.md").write_text("project\n", encoding="utf-8")
-        git(main, "add", ".")
-        git(main, "commit", "--quiet", "-m", "first")
         return main
 
     return init
 
 
 @pytest.fixture
-def repo_with_worktree(
-    tmp_path: Path, git: Callable[..., None], init_repo: Callable[[Path], Path]
-) -> tuple[Path, Path]:
+def repo_with_worktree(tmp_path: Path, init_repo: Callable[[Path], Path]) -> tuple[Path, Path]:
     """A repository and a linked worktree of it, outside the repository's own tree."""
     main = init_repo(tmp_path / "project")
     linked = tmp_path / "worktrees" / "feature"
-    git(main, "worktree", "add", "--quiet", "-b", "feature", str(linked))
+    _make_worktree(main, linked, "feature")
     return main, linked
 
 
 def _worktree_in_another_workspace(
-    tmp_path: Path, git: Callable[..., None], init_repo: Callable[[Path], Path], marker: str
+    tmp_path: Path, init_repo: Callable[[Path], Path], marker: str
 ) -> tuple[Path, Path]:
     """A repository and a linked worktree of it inside another workspace (the worktree's parent),
     a directory holding its own `.git` or `pyproject.toml`, where a search for the top-most
     workspace root starting at the worktree stops."""
     main = init_repo(tmp_path / "project")
     host = tmp_path / "host"
-    host.mkdir()
+    host.mkdir(parents=True, exist_ok=True)
     if marker == "git":
-        git(host, "init", "--quiet")
+        (host / ".git").mkdir(parents=True, exist_ok=True)
     else:
         (host / "pyproject.toml").write_text("[project]\nname = 'host'\n", encoding="utf-8")
     linked = host / "feature"
-    git(main, "worktree", "add", "--quiet", "-b", "feature", str(linked))
+    _make_worktree(main, linked, "feature")
     return main, linked
 
 
 @pytest.fixture
 def repo_with_worktree_in_another_repository(
-    tmp_path: Path, git: Callable[..., None], init_repo: Callable[[Path], Path]
+    tmp_path: Path, init_repo: Callable[[Path], Path]
 ) -> tuple[Path, Path]:
     """A repository and a linked worktree of it inside an unrelated git repository."""
-    return _worktree_in_another_workspace(tmp_path, git, init_repo, "git")
+    return _worktree_in_another_workspace(tmp_path, init_repo, "git")
 
 
 @pytest.fixture
 def repo_with_worktree_in_a_python_project(
-    tmp_path: Path, git: Callable[..., None], init_repo: Callable[[Path], Path]
+    tmp_path: Path, init_repo: Callable[[Path], Path]
 ) -> tuple[Path, Path]:
     """A repository and a linked worktree of it inside a directory holding `pyproject.toml`."""
-    return _worktree_in_another_workspace(tmp_path, git, init_repo, "pyproject")
+    return _worktree_in_another_workspace(tmp_path, init_repo, "pyproject")
+
+
+@pytest.fixture
+def nested_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """A checkout and a linked worktree nested under its `.claude/worktrees/`."""
+    main = tmp_path / "main"
+    main.mkdir(parents=True, exist_ok=True)
+    (main / ".git").mkdir(parents=True, exist_ok=True)
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    nested = main / ".claude" / "worktrees" / "wt"
+    _make_worktree(main, nested, "wt")
+    return main, nested
 
 
 _WORKTREES_IN_ANOTHER_WORKSPACE = [
@@ -145,15 +233,12 @@ def test_nested_linked_worktree_resolves_to_the_main_worktree(
 
 
 def test_a_nested_worktree_with_a_relative_gitdir_resolves_to_the_main_worktree(
-    nested_worktree: tuple[Path, Path], git: Callable[..., None]
+    nested_worktree: tuple[Path, Path],
 ) -> None:
     """Verify a nested worktree added with `--relative-paths` shares the main worktree."""
     main, _ = nested_worktree
     relative = main / ".claude" / "worktrees" / "relative"
-    try:
-        git(main, "worktree", "add", "--quiet", "--relative-paths", "-b", "rel", str(relative))
-    except subprocess.CalledProcessError:
-        pytest.skip("git does not support `worktree add --relative-paths`")
+    _make_worktree(main, relative, "rel", relative_paths=True)
 
     assert main_worktree_root(relative) == main.resolve()
 
@@ -193,15 +278,16 @@ def test_a_pruned_worktree_of_a_moved_checkout_keeps_its_own_data(
 
 
 def test_a_clone_under_repos_and_its_worktree_share_the_workspace_data(
-    nested_worktree: tuple[Path, Path], tmp_path: Path, git: Callable[..., None]
+    nested_worktree: tuple[Path, Path],
 ) -> None:
     """Verify a repository cloned under `repos/`, and a linked worktree of that clone, keep
     resolving to the workspace's data directory rather than to a directory of their own."""
     main, _ = nested_worktree
     clone = main / "repos" / "org" / "clone"
-    git(tmp_path, "clone", "--quiet", str(main), str(clone))
+    clone.mkdir(parents=True, exist_ok=True)
+    (clone / ".git").mkdir(parents=True, exist_ok=True)
     clone_worktree = main / "repos" / "org" / "clone-wt"
-    git(clone, "worktree", "add", "--quiet", "-b", "clone-wt", str(clone_worktree))
+    _make_worktree(clone, clone_worktree, "clone-wt")
 
     roots = (
         main_worktree_root(clone),
@@ -375,7 +461,6 @@ def test_workspace_clean_refuses_another_worktree_or_repository(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     configured: str,
-    git: Callable[..., None],
     init_repo: Callable[[Path], Path],
 ) -> None:
     """Verify cleanup run from the main checkout refuses a data directory that is a sibling
@@ -383,7 +468,7 @@ def test_workspace_clean_refuses_another_worktree_or_repository(
     tracked `benchmarks/` and `logs/` are not the tool's to prune."""
     main, linked = repo_with_worktree
     sibling = linked.parent / "sibling"
-    git(main, "worktree", "add", "--quiet", "-b", "sibling", str(sibling))
+    _make_worktree(main, sibling, "sibling")
     other_repository = init_repo(tmp_path / "other")
     tracked = (
         _stale(sibling / "benchmarks" / "keep.py"),
@@ -407,7 +492,6 @@ def test_workspace_clean_refuses_another_worktree_or_repository(
 def test_workspace_clean_refuses_a_parent_of_the_main_checkout_without_git(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    git: Callable[..., None],
     init_repo: Callable[[Path], Path],
 ) -> None:
     """Verify cleanup run from a linked worktree still refuses a parent of the main checkout, one
@@ -415,7 +499,7 @@ def test_workspace_clean_refuses_a_parent_of_the_main_checkout_without_git(
     worktree is read from the worktree's own `.git` file, not from git."""
     main = init_repo(tmp_path / "checkouts" / "project")
     linked = tmp_path / "worktrees" / "feature"
-    git(main, "worktree", "add", "--quiet", "-b", "feature", str(linked))
+    _make_worktree(main, linked, "feature")
     tracked = _stale(main / "benchmarks" / "keep.py")
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / "checkouts"))
     monkeypatch.setenv("PATH", "")
@@ -743,13 +827,12 @@ def test_workspace_clean_refuses_a_git_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     configured: str,
-    git: Callable[..., None],
 ) -> None:
     """Verify cleanup refuses a git directory, whose `logs/` are the repository's reflogs: the
     main worktree's `.git`, a bare repository, or a linked worktree's directory inside `.git`."""
     main, linked = repo_with_worktree
     bare = tmp_path / "bare.git"
-    git(main, "clone", "--quiet", "--bare", str(main), str(bare))
+    _make_bare_repo(bare)
     reflogs = (_stale(main / ".git" / "logs" / "HEAD"), _stale(bare / "logs" / "HEAD"))
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", configured.format(bare=bare))
     monkeypatch.chdir(linked)
@@ -765,14 +848,16 @@ def test_workspace_clean_refuses_a_data_directory_holding_tracked_files(
     repo_with_worktree: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
     start: str,
-    git: Callable[..., None],
+    git_fake: GitFake,
 ) -> None:
     """Verify cleanup refuses a data directory that is an ordinary directory of the checkout, whose
     committed `cache/` sources are not the tool's to prune."""
     main, linked = repo_with_worktree
     tracked = _stale(main / "src" / "pkg" / "cache" / "tracked.py")
-    git(main, "add", ".")
-    git(main, "commit", "--quiet", "-m", "sources")
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        ProcessAnswer(returncode=0, stdout="src/pkg/cache/tracked.py\0"),
+    )
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "src/pkg")
     monkeypatch.chdir(main if start == "main" else linked)
 
@@ -977,7 +1062,6 @@ def test_workspace_clean_refuses_a_data_directory_holding_a_bare_repository(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     bare: str,
-    git: Callable[..., None],
 ) -> None:
     """Verify cleanup refuses a data directory with a bare repository in a directory it prunes, or
     that is one, which has no `.git` entry to find: a mirror kept at `cache/mirror.git`, or a bare
@@ -986,7 +1070,7 @@ def test_workspace_clean_refuses_a_data_directory_holding_a_bare_repository(
     data = tmp_path / "data"
     mirror = data / bare
     mirror.parent.mkdir(parents=True, exist_ok=True)
-    git(main, "clone", "--quiet", "--bare", str(main), str(mirror))
+    _make_bare_repo(mirror)
     _age_tree(data)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(data))
     monkeypatch.chdir(main)
@@ -1000,25 +1084,13 @@ def test_workspace_clean_refuses_a_data_directory_holding_a_bare_repository(
 def test_workspace_clean_in_a_submodule_prunes_the_superprojects_data(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    git: Callable[..., None],
     init_repo: Callable[[Path], Path],
 ) -> None:
     """Verify cleanup and the analysis cache of a submodule use the superproject's data
     directory, as a clone under `repos/` uses the workspace's, and cleanup leaves a `.data` of
     the submodule's own alone. Its reviews are kept under the user-level data root (#972)."""
-    library = init_repo(tmp_path / "library")
     superproject = init_repo(tmp_path / "superproject")
-    git(
-        superproject,
-        "-c",
-        "protocol.file.allow=always",
-        "submodule",
-        "add",
-        "--quiet",
-        str(library),
-        "vendor/library",
-    )
-    submodule = superproject / "vendor" / "library"
+    submodule = _make_submodule(superproject, "vendor/library")
     shared = _stale(superproject / ".data" / "reviews" / "old.json")
     submodule_own = _stale(submodule / ".data" / "logs" / "submodule.log")
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
@@ -1046,16 +1118,13 @@ def test_workspace_clean_in_a_submodule_prunes_the_superprojects_data(
 def test_a_worktree_of_a_bare_repository_keeps_its_own_data_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    git: Callable[..., None],
-    init_repo: Callable[[Path], Path],
 ) -> None:
     """Verify a linked worktree of a bare repository, which has no main worktree, resolves data
     paths under itself rather than inside the bare git directory, and cleanup prunes it there."""
-    source = init_repo(tmp_path / "source")
     bare = tmp_path / "repo.git"
-    git(source, "clone", "--quiet", "--bare", str(source), str(bare))
+    _make_bare_repo(bare)
     worktree = tmp_path / "feature"
-    git(bare, "worktree", "add", "--quiet", "-b", "feature", str(worktree))
+    _make_worktree(bare, worktree, "feature")
     own = _stale(worktree / ".data" / "reviews" / "old.json")
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     monkeypatch.chdir(worktree)

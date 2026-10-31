@@ -44,6 +44,8 @@ from devops_cli.config.settings import (
 from devops_cli.k8s import node_port
 from devops_cli.main import app
 from tests.support.config_writes import written_keys
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -473,13 +475,19 @@ def test_ai_benchmarks_are_kept_and_dry_runs_are_not(monkeypatch: pytest.MonkeyP
 
 
 def test_an_installed_package_reports_no_commit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake
 ) -> None:
     """Verify a package outside a devops-cli checkout, such as one in a project's virtual
     environment, does not claim that project's commit."""
     package = tmp_path / "site-packages" / "devops_cli" / "ai"
     package.mkdir(parents=True)
-    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    (tmp_path / ".git").mkdir()
+    git_fake.answer(
+        lambda call: bool(
+            call.argv and "rev-parse" in call.argv and "--show-toplevel" in call.argv
+        ),
+        ProcessAnswer(returncode=0, stdout=f"{tmp_path}\n"),
+    )
     monkeypatch.setattr(run_store, "__file__", str(package / "run_store.py"))
 
     assert run_store.source_commit() is None
