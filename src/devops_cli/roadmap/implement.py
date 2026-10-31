@@ -17,9 +17,12 @@ also when its plan is on the default branch.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`: the values of one family are alternatives, and the
-families all apply. With no filter the job takes the Ready P0 and P1 bugs of low effort. An item
-that the filter names, and that the job leaves out, is in the plan with its reason: its Status
-is not Ready, it is neither Staged nor Planned, a step stopped it and no person cleared the stop,
+families all apply. With no filter the job takes the Ready and Planned P0 and P1 bugs of low
+effort. The Service sets `status/planned` once the plan is on the default branch
+(`status_sync.py`, #2920). An item that the filter names, and that the job leaves out, is in the
+plan with its reason: its Status is neither Ready nor Planned (an item In Progress stays while its
+record names a runner Job that no round reported: that Job plans its own item), it is neither
+Staged nor Planned, a step stopped it and no person cleared the stop,
 its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
 a commit by anyone but the App, a worktree holds the issue, its pull request is not an open
 draft, or, for a Planned item, a branch of `origin` holds the issue, its change is archived, it
@@ -42,6 +45,8 @@ from typing import Final, NamedTuple
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT,
+    CONST_ROADMAP_STATUS_IN_PROGRESS,
+    CONST_ROADMAP_STATUS_PLANNED,
     CONST_ROADMAP_STATUS_READY,
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
@@ -71,6 +76,7 @@ from devops_cli.roadmap.stage import (
     parse_filters,
     priority_order,
 )
+from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.store import (
     GitHubState,
@@ -83,9 +89,10 @@ from devops_cli.roadmap.store import (
 
 GIT_OPERATION: Final[str] = "roadmap.implement"
 
-# What the job implements without a `--filter`: the Ready P0 and P1 bugs of low effort.
+# What the job implements without a `--filter`: the Ready and Planned P0 and P1 bugs of low effort.
 DEFAULT_IMPLEMENT_FILTERS: Final[tuple[str, ...]] = (
     "status=ready",
+    "status=planned",
     "priority=p0-critical",
     "priority=p1-high",
     "type=bug",
@@ -184,6 +191,15 @@ def _retry_asked(comments: Sequence[IssueComment]) -> bool:
     )
 
 
+def _takeable_status(item: Item) -> bool:
+    """Whether the Status of `item` lets the job take it: Ready or Planned, or In Progress while
+    the record names a runner Job that no round reported, which is the Job that plans its own item
+    (#2920)."""
+    if item.status in {CONST_ROADMAP_STATUS_READY, CONST_ROADMAP_STATUS_PLANNED}:
+        return True
+    return item.status == CONST_ROADMAP_STATUS_IN_PROGRESS and job_holds(item)
+
+
 class _Judge:
     """Decides, for one item, whether the job may implement it. The checks run from the cheapest
     to the dearest: the record and the labels first, then git, then the pull request."""
@@ -209,7 +225,7 @@ class _Judge:
     def judge(self, item: Item) -> ImplementTarget | str:
         """The target for `item`, or the reason the job leaves it out."""
         texts = MESSAGES.roadmap
-        if item.status != CONST_ROADMAP_STATUS_READY:
+        if not _takeable_status(item):
             return texts.implement_left_not_ready.format(status=item.status or "none")
         route = self._route(item)
         if route is None:
@@ -318,10 +334,12 @@ def plan_implement(
     filters: StageFilter,
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
+    planned: PlannedChanges | None = None,
 ) -> ImplementPlan:
     """Plans a run without a write to git or to GitHub: up to `limit` Staged or Planned items that
     `filters` name, and the named items that the job leaves out. `source` is the clone of the
-    repository."""
+    repository. `planned` is the plans on the default branch when the caller read them already
+    (the Service reads them once for a round, #2920)."""
     checkout = Path(source)
     inspect_checkout(checkout, repo)
     client = get_github_session().client
@@ -330,7 +348,7 @@ def plan_implement(
         repo=repo,
         source=checkout,
         remote_heads=read_remote_heads(checkout),
-        planned=read_planned_changes(checkout, operation=GIT_OPERATION),
+        planned=planned or read_planned_changes(checkout, operation=GIT_OPERATION),
         pull_status=lambda pull: client.get_pull_status(repo, pull),
     )
     if item_number is not None:

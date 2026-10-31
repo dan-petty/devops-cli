@@ -20,6 +20,12 @@ records it. The API is the lock, so a restart of the Service loses nothing.
 creates one Job for the first of them, from CronJob `devops-cli-runner`, with the item's
 arguments and a token for the one repository (`service.github_app.token_repository`). The record
 of the item then names the Job.
+
+**Status.** After it reports the Jobs, and again after it creates one, the round sets the Status
+label of each item from the record and the plans on the default branch (`status_sync.py`, #2920):
+Planned once the plan is merged, and In Progress as soon as the record names a Job. The round reads
+the plans once, for the sweep and for the plan. A sweep that fails for an item does not stop the
+round: the failures come back in `SubmitResult.status_failed` for the row to raise.
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_JOB_STEP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
+    CONST_ROADMAP_STATUS_PLANNED,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
@@ -46,7 +53,15 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, job_name
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement import ImplementTarget, parse_implement_filters, plan_implement
+from devops_cli.roadmap.implement import (
+    GIT_OPERATION,
+    ImplementTarget,
+    parse_implement_filters,
+    plan_implement,
+)
+from devops_cli.roadmap.planned import read_planned_changes
+from devops_cli.roadmap.stage import StageFailure
+from devops_cli.roadmap.status_sync import sync_statuses
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -55,12 +70,13 @@ _GONE = "gone"
 
 @dataclass(frozen=True)
 class SubmitResult:
-    """What a round did: the Jobs it reported, whether a running Job held it, and the Job it
-    created."""
+    """What a round did: the Jobs it reported, whether a running Job held it, the Job it created,
+    and the items whose Status it could not set."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
     created: str | None = None
+    status_failed: tuple[StageFailure, ...] = ()
 
 
 def repository_label(repo: str) -> str:
@@ -84,11 +100,12 @@ def _unreported(store: RoadmapStore) -> list[tuple[Item, str]]:
 
 
 def _settles_as_stop(item: Item) -> bool:
-    """Whether an item that a Job ended is a stop that nobody wrote: it is In Progress, or Ready
-    and not stopped. Any other Status, In Review and Done included, is the Job's own result."""
+    """Whether an item that a Job ended is a stop that nobody wrote: it is In Progress, or Ready or
+    Planned and not stopped. Any other Status, In Review and Done included, is the Job's own
+    result."""
     stopped = _record(item, ImplementRecordKey.STOPPED)
     return item.status == CONST_ROADMAP_STATUS_IN_PROGRESS or (
-        item.status == CONST_ROADMAP_STATUS_READY and not stopped
+        item.status in {CONST_ROADMAP_STATUS_READY, CONST_ROADMAP_STATUS_PLANNED} and not stopped
     )
 
 
@@ -197,20 +214,23 @@ def run_implement_round(
     label = repository_label(repo)
     held = {job.name: job for job in api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})}
     reported = _report_ended(store, api, held)
+    planned = read_planned_changes(Path(source), operation=GIT_OPERATION)
+    failed = sync_statuses(store, repo=repo, planned=planned).failed
     if any(job.state is JobState.RUNNING for job in held.values()):
-        return SubmitResult(reported=reported, waiting=True)
+        return SubmitResult(reported=reported, waiting=True, status_failed=failed)
     plan = plan_implement(
         store,
         repo=repo,
         source=source,
         filters=parse_implement_filters(()),
         limit=DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
+        planned=planned,
     )
     if not plan.selected:
-        return SubmitResult(reported=reported)
-    return SubmitResult(
-        reported=reported, created=_create(store, api, repo, plan.selected[0], label)
-    )
+        return SubmitResult(reported=reported, status_failed=failed)
+    created = _create(store, api, repo, plan.selected[0], label)
+    failed = sync_statuses(store, repo=repo, planned=planned).failed
+    return SubmitResult(reported=reported, created=created, status_failed=failed)
 
 
 __all__ = ["SubmitResult", "repository_label", "run_implement_round"]

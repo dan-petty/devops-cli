@@ -2121,7 +2121,7 @@ class RoadmapMessages:
     # `devops roadmap implement` as a job (#2665): why it leaves an item out, and its plan.
     implement_left_not_item: str = "It is not an item of the roadmap."
     implement_left_closed: str = "It is closed."
-    implement_left_not_ready: str = "Its Status is {status}, not Ready."
+    implement_left_not_ready: str = "Its Status is {status}, not Ready or Planned."
     implement_left_not_staged: str = (
         "It is neither Staged nor Planned: its record holds no staged branch or pull request, "
         "and {branch} holds no change folder for it."

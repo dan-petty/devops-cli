@@ -365,7 +365,7 @@ def test_a_named_planned_item_that_is_closed_is_left_out(
     assert (plan.selected, _reasons(plan)) == ((), {number: "It is closed."})
 
 
-def test_a_planned_item_that_is_not_ready_is_left_out(
+def test_a_planned_item_that_is_in_progress_with_no_job_is_left_out(
     store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
 ) -> None:
     number = seed_staged(store, record=False, status="In Progress")
@@ -373,7 +373,7 @@ def test_a_planned_item_that_is_not_ready_is_left_out(
 
     plan = _plan(store, repo, item=number)
 
-    assert _reasons(plan) == {number: "Its Status is In Progress, not Ready."}
+    assert _reasons(plan) == {number: "Its Status is In Progress, not Ready or Planned."}
 
 
 def test_a_planned_item_of_an_author_who_is_not_trusted_is_left_out(

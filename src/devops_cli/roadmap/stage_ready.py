@@ -7,8 +7,9 @@ whose record holds `stage.pr` and not `stage.ready` of the same number, and hold
 reads the draft of a person, and with no such item it sends no request.
 
 For each such item the round reads the pull request. One that is not an open draft is only
-recorded in `stage.ready`, so no later round reads it. An open draft goes to `ready_to_mark` with
-its check runs. When the function says yes, the round reads the pull request once more. If a
+recorded in `stage.ready`, so no later round reads it. One that is merged also sets the Status of
+its item with the function of `status_sync.py`: the plan is merged (#2920). An open draft goes to
+`ready_to_mark` with its check runs. When the function says yes, the round reads the pull request once more. If a
 person pushed a commit or marked it ready since the first read, the draft waits, because no check
 judged that head. A window of milliseconds stays, since `gh pr ready` takes no expected head.
 Else the round marks the pull request ready with `mark_ready`, the function that the implement
@@ -38,6 +39,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_pull import mark_ready
 from devops_cli.roadmap.stage import StageFailure, raise_for_failed, write_each
+from devops_cli.roadmap.status_sync import facts_of, sync_status
 from devops_cli.roadmap.store import (
     GitHubState,
     ImplementRecordKey,
@@ -99,6 +101,8 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
     status = client.get_pull_status(repo, number)
     if not status.is_open_draft:
         store.set_marks(item, {StageRecordKey.READY: str(number)})
+        if status.merged:
+            sync_status(store, item, facts_of(item, repo=repo, plan_merged=True))
         return _Outcome.SETTLED
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)

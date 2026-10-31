@@ -453,6 +453,7 @@ class StagePlan:
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
     write_requests: tuple[PlannedRequest, ...] = ()
+    planned: PlannedChanges | None = None
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -706,17 +707,26 @@ def plan_stage(
     sha = inspect_checkout(checkout, repo)
     heads = read_remote_heads(checkout)
     settings = load_settings()
+    planned = read_planned_changes(checkout, operation=_GIT_OPERATION)
     selection = select_stageable(
         store,
         filters=filters,
         holder_of=lambda issue, branch: issue_holder(checkout, issue, heads, branch),
-        planned=read_planned_changes(checkout, operation=_GIT_OPERATION),
+        planned=planned,
         item_number=item_number,
         limit=limit or settings.roadmap.stage.limit,
     )
     budget = step_tokens or settings.roadmap.stage.step_tokens
     removals, kept = _reconcile(store, checkout, heads)
-    plan = StagePlan(repo, sha, budget, left_out=selection.left_out, removals=removals, kept=kept)
+    plan = StagePlan(
+        repo,
+        sha,
+        budget,
+        left_out=selection.left_out,
+        removals=removals,
+        kept=kept,
+        planned=planned,
+    )
     if not selection.selected:
         return plan
     client = model or get_llm_client(task="analysis", settings=settings)
@@ -742,6 +752,7 @@ def plan_stage(
         left_out=selection.left_out,
         removals=removals,
         kept=kept,
+        planned=planned,
     )
 
 

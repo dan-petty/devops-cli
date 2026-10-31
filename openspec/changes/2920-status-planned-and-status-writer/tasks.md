@@ -16,13 +16,13 @@
 
 ## 3. The rows use it
 
-- [ ] 3.1 Write failing tests: the implement job accepts Ready, Planned and the In Progress item of a recorded Job, and leaves out the other Statuses; the default filter names Planned; a lost stop of a Planned item is reported
+- [x] 3.1 Write failing tests: the implement job accepts Ready, Planned and the In Progress item of a recorded Job, and leaves out the other Statuses; the default filter names Planned; a lost stop of a Planned item is reported
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_implement_submit.py`
-- [ ] 3.2 Accept the Statuses in `src/devops_cli/roadmap/implement.py` and `src/devops_cli/roadmap/implement_submit.py`, add `status=planned` to the default filter, and let `plan_implement` take the plans of the round
+- [x] 3.2 Accept the Statuses in `src/devops_cli/roadmap/implement.py` and `src/devops_cli/roadmap/implement_submit.py`, add `status=planned` to the default filter, and let `plan_implement` take the plans of the round
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_implement_submit.py`
-- [ ] 3.3 Write failing tests that replay a round (staged, plan merged, Job running, pull request ready, issue closed) through the rows `stage`, `implement` and `stage_ready`, and check the label at each point
+- [x] 3.3 Write failing tests that replay a round (staged, plan merged, Job running, pull request ready, issue closed) through the rows `stage`, `implement` and `stage_ready`, and check the label at each point
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_round.py`
-- [ ] 3.4 Run the sweep in the row `implement` (after the report of the Jobs, and for the item of the Job it creates), in the row `stage` (with the plans of its plan) and in the row `stage_ready` (for a merged plan pull request)
+- [x] 3.4 Run the sweep in the row `implement` (after the report of the Jobs, and for the item of the Job it creates), in the row `stage` (with the plans of its plan) and in the row `stage_ready` (for a merged plan pull request)
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_round.py tests/roadmap/test_roadmap_stage_ready.py tests/roadmap/test_roadmap_run.py`
 
 ## 4. The documents
