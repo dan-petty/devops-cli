@@ -698,6 +698,11 @@ class K8sMessages:
         "--repo sets the repository of a runner Job. Use it with --template runner. No Job was "
         "created."
     )
+    job_runner_running: str = (
+        "A runner Job of {repo} has not ended: {names}. A second runner Job for the repository "
+        "could push to the same branch. Wait for the Job to end, or follow it with: "
+        "kubectl -n devops logs -f job/<name>. No Job was created."
+    )
     job_cronjob_missing: str = (
         "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"
@@ -2232,6 +2237,27 @@ class RoadmapMessages:
         "true there. The shell of the agent is no security boundary, so the runner is the "
         "sandbox, with a narrow token and no other credential. This process ran no step."
     )
+    implement_outside_why_options: str = (
+        "Outside a runner, --confirm starts a runner Job for one item. It cannot pass {options}."
+    )
+    implement_outside_why_item: str = (
+        "Outside a runner, --confirm starts a runner Job for one item, and needs --item <number>."
+    )
+    implement_outside_refused: str = (
+        "{why} A step runs only when roadmap.implement.in_runner is true, which only the pod of "
+        "a runner Job sets. To run the job with other options, put them after the `--` of this "
+        "command: {command} <options> --confirm"
+    )
+    implement_outside_not_item: str = "Issue #{number} is not an item of the roadmap."
+    implement_outside_closed: str = "Issue #{number} is closed."
+    implement_outside_claimed: str = (
+        "Item #{number} is claimed by {owner}. The job takes no item that an agent or a person "
+        "claimed. Release it first: devops roadmap release {number} --confirm"
+    )
+    implement_outside_status: str = (
+        "Item #{number} has the Status {status}. A runner Job takes an item that is Ready or "
+        "Planned."
+    )
     implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
     implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
     implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
@@ -2322,7 +2348,9 @@ class RoadmapMessages:
     implement_step_needs_item: str = "A step needs --item with --group."
     implement_step_job_options: str = (
         "--filter, --plan, --confirm and --why are options of the job. With --group, the command runs "
-        "one step and takes only --item, --source, --format and --dry-run."
+        "one step and takes only --item, --source, --format and --dry-run. To run the job for "
+        "one item from a workstation, drop --group: devops roadmap implement --item <n> "
+        "--confirm starts a runner Job."
     )
     implement_job_plain_note: str = (
         "Implement without a mode flag runs as --plan: it reads GitHub and git, and writes "
