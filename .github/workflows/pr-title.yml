@@ -4,6 +4,9 @@ name: PR Title
 # parse without a warning, so the title of every pull request into main is checked. The title is
 # also the squash subject and the changelog line, so its summary has at most 60 characters
 # (CONTRIBUTING.md section 4). The action matches subjectPattern against the summary only.
+# The scope is one of the scopes that .github/labels.yml declares, so the pull request gets its
+# scope label (#2800). `main` is the scope of the release pull request. A test holds this list
+# equal to the labels file.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
@@ -26,6 +29,52 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          scopes: |
+            agent
+            agents
+            ai
+            argo
+            argocd
+            ci
+            cli
+            cloudflare
+            config
+            contributing
+            deps
+            devcontainer
+            docker
+            docs
+            exceptions
+            fail-to-pass
+            gate
+            gh
+            git
+            github
+            infra
+            k8s
+            lint
+            main
+            mcp
+            monitoring
+            openspec
+            output
+            pr
+            rag
+            release
+            repos
+            review
+            roadmap
+            sandbox
+            scan
+            sdlc
+            security
+            service
+            telemetry
+            terraform
+            tests
+            ui
+            valkey
+            vault
           subjectPattern: ^.{1,60}$
           subjectPatternError: >-
             The summary after "<type>(<scope>): " has more than 60 characters. Shorten it to 60

@@ -242,6 +242,19 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
     )
 
 
+def test_the_title_of_the_pull_request_has_no_scope_that_the_labels_file_lacks(
+    job_world: JobWorld,
+) -> None:
+    """The `Semantic PR title` check refuses an undeclared scope (#2800), and the title of the
+    issue may hold one."""
+    job_world.store.seed_file(".github/labels.yml", "- name: type/bug\n  color: D73A4A\n")
+
+    job_world.run(two_groups())
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert patched["title"] == "fix: the job drops a comment"
+
+
 def test_the_changes_of_the_archive_and_the_documents_are_in_the_pushed_tree(
     job_world: JobWorld,
 ) -> None:

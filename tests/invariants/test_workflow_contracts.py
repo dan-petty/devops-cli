@@ -19,8 +19,12 @@ import pytest
 import yaml
 
 from devops_cli.commands.ci import get_check_spec, resolve_step_rows
-from devops_cli.config.constants import CONST_DEFECT_TITLE_PATTERN
+from devops_cli.config.constants import (
+    CONST_DEFECT_TITLE_PATTERN,
+    CONST_ROADMAP_SCOPE_LABEL_PREFIX,
+)
 from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
+from devops_cli.roadmap.title_labels import declared_label_names
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.markdown_examples import CodeSnippet, devops_commands
 
@@ -293,6 +297,32 @@ def test_a_pull_request_title_summary_has_at_most_60_characters() -> None:
         "60 characters" in inputs["subjectPatternError"],
         "CONTRIBUTING.md" in inputs["subjectPatternError"],
     ) == (True, False, True, True, True)
+
+
+# release-please opens its pull request from the branch `main`, so its title has the scope `main`.
+RELEASE_PLEASE_TITLE_SCOPE = "main"
+
+
+def test_the_title_check_allows_exactly_the_declared_scopes() -> None:
+    """The scope of a title gives the label `scope/<scope>` only when `.github/labels.yml`
+    declares it (#2800). The title check holds the scopes to the declared ones, so a pull request
+    with another scope fails at the title and not with a warning after it opens. The one scope
+    with no label is the scope of the release pull request."""
+    labels_text = Path(".github/labels.yml").read_text(encoding="utf-8")
+    prefix = CONST_ROADMAP_SCOPE_LABEL_PREFIX
+    declared = {
+        name.removeprefix(prefix)
+        for name in declared_label_names(labels_text)
+        if name.startswith(prefix)
+    }
+    workflow = _load_workflow(WORKFLOWS_DIR / "pr-title.yml")
+    inputs = workflow["jobs"]["semantic-title"]["steps"][0]["with"]
+    allowed = inputs.get("scopes", "").split()
+
+    assert (sorted(allowed), len(allowed) == len(set(allowed))) == (
+        sorted(declared | {RELEASE_PLEASE_TITLE_SCOPE}),
+        True,
+    )
 
 
 def test_release_workflow_attest_build_provenance_contract() -> None:
