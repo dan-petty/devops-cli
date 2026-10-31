@@ -77,7 +77,7 @@ For each item the job SHALL make the branch `<type>/<issue>-<slug>` at `origin/<
 - **THEN** the branch is pushed with one commit by the session identity, and the commit holds the change folder
 
 ### Requirement: A staged item gets a draft pull request
-The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters. The job SHALL NOT mark the pull request ready.
+The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
 
 #### Scenario: The draft opens
 - **WHEN** the job stages a Ready bug
@@ -356,3 +356,53 @@ The job SHALL record `stage.file_cap`, the file cap of the measure, with `stage.
 #### Scenario: A record of the measure of now
 - **WHEN** the record of an item holds `stage.needs_split` and the `stage.file_cap` of now
 - **THEN** the plan leaves the item out and says why, and `--item` stages it
+
+### Requirement: The Service marks a green stage pull request ready
+The row `stage_ready` of the status lane SHALL mark a draft pull request ready for review when the record of an open item holds it as `stage.pr` and all its check runs ended and passed. It SHALL read only the pull requests that the stage job recorded. It SHALL leave a draft with a failed, cancelled, unread or running check, or with no check, and SHALL NOT retry a check.
+
+#### Scenario: Every check passed
+- **WHEN** the record of an open item holds a draft `stage.pr` whose check runs all passed
+- **THEN** the round marks the pull request ready once, and the record holds `stage.ready` with its number
+
+#### Scenario: A check failed, a check runs, or no check exists
+- **WHEN** the head of a recorded draft has a failed check, a running check, or no check run
+- **THEN** the round marks no pull request ready and records nothing
+
+#### Scenario: A draft of a person
+- **WHEN** a draft pull request is open, green and recorded in no item
+- **THEN** the round sends no request for it and marks it ready never
+
+#### Scenario: The same pull request twice
+- **WHEN** a second round runs after the first marked the pull request ready
+- **THEN** the second round sends no request
+
+#### Scenario: A pull request that left the draft state
+- **WHEN** the recorded pull request is ready, merged or closed
+- **THEN** the round records `stage.ready` and calls `gh pr ready` never
+
+#### Scenario: No recorded draft
+- **WHEN** no open item holds a `stage.pr` that `stage.ready` has not recorded
+- **THEN** the round sends no request
+
+#### Scenario: A Job works on the item
+- **WHEN** the record of the item holds `implement.job`
+- **THEN** the round leaves its pull request a draft
+
+#### Scenario: One item fails
+- **WHEN** `gh pr ready` fails for the first of two green drafts
+- **THEN** the second pull request is marked ready, and the round fails naming the first item
+
+#### Scenario: The check runs only
+- **WHEN** a recorded draft is green
+- **THEN** the round sends no request to the commit status endpoint
+
+### Requirement: One function decides, and one function marks
+`ready_to_mark` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
+
+#### Scenario: The implement job and the row mark the same way
+- **WHEN** the implement job and the row each mark a pull request ready
+- **THEN** both run `gh pr ready <number> --repo <repo>`
+
+#### Scenario: The decision is replaced
+- **WHEN** a test replaces `ready_to_mark` with a function that returns false
+- **THEN** the round marks no pull request
