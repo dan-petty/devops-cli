@@ -19,6 +19,7 @@ from typing import Any, Protocol
 
 from devops_cli.config.constants import (
     CONST_CODE_LOADING_ENV_PATTERNS,
+    CONST_DATA_EGRESS_ENV_VARS,
     CONST_EXIT_COMMAND_NOT_FOUND,
     CONST_GH_AUTH_ENV_VAR,
     CONST_GH_AUTH_SUBCOMMAND,
@@ -146,9 +147,10 @@ def _is_env_var_denied(
 def _is_env_override_refused(key: str) -> bool:
     """Whether a caller may not set `key`: a pattern of `CONST_CODE_LOADING_ENV_PATTERNS` matches
     it, and it is not a git key that `CONST_GIT_ACCEPTED_ENV` names."""
-    return key.upper() not in CONST_GIT_ACCEPTED_ENV and _is_env_var_denied(
-        key, CONST_CODE_LOADING_ENV_PATTERNS
-    )
+    return (
+        key.upper() not in CONST_GIT_ACCEPTED_ENV
+        and _is_env_var_denied(key, CONST_CODE_LOADING_ENV_PATTERNS)
+    ) or key.upper() in CONST_DATA_EGRESS_ENV_VARS
 
 
 def _is_env_var_allowed(
