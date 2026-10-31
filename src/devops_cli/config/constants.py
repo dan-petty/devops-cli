@@ -1109,6 +1109,11 @@ CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
 `GIT_TERMINAL_PROMPT`, a tool request sets the author and the committer, and `commit_snapshot`
 sets their dates (git(1), #2146). None runs a program or writes a file. The guard refuses each
 other `GIT_` key, also one that git adds later."""
+
+# Keys that send data egress to an arbitrary network destination, which should be refused.
+CONST_DATA_EGRESS_ENV_VARS: Final[frozenset[str]] = frozenset({"GH_TELEMETRY_ENDPOINT_URL"})
+"""Environment variables that send data egress to a network destination. These are refused
+from caller overrides because they can redirect telemetry to arbitrary destinations."""
 CONST_GIT_GLOBAL_CONFIG_ENV: Final[frozenset[str]] = frozenset({"GIT_CONFIG_GLOBAL"})
 """The ambient key that a `git config --global` call names in `extra_allowed_env`, so that it
 writes the global file that the environment names, as it does in a shell (#2483)."""
