@@ -10,7 +10,7 @@ Issue #2866. The implement Job `devops-cli-runner-20261031-125802-ebfe` for #273
 - The reason is the message of the `ModelRetry` that the tool raised. The code reads it from the `ToolRetryError` that pydantic-ai makes, or from the cause chain of the error that ends the run. It does not match on the text of the model.
 - A retry that is a refusal by policy has no reason in the line: a `PermissionError` is in its cause chain. The text of such a refusal repeats the command or names a path outside the root, and the spec already keeps it out of the log. A retry of failed argument validation has no reason either: its content is a list of errors that holds the input of the model.
 - `ToolCallLog` keeps the last `CONST_ROADMAP_IMPLEMENT_STOP_REASONS` reasons of each tool. When a tool exceeds its retries, the reason of the stopped run ends with one more line that names the tool and its last reasons, in the same bounded form.
-- A consumer observes the Job log and the stop comment, so the change carries a spec delta. It modifies two requirements of `roadmap-implement-step`. This change fits one pull request.
+- A consumer observes the Job log and the stop comment, so the change carries a spec delta. It modifies one requirement of `roadmap-implement-step` and adds two. This change fits one pull request.
 
 ## Capabilities
 
