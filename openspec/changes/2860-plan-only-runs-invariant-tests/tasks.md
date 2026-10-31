@@ -13,10 +13,10 @@
 - [x] 3.2 Regenerate the documentation with `uv run devops docs generate --sync-readme`
 
 ## 4. Verification
-- [ ] 4.1 Run `uv run devops ci fail-to-pass --base origin/main` and keep its result
-- [ ] 4.2 Run `uv run devops openspec check` and `uv run devops ci`
+- [x] 4.1 Run `uv run devops ci fail-to-pass --base origin/main` and keep its result
+- [x] 4.2 Run `uv run devops openspec check` and `uv run devops ci`
 
 ## Workflow follow-up
-- `devops ci test <directory>` verifies nothing and exits 0. It is filed as its own issue, not fixed here.
+- Pending a person: file the issue that `devops ci test <directory>` verifies nothing and exits 0. It is not fixed here. Intake could not file it: the model gateway timed out.
 - Pending a person: read the run time of `Tests & Coverage` on the first plan-only pull request after the merge. The goal is under 150 s.
 - Pending a person: review the diff in tuicr (`tuicr -r origin/main..HEAD`).
