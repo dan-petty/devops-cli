@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
+import hashlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +19,105 @@ from devops_cli.ci.cache import (
     save_ci_cache,
 )
 from devops_cli.commands.ci import CheckResult, app
+from devops_cli.core.gitignore import get_index, reset_indexes
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
+
+
+def _git_blob_sha(content: bytes) -> str:
+    return hashlib.sha1(
+        b"blob " + str(len(content)).encode() + b"\0" + content,
+        usedforsecurity=False,
+    ).hexdigest()
+
+
+class _FingerprintGitRepo:
+    def __init__(self, root: Path, git_fake: GitFake) -> None:
+        self.root = root
+        self.git_fake = git_fake
+        self.head_sha = "1111111111111111111111111111111111111111"
+        self.index: dict[str, str] = {}
+        self._setup_answers()
+
+    def _setup_answers(self) -> None:
+        self.git_fake.answer(
+            lambda call: bool(
+                call.argv and call.argv[0:2] == ("git", "rev-parse") and "HEAD" in call.argv
+            ),
+            lambda _call: ProcessAnswer(returncode=0, stdout=f"{self.head_sha}\n"),
+        )
+        self.git_fake.answer(
+            lambda call: bool(call.argv and "ls-files" in call.argv and "-s" in call.argv),
+            self._ls_files_answer,
+        )
+        self.git_fake.answer(
+            lambda call: bool(
+                call.argv and "status" in call.argv and "--porcelain=v1" in call.argv
+            ),
+            self._status_answer,
+        )
+        self.git_fake.answer(
+            lambda call: bool(call.argv and "hash-object" in call.argv),
+            self._hash_object_answer,
+        )
+
+    def _ls_files_answer(self, _call: ProcessCall) -> ProcessAnswer:
+        lines = [f"100644 {sha} 0\t{path}" for path, sha in sorted(self.index.items())]
+        return ProcessAnswer(returncode=0, stdout="\n".join(lines) + ("\n" if lines else ""))
+
+    def _status_answer(self, _call: ProcessCall) -> ProcessAnswer:
+        lines: list[str] = []
+        for path in sorted(self.index):
+            target = self.root / path
+            if not target.exists():
+                lines.append(f" D {path}")
+            elif _git_blob_sha(target.read_bytes()) != self.index[path]:
+                lines.append(f" M {path}")
+
+        for p in sorted(self.root.rglob("*")):
+            if p.is_file():
+                rel = p.relative_to(self.root).as_posix()
+                if rel.startswith(".git"):
+                    continue
+                if rel in self.index:
+                    continue
+                if not get_index(self.root).is_ignored(p):
+                    lines.append(f"?? {rel}")
+
+        return ProcessAnswer(returncode=0, stdout="\n".join(lines) + ("\n" if lines else ""))
+
+    def _hash_object_answer(self, call: ProcessCall) -> ProcessAnswer:
+        hashes: list[str] = []
+        if call.stdin and isinstance(call.stdin, str):
+            for path_str in call.stdin.splitlines():
+                if path_str:
+                    target = self.root / path_str
+                    if target.is_file():
+                        hashes.append(_git_blob_sha(target.read_bytes()))
+                    else:
+                        hashes.append("0000000000000000000000000000000000000000")
+        return ProcessAnswer(returncode=0, stdout="\n".join(hashes) + ("\n" if hashes else ""))
+
+    def git_add(self, *paths: str) -> None:
+        reset_indexes()
+        for p in sorted(self.root.rglob("*")):
+            if p.is_file():
+                rel = p.relative_to(self.root).as_posix()
+                if rel.startswith(".git"):
+                    continue
+                if not get_index(self.root).is_ignored(p):
+                    if not paths or rel in paths or "." in paths or "-A" in paths:
+                        self.index[rel] = _git_blob_sha(p.read_bytes())
+        for rel in list(self.index):
+            if not (self.root / rel).is_file():
+                del self.index[rel]
+
+    def git_commit(self, *args: str) -> None:
+        if any("-a" in arg for arg in args):
+            self.git_add("-A")
+        self.head_sha = hashlib.sha1(
+            (self.head_sha + "commit").encode(), usedforsecurity=False
+        ).hexdigest()
 
 
 @pytest.fixture
@@ -40,15 +139,18 @@ def test_resolve_ci_cache_path(isolated_cache_dir: Path) -> None:
     ) == (True, ".json", isolated_cache_dir)
 
 
-def test_compute_workspace_fingerprint_git(tmp_path: Path) -> None:
+def test_compute_workspace_fingerprint_git(tmp_path: Path, git_fake: GitFake) -> None:
     """Test computing fingerprint on a Git repository."""
-    # Create mock repo with git command mock
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
+    sim = _FingerprintGitRepo(tmp_path, git_fake)
+    sim.git_add("-A")
     res = compute_workspace_fingerprint(root=tmp_path)
-    # Returns a 2-tuple or None if not a git repo
-    if res is not None:
-        fp, head_sha = res
-        assert len(fp) == 64
-        assert isinstance(head_sha, str)
+    assert res is not None
+    fp, head_sha = res
+    assert len(fp) == 64
+    assert isinstance(head_sha, str)
 
 
 def test_save_and_get_ci_cache(isolated_cache_dir: Path) -> None:
@@ -129,25 +231,23 @@ def test_get_ci_cache_mismatched_options(isolated_cache_dir: Path) -> None:
     ],
 )
 def test_any_tracked_change_misses_the_cache(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative_path: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative_path: str, git_fake: GitFake
 ) -> None:
     """Any change in the repository changes the fingerprint and misses the cache."""
     cache_dir = tmp_path / ".data" / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "user.email", "t@example.com"], check=True
-    )
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True)
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    sim = _FingerprintGitRepo(tmp_path, git_fake)
 
     file_path = tmp_path / relative_path
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text("initial = 1\n", encoding="utf-8")
 
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "initial"], check=True)
+    sim.git_add("-A")
+    sim.git_commit("-qm", "initial")
 
     res_initial = compute_workspace_fingerprint(root=tmp_path)
     assert res_initial is not None
@@ -184,22 +284,20 @@ def test_any_tracked_change_misses_the_cache(
 
 
 def test_verdict_survives_add_and_commit_but_misses_after_amend(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake
 ) -> None:
     """A saved CI cache verdict is found after add and commit, but missed after an amend changing a file."""
     cache_dir = tmp_path / ".data" / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "user.email", "t@example.com"], check=True
-    )
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True)
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    sim = _FingerprintGitRepo(tmp_path, git_fake)
 
     (tmp_path / ".gitignore").write_text(".data/\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", ".gitignore"], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "init"], check=True)
+    sim.git_add(".gitignore")
+    sim.git_commit("-qm", "init")
 
     code_file = tmp_path / "app.py"
     code_file.write_text("value = 1\n", encoding="utf-8")
@@ -227,8 +325,8 @@ def test_verdict_survives_add_and_commit_but_misses_after_amend(
 
     assert get_ci_cache(fingerprint=fp_before, options={}, root=tmp_path) is not None
 
-    subprocess.run(["git", "-C", str(tmp_path), "add", "app.py"], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "feat: app"], check=True)
+    sim.git_add("app.py")
+    sim.git_commit("-qm", "feat: app")
 
     res_after_commit = compute_workspace_fingerprint(root=tmp_path)
     assert res_after_commit is not None
@@ -240,10 +338,7 @@ def test_verdict_survives_add_and_commit_but_misses_after_amend(
     ) == (True, True)
 
     code_file.write_text("value = 2\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "commit", "-a", "--amend", "-qm", "feat: app amended"],
-        check=True,
-    )
+    sim.git_commit("-a", "--amend", "-qm", "feat: app amended")
 
     res_after_amend = compute_workspace_fingerprint(root=tmp_path)
     assert res_after_amend is not None

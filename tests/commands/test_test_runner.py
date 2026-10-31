@@ -12,6 +12,8 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.test_cmd import _changed_paths
 from devops_cli.commands.test_cmd import app as app_cli
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 runner = CliRunner()
 
@@ -57,19 +59,110 @@ _PROJECT = {
 }
 
 
+class _TestProjectState:
+    def __init__(self, root: Path, git_fake: GitFake) -> None:
+        self.root = root
+        self.git_fake = git_fake
+        self.committed: list[str] = []
+        self.staged_entries: list[str] = []
+        self._setup_answers()
+
+    def _setup_answers(self) -> None:
+        self.git_fake.answer(
+            lambda call: bool(
+                call.argv and "diff" in call.argv and any("main...HEAD" in arg for arg in call.argv)
+            ),
+            self._diff_answer,
+        )
+        self.git_fake.answer(
+            lambda call: bool(
+                call.argv and "status" in call.argv and "--porcelain=v1" in call.argv
+            ),
+            self._status_answer,
+        )
+
+    def _diff_answer(self, _call: ProcessCall) -> ProcessAnswer:
+        content = "\0".join(sorted(set(self.committed))) + ("\0" if self.committed else "")
+        return ProcessAnswer(returncode=0, stdout=content)
+
+    def _status_answer(self, _call: ProcessCall) -> ProcessAnswer:
+        parts: list[str] = list(self.staged_entries)
+        for p in sorted(self.root.rglob("*.py")):
+            rel = p.relative_to(self.root).as_posix()
+            if (
+                rel not in _PROJECT
+                and rel not in self.committed
+                and not any(rel in s for s in self.staged_entries)
+            ):
+                parts.append(f"?? {rel}")
+        stdout = ("\0".join(parts) + "\0") if parts else ""
+        return ProcessAnswer(returncode=0, stdout=stdout)
+
+
+_PROJECT_STATES: dict[Path, _TestProjectState] = {}
+
+
+def _handle_git_mv(root: Path, state: _TestProjectState | None, src: str, dst: str) -> None:
+    target = root / dst
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source = root / src
+    if source.is_file():
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        source.unlink()
+    if state:
+        state.staged_entries.append(f"D  {src}")
+        state.staged_entries.append(f"A  {dst}")
+
+
+def _handle_git_rm(root: Path, state: _TestProjectState | None, target_path: str) -> None:
+    path = root / target_path
+    if path.is_file():
+        path.unlink()
+    if state:
+        state.staged_entries.append(f"D  {target_path}")
+
+
+def _handle_git_commit(root: Path, state: _TestProjectState) -> None:
+    for entry in list(state.staged_entries):
+        state.committed.append(entry.split()[1])
+    state.staged_entries.clear()
+    for rel in _PROJECT:
+        p = root / rel
+        if not p.is_file():
+            continue
+        text = p.read_text(encoding="utf-8")
+        if "# changed" in text or (rel == "tests/ai/conftest.py" and _HOOK in text):
+            state.committed.append(rel)
+
+
 @pytest.fixture
-def runner_project(
-    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
-) -> Path:
+def git(git_fake: GitFake) -> Callable[..., None]:
+    def run(root: Path, *args: str) -> None:
+        state: _TestProjectState | None = _PROJECT_STATES.get(root.resolve())
+        cmd = list(args)
+        if not cmd:
+            return
+        if cmd[0] == "mv":
+            _handle_git_mv(root, state, cmd[1], cmd[2])
+        elif cmd[0] == "rm":
+            _handle_git_rm(root, state, cmd[-1])
+        elif cmd[0] == "commit" and state:
+            _handle_git_commit(root, state)
+
+    return run
+
+
+@pytest.fixture
+def runner_project(tmp_path: Path, git_fake: GitFake, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The project committed on `main`, checked out on a topic branch, as the working directory."""
     root = tmp_path / "project"
     for relative, text in _PROJECT.items():
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text(text, encoding="utf-8")
-    git(root, "init", "-q", "-b", "main")
-    git(root, "add", "-A")
-    git(root, "commit", "-q", "-m", "base")
-    git(root, "checkout", "-q", "-b", "topic")
+    (root / ".git").mkdir(parents=True, exist_ok=True)
+    (root / ".git" / "HEAD").write_text("ref: refs/heads/topic\n", encoding="utf-8")
+    state = _TestProjectState(root, git_fake)
+    _PROJECT_STATES[root.resolve()] = state
     monkeypatch.chdir(root)
     return root
 
@@ -360,6 +453,35 @@ def test_profile_memory_error_handling() -> None:
         assert "profiling failed" in res.output
 
 
+@pytest.fixture
+def nested_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """Provide a nested worktree without starting git processes."""
+    main = tmp_path / "main"
+    main.mkdir(parents=True, exist_ok=True)
+    (main / ".git").mkdir(parents=True, exist_ok=True)
+    (main / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    nested = main / ".claude" / "worktrees" / "wt"
+    nested.parent.mkdir(parents=True, exist_ok=True)
+    nested.mkdir(parents=True, exist_ok=True)
+    (nested / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (nested / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    wt_git = main / ".git" / "worktrees" / "wt"
+    wt_git.mkdir(parents=True, exist_ok=True)
+    (nested / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+    (wt_git / "gitdir").write_text(f"{nested / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt_git / "HEAD").write_text("ref: refs/heads/nested\n", encoding="utf-8")
+    return main, nested
+
+
 def test_test_run_runs_pytest_in_a_nested_worktree(
     nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -376,26 +498,25 @@ def test_test_run_runs_pytest_in_a_nested_worktree(
     assert (result.exit_code, run.call_args.kwargs["cwd"]) == (0, nested.resolve())
 
 
-def test_changed_paths_handles_spaces_non_ascii_and_renames(tmp_path: Path) -> None:
+def test_changed_paths_handles_spaces_non_ascii_and_renames(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
     """_changed_paths parses git output without quoting corrupting paths with spaces or non-ASCII characters."""
-    import subprocess
-
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+    (repo / ".git").mkdir()
 
-    (repo / "first.py").write_text("a = 1\n", encoding="utf-8")
-    (repo / "old.py").write_text("b = 2\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
-
-    subprocess.run(["git", "-C", str(repo), "checkout", "-q", "-b", "topic"], check=True)
-    (repo / "first.py").write_text("a = 2\n", encoding="utf-8")
-    (repo / "path with space.py").write_text("c = 3\n", encoding="utf-8")
-    (repo / "café.py").write_text("d = 4\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "mv", "old.py", "renamed.py"], check=True)
+    git_fake.answer(
+        lambda call: bool(call.argv and "diff" in call.argv and call.cwd == repo),
+        ProcessAnswer(returncode=0, stdout="first.py\0"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv and call.cwd == repo),
+        ProcessAnswer(
+            returncode=0,
+            stdout=" M first.py\0?? café.py\0?? path with space.py\0D  old.py\0A  renamed.py\0",
+        ),
+    )
 
     paths = _changed_paths(repo)
     assert paths == [

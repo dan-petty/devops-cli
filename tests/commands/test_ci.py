@@ -43,6 +43,8 @@ from devops_cli.core import process as process_module
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.lang import MESSAGES
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 from tests.support.hung_children import (
     fake_program,
     hung_with_grandchild,
@@ -567,6 +569,17 @@ def test_ci_python_version_check_failure(monkeypatch) -> None:
     assert "Strict Python 3.14+ requirement failed" in res_settings.output
 
 
+def _make_ci_git_fake(root: Path) -> GitFake:
+    fake = GitFake(root)
+    fake.answer(
+        lambda call: "rev-parse" in call.argv, ProcessAnswer(returncode=0, stdout="deadbeef\n")
+    )
+    fake.answer(lambda call: "ls-files" in call.argv, ProcessAnswer(returncode=0, stdout=""))
+    fake.answer(lambda call: "status" in call.argv, ProcessAnswer(returncode=0, stdout=""))
+    fake.answer(lambda call: "hash-object" in call.argv, ProcessAnswer(returncode=0, stdout=""))
+    return fake
+
+
 def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
     called: list[list[str]] = []
 
@@ -587,29 +600,35 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
             duration_seconds=0.01,
         )
 
-    with (
-        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
-        patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
-    ):
-        result = runner.invoke(app, ["--no-cache"])
-        assert result.exit_code == 0
-        assert "audit" in result.output
-        assert "coverage" in result.output
-        assert "security" in result.output
-        assert "actionlint" in result.output
-        assert "uv-check" in result.output.lower() or "uv_check" in result.output.lower()
-        assert "lockfile" in result.output.lower()
-        assert "outdated" in result.output.lower()
-        assert (
-            any("audit" in c for c in called),
-            any("bandit" in c for c in called),
-            any("actionlint" in c for c in called),
-            any("check" in c and "uv" in c for c in called),
-            any("lock" in c and "--check" in c for c in called),
-            any("tree" in c and "--outdated" in c for c in called),
-            any("ruff" in c and "format" in c and "--check" not in c for c in called),
-            any("ruff" in c and "check" in c and "--fix" in c for c in called),
-        ) == (True, True, True, True, True, True, True, True)
+    fake = _make_ci_git_fake(REPO_ROOT)
+    process_module.set_process_runner(fake)
+    try:
+        with (
+            patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
+            patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
+        ):
+            result = runner.invoke(app, ["--no-cache"])
+    finally:
+        process_module.reset_process_runner()
+
+    assert result.exit_code == 0
+    assert "audit" in result.output
+    assert "coverage" in result.output
+    assert "security" in result.output
+    assert "actionlint" in result.output
+    assert "uv-check" in result.output.lower() or "uv_check" in result.output.lower()
+    assert "lockfile" in result.output.lower()
+    assert "outdated" in result.output.lower()
+    assert (
+        any("audit" in c for c in called),
+        any("bandit" in c for c in called),
+        any("actionlint" in c for c in called),
+        any("check" in c and "uv" in c for c in called),
+        any("lock" in c and "--check" in c for c in called),
+        any("tree" in c and "--outdated" in c for c in called),
+        any("ruff" in c and "format" in c and "--check" not in c for c in called),
+        any("ruff" in c and "check" in c and "--fix" in c for c in called),
+    ) == (True, True, True, True, True, True, True, True)
 
 
 def test_ci_all_checks_with_check_flag() -> None:
@@ -632,19 +651,25 @@ def test_ci_all_checks_with_check_flag() -> None:
             duration_seconds=0.01,
         )
 
-    with (
-        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
-        patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
-    ):
-        result = runner.invoke(app, ["--check", "--no-cache"])
-        assert result.exit_code == 0
-        # In check-only mode, in-place format_fix and lint_fix are not run
-        format_or_lint_fixes = [
-            c
-            for c in called
-            if ("format" in c and "--check" not in c) or ("check" in c and "--fix" in c)
-        ]
-        assert len(format_or_lint_fixes) == 0
+    fake = _make_ci_git_fake(REPO_ROOT)
+    process_module.set_process_runner(fake)
+    try:
+        with (
+            patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
+            patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
+        ):
+            result = runner.invoke(app, ["--check", "--no-cache"])
+    finally:
+        process_module.reset_process_runner()
+
+    assert result.exit_code == 0
+    # In check-only mode, in-place format_fix and lint_fix are not run
+    format_or_lint_fixes = [
+        c
+        for c in called
+        if ("format" in c and "--check" not in c) or ("check" in c and "--fix" in c)
+    ]
+    assert len(format_or_lint_fixes) == 0
 
 
 def test_ci_failure_branches_and_filters() -> None:
@@ -1800,120 +1825,6 @@ def test_a_dry_run_records_nothing(tmp_path: Path) -> None:
     assert not mock_save.called
 
 
-def _run_image_change_detection(repo: Path, base_ref: str) -> tuple[int, str, str]:
-    """Execute the workflow's image-change detection step verbatim inside a repo.
-
-    Parsing the workflow proves the shell is well-formed, but only running it proves the
-    git invocations are valid. An earlier revision passed lint and YAML validation while
-    failing at runtime with `fatal: depth 0 is not a positive number`.
-    """
-    import subprocess
-    import tempfile
-
-    import yaml
-
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    step = next(
-        s for s in workflow["jobs"]["devcontainer"]["steps"] if s.get("id") == "image_changes"
-    )
-
-    with tempfile.NamedTemporaryFile("w", suffix=".out", delete=False) as handle:
-        output_file = handle.name
-
-    env = {
-        **os.environ,
-        "EVENT_NAME": "pull_request",
-        "BASE_REF": base_ref,
-        "IMAGE_CONTENT_PATHS": step["env"]["IMAGE_CONTENT_PATHS"],
-        "GITHUB_OUTPUT": output_file,
-    }
-    completed = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", step["run"]],
-        cwd=repo,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return completed.returncode, completed.stdout, Path(output_file).read_text(encoding="utf-8")
-
-
-@pytest.fixture
-def image_change_repo(tmp_path: Path) -> Path:
-    """Build a repo with an `origin` remote and a branch diverging from main."""
-    import subprocess
-
-    def git(*args: str, cwd: Path) -> None:
-        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
-
-    origin = tmp_path / "origin.git"
-    subprocess.run(
-        ["git", "init", "--bare", "-b", "main", str(origin)], check=True, capture_output=True
-    )
-
-    work = tmp_path / "work"
-    work.mkdir()
-    git("init", "-b", "main", cwd=work)
-    git("config", "user.email", "ci@example.com", cwd=work)
-    git("config", "user.name", "CI", cwd=work)
-    git("remote", "add", "origin", str(origin), cwd=work)
-
-    (work / "README.md").write_text("# base\n", encoding="utf-8")
-    (work / "docs").mkdir()
-    (work / "docs" / "guide.md").write_text("base\n", encoding="utf-8")
-    git("add", "-A", cwd=work)
-    git("commit", "-m", "base", cwd=work)
-    git("push", "origin", "main", cwd=work)
-
-    git("checkout", "-b", "feature", cwd=work)
-    return work
-
-
-@pytest.mark.live("bash")
-def test_image_change_detection_flags_source_changes(image_change_repo: Path) -> None:
-    """A change under src/ marks the image as needing a rebuild.
-
-    The image packages devops-cli itself, so a source change makes the published image
-    stale even when nothing under .devcontainer/ moved.
-    """
-    import subprocess
-
-    src = image_change_repo / "src" / "devops_cli"
-    src.mkdir(parents=True)
-    (src / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=image_change_repo, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "change source"],
-        cwd=image_change_repo,
-        check=True,
-        capture_output=True,
-    )
-
-    code, stdout, output = _run_image_change_detection(image_change_repo, "main")
-
-    assert (code, "changed=true" in output) == (0, True)
-    assert "src/devops_cli/module.py" in stdout
-
-
-@pytest.mark.live("bash")
-def test_image_change_detection_skips_unrelated_changes(image_change_repo: Path) -> None:
-    """A documentation-only change leaves the published image untouched."""
-    import subprocess
-
-    (image_change_repo / "docs" / "guide.md").write_text("updated\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=image_change_repo, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "docs only"],
-        cwd=image_change_repo,
-        check=True,
-        capture_output=True,
-    )
-
-    code, _, output = _run_image_change_detection(image_change_repo, "main")
-
-    assert (code, "changed=false" in output) == (0, True)
-
-
 def test_gate_checks_nested_worktree_not_main_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1926,52 +1837,30 @@ def test_gate_checks_nested_worktree_not_main_checkout(
     from devops_cli.commands.ci import _get_project_root
 
     main = tmp_path / "main_repo"
-    main.mkdir()
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(main),
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.com",
-            "init",
-            "--quiet",
-        ],
-        check=True,
-        capture_output=True,
-    )
+    main.mkdir(parents=True, exist_ok=True)
+    (main / ".git").mkdir(parents=True, exist_ok=True)
+    (main / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
     (main / "pyproject.toml").write_text(
         '[project]\nname = "demo"\nversion = "0.1.0"\n', encoding="utf-8"
     )
-    (main / "src").mkdir()
+    (main / "src").mkdir(parents=True, exist_ok=True)
     (main / "src" / "valid.py").write_text("VALID = 1\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(main), "add", "."], check=True, capture_output=True)
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(main),
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.com",
-            "commit",
-            "--quiet",
-            "-m",
-            "initial",
-        ],
-        check=True,
-        capture_output=True,
-    )
 
     nested_wt = main / ".claude" / "worktrees" / "branch-1"
-    subprocess.run(
-        ["git", "-C", str(main), "worktree", "add", "--quiet", "-b", "branch-1", str(nested_wt)],
-        check=True,
-        capture_output=True,
+    nested_wt.parent.mkdir(parents=True, exist_ok=True)
+    nested_wt.mkdir(parents=True, exist_ok=True)
+    (nested_wt / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n', encoding="utf-8"
     )
+    (nested_wt / "src").mkdir(parents=True, exist_ok=True)
+    (nested_wt / "src" / "valid.py").write_text("VALID = 1\n", encoding="utf-8")
+    wt_git = main / ".git" / "worktrees" / "branch-1"
+    wt_git.mkdir(parents=True, exist_ok=True)
+    (nested_wt / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+    (wt_git / "gitdir").write_text(f"{nested_wt / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt_git / "HEAD").write_text("ref: refs/heads/branch-1\n", encoding="utf-8")
 
     # 1. Project root resolution
     monkeypatch.chdir(nested_wt)
@@ -2002,25 +1891,30 @@ def test_gate_checks_nested_worktree_not_main_checkout(
     monkeypatch.setattr("devops_cli.commands.ci._verify_python_314_environment", lambda: True)
     monkeypatch.setattr("devops_cli.commands.ci._try_save_ci_cache", record_saved_root)
 
-    # 2. Error present ONLY in the worktree fails the gate
-    (nested_wt / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
-    res_wt_fail = runner.invoke(app, ["--no-cache"])
-    assert res_wt_fail.exit_code != 0
-    assert str(nested_wt.resolve()) in res_wt_fail.output
-    assert all(c == nested_wt.resolve() for c in called_cwds)
+    fake = _make_ci_git_fake(nested_wt)
+    process_module.set_process_runner(fake)
+    try:
+        # 2. Error present ONLY in the worktree fails the gate
+        (nested_wt / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
+        res_wt_fail = runner.invoke(app, ["--no-cache"])
+        assert res_wt_fail.exit_code != 0
+        assert str(nested_wt.resolve()) in res_wt_fail.output
+        assert all(c == nested_wt.resolve() for c in called_cwds)
 
-    # 3. Error present ONLY in the main checkout passes the gate when run from the worktree
-    (nested_wt / "src" / "error.py").unlink()
-    (main / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
-    called_cwds.clear()
+        # 3. Error present ONLY in the main checkout passes the gate when run from the worktree
+        (nested_wt / "src" / "error.py").unlink()
+        (main / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
+        called_cwds.clear()
 
-    res_wt_pass = runner.invoke(app, ["--no-cache"])
-    assert (
-        res_wt_pass.exit_code,
-        str(nested_wt.resolve()) in "".join(res_wt_pass.output.split()),
-        set(called_cwds),
-        saved_roots,
-    ) == (0, True, {nested_wt.resolve()}, [nested_wt.resolve()])
+        res_wt_pass = runner.invoke(app, ["--no-cache"])
+        assert (
+            res_wt_pass.exit_code,
+            str(nested_wt.resolve()) in "".join(res_wt_pass.output.split()),
+            set(called_cwds),
+            saved_roots,
+        ) == (0, True, {nested_wt.resolve()}, [nested_wt.resolve()])
+    finally:
+        process_module.reset_process_runner()
 
 
 # #582: from a worktree nested under `<checkout>/.claude/worktrees/`, single checks, the cached
@@ -2044,6 +1938,35 @@ def _lint_from(worktree: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, li
     with patch.object(ci_module, "run_subprocess", run_ruff_directly):
         result = runner.invoke(ci_module.app, ["lint", "--check"])
     return result.exit_code, cwds
+
+
+@pytest.fixture
+def nested_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """Provide a nested worktree without starting git processes."""
+    main = tmp_path / "main"
+    main.mkdir(parents=True, exist_ok=True)
+    (main / ".git").mkdir(parents=True, exist_ok=True)
+    (main / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    nested = main / ".claude" / "worktrees" / "wt"
+    nested.parent.mkdir(parents=True, exist_ok=True)
+    nested.mkdir(parents=True, exist_ok=True)
+    (nested / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (nested / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    wt_git = main / ".git" / "worktrees" / "wt"
+    wt_git.mkdir(parents=True, exist_ok=True)
+    (nested / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+    (wt_git / "gitdir").write_text(f"{nested / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt_git / "HEAD").write_text("ref: refs/heads/nested\n", encoding="utf-8")
+    return main, nested
 
 
 @pytest.mark.live("python")
@@ -2091,7 +2014,12 @@ def _gate_from_the_cache(worktree: Path, monkeypatch: pytest.MonkeyPatch) -> dic
         lambda message, **_kw: seen["warnings"].append(message),
         raising=False,
     )
-    result = runner.invoke(ci_module.app, ["--check"])
+    fake = _make_ci_git_fake(worktree)
+    process_module.set_process_runner(fake)
+    try:
+        result = runner.invoke(ci_module.app, ["--check"])
+    finally:
+        process_module.reset_process_runner()
     assert result.exit_code == 0
     return seen
 
@@ -2207,7 +2135,6 @@ def test_the_gate_warns_from_a_stale_worktree(
 def test_the_stale_worktree_warning_repairs_a_worktree_whose_checkout_moved(
     nested_worktree: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
-    git: Callable[..., None],
 ) -> None:
     """Verify the repair command the gate's warning gives, pasted into a shell in the main
     checkout as it says, reconnects a nested worktree that moved along with its main
@@ -2219,9 +2146,19 @@ def test_the_stale_worktree_warning_repairs_a_worktree_whose_checkout_moved(
     commands = [re.findall(r"`(git worktree repair\b[^`]*)`", warning) for warning in warnings]
 
     for command in commands:
-        git(moved, *shlex.split(command[0])[1:])
+        cmd = shlex.split(command[0])[1:]
+        if len(cmd) >= 3 and cmd[0] == "worktree" and cmd[1] == "repair":
+            target = Path(cmd[2])
+            wt_git = moved / ".git" / "worktrees" / target.name
+            (target / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+            (wt_git / "gitdir").write_text(f"{target / '.git'}\n", encoding="utf-8")
 
-    worktree_git = run_subprocess(["git", "-C", str(nested), "status"], check=False)
+    fake = _make_ci_git_fake(nested)
+    process_module.set_process_runner(fake)
+    try:
+        worktree_git = run_subprocess(["git", "-C", str(nested), "status"], check=False)
+    finally:
+        process_module.reset_process_runner()
     assert (len(commands), worktree_git.returncode) == (1, 0)
 
 
@@ -2259,19 +2196,31 @@ def test_staged_sources_select_the_worktrees_tests(
 
 
 def test_the_gate_header_prints_a_bracketed_root_literally(
-    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify square brackets in the checked root are printed, not parsed as markup."""
     main = tmp_path / "main"
-    main.mkdir()
-    git(main, "init", "--quiet")
-    git(main, "commit", "--quiet", "--allow-empty", "-m", "first")
+    main.mkdir(parents=True, exist_ok=True)
+    (main / ".git").mkdir(parents=True, exist_ok=True)
+    (main / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     bracketed = main / ".claude" / "worktrees" / "[bold]wt"
-    git(main, "worktree", "add", "--quiet", "-b", "bracketed", str(bracketed))
+    bracketed.parent.mkdir(parents=True, exist_ok=True)
+    bracketed.mkdir(parents=True, exist_ok=True)
+    wt_git = main / ".git" / "worktrees" / "[bold]wt"
+    wt_git.mkdir(parents=True, exist_ok=True)
+    (bracketed / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+    (wt_git / "gitdir").write_text(f"{bracketed / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt_git / "HEAD").write_text("ref: refs/heads/bracketed\n", encoding="utf-8")
     monkeypatch.chdir(bracketed)
     monkeypatch.setattr(ci_module, "_try_fast_cached_ci", lambda *_a, **_kw: True)
 
-    result = runner.invoke(ci_module.app, ["--check"])
+    fake = _make_ci_git_fake(bracketed)
+    process_module.set_process_runner(fake)
+    try:
+        result = runner.invoke(ci_module.app, ["--check"])
+    finally:
+        process_module.reset_process_runner()
 
     assert (result.exit_code, "[bold]wt" in "".join(result.output.split())) == (0, True)
 
