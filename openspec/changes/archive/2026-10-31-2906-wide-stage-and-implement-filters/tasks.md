@@ -23,10 +23,10 @@
 
 ## 4. The documentation
 
-- [ ] Regenerate the documents.
+- [x] Regenerate the documents.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 5. Archive
 
-- [ ] Archive the change.
+- [x] Archive the change.
   - Verification: `uv run devops openspec archive 2906-wide-stage-and-implement-filters`
