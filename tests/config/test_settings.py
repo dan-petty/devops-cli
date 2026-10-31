@@ -23,7 +23,8 @@ from devops_cli.exceptions import ConfigurationError
             ["org/repo1", "org/repo2"],
             id="one-item-list-json-string",
         ),
-        pytest.param(["[not-json"], ["[not-json"], id="one-item-list-broken-json"),
+        pytest.param(["[not-json]"], ["[not-json]"], id="one-item-list-broken-json"),
+        pytest.param(["[not-json"], ["[not-json"], id="one-item-list-unclosed-bracket"),
     ],
 )
 def test_parse_repos_handles_various_input_shapes(
