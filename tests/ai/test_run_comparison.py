@@ -32,8 +32,28 @@ from devops_cli.ai.run_store import (
 )
 from devops_cli.commands import ai_runs
 from devops_cli.main import app
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
+
+
+@pytest.fixture(autouse=True)
+def _setup_git_fake(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(
+            call.argv and "rev-parse" in call.argv and "--show-toplevel" in call.argv
+        ),
+        ProcessAnswer(returncode=0, stdout="/mock/repo\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv and "HEAD" in call.argv),
+        ProcessAnswer(returncode=0, stdout="mockcommit\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        ProcessAnswer(returncode=0, stdout=""),
+    )
 
 
 class FakeValkey:
