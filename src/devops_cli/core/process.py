@@ -530,6 +530,17 @@ class ProcessRunner(Protocol):
         extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
     ) -> DetachedProcess: ...
 
+    def spawn_sandbox(
+        self,
+        cmd: Sequence[str] | list[str],
+    ) -> Any: ...
+
+    def terminate_process_group(
+        self,
+        pid: int,
+        sig: int = signal.SIGTERM,
+    ) -> bool: ...
+
 
 class DetachedProcess(Protocol):
     """A child in a session of its own, which runs on after the command that started it ends."""
@@ -569,6 +580,27 @@ class DefaultProcessRunner:
             env=sub_env,
             start_new_session=True,
         )
+
+    def spawn_sandbox(
+        self,
+        cmd: Sequence[str] | list[str],
+    ) -> subprocess.Popen[bytes]:
+        """Spawn a sandbox process in a new session with piped stdout/stderr (#2149)."""
+        return subprocess.Popen(
+            list(cmd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+
+    def terminate_process_group(
+        self,
+        pid: int,
+        sig: int = signal.SIGTERM,
+    ) -> bool:
+        """Terminate process group using default OS process group signaling (#2149)."""
+        return _terminate_process_group_os(pid, sig)
 
     def run(
         self,
@@ -947,17 +979,12 @@ def _is_invalid_pgid(pgid: int | None) -> bool:
     return bool(hasattr(os, "getpgrp") and pgid == os.getpgrp())
 
 
-def terminate_process_group(
+def _terminate_process_group_os(
     pid: int,
     sig: int = signal.SIGTERM,
     os_module: Any = os,
 ) -> bool:
-    """Safely terminate an isolated process group hierarchy, falling back to direct process kill.
-
-    Guards against PID 0, PID 1, non-integers, self PID, and the caller's own PGID to prevent
-    accidental termination of container init or ambient caller processes. If the process shares
-    the caller's process group, signals only the direct process to avoid killing the caller.
-    """
+    """Safely terminate an isolated process group hierarchy via OS calls."""
     if not isinstance(pid, int) or pid <= 1:
         return False
     try:
@@ -991,6 +1018,25 @@ def terminate_process_group(
         return True
     except OSError, ProcessLookupError, PermissionError:
         return False
+
+
+def terminate_process_group(
+    pid: int,
+    sig: int = signal.SIGTERM,
+    os_module: Any = os,
+) -> bool:
+    """Safely terminate an isolated process group hierarchy, falling back to direct process kill.
+
+    Guards against PID 0, PID 1, non-integers, self PID, and the caller's own PGID to prevent
+    accidental termination of container init or ambient caller processes. If the process shares
+    the caller's process group, signals only the direct process to avoid killing the caller.
+    """
+    if os_module is not os:
+        return _terminate_process_group_os(pid, sig, os_module)
+    runner = get_process_runner()
+    if hasattr(runner, "terminate_process_group"):
+        return runner.terminate_process_group(pid, sig)
+    return _terminate_process_group_os(pid, sig, os_module)
 
 
 async def _wait_for_group_exit_async(
