@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.33.1](https://github.com/dan-petty/devops-cli/compare/v0.33.0...v0.33.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **k8s:** permit mattermost-operator and cnpg in homelab destinations ([#2927](https://github.com/dan-petty/devops-cli/issues/2927)) ([3c9102b](https://github.com/dan-petty/devops-cli/commit/3c9102ba1c1159507ced9c6a2e7cf7ab45b433cb))
+
 ## [0.33.0](https://github.com/dan-petty/devops-cli/compare/v0.32.0...v0.33.0) (2026-10-31)
 
 
