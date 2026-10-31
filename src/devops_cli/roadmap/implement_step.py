@@ -459,13 +459,14 @@ def _last_text(messages: Sequence[ModelMessage]) -> str:
 
 
 def _with_counts(reason: str, log: ToolCallLog) -> str:
-    """`reason`, then the counts of refused and retried tool calls when either is not zero."""
+    """`reason`, then the counts of refused and retried tool calls when either is not zero, then
+    the last reasons of the tool whose retries ended the run (#2866)."""
     if not (log.refused or log.retried):
         return reason
     counts = MESSAGES.roadmap.implement_stop_counts.format(
         refused=log.refused_text(), retried=log.retried
     )
-    return f"{reason}\n{counts}"
+    return "\n".join(line for line in (reason, counts, log.retries_text()) if line)
 
 
 def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
@@ -1057,7 +1058,7 @@ def _attempt(
 ) -> StepOutcome:
     """Run the agent, then judge the exit and commit."""
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
-        log = ToolCallLog()
+        log = ToolCallLog(source)
         agent = build_agent(model, source, inputs.instructions, window, Path(home), log)
         run = _turn(agent, model, log, inputs.message)
         failure = _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start)

@@ -94,21 +94,20 @@ def test_forage_cli_help_and_options() -> None:
         "--max-nodes" in res.output,
         "--min-score" in res.output,
         "--json" in res.output,
-        "--dry-run" in res.output,
-    ) == (0, True, True, True, True, True)
+    ) == (0, True, True, True, True)
 
 
-def test_forage_cli_dry_run() -> None:
-    """Executing forage with --dry-run prints execution plan without filesystem mutation."""
+def test_forage_cli_runs_read_only(
+    forage_fixture_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Forage is a read-only command that runs without mutation."""
+    monkeypatch.chdir(forage_fixture_repo)
     runner = CliRunner()
     res = runner.invoke(
         ai_app,
-        ["research", "forage", "pkg/entry.py", "--query", "telemetry", "--dry-run"],
+        ["research", "forage", "pkg/entry.py", "--query", "telemetry"],
     )
-    assert (
-        res.exit_code,
-        "DRY RUN" in res.output or "forage_information_trail" in res.output,
-    ) == (0, True)
+    assert res.exit_code == 0
 
 
 def test_extract_python_imports(forage_fixture_repo: Path) -> None:

@@ -47,7 +47,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, find_worktree_root
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import HELP
 from devops_cli.output import (
@@ -55,7 +55,6 @@ from devops_cli.output import (
     Table,
     get_console,
     print_error,
-    render_dry_run_result,
     write_stdout,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
@@ -164,6 +163,7 @@ def _display_forage_summary(trail: ForageTrail) -> None:
 
 
 @app.command(name="forage")
+@dry_run_class("no-external-request")
 def forage_cmd(
     anchor: Annotated[
         str,
@@ -218,28 +218,8 @@ def forage_cmd(
             help=HELP.options.json_output,
         ),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run",
-            help=HELP.options.dry_run,
-        ),
-    ] = False,
 ) -> None:
     """Forage relational information trails across codebases using semantic scent."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai research forage",
-            action="forage_information_trail",
-            details={
-                "anchor": anchor,
-                "query": query,
-                "max_nodes": max_nodes,
-                "min_score": min_score,
-            },
-        )
-        return
-
     repo_root = repo.resolve() if repo is not None else None
     if repo_root is None and Path(anchor).exists():
         repo_root = find_worktree_root(Path(anchor).resolve().parent)
@@ -272,6 +252,7 @@ def _emit_marginalia_records(records: list[MarginaliaRecord], fmt: str, path: st
 
 
 @app.command(name="annotate")
+@dry_run_class("no-external-request")
 def annotate_cmd(
     path: Annotated[
         str,
@@ -320,29 +301,8 @@ def annotate_cmd(
             help=HELP.options.format_type,
         ),
     ] = "text",
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run",
-            help=HELP.options.dry_run,
-        ),
-    ] = False,
 ) -> None:
     """Record or view active marginalia annotations anchored to files, AST nodes, or ranges."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai research annotate",
-            action="record_or_read_marginalia",
-            details={
-                "path": path,
-                "type": type,
-                "content": content,
-                "anchor": anchor,
-                "list_only": list_only,
-            },
-        )
-        return
-
     repo_root = find_worktree_root(Path.cwd()) or find_repo_root(Path.cwd())
 
     if not list_only:
@@ -449,6 +409,7 @@ def _emit_socratic_result(result: SocraticInquiryResult, fmt: str) -> None:
 
 
 @app.command(name="socratic")
+@dry_run_class("request-plan")
 def socratic_cmd(
     task: Annotated[
         str | None,
@@ -503,16 +464,15 @@ def socratic_cmd(
         raise typer.Exit(code=1)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai research socratic",
-            action="formulate_socratic_inquiry",
-            details={
-                "task": effective_task,
-                "context": context,
-                "max_probes": max_probes,
-                "format": format,
-            },
+        from devops_cli.ai.ai_plans import plan_ai_research_socratic
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_research_socratic(
+            task=effective_task,
+            context=context,
+            max_probes=max_probes,
         )
+        render_request_plan(f"Plan for AI research socratic inquiry for '{effective_task}'", plan)
         return
 
     repo_root = find_worktree_root(Path.cwd()) or find_repo_root(Path.cwd())
@@ -639,6 +599,7 @@ def _emit_mental_model(model: MentalModel, fmt: str) -> None:
 
 
 @app.command(name="model")
+@dry_run_class("request-plan")
 def model_cmd(
     topic: Annotated[
         str,
@@ -689,17 +650,16 @@ def model_cmd(
 ) -> None:
     """Progressively synthesize and distill research observations into a living mental model."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai research model",
-            action="synthesize_mental_model",
-            details={
-                "topic": topic,
-                "observations": observations,
-                "file": str(file) if file else None,
-                "show": show,
-                "format": format,
-            },
+        from devops_cli.ai.ai_plans import plan_ai_research_model
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_research_model(
+            topic=topic,
+            observations=observations,
+            file=file,
+            show=show,
         )
+        render_request_plan(f"Plan for AI research mental model for '{topic}'", plan)
         return
 
     repo_root = find_worktree_root(Path.cwd()) or find_repo_root(Path.cwd())
@@ -777,6 +737,7 @@ def _emit_analogies_result(analogies: list[CrossDomainAnalogy], fmt: str) -> Non
 
 
 @app.command(name="analogies")
+@dry_run_class("request-plan")
 def analogies_cmd(
     query: Annotated[
         str | None,
@@ -835,17 +796,19 @@ def analogies_cmd(
 ) -> None:
     """Retrieve cross-domain analogies via multi-vector topological clustering over the knowledge base."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai research analogies",
-            action="retrieve_analogies",
-            details={
-                "query": query,
-                "domain": domain,
-                "target_domain": target_domain,
-                "min_score": min_score,
-                "limit": limit,
-                "format": format,
-            },
+        from devops_cli.ai.ai_plans import plan_ai_research_analogies
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_research_analogies(
+            query=query,
+            domain=domain,
+            target_domain=target_domain,
+            min_score=min_score,
+            limit=limit,
+        )
+        render_request_plan(
+            f"Plan for AI research analogies for '{query or domain or '<query>'}'",
+            plan,
         )
         return
 

@@ -16,7 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -28,7 +28,6 @@ from devops_cli.output import (
     print_table,
     print_warning,
     progress_context,
-    render_dry_run_result,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
@@ -41,6 +40,7 @@ app = new_typer(
 
 
 @app.callback(invoke_without_command=True)
+@dry_run_class("no-external-request")
 def rag_main(
     ctx: typer.Context,
     explain: Annotated[
@@ -108,6 +108,7 @@ def _get_rag_components() -> tuple[Any, Any, str, str]:
 
 
 @app.command("index")
+@dry_run_class("request-plan")
 def index_cmd(
     path: Annotated[
         Path,
@@ -159,18 +160,17 @@ def index_cmd(
         raise typer.Exit(1)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai rag index",
-            target=str(target_path),
-            action="vector_indexing",
-            details={
-                "path": str(target_path),
-                "project": project,
-                "force": force,
-                "include_kb": include_kb,
-                "collection": collection,
-            },
+        from devops_cli.ai.ai_plans import plan_ai_rag_index
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_rag_index(
+            path=target_path,
+            project=project,
+            force=force,
+            include_kb=include_kb,
+            collection=collection,
         )
+        render_request_plan(f"Plan for AI RAG index on '{target_path}'", plan)
         return
 
     qdrant, embedder, code_coll, docs_coll = _get_rag_components()
@@ -230,6 +230,7 @@ def index_cmd(
 
 
 @app.command("index-kb")
+@dry_run_class("request-plan")
 def index_kb_cmd(
     force: Annotated[
         bool,
@@ -260,15 +261,14 @@ def index_kb_cmd(
         return
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai rag index-kb",
-            target="src/devops_cli/ai/knowledge_base",
-            action="vector_indexing_kb",
-            details={
-                "force": force,
-                "collection": collection,
-            },
+        from devops_cli.ai.ai_plans import plan_ai_rag_index_kb
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_rag_index_kb(
+            force=force,
+            collection=collection,
         )
+        render_request_plan("Plan for AI RAG index-kb", plan)
         return
 
     qdrant, embedder, code_coll, docs_coll = _get_rag_components()
@@ -325,6 +325,7 @@ def index_kb_cmd(
 
 @app.command("query")
 @app.command("search")
+@dry_run_class("request-plan")
 def search(
     query: Annotated[str, typer.Argument(help=HELP.rag.query)],
     project: Annotated[
@@ -374,21 +375,20 @@ def search(
     top_k = rag_settings.top_k if top_k is None else top_k
     min_score = rag_settings.score_threshold if min_score is None else min_score
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai rag query",
-            target=query,
-            action="semantic_search",
-            details={
-                "query": query,
-                "project": project,
-                "language": language,
-                "category": category,
-                "top_k": top_k,
-                "min_score": min_score,
-                "collection": collection,
-                "file_filter": file_filter,
-            },
+        from devops_cli.ai.ai_plans import plan_ai_rag_query
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_rag_query(
+            query=query,
+            project=project,
+            language=language,
+            category=category,
+            top_k=top_k,
+            min_score=min_score,
+            collection=collection,
+            file_filter=file_filter,
         )
+        render_request_plan(f"Plan for AI RAG query '{query}'", plan)
         return
 
     qdrant, embedder, code_coll, docs_coll = _get_rag_components()
@@ -537,8 +537,22 @@ def _render_collections_table(qdrant: Any, collections: list[str]) -> None:
 
 
 @app.command("status")
-def status_cmd() -> None:
+@dry_run_class("request-plan")
+def status_cmd(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Display status of vector database collections and embedding configurations."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_rag_status
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_rag_status()
+        render_request_plan("Plan for AI RAG status", plan)
+        return
+
     qdrant, embedder, code_coll, docs_coll = _get_rag_components()
     settings = load_settings()
 
@@ -576,6 +590,7 @@ def status_cmd() -> None:
 
 
 @app.command("clear")
+@dry_run_class("request-plan")
 def clear_cmd(
     collection: Annotated[
         str | None,
@@ -585,8 +600,23 @@ def clear_cmd(
         bool,
         typer.Option("--force", "-f", help=HELP.options.force),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Clear vector index collections from Qdrant."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_rag_clear
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_rag_clear(
+            collection=collection,
+            force=force,
+        )
+        render_request_plan("Plan for AI RAG clear", plan)
+        return
+
     qdrant, _, code_coll, docs_coll = _get_rag_components()
 
     if not qdrant.is_alive():
@@ -686,6 +716,7 @@ def _render_drift_report(
 
 
 @app.command("drift")
+@dry_run_class("request-plan")
 def drift_cmd(
     path: Annotated[
         Path,
@@ -713,20 +744,23 @@ def drift_cmd(
     ] = False,
 ) -> None:
     """Detect staleness and drift between the working tree and the Qdrant vector index."""
-    from devops_cli.ai.rag.drift import RAGDriftDetector
-
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops ai rag drift {path}",
-            action="detect_rag_drift",
-            details={
-                "path": str(path),
-                "auto_sync": auto_sync,
-                "fail_on_drift": fail_on_drift,
-                "status": "DRY_RUN_DRIFT_CHECKED",
-            },
+        from devops_cli.ai.ai_plans import plan_ai_rag_drift
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_rag_drift(
+            path=path,
+            auto_sync=auto_sync,
+            fail_on_drift=fail_on_drift,
         )
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in plan]}, resolved)
+            return
+        render_request_plan(f"Plan for AI RAG drift on '{path}'", plan)
         return
+
+    from devops_cli.ai.rag.drift import RAGDriftDetector
 
     detector = RAGDriftDetector(root_dir=path)
     report = detector.detect_and_sync(auto_sync=auto_sync)

@@ -29,7 +29,7 @@ from devops_cli.core.repo import (
     get_repo_origin_name,
     list_repo_files,
 )
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
@@ -232,6 +232,7 @@ def _process_single_branch_file_meta(
         return None
 
 
+@dry_run_class("no-external-request")
 @app.callback(invoke_without_command=True)
 def analyze_main(
     ctx: typer.Context,
@@ -253,6 +254,7 @@ def analyze_main(
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command(name="path")
 def analyze_path(  # noqa: C901
     target: Annotated[Path, typer.Argument(help=HELP.analyze.target)] = DEFAULT_CURRENT_PATH,
@@ -290,6 +292,14 @@ def analyze_path(  # noqa: C901
         from devops_cli.ai.explain import render_explanation
 
         render_explanation("analyze")
+        return
+
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_analyze_path
+        from devops_cli.dry_run.requests import render_request_plan
+
+        planned = plan_ai_analyze_path(target)
+        render_request_plan(f"Plan for AI analyze path on '{target}'", planned)
         return
     repo = find_repo_root(target)
     target_abs = target.resolve() if target.is_absolute() else (repo / target).resolve()
@@ -358,6 +368,7 @@ def analyze_path(  # noqa: C901
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command(name="branch")
 def analyze_branch(
     branch: Annotated[str | None, typer.Argument(help=HELP.analyze.target_branch)] = None,
@@ -395,6 +406,14 @@ def analyze_branch(
 
         render_explanation("analyze")
         return
+
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_analyze_branch
+        from devops_cli.dry_run.requests import render_request_plan
+
+        planned = plan_ai_analyze_branch(branch)
+        render_request_plan(f"Plan for AI analyze branch '{branch or '<current-branch>'}'", planned)
+        return
     from devops_cli.git.operations import list_branches, list_changed_files, resolve_merge_base
 
     repo = find_repo_root()
@@ -404,7 +423,7 @@ def analyze_branch(
         raise typer.Exit(1)
 
     ai_client = None
-    if enhanced and not (dry_run or is_dry_run()):
+    if enhanced:
         try:
             from devops_cli.ai.client import get_llm_client
             from devops_cli.config.settings import load_settings
@@ -445,12 +464,11 @@ def analyze_branch(
 
     title = f"{repo.name} branch analysis: {target_branch} vs {base}"
     out_file = save_analysis_metadata(
-        "branch", cache_ref, title, file_metas, repo, enhanced=enhanced, dry_run=dry_run
+        "branch", cache_ref, title, file_metas, repo, enhanced=enhanced
     )
 
-    if not (dry_run or is_dry_run()):
-        payload_data = json.loads(out_file.read_text(encoding="utf-8"))
-        _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
+    payload_data = json.loads(out_file.read_text(encoding="utf-8"))
+    _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
 
 
 # =============================================================================
@@ -458,6 +476,7 @@ def analyze_branch(
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command(name="pr")
 def analyze_pr(  # noqa: C901
     pr_number: Annotated[int, typer.Argument(help=HELP.analyze.pr_number)],
@@ -493,14 +512,11 @@ def analyze_pr(  # noqa: C901
         render_explanation("analyze")
         return
     if dry_run or is_dry_run():
-        from devops_cli.output.console import render_dry_run_result
+        from devops_cli.ai.ai_plans import plan_ai_analyze_pr
+        from devops_cli.dry_run.requests import render_request_plan
 
-        render_dry_run_result(
-            command="devops ai analyze pr",
-            action="analyze pull request and save metadata",
-            target=str(pr_number),
-            details={"enhanced": enhanced, "update_all": update_all},
-        )
+        planned = plan_ai_analyze_pr(pr_number)
+        render_request_plan(f"Plan for AI analyze PR #{pr_number}", planned)
         return
     from devops_cli.github.session import get_github_session
 

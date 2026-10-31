@@ -4718,8 +4718,14 @@ devops ai rag query [OPTIONS] <query>
 **Display status of vector database collections and embedding configurations.**
 
 ```bash
-devops ai rag status
+devops ai rag status [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai rag clear`
 
@@ -4735,6 +4741,7 @@ devops ai rag clear [OPTIONS]
 |---|---|---|---|
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai rag drift`
 
@@ -4936,6 +4943,7 @@ devops ai ingest docs [OPTIONS] <source>
 | `--output-dir`, `-o` | `path` | - | Directory path for generated output files. |
 | `--max-pages`, `-p` | `integer` | `10` | Maximum number of items to return or display. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai ingest index-libraries`
 
@@ -4976,6 +4984,7 @@ devops ai ingest query-library [OPTIONS] <query>
 | `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
 | `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai ast`
 
@@ -5673,7 +5682,6 @@ devops ai research forage [OPTIONS] <anchor>
 | `--repo`, `-R` | `path` | - | Repository root directory (default: current directory). |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai research annotate`
 
@@ -5698,7 +5706,6 @@ devops ai research annotate [OPTIONS] <path>
 | `--anchor`, `-a` | `string` | - | Anchor reference: file path, AST node id, or line range. |
 | `--list`, `-l` | `boolean` | - | List existing marginalia annotations without adding a new one. |
 | `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai research socratic`
 
