@@ -319,7 +319,8 @@ def test_cli_sandbox_logs_dry_run() -> None:
         mock_engine_cls.return_value = mock_eng
 
         res = runner.invoke(app, ["logs", inst.instance_id, "--dry-run"])
-        assert "DRY_RUN" in res.stdout or "stream_sandbox_logs" in res.stdout
+        assert res.exit_code == 0
+        assert "Planned requests for devops sandbox logs" in res.stdout
 
 
 def test_cli_sandbox_logs_panic_alert_display(tmp_path: Path) -> None:
