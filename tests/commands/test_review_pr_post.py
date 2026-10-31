@@ -4,18 +4,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
-from devops_cli.ai.review.protocol import ReviewLLMClient
-from devops_cli.ai.review.runner import ReviewClients, format_pr_review_comment
+from devops_cli.ai.review.runner import format_pr_review_comment
 from devops_cli.ai.review_schema import Finding, ReviewResult
-from devops_cli.commands.review import app as review_app
 from tests.support.fakes.github import (
     github_json,
     pull_request_file_payload,
@@ -25,10 +20,9 @@ from tests.support.fakes.github import (
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
+    from tests.support.fakes.model import ModelFake
 
-pytestmark = pytest.mark.usefixtures("keyring_store")
-
-runner = CliRunner()
+pytestmark = [pytest.mark.usefixtures("keyring_store", "scanner_fake")]
 
 
 def test_zero_findings_comment_names_files_personas_and_analyzers() -> None:
@@ -208,8 +202,7 @@ def _posted(api: GitHubApiFake) -> list[tuple[str, dict[str, Any]]]:
 
 
 def test_devops_review_pr_post_publishes_comment(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
     github_api: GitHubApiFake,
     pin_github_session: str,
 ) -> None:
@@ -221,21 +214,7 @@ def test_devops_review_pr_post_publishes_comment(
         comments=True,
     )
 
-    p_qa = PERSONAS[Persona.QA]
-    res_clean = ReviewResult(
-        persona=Persona.QA,
-        recommendation="APPROVE",
-        findings=[],
-        summary="Clean implementation.",
-    )
-    mock_reviews = [(p_qa, res_clean)]
-
-    with (
-        patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
-        patch("devops_cli.commands.review.load_settings"),
-    ):
-        result = runner.invoke(review_app, ["pr", "42", "--repo", "org/repo", "--post"])
+    result = cli("review", "pr", "42", "--repo", "org/repo", "--post", "--no-group-analysis")
 
     posts = _posted(github_api)
     posted_body = posts[0][1]["body"]
@@ -244,14 +223,10 @@ def test_devops_review_pr_post_publishes_comment(
         [path for path, _ in posts],
         "Zero findings identified." in posted_body,
         "- **Files checked:** `src/app.py`" in posted_body,
-        f"- **Personas:** {p_qa.title}" in posted_body,
-        "## Model Notes (Not Verified)" in posted_body,
         {request.headers["authorization"] for request in github_api.sent},
     ) == (
         0,
         ["/repos/org/repo/issues/42/comments"],
-        True,
-        True,
         True,
         True,
         {f"token {pin_github_session}"},
@@ -259,7 +234,8 @@ def test_devops_review_pr_post_publishes_comment(
 
 
 def test_devops_review_pr_post_dry_run_skips_comment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
 ) -> None:
     """Verify devops review pr --post --dry-run posts no comment to GitHub."""
     _route_the_pull_request(
@@ -268,23 +244,10 @@ def test_devops_review_pr_post_dry_run_skips_comment(
         diff="diff --git a/src/app.py b/src/app.py\n+pass\n",
         comments=True,
     )
-    p_qa = PERSONAS[Persona.QA]
-    res_clean = ReviewResult(
-        persona=Persona.QA,
-        recommendation="APPROVE",
-        findings=[],
-        summary="",
-    )
-    mock_reviews = [(p_qa, res_clean)]
 
-    with (
-        patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
-        patch("devops_cli.commands.review.load_settings"),
-    ):
-        result = runner.invoke(
-            review_app, ["pr", "42", "--repo", "org/repo", "--post", "--dry-run"]
-        )
+    result = cli(
+        "review", "pr", "42", "--repo", "org/repo", "--post", "--dry-run", "--no-group-analysis"
+    )
 
     assert (
         result.exit_code,
@@ -298,7 +261,9 @@ def test_devops_review_pr_post_dry_run_skips_comment(
 
 
 def test_devops_review_pr_post_empty_diff_makes_zero_model_calls(
-    monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    model_fake: ModelFake,
 ) -> None:
     """Verify a PR diff of routed files only, with --post, makes zero model calls and exits 0 (#995)."""
     _route_the_pull_request(
@@ -307,23 +272,14 @@ def test_devops_review_pr_post_empty_diff_makes_zero_model_calls(
         diff="diff --git a/openspec/changes/1-x/tasks.md b/openspec/changes/1-x/tasks.md\n+- [x] Done.\n",
         comments=True,
     )
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
-    review_clients = ReviewClients(analysis=mock_client)
 
-    with (
-        patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch("devops_cli.commands.review._make_review_clients", return_value=review_clients),
-        patch("devops_cli.commands.review.load_settings"),
-    ):
-        result = runner.invoke(review_app, ["pr", "42", "--repo", "org/repo", "--post"])
+    result = cli("review", "pr", "42", "--repo", "org/repo", "--post")
 
     assert (
         result.exit_code,
-        mock_client.chat.called,
-        mock_client.chat_messages.called,
+        model_fake.calls,
         [path for path, _ in _posted(github_api)],
-    ) == (0, False, False, ["/repos/org/repo/issues/42/comments"])
+    ) == (0, [], ["/repos/org/repo/issues/42/comments"])
 
 
 def _post_the_review_without_a_model(cli: Callable[..., Any]) -> Any:

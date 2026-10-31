@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -133,3 +134,27 @@ def resolve_ai_endpoint(
     if provider == "ollama":
         return _resolve_ollama_endpoint(cfg)
     return _resolve_cloud_or_custom_endpoint(provider, cfg)
+
+
+def resolve_prewarm_urls(
+    url: str | None,
+    all_nodes: bool,
+    configured_urls: Sequence[str] | list[str],
+) -> list[str]:
+    """Resolve target Ollama URLs based on explicit override or cluster node flags."""
+    if url:
+        return [url]
+    if all_nodes or not configured_urls:
+        return list(configured_urls)
+    return [configured_urls[0]]
+
+
+def results_by_server(results: dict[str, bool]) -> dict[str, bool]:
+    """Key the result of each configured URL by the `host[:port]` of its server (#2676)."""
+    from devops_cli.ai.benchmark.labels import server_label
+
+    by_server: dict[str, bool] = {}
+    for url, ok in results.items():
+        label = server_label(url)
+        by_server[label] = by_server.get(label, True) and ok
+    return by_server

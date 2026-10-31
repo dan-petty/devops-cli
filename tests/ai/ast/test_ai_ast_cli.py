@@ -2,32 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-import pytest
-from typer.testing import CliRunner
-
-from devops_cli.ai.ast.engine import TreeSitterEngine
-from devops_cli.commands.ai_ast import app as ast_app
-
-runner = CliRunner()
+from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 
 FUNCTION_QUERY = "(function_definition name: (identifier) @n)"
 
 
-def test_ast_parse_query_respects_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ast_parse_query_respects_size_cap(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Verify `ai ast parse --query` refuses a file over the size cap, as a plain parse does, and
     still queries one within it; it read and parsed the whole file whatever its size."""
     big, small = tmp_path / "big.py", tmp_path / "small.py"
-    big.write_text("def f(x): ...\n" + "# padding\n" * 100, encoding="utf-8")
+    with open(big, "wb") as f:
+        f.seek(DEFAULT_MAX_AST_FILE_SIZE_BYTES + 10)
+        f.write(b"\n")
     small.write_text("def f(x): ...\n", encoding="utf-8")
-    monkeypatch.setattr(
-        "devops_cli.commands.ai_ast.TreeSitterEngine",
-        lambda: TreeSitterEngine(max_file_size_bytes=100),
-    )
 
-    capped = runner.invoke(ast_app, ["parse", str(big), "--query", FUNCTION_QUERY])
-    within = runner.invoke(ast_app, ["parse", str(small), "--query", FUNCTION_QUERY])
+    capped = cli("ai", "ast", "parse", str(big), "--query", FUNCTION_QUERY)
+    within = cli("ai", "ast", "parse", str(small), "--query", FUNCTION_QUERY)
 
     assert (
         capped.exit_code,
@@ -38,13 +32,13 @@ def test_ast_parse_query_respects_size_cap(tmp_path: Path, monkeypatch: pytest.M
     ) == (1, False, True, 0, True)
 
 
-def test_ast_parse_rejects_a_malformed_query(tmp_path: Path) -> None:
+def test_ast_parse_rejects_a_malformed_query(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Verify `ai ast parse --query` exits 1 naming the query's error when tree-sitter cannot
     compile it; it exited 0 and printed every symbol of the file."""
     source = tmp_path / "small.py"
     source.write_text("def f(x): ...\n", encoding="utf-8")
 
-    result = runner.invoke(ast_app, ["parse", str(source), "--query", "((("])
+    result = cli("ai", "ast", "parse", str(source), "--query", "(((")
 
     assert (
         result.exit_code,

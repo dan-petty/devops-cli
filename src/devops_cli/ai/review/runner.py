@@ -458,6 +458,49 @@ def format_pr_review_comment(
     return f"## 🤖 AI Code Review\n\n{sections}\n"
 
 
+def resolve_pr_files(pages: list[str], repo_name: str, number: int) -> list[str]:
+    """Extract changed file paths from PR pages, or from the pull request's files when the diff
+    holds none."""
+    from devops_cli.github.session import get_github_session
+    from devops_cli.review.diff import diff_file_names
+
+    all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
+    if all_files:
+        return all_files
+    files = get_github_session().client.get_pull_files(repo_name, number)
+    return [f.filename for f in files if f.status != "removed"]
+
+
+def post_pr_review_comment(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    pages: list[str],
+    head_dir: Path,
+    repo_name: str,
+    number: int,
+) -> None:
+    """Post formatted review comment to GitHub PR."""
+    from devops_cli.dry_run import is_dry_run
+    from devops_cli.github.session import get_github_session
+    from devops_cli.lang import MESSAGES
+    from devops_cli.output import print_success, print_warning
+
+    all_files = resolve_pr_files(pages, repo_name, number)
+    comment_body = format_pr_review_comment(
+        reviews=reviews,
+        files=all_files,
+        target_dir=head_dir,
+    )
+    if is_dry_run():
+        _debug_block(
+            f"Would post PR comment on #{number}",
+            {"repo": repo_name, "pr_number": number, "comment_body": comment_body},
+        )
+        print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
+        return
+    get_github_session().client.create_issue_comment(repo_name, number, comment_body)
+    print_success(f"Review posted as comment on PR #{number}")
+
+
 def _nearest_conventions(start: Path, revision: str | None = None) -> str:
     """Return the nearest project conventions file, from the start directory up to its repo root,
     as it was at `revision` when one is given."""
@@ -658,7 +701,7 @@ def _make_review_clients(
     )
 
 
-def _is_allowed_review_boundary(target: Path, settings: Settings, working_directory: Path) -> bool:
+def is_allowed_review_boundary(target: Path, settings: Settings, working_directory: Path) -> bool:
     """Whether a review may read `target`: it lies under `working_directory`, the repository that
     holds that directory or the target, or the repos base directory.
 
@@ -679,6 +722,9 @@ def _is_allowed_review_boundary(target: Path, settings: Settings, working_direct
     return any(is_safe_subpath(root, target_resolved) for root in allowed_roots)
 
 
+_is_allowed_review_boundary = is_allowed_review_boundary
+
+
 def _detect_remote_default_branch(repo_path: Path) -> str:
     """The origin's default branch as `origin/<name>`, or empty when the clone records none."""
     res_sym = _run_subprocess(
@@ -691,7 +737,7 @@ def _detect_remote_default_branch(repo_path: Path) -> str:
     return res_sym.stdout.strip() if res_sym.returncode == 0 and res_sym.stdout else ""
 
 
-def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRANCH) -> str:
+def detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRANCH) -> str:
     """The branch a review diffs against: `preferred_base`, else main, master or trunk, else the
     origin's default branch, each local or else as `origin/<name>`.
 
@@ -740,6 +786,9 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
             return f"origin/{alt}"
 
     return str(preferred_base)
+
+
+_detect_base_branch = detect_base_branch
 
 
 def _prepare_path_content(

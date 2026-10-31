@@ -61,6 +61,20 @@ class FakeQdrantClient(QdrantProtocol):
         self.vector_sizes[name] = vector_size
         return True
 
+    def create_collection(
+        self,
+        collection_name: str,
+        vector_size: int,
+        distance: str = "Cosine",
+        enable_quantization: bool | None = None,
+    ) -> bool:
+        return self.ensure_collection(
+            name=collection_name,
+            vector_size=vector_size,
+            distance=distance,
+            enable_quantization=enable_quantization,
+        )
+
     def get_collection_info(self, name: str) -> dict[str, Any]:
         if self.refusing:
             raise QdrantClientError("Server is unreachable")

@@ -8,27 +8,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.ai.review_schema import CitedCode, ReviewSessionPayload, SavedFinding
-from devops_cli.commands.review import app
-
-runner = CliRunner()
+from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
+from tests.support.builders import make_finding
 
 
 def _finding() -> SavedFinding:
-    return SavedFinding(
+    return make_finding(
+        saved=True,
         title="Hardcoded token in config",
         location="src/config.py:4",
         description="A token is assigned a literal.",
         severity="HIGH",
-        persona="devsecops",
-        # The code the review read, which a learned catalog once keyed a person's verdict on.
-        cited_code=CitedCode(
-            project="app", file="src/config.py", line=4, excerpt='token = load("config")'
-        ),
     )
 
 
@@ -38,7 +32,10 @@ def _saved(path: Path) -> list[tuple[str, str | None, str | None]]:
 
 
 def test_a_verdict_is_a_person_label_on_the_session_files_alone(
-    tmp_path: Path, isolate_data_dir: Path, write_review_session: Callable[..., Path]
+    cli: Callable[..., Any],
+    tmp_path: Path,
+    isolate_data_dir: Path,
+    write_review_session: Callable[..., Path],
 ) -> None:
     """An INVALIDATED verdict marks the finding in findings.json and candidates.json as a
     person's, leaves review.md as it was, and writes no catalog or ledger anywhere."""
@@ -50,8 +47,16 @@ def test_a_verdict_is_a_person_label_on_the_session_files_alone(
     )
     (session / "review.md").write_text("# Report\n", encoding="utf-8")
 
-    res = runner.invoke(
-        app, ["verify", session.name, "--index", "1", "--status", "INVALIDATED", "--reason", "x"]
+    res = cli(
+        "review",
+        "verify",
+        session.name,
+        "--index",
+        "1",
+        "--status",
+        "INVALIDATED",
+        "--reason",
+        "x",
     )
 
     written = {p.name for p in tmp_path.rglob("*.json")}
@@ -80,7 +85,10 @@ def test_a_verdict_is_a_person_label_on_the_session_files_alone(
     ids=["adjudicator", "perimeter", "regression-test"],
 )
 def test_verify_has_no_agent_perimeter_or_regression_test_options(
-    option: list[str], isolate_data_dir: Path, write_review_session: Callable[..., Path]
+    cli: Callable[..., Any],
+    option: list[str],
+    isolate_data_dir: Path,
+    write_review_session: Callable[..., Path],
 ) -> None:
     """The options that fed the agent path, the mitigations ledger and its perimeter are gone:
     Click refuses each as unknown and the finding is left as it was."""
@@ -90,9 +98,7 @@ def test_verify_has_no_agent_perimeter_or_regression_test_options(
         findings=[_finding()],
     )
 
-    res = runner.invoke(
-        app, ["verify", session.name, "--index", "1", "--status", "MITIGATED", *option]
-    )
+    res = cli("review", "verify", session.name, "--index", "1", "--status", "MITIGATED", *option)
 
     assert (res.exit_code, _saved(session / "findings.json")) == (
         2,

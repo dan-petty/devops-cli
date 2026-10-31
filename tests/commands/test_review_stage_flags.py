@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import subprocess
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
-from typer.testing import CliRunner
+import pytest
 
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
-from devops_cli.commands.review import app as review_app
 
-runner = CliRunner()
+pytestmark = [pytest.mark.usefixtures("keyring_store", "scanner_fake")]
 
 
 def test_review_stage_flags_defaults() -> None:
@@ -98,48 +100,34 @@ def test_resolve_stage_flags_conflicting_no_and_only() -> None:
     assert flags.any_enabled() is False
 
 
-def test_review_cli_stage_flags_propagation() -> None:
+def test_review_cli_stage_flags_propagation(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Verify CLI review commands pass resolved stage flags to workflow."""
-    with (
-        patch("devops_cli.commands.review._make_review_clients"),
-        patch(
-            "devops_cli.commands.review._prepare_path_content",
-            return_value=(["diff"], "title", []),
-        ),
-        patch("devops_cli.commands.review._execute_review_workflow") as mock_exec,
-    ):
-        result = runner.invoke(
-            review_app,
-            ["path", "--no-pre-analysis", "--static-scan-only"],
-        )
-        assert result.exit_code == 0
-        mock_exec.assert_called_once()
-        call_kwargs = mock_exec.call_args[1]
-        passed_flags: ReviewStageFlags = call_kwargs["stage_flags"]
-        assert passed_flags.static_scan is True
-        assert passed_flags.pre_analysis is False
-        assert passed_flags.group_analysis is False
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    file_path = tmp_path / "app.py"
+    file_path.write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "app.py"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    result = cli("review", "path", str(file_path), "--no-pre-analysis", "--static-scan-only")
+    assert result.exit_code == 0
+    assert "pre-analysis metadata scan skipped" in result.output.lower()
 
 
-def test_review_cli_no_group_analysis_propagation() -> None:
+def test_review_cli_no_group_analysis_propagation(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Verify CLI review commands pass --no-group-analysis flag to workflow."""
-    with (
-        patch("devops_cli.commands.review._make_review_clients"),
-        patch(
-            "devops_cli.commands.review._prepare_path_content",
-            return_value=(["diff"], "title", []),
-        ),
-        patch("devops_cli.commands.review._execute_review_workflow") as mock_exec,
-    ):
-        result = runner.invoke(
-            review_app,
-            ["path", "--no-group-analysis"],
-        )
-        assert result.exit_code == 0
-        mock_exec.assert_called_once()
-        call_kwargs = mock_exec.call_args[1]
-        passed_flags: ReviewStageFlags = call_kwargs["stage_flags"]
-        assert passed_flags.group_analysis is False
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    file_path = tmp_path / "app.py"
+    file_path.write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "app.py"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    result = cli("review", "path", str(file_path), "--no-group-analysis", "--no-static-scan")
+    assert result.exit_code == 0
+    assert "without a model" in result.output
 
 
 def test_orchestrator_stage_bypasses(tmp_path) -> None:

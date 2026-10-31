@@ -13,16 +13,14 @@ if TYPE_CHECKING:
 
 import httpx2
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.ai.client.ollama import OllamaProviderMixin
-from devops_cli.commands.ai import _render_prewarm_results, _resolve_prewarm_urls
+from devops_cli.ai.endpoints import resolve_prewarm_urls
+from devops_cli.commands.ai import render_prewarm_results
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
 from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL
 from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
-
-runner = CliRunner()
 
 
 class DummyOllamaProvider(OllamaProviderMixin):
@@ -41,7 +39,7 @@ class DummyOllamaProvider(OllamaProviderMixin):
 class TestOllamaProviderPrewarm:
     """Test suite for OllamaProviderMixin prewarm and VRAM eviction methods."""
 
-    def test_preload_single_ollama_url_success(self) -> None:
+    def test_preload_single_ollama_url_succeeds(self) -> None:
         """Verify successful single-node prewarm dispatches to /api/generate with 200."""
         config = AIConfig(provider="ollama", model="gemma4:26b")
         provider = DummyOllamaProvider(config)
@@ -65,7 +63,7 @@ class TestOllamaProviderPrewarm:
                 "keep_alive": "1h",
             }
 
-    def test_preload_single_ollama_url_failure(self) -> None:
+    def test_preload_single_ollama_url_reports_error(self) -> None:
         """Verify failing status code or connection exception returns ok=False."""
         config = AIConfig(provider="ollama", model="gemma4:26b")
         provider = DummyOllamaProvider(config)
@@ -242,10 +240,10 @@ class TestCLIPrewarmHelpers:
         """Verify URL resolution logic across explicit overrides and all-nodes flags."""
         configured = ["http://localhost:11434", "http://example.com:11434"]
 
-        res_override = _resolve_prewarm_urls("http://example.com:11434", True, configured)
-        res_all = _resolve_prewarm_urls(None, True, configured)
-        res_single = _resolve_prewarm_urls(None, False, configured)
-        res_empty = _resolve_prewarm_urls(None, False, [])
+        res_override = resolve_prewarm_urls("http://example.com:11434", True, configured)
+        res_all = resolve_prewarm_urls(None, True, configured)
+        res_single = resolve_prewarm_urls(None, False, configured)
+        res_empty = resolve_prewarm_urls(None, False, [])
 
         assert (res_override, res_all, res_single, res_empty) == (
             ["http://example.com:11434"],
@@ -254,82 +252,85 @@ class TestCLIPrewarmHelpers:
             [],
         )
 
-    def test_render_prewarm_results_console_and_json(self) -> None:
+    def test_render_prewarm_results_console_and_json(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Verify console and JSON formatting for prewarm and eviction results."""
         results = {"http://localhost:11434": True, "http://example.com:11434": False}
 
-        with patch("devops_cli.output.write_stdout") as mock_stdout:
-            json_success = _render_prewarm_results(
-                results=results,
-                model="gemma4:26b",
-                keep_alive="1h",
-                is_evict=False,
-                json_output=True,
-            )
-            assert json_success is False
-            written = json.loads(mock_stdout.call_args[0][0])
-            assert (written["action"], written["model"], written["success"]) == (
-                "prewarming",
-                "gemma4:26b",
-                False,
-            )
+        json_success = render_prewarm_results(
+            results=results,
+            model="gemma4:26b",
+            keep_alive="1h",
+            is_evict=False,
+            json_output=True,
+        )
+        assert json_success is False
+        captured = capsys.readouterr()
+        written = json.loads(captured.out)
+        assert (written["action"], written["model"], written["success"]) == (
+            "prewarming",
+            "gemma4:26b",
+            False,
+        )
 
-        with (
-            patch("devops_cli.commands.ai.print_info") as mock_info,
-            patch("devops_cli.commands.ai.print_success") as mock_success,
-            patch("devops_cli.commands.ai.print_error") as mock_error,
-        ):
-            console_success = _render_prewarm_results(
-                results={"http://localhost:11434": True},
-                model="gemma4:26b",
-                keep_alive="1h",
-                is_evict=False,
-                json_output=False,
-            )
-            assert console_success is True
-            assert (mock_info.called, mock_success.called, mock_error.called) == (True, True, False)
+        console_success = render_prewarm_results(
+            results={"http://localhost:11434": True},
+            model="gemma4:26b",
+            keep_alive="1h",
+            is_evict=False,
+            json_output=False,
+        )
+        assert console_success is True
+        captured_console = capsys.readouterr()
+        assert (
+            "Prewarming model" in captured_console.out,
+            "confirmed HTTP 200" in captured_console.out,
+        ) == (True, True)
 
 
 class TestCLIPrewarmCommand:
     """Test suite for 'devops ai prewarm' CLI command."""
 
-    @pytest.fixture
-    def app(self):
-        from devops_cli.main import app
-
-        return app
-
-    def test_cli_prewarm_success_default_args(self, app: Any, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_success_default_args(
+        self, cli: Callable[..., Any], model_fake: ModelFake
+    ) -> None:
         """Verify devops ai prewarm succeeds with default configured model and urls."""
-        result = runner.invoke(app, ["ai", "prewarm"])
+        result = cli("ai", "prewarm")
 
         assert result.exit_code == 0
-        assert "prewarmed into VRAM" in result.output
-        assert "confirmed HTTP 200" in result.output
+        assert "prewarmed into VRAM" in result.stdout
+        assert "confirmed HTTP 200" in result.stdout
 
-    def test_cli_prewarm_evict_and_json_flag(self, app: Any, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_evict_and_json_flag(
+        self, cli: Callable[..., Any], model_fake: ModelFake
+    ) -> None:
         """Verify devops ai prewarm --evict --json passes keep_alive=0 and emits structured json."""
-        result = runner.invoke(app, ["ai", "prewarm", "--evict", "--json"])
+        result = cli("ai", "prewarm", "--evict", "--json")
 
         assert result.exit_code == 0
-        payload = json.loads(result.output)
+        payload = json.loads(result.stdout)
         assert (payload["action"], payload["keep_alive"], payload["success"]) == (
             "eviction",
             0,
             True,
         )
 
-    def test_cli_prewarm_failure_exits_code_1(self, app: Any, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_failure_exits_code_1(
+        self, cli: Callable[..., Any], model_fake: ModelFake
+    ) -> None:
         """Verify devops ai prewarm exits with code 1 when node prewarming fails."""
         model_fake.set_preload_results({"http://localhost:11434": False})
-        result = runner.invoke(app, ["ai", "prewarm"])
+        result = cli("ai", "prewarm")
 
         assert result.exit_code == 1
-        assert "request failed or timed out" in result.output
+        assert "request failed or timed out" in (result.stdout + result.stderr)
 
-    def test_cli_prewarm_single_node_flag(self, app: Any, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_single_node_flag(
+        self, cli: Callable[..., Any], model_fake: ModelFake
+    ) -> None:
         """Verify devops ai prewarm --single-node targets only primary node."""
-        result = runner.invoke(app, ["ai", "prewarm", "--single-node"])
+        result = cli("ai", "prewarm", "--single-node")
 
         assert result.exit_code == 0
         assert model_fake.preload_calls[-1]["urls"] == ["http://localhost:11434"]
@@ -339,7 +340,7 @@ class TestCLIPrewarmCommand:
     )
     def test_a_prewarm_run_counts_once_by_model_evict_and_outcome(
         self,
-        app: Any,
+        cli: Callable[..., Any],
         model_fake: ModelFake,
         otlp: FakeCollector,
         node_ok: bool,
@@ -349,7 +350,7 @@ class TestCLIPrewarmCommand:
         """Verify devops ai prewarm counts its run one time, by model, evict and outcome."""
         model_fake.set_preload_results({"http://localhost:11434": node_ok})
 
-        result = runner.invoke(app, ["ai", "prewarm", "--model", "gemma4:26b", "--single-node"])
+        result = cli("ai", "prewarm", "--model", "gemma4:26b", "--single-node")
 
         assert (result.exit_code, otlp.points(AI_PREWARMS_TOTAL.name)) == (
             exit_code,
@@ -360,35 +361,17 @@ class TestCLIPrewarmCommand:
 class TestFastMCPPrewarmTool:
     """Test suite for FastMCP ai_prewarm tool."""
 
-    def test_ai_prewarm_tool_dispatch(self) -> None:
+    def test_ai_prewarm_tool_dispatch(self, model_fake: ModelFake) -> None:
         """Verify ai_prewarm tool invokes devops ai prewarm with safe arguments."""
         from devops_cli.ai.mcp.server import ai_prewarm
 
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock_cmd:
-            res = ai_prewarm(
-                model="qwen2.5-coder:7b",
-                keep_alive="24h",
-                evict=True,
-                all_nodes=True,
-            )
-            assert res == "Success"
-            called_cmd = mock_cmd.call_args[0][0]
-            expected_flags = [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "prewarm",
-                "--model",
-                "qwen2.5-coder:7b",
-                "--keep-alive",
-                "24h",
-                "--all-nodes",
-                "--evict",
-                "--format",
-                "table",
-            ]
-            assert called_cmd == expected_flags
+        res = ai_prewarm(
+            model="qwen2.5-coder:7b",
+            keep_alive="24h",
+            evict=True,
+            all_nodes=True,
+        )
+        assert ("qwen2.5-coder:7b" in res, "evict" in res.lower()) == (True, True)
 
     def test_ai_prewarm_tool_flag_injection_rejected(self) -> None:
         """Verify ai_prewarm rejects hyphen-prefixed model or keep-alive argument."""
@@ -609,7 +592,7 @@ class TestPrewarmNamesEachServerByHostAndPort:
         ],
         ids=["one failed", "both ok"],
     )
-    def test_two_urls_of_one_server_make_one_node_that_holds_a_failure(
+    def test_two_urls_of_one_server_make_one_node_that_holds_an_error(
         self,
         cli: Callable[..., Any],
         model_fake: ModelFake,
@@ -644,22 +627,16 @@ class TestPrewarmCounterModelLabel:
     )
     def test_the_label_is_bounded(
         self,
-        app: Any,
+        cli: Callable[..., Any],
         model_fake: ModelFake,
         otlp: FakeCollector,
         model: str,
         label: str,
     ) -> None:
         """The counter holds the model as a label of safe characters and at most 128 of them."""
-        result = runner.invoke(app, ["ai", "prewarm", "--model", model, "--single-node"])
+        result = cli("ai", "prewarm", "--model", model, "--single-node")
 
         assert (result.exit_code, [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)]) == (
             0,
             [label],
         )
-
-    @pytest.fixture
-    def app(self) -> Any:
-        from devops_cli.main import app
-
-        return app

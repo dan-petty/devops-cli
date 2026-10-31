@@ -237,3 +237,21 @@ def _parse_generated_at(stamp: str) -> datetime | None:
         return None
     # The persona loop stamped local time without an offset before #607.
     return parsed if parsed.tzinfo is not None else parsed.astimezone()
+
+
+def tally_findings(
+    findings: Sequence[HistoryFinding],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """Count findings by status, and by producer in total and invalidated."""
+    by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
+    by_producer_total: dict[str, int] = {}
+    by_producer_invalidated: dict[str, int] = {}
+    for f in findings:
+        by_status[f.status] = by_status.get(f.status, 0) + 1
+        raw = (getattr(f, "producer", "") or getattr(f, "persona", "") or "").strip()
+        producers = [p.strip() for p in raw.split(",") if p.strip()] or ["unknown"]
+        for producer in producers:
+            by_producer_total[producer] = by_producer_total.get(producer, 0) + 1
+            if f.status == "INVALIDATED":
+                by_producer_invalidated[producer] = by_producer_invalidated.get(producer, 0) + 1
+    return by_status, by_producer_total, by_producer_invalidated

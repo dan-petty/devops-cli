@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import math
-import subprocess
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
-from devops_cli.ai.instruction_generator import DEFAULT_AGENT_FILES, ProjectMetadata
+from devops_cli.ai.endpoints import resolve_prewarm_urls, results_by_server
+from devops_cli.ai.instruction_generator import (
+    DEFAULT_AGENT_FILES,
+    ProjectMetadata,
+    collect_project_context,
+)
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_ast import app as ast_app
@@ -36,8 +41,6 @@ from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_AGENTS_MD_MAX_CHARS,
     CONST_AI_PROVIDER_IDS,
-    CONST_DEVCONTAINER_JSON_PATH,
-    CONST_GIT_DIR_NAME,
     CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
@@ -49,7 +52,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_DIFF_CHUNK_BUDGET,
     DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TABLE_FORMAT,
     DEFAULT_TIKTOKEN_MODEL,
 )
@@ -61,9 +63,9 @@ from devops_cli.config.settings import (
     save_settings,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     escape_text,
@@ -82,6 +84,8 @@ from devops_cli.output import (
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL, bounded_label, emit
 from devops_cli.telemetry.tracer import trace_span
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(
     help=HELP.ai.app,
@@ -198,7 +202,7 @@ def _get_agents_task_addendum(meta: ProjectMetadata) -> str:
 # =============================================================================
 
 
-def _try_retrieve_rag_context(
+def retrieve_rag_context(
     query: str,
     *,
     persona: str | None = None,
@@ -229,92 +233,25 @@ def _try_retrieve_rag_context(
         )
         if ctx and ctx.has_results:
             return ctx.formatted_text
-    except Exception:
-        pass
+    except (
+        DevOpsCLIError,
+        OSError,
+        ValueError,
+        RuntimeError,
+        KeyError,
+        TypeError,
+        AttributeError,
+    ) as exc:
+        logger.debug("RAG context retrieval failed: %s", exc)
     return None
 
 
-def _collect_project_context(repo: Path) -> str:
-    """Gather key project files into a single context string."""
-    sections: list[str] = []
-
-    # pyproject.toml
-    pyproject = repo / "pyproject.toml"
-    if pyproject.exists():
-        sections.append(f"## pyproject.toml\n```toml\n{pyproject.read_text()}\n```")
-
-    from devops_cli.security.sanitizer import sanitize_prompt_boundary_tags
-
-    # README
-    for name in ("README.md", "README.rst", "README.txt", "README"):
-        readme = repo / name
-        if readme.exists():
-            clean_readme = sanitize_prompt_boundary_tags(readme.read_text()[:4000])
-            sections.append(
-                f"## {name}\n"
-                f'<project_context_file name="{name}">\n'
-                f"{clean_readme}\n"
-                f"</project_context_file>"
-            )
-            break
-
-    # Directory tree (2 levels)
-    try:
-        tree = run_subprocess(
-            [
-                "find",
-                ".",
-                "-maxdepth",
-                "3",
-                "-not",
-                "-path",
-                f"./{CONST_GIT_DIR_NAME}/*",
-                "-not",
-                "-path",
-                "./.venv/*",
-                "-not",
-                "-path",
-                "./__pycache__/*",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=repo,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-        clean_tree = sanitize_prompt_boundary_tags(tree.stdout.strip())
-        sections.append(f"## File tree\n```\n{clean_tree}\n```")
-    except OSError, subprocess.SubprocessError:
-        pass
-
-    # .editorconfig
-    ec = repo / ".editorconfig"
-    if ec.exists():
-        clean_ec = sanitize_prompt_boundary_tags(ec.read_text()[:4000])
-        sections.append(
-            "## .editorconfig\n"
-            '<project_context_file name=".editorconfig">\n'
-            f"{clean_ec}\n"
-            "</project_context_file>"
-        )
-
-    # devcontainer.json
-    dc = repo / CONST_DEVCONTAINER_JSON_PATH
-    if dc.exists():
-        sections.append(f"## {CONST_DEVCONTAINER_JSON_PATH}\n```json\n{dc.read_text()}\n```")
-
-    # Semantic RAG Architecture Context
-    rag_ctx = _try_retrieve_rag_context(
-        f"{repo.name} architecture CLI commands conventions", top_k=4
-    )
-    if rag_ctx:
-        sections.append(f"## Indexed Architecture & Subsystem Context\n{rag_ctx}")
-
-    return "\n\n".join(sections)
+_try_retrieve_rag_context = retrieve_rag_context
 
 
 def _agent_prompt(context: str, target_file: str) -> str:
     """The project context for the model, with retrieved architecture context when RAG has it."""
-    rag_info = _try_retrieve_rag_context(
+    rag_info = retrieve_rag_context(
         f"project architecture design guidelines coding standards {target_file}",
         persona="architect",
         top_k=3,
@@ -573,7 +510,7 @@ def preload(
 # =============================================================================
 
 
-def _test_single_ollama_endpoint(
+def probe_single_ollama_endpoint(
     u: str, test_sys_prompt: str, prompt: str, settings: Any
 ) -> tuple[str, bool, str, str]:
     """Execute test chat prompt against a specific Ollama endpoint URL."""
@@ -593,7 +530,11 @@ def _test_single_ollama_endpoint(
         return (u, False, str(exc), "0.0s")
 
 
-def _print_chat_thought(th: str) -> None:
+test_single_ollama_endpoint = probe_single_ollama_endpoint
+_test_single_ollama_endpoint = probe_single_ollama_endpoint
+
+
+def print_chat_thought(th: str) -> None:
     """Print thinking block stream during interactive chat."""
     print_info(
         f"\n[dim cyan]💭 Thinking...[/dim cyan]\n"
@@ -603,7 +544,10 @@ def _print_chat_thought(th: str) -> None:
     )
 
 
-def _print_chat_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
+_print_chat_thought = print_chat_thought
+
+
+def print_chat_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
     """Print tool invocation and result during interactive chat."""
     args_str = ", ".join(f"{k}={v!r}" for k, v in t_args.items())
     if len(args_str) > 60:
@@ -617,7 +561,10 @@ def _print_chat_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
     print_info(f"[dim green]✓ Result: {res_str}[/dim green]\n", prefix=False)
 
 
-def _run_ollama_server_tests(
+_print_chat_tool = print_chat_tool
+
+
+def run_ollama_server_tests(
     urls: list[str], test_sys_prompt: str, prompt: str, settings: Any
 ) -> None:
     """Execute parallel tests against multiple Ollama endpoints."""
@@ -626,7 +573,7 @@ def _run_ollama_server_tests(
     all_passed = True
     with ThreadPoolExecutor(max_workers=len(urls)) as executor:
         futures = {
-            executor.submit(_test_single_ollama_endpoint, u, test_sys_prompt, prompt, settings): u
+            executor.submit(test_single_ollama_endpoint, u, test_sys_prompt, prompt, settings): u
             for u in urls
         }
         for f in as_completed(futures):
@@ -641,6 +588,9 @@ def _run_ollama_server_tests(
 
     if not all_passed:
         raise typer.Exit(1)
+
+
+_run_ollama_server_tests = run_ollama_server_tests
 
 
 @dry_run_class("request-plan")
@@ -717,35 +667,11 @@ def test(
         raise typer.Exit(1) from exc
 
 
-def _resolve_prewarm_urls(
-    url: str | None,
-    all_nodes: bool,
-    configured_urls: list[str],
-) -> list[str]:
-    """Resolve target Ollama URLs based on explicit override or cluster node flags."""
-    if url:
-        return [url]
-    if all_nodes or not configured_urls:
-        return list(configured_urls)
-    return [configured_urls[0]]
+_resolve_prewarm_urls = resolve_prewarm_urls
+_results_by_server = results_by_server
 
 
-def _results_by_server(results: dict[str, bool]) -> dict[str, bool]:
-    """Key the result of each configured URL by the `host[:port]` of its server (#2676).
-
-    The URL can hold a user name, a password or a query value, so no output shows it. Two URLs
-    with one host and port make one node, which is ok only when both URLs are ok.
-    """
-    from devops_cli.ai.benchmark.labels import server_label
-
-    by_server: dict[str, bool] = {}
-    for url, ok in results.items():
-        label = server_label(url)
-        by_server[label] = by_server.get(label, True) and ok
-    return by_server
-
-
-def _render_prewarm_results(
+def render_prewarm_results(
     results: dict[str, bool],
     model: str,
     keep_alive: str | int,
@@ -784,6 +710,9 @@ def _render_prewarm_results(
         else:
             print_error(f"  ✗ {endpoint}: request failed or timed out", prefix=False)
     return all_ok
+
+
+_render_prewarm_results = render_prewarm_results
 
 
 # =============================================================================
@@ -958,7 +887,7 @@ def _generate_agents_content(repo: Path, template: bool) -> str:
     settings = load_settings()
     try:
         client = get_llm_client("metadata", settings=settings)
-        context = _collect_project_context(repo)
+        context = collect_project_context(repo)
     except Exception as exc:
         print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
         return generate_agents_md(meta)
@@ -1064,7 +993,7 @@ def agents(
 _PERSONA_NAMES = [p.value for p in Persona]
 
 
-def _stream_interactive_chat_turn(
+def stream_interactive_chat_turn(
     client: Any,
     agent: Any,
     thinking: bool,
@@ -1095,6 +1024,9 @@ def _stream_interactive_chat_turn(
         return
     write_stdout("\n\n")
     agent.memory.add_interaction("assistant", reply)
+
+
+_stream_interactive_chat_turn = stream_interactive_chat_turn
 
 
 # =============================================================================
@@ -1267,7 +1199,7 @@ def chat(  # noqa: C901
 
             effective_prompt = user_input
             if rag:
-                rag_snippet = _try_retrieve_rag_context(user_input, persona=persona)
+                rag_snippet = retrieve_rag_context(user_input, persona=persona)
                 if rag_snippet:
                     effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
@@ -1420,7 +1352,7 @@ def pipeline(
 
     effective_prompt = prompt
     if rag:
-        rag_ctx = _try_retrieve_rag_context(prompt, top_k=5)
+        rag_ctx = retrieve_rag_context(prompt, top_k=5)
         if rag_ctx:
             effective_prompt = f"{rag_ctx}\n\nPipeline Goal: {prompt}"
 

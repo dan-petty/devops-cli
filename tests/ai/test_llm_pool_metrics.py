@@ -9,22 +9,19 @@ the stack exposes. That dashboard's queries are checked against captures of the 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 import yaml
-from typer.testing import CliRunner
 
 from devops_cli.ai import pool_load as pool_load_module
 from devops_cli.ai.pool_load import pool_load, window_seconds
-from devops_cli.commands import ai_gateway
-from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _HELM_REPOS_BY_STACK
-from devops_cli.config.settings import load_settings
+from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK, HELM_REPOS_BY_STACK
 from devops_cli.http.egress import EgressLevel
-from devops_cli.main import app
-
-cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
+from tests.web_fakes import StubWeb
 
 K8S = Path("k8s")
 
@@ -101,7 +98,7 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
     the NVIDIA runtime, and holds SYS_ADMIN capability required for datacenter GPUs. Its own
     ServiceMonitor stays off: k8s-monitoring's dcgm-exporter integration scrapes it (#1130)."""
     values = yaml.safe_load((K8S / "monitoring/dcgm-exporter-values.yaml").read_text("utf-8"))
-    release = next(r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "dcgm-exporter")
+    release = next(r for r in HELM_RELEASES_BY_STACK["infra"] if r["name"] == "dcgm-exporter")
     repo = release["chart"].split("/")[0]
 
     assert (
@@ -110,7 +107,7 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
         values["securityContext"]["capabilities"].get("add", []),
         values["rollingUpdate"]["maxUnavailable"],
         values["serviceMonitor"]["enabled"],
-        (release["namespace"], Path(release["values"]).name, repo in _HELM_REPOS_BY_STACK["infra"]),
+        (release["namespace"], Path(release["values"]).name, repo in HELM_REPOS_BY_STACK["infra"]),
     ) == (
         ("nvidia", {"nvidia.com/gpu.present": "true"}),
         True,
@@ -165,19 +162,56 @@ def test_other_windows_are_refused(window: str) -> None:
         window_seconds(window)
 
 
-def _with_prometheus(monkeypatch: pytest.MonkeyPatch, answers: Any) -> None:
-    settings = load_settings()
-    settings.prometheus.url = "http://prometheus.example:9090"
-    settings.ai.allow_private_network = True
-    monkeypatch.setattr(ai_gateway, "load_settings", lambda: settings)
-    monkeypatch.setattr(ai_gateway, "prometheus_query", lambda url, timeout, level: answers)
+def _fake_prometheus_http(request: httpx2.Request) -> httpx2.Response | None:
+    if "/api/v1/query" not in str(request.url):
+        return None
+    expr = request.url.params.get("query", "")
+    ollama_0 = "http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434/v1"
+    ollama_1 = "http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434/v1"
+    results: list[dict[str, Any]] = []
+    if "litellm_deployment_total_requests_total[" in expr:
+        results = [
+            {"metric": {"api_base": ollama_1}, "value": [1000, "120.0"]},
+            {"metric": {"api_base": ollama_0}, "value": [1000, "30.0"]},
+        ]
+    elif "litellm_deployment_failure_responses_total" in expr:
+        results = [{"metric": {"api_base": ollama_0}, "value": [1000, "2.0"]}]
+    elif "litellm_llm_api_latency_metric_sum" in expr:
+        results = [
+            {"metric": {"api_base": ollama_1}, "value": [1000, "1.8"]},
+            {"metric": {"api_base": ollama_0}, "value": [1000, "0.4"]},
+        ]
+    elif "DCGM_FI_DEV_GPU_UTIL" in expr:
+        results = [
+            {
+                "metric": {"Hostname": "gpu-node", "gpu": "0", "modelName": "RTX 3090"},
+                "value": [1000, "71.0"],
+            }
+        ]
+    elif "DCGM_FI_DEV_FB_USED" in expr:
+        results = [
+            {
+                "metric": {"Hostname": "gpu-node", "gpu": "0", "modelName": "RTX 3090"},
+                "value": [1000, "20480.0"],
+            }
+        ]
+    return httpx2.Response(
+        200,
+        json={"status": "success", "data": {"resultType": "vector", "result": results}},
+    )
 
 
-def test_load_reports_the_pool_as_json(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_reports_the_pool_as_json(
+    config: Callable[..., Path], stub_web: StubWeb, cli: Callable[..., Any]
+) -> None:
     """Verify `devops ai gateway load` reports the window's backends and GPUs."""
-    _with_prometheus(monkeypatch, _fake_prometheus)
+    config(
+        prometheus={"url": "http://prometheus.example:9090"},
+        ai={"allow_private_network": True},
+    )
+    stub_web.serve(_fake_prometheus_http)
 
-    result = cli.invoke(app, ["ai", "gateway", "load", "--window", "2h", "-f", "json"])
+    result = cli("ai", "gateway", "load", "--window", "2h", "-f", "json")
     report = json.loads(result.stdout)
 
     assert (
@@ -188,30 +222,51 @@ def test_load_reports_the_pool_as_json(monkeypatch: pytest.MonkeyPatch) -> None:
     ) == (0, "2h", ["ollama-0", "ollama-1"], 1)
 
 
-def test_load_table_and_an_empty_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_table_and_an_empty_pool(
+    config: Callable[..., Path], stub_web: StubWeb, cli: Callable[..., Any]
+) -> None:
     """Verify the table shows GPU and backend figures, and a Prometheus without the pool's
     metrics is named rather than shown as idle."""
-    _with_prometheus(monkeypatch, _fake_prometheus)
-    table = cli.invoke(app, ["ai", "gateway", "load"])
-    monkeypatch.setattr(ai_gateway, "prometheus_query", lambda url, timeout, level: lambda expr: [])
-    empty = cli.invoke(app, ["ai", "gateway", "load"])
+    config(
+        prometheus={"url": "http://prometheus.example:9090"},
+        ai={"allow_private_network": True},
+    )
+    stub_web.serve(_fake_prometheus_http)
+    table = cli("ai", "gateway", "load")
+
+    stub_web.servers.clear()
+    stub_web.serve(
+        lambda r: httpx2.Response(
+            200,
+            json={"status": "success", "data": {"resultType": "vector", "result": []}},
+        )
+    )
+    empty = cli("ai", "gateway", "load")
 
     assert (
-        (table.exit_code, "71%" in table.output, "gpu-node" in table.output),
-        (empty.exit_code, "No LLM pool or GPU metrics" in empty.output),
+        (table.exit_code, "71%" in table.stdout, "gpu-node" in table.stdout),
+        (empty.exit_code, "No LLM pool or GPU metrics" in empty.stdout),
     ) == ((0, True, True), (0, True))
 
 
-def test_load_needs_prometheus_and_a_valid_window(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_needs_prometheus_and_a_valid_window(
+    config: Callable[..., Path], stub_web: StubWeb, cli: Callable[..., Any]
+) -> None:
     """Verify a missing Prometheus URL or a malformed window exits non-zero without querying."""
-    unconfigured = cli.invoke(app, ["ai", "gateway", "load"])
-    _with_prometheus(monkeypatch, _fake_prometheus)
-    bad_window = cli.invoke(app, ["ai", "gateway", "load", "--window", "forever"])
+    config(prometheus={"url": ""})
+    unconfigured = cli("ai", "gateway", "load")
+
+    config(
+        prometheus={"url": "http://prometheus.example:9090"},
+        ai={"allow_private_network": True},
+    )
+    stub_web.serve(_fake_prometheus_http)
+    bad_window = cli("ai", "gateway", "load", "--window", "forever")
 
     assert (
         unconfigured.exit_code,
         bad_window.exit_code,
-        "not a duration" in bad_window.output,
+        "not a duration" in (bad_window.stdout + bad_window.stderr),
     ) == (
         1,
         1,

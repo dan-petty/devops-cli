@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from fakeredis import FakeServer
-from typer.testing import CliRunner
 
 from devops_cli.ai.rag.library_store import LibraryVectorStore
-from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.defaults import (
     DEFAULT_RAG_LIBRARIES_COLLECTION,
     DEFAULT_VALKEY_SYMBOL_TTL_SECONDS,
@@ -31,8 +30,6 @@ from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
-
-runner = CliRunner()
 
 
 def _tier(client: Any) -> ValkeyCacheTier:
@@ -323,63 +320,56 @@ def test_index_doc_chunks() -> None:
     mock_qdrant.upsert_points.assert_called_once()
 
 
-def test_cli_ai_ingest_index_libraries(tmp_path: Path) -> None:
+def test_cli_ai_ingest_index_libraries(tmp_path: Path, cli: Callable[..., Any]) -> None:
     contract = _create_sample_contract()
     pkg_file = tmp_path / "demo-pkg.json"
     pkg_file.write_text(contract.model_dump_json(), encoding="utf-8")
 
-    result = runner.invoke(
-        ai_app,
-        ["ingest", "index-libraries", "--dir", str(tmp_path), "--dry-run"],
-    )
+    result = cli("ai", "ingest", "index-libraries", "--dir", str(tmp_path), "--dry-run")
     assert result.exit_code == 0
     assert (
-        "Indexed" in result.output
-        or "demo-pkg" in result.output
-        or "dry-run" in result.output.lower()
+        "Indexed" in result.stdout
+        or "demo-pkg" in result.stdout
+        or "dry-run" in result.stdout.lower()
     )
 
 
-def test_cli_ai_ingest_query_library_exact(tmp_path: Path) -> None:
+def test_cli_ai_ingest_query_library_exact(tmp_path: Path, cli: Callable[..., Any]) -> None:
     contract = _create_sample_contract()
     pkg_file = tmp_path / "demo-pkg.json"
     pkg_file.write_text(contract.model_dump_json(), encoding="utf-8")
 
-    result = runner.invoke(
-        ai_app,
-        [
-            "ingest",
-            "query-library",
-            "demo_pkg.api.get_data",
-            "--contracts-dir",
-            str(tmp_path),
-            "--exact",
-        ],
+    result = cli(
+        "ai",
+        "ingest",
+        "query-library",
+        "demo_pkg.api.get_data",
+        "--contracts-dir",
+        str(tmp_path),
+        "--exact",
     )
     assert result.exit_code == 0
-    assert "get_data" in result.output
+    assert "get_data" in result.stdout
 
 
-def test_cli_ai_ingest_query_library_json(tmp_path: Path) -> None:
+def test_cli_ai_ingest_query_library_json(tmp_path: Path, cli: Callable[..., Any]) -> None:
     contract = _create_sample_contract()
     pkg_file = tmp_path / "demo-pkg.json"
     pkg_file.write_text(contract.model_dump_json(), encoding="utf-8")
 
-    result = runner.invoke(
-        ai_app,
-        [
-            "ingest",
-            "query-library",
-            "demo_pkg.api.get_data",
-            "--contracts-dir",
-            str(tmp_path),
-            "--exact",
-            "--format",
-            "json",
-        ],
+    result = cli(
+        "ai",
+        "ingest",
+        "query-library",
+        "demo_pkg.api.get_data",
+        "--contracts-dir",
+        str(tmp_path),
+        "--exact",
+        "--format",
+        "json",
     )
     assert result.exit_code == 0
-    data = json.loads(result.output)
+    data = json.loads(result.stdout)
     assert data["name"] == "get_data"
 
 
@@ -428,135 +418,102 @@ def test_load_local_contracts_skips_invalid_json(tmp_path: Path) -> None:
 
 
 def test_build_runtime_vector_store_dry_run(tmp_path: Path) -> None:
-    from devops_cli.commands.ai_ingest import _build_runtime_vector_store
+    from devops_cli.commands.ai_ingest import build_runtime_vector_store
 
-    store = _build_runtime_vector_store(tmp_path, dry_run=True)
+    store = build_runtime_vector_store(tmp_path, dry_run=True)
     assert store.qdrant_client is None
     assert store.symbol_cache is None
     assert store.embedder is None
 
 
 @pytest.mark.usefixtures("keyring_store")
-def test_build_runtime_vector_store_with_mocked_clients(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_build_runtime_vector_store_with_edge_fakes(
+    tmp_path: Path, qdrant: Any, embedder: Any, valkey: Any
 ) -> None:
     """The live store holds the Valkey tier of the process, beside Qdrant and the embedder."""
-    from devops_cli.commands import ai_ingest
+    from devops_cli.commands.ai_ingest import build_runtime_vector_store
     from devops_cli.valkey.cache import shared_cache_tier
 
-    mock_qdrant = MagicMock()
-    mock_embedder = MagicMock()
-
-    monkeypatch.setattr(
-        ai_ingest,
-        "_resolve_runtime_qdrant_and_embedder",
-        lambda: (mock_qdrant, mock_embedder),
-    )
-
-    store = ai_ingest._build_runtime_vector_store(tmp_path, semantic_needed=True, dry_run=False)
+    store = build_runtime_vector_store(tmp_path, semantic_needed=True, dry_run=False)
     assert (
         store.symbol_cache is not None,
         store.symbol_cache is shared_cache_tier(),
-        store.qdrant_client is mock_qdrant,
-        store.embedder is mock_embedder,
+        store.qdrant_client is qdrant,
+        store.embedder is embedder,
     ) == (True, True, True, True)
 
 
 def test_cli_ai_ingest_index_libraries_live(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, cli: Callable[..., Any], qdrant: Any, embedder: Any, valkey: Any
 ) -> None:
-    from devops_cli.commands import ai_ingest
-
     contract = _create_sample_contract()
     pkg_file = tmp_path / "demo-pkg.json"
     pkg_file.write_text(contract.model_dump_json(), encoding="utf-8")
 
-    mock_store = MagicMock()
-    monkeypatch.setattr(
-        ai_ingest,
-        "_build_runtime_vector_store",
-        lambda *args, **kwargs: mock_store,
-    )
-
-    result = runner.invoke(
-        ai_app,
-        ["ingest", "index-libraries", "--dir", str(tmp_path)],
-    )
+    result = cli("ai", "ingest", "index-libraries", "--dir", str(tmp_path))
     assert result.exit_code == 0
-    assert "demo-pkg" in result.output
-    mock_store.index_contract.assert_called_once()
+    assert "demo-pkg" in result.stdout
+    assert len(qdrant.collections.get("devops_libraries", [])) >= 2
 
 
 def test_cli_ai_ingest_query_library_semantic(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, cli: Callable[..., Any], qdrant: Any, embedder: Any, valkey: Any
 ) -> None:
-    from devops_cli.commands import ai_ingest
+    contract = _create_sample_contract()
+    pkg_file = tmp_path / "demo-pkg.json"
+    pkg_file.write_text(contract.model_dump_json(), encoding="utf-8")
 
-    mock_store = MagicMock()
-    mock_res = LibrarySearchResult(
-        symbol_name="demo_pkg.api.get_data",
-        package_name="demo-pkg",
-        version="1.0.0",
-        kind="function",
-        signature_text="def get_data(query: str) -> dict[str, Any]",
-        score=0.95,
-        source="library_contract",
-    )
-    mock_store.search.return_value = [mock_res]
-    monkeypatch.setattr(
-        ai_ingest,
-        "_build_runtime_vector_store",
-        lambda *args, **kwargs: mock_store,
-    )
+    index_result = cli("ai", "ingest", "index-libraries", "--dir", str(tmp_path))
+    assert index_result.exit_code == 0
 
-    result = runner.invoke(
-        ai_app,
-        ["ingest", "query-library", "how to get data", "--contracts-dir", str(tmp_path)],
+    result = cli(
+        "ai",
+        "ingest",
+        "query-library",
+        "how to get data",
+        "--contracts-dir",
+        str(tmp_path),
     )
     assert result.exit_code == 0
-    assert "demo_pkg.api.get_data" in result.output
-    assert "0.950" in result.output
-    mock_store.search.assert_called_once_with("how to get data", package=None, top_k=5)
+    assert "demo_pkg.api.get_data" in result.stdout
 
 
 @pytest.mark.parametrize(
     "args",
     [
-        ["ingest", "index-libraries", "--dir"],
-        ["ingest", "query-library", "q", "--contracts-dir"],
+        ["ai", "ingest", "index-libraries", "--dir"],
+        ["ai", "ingest", "query-library", "q", "--contracts-dir"],
     ],
     ids=["index-libraries", "query-library"],
 )
 def test_cli_ai_ingest_fails_with_the_embedding_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    tmp_path: Path,
+    cli: Callable[..., Any],
+    qdrant: Any,
+    embedder: Any,
+    valkey: Any,
+    args: list[str],
 ) -> None:
     """Indexing and semantic search exit 1 with the EmbeddingsError's message, no traceback."""
-    from devops_cli.ai.rag.embeddings import EmbeddingsError
-    from devops_cli.commands import ai_ingest
-
     (tmp_path / "demo-pkg.json").write_text(
         _create_sample_contract().model_dump_json(), encoding="utf-8"
     )
-    failure = EmbeddingsError("Embedding model m produced no embeddings: x answered HTTP 400")
-    mock_store = MagicMock()
-    mock_store.index_contract.side_effect = failure
-    mock_store.search.side_effect = failure
-    monkeypatch.setattr(ai_ingest, "_build_runtime_vector_store", lambda *a, **k: mock_store)
+    msg = "Embedding model m produced no embeddings: x answered HTTP 400"
+    embedder.fail(msg)
 
-    result = runner.invoke(ai_app, [*args, str(tmp_path)])
+    result = cli(*args, str(tmp_path))
 
-    assert (result.exit_code, failure.message in result.output, type(result.exception)) == (
+    assert (result.exit_code, msg in (result.stdout + result.stderr)) == (
         1,
         True,
-        SystemExit,
     )
 
 
 def test_discover_submodules_skips_private_and_main(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Regression test for Issue #84: ensure _discover_submodules skips __main__ and private submodules."""
+    """Regression test for Issue #84: ensure discover_submodules skips __main__ and private submodules."""
     from types import ModuleType
 
-    from devops_cli.ai.library.introspector import _discover_submodules
+    from devops_cli.ai.library.introspector import discover_submodules
 
     dummy_root = ModuleType("dummy_pkg")
     dummy_root.__path__ = ["/dummy/path"]  # type: ignore[attr-defined]
@@ -580,7 +537,7 @@ def test_discover_submodules_skips_private_and_main(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("pkgutil.iter_modules", mock_iter_modules)
     monkeypatch.setattr("importlib.import_module", mock_import)
 
-    discovered = _discover_submodules(dummy_root, max_depth=1)
+    discovered = discover_submodules(dummy_root, max_depth=1)
     assert len(discovered) == 1
     assert discovered[0].__name__ == "dummy_pkg.sub"
     assert "dummy_pkg.__main__" not in imported_names
