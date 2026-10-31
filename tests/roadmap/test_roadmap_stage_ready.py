@@ -254,15 +254,16 @@ def test_a_pull_request_that_github_cannot_find_fails_its_item_and_is_read_again
     with pytest.raises(RoadmapStageError) as raised:
         mark_stage_ready(store, repo=STAGE_REPO)
     sent = len(api.sent)
-    with pytest.raises(RoadmapStageError):
+    with pytest.raises(RoadmapStageError) as again:
         mark_stage_ready(store, repo=STAGE_REPO)
 
     assert (
         raised.value.failed_items,
+        again.value.failed_items,
         StageRecordKey.READY in _record(store, number),
         ready.calls,
         len(api.sent) > sent,
-    ) == ((number,), False, [], True)
+    ) == ((number,), (number,), False, [], True)
 
 
 def test_a_rate_limit_stops_the_round_at_the_first_pull_request(
@@ -282,7 +283,7 @@ def test_a_rate_limit_stops_the_round_at_the_first_pull_request(
 
     monkeypatch.setattr(GitHubClient, "get_pull_status", refuse)
 
-    with pytest.raises(GitHubRateLimitError):
+    with pytest.raises(GitHubRateLimitError, match="No requests are left"):
         mark_stage_ready(store, repo=STAGE_REPO)
 
     assert (read, ready.calls) == ([PULL], [])
