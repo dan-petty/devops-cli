@@ -8,6 +8,7 @@ import socket
 import pytest
 
 from devops_cli.commands.k8s.cluster_context import apply as k8s_apply
+from devops_cli.exceptions import KubernetesContextError
 from devops_cli.security.sanitizer import sanitize_telemetry_endpoint
 from devops_cli.security.vault_broker import VaultSecretBroker, parse_vault_uri
 from devops_cli.telemetry.logging_bridge import (
@@ -34,8 +35,8 @@ def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(
             ],
         )
         with pytest.raises(
-            ValueError,
-            match=r"(Manifest URL resolves to private or reserved IP|Access to link-local or cloud metadata services)",
+            (ValueError, KubernetesContextError),
+            match=r"(Manifest URL resolves to private or reserved IP|Access to link-local or cloud metadata services|Manifest URL egress check failed)",
         ):
             k8s_apply("http://example.com/manifest.yaml")
 

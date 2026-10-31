@@ -38,6 +38,13 @@ pytestmark = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _mock_example_com_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
+
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+
+
 class FakeQdrantClient(QdrantClient):
     """Hermetic in-memory fake for Qdrant client operations."""
 

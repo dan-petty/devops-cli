@@ -75,7 +75,7 @@
   "src/devops_cli/core/cleanup.py": 1,
   "src/devops_cli/core/gitignore.py": 2,
   "src/devops_cli/core/repo.py": 4,
-  "src/devops_cli/core/validation.py": 3,
+  "src/devops_cli/core/validation.py": 2,
   "src/devops_cli/crypto/ssh_keys.py": 1,
   "src/devops_cli/crypto/tls_certificates.py": 1,
   "src/devops_cli/docker/engine.py": 5,

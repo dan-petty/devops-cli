@@ -88,6 +88,18 @@ _VIOLATIONS = [
     ),
     pytest.param("net-cidr-build", "src", 'network = f"{ip}/32"\n', id="net-cidr-build"),
     pytest.param(
+        "net-pre-flight-resolve",
+        "src",
+        "ips = _resolve_host_ips(host)\n",
+        id="net-pre-flight-resolve",
+    ),
+    pytest.param(
+        "net-raw-http-client",
+        "src",
+        "client = httpx2.Client()\n",
+        id="net-raw-http-client",
+    ),
+    pytest.param(
         "test-elapsed-upper-bound", "tests", _ELAPSED_UPPER_BOUND, id="test-elapsed-upper-bound"
     ),
     pytest.param(

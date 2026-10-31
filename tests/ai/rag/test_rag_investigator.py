@@ -76,7 +76,7 @@ def test_a_refused_rag_backend_is_reported_once(
         if record.name == "devops_cli.ai.rag.investigator" and record.levelno == logging.WARNING
     ]
 
-    assert (results, ["Refusing non-public Qdrant URL" in message for message in warnings]) == (
+    assert (results, ["SSRF blocked" in message for message in warnings]) == (
         [None, None],
         [True],
     )

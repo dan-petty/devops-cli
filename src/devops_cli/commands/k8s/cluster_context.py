@@ -200,7 +200,8 @@ def _validate_manifest_url(url: str) -> None:
         raise KubernetesContextError(f"Invalid manifest URL: missing valid hostname in '{url}'")
 
     port = parsed.origin.port
-    assert port is not None
+    if port is None:
+        raise KubernetesContextError(f"Invalid manifest URL: missing valid port in '{url}'")
     try:
         vet_addresses(parsed.host, port, EgressLevel.PUBLIC)
     except Exception as exc:

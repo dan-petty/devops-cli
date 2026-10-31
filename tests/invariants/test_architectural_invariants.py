@@ -142,6 +142,8 @@ CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "net-localhost-fallback",
     "net-normalise",
     "net-port-table",
+    "net-pre-flight-resolve",
+    "net-raw-http-client",
     "net-scheme-affix",
     "net-scheme-in",
     "net-url-build",

@@ -9,6 +9,8 @@ import pytest
 
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions.security import SSRFBlockedError
+from devops_cli.http.egress import EgressLevel
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import route_client
 from tests.support.fakes.clock import ClockFake
@@ -28,8 +30,8 @@ def test_private_api_base_is_rejected_by_default(monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
     client = LLMClient(AIConfig(provider="openai", api_base_url="http://10.0.0.10:9000"))
 
-    with pytest.raises(AIClientError, match="Refusing non-public provider API URL"):
-        client._api_base()
+    with pytest.raises(SSRFBlockedError, match="loopback egress level refuses"):
+        client._create_http_client().get("http://10.0.0.10:9000")
 
 
 def test_a_cloud_metadata_api_base_is_refused_even_when_private_hosts_are_allowed() -> None:
@@ -40,8 +42,8 @@ def test_a_cloud_metadata_api_base_is_refused_even_when_private_hosts_are_allowe
         )
     )
 
-    with pytest.raises(AIClientError, match="cloud metadata"):
-        client._api_base()
+    with pytest.raises(SSRFBlockedError, match="cloud metadata"):
+        client._create_http_client().get("http://169.254.169.254/v1")
 
 
 def test_private_api_base_is_allowed_only_by_the_clients_own_flag(
@@ -60,9 +62,9 @@ def test_private_api_base_is_allowed_only_by_the_clients_own_flag(
         )
     )
 
-    with pytest.raises(AIClientError, match="Refusing non-public provider API URL"):
-        without_flag._api_base()
-    assert with_flag._api_base() == "http://10.0.0.10:9000"
+    with pytest.raises(SSRFBlockedError, match="loopback egress level refuses"):
+        without_flag._create_http_client().get("http://10.0.0.10:9000")
+    assert with_flag._egress_level() == EgressLevel.PRIVATE
 
 
 def test_configured_loopback_endpoints_need_no_env_override(
