@@ -1838,6 +1838,7 @@ class RoadmapMessages:
         "#{number} is claimed by {owner}. An item has one owner at a time: release it first. "
         "Only a person can take an item from the Service."
     )
+    claim_closed: str = "#{number} is closed. A closed issue takes no claim."
     claim_no_owner: str = "none"
     claim_plan: str = "Item #{number}: {title}\nOwner: {current} -> {target}"
     claim_plan_only: str = "Plan only: pass --confirm to apply."
@@ -2204,8 +2205,10 @@ class RoadmapMessages:
     )
     implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
     implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
+    implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
     implement_boundary_group: str = "the start of group {group}"
     implement_boundary_end: str = "the end of the last group"
+    implement_boundary_stop: str = "the stop of {step}"
     implement_comment_claimed: str = (
         "{marker}\nThe job ended at {boundary}: {owner} claimed the item. It pushed nothing and "
         "opened no pull request. The groups that passed stay out of the branch. To give the item "

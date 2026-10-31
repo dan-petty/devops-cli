@@ -574,6 +574,8 @@ def _run_implement_adapter(
         result.waiting,
         result.created,
     )
+    if result.left is not None:
+        logger.info(MESSAGES.roadmap.implement_round_left.format(number=result.left))
     return JobOutcome()
 
 

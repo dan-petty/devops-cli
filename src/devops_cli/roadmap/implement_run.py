@@ -31,9 +31,9 @@ of the agent, sets Status Ready, and records `implement.stopped`. It does not ru
 until a person comments `implement: retry`.
 
 **A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. The job
-reads the item before each unticked task group and once after the last group. When an agent or a
-person holds it by then, the job ends the item at once: it pushes nothing, opens no pull request,
-comments why, and changes neither the Status nor the owner. The groups that passed stay in the
+reads the item before each unticked task group, when a step stops, and before the push. When an
+agent or a person holds it by then, the job ends the item at once: it pushes nothing, opens no
+pull request, comments why, and changes neither the Status nor the owner. The groups that passed stay in the
 worktree, which the job removes; the new owner starts from the branch on `origin`.
 """
 
@@ -333,8 +333,8 @@ class _ItemRun:
         """Run the item from the first step to a ready pull request. Raises `_StopError`."""
         self._start()
         self._groups()
-        self._require_unclaimed(MESSAGES.roadmap.implement_boundary_end)
         self._finish_change()
+        self._require_unclaimed(MESSAGES.roadmap.implement_boundary_end)
         pull = self._push()
         self._pull_request(pull)
         self._checks(pull)
@@ -574,6 +574,18 @@ class _ItemRun:
             ),
         )
 
+    def end_stopped(self, stop: _StopError) -> _Ended:
+        """End a run that a step stopped. A claim that came while the step ran is the end of the
+        run at this boundary: the stop pushes nothing then, opens no pull request and sets no
+        Status (#2910)."""
+        try:
+            self._require_unclaimed(MESSAGES.roadmap.implement_boundary_stop.format(step=stop.step))
+        except _ClaimedError as claimed:
+            self.yield_to(claimed)
+            return _Ended.YIELDED
+        self.stop(stop)
+        return _Ended.STOPPED
+
     # ── The stop ──
 
     def stop(self, stop: _StopError) -> None:
@@ -643,8 +655,7 @@ def _implement_item(
             run.yield_to(claimed)
             return _Ended.YIELDED
         except _StopError as stop:
-            run.stop(stop)
-            return _Ended.STOPPED
+            return run.end_stopped(stop)
         except AICredentialsError, GitHubUnauthenticatedError:
             raise
         except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
@@ -652,8 +663,7 @@ def _implement_item(
             reason = texts.implement_stop_error.format(
                 error=type(exc).__name__, message=mask_secrets(str(exc))
             )
-            run.stop(_StopError(run.step, reason))
-            return _Ended.STOPPED
+            return run.end_stopped(_StopError(run.step, reason))
     return _Ended.READY
 
 

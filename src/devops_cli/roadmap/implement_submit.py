@@ -56,12 +56,13 @@ _GONE = "gone"
 
 @dataclass(frozen=True)
 class SubmitResult:
-    """What a round did: the Jobs it reported, whether a running Job held it, and the Job it
-    created."""
+    """What a round did: the Jobs it reported, whether a running Job held it, the Job it created,
+    and the item it left because an agent or a person claimed it after the plan (#2910)."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
     created: str | None = None
+    left: int | None = None
 
 
 def repository_label(repo: str) -> str:
@@ -213,8 +214,10 @@ def run_implement_round(
     )
     if not plan.selected:
         return SubmitResult(reported=reported)
+    number = plan.selected[0].item.number
+    created = _create(store, api, repo, plan.selected[0], label)
     return SubmitResult(
-        reported=reported, created=_create(store, api, repo, plan.selected[0], label)
+        reported=reported, created=created, left=number if created is None else None
     )
 
 

@@ -34,7 +34,7 @@ from devops_cli.exceptions.roadmap import RoadmapClaimError, RoadmapItemChangedE
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.request_plan import StoreRequests
-from devops_cli.roadmap.store import Item, ItemField, RoadmapStore
+from devops_cli.roadmap.store import GitHubState, Item, ItemField, RoadmapStore
 
 
 class Claimant(StrEnum):
@@ -99,9 +99,12 @@ def _require_allowed(item: Item, target: str | None) -> None:
 
 def plan_claim(store: RoadmapStore, number: int, claimant: Claimant | None, repo: str) -> ClaimPlan:
     """The plan to claim Item `number` as `claimant`, or to release it when `claimant` is None.
-    Raises `RoadmapClaimError` when the issue is no Item or another owner holds it."""
+    Raises `RoadmapClaimError` when the issue is no Item, is closed, or another owner holds it.
+    A release of a closed issue is allowed: it clears a label that nothing else would clear."""
     item = _item(store, number)
     target = None if claimant is None else _OWNER[claimant]
+    if target is not None and item.state is GitHubState.CLOSED:
+        raise RoadmapClaimError(MESSAGES.roadmap.claim_closed.format(number=number))
     _require_allowed(item, target)
     return ClaimPlan(number, item.title, repo, item.owner, target)
 

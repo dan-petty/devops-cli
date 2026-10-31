@@ -574,7 +574,8 @@ def worktrees_add(
     because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
     the standard directory or a pushed branch of origin already holds. A pushed branch whose
     commits past origin/main all have the App as author is a staged branch: the command adds the
-    worktree on it and takes --type and --slug from it.
+    worktree on it and takes --type and --slug from it. After the worktree exists, the command
+    claims the issue for an agent with the label owner/agent. It only warns if the claim fails.
     """
     is_plan = dry_run or is_dry_run()
     if is_plan and (branch_type is None or slug is None):

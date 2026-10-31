@@ -9,6 +9,7 @@ edges, and the CronJob template is the committed manifest `k8s/devops/cronjob-ru
 from __future__ import annotations
 
 import copy
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -549,6 +550,7 @@ def test_a_person_who_claims_after_the_plan_gets_no_job_and_the_round_does_not_f
     api: GitHubApiFake,
     kube: FakeCluster,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     number = seed_staged(store)
     real_plan = plan_implement
@@ -560,8 +562,10 @@ def test_a_person_who_claims_after_the_plan_gets_no_job_and_the_round_does_not_f
 
     monkeypatch.setattr("devops_cli.roadmap.implement_submit.plan_implement", plan_then_claim)
 
-    outcome = _round(store, staged_repo)
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        outcome = _round(store, staged_repo)
 
+    assert f"Left #{number}: an agent or a person claimed it since the plan." in caplog.messages
     assert (outcome, _creates(kube), _owner(store, number), _record(store, number)) == (
         JobOutcome(),
         [],

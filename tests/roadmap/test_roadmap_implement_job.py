@@ -9,6 +9,7 @@ and `gh` are faked at their edges.
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
 from devops_cli.roadmap.store import ImplementRecordKey
-from tests.support.fakes.process import ProcessAnswer
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import WINDOW, command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
@@ -775,7 +776,7 @@ def test_a_claim_made_before_the_first_group_ends_the_job_before_any_step(
     assert (_item(job_world)[0], _owner(job_world)) == ("In Progress", ["owner/agent"])
 
 
-def test_a_claim_made_while_the_last_group_runs_stops_the_job_before_the_docs_and_the_push(
+def test_a_claim_made_while_the_last_group_runs_ends_the_job_before_the_push(
     job_world: JobWorld,
 ) -> None:
     script = two_groups()
@@ -785,11 +786,7 @@ def test_a_claim_made_while_the_last_group_runs_stops_the_job_before_the_docs_an
 
     (comment,) = job_world.issue_comments()
     assert (applied.yielded, applied.ready, len(script.seen)) == ((1,), (), 4)
-    assert (job_world.origin_log(), _docs_ran(job_world), job_world.pull.ready_calls) == (
-        ["fix(roadmap): plan"],
-        False,
-        [],
-    )
+    assert (job_world.origin_log(), job_world.pull.ready_calls) == (["fix(roadmap): plan"], [])
     assert "end of the last group" in comment
 
 
@@ -812,3 +809,48 @@ def test_the_claim_of_the_service_does_not_end_the_job(job_world: JobWorld) -> N
     applied = job_world.run(two_groups())
 
     assert (applied.ready, applied.yielded) == ((1,), ())
+
+
+def test_a_claim_made_while_the_docs_are_generated_ends_the_job_before_the_push(
+    job_world: JobWorld,
+) -> None:
+    claim = _claim(job_world, "owner/human")
+
+    def claim_then_generate(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        claim()
+        return docs_effect(call)
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops docs generate"),
+        ProcessAnswer(side_effect=claim_then_generate),
+    )
+
+    applied = job_world.run(two_groups())
+
+    (comment,) = job_world.issue_comments()
+    assert (applied.yielded, applied.ready, job_world.pull.ready_calls) == ((1,), (), [])
+    assert job_world.origin_log() == ["fix(roadmap): plan"]
+    assert "the end of the last group" in comment
+
+
+@pytest.mark.parametrize("world_name", ["job_world", "planned_world"])
+def test_a_claim_made_while_a_group_runs_beats_the_stop_of_that_group(
+    world_name: str, request: pytest.FixtureRequest
+) -> None:
+    world: JobWorld = request.getfixturevalue(world_name)
+    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Stuck."))
+    script.effects[3] = _claim(world, "owner/human")
+
+    applied = world.run(script)
+
+    (comment,) = world.issue_comments()
+    status, record = _item(world)
+    assert (applied.yielded, applied.stopped, applied.failed) == ((1,), (), ())
+    if world_name == "job_world":
+        assert world.origin_log() == ["fix(roadmap): plan"]
+    else:
+        assert world.repo.origin_git("branch", "--list", BRANCH) == ""
+    assert not any(r.method == "POST" for r in world.api.sent)
+    assert (record.get("implement.stopped"), _owner(world)) == (None, ["owner/human"])
+    assert status != "Ready"
+    assert "human claimed the item" in comment

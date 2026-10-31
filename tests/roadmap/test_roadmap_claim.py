@@ -23,7 +23,7 @@ from devops_cli.roadmap.claim import (
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import Item, ItemField, RoadmapStore
+from devops_cli.roadmap.store import GitHubState, Item, ItemField, RoadmapStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 
@@ -189,6 +189,16 @@ def test_an_issue_with_no_priority_is_no_item_to_claim(world: World) -> None:
     number = world.seed("type/bug")
     with pytest.raises(DevOpsCLIError, match=f"#{number} is not an item of the roadmap"):
         plan_claim(world.store, number, Claimant.AGENT, REPO)
+
+
+def test_a_closed_issue_cannot_be_claimed_but_its_stray_owner_can_be_released() -> None:
+    roadmap = InMemoryRoadmapStore(repo=REPO)
+    closed = roadmap.seed_issue("done", state=GitHubState.CLOSED, labels=ITEM)
+    stray = roadmap.seed_issue("done", state=GitHubState.CLOSED, labels=(*ITEM, "owner/human"))
+
+    with pytest.raises(RoadmapClaimError, match=f"#{closed} is closed"):
+        plan_claim(roadmap, closed, Claimant.HUMAN, REPO)
+    assert apply_claim(roadmap, plan_claim(roadmap, stray, None, REPO)) is True
 
 
 def test_a_release_clears_the_owner_and_keeps_the_other_labels(world: World) -> None:
