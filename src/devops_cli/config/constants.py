@@ -479,6 +479,7 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "SECURITY.md",
         "docs/DEVCONTAINER_USAGE.md",
         "docs/KNOWN_ISSUES.md",
+        "docs/ROADMAP_WORKFLOW.md",
         "docs/ROUTINE_TASKS.md",
         "docs/SDLC.md",
         "docs/SELF_IMPROVEMENT.md",

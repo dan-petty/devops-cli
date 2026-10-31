@@ -27,17 +27,15 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 | When you | Read |
 | :--- | :--- |
 | look up a setting, variable, error code, metric or command | [README.md](README.md) |
-| set up, name a branch, write a pull request title, run one check | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| set up, name a branch, write a pull request title, run one check, change a command | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | write or change a test | [docs/TESTING.md](docs/TESTING.md) |
 | write code: errors, subprocesses, HTTP, models, prompts, constants | [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 | handle secrets, egress, private data, sandboxes or telemetry | [SECURITY.md](SECURITY.md) |
-| move a pull request from draft to merge | [docs/SDLC.md](docs/SDLC.md), Phase 6 |
+| take an issue to release, or a pull request to merge | [docs/ROADMAP_WORKFLOW.md](docs/ROADMAP_WORKFLOW.md), [docs/SDLC.md](docs/SDLC.md) Phase 6 |
 | plan and record the item a pull request delivers, as an OpenSpec change | [openspec/config.yaml](openspec/config.yaml) |
 | file an issue | `devops roadmap intake`, in the shape of [bug_report.yml](.github/ISSUE_TEMPLATE/bug_report.yml) or [feature_request.yml](.github/ISSUE_TEMPLATE/feature_request.yml) |
 | run a routine task or audit | [docs/ROUTINE_TASKS.md](docs/ROUTINE_TASKS.md) |
-| use a project term | [CONTEXT.md](CONTEXT.md) |
-| need the reason for a decision | [docs/adr/](docs/adr/) |
+| use a project term, or need the reason for a decision | [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/) |
 | run a review, or work on verdicts and suppressions | [docs/SELF_IMPROVEMENT.md](docs/SELF_IMPROVEMENT.md); review guards are in `.devops/review.md` |
 | change a manifest, the cluster or OpenTofu | [k8s/README.md](k8s/README.md), [tf/README.md](tf/README.md) |
 | learn a subsystem, library or tool | [knowledge base](src/devops_cli/ai/knowledge_base/README.md), `devops <command> --help` |
-| change a command or an option | run `devops docs generate --sync-readme` ([CONTRIBUTING.md](CONTRIBUTING.md)) |
