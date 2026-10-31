@@ -1,5 +1,19 @@
 # Spec Delta
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: A closed issue holds no Status label`
+- TO: `### Requirement: A closed issue holds no Status and no Owner label`
+
+## MODIFIED Requirements
+
+### Requirement: A closed issue holds no Status and no Owner label
+The workflow `.github/workflows/clear-status.yml` SHALL remove every `status/*` label and every `owner/*` label of an issue when the issue closes, and SHALL remove no other label.
+
+#### Scenario: A merge closes an issue
+- **WHEN** an issue that holds `status/in-review`, `owner/agent` and `type/bug` closes
+- **THEN** the workflow removes `status/in-review` and `owner/agent` and keeps `type/bug`
+
 ## ADDED Requirements
 
 ### Requirement: One label family holds the owner of an Item

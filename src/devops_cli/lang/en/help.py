@@ -1340,7 +1340,11 @@ class RoadmapCommandHelp:
         "checks, runs one fix step for a failed check, "
         "and marks the pull request ready. A step that fails stops the item: the job comments why "
         "and shows the masked diff of the discarded work, sets the Status to Ready, and runs the "
-        "item again only after a comment 'implement: retry'. The job never merges. --confirm runs steps only when the setting "
+        "item again only after a comment 'implement: retry'. The job leaves out an item that an "
+        "agent or a person claimed with a label owner/agent or owner/human. When one claims an "
+        "item that a running job works on, the job ends it at the next group boundary, with no "
+        "push and no pull request. The job never merges. --confirm runs steps only when the "
+        "setting "
         "roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell "
         "of the agent is no security boundary."
     )

@@ -122,6 +122,10 @@ _Avoid_: prepared, queued
 A Ready item whose change folder `openspec/changes/<issue>-<slug>/` is on the default branch, and that has no branch on `origin`: a person merged the staging pull request. The stage job leaves it out, and also an item whose change is archived there. The implement job takes it: it makes the branch `<type>/<issue>-<slug>` at the default branch, with the slug of the folder, runs the groups that have an unticked task, and opens the draft pull request that closes the issue.
 _Avoid_: merged plan, orphan
 
+**Claim**:
+The mark that says who works on an item now: one label of `owner/service`, `owner/agent` and `owner/human`. An item has at most one. Any actor may claim a free item with `devops roadmap claim`; `devops repos worktrees add` claims for an agent. A person's claim takes an item from the Service. The Service claims an item for the runner Job it creates, takes no item that an agent or a person holds, and releases its claim when the Job ends. A claim of an agent or a person ends a running Job at its next group boundary. No job removes such a claim.
+_Avoid_: lock, assignment
+
 **Step**:
 The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the item, the change folder and the packed files of the group.
 _Avoid_: chunk, phase

@@ -35,10 +35,16 @@
 - [x] 5.2 Claim after the worktree in `src/devops_cli/commands/repos.py`, and add `claimed` and `claim_error` to `WorktreeAddReport` in `src/devops_cli/git/worktree_add.py`
   - Verification: `uv run devops ci test tests/core/test_repos_worktrees_add.py tests/git/test_git_worktree.py`
 
-## 6. The documents
+## 6. The close of an issue and the documents
 
-- [ ] 6.1 Name the owner family in `docs/adr/0016-labels-hold-the-roadmap-items-fields.md`, regenerate the documents, and archive the change
-  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops openspec check`
+- [x] 6.1 Write a failing test in `tests/commands/test_pr_status.py` for the scenario of "A closed issue holds no Status and no Owner label": the filter of the workflow picks the `status/*` and the `owner/*` labels
+  - Verification: `uv run devops ci test tests/commands/test_pr_status.py`
+- [x] 6.2 Remove the `owner/*` labels in `.github/workflows/clear-status.yml`
+  - Verification: `uv run devops ci test tests/commands/test_pr_status.py`
+- [x] 6.3 Name the owner family in `docs/adr/0016-labels-hold-the-roadmap-items-fields.md`, `CONTEXT.md` and `k8s/README.md`, and regenerate the documents
+  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
+- [ ] 6.4 Archive the change
+  - Verification: `uv run devops openspec archive 2910-item-owner-claim-labels`
 
 ## Workflow follow-up
 
