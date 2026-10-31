@@ -14,7 +14,7 @@ The pinned groups `qwen3-coder:30b` and `gpt-oss:20b` copy the `devops-review` d
 
 `context_window_fallbacks` has two rules. `devops-chat` goes to `devops-coder` then `devops-reasoning`, and `devops-coder` goes to `devops-reasoning`. The tier `ollama-48gib-fast` has the largest window in the cluster, 262144, and `devops-coder` and `devops-reasoning` run on it. A prompt that no `devops-chat` deployment holds does not fit them either. The rules go, and the key goes with them. A prompt longer than every window of a group tries the plain `fallbacks` of that group. LiteLLM does this when `context_window_fallbacks` is not set (`router.py`, `async_function_with_fallbacks`). The targets hold no larger window either, so the call ends with a `ContextWindowExceededError` that names the window.
 
-The `fallbacks` rules stay. A `devops-review` call that falls back to `devops-background` meets the window 128000 of that tier. A longer prompt now fails with an error, and Ollama no longer cuts it.
+The `fallbacks` rules stay. A `devops-review` call that falls back to `devops-background` meets the window 128000 of that tier. A longer prompt skips `devops-background`, and the plain rule `devops-background: [qwen3.8:27b]` sends it on to `qwen3.8:27b` on `ollama-48gib-fast`, which holds 262144. LiteLLM v1.103.0 runs the plain fallbacks for a `ContextWindowExceededError` when `context_window_fallbacks` is not set (`router.py`). The call fails only when no group of the chain holds the prompt. Ollama no longer cuts the prompt.
 
 ## Rejected alternatives
 

@@ -34,7 +34,7 @@ None.
 - Cluster: the gateway Deployment rolls when Argo CD syncs the new ConfigMap. No Ollama tier changes.
 - A prompt longer than the window of a deployment no longer reaches it. A prompt longer than every window of a group ends with a `ContextWindowExceededError` from the gateway, after its plain fallbacks.
 - `devops ai gateway tune` reads `model_info.max_input_tokens` from `/model/info`. It now sees the window of each deployment and keeps its probe prompt within 90% of it.
-- `devops-review` falls back to `devops-background` (128000). A prompt longer than that window now fails there with an error. Before, Ollama cut it without an error.
+- `devops-review` falls back to `devops-background` (128000). A prompt longer than that window now skips that group, and the plain fallback `devops-background: [qwen3.8:27b]` sends it to `qwen3.8:27b` on `ollama-48gib-fast` (262144). A direct `devops-background` call with 128001 to 160000 tokens does the same. It fails only when no group of the chain holds the prompt. Before, Ollama cut the prompt without an error. A review of a long prompt then runs on the interactive tier, not on the slow tier. This is the choice of this change: the fallback list stays, because the other way is a failed review.
 
 ## Feasibility
 

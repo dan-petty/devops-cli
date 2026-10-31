@@ -82,8 +82,8 @@ model_list:
 
   # Background tier: ollama-48gib-slow's only generation model. Batch, cluster services and
   # --watch jobs reach it through devops-background (k8s/README.md), and devops-review falls back to it.
-  # Its window is the 128000 of the tier, so a devops-review call that falls back here with a
-  # longer prompt fails with an error and Ollama does not cut it.
+  # Its window is the 128000 of the tier. A longer prompt skips this group, and the plain fallback
+  # below sends it on to qwen3.8:27b, whose largest window is 262144. Ollama does not cut it.
   - model_name: devops-background
     litellm_params:
       model: ollama_chat/qwen3.8:27b
@@ -229,9 +229,10 @@ router_settings:
   timeout: 1500
   # Check prompt size against the max_input_tokens of each deployment before calling a backend,
   # so a prompt never reaches a deployment whose window it exceeds. A prompt longer than every
-  # window of a group tries the plain fallbacks below, and then fails with a
-  # ContextWindowExceededError. No context_window_fallbacks: the window of ollama-48gib-fast,
-  # 262144, is the largest, so no target could take that prompt.
+  # window of a group tries the plain fallbacks below, and fails with a ContextWindowExceededError
+  # only when no group of the chain holds it. No context_window_fallbacks: devops-chat,
+  # devops-coder and devops-reasoning run on ollama-48gib-fast, whose window of 262144 is the
+  # largest, so a prompt that one of them refuses does not fit the others.
   enable_pre_call_checks: true
   # Backend unavailable: prefer the larger model before the small model.
   fallbacks:
@@ -239,7 +240,8 @@ router_settings:
     - devops-coder: [devops-reasoning, devops-chat]
     # Once devops-review's retries fail, timeouts included. The keepalive keeps the client's
     # streamed call open, so the client reads the background tier's reply. The pre-call check
-    # keeps a prompt longer than the 128000 window of that tier off it.
+    # keeps a prompt longer than the 128000 window of that tier off it. Such a prompt moves on
+    # to qwen3.8:27b, by the devops-background rule below.
     # No devops-chat rule: fallbacks chain, so devops-coder and devops-reasoning failures
     # would reach the background tier through devops-chat.
     - devops-review: [devops-background]
