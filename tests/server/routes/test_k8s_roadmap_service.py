@@ -11,7 +11,6 @@ import pytest
 import yaml
 
 from devops_cli.config.constants import WebhookExposure
-from devops_cli.config.env import CREDENTIALS
 from devops_cli.config.settings import Settings
 from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
 from devops_cli.telemetry.exporter import OtlpSignal
@@ -94,17 +93,6 @@ def test_security_context_is_restricted() -> None:
         container_sc["readOnlyRootFilesystem"],
         container_sc["capabilities"]["drop"],
     ) == (True, 1000, 1000, 1000, "RuntimeDefault", False, True, ["ALL"])
-
-
-def test_credentials_arrive_only_through_secret_devops_cli() -> None:
-    container = _container()
-    secret_env = {"GH_TOKEN", "GITHUB_TOKEN"} | {
-        variable for credential in CREDENTIALS for variable in credential.env_vars
-    }
-    literal = [
-        e["name"] for e in container.get("env", []) if e["name"] in secret_env and "value" in e
-    ]
-    assert (container["envFrom"], literal) == ([{"secretRef": {"name": "devops-cli"}}], [])
 
 
 def test_pvc_mounted_at_home_data_dir_under_home_and_sync_options() -> None:

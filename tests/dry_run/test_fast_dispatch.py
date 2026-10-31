@@ -117,11 +117,18 @@ def test_main_helpers_and_entrypoint() -> None:
         mock_main.assert_called_once()
 
 
-def test_entry_main_version(capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    ("prog_arg",),
+    [
+        pytest.param("devops", id="relative-devops-binary"),
+        pytest.param("/usr/local/bin/devops", id="absolute-devops-binary"),
+    ],
+)
+def test_entry_main_version(capsys: pytest.CaptureFixture[str], prog_arg: str) -> None:
     from devops_cli import __version__
 
     with pytest.raises(SystemExit):
-        main(["devops", "--version"])
+        main([prog_arg, "--version"])
     captured = capsys.readouterr()
     assert __version__ in captured.out
 
@@ -131,15 +138,6 @@ def test_entry_main_help(capsys: pytest.CaptureFixture[str]) -> None:
         main(["devops", "--help"])
     captured = capsys.readouterr()
     assert "DevOps CLI" in captured.out
-
-
-def test_entry_main_binary_path_argv(capsys: pytest.CaptureFixture[str]) -> None:
-    from devops_cli import __version__
-
-    with pytest.raises(SystemExit):
-        main(["/usr/local/bin/devops", "--version"])
-    captured = capsys.readouterr()
-    assert __version__ in captured.out
 
 
 def test_entry_main_dry_run_delegation() -> None:

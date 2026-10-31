@@ -75,37 +75,21 @@ def test_valid_expressions_are_never_rejected(expression: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_unclosed_bracket_is_reported_with_position() -> None:
-    """An unbalanced delimiter names the character and where it opened."""
-    result = validate_promql("rate(http_requests_total[5m]")
+@pytest.mark.parametrize(
+    ("query", "expected_fragment"),
+    [
+        pytest.param("rate(http_requests_total[5m]", "Unclosed '('", id="unclosed-bracket"),
+        pytest.param("sum(rate(x[5m]))]", "Unmatched closing", id="unmatched-closing-bracket"),
+        pytest.param("sum(rate(x[5m)])", "Mismatched", id="mismatched-bracket-types"),
+        pytest.param('up{job="api}', "Unterminated string", id="unterminated-string"),
+        pytest.param("rate(x[5 m])", "Invalid duration", id="invalid-duration-literal"),
+    ],
+)
+def test_malformed_promql_syntax_error_is_reported(query: str, expected_fragment: str) -> None:
+    """Malformed PromQL queries are rejected with an informative summary message."""
+    result = validate_promql(query)
     assert result.valid is False
-    assert "Unclosed '('" in result.summary
-
-
-def test_unmatched_closing_bracket_is_reported() -> None:
-    """A stray closing delimiter is caught even when everything else balances."""
-    result = validate_promql("sum(rate(x[5m]))]")
-    assert (result.valid, "Unmatched closing" in result.summary) == (False, True)
-
-
-def test_mismatched_bracket_types_are_reported() -> None:
-    """Delimiters must nest correctly, not merely balance in count."""
-    result = validate_promql("sum(rate(x[5m)])")
-    assert result.valid is False
-    assert "Mismatched" in result.summary
-
-
-def test_unterminated_string_is_reported() -> None:
-    """An unclosed literal is caught rather than swallowing the rest of the query."""
-    result = validate_promql('up{job="api}')
-    assert (result.valid, "Unterminated string" in result.summary) == (False, True)
-
-
-def test_invalid_duration_literal_is_reported() -> None:
-    """A malformed range duration is caught before the server sees it."""
-    result = validate_promql("rate(x[5 m])")
-    assert result.valid is False
-    assert "Invalid duration" in result.summary
+    assert expected_fragment in result.summary
 
 
 def test_empty_range_selector_is_reported() -> None:

@@ -748,22 +748,19 @@ def test_status_shows_each_pin_and_what_is_installed_without_a_request(
     ) == (0, True, True, True, True, [])
 
 
-def test_version_is_no_longer_an_option(tmp_path: Path) -> None:
-    """The lock is the only version source."""
-    result = runner.invoke(
-        install_tools_app, ["--version", "v1.0.0", "--target-dir", str(tmp_path)]
-    )
-
-    assert result.exit_code == 2
-
-
-def test_an_unknown_tool_is_refused(tmp_path: Path) -> None:
-    """`--tool` names a tool in the lock."""
-    result = runner.invoke(
-        install_tools_app, ["--tool", "unknown-tool", "--target-dir", str(tmp_path)]
-    )
-
-    assert result.exit_code == 1
+@pytest.mark.parametrize(
+    ("args", "expected_exit"),
+    [
+        pytest.param(["--version", "v1.0.0"], 2, id="version-option-removed"),
+        pytest.param(["--tool", "unknown-tool"], 1, id="unknown-tool-refused"),
+    ],
+)
+def test_install_tools_refuses_invalid_arguments(
+    tmp_path: Path, args: list[str], expected_exit: int
+) -> None:
+    """The lock is the only version source and only locked tools are allowed."""
+    result = runner.invoke(install_tools_app, [*args, "--target-dir", str(tmp_path)])
+    assert result.exit_code == expected_exit
 
 
 def test_install_managed_tools_reports_one_line_per_tool(

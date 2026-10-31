@@ -486,31 +486,34 @@ def test_a_gateway_counter_read_without_rate_or_increase_fails() -> None:
     ]
 
 
-def test_a_query_naming_a_series_missing_from_the_capture_fails() -> None:
-    """Verify a series no exporter serves is named."""
-    expression = "sum(rate(litellm_requests_served_total[5m]))"
-
-    assert _violations_after_adding("llm-stack.json", expression) == [
-        f"{expression}: litellm_requests_served_total is in no capture"
-    ]
-
-
-def test_grouping_by_a_label_no_selected_series_carries_fails() -> None:
-    """Verify a `by` label that would collapse every series into one is named."""
-    expression = "sum by (api_base) (rate(litellm_output_tokens_metric_total[5m]))"
-
-    assert _violations_after_adding("llm-stack.json", expression) == [
-        f"{expression}: groups by api_base, which no series it selects carries"
-    ]
-
-
-def test_a_matcher_on_a_label_the_series_lacks_fails() -> None:
-    """Verify a matcher on a label the series does not carry is named."""
-    expression = 'otelcol_exporter_queue_size{receiver="otlp"}'
-
-    assert _violations_after_adding("otel-collector.json", expression) == [
-        f"{expression}: otelcol_exporter_queue_size does not carry receiver"
-    ]
+@pytest.mark.parametrize(
+    ("dashboard", "expression", "reason"),
+    [
+        pytest.param(
+            "llm-stack.json",
+            "sum(rate(litellm_requests_served_total[5m]))",
+            "litellm_requests_served_total is in no capture",
+            id="missing-series",
+        ),
+        pytest.param(
+            "llm-stack.json",
+            "sum by (api_base) (rate(litellm_output_tokens_metric_total[5m]))",
+            "groups by api_base, which no series it selects carries",
+            id="missing-grouping-label",
+        ),
+        pytest.param(
+            "otel-collector.json",
+            'otelcol_exporter_queue_size{receiver="otlp"}',
+            "otelcol_exporter_queue_size does not carry receiver",
+            id="missing-matcher-label",
+        ),
+    ],
+)
+def test_dashboard_query_validation_failure_is_named(
+    dashboard: str, expression: str, reason: str
+) -> None:
+    """Verify invalid dashboard queries report descriptive violation reasons."""
+    assert _violations_after_adding(dashboard, expression) == [f"{expression}: {reason}"]
 
 
 @pytest.mark.parametrize(
