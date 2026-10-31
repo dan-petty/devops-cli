@@ -140,7 +140,6 @@ class ReviewMessages:
     rules_test_checked: str = (
         "Tested {count} rule(s) with Semgrep {version}; [bold]{path}[/bold] is up to date."
     )
-    rules_test_dry_run: str = r"[yellow]\[dry-run][/yellow] Would run `semgrep --test --metrics off {path}` and write {lock}."
     rules_fetch_dry_run_heading: str = (
         "Dry run: no request was made. rules fetch would make these requests, in order:"
     )

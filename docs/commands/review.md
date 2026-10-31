@@ -280,6 +280,7 @@ devops review benchmark [OPTIONS] <targets>
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -305,6 +306,7 @@ devops review score [OPTIONS] <sessions>
 | `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -336,6 +338,7 @@ devops review export-feedback [OPTIONS]
 | `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -367,6 +370,7 @@ devops review corpus generate [OPTIONS] <sources>
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
 | `--template`, `-t` | `string` | - | Defect template to inject (repeatable; default: all). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops review corpus score`
 
@@ -390,6 +394,7 @@ devops review corpus score [OPTIONS] <corpus_dir>
 | `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -455,6 +460,7 @@ devops review samples validate [OPTIONS] <names>
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -495,6 +501,7 @@ devops review templates sweep [OPTIONS]
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
 | `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops review templates check`
 
@@ -513,6 +520,7 @@ devops review templates check [OPTIONS]
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
 | `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -537,7 +545,6 @@ devops review rules test [OPTIONS]
 | `--rules-dir` | `path` | - | Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`. |
 | `--check` | `boolean` | - | Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops review rules fetch`
 

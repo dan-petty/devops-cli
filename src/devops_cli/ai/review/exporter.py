@@ -281,6 +281,7 @@ def export_invalidated_feedback(
     status_filter: str | None = CONST_STATUS_INVALIDATED,
     *,
     workspace_root: Path,
+    dry_run: bool = False,
 ) -> tuple[int, Path]:
     """Append the findings matching status_filter (all when None) the dataset does not hold yet.
 
@@ -312,7 +313,7 @@ def export_invalidated_feedback(
             seen.add(fingerprint)
             lines.append(json.dumps(payload, ensure_ascii=False) + "\n")
 
-    if lines:
+    if lines and not dry_run:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open("a", encoding="utf-8") as f:
             f.writelines(lines)

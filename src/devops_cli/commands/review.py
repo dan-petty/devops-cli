@@ -51,6 +51,18 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format, resolve_format
+from devops_cli.review.review_plans import (
+    plan_review_benchmark,
+    plan_review_branch,
+    plan_review_corpus_generate,
+    plan_review_corpus_score,
+    plan_review_path,
+    plan_review_pr,
+    plan_review_samples_fetch,
+    plan_review_samples_validate,
+    plan_review_score,
+    plan_review_templates_check,
+)
 from devops_cli.telemetry import trace_span
 
 __all__ = [
@@ -156,6 +168,7 @@ app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
 
 @app.callback(invoke_without_command=True)
+@dry_run_class("no-external-request")
 def review_main(
     ctx: typer.Context,
     explain: Annotated[
@@ -351,6 +364,7 @@ def _run_path_watcher(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def path(
     targets: Annotated[
         list[Path] | None,
@@ -444,6 +458,12 @@ def path(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    if (dry_run or is_dry_run()) and not summary:
+        render_request_plan(
+            "Plan for review path",
+            plan_review_path(targets=targets, pattern=pattern),
+        )
+        return
     settings = load_settings()
     _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
@@ -506,6 +526,7 @@ def path(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def branch(
     branch_name: Annotated[
         str | None,
@@ -595,6 +616,12 @@ def branch(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    if (dry_run or is_dry_run()) and not summary:
+        render_request_plan(
+            "Plan for review branch",
+            plan_review_branch(branch=branch_name, base=base),
+        )
+        return
     settings = load_settings()
     _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
@@ -753,6 +780,7 @@ def _run_pr_review_workflow(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def pr(
     number: Annotated[int, typer.Argument(help=HELP.review.pr_number)],
     repo: Annotated[
@@ -839,6 +867,14 @@ def pr(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    if dry_run or is_dry_run():
+        notes = [f"Would post PR comment on #{number}"] if post_comment else ()
+        render_request_plan(
+            "Plan for review pr",
+            plan_review_pr(number=number, repo=repo, post_comment=post_comment),
+            notes=notes,
+        )
+        return
     settings = load_settings()
     _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
@@ -1027,6 +1063,7 @@ def _print_finding_details(numbered: Sequence[tuple[int, SavedFinding]], noun: s
 
 
 @app.command("findings")
+@dry_run_class("no-external-request")
 def list_findings(
     session: Annotated[
         str | None,
@@ -1173,6 +1210,7 @@ def _judge_candidate(session_dir: Path, number: int, verdict: Verdict) -> str:
 
 
 @app.command("verify")
+@dry_run_class("no-external-request")
 def verify_finding(
     session: Annotated[
         str | None,
@@ -1296,6 +1334,7 @@ def _run_hand_off(hand_off: HandOff, repo: str, meter: SpendMeter, *, confirm: b
 
 
 @app.command("intake", help=HELP.review.intake_cmd)
+@dry_run_class("request-plan")
 def intake(
     session: Annotated[str | None, typer.Argument(help=HELP.review.session)] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.review.intake_repo)] = None,
@@ -1418,6 +1457,7 @@ def _render_category_stats_table(category_metrics: dict[str, Any]) -> None:
 
 
 @app.command("stats")
+@dry_run_class("no-external-request")
 def review_stats(
     reviews_dir: Annotated[
         Path | None,
@@ -1562,6 +1602,7 @@ def _render_benchmark(summary: BenchmarkSummary, saved: Path) -> None:
 
 
 @app.command("benchmark")
+@dry_run_class("request-plan")
 def benchmark(
     targets: Annotated[
         list[Path],
@@ -1587,8 +1628,18 @@ def benchmark(
         int | None,
         typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Plan for review benchmark",
+            plan_review_benchmark(targets=targets, runs=runs),
+        )
+        return
     # Each run bypasses the response cache and writes its session's profile.json. Findings vary
     # between identical runs, so the summary takes medians, and time per candidate finding
     # normalises for runs that happen to verify more findings.
@@ -1798,6 +1849,7 @@ def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
 
 
 @app.command("score")
+@dry_run_class("request-plan")
 def review_score(
     labels: Annotated[
         Path,
@@ -1821,9 +1873,20 @@ def review_score(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Score saved review sessions against a label file: precision, recall and stability, each with its n."""
     resolved = resolve_format(output_format, json_output=json_output)
+    if dry_run or is_dry_run():
+        requests = plan_review_score(sessions=sessions, labels=labels)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in requests]}, resolved)
+        else:
+            render_request_plan("Plan for scoring review sessions", requests)
+        return
     if materialise_golden_dir is not None:
         _materialise_golden(labels, materialise_golden_dir, sessions, resolved)
         return
@@ -1879,6 +1942,7 @@ def _corpus_sources(sources: list[Path], pattern: str) -> list[tuple[Path, str]]
 
 
 @corpus_app.command("generate")
+@dry_run_class("request-plan")
 def corpus_generate(
     sources: Annotated[list[Path], typer.Argument(help=HELP.review.corpus_source)],
     out: Annotated[
@@ -1897,8 +1961,18 @@ def corpus_generate(
         list[str] | None,
         typer.Option("--template", "-t", help=HELP.review.corpus_template),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Copy source files with one known defect injected into each, and record where."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Plan for generating review corpus",
+            plan_review_corpus_generate(sources=sources, out=out),
+        )
+        return
     try:
         templates = select_templates(template)
     except ValueError as exc:
@@ -2141,6 +2215,7 @@ def _warn_unpinned(setup: dict[str, Any], *, to_stderr: bool) -> None:
 
 
 @corpus_app.command("score")
+@dry_run_class("request-plan")
 def corpus_score(
     corpus_dir: Annotated[Path, typer.Argument(help=HELP.review.corpus_dir)],
     session: Annotated[
@@ -2159,8 +2234,20 @@ def corpus_score(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept."""
+    if dry_run or is_dry_run():
+        resolved = resolve_format(output_format, json_output=json_output)
+        requests = plan_review_corpus_score(corpus_dir=corpus_dir)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in requests]}, resolved)
+        else:
+            render_request_plan("Plan for scoring review corpus", requests)
+        return
     try:
         corpus = DefectCorpus.load(corpus_dir)
     except (OSError, ValueError) as exc:
@@ -2212,6 +2299,7 @@ def _select_samples(
 
 
 @samples_app.command("list")
+@dry_run_class("no-external-request")
 def samples_list(
     category: Annotated[
         list[SampleCategory] | None,
@@ -2248,6 +2336,7 @@ def samples_list(
 
 
 @samples_app.command("fetch")
+@dry_run_class("request-plan")
 def samples_fetch(
     names: Annotated[
         list[str] | None,
@@ -2266,8 +2355,15 @@ def samples_fetch(
     samples = _select_samples(names, category)
     root = samples_dir()
     if dry_run or is_dry_run():
-        for sample in samples:
-            print_info(f"Would fetch {sample.repository} at {sample.commit} → {root / sample.name}")
+        notes = [
+            f"Would fetch {sample.repository} at {sample.commit} → {root / sample.name}"
+            for sample in samples
+        ]
+        render_request_plan(
+            "Plan for fetching review samples",
+            plan_review_samples_fetch(names=names, category=category),
+            notes=notes,
+        )
         return
     failed = 0
     for sample in samples:
@@ -2364,6 +2460,7 @@ def _render_validation(reports: list[CategoryReport], run_dir: Path) -> None:
 
 
 @samples_app.command("validate")
+@dry_run_class("request-plan")
 def samples_validate(
     names: Annotated[
         list[str] | None,
@@ -2381,8 +2478,18 @@ def samples_validate(
         int,
         typer.Option("--seed", help=HELP.review.corpus_seed),
     ] = DEFAULT_REVIEW_CORPUS_SEED,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run devops ai tooling over fetched samples and save a JSON report per category."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Plan for validating review samples",
+            plan_review_samples_validate(names=names, category=category, review=review),
+        )
+        return
     samples = _select_samples(names, category)
     root = samples_dir()
     unfetched = [s.name for s in samples if checkout_problems(s, root / s.name)]
@@ -2535,6 +2642,7 @@ def _render_sweep_failures(report: TemplateSweepReport) -> None:
 
 
 @templates_app.command("list")
+@dry_run_class("no-external-request")
 def templates_list(
     output_format: Annotated[
         str,
@@ -2560,6 +2668,7 @@ def templates_list(
 
 @templates_app.command("check")
 @templates_app.command("sweep")
+@dry_run_class("request-plan")
 def templates_check(
     template: Annotated[
         list[str] | None,
@@ -2581,8 +2690,20 @@ def templates_check(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation."""
+    if dry_run or is_dry_run():
+        resolved = normalize_format(output_format)
+        requests = plan_review_templates_check(template=template, sample=sample)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in requests]}, resolved)
+        else:
+            render_request_plan("Plan for defect template sweep", requests)
+        return
     try:
         templates = select_templates(template)
         samples = _select_samples(sample, category)
@@ -2629,6 +2750,7 @@ def templates_check(
 
 
 @app.command("export-feedback")
+@dry_run_class("no-external-request")
 def export_feedback(
     output: Annotated[
         Path | None,
@@ -2646,6 +2768,10 @@ def export_feedback(
             help=HELP.review.status_export,
         ),
     ] = CONST_STATUS_INVALIDATED,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
 
@@ -2660,6 +2786,8 @@ def export_feedback(
     by that verdict. A session that records no subject, and a finding with no fingerprint v2,
     are exported on their own.
     """
+    if dry_run:
+        set_dry_run(True)
     status_filter = None if status.upper() == "ALL" else status.upper()
     from devops_cli.ai.review.exporter import export_invalidated_feedback
 
@@ -2668,7 +2796,23 @@ def export_feedback(
         output_file=output,
         status_filter=status_filter,
         workspace_root=Path.cwd(),
+        dry_run=is_dry_run(),
     )
+    if is_dry_run():
+        if count == 0:
+            target_dir = reviews_dir or ReviewSessionStore.root()
+            print_warning(
+                MESSAGES.review.no_findings_to_export.format(
+                    status=status, target=target_dir, path=out_path
+                ),
+                prefix=False,
+            )
+        else:
+            print_info(
+                f"Would append {count} {status} finding(s) → {out_path} (dry run).",
+                prefix=False,
+            )
+        return
     if count == 0:
         target_dir = reviews_dir or ReviewSessionStore.root()
         print_warning(
@@ -2692,6 +2836,7 @@ app.add_typer(rules_app, name="rules")
 
 
 @rules_app.command("test")
+@dry_run_class("no-external-request")
 def rules_test(
     rules_dir: Annotated[
         Path | None,
@@ -2705,23 +2850,12 @@ def rules_test(
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Run `semgrep --test` on the review rule pack and write or check `rules.lock` (#1145)."""
     from devops_cli.review.rules_pack import RULE_PACK_DIR, RULES_LOCK_FILENAME, run_rule_pack_tests
 
-    if dry_run:
-        set_dry_run(True)
     target_rules_dir = rules_dir or RULE_PACK_DIR
     lock_path = target_rules_dir / RULES_LOCK_FILENAME
-    if is_dry_run():
-        print_info(
-            MESSAGES.review.rules_test_dry_run.format(path=target_rules_dir, lock=lock_path),
-            prefix=False,
-        )
     try:
         lock = run_rule_pack_tests(target_rules_dir, check_only=check)
     except ValidationError as exc:

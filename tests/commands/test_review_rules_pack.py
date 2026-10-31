@@ -18,6 +18,7 @@ from devops_cli.config.defaults import DEFAULT_SEMGREP_CONFIG
 from devops_cli.core.command_resolver import resolve_devops_argv
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.validation import ValidationError
+from devops_cli.main import app as root_app
 from devops_cli.review.rules_pack import (
     RULE_PACK_DIR,
     RULES_LOCK_FILENAME,
@@ -177,7 +178,7 @@ def test_rules_test_fails_when_semgrep_test_fails_and_dry_run_is_pure(
 
     monkeypatch.setattr("devops_cli.review.rules_pack.run_subprocess", fake_fail)
     res_dry = runner.invoke(
-        review_app, ["rules", "test", "--rules-dir", str(pack_copy), "--dry-run"]
+        root_app, ["--dry-run", "review", "rules", "test", "--rules-dir", str(pack_copy)]
     )
     dry_started = list(started)
     set_dry_run(False)
