@@ -1555,11 +1555,24 @@ def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_
 def test_a_model_call_that_fails_without_a_status_gives_the_model_in_the_reason(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    script = ModelScript(ModelAPIError("example-model", "The provider broke."))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == "ModelAPIError: model example-model"
+
+
+def test_a_model_call_that_runs_past_its_deadline_gives_the_deadline_in_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
     script = ModelScript(ModelRequestTimeout("example-model", 30))
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason == "ModelRequestTimeout: model example-model"
+    assert (
+        outcome.reason
+        == "ModelRequestTimeout: model example-model, no complete reply in 30 seconds"
+    )
 
 
 def test_the_reason_of_a_failed_model_call_leaves_out_the_message_and_the_body(

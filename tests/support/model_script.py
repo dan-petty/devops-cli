@@ -1,14 +1,16 @@
 """A scripted pydantic-ai model for the tests of an agent run (#2664).
 
 `ModelScript` answers the nth model request with the nth scripted reply, and the last reply for
-every request after that. A reply is a `ModelResponse`, an exception that the request raises, or
-an `InStream` error, which the request raises after its stream has begun. The model streams, as the
-harness's `Coder` and the jobs' runs ask for it. The script keeps the messages of each request and
-the names of the function tools each request offered.
+every request after that. A reply is a `ModelResponse`, an exception that the request raises, an
+`InStream` error, which the request raises after its stream has begun, or `Hang`, which never
+answers. The model streams, as the harness's `Coder` and the jobs' runs ask for it. The script
+keeps the messages of each request, the names of the function tools each request offered, and the
+model settings of each request.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -47,12 +49,20 @@ class InStream:
     error: Exception
 
 
+class Hang:
+    """A reply that never comes: the request waits until its caller gives up."""
+
+
+class _Hanging(Exception):
+    """Raised inside the script to tell the stream that the request must hang."""
+
+
 class ModelScript:
     """The scripted replies of a model, and what the model was asked."""
 
     def __init__(
         self,
-        *replies: ModelResponse | Exception | InStream,
+        *replies: ModelResponse | Exception | InStream | Hang,
         effects: Mapping[int, Callable[[], None]] | None = None,
     ) -> None:
         """`effects` maps the number of a request to what the agent's shell would have done by
@@ -61,6 +71,7 @@ class ModelScript:
         self.effects = dict(effects or {})
         self.seen: list[list[ModelMessage]] = []
         self.tools_offered: list[list[str]] = []
+        self.settings_seen: list[dict[str, Any]] = []
 
     def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         self.seen.append(list(messages))
@@ -68,7 +79,10 @@ class ModelScript:
         if effect is not None:
             effect()
         self.tools_offered.append(sorted(tool.name for tool in info.function_tools))
+        self.settings_seen.append(dict(info.model_settings or {}))
         reply = self.replies[min(len(self.seen), len(self.replies)) - 1]
+        if isinstance(reply, Hang):
+            raise _Hanging
         if isinstance(reply, Exception):
             raise reply
         if isinstance(reply, InStream):
@@ -81,6 +95,8 @@ class ModelScript:
         """The same reply as a stream."""
         try:
             reply = self(messages, info)
+        except _Hanging:
+            await asyncio.Event().wait()
         except Exception as error:
             if self._in_stream(len(self.seen)):
                 yield {

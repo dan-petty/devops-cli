@@ -51,16 +51,20 @@ The agent of a step SHALL set the model settings `max_tokens` to `CONST_ROADMAP_
 - **THEN** the step reports stopped with a reason that starts with `ModelRequestTimeout: ` and holds the deadline, the model got one request, and the checkout is reset
 
 ### Requirement: A reply that reaches the output cap stops the step with its cause
-A turn whose reply has the finish reason `length`, or that Pydantic AI ends with `IncompleteToolCall`, SHALL end the step as stopped, and the step SHALL reset the checkout. The reason SHALL name the cap and its value. The step SHALL not send the request again. A reply of a size under the cap SHALL pass.
+A model reply with the finish reason `length` SHALL end the run at once, without a further request or tool call. The step SHALL end as stopped, and SHALL reset the checkout. The reason SHALL start with `OutputCapReached: ` and SHALL hold the cap. The request SHALL count in the requests and the spend of the step, and the step SHALL not send it again. A reply of a size under the cap SHALL pass.
 
 #### Scenario: A reply that the cap ends
 - **WHEN** the model answers with a text and the finish reason `length`
-- **THEN** the step reports stopped, the reason holds `CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS` as a number, the model got one request, and the checkout is reset
+- **THEN** the step reports stopped with a reason that holds the cap as a number, the model got one request, the outcome counts one request, and the checkout is reset
 
 #### Scenario: A tool call that the cap cuts
-- **WHEN** the model answers with a tool call whose arguments are not whole and the finish reason `length`
-- **THEN** the step reports stopped with the same reason, and the model got one request
+- **WHEN** the model answers with a `write_file` call whose arguments are not whole and the finish reason `length`
+- **THEN** the step reports stopped with the same reason, the model got one request, the tool did not run, and the checkout is reset
 
-#### Scenario: A reply of the longest honest size
-- **WHEN** the model answers with a `write_file` call of a file of about 12,000 tokens and the finish reason `tool_calls`, and then ends the run
+#### Scenario: The counts stay in the reason
+- **WHEN** the shell tool refused one command, and a later reply has the finish reason `length`
+- **THEN** the reason holds the cap, and then the count of the refused commands
+
+#### Scenario: A reply under the cap
+- **WHEN** the model answers with a `write_file` call of three quarters of the cap and the finish reason `tool_calls`, and then ends the run
 - **THEN** the step ends done

@@ -2031,6 +2031,10 @@ class RoadmapMessages:
     implement_model_call_status: str = "HTTP {status}, {model}"
     implement_model_call_body: str = "{detail}, body: {body}"
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
+    implement_model_call_deadline: str = "{detail}, no complete reply in {seconds:g} seconds"
+    implement_stop_capped: str = (
+        "The model reply reached the output cap of {tokens} tokens, so the call ended."
+    )
     implement_tool_other: str = "other"
     implement_refusal_replacement: str = "Instead of `{program}`: {replacement}."
     implement_refusal_allowed: str = (

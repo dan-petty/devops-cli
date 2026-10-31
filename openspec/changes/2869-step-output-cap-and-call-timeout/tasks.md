@@ -2,16 +2,16 @@
 
 ## 1. The cap and the deadline
 
-- [ ] Write failing tests in `tests/roadmap/test_roadmap_implement_step_output_cap.py` and `tests/support/model_script.py`: the first request holds `max_tokens` and `request_timeout` from the constants; a request to the real gateway model holds `max_completion_tokens` and no `request_timeout`; the deadline is less than `router_settings.timeout` of `k8s/llm/gateway/config.yaml`; a call that never answers ends the step with a reason that holds the deadline, and the model gets one request.
+- [x] Write failing tests in `tests/roadmap/test_roadmap_implement_step_output_cap.py` and `tests/support/model_script.py`: the first request holds `max_tokens` and `request_timeout` from the constants; a request to the real gateway model holds `max_completion_tokens` and no `request_timeout`; the deadline is less than `router_settings.timeout` of `k8s/llm/gateway/config.yaml`; a call that never answers ends the step with a reason that holds the deadline, and the model gets one request.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_output_cap.py`
-- [ ] Add the two constants to `src/devops_cli/config/constants.py`. Pass them as `model_settings` in `build_agent`. Add the deadline to `_model_call_reason` and its text to `src/devops_cli/lang/en/messages.py`.
+- [x] Add the two constants to `src/devops_cli/config/constants.py`. Pass them as `model_settings` in `build_agent`. Add the deadline to `_model_call_reason` and its text to `src/devops_cli/lang/en/messages.py`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_output_cap.py tests/roadmap/test_roadmap_implement_step.py`
 
 ## 2. The stop for a capped reply
 
-- [ ] Write failing tests in the same file: a text reply with the finish reason `length` stops the step with a reason that holds the cap, with one request and a reset checkout; a tool call with arguments that are not whole and the finish reason `length` stops it the same way; a `write_file` call of about 12,000 tokens passes; a capped tool call that fails as a 400 inside a stream is sent again at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times.
+- [x] Write failing tests in the same file: a text reply with the finish reason `length` stops the step with a reason that holds the cap, with one request and a reset checkout; a tool call with arguments that are not whole and the finish reason `length` stops it the same way; a `write_file` call of about 12,000 tokens passes; the cut call does not run, and the request counts in the outcome.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_output_cap.py`
-- [ ] Read the finish reason of the replies of a turn in `_run_turn`, and the type `IncompleteToolCall`, and give the reason of the cap. Add its text to `src/devops_cli/lang/en/messages.py`.
+- [x] Add `src/devops_cli/roadmap/implement_output_cap.py`, a hook that raises `OutputCapReached` on the finish reason `length`, add it to `build_agent`, and count the cut reply in `_run_turn`. Add the text of the reason to `src/devops_cli/lang/en/messages.py`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_output_cap.py tests/roadmap/test_roadmap_implement_step.py`
 
 ## 3. The instructions

@@ -2981,6 +2981,16 @@ CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
 # gets at most (1 + `ai.max_retries`) * (1 + this value) sends.
 CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS: Final[int] = 1
 CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS: Final[int] = 40000
+# The output cap of one model reply of a step, in tokens, and the deadline of one model call, in
+# seconds (#2869). Both go to the agent as model settings. The cap is `max_tokens`: the gateway
+# sends it to Ollama as `num_predict`. The longest reply of a step in the Job logs is under 2,000
+# tokens, and the longest reply of any client of the tier is 11,634 tokens, so 16,384 cuts only a
+# model that does not stop. The deadline is `request_timeout`, one clock over the whole call, the
+# read of the stream included. It is more than a cold read of the largest window (about 90 s) and
+# a reply at the cap at the slowest measured rate (about 430 s), and it is under the timeout of
+# the router in `k8s/llm/gateway/config.yaml` (1500 s), which a test holds.
+CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS: Final[int] = 16384
+CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: Final[int] = 600
 # The tokens of one packed file in the inputs of a step. The agent reads more with its tools.
 CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000
 # How long one verification command or static check of a step may run, and how many lines of its
