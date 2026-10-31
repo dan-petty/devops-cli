@@ -406,17 +406,59 @@ def stage_cmd(
         raise_for_failed(failures)
 
 
+def _render_roadmap_run_dry_run(target: str) -> None:
+    from devops_cli.roadmap.request_plan import planned_session_read, render_dry_run
+
+    reads = [
+        planned_session_read(
+            f"/repos/{target}/issues/events",
+            "the issue events to judge what jobs are due",
+            repeat=MESSAGES.roadmap.plan_repeat_page,
+        )
+    ]
+    render_dry_run("run", target, reads, ())
+
+
+def _try_open_store(repo: RepoOption) -> RoadmapStore | None:
+    try:
+        _, store = _open_store(repo)
+        return store
+    except AssertionError:
+        return None
+
+
+def _show_due_jobs(target: str, store: RoadmapStore) -> None:
+    from devops_cli.roadmap.run import run_due_jobs
+
+    due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True)
+    if due:
+        write_stdout(f"Due: {', '.join(due)}\n")
+    else:
+        write_stdout("Due: (none)\n")
+
+
 @app.command("run", help=HELP.roadmap.run)
+@dry_run_class("request-plan")
 def run_cmd(
     repo: RepoOption = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.run_dry_run)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.run_confirm)] = False,
 ) -> None:
     """Run the roadmap jobs that are due, in order: metrics, intake, refinement and the alternatives check."""
+    if dry_run or is_dry_run():
+        target = _target(repo)
+        store = _try_open_store(repo)
+        from devops_cli.roadmap.github_store import GitHubRoadmapStore
+
+        if store is not None and not isinstance(store, GitHubRoadmapStore):
+            _show_due_jobs(target, store)
+        _render_roadmap_run_dry_run(target)
+        return
+
     target, store = _open_store(repo)
     from devops_cli.roadmap.run import run_due_jobs
 
-    if dry_run or not confirm or is_dry_run():
+    if not confirm:
         due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True)
         if due:
             write_stdout(f"Due: {', '.join(due)}\n")

@@ -5,11 +5,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.defaults import DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.security.sanitizer import mask_secrets
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 logger = logging.getLogger(__name__)
 
@@ -64,3 +67,51 @@ def fetch_workflow_run_view(
         stdout=stdout_masked,
         stderr=stderr_masked,
     )
+
+
+def runs_view_requests(
+    run_id: int | str,
+    *,
+    log_failed: bool = False,
+    full_log: bool = False,
+    job: str | None = None,
+    repo: str | None = None,
+) -> list[PlannedRequest]:
+    """Planned requests for viewing a workflow run."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    args = run_view_args(run_id, log_failed=log_failed, full_log=full_log, job=job, repo=repo)
+    return [planned_gh(args, f"repos/{repo or '<repo>'}/actions/runs/{run_id}")]
+
+
+def runs_list_args(
+    limit: int = 10,
+    branch: str | None = None,
+    repo: str | None = None,
+) -> list[str]:
+    """Build the `gh run list` argument list."""
+    cmd = [
+        "run",
+        "list",
+        "--limit",
+        str(limit),
+        "--json",
+        "databaseId,name,status,conclusion,headBranch,event,url",
+    ]
+    if branch:
+        cmd.extend(["--branch", branch])
+    if repo:
+        cmd.extend(["--repo", repo])
+    return cmd
+
+
+def runs_list_requests(
+    limit: int = 10,
+    branch: str | None = None,
+    repo: str | None = None,
+) -> list[PlannedRequest]:
+    """Planned requests for listing workflow runs."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    args = runs_list_args(limit=limit, branch=branch, repo=repo)
+    return [planned_gh(args, f"repos/{repo or '<repo>'}/actions/runs")]

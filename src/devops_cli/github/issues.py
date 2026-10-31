@@ -6,8 +6,11 @@ import json
 import logging
 from collections import Counter
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 from pydantic import BaseModel, Field
 
@@ -151,17 +154,16 @@ def _fetch_issues_rest(
     return _filter_rest_issues(listing, milestone, limit)
 
 
-def get_repository_issues(
+def issues_list_args(
     repo: str,
     state: str = "open",
     milestone: str | None = None,
     label: str | None = None,
     labels: list[str] | None = None,
     limit: int | None = 30,
-) -> list[GitHubIssue]:
-    """Retrieve issues via gh issue list with a REST fallback; ``limit=None`` reads every issue."""
+) -> list[str]:
+    """Arguments for listing repository issues via gh issue list."""
     cmd = [
-        CONST_GH_CLI,
         "issue",
         "list",
         "--repo",
@@ -180,6 +182,44 @@ def get_repository_issues(
         all_labels.append(label)
     for lbl in all_labels:
         cmd.extend(["--label", lbl])
+    return cmd
+
+
+def issues_list_requests(
+    repo: str,
+    state: str = "open",
+    milestone: str | None = None,
+    label: str | None = None,
+    labels: list[str] | None = None,
+    limit: int | None = 30,
+) -> list[PlannedRequest]:
+    """Planned requests for listing repository issues."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    args = issues_list_args(
+        repo, state=state, milestone=milestone, label=label, labels=labels, limit=limit
+    )
+    return [planned_gh(args, f"repos/{repo}/issues")]
+
+
+def get_repository_issues(
+    repo: str,
+    state: str = "open",
+    milestone: str | None = None,
+    label: str | None = None,
+    labels: list[str] | None = None,
+    limit: int | None = 30,
+) -> list[GitHubIssue]:
+    """Retrieve issues via gh issue list with a REST fallback; ``limit=None`` reads every issue."""
+    all_labels = list(labels or [])
+    if label and label not in all_labels:
+        all_labels.append(label)
+    cmd = [
+        CONST_GH_CLI,
+        *issues_list_args(
+            repo, state=state, milestone=milestone, label=label, labels=labels, limit=limit
+        ),
+    ]
 
     res = run_gh(cmd, check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
@@ -244,6 +284,37 @@ def render_issue(issue: GitHubIssue) -> str:
     return "\n".join([*header, "", issue.body.strip() or _EMPTY_FIELD])
 
 
+def create_issue_args(
+    repo: str,
+    title: str,
+    body: str = "",
+    milestone: str | None = None,
+    labels: list[str] | None = None,
+) -> list[str]:
+    """Construct argument list for gh issue create."""
+    cmd = ["issue", "create", "--repo", repo, "--title", title, "--body", body]
+    if milestone:
+        cmd.extend(["--milestone", milestone])
+    if labels:
+        for lbl in labels:
+            cmd.extend(["--label", lbl])
+    return cmd
+
+
+def create_issue_requests(
+    repo: str,
+    title: str,
+    body: str = "",
+    milestone: str | None = None,
+    labels: list[str] | None = None,
+) -> list[PlannedRequest]:
+    """Planned requests for creating a new GitHub issue."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    args = create_issue_args(repo, title, body, milestone, labels)
+    return [planned_gh(args, f"repos/{repo}/issues")]
+
+
 def _build_create_issue_cmd(
     repo: str,
     title: str,
@@ -252,13 +323,7 @@ def _build_create_issue_cmd(
     labels: list[str] | None = None,
 ) -> list[str]:
     """Construct command argument list for gh issue create."""
-    cmd = [CONST_GH_CLI, "issue", "create", "--repo", repo, "--title", title, "--body", body]
-    if milestone:
-        cmd.extend(["--milestone", milestone])
-    if labels:
-        for lbl in labels:
-            cmd.extend(["--label", lbl])
-    return cmd
+    return [CONST_GH_CLI, *create_issue_args(repo, title, body, milestone, labels)]
 
 
 def _extract_issue_number(url_or_text: str) -> int:
@@ -381,6 +446,13 @@ def audit_issues_triage(repo: str, *, store: RoadmapStore | None = None) -> Issu
     return audit
 
 
+def issues_triage_requests(repo: str) -> list[PlannedRequest]:
+    """Planned requests for issue taxonomy triage."""
+    from devops_cli.roadmap.request_plan import StoreRequests
+
+    return list(StoreRequests(repo).every_issue())
+
+
 def get_issues_summary(repo: str, *, store: RoadmapStore | None = None) -> dict[str, Any]:
     """Count the open issues by Priority, type and milestone: the open Items and the
     Candidates, which hold no Priority."""
@@ -407,6 +479,44 @@ def get_issues_summary(repo: str, *, store: RoadmapStore | None = None) -> dict[
         "by_type": dict(type_counter),
         "by_milestone": dict(milestone_counter),
     }
+
+
+def issues_status_requests(repo: str) -> list[PlannedRequest]:
+    """Planned requests for issue status breakdown."""
+    from devops_cli.roadmap.request_plan import StoreRequests
+
+    return list(StoreRequests(repo).every_issue())
+
+
+def issues_edit_args(owner: str, repo_name: str, number: int) -> list[str]:
+    """Arguments for editing an issue via gh api PATCH."""
+    return [
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{owner}/{repo_name}/issues/{number}",
+        "--input",
+        "-",
+    ]
+
+
+def issues_edit_requests(
+    target_repo: str,
+    number: int,
+    payload: dict[str, Any],
+) -> list[PlannedRequest]:
+    """Planned requests for editing an existing issue."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    owner, repo_name = target_repo.split("/", 1) if "/" in target_repo else ("<owner>", target_repo)
+    args = issues_edit_args(owner, repo_name, number)
+    return [
+        planned_gh(
+            args,
+            f"repos/{target_repo}/issues/{number}",
+            stdin=json.dumps(payload),
+        )
+    ]
 
 
 def _is_trivial_milestone(milestone: str | int | None) -> bool:
