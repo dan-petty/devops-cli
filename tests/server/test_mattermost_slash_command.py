@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
@@ -13,7 +14,7 @@ from devops_cli.config.constants import (
     WebhookExposure,
     WebhookProviderName,
 )
-from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
+from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS, AuthorizationToken
 from devops_cli.server.service import (
     ServiceManager,
     TriggerBatch,
@@ -275,3 +276,72 @@ def test_mattermost_slash_command_displays_completed_round(
     assert "last round" in text
     assert "success" in text
     assert "2026-10-31T14:00:00Z" in text
+
+
+def test_authorization_token_verify() -> None:
+    """AuthorizationToken.verify checks scheme and token in constant time."""
+    verifier = AuthorizationToken(scheme="Token")
+    assert verifier.verify("Token secret123", "secret123") is True
+    assert verifier.verify("Token secret123", "wrong") is False
+    assert verifier.verify("Bearer secret123", "secret123") is False
+    assert verifier.verify(None, "secret123") is False
+    assert verifier.verify("Token secret123", None) is False
+    assert verifier.verify("Token", "secret123") is False
+
+
+def test_mattermost_slash_command_unclosed_quote_gives_usage(service_env: None) -> None:
+    """An unclosed quote in command text triggers usage reply and increments usage metric."""
+    app = create_service_app()
+    client = TestClient(app)
+    response = client.post(
+        "/webhooks/mattermost",
+        headers={**_AUTH_HEADER, "Content-Type": "application/x-www-form-urlencoded"},
+        data={"command": "/roadmap", "text": 'status "unclosed'},
+    )
+    assert response.status_code == 200
+    assert "Usage: /roadmap" in response.json()["text"]
+
+
+def test_mattermost_slash_command_responder_exception(
+    service_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected exception during responder execution returns error text and increments error metric."""
+    app = create_service_app()
+    client = TestClient(app)
+
+    def _broken_lane_statuses(repo: str | None = None) -> Any:
+        raise RuntimeError("simulated error")
+
+    monkeypatch.setattr(app.state.service_manager, "lane_statuses", _broken_lane_statuses)
+    response = client.post(
+        "/webhooks/mattermost",
+        headers={**_AUTH_HEADER, "Content-Type": "application/x-www-form-urlencoded"},
+        data={"command": "/roadmap", "text": "status"},
+    )
+    assert response.status_code == 200
+    assert "Error executing roadmap command: simulated error" in response.json()["text"]
+
+
+def test_mattermost_slash_command_streamed_body_too_large(
+    service_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A streamed body exceeding the size cap returns 413 payload too large."""
+    import devops_cli.server.routes.webhooks as webhooks_module
+
+    monkeypatch.setattr(webhooks_module, "CONST_SERVICE_MAX_BODY_BYTES", 10)
+    app = create_service_app()
+    client = TestClient(app)
+
+    def _stream() -> Any:
+        yield b"command=%2Froadmap"
+        yield b"&text=status_toolarge"
+
+    response = client.post(
+        "/webhooks/mattermost",
+        headers={**_AUTH_HEADER, "Content-Type": "application/x-www-form-urlencoded"},
+        content=_stream(),
+    )
+    assert response.status_code == 413
+    assert response.json() == {"error": "payload too large"}

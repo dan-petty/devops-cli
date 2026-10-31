@@ -492,8 +492,8 @@ def _authenticated_payload(
     """The body's typed payload once its signature matches the secret of the repository it names,
     or the 401 or 400 that refuses it. It validates only a body that was signed, so a sender
     without a secret learns nothing of the schema."""
-    if not isinstance(provider.verifier, HmacSha256) or provider.payload_model is None:
-        return _rejected(400, "invalid provider configuration")
+    assert isinstance(provider.verifier, HmacSha256)
+    assert provider.payload_model is not None
     signature = request.headers.get(provider.verifier.header)
     signers = provider.verifier.signers(body, signature, service_manager.secrets)
     if not signers:
@@ -605,8 +605,6 @@ def _receiver(
                 return JSONResponse(status_code=reply.status, content=reply.body)
             result = await provider.responder(request, service_manager, body)
             delivery.conclude(CONST_SERVICE_OUTCOME_ACCEPTED)
-            if isinstance(result, Response):
-                return result
             return JSONResponse(status_code=200, content=result)
 
         reply = await _read_and_route(request, provider, service_manager, taking, delivery)
