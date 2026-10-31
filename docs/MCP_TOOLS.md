@@ -963,6 +963,7 @@ Trigger a new deployment build for GitHub Pages.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_pages_status`
 
@@ -975,6 +976,7 @@ Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_pages_verify`
 
@@ -1000,6 +1002,7 @@ Audit the project board's views against the template.
 |---|---|---|---|---|
 | `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_project_list`
 
@@ -1012,6 +1015,7 @@ List available GitHub Projects v2 boards for user or organization.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `owner` | `string` | No | - | Target user or organization |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_project_reconcile`
 
@@ -1111,6 +1115,7 @@ Audit remote project views against standardized template specifications.
 |---|---|---|---|---|
 | `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_views_spec`
 
@@ -1136,6 +1141,7 @@ Synchronize standardized views with the remote GitHub Projects v2 board.
 |---|---|---|---|---|
 | `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `grafana_dashboards_list`
 

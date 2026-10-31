@@ -300,6 +300,7 @@ devops gh project link [OPTIONS] <project_number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh project list`
 
@@ -314,6 +315,7 @@ devops gh project list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--owner`, `-o` | `string` | - | Target user or organization |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh project audit`
 
@@ -329,6 +331,7 @@ devops gh project audit [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh project template`
 
@@ -366,6 +369,7 @@ devops gh project workflows list [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -417,6 +421,7 @@ devops gh views sync [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh views audit`
 
@@ -432,6 +437,7 @@ devops gh views audit [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -454,6 +460,7 @@ devops gh pages status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pages builds`
 
@@ -469,6 +476,7 @@ devops gh pages builds [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--limit`, `-l` | `integer` | `5` | Number of builds to retrieve |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pages build`
 
@@ -483,6 +491,7 @@ devops gh pages build [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pages verify`
 
