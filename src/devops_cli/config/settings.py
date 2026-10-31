@@ -601,6 +601,10 @@ class AITasksConfig(BaseModel):
         default_factory=AIImplementTaskOverride,
         description="The task of `devops roadmap implement`: one step of a staged change",
     )
+    triage: AITaskOverride = Field(
+        default_factory=AITaskOverride,
+        description="The task of roadmap intake",
+    )
 
 
 class AIConfig(BaseModel):

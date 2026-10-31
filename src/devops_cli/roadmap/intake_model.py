@@ -210,7 +210,7 @@ class GatewayIntakeModel:
         from devops_cli.ai.client import get_llm_client
 
         return get_llm_client(
-            task="analysis", config=self._ai.for_task("analysis"), api_key=self._api_key
+            task="triage", config=self._ai.for_task("triage"), api_key=self._api_key
         )
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -223,7 +223,7 @@ class GatewayIntakeModel:
             ) from exc
 
     def propose(self, request: ProposalRequest) -> ModelProposal:
-        """Ask the `analysis` task's model for its proposal."""
+        """Ask the `triage` task's model for its proposal."""
         from devops_cli.ai.client.models import StructuredOutputValidationError
 
         try:

@@ -918,7 +918,7 @@ class ServeCommandHelp:
     docs: str = "Enable or disable Swagger UI (/docs) and ReDoc (/redoc)."
     service: str = (
         "Run continuous background service with GitHub webhook verification and "
-        "per-repository status and model lanes."
+        "per-repository status, triage and model lanes."
     )
 
 

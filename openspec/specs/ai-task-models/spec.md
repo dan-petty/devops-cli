@@ -37,3 +37,14 @@ When a variable or a config file sets a field of `ai.tasks.embedding` other than
 #### Scenario: A window set in the config file
 - **WHEN** the project config file holds `ai.tasks.implement.context_window: 64000` and the settings load
 - **THEN** `ai.for_task("implement").context_window` is 64000 and its model is still `devops-coder`
+
+### Requirement: Intake proposal uses triage task settings
+When roadmap intake requests a candidate proposal, the LLM client SHALL use configuration from `ai.tasks.triage` if configured, or fall back to global `ai` settings when unset.
+
+#### Scenario: Triage task model configured
+- **WHEN** `ai.tasks.triage.model` is set
+- **THEN** intake initializes its LLM client with the configured triage model
+
+#### Scenario: Triage task model unset
+- **WHEN** `ai.tasks.triage.model` is unset
+- **THEN** intake initializes its LLM client with the global `ai.model` setting
