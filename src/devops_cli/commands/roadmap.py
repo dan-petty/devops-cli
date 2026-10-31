@@ -6,9 +6,10 @@ on an item.
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
 `.github/labels.yml` at `--ref`. `intake`, `refine`, `stage`, `implement`, `return`, `claim` and
-`release` write GitHub state only with `--confirm`; `stage` and `implement` also write git, only to the staged
-branch of an item and never to the default branch. `implement --confirm` runs only in a runner
-pod. A person plans the milestones; no command sets one.
+`release` write GitHub state only with `--confirm`; `stage` and `implement` also write git, only to
+the staged branch of an item and never to the default branch. `implement --confirm` runs steps only
+in a runner pod. Outside one, `implement --item <n> --confirm` starts the runner Job for the item
+(#2913). A person plans the milestones; no command sets one.
 
 Every job's `--dry-run` makes no request at all (#412, #1125): it returns the job's result type
 marked as a dry run and prints the requests a run makes, each with its exact `gh` command.

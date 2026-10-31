@@ -54,7 +54,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label, and reports those with no `priority/*` label as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
 | **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand / Pre-PR | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Provisions and links the board, reconciles card fields, and audits the 4 declarative project views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | No keys past rotation_days |
-| **Workspace & Sync** | Roadmap Implement Job (Service) | Every 10 minutes (row `implement`) | `kubectl -n devops get jobs -l implement-repo` / `devops k8s run-job --template runner --repo <owner/name> -- roadmap implement --item <number> --confirm` | The Service makes one runner Job per repository at a time for a Staged or Planned item, reports each Job that ended on its item, and stops an item whose Job left it eligible | No Job ends without a comment on its item; no item runs twice after a failed Job until a person comments `implement: retry` |
+| **Workspace & Sync** | Roadmap Implement Job (Service) | Every 10 minutes (row `implement`) | `kubectl -n devops get jobs -l implement-repo` / `devops roadmap implement --repo <owner/name> --item <number> --confirm` | The Service makes one runner Job per repository at a time for a Staged or Planned item, reports each Job that ended on its item, and stops an item whose Job left it eligible | No Job ends without a comment on its item; no item runs twice after a failed Job until a person comments `implement: retry` |
 
 
 ---
@@ -331,8 +331,10 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
   ```bash
   kubectl -n devops get jobs -l implement-repo
   kubectl -n devops logs job/<name>
-  devops k8s run-job --template runner --repo <owner/name> --dry-run -- roadmap implement --item <number> --confirm
+  devops roadmap implement --repo <owner/name> --item <number> --dry-run
+  devops roadmap implement --repo <owner/name> --item <number> --confirm
   ```
+  The last command makes the same Job by hand with the code of `devops k8s run-job --template runner`, follows its log, and refuses a claimed item, an item that is neither Ready nor Planned, and a repository that has a runner Job that has not ended.
 
 ---
 
