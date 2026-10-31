@@ -522,6 +522,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("grafana", "search"),
             ("install-tools", "status"),
             ("k8s", "apply"),
+            ("k8s", "bootstrap-mattermost"),
             ("k8s", "bootstrap-openwebui"),
             ("k8s", "check-deprecated"),
             ("k8s", "configure-urls"),

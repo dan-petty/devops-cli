@@ -907,6 +907,24 @@ devops k8s bootstrap-openwebui [OPTIONS]
 | `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops k8s bootstrap-mattermost`
+
+**Bootstrap Mattermost teams, channels, webhooks, and slash commands in Kubernetes.**
+
+```bash
+devops k8s bootstrap-mattermost [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--team` | `string` | `homelab` | Mattermost team name. |
+| `--admin-user` | `string` | - | Administrator username or ID to own integrations. |
+| `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push updated cluster secrets after saving tokens to keyring. |
+| `--context`, `-c` | `string` | - | Kubernetes context to target (defaults to config default or active). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops k8s deploy-stack`
 
 **Deploy one stack (infra, llm, logging, devops, gitea, chat) or all of them to Kubernetes with Helm and Kustomize.**
