@@ -906,6 +906,7 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
         "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": "service.webhook_secrets",
         "DEVOPS_CLI_FIRECRAWL_API_KEY": "firecrawl.api_key",
         "DEVOPS_CLI_VALKEY_PASSWORD": "valkey.password",
+        "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN": "mattermost.command_token",
     }
 
 

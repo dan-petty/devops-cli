@@ -1746,6 +1746,13 @@ class ServeMessages:
         "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
         "it does not run again until its input changes."
     )
+    # Ephemeral chat replies for Mattermost /roadmap slash command (#1395). Each string is one line.
+    chat_roadmap_status_round: str = "{repo} [{lane}]: {state}, {pending} pending triggers, last round: {start} to {end} UTC ({result})"
+    chat_roadmap_status_no_round: str = (
+        "{repo} [{lane}]: {state}, {pending} pending triggers, no round yet"
+    )
+    chat_roadmap_unknown_repo: str = "Unknown repository {repo}. Known repositories: {repos}."
+    chat_roadmap_usage: str = "Usage: /roadmap [status [<repo>]]"
 
 
 @dataclass(frozen=True)

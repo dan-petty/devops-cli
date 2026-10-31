@@ -7,14 +7,18 @@ import hashlib
 import hmac
 import inspect
 import logging
+import secrets
+import shlex
 import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from datetime import UTC
+from typing import TYPE_CHECKING, Any, Final
 
 from cachetools import LRUCache
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.security.utils import get_authorization_scheme_param
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from devops_cli.config.constants import (
@@ -27,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_DELIVERY_LRU_CAPACITY,
     CONST_SERVICE_EVENT_OTHER,
     CONST_SERVICE_MAX_BODY_BYTES,
+    CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
     CONST_SERVICE_OUTCOME_ACCEPTED,
@@ -82,6 +87,24 @@ class HmacSha256(BaseModel):
         )
 
 
+class AuthorizationToken(BaseModel):
+    """Verifies a request carries an Authorization header matching `scheme` and the configured
+    token, compared in constant time (#1395)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    scheme: str
+
+    def verify(self, auth_header: str | None, expected_token: str | None) -> bool:
+        """Whether `auth_header` carries `self.scheme` and matches `expected_token` in constant time."""
+        if not auth_header or not expected_token:
+            return False
+        scheme, token = get_authorization_scheme_param(auth_header)
+        if scheme.lower() != self.scheme.lower() or not token:
+            return False
+        return secrets.compare_digest(token, expected_token)
+
+
 class WebhookProvider(BaseModel):
     """What the router knows of one sender: how its requests prove who sent them, where their
     event name and delivery id are, the payload model its bodies validate into, the event that
@@ -91,11 +114,13 @@ class WebhookProvider(BaseModel):
 
     name: WebhookProviderName
     exposure: WebhookExposure
-    verifier: HmacSha256
-    event_header: str
-    delivery_header: str
-    ping_event: str
-    payload_model: type[GitHubWebhookPayload]
+    verifier: HmacSha256 | AuthorizationToken
+    event_header: str = ""
+    delivery_header: str = ""
+    ping_event: str = ""
+    payload_model: type[GitHubWebhookPayload] | None = None
+    content_type: str = "application/json"
+    responder: Callable[[Request, Any, bytes], Awaitable[Response | dict[str, Any]]] | None = None
 
     @property
     def path(self) -> str:
@@ -123,6 +148,100 @@ class WebhookConsumer(BaseModel):
     refusal: Callable[[GitHubWebhookPayload], str | None] = _takes_every_payload
 
 
+def _format_lane_status(status: Any) -> str:
+    state = "running" if status.active else "idle"
+    if status.last_round is not None:
+        start_str = status.last_round.start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_str = status.last_round.end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return MESSAGES.serve.chat_roadmap_status_round.format(
+            repo=status.repo,
+            lane=status.lane,
+            state=state,
+            pending=status.pending_triggers,
+            start=start_str,
+            end=end_str,
+            result=status.last_round.result,
+        )
+    return MESSAGES.serve.chat_roadmap_status_no_round.format(
+        repo=status.repo,
+        lane=status.lane,
+        state=state,
+        pending=status.pending_triggers,
+    )
+
+
+async def mattermost_roadmap_responder(
+    request: Request,
+    service_manager: ServiceManager,
+    body: bytes,
+) -> dict[str, Any]:
+    """Execute the /roadmap chat command synchronously and return an ephemeral response (#1395)."""
+    request._body = body
+    form = await request.form()
+    raw_text = str(form.get("text", "")).strip()
+
+    try:
+        args = shlex.split(raw_text)
+    except ValueError:
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "usage"}
+        )
+        return {
+            "response_type": "ephemeral",
+            "text": MESSAGES.serve.chat_roadmap_usage,
+        }
+
+    try:
+        if not args or args == ["status"]:
+            statuses = service_manager.lane_statuses()
+            lines = [_format_lane_status(s) for s in statuses]
+            GLOBAL_METRICS.increment_counter(
+                CONST_SERVICE_METRIC_CHAT_COMMANDS,
+                labels={"command": "/roadmap", "result": "status"},
+            )
+            return {"response_type": "ephemeral", "text": "\n".join(lines)}
+
+        if len(args) == 2 and args[0] == "status":
+            target_repo = args[1]
+            if target_repo not in service_manager.managed_repos:
+                known = ", ".join(service_manager.config.repos)
+                GLOBAL_METRICS.increment_counter(
+                    CONST_SERVICE_METRIC_CHAT_COMMANDS,
+                    labels={"command": "/roadmap", "result": "unknown_repo"},
+                )
+                return {
+                    "response_type": "ephemeral",
+                    "text": MESSAGES.serve.chat_roadmap_unknown_repo.format(
+                        repo=target_repo, repos=known
+                    ),
+                }
+
+            statuses = service_manager.lane_statuses(target_repo)
+            lines = [_format_lane_status(s) for s in statuses]
+            GLOBAL_METRICS.increment_counter(
+                CONST_SERVICE_METRIC_CHAT_COMMANDS,
+                labels={"command": "/roadmap", "result": "status"},
+            )
+            return {"response_type": "ephemeral", "text": "\n".join(lines)}
+
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "usage"}
+        )
+        return {
+            "response_type": "ephemeral",
+            "text": MESSAGES.serve.chat_roadmap_usage,
+        }
+    except Exception as exc:
+        logger.error("Error executing /roadmap chat command: %s", exc, exc_info=True)
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "error"}
+        )
+        return {
+            "response_type": "ephemeral",
+            "text": f"Error executing roadmap command: {exc}",
+        }
+
+
 WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
     WebhookProviderName.GITHUB: WebhookProvider(
         name=WebhookProviderName.GITHUB,
@@ -134,7 +253,14 @@ WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
         delivery_header=CONST_GH_WEBHOOK_DELIVERY_HEADER,
         ping_event=CONST_SERVICE_PING_EVENT,
         payload_model=GitHubWebhookPayload,
-    )
+    ),
+    WebhookProviderName.MATTERMOST: WebhookProvider(
+        name=WebhookProviderName.MATTERMOST,
+        exposure=WebhookExposure.CLUSTER,
+        verifier=AuthorizationToken(scheme="Token"),
+        content_type="application/x-www-form-urlencoded",
+        responder=mattermost_roadmap_responder,
+    ),
 }
 
 
@@ -286,23 +412,65 @@ async def _read_capped_body(request: Request) -> bytes | None:
     return b"".join(body_chunks)
 
 
+def _refuse_content_type(request: Request, provider: WebhookProvider) -> _Reply | None:
+    content_type = request.headers.get("content-type", "")
+    if not content_type.startswith(provider.content_type):
+        return _rejected(415, "unsupported media type")
+    return None
+
+
+def _refuse_verifier(
+    request: Request,
+    provider: WebhookProvider,
+    service_manager: ServiceManager,
+    delivery: _Delivery,
+) -> _Reply | None:
+    if isinstance(provider.verifier, HmacSha256):
+        if not delivery.event or not delivery.delivery:
+            return _rejected(400, "missing event or delivery header")
+        if not request.headers.get(provider.verifier.header):
+            return _rejected(401, "missing signature")
+    elif isinstance(provider.verifier, AuthorizationToken):
+        auth_header = request.headers.get("authorization")
+        if not auth_header:
+            return _rejected(401, "missing authorization header")
+        scheme, token = get_authorization_scheme_param(auth_header)
+        if scheme.lower() != provider.verifier.scheme.lower() or not token:
+            logger.warning(
+                "Refused %s webhook delivery: invalid authorization header scheme or missing token.",
+                provider.name,
+            )
+            return _rejected(401, "invalid authorization")
+        expected_token = service_manager.command_token
+        if not expected_token:
+            logger.warning(
+                "Refused %s webhook delivery: setting mattermost.command_token is not configured.",
+                provider.name,
+            )
+            return _rejected(401, "unauthorized")
+        if not secrets.compare_digest(token, expected_token):
+            logger.warning(
+                "Refused %s webhook delivery: invalid authorization token.", provider.name
+            )
+            return _rejected(401, "invalid token")
+    return None
+
+
 def _refuse_before_reading(
     request: Request,
     provider: WebhookProvider,
     service_manager: ServiceManager,
     delivery: _Delivery,
 ) -> _Reply | None:
-    """Refuse a delivery while draining, one that is not JSON, one without its event name,
-    delivery id or signature, or one that declares a length above the size cap, before its body
+    """Refuse a delivery while draining, one that has an unsupported content type, one without
+    its event name or signature, or one that declares a length above the size cap, before its body
     is read. An unsigned or oversized flood thus costs no read and no digest."""
     if service_manager.is_draining():
         return _rejected(503, "service is draining")
-    if not request.headers.get("content-type", "").startswith("application/json"):
-        return _rejected(415, "unsupported media type")
-    if not delivery.event or not delivery.delivery:
-        return _rejected(400, "missing event or delivery header")
-    if not request.headers.get(provider.verifier.header):
-        return _rejected(401, "missing signature")
+    if ct_reply := _refuse_content_type(request, provider):
+        return ct_reply
+    if verifier_reply := _refuse_verifier(request, provider, service_manager, delivery):
+        return verifier_reply
     if _declares_more_than_the_cap(request.headers.get("content-length", "")):
         return _rejected(413, "payload too large")
     return None
@@ -324,6 +492,8 @@ def _authenticated_payload(
     """The body's typed payload once its signature matches the secret of the repository it names,
     or the 401 or 400 that refuses it. It validates only a body that was signed, so a sender
     without a secret learns nothing of the schema."""
+    if not isinstance(provider.verifier, HmacSha256) or provider.payload_model is None:
+        return _rejected(400, "invalid provider configuration")
     signature = request.headers.get(provider.verifier.header)
     signers = provider.verifier.signers(body, signature, service_manager.secrets)
     if not signers:
@@ -408,18 +578,38 @@ def _receiver(
 ) -> Callable[[Request], Awaitable[Response]]:
     """The route handler of one provider, over the consumers that take its events."""
     taking = [consumer for consumer in consumers if consumer.provider is provider.name]
-    declared_events = frozenset({provider.ping_event}).union(*(c.events for c in taking))
+    ping_events = {provider.ping_event} if provider.ping_event is not None else set()
+    declared_events = frozenset(ping_events).union(*(c.events for c in taking))
 
     async def receive(request: Request) -> Response:
+        event = request.headers.get(provider.event_header, "") if provider.event_header else ""
+        delivery_id = (
+            request.headers.get(provider.delivery_header, "") if provider.delivery_header else ""
+        )
         delivery = _Delivery(
             provider=provider.name,
-            event=request.headers.get(provider.event_header, ""),
-            delivery=request.headers.get(provider.delivery_header, ""),
+            event=event,
+            delivery=delivery_id,
             declared_events=declared_events,
         )
-        reply = _refuse_before_reading(
-            request, provider, service_manager, delivery
-        ) or await _read_and_route(request, provider, service_manager, taking, delivery)
+        reply = _refuse_before_reading(request, provider, service_manager, delivery)
+        if reply is not None:
+            delivery.conclude(reply.outcome)
+            return JSONResponse(status_code=reply.status, content=reply.body)
+
+        if provider.responder is not None:
+            body = await _read_capped_body(request)
+            if body is None:
+                reply = _rejected(413, "payload too large")
+                delivery.conclude(reply.outcome)
+                return JSONResponse(status_code=reply.status, content=reply.body)
+            result = await provider.responder(request, service_manager, body)
+            delivery.conclude(CONST_SERVICE_OUTCOME_ACCEPTED)
+            if isinstance(result, Response):
+                return result
+            return JSONResponse(status_code=200, content=result)
+
+        reply = await _read_and_route(request, provider, service_manager, taking, delivery)
         delivery.conclude(reply.outcome)
         return JSONResponse(status_code=reply.status, content=reply.body)
 

@@ -541,6 +541,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "service_webhook_secrets",
             "firecrawl_api_key",
             DEVOPS_CACHE_VALKEY_AUTH_KEY,
+            "mattermost_command_token",
         },
         [],
         APP_KEY,

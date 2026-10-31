@@ -31,3 +31,14 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # 3. Mattermost chat slash command requests (#1395)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: mattermost
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mattermost
+      ports:
+        - protocol: TCP
+          port: 8000
