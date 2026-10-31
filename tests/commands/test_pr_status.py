@@ -188,7 +188,7 @@ def test_the_workflow_removes_only_the_status_and_owner_labels() -> None:
     script = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["clear-status"]["steps"][
         0
     ]["run"]
-    filter_ = re.search(r"jq -r '([^']*)'", script)
+    filter_ = re.search(r"--jq '([^']*)'", script)
     assert filter_ is not None
     assert re.findall(r'startswith\("([^"]*)"\)', filter_.group(1)) == ["status/", "owner/"]
     assert " or " in filter_.group(1)
