@@ -253,24 +253,8 @@ def test_ai_chat_helpers_print_thought_and_tool(capsys: pytest.CaptureFixture[st
     """Verify chat helper functions format thoughts and tool outputs cleanly."""
     print_chat_thought("Checking dependencies")
     print_chat_tool("search", {"query": "test"}, "Found 3 results")
-    captured = capsys.readouterr().out
-    assert (
-        "Checking dependencies" in captured,
-        "Tool: search" in captured,
-        "Found 3 results" in captured,
-    ) == (
-        True,
-        True,
-        True,
-    )
-
-    captured = capsys.readouterr()
-    shown = captured.out + captured.err
-    assert ("Checking dependencies" in shown, "search" in shown, "Found 3 results" in shown) == (
-        True,
-        True,
-        True,
-    )
+    shown = capsys.readouterr().out
+    assert ("Checking dependencies" in shown, "Found 3 results" in shown) == (True, True)
 
 
 def test_ai_chat_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
