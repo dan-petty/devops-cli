@@ -341,17 +341,6 @@ def test_cli_cloudflare_missing_token_error() -> None:
 def test_cli_cloudflare_dns_delete_dry_run(mock_settings: Settings) -> None:
     """Verify devops cloudflare dns delete --dry-run output."""
     mock_client = MagicMock()
-    mock_client.list_dns_records.return_value = [
-        CloudflareDNSRecord(
-            id="rec-1",
-            type="CNAME",
-            name="example.com",
-            content="target.cfargotunnel.com",
-            proxied=True,
-            ttl=1,
-            comment="Managed by devops-cli",
-        )
-    ]
     with (
         patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
         patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
@@ -360,9 +349,10 @@ def test_cli_cloudflare_dns_delete_dry_run(mock_settings: Settings) -> None:
         assert (
             result.exit_code,
             "DRY RUN" in result.output,
-            "Would Delete" in result.output,
+            "DELETE" in result.output,
+            mock_client.list_dns_records.called,
             mock_client.delete_dns_record.called,
-        ) == (0, True, True, False)
+        ) == (0, True, True, False, False)
 
 
 def test_cli_cloudflare_dns_delete_success(mock_settings: Settings) -> None:
@@ -660,7 +650,7 @@ def test_cloudflare_client_sync_tunnel_routes_aborts_on_get_failure() -> None:
 
 
 def test_cloudflare_tunnel_sync_dry_run_makes_no_network_requests(mock_settings: Settings) -> None:
-    """--dry-run makes zero network requests (neither GET nor PUT) and prints serialized payloads."""
+    """--dry-run makes zero network requests (neither GET nor PUT) and prints planned requests."""
     with (
         patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
         patch("httpx2.Client.request") as mock_request,
@@ -669,9 +659,9 @@ def test_cloudflare_tunnel_sync_dry_run_makes_no_network_requests(mock_settings:
         assert (
             result.exit_code,
             mock_request.call_count,
-            "GET:" in result.output,
-            "PUT:" in result.output,
-            "accounts/test-account-123/cfd_tunnel/homelab/configurations" in result.output,
+            "GET" in result.output,
+            "PUT" in result.output,
+            "accounts/test-account-123/cfd_tunnel" in result.output,
         ) == (0, 0, True, True, True)
 
 
