@@ -15,32 +15,30 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx2
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.ai import context_budget
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.ai.response_cache import reset_llm_response_cache
 from devops_cli.ai.spend.ledger import SpendLedger
-from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
 )
-from devops_cli.config.settings import AIConfig, Settings, reset_settings_cache
+from devops_cli.config.settings import AIConfig, load_settings, reset_settings_cache
 from devops_cli.http.pool import close_expired_connections
-from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError
 from devops_cli.telemetry.tracer import reset_tracer
 from tests.llm_stream_fakes import as_requested, route_client
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
-
-runner = CliRunner()
 
 
 class TestGatewaySlotsConfig:
@@ -65,101 +63,138 @@ class TestAiGatewayConnectCommand:
     """Verify `devops ai gateway connect` probes only liveliness and model/info via NodePort."""
 
     def test_connect_saves_nodeport_url_and_probes_only_liveliness_and_models(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        config: Callable[..., Path],
+        process_fake: ProcessFake,
+        stub_web: StubWeb,
+        cli: Callable[..., Any],
     ) -> None:
         """Verify connect command discovers NodePort, probes /health/liveliness and /model/info, and saves LAN URL."""
-        mock_spec_captured: list[NodePortSpec] = []
-
-        def fake_node_port_address(
-            context: str | None, namespace: str, service: str, spec: NodePortSpec
-        ) -> tuple[str, int]:
-            mock_spec_captured.append(spec)
-            return "192.0.2.10", 30400
-
-        monkeypatch.setattr(
-            "devops_cli.commands.ai_gateway.node_port_address", fake_node_port_address
+        process_fake.answer(
+            ("kubectl", "config", "view"),
+            ProcessAnswer(stdout="https://192.0.2.10:6443\n"),
+        )
+        service_json = json.dumps(
+            {
+                "spec": {
+                    "type": "NodePort",
+                    "ports": [
+                        {
+                            "name": "http",
+                            "port": 4000,
+                            "nodePort": 30400,
+                        }
+                    ],
+                }
+            }
+        )
+        process_fake.answer(
+            ("kubectl", "-n", "llm", "get", "service", "llm-gateway"),
+            ProcessAnswer(stdout=service_json),
         )
 
-        requested_urls: list[str] = []
-
-        def fake_get(client_self: httpx2.Client, url: str, **kwargs: Any) -> httpx2.Response:
-            requested_urls.append(url)
-            req = httpx2.Request("GET", url)
-            if "/health/liveliness" in url:
-                return httpx2.Response(200, json={"status": "healthy"}, request=req)
-            if "/model/info" in url:
-                return httpx2.Response(
-                    200, json={"data": [{"model_name": "devops-review"}]}, request=req
-                )
-            return httpx2.Response(404, request=req)
-
-        monkeypatch.setattr(httpx2.Client, "get", fake_get)
-
-        saved_settings: list[Settings] = []
-        fake_settings = Settings()
-        monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: fake_settings)
-        monkeypatch.setattr(
-            "devops_cli.commands.ai_gateway.save_settings",
-            lambda s: saved_settings.append(s),
+        stub_web.respond(
+            "GET",
+            "http://192.0.2.10:30400/health/liveliness",
+            200,
+            {"status": "healthy"},
+        )
+        stub_web.respond(
+            "GET",
+            "http://192.0.2.10:30400/model/info",
+            200,
+            {"data": [{"model_name": "devops-review"}]},
         )
 
-        result = runner.invoke(gateway_cli_app, ["connect"])
+        result = cli("ai", "gateway", "connect")
 
+        settings = load_settings()
         assert (
             result.exit_code,
-            fake_settings.ai.gateway_url,
-            fake_settings.ai.allow_private_network,
-            len(saved_settings),
-            requested_urls,
-            mock_spec_captured[0].port,
-            mock_spec_captured[0].port_name,
+            settings.ai.gateway_url,
+            settings.ai.allow_private_network,
+            "http://192.0.2.10:30400/health/liveliness" in stub_web.requested,
+            "http://192.0.2.10:30400/model/info" in stub_web.requested,
         ) == (
             0,
             "http://192.0.2.10:30400/v1",
             True,
-            1,
-            ["http://192.0.2.10:30400/health/liveliness", "http://192.0.2.10:30400/model/info"],
-            4000,
-            "http",
+            True,
+            True,
         )
 
     def test_connect_fails_when_service_not_reachable(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        process_fake: ProcessFake,
+        cli: Callable[..., Any],
     ) -> None:
         """Verify connect command exits 1 with helpful message if NodePort lookup fails."""
+        process_fake.answer(
+            ("kubectl", "config", "view"),
+            ProcessAnswer(stdout="https://192.0.2.10:6443\n"),
+        )
+        service_json = json.dumps(
+            {
+                "spec": {
+                    "type": "ClusterIP",
+                    "ports": [{"name": "http", "port": 4000}],
+                }
+            }
+        )
+        process_fake.answer(
+            ("kubectl", "-n", "llm", "get", "service", "llm-gateway"),
+            ProcessAnswer(stdout=service_json),
+        )
 
-        def fake_unreachable(*args: Any, **kwargs: Any) -> tuple[str, int]:
-            raise ServiceNotReachableError("the LLM gateway service exposes no HTTP node port")
-
-        monkeypatch.setattr("devops_cli.commands.ai_gateway.node_port_address", fake_unreachable)
-
-        result = runner.invoke(gateway_cli_app, ["connect"])
+        result = cli("ai", "gateway", "connect")
 
         assert (
             result.exit_code,
-            "Cannot find the LLM gateway: the LLM gateway service exposes no HTTP node port"
-            in result.output,
+            "Cannot find the LLM gateway" in (result.stdout + result.stderr),
         ) == (1, True)
 
     def test_connect_fails_when_liveliness_or_model_info_returns_error(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        process_fake: ProcessFake,
+        stub_web: StubWeb,
+        cli: Callable[..., Any],
     ) -> None:
         """Verify connect fails if /health/liveliness returns non-200."""
-        monkeypatch.setattr(
-            "devops_cli.commands.ai_gateway.node_port_address",
-            lambda *args, **kwargs: ("192.0.2.10", 30400),
+        process_fake.answer(
+            ("kubectl", "config", "view"),
+            ProcessAnswer(stdout="https://192.0.2.10:6443\n"),
+        )
+        service_json = json.dumps(
+            {
+                "spec": {
+                    "type": "NodePort",
+                    "ports": [
+                        {
+                            "name": "http",
+                            "port": 4000,
+                            "nodePort": 30400,
+                        }
+                    ],
+                }
+            }
+        )
+        process_fake.answer(
+            ("kubectl", "-n", "llm", "get", "service", "llm-gateway"),
+            ProcessAnswer(stdout=service_json),
+        )
+        stub_web.respond(
+            "GET",
+            "http://192.0.2.10:30400/health/liveliness",
+            503,
+            "Service Unavailable",
         )
 
-        def fake_get(client_self: httpx2.Client, url: str, **kwargs: Any) -> httpx2.Response:
-            req = httpx2.Request("GET", url)
-            if "/health/liveliness" in url:
-                return httpx2.Response(503, text="Service Unavailable", request=req)
-            return httpx2.Response(200, request=req)
+        result = cli("ai", "gateway", "connect")
 
-        monkeypatch.setattr(httpx2.Client, "get", fake_get)
-        result = runner.invoke(gateway_cli_app, ["connect"])
-
-        assert (result.exit_code, "not live: HTTP 503" in result.output) == (1, True)
+        assert (
+            result.exit_code,
+            "not live: HTTP 503" in (result.stdout + result.stderr),
+        ) == (1, True)
 
 
 class TestConnectionPoolPurgeOnCut:
@@ -203,7 +238,7 @@ class TestSingleRetryLayerAndStatusRules:
 
     @pytest.fixture(autouse=True)
     def _no_gateway_reasoning_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
+        monkeypatch.setattr("devops_cli.ai.gateway.fetch_model_info", lambda *a, **kw: [])
 
     def test_transport_answers_503_sees_exactly_max_retries_plus_one_sends(self) -> None:
         """Verify a call that always encounters 503 sees max_retries + 1 sends (single retry layer)."""

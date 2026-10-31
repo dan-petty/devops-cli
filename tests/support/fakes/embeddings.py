@@ -30,19 +30,38 @@ def _deterministic_vector(text: str, dimension: int) -> list[float]:
 class FakeEmbedder(EmbedderProtocol):
     """Deterministic in-memory embedder fake satisfying EmbedderProtocol."""
 
-    def __init__(self, dimension: int = 4, *, failing: bool = False) -> None:
+    def __init__(
+        self,
+        dimension: int = 4,
+        *,
+        failing: bool = False,
+        failure_message: str | None = None,
+    ) -> None:
         self.dimension = dimension
         self.failing = failing
+        self.failure_message = failure_message
         self.calls: list[tuple[list[str], bool]] = []
         self.recorded_texts: list[tuple[str, bool]] = []
 
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         if self.failing:
-            raise EmbeddingsError("Embedding provider error", is_transient=False)
+            raise EmbeddingsError(
+                self.failure_message or "Embedding provider error", is_transient=False
+            )
         self.calls.append((list(texts), is_query))
         for t in texts:
             self.recorded_texts.append((t, is_query))
         return [_deterministic_vector(t, self.dimension) for t in texts]
+
+    def embed_text(self, text: str) -> list[float]:
+        return self.embed_texts([text], is_query=False)[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return self.embed_texts(texts, is_query=False)
+
+    def fail(self, message: str | None = None) -> None:
+        self.failing = True
+        self.failure_message = message
 
 
 @pytest.fixture

@@ -5,7 +5,6 @@ from __future__ import annotations
 import fnmatch
 import json
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -140,20 +139,20 @@ def _apply_symbol_delta_to_meta(
     head_content: str | None,
 ) -> FileAnalysisMeta:
     """Attach the change's base-vs-head symbol delta, its base text read at `base_revision`."""
-    from devops_cli.ai.analyze.symbols import change_symbol_delta, with_symbol_delta
-    from devops_cli.git.operations import read_file_at_revision
+    from devops_cli.ai.analyze.symbols import apply_branch_symbol_delta
 
-    read_base = partial(read_file_at_revision, repo, base_revision)
-    return with_symbol_delta(meta, change_symbol_delta(change, head_content, read_base))
+    return apply_branch_symbol_delta(meta, repo, base_revision, change, head_content)
 
 
 def _handle_deleted_branch_file(
     change: ChangedFile, repo: Path, base_revision: str
 ) -> FileAnalysisMeta:
     """Create analysis metadata for a deleted file and compute removed symbols."""
+    from devops_cli.ai.analyze.symbols import apply_branch_symbol_delta
+
     deleted = change.model_copy(update={"change_type": "deleted"})
     meta = _create_deleted_file_meta(change.path)
-    return _apply_symbol_delta_to_meta(meta, repo, base_revision, deleted, None)
+    return apply_branch_symbol_delta(meta, repo, base_revision, deleted, None)
 
 
 def _is_branch_file_inspectable(file_path: Path, repo: Path) -> bool:
@@ -185,7 +184,9 @@ def _try_reuse_branch_file_meta(
         if reused is None:
             return None
         content = file_path.read_text(encoding="utf-8", errors="replace")
-        return _apply_symbol_delta_to_meta(reused, repo, base_revision, change, content)
+        from devops_cli.ai.analyze.symbols import apply_branch_symbol_delta
+
+        return apply_branch_symbol_delta(reused, repo, base_revision, change, content)
     except Exception:
         return None
 
@@ -224,7 +225,9 @@ def _process_single_branch_file_meta(
             repo_root=repo,
             ai_client=ai_client,
         )
-        return _apply_symbol_delta_to_meta(meta, repo, base_revision, change, content)
+        from devops_cli.ai.analyze.symbols import apply_branch_symbol_delta
+
+        return apply_branch_symbol_delta(meta, repo, base_revision, change, content)
     except Exception:
         return None
 

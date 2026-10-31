@@ -196,7 +196,7 @@ def _extract_module_symbols(
     return functions, classes, constants
 
 
-def _discover_submodules(root_module: ModuleType, max_depth: int) -> list[ModuleType]:
+def discover_submodules(root_module: ModuleType, max_depth: int) -> list[ModuleType]:
     """Discover and import submodules up to max_depth using iterative BFS."""
     if max_depth <= 0 or not hasattr(root_module, "__path__"):
         return []
@@ -224,6 +224,9 @@ def _discover_submodules(root_module: ModuleType, max_depth: int) -> list[Module
                 continue
 
     return discovered
+
+
+_discover_submodules = discover_submodules
 
 
 def _build_symbols_index(modules: dict[str, ModuleContract]) -> dict[str, str]:

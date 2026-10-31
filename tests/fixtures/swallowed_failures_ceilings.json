@@ -52,7 +52,7 @@
   "src/devops_cli/argo/fleet.py": 1,
   "src/devops_cli/argo/gitops.py": 4,
   "src/devops_cli/ci/cache.py": 4,
-  "src/devops_cli/commands/ai.py": 6,
+  "src/devops_cli/commands/ai.py": 4,
   "src/devops_cli/commands/ai_ingest.py": 1,
   "src/devops_cli/commands/analyze.py": 15,
   "src/devops_cli/commands/argo.py": 2,

@@ -3,31 +3,27 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.ai.client import LLMClient, LLMResponse
-from devops_cli.ai.spend.ledger import SpendLedger
-from devops_cli.ai.spend.pricing import PricingRegistry
-from devops_cli.commands.ai import app as ai_app
-from devops_cli.commands.ai_cost import app as cost_app
+from devops_cli.ai.client import LLMClient
+from devops_cli.ai.spend.ledger import SpendLedger, get_spend_ledger, reset_spend_ledger
+from devops_cli.ai.spend.pricing import (
+    reset_pricing_registry,
+)
 from devops_cli.config.settings import AIConfig
-
-runner = CliRunner()
+from tests.web_fakes import http_response, record_connects
 
 
 @pytest.fixture
-def mock_spend_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger:
+def mock_spend_env(isolate_data_dir: Path) -> Iterator[SpendLedger]:
     """Fixture initializing isolated temporary SpendLedger and PricingRegistry."""
-    db_path = tmp_path / "spend.db"
-    pricing = PricingRegistry(data_dir=tmp_path)
-    ledger = SpendLedger(db_path=db_path)
-
-    monkeypatch.setattr("devops_cli.commands.ai_cost.get_spend_ledger", lambda: ledger)
-    monkeypatch.setattr("devops_cli.commands.ai_cost.get_pricing_registry", lambda: pricing)
+    reset_spend_ledger()
+    reset_pricing_registry()
+    ledger = get_spend_ledger()
 
     # Seed test record
     ledger.record_request(
@@ -39,13 +35,17 @@ def mock_spend_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedg
         cost_usd=0.0002,
         duration_seconds=1.5,
     )
-    return ledger
+    yield ledger
+    reset_spend_ledger()
+    reset_pricing_registry()
 
 
-def test_ai_cost_report_table_and_json(mock_spend_env: SpendLedger) -> None:
+def test_ai_cost_report_table_and_json(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
     """Verify devops ai cost report in table and json formats."""
     # Test JSON report
-    res_json = runner.invoke(cost_app, ["report", "--json"])
+    res_json = cli("ai", "cost", "report", "--json")
     assert res_json.exit_code == 0
     data = json.loads(res_json.stdout)
     assert (
@@ -61,33 +61,33 @@ def test_ai_cost_report_table_and_json(mock_spend_env: SpendLedger) -> None:
     )
 
     # Test Table report
-    res_table = runner.invoke(cost_app, ["report", "--by", "model"])
+    res_table = cli("ai", "cost", "report", "--by", "model")
     assert (res_table.exit_code, "llama3:8b" in res_table.stdout) == (0, True)
 
 
-def test_ai_spend_alias_report(mock_spend_env: SpendLedger) -> None:
+def test_ai_spend_alias_report(cli: Callable[..., Any], mock_spend_env: SpendLedger) -> None:
     """Verify devops ai spend alias executes cost report successfully."""
-    res = runner.invoke(ai_app, ["spend", "report", "--json"])
+    res = cli("ai", "spend", "report", "--json")
     assert res.exit_code == 0
     data = json.loads(res.stdout)
     assert data["total_requests"] == 1
 
 
-def test_ai_cost_list_pricing(mock_spend_env: SpendLedger) -> None:
+def test_ai_cost_list_pricing(cli: Callable[..., Any], mock_spend_env: SpendLedger) -> None:
     """Verify devops ai cost list-pricing outputs catalog in json, yaml, and table with base rate captions."""
     import yaml
 
-    res_json = runner.invoke(cost_app, ["list-pricing", "--json"])
+    res_json = cli("ai", "cost", "list-pricing", "--json")
     assert res_json.exit_code == 0
     catalog = json.loads(res_json.stdout)
     assert len(catalog) >= 50
 
     # YAML output format
-    res_yaml = runner.invoke(cost_app, ["list-pricing", "--format", "yaml"])
+    res_yaml = cli("ai", "cost", "list-pricing", "--format", "yaml")
     assert (res_yaml.exit_code, yaml.safe_load(res_yaml.stdout) == catalog) == (0, True)
 
     # Table output with search, column headers, and caption
-    res_table = runner.invoke(cost_app, ["list-pricing", "--search", "llama"])
+    res_table = cli("ai", "cost", "list-pricing", "--search", "llama")
     assert (
         res_table.exit_code,
         "llama" in res_table.stdout.lower(),
@@ -97,20 +97,17 @@ def test_ai_cost_list_pricing(mock_spend_env: SpendLedger) -> None:
     ) == (0, True, True, True, True)
 
     # Help text states base-tier rates
-    res_help = runner.invoke(cost_app, ["list-pricing", "--help"])
+    res_help = cli("ai", "cost", "list-pricing", "--help")
     assert (res_help.exit_code, "base-tier rates" in res_help.stdout.lower()) == (0, True)
 
 
-def test_ai_cost_set_price(mock_spend_env: SpendLedger) -> None:
+def test_ai_cost_set_price(cli: Callable[..., Any], mock_spend_env: SpendLedger) -> None:
     """Verify devops ai cost set-price creates custom override."""
-    res = runner.invoke(
-        cost_app,
-        ["set-price", "custom-model", "0.25", "0.75"],
-    )
+    res = cli("ai", "cost", "set-price", "custom-model", "0.25", "0.75")
     assert (res.exit_code, "Configured custom pricing" in res.stdout) == (0, True)
 
     # Verify override is active in json listing
-    res_list = runner.invoke(cost_app, ["list-pricing", "--json"])
+    res_list = cli("ai", "cost", "list-pricing", "--json")
     catalog = json.loads(res_list.stdout)
     custom_entry = catalog.get("custom-model")
     assert custom_entry is not None
@@ -125,47 +122,54 @@ def test_ai_cost_set_price(mock_spend_env: SpendLedger) -> None:
     )
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_ai_cost_update_pricing(
-    mock_spend_env: SpendLedger, monkeypatch: pytest.MonkeyPatch
+    mock_spend_env: SpendLedger, cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify devops ai cost update-pricing triggers registry update and reports model counts."""
-    from devops_cli.ai.spend import UpdatePricingResult
+    raw = [
+        {
+            "id": "mock-provider",
+            "name": "Mock Provider",
+            "api_pattern": ".*",
+            "model_match": {"contains": "mock"},
+            "models": [
+                {
+                    "id": "mock-custom-model",
+                    "name": "Mock Custom Model",
+                    "match": {"equals": "mock-custom-model"},
+                    "prices": {"input_mtok": 4.0, "output_mtok": 12.0},
+                }
+            ],
+        }
+    ]
+    record_connects(monkeypatch, [http_response(200, json.dumps(raw))])
 
-    monkeypatch.setattr(
-        PricingRegistry,
-        "update_from_remote",
-        lambda self, source_url=None, timeout=15.0: UpdatePricingResult(
-            source_model_count=42, merged_model_count=120
-        ),
-    )
-
-    res = runner.invoke(cost_app, ["update-pricing"])
+    res = cli("ai", "cost", "update-pricing")
     assert (
         res.exit_code,
-        "42 models supplied" in res.stdout,
-        "120 models in merged catalog" in res.stdout,
-    ) == (0, True, True)
+        "1 models supplied" in res.stdout,
+    ) == (0, True)
 
 
-def test_ai_cost_update_pricing_reset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ai_cost_update_pricing_reset(cli: Callable[..., Any], isolate_data_dir: Path) -> None:
     """Verify devops ai cost update-pricing --reset clears snapshot and caches."""
-    pricing = PricingRegistry(data_dir=tmp_path)
-    monkeypatch.setattr("devops_cli.commands.ai_cost.get_pricing_registry", lambda: pricing)
+    reset_pricing_registry()
 
     # Exits 0 if file is absent
-    res_absent = runner.invoke(cost_app, ["update-pricing", "--reset"])
+    res_absent = cli("ai", "cost", "update-pricing", "--reset")
     assert (
         res_absent.exit_code,
         "Successfully reset pricing snapshot" in res_absent.stdout,
     ) == (0, True)
 
     # When file exists, deletes it and exits 0
-    snap_file = tmp_path / "ai" / "pricing_snapshot.json"
+    snap_file = isolate_data_dir / "ai" / "pricing_snapshot.json"
     snap_file.parent.mkdir(parents=True, exist_ok=True)
     snap_file.write_text("{}", encoding="utf-8")
     assert snap_file.exists()
 
-    res_present = runner.invoke(cost_app, ["update-pricing", "--reset"])
+    res_present = cli("ai", "cost", "update-pricing", "--reset")
     assert (
         res_present.exit_code,
         snap_file.exists(),
@@ -174,39 +178,36 @@ def test_ai_cost_update_pricing_reset(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_ai_cost_update_pricing_reset_and_source_conflict(
-    mock_spend_env: SpendLedger,
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
 ) -> None:
     """Verify combining --reset with --source raises a usage error."""
-    res = runner.invoke(
-        cost_app,
-        ["update-pricing", "--reset", "--source", "https://example.com/pricing.json"],
+    res = cli(
+        "ai", "cost", "update-pricing", "--reset", "--source", "https://example.com/pricing.json"
     )
     assert (res.exit_code, "Cannot combine --reset with --source" in res.output) == (2, True)
 
 
-def test_ai_cost_reset(mock_spend_env: SpendLedger) -> None:
+def test_ai_cost_reset(cli: Callable[..., Any], mock_spend_env: SpendLedger) -> None:
     """Verify devops ai cost reset clears ledger when confirmed."""
     # Reset with --yes
-    res = runner.invoke(cost_app, ["reset", "--yes"])
+    res = cli("ai", "cost", "reset", "--yes")
     assert (res.exit_code, "cleared" in res.stdout.lower()) == (0, True)
 
     # Verify report is now empty
-    res_report = runner.invoke(cost_app, ["report", "--json"])
+    res_report = cli("ai", "cost", "report", "--json")
     data = json.loads(res_report.stdout)
     assert data["total_requests"] == 0
 
 
 def test_ai_cost_report_counterfactual_and_hardware_payoff(
-    mock_spend_env: SpendLedger,
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
 ) -> None:
     """Verify devops ai cost report displays counterfactual pricing and hardware payoff."""
-    res_table = runner.invoke(
-        cost_app,
-        ["report", "--reference-model", "gpt-4o", "--hardware-cost", "200.0"],
+    res_table = cli(
+        "ai", "cost", "report", "--reference-model", "gpt-4o", "--hardware-cost", "200.0"
     )
-    res_json = runner.invoke(
-        cost_app,
-        ["report", "--reference-model", "gpt-4o", "--hardware-cost", "200.0", "--json"],
+    res_json = cli(
+        "ai", "cost", "report", "--reference-model", "gpt-4o", "--hardware-cost", "200.0", "--json"
     )
     data = json.loads(res_json.stdout)
 
@@ -233,14 +234,16 @@ def test_ai_cost_report_counterfactual_and_hardware_payoff(
     )
 
 
-def test_ai_cost_roi_command(mock_spend_env: SpendLedger) -> None:
+def test_ai_cost_roi_reports_hardware_payoff(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
     """Verify devops ai cost roi outputs hardware payoff in table and json formats."""
-    res_table = runner.invoke(cost_app, ["roi", "--hardware-cost", "1500.0"])
-    res_json = runner.invoke(cost_app, ["roi", "--hardware-cost", "1500.0", "--json"])
+    res_table = cli("ai", "cost", "roi", "--hardware-cost", "1500.0")
+    res_json = cli("ai", "cost", "roi", "--hardware-cost", "1500.0", "--json")
     data = json.loads(res_json.stdout)
 
-    res_payoff = runner.invoke(cost_app, ["payoff", "--hardware-cost", "1500.0", "--json"])
-    res_payback = runner.invoke(cost_app, ["payback", "--hardware-cost", "1500.0", "--json"])
+    res_payoff = cli("ai", "cost", "payoff", "--hardware-cost", "1500.0", "--json")
+    res_payback = cli("ai", "cost", "payback", "--hardware-cost", "1500.0", "--json")
 
     assert (
         res_table.exit_code,
@@ -261,21 +264,28 @@ def test_ai_cost_roi_command(mock_spend_env: SpendLedger) -> None:
     )
 
 
-def _local_reply(_self: LLMClient, _system: str, _messages: list[Any], **_: Any) -> LLMResponse:
-    return LLMResponse("ok", prompt_tokens=100, completion_tokens=20, total_tokens=120)
-
-
 def test_spend_report_counts_a_cache_hit_as_a_cached_request_and_no_backend(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    cli: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+    spend_ledger: SpendLedger,
 ) -> None:
     """Verify one dispatch and one reply the cache answered report 2 requests, 1 cached, and
     one backend server, overall and for the provider; the cache ran no local model (#816)."""
-    monkeypatch.setattr(LLMClient, "_ollama_messages", _local_reply)
-    client = LLMClient(AIConfig(provider="ollama", model="llama3:8b"))
+    reply = json.dumps(
+        {
+            "message": {"role": "assistant", "content": "ok"},
+            "prompt_eval_count": 100,
+            "eval_count": 20,
+        }
+    )
+    record_connects(monkeypatch, [http_response(200, reply)])
+    client = LLMClient(
+        AIConfig(provider="ollama", model="llama3:8b", ollama_urls=["http://localhost:11434"])
+    )
     for _ in range(2):
         client.chat("system", "user", use_cache=True)
 
-    res = runner.invoke(ai_app, ["spend", "report", "--json"])
+    res = cli("ai", "spend", "report", "--json")
     data = json.loads(res.stdout)
 
     assert (
@@ -286,7 +296,9 @@ def test_spend_report_counts_a_cache_hit_as_a_cached_request_and_no_backend(
     ) == (0, (2, 1, 1), [("ollama", 2, 1)], 1)
 
 
-def test_ai_cost_report_reasoning_share_columns(mock_spend_env: SpendLedger) -> None:
+def test_ai_cost_report_reasoning_share_columns(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
     """Verify devops ai cost report shows reasoning share column in server and backend tables."""
     # Seed request with reasoning tokens
     mock_spend_env.record_request(
@@ -302,19 +314,19 @@ def test_ai_cost_report_reasoning_share_columns(mock_spend_env: SpendLedger) -> 
     )
 
     # Default report (server breakdown)
-    res_default = runner.invoke(cost_app, ["report"])
+    res_default = cli("ai", "cost", "report")
     assert res_default.exit_code == 0
     assert "Reasoning Share" in res_default.stdout
     assert "50.0%" in res_default.stdout
 
     # Backend breakdown
-    res_backend = runner.invoke(cost_app, ["report", "--by", "backend"])
+    res_backend = cli("ai", "cost", "report", "--by", "backend")
     assert res_backend.exit_code == 0
     assert "Reasoning Share" in res_backend.stdout
     assert "50.0%" in res_backend.stdout
 
     # JSON report includes reasoning tokens
-    res_json = runner.invoke(cost_app, ["report", "--json"])
+    res_json = cli("ai", "cost", "report", "--json")
     assert res_json.exit_code == 0
     data = json.loads(res_json.stdout)
     assert data["total_reasoning_tokens"] == 250

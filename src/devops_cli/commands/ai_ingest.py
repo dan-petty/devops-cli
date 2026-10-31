@@ -207,7 +207,7 @@ def _render_search_results_table(results: list[Any]) -> None:
 def _resolve_runtime_qdrant_and_embedder() -> tuple[Any, Any]:
     """Attempt to resolve and connect to a live Qdrant client and EmbeddingsEngine."""
     try:
-        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.embeddings import create_embedder
         from devops_cli.ai.rag.indexer import resolve_qdrant_client
         from devops_cli.config.settings import get_ai_api_key, load_settings
 
@@ -215,7 +215,7 @@ def _resolve_runtime_qdrant_and_embedder() -> tuple[Any, Any]:
         client = resolve_qdrant_client()
         if not client.is_alive():
             return None, None
-        embedder = EmbeddingsEngine(
+        embedder = create_embedder(
             ai_config=settings.ai,
             api_key=get_ai_api_key(settings),
         )
@@ -225,7 +225,7 @@ def _resolve_runtime_qdrant_and_embedder() -> tuple[Any, Any]:
         return None, None
 
 
-def _build_runtime_vector_store(
+def build_runtime_vector_store(
     contracts_dir: Path,
     *,
     semantic_needed: bool = True,
@@ -251,6 +251,9 @@ def _build_runtime_vector_store(
         embedder=embedder,
         local_contracts_dir=contracts_dir,
     )
+
+
+_build_runtime_vector_store = build_runtime_vector_store
 
 
 @app.command(name="index-libraries")

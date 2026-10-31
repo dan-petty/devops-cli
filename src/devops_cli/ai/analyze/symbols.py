@@ -7,7 +7,7 @@ import logging
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from devops_cli.config.constants import (
     CONST_PYTHON_SOURCE_SUFFIXES,
@@ -113,3 +113,33 @@ def with_symbol_delta(meta: FileAnalysisMeta, delta: SymbolDelta) -> FileAnalysi
     return meta.model_copy(
         update={"symbols_added": added, "symbols_removed": removed, "symbols_retained": retained}
     )
+
+
+def apply_symbol_delta_to_meta(
+    meta: FileAnalysisMeta,
+    repo: Path,
+    base_revision: BaseRevision | None,
+    change: ChangedFile | None,
+    head_content: str | None,
+) -> FileAnalysisMeta:
+    """Attach the change's base-vs-head symbol delta, its base text read at `base_revision`."""
+    if base_revision is None or change is None:
+        return meta
+    read_base = base_revision.read
+    return with_symbol_delta(meta, change_symbol_delta(change, head_content, read_base))
+
+
+def apply_branch_symbol_delta(
+    meta: FileAnalysisMeta,
+    repo: Path,
+    base_revision: str,
+    change: ChangedFile,
+    head_content: str | None,
+) -> FileAnalysisMeta:
+    """Attach the change's base-vs-head symbol delta, its base text read at `base_revision`."""
+    from functools import partial
+
+    from devops_cli.git.operations import read_file_at_revision
+
+    read_base = partial(read_file_at_revision, repo, base_revision)
+    return with_symbol_delta(meta, change_symbol_delta(change, head_content, read_base))

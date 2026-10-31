@@ -9,6 +9,7 @@ task to the document that owns it) with pointer stubs for CLAUDE.md, GEMINI.md a
 from __future__ import annotations
 
 import logging
+import subprocess
 import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -249,6 +250,89 @@ def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str
             import_line=stub.import_line,
         )
     return generate_agents_md(meta)
+
+
+def collect_project_context(repo: Path) -> str:
+    """Gather key project files into a single context string."""
+    from devops_cli.ai.rag.investigator import investigate_rag_context
+    from devops_cli.config.constants import (
+        CONST_DEVCONTAINER_JSON_PATH,
+        CONST_GIT_DIR_NAME,
+    )
+    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    from devops_cli.core.process import run_subprocess
+    from devops_cli.security.sanitizer import sanitize_prompt_boundary_tags
+
+    sections: list[str] = []
+
+    # pyproject.toml
+    pyproject = repo / "pyproject.toml"
+    if pyproject.exists():
+        sections.append(f"## pyproject.toml\n```toml\n{pyproject.read_text()}\n```")
+
+    # README
+    for name in ("README.md", "README.rst", "README.txt", "README"):
+        readme = repo / name
+        if readme.exists():
+            clean_readme = sanitize_prompt_boundary_tags(readme.read_text()[:4000])
+            sections.append(
+                f"## {name}\n"
+                f'<project_context_file name="{name}">\n'
+                f"{clean_readme}\n"
+                f"</project_context_file>"
+            )
+            break
+
+    # Directory tree (2 levels)
+    try:
+        tree = run_subprocess(
+            [
+                "find",
+                ".",
+                "-maxdepth",
+                "3",
+                "-not",
+                "-path",
+                f"./{CONST_GIT_DIR_NAME}/*",
+                "-not",
+                "-path",
+                "./.venv/*",
+                "-not",
+                "-path",
+                "./__pycache__/*",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=repo,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+        clean_tree = sanitize_prompt_boundary_tags(tree.stdout.strip())
+        sections.append(f"## File tree\n```\n{clean_tree}\n```")
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("Failed to read file tree: %s", exc)
+
+    # .editorconfig
+    ec = repo / ".editorconfig"
+    if ec.exists():
+        clean_ec = sanitize_prompt_boundary_tags(ec.read_text()[:4000])
+        sections.append(
+            "## .editorconfig\n"
+            '<project_context_file name=".editorconfig">\n'
+            f"{clean_ec}\n"
+            "</project_context_file>"
+        )
+
+    # devcontainer.json
+    dc = repo / CONST_DEVCONTAINER_JSON_PATH
+    if dc.exists():
+        sections.append(f"## {CONST_DEVCONTAINER_JSON_PATH}\n```json\n{dc.read_text()}\n```")
+
+    # Semantic RAG Architecture Context
+    rag = investigate_rag_context(f"{repo.name} architecture CLI commands conventions", top_k=4)
+    if rag and rag.has_results:
+        sections.append(f"## Indexed Architecture & Subsystem Context\n{rag.formatted_text}")
+
+    return "\n\n".join(sections)
 
 
 def scaffold_agent_instructions(

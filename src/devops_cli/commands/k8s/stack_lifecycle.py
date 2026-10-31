@@ -70,7 +70,7 @@ from devops_cli.output import (
 if TYPE_CHECKING:
     from devops_cli.k8s.credentials import CredentialSync
 
-_HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
+HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "infra": {
         "argo": "https://argoproj.github.io/argo-helm",
         "prometheus-community": "https://prometheus-community.github.io/helm-charts",
@@ -91,6 +91,7 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "gitea-charts": "https://dl.gitea.com/charts/",
     },
 }
+_HELM_REPOS_BY_STACK = HELM_REPOS_BY_STACK
 
 _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["infra"],

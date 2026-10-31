@@ -80,7 +80,7 @@ from devops_cli.ai.review.defects import (
     select_templates,
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
-from devops_cli.ai.review.history import HistoryFinding, load_review_history
+from devops_cli.ai.review.history import load_review_history
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
@@ -676,49 +676,6 @@ def branch(
 # =============================================================================
 
 
-def _resolve_pr_files(pages: list[str], repo_name: str, number: int) -> list[str]:
-    """Extract changed file paths from PR pages, or from the pull request's files when the diff
-    holds none."""
-    from devops_cli.github.session import get_github_session
-    from devops_cli.review.diff import diff_file_names
-
-    all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
-    if all_files:
-        return all_files
-    files = get_github_session().client.get_pull_files(repo_name, number)
-    return [f.filename for f in files if f.status != "removed"]
-
-
-def _post_pr_review_comment(
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
-    pages: list[str],
-    head_dir: Path,
-    repo_name: str,
-    number: int,
-) -> None:
-    """Post formatted review comment to GitHub PR."""
-    from devops_cli.ai.review.runner import format_pr_review_comment
-    from devops_cli.github.session import get_github_session
-
-    all_files = _resolve_pr_files(pages, repo_name, number)
-    comment_body = format_pr_review_comment(
-        reviews=reviews,
-        files=all_files,
-        target_dir=head_dir,
-    )
-    if is_dry_run():
-        from devops_cli.ai.review.runner import _debug_block
-
-        _debug_block(
-            f"Would post PR comment on #{number}",
-            {"repo": repo_name, "pr_number": number, "comment_body": comment_body},
-        )
-        print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
-        return
-    get_github_session().client.create_issue_comment(repo_name, number, comment_body)
-    print_success(f"Review posted as comment on PR #{number}")
-
-
 def _run_pr_review_workflow(
     pages: list[str],
     title: str,
@@ -939,7 +896,9 @@ def pr(
         )
 
     if post_comment and reviews:
-        _post_pr_review_comment(
+        from devops_cli.ai.review.runner import post_pr_review_comment
+
+        post_pr_review_comment(
             reviews=reviews,
             pages=pages,
             head_dir=head_dir,
@@ -1391,24 +1350,6 @@ def intake(
 # =============================================================================
 
 
-def _tally_findings(
-    findings: Sequence[HistoryFinding],
-) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
-    """Count findings by status, and by producer in total and invalidated."""
-    by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
-    by_producer_total: dict[str, int] = {}
-    by_producer_invalidated: dict[str, int] = {}
-    for f in findings:
-        by_status[f.status] = by_status.get(f.status, 0) + 1
-        raw = (getattr(f, "producer", "") or getattr(f, "persona", "") or "").strip()
-        producers = [p.strip() for p in raw.split(",") if p.strip()] or ["unknown"]
-        for producer in producers:
-            by_producer_total[producer] = by_producer_total.get(producer, 0) + 1
-            if f.status == "INVALIDATED":
-                by_producer_invalidated[producer] = by_producer_invalidated.get(producer, 0) + 1
-    return by_status, by_producer_total, by_producer_invalidated
-
-
 def _render_status_breakdown_table(by_status: dict[str, int], total_findings: int) -> None:
     """Render findings status distribution table."""
     status_rows = []
@@ -1498,8 +1439,10 @@ def review_stats(
         print_warning(MESSAGES.review.no_saved_sessions, prefix=False)
         raise typer.Exit(0)
 
+    from devops_cli.ai.review.history import tally_findings
+
     findings = [f for session in history.counted for f in session.findings]
-    by_status, by_producer_total, by_producer_invalidated = _tally_findings(findings)
+    by_status, by_producer_total, by_producer_invalidated = tally_findings(findings)
 
     print_section(" AI Code Review Accuracy & Verification Stats ", style="bold cyan")
     print_info(
@@ -1521,6 +1464,15 @@ def review_stats(
 
     category_metrics = compute_category_metrics(findings)
     _render_category_stats_table(category_metrics)
+
+
+def _tally_findings(
+    findings: Any,
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """Tally findings by status and producer (preserved for unmigrated test callers)."""
+    from devops_cli.ai.review.history import tally_findings
+
+    return tally_findings(findings)
 
 
 # =============================================================================
