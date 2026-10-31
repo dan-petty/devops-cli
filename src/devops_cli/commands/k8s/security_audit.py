@@ -17,7 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.k8s.rbac import RbacBindingList, RbacRoleList, audit_rbac
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -56,6 +56,7 @@ def _read_rbac[ListT: BaseModel](
     raise typer.Exit(1)
 
 
+@dry_run_class("request-plan")
 def rbac_audit(
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.k8s.rbac_namespace)
@@ -70,11 +71,11 @@ def rbac_audit(
         runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s rbac-audit",
-            action="rbac_audit_scan",
-            details={"namespace": namespace, "violations": []},
-        )
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_rbac_audit
+
+        requests = plan_k8s_rbac_audit(namespace=namespace)
+        render_request_plan("devops k8s rbac-audit", requests)
         return
 
     bindings = _read_rbac("clusterrolebindings,rolebindings", namespace, RbacBindingList).items
@@ -148,6 +149,7 @@ def k8s_lint(
     raise typer.Exit(1)
 
 
+@dry_run_class("request-plan")
 def k8s_audit(
     dry_run: Annotated[
         bool,
@@ -155,22 +157,18 @@ def k8s_audit(
     ] = False,
 ) -> None:
     """Sanitize active K8s/Minikube cluster resource health using Derailed Popeye."""
-    from devops_cli.dry_run.state import set_dry_run
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_audit
+
+        requests = plan_k8s_audit()
+        render_request_plan("devops k8s audit", requests)
+        return
+
     from devops_cli.security.popeye import run_popeye_scan
 
-    set_dry_run(dry_run)
-    if not is_dry_run():
-        print_info(MESSAGES.k8s.popeye_executing, prefix=False)
-
+    print_info(MESSAGES.k8s.popeye_executing, prefix=False)
     findings = run_popeye_scan()
-
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops k8s audit",
-            action="popeye_cluster_sanitizer",
-            details={"findings_count": len(findings)},
-        )
-        return
 
     if findings.status != "ran":
         print_error(
