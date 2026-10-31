@@ -739,6 +739,15 @@ def test_intake_docstring_names_sub_issue_write_rule() -> None:
     assert "sub-issue" in doc
 
 
+def test_source_parent_number_parses_hashes_and_numbers() -> None:
+    """source_parent_number parses hash numbers, bare numbers, and returns None for non-numbers (#2035)."""
+    from devops_cli.roadmap.intake import source_parent_number
+
+    assert source_parent_number(REPO, "#42") == 42
+    assert source_parent_number(REPO, "42") == 42
+    assert source_parent_number(REPO, "not-a-number") is None
+
+
 @pytest.mark.parametrize("anchor", ["", "#issuecomment-1"], ids=["issue", "comment-on-issue"])
 def test_a_part_is_never_a_duplicate_of_the_issue_its_source_names(
     roadmap: Roadmap, model_fake: ModelFake, anchor: str
