@@ -32,12 +32,12 @@ from tests.support.workspace_tripwire import (
 )
 
 pytest_plugins = ("pytester",)
-pytestmark = pytest.mark.live("python")
 
 _BOOTSTRAP_CONFTEST = 'pytest_plugins = ("tests.support.bootstrap",)\n'
 _SUPPORT_UNDER_TEST = "registered_support_under_test"
 
 
+@pytest.mark.live("python")
 def test_support_fixtures_reach_a_nested_test_and_load_after_home_is_isolated(
     pytester: pytest.Pytester,
 ) -> None:
@@ -499,6 +499,7 @@ def test_worker_home_locations_and_leaks(tmp_path: Path) -> None:
     ) == (True, True)
 
 
+@pytest.mark.live("python")
 def test_tripwire_fails_when_test_writes_under_const_config_dir(
     pytester: pytest.Pytester,
 ) -> None:
