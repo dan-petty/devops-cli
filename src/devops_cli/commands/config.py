@@ -354,9 +354,7 @@ def _validate_wizard_service_url(url: str, purpose: str, *, allow_private: bool)
     if not parsed.host:
         raise ValueError(f"{purpose} URL missing valid hostname")
 
-    port = parsed.origin.port
-    if port is None:
-        raise ValueError(f"{purpose} URL missing valid port")
+    port = parsed.origin.port or 80
     level = EgressLevel.PRIVATE if allow_private else EgressLevel.LOOPBACK
     try:
         vet_addresses(parsed.host, port, level)

@@ -41,6 +41,19 @@ def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(
             k8s_apply("http://example.com/manifest.yaml")
 
 
+def test_k8s_apply_manifest_url_validation_branches() -> None:
+    from devops_cli.commands.k8s.cluster_context import _validate_manifest_url
+
+    with pytest.raises(KubernetesContextError, match="Invalid manifest URL: Invalid port"):
+        _validate_manifest_url("http://example.com:notaport/manifest.yaml")
+
+    with pytest.raises(KubernetesContextError, match="Invalid manifest URL scheme 'ftp'"):
+        _validate_manifest_url("ftp://example.com/manifest.yaml")
+
+    with pytest.raises(KubernetesContextError, match="missing valid hostname"):
+        _validate_manifest_url("http://:8080/manifest.yaml")
+
+
 # ── Finding #12: Path Traversal in Vault URI Parsing ─────────────────────────
 
 

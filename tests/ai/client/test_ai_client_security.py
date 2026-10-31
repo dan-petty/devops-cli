@@ -382,3 +382,11 @@ def test_ollama_stream_error_message_masks_secrets(monkeypatch: pytest.MonkeyPat
     err_msg = str(exc_info.value)
     assert "ghp_secret" not in err_msg
     assert "<masked-github-token>" in err_msg
+
+
+def test_create_http_client_uses_custom_transport() -> None:
+    client = LLMClient(AIConfig(provider="openai", api_base_url="https://api.openai.com/v1"))
+    transport = httpx2.MockTransport(lambda req: httpx2.Response(200))
+    client._transport = transport
+    http_client = client._create_http_client()
+    assert http_client is not None

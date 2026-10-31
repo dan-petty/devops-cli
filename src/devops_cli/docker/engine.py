@@ -469,11 +469,7 @@ class DockerEngineService:
         if scheme in ("http", "https"):
             settings = load_settings()
             level = EgressLevel.PRIVATE if settings.ai.allow_private_network else EgressLevel.PUBLIC
-            port = parsed.origin.port
-            if port is None:
-                raise DockerDaemonUnavailableError(
-                    f"{source}: missing port in {base_url}", host=source
-                )
+            port = parsed.origin.port or 80
             try:
                 vet_addresses(parsed.host, port, level)
             except Exception as exc:

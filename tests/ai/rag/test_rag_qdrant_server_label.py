@@ -128,11 +128,15 @@ def test_the_investigator_warning_names_the_server_by_host_and_port(
             "Invalid URL: Qdrant URL missing valid hostname",
         ),
         (
+            "http://example.com:notaport",
+            "Invalid URL: Invalid Qdrant URL: Invalid port: 'notaport'",
+        ),
+        (
             "http://user:secret@a..b.com/prefix/path",
             "Invalid URL for server a..b.com: Qdrant URL has invalid hostname 'a..b.com'",
         ),
     ],
-    ids=["no-scheme", "scheme", "no-host", "host-syntax"],
+    ids=["no-scheme", "scheme", "no-host", "parse-error", "host-syntax"],
 )
 def test_the_error_for_an_invalid_url_names_no_userinfo_and_no_path(url: str, message: str) -> None:
     with pytest.raises(InvalidURLError) as raised:
