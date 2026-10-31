@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.24.0](https://github.com/dan-petty/devops-cli/compare/v0.23.0...v0.24.0) (2026-10-31)
+
+
+### Features
+
+* **cli:** declare dry-run class and enforce with ratchet test ([#2817](https://github.com/dan-petty/devops-cli/issues/2817)) ([840d3eb](https://github.com/dan-petty/devops-cli/commit/840d3eb29bd7622286b0c6c3fb002229f3232f7c)), closes [#2230](https://github.com/dan-petty/devops-cli/issues/2230)
+* **gh:** list dry-run requests in project, views and pages ([#2820](https://github.com/dan-petty/devops-cli/issues/2820)) ([6a9a24e](https://github.com/dan-petty/devops-cli/commit/6a9a24e1dd39a56f6f60a531d1fa485680967bf9)), closes [#2236](https://github.com/dan-petty/devops-cli/issues/2236)
+* **k8s:** raise the context of the condor and hawk Ollama tiers ([#2824](https://github.com/dan-petty/devops-cli/issues/2824)) ([325fbdb](https://github.com/dan-petty/devops-cli/commit/325fbdbd2539c8403eed09a3b76c4ba338a83a56)), closes [#2822](https://github.com/dan-petty/devops-cli/issues/2822)
+
+
+### Bug Fixes
+
+* **ci:** the scope git of a pull request title has no label ([#2821](https://github.com/dan-petty/devops-cli/issues/2821)) ([2c5ae30](https://github.com/dan-petty/devops-cli/commit/2c5ae3099df3463e3bfe0f1ccb811d1f7a8e1708)), closes [#2800](https://github.com/dan-petty/devops-cli/issues/2800)
+* **github:** treat the traffic API 403 as expected ([#2823](https://github.com/dan-petty/devops-cli/issues/2823)) ([e66a124](https://github.com/dan-petty/devops-cli/commit/e66a1247c1948d87033f0686ed735b58bb62cc41)), closes [#2626](https://github.com/dan-petty/devops-cli/issues/2626)
+
 ## [0.23.0](https://github.com/dan-petty/devops-cli/compare/v0.22.7...v0.23.0) (2026-10-31)
 
 
