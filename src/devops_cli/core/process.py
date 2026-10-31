@@ -1033,10 +1033,7 @@ def terminate_process_group(
     """
     if os_module is not os:
         return _terminate_process_group_os(pid, sig, os_module)
-    runner = get_process_runner()
-    if hasattr(runner, "terminate_process_group"):
-        return runner.terminate_process_group(pid, sig)
-    return _terminate_process_group_os(pid, sig, os_module)
+    return get_process_runner().terminate_process_group(pid, sig)
 
 
 async def _wait_for_group_exit_async(

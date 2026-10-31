@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -285,6 +286,26 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
         "CUSTOM_SECRET" not in str(args),
         "SAFE_VAR" in str(args),
     ) == (True, True, True, True, True, True, True, True)
+
+
+def test_host_sandbox_handles_unexpected_exception_after_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """An unexpected exception during communicate terminates the spawned process group."""
+    from devops_cli.sandbox.host import _run_sandbox_process
+
+    fake_proc = FakeSandboxProcess(returncode=0)
+    process_fake.answer_sandbox(fake_proc)
+
+    def _exploding_communicate(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("devops_cli.sandbox.host._communicate_bounded", _exploding_communicate)
+    outcome = _run_sandbox_process(["bwrap"], 10.0, 1024, 10)
+    assert outcome.exit_code == -1
+    assert outcome.error is not None
+    assert "boom" in outcome.error
+    assert signal.SIGKILL in fake_proc.signals
 
 
 def test_host_sandbox_default_policy_mounts_tmp_as_declared(tmp_path: Path) -> None:
