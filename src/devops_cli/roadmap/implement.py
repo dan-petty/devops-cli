@@ -5,7 +5,9 @@ its change (`implement_run`). This module selects and plans. It makes no write t
 
 **Staged.** An item is Staged when its record holds a branch and a draft pull request, the branch
 is on `origin`, and the draft is open. The pair is `implement.branch` and `implement.pr` when the
-implement job wrote both, else `stage.branch` and `stage.pr`.
+implement job wrote both, else `stage.branch` and `stage.pr`. A draft that the Service marked
+ready (the row `stage_ready`, #2865) is no longer a draft: its item is Planned once a person has
+merged the plan.
 
 **Planned.** An item is Planned when the folder `openspec/changes/<issue>-<slug>` is on
 `origin/<default branch>` and no recorded branch is on `origin`: a person merged the staging pull

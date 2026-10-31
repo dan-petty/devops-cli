@@ -23,7 +23,7 @@
 
 ## 4. The documents
 
-- [ ] 4.1 Replace the text that says the stage job never marks the pull request ready: the header of `src/devops_cli/roadmap/stage.py`, the help text of `devops roadmap stage` in `src/devops_cli/lang/en/help.py`, `k8s/README.md` (Roadmap service, steps 15, 16 and 17, and the `row` label), and `CONTEXT.md` (Lane)
+- [x] 4.1 Replace the text that says the stage job never marks the pull request ready: the header of `src/devops_cli/roadmap/stage.py` and of `src/devops_cli/roadmap/implement.py`, the help text of `devops roadmap stage` in `src/devops_cli/lang/en/help.py`, `k8s/README.md` (Roadmap service, steps 12, 15, 17 and the new step 18), and `CONTEXT.md` (Lane)
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 5. Archive
