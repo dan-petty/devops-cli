@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import configparser
 import json
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,10 +13,13 @@ from typer.testing import CliRunner
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.commands.scan import app as scan_app
-from devops_cli.config.commands import BIN_BANDIT
+from devops_cli.config.commands import BIN_BANDIT, BIN_GIT
 from devops_cli.config.constants import CONST_BANDIT_INI_NAME
+from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.bandit import BanditScanner, parse_bandit_json, run_bandit_scan
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.paths import REPO_ROOT
@@ -26,6 +28,29 @@ if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolRequest
 
 _EMPTY_BANDIT_REPORT = json.dumps({"errors": [], "results": []})
+
+
+def _handle_ls_files(call: ProcessCall) -> ProcessAnswer:
+    files = [str(p.relative_to(REPO_ROOT)) for p in REPO_ROOT.glob("src/**/*.py")] + [
+        str(p.relative_to(REPO_ROOT)) for p in REPO_ROOT.glob("tests/**/*.py")
+    ]
+    return ProcessAnswer(stdout="\n".join(files) + "\n")
+
+
+@pytest.fixture(autouse=True)
+def _answer_bandit_git(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        ProcessAnswer(stdout="0123456789abcdef0123456789abcdef01234567\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        ProcessAnswer(stdout=""),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        _handle_ls_files,
+    )
 
 
 def test_parse_bandit_json_valid() -> None:
@@ -234,12 +259,9 @@ def test_the_bandit_targets_hold_every_python_file_the_repository_tracks() -> No
     ini = configparser.ConfigParser()
     ini.read(REPO_ROOT / CONST_BANDIT_INI_NAME, encoding="utf-8")
     targets = ini["bandit"]["targets"].split(",")
-    tracked = subprocess.run(
-        ["git", "ls-files", "--", "*.py", "*.pyw"],
+    tracked = run_subprocess(
+        [BIN_GIT, "ls-files", "--", "*.py", "*.pyw"],
         cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
     ).stdout.split()
     outside = [name for name in tracked if not any(Path(name).is_relative_to(t) for t in targets)]
 

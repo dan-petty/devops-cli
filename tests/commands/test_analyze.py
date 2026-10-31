@@ -23,12 +23,14 @@ from devops_cli.commands.analyze import (
 from devops_cli.main import app
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import (
     github_json,
     pull_request_file_payload,
     pull_request_payload,
     route_pull_request,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.github_identity import fail_the_github_lookup
 from tests.support.paths import FIXTURES
 
@@ -38,6 +40,51 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
+
+
+def _handle_remote_get_url(call: ProcessCall) -> ProcessAnswer:
+    cwd = Path(call.cwd) if call.cwd else Path.cwd()
+    if (cwd / ".git" / "config").exists():
+        cfg = (cwd / ".git" / "config").read_text(encoding="utf-8")
+        if "github.com" in cfg:
+            return ProcessAnswer(stdout="https://github.com/octocat/Hello-World.git\n")
+    return ProcessAnswer(returncode=128, stderr="error: No such remote 'origin'\n")
+
+
+@pytest.fixture(autouse=True)
+def _answer_analyze_git(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and "remote" in call.argv and "get-url" in call.argv),
+        _handle_remote_get_url,
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-tree" in call.argv),
+        ProcessAnswer(stdout="100644 blob 1234567890abcdef1234567890abcdef12345678\tmod.py\0"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "cat-file" in call.argv),
+        ProcessAnswer(stdout="def kept(): pass\ndef gone(): pass\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "log" in call.argv),
+        ProcessAnswer(returncode=128, stderr="fatal: not a git repository\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        ProcessAnswer(returncode=128, stderr="fatal: not a git repository\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        ProcessAnswer(stdout="0123456789abcdef0123456789abcdef01234567\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        ProcessAnswer(stdout=""),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "show" in call.argv and "main:mod.py" in call.argv),
+        ProcessAnswer(stdout="def kept(): pass\ndef gone(): pass\n"),
+    )
 
 
 def test_sanitize_reference_basic() -> None:
@@ -596,7 +643,6 @@ def test_analyze_pr_command(
 def test_analyze_pr_lists_the_title_and_the_files_of_every_page(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    git: Callable[..., None],
     github_api: GitHubApiFake,
     pin_github_session: str,
 ) -> None:
@@ -621,8 +667,11 @@ def test_analyze_pr_lists_the_title_and_the_files_of_every_page(
     )
     root = tmp_path / "checkout"
     root.mkdir()
-    git(root, "init", "-q")
-    git(root, "remote", "add", "origin", "https://github.com/octocat/Hello-World.git")
+    (root / ".git").mkdir(parents=True, exist_ok=True)
+    (root / ".git" / "config").write_text(
+        '[remote "origin"]\n\turl = https://github.com/octocat/Hello-World.git\n',
+        encoding="utf-8",
+    )
     monkeypatch.chdir(root)
     monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
 
@@ -650,7 +699,6 @@ def test_analyze_pr_lists_the_title_and_the_files_of_every_page(
 def test_analyze_pr_ends_with_the_github_error_when_the_pull_request_cannot_be_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    git: Callable[..., None],
     cli: Callable[..., Any],
     github_api: GitHubApiFake,
     unreadable: str,
@@ -669,8 +717,11 @@ def test_analyze_pr_ends_with_the_github_error_when_the_pull_request_cannot_be_r
         github_api.route("GET", f"{pull}/files?per_page=100", failure)
     root = tmp_path / "checkout"
     root.mkdir()
-    git(root, "init", "-q")
-    git(root, "remote", "add", "origin", "https://github.com/octocat/Hello-World.git")
+    (root / ".git").mkdir(parents=True, exist_ok=True)
+    (root / ".git" / "config").write_text(
+        '[remote "origin"]\n\turl = https://github.com/octocat/Hello-World.git\n',
+        encoding="utf-8",
+    )
     monkeypatch.chdir(root)
 
     result = cli("ai", "analyze", "pr", "158", "--no-enhanced")
@@ -874,15 +925,17 @@ def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
 
 
 def test_apply_symbol_delta_reports_a_symbol_removed_since_the_base(
-    symbol_removal_repo: Path,
+    tmp_path: Path,
 ) -> None:
     """A symbol the branch removes lands in symbols_removed, and a kept one is not added (#787)."""
     from devops_cli.commands.analyze import _apply_symbol_delta_to_meta
 
-    head = (symbol_removal_repo / "mod.py").read_text(encoding="utf-8")
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef added(): pass\n", encoding="utf-8")
+    head = (tmp_path / "mod.py").read_text(encoding="utf-8")
     updated = _apply_symbol_delta_to_meta(
         meta=FileAnalysisMeta(path="mod.py"),
-        repo=symbol_removal_repo,
+        repo=tmp_path,
         base_revision="main",
         change=ChangedFile(change_type="modified", path="mod.py"),
         head_content=head,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
+import re
 from contextlib import nullcontext
 from typing import Any
 from unittest.mock import MagicMock
@@ -398,45 +398,35 @@ def test_free_text_masking_finishes_100_kb_inputs_that_make_a_scan_backtrack() -
 
 def test_no_forbidden_constructs_remain() -> None:
     """Verify architectural invariants: forbidden regex patterns and legacy shims are gone."""
-
     # 1. Check forbidden regexes and constructs
-    cmd1 = [
-        "git",
-        "grep",
-        "-n",
-        "-F",
-        "-e",
-        "_replace(netloc",
-        "-e",
-        'partition("@")',
-        "-e",
-        "https?://[^",
-        "-e",
-        "://([^:]*)",
+    forbidden = ["_replace(netloc", 'partition("@")', "https?://[^", "://([^:]*)"]
+    for target_rel in [
         "src/devops_cli/exceptions/security.py",
         "src/devops_cli/security/sanitizer.py",
-    ]
-    res1 = subprocess.run(cmd1, cwd=REPO_ROOT, capture_output=True, text=True)
-    assert (res1.returncode, res1.stdout.strip()) == (1, "")
+    ]:
+        content = (REPO_ROOT / target_rel).read_text(encoding="utf-8")
+        for pat in forbidden:
+            assert pat not in content
 
     # 2. Check mask_uri_credentials(str(
-    cmd2 = ["git", "grep", "-n", "mask_uri_credentials(str(", "src"]
-    res2 = subprocess.run(cmd2, cwd=REPO_ROOT, capture_output=True, text=True)
-    assert (res2.returncode, res2.stdout.strip()) == (1, "")
+    matching = [
+        str(p.relative_to(REPO_ROOT))
+        for p in (REPO_ROOT / "src").rglob("*.py")
+        if "mask_uri_credentials(str(" in p.read_text(encoding="utf-8")
+    ]
+    assert matching == []
 
     # 3. Check legacy endpoint helper is removed
     target_ident = "_sanitize_" + "telemetry_endpoint"
-    cmd3 = [
-        "git",
-        "grep",
-        "-E",
-        rf"\b{target_ident}\b",
-        "src",
-        "tests",
-        ":^tests/ai/client/test_url_credential_masking.py",
+    pattern = re.compile(rf"\b{re.escape(target_ident)}\b")
+    this_file = REPO_ROOT / "tests/ai/client/test_url_credential_masking.py"
+    matching = [
+        str(p.relative_to(REPO_ROOT))
+        for root_dir in ("src", "tests")
+        for p in (REPO_ROOT / root_dir).rglob("*.py")
+        if p.resolve() != this_file.resolve() and pattern.search(p.read_text(encoding="utf-8"))
     ]
-    res3 = subprocess.run(cmd3, cwd=REPO_ROOT, capture_output=True, text=True)
-    assert (res3.returncode, res3.stdout.strip()) == (1, "")
+    assert matching == []
 
     # 4. Check gateway reply header references: only constants.py and network.py. The served-by
     # header names the backend, and the served-model header the deployment model (#2031).
@@ -444,12 +434,15 @@ def test_no_forbidden_constructs_remain() -> None:
         "CONST_AI_GATEWAY_SERVED_BY_HEADER|x-litellm-model-api-base",
         "CONST_AI_GATEWAY_SERVED_MODEL_HEADER|x-litellm-model-name",
     ):
-        cmd4 = ["git", "grep", "-n", "-E", header_pattern, "src"]
-        res4 = subprocess.run(cmd4, cwd=REPO_ROOT, capture_output=True, text=True)
-        lines = [line.split(":")[0] for line in res4.stdout.strip().splitlines() if line]
+        pat = re.compile(header_pattern)
+        lines: list[str] = [
+            str(p.relative_to(REPO_ROOT))
+            for p in (REPO_ROOT / "src").rglob("*.py")
+            for line in p.read_text(encoding="utf-8").splitlines()
+            if pat.search(line)
+        ]
         assert (
             header_pattern,
-            res4.returncode,
             len(lines) >= 2,
             sorted({p for p in lines if not p.endswith(_GATEWAY_HEADER_FILES)}),
-        ) == (header_pattern, 0, True, [])
+        ) == (header_pattern, True, [])

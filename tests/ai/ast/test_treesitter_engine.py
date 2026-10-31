@@ -343,6 +343,35 @@ def test_cli_ast_parse(tmp_path: Path) -> None:
     assert "hello" in res.output
 
 
+@pytest.fixture
+def nested_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """Provide a nested worktree without starting git processes."""
+    main = tmp_path / "main"
+    main.mkdir(parents=True, exist_ok=True)
+    (main / ".git").mkdir(parents=True, exist_ok=True)
+    (main / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    nested = main / ".claude" / "worktrees" / "wt"
+    nested.parent.mkdir(parents=True, exist_ok=True)
+    nested.mkdir(parents=True, exist_ok=True)
+    (nested / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (nested / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    wt_git = main / ".git" / "worktrees" / "wt"
+    wt_git.mkdir(parents=True, exist_ok=True)
+    (nested / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
+    (wt_git / "gitdir").write_text(f"{nested / '.git'}\n", encoding="utf-8")
+    (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt_git / "HEAD").write_text("ref: refs/heads/nested\n", encoding="utf-8")
+    return main, nested
+
+
 def test_code_graph_indexes_a_nested_worktree(
     nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
