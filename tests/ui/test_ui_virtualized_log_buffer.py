@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 from devops_cli.ui.log_buffer import LogLine, VirtualLogBuffer, tail
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def test_retention_is_bounded_however_long_the_stream_runs() -> None:
@@ -198,7 +199,7 @@ def test_concurrent_producers_do_not_lose_or_duplicate_lines() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=10)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     sequences = {line.sequence for line in buffer.viewport_lines()}
     assert (buffer.total_appended, len(sequences)) == (1600, 20)
 
@@ -220,7 +221,7 @@ def test_reading_a_viewport_during_concurrent_appends_never_tears() -> None:
         widths = {len(buffer.viewport_lines()) for _ in range(500)}
     finally:
         stop.set()
-        producer.join(timeout=5)
+        producer.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert widths <= {10} or widths.issubset(set(range(11)))
 
 

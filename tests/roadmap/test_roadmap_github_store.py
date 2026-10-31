@@ -66,6 +66,9 @@ from tests.support.fakes.github import (
 from tests.support.paths import FIXTURES
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
+_QUIET_SECONDS: float = 0.3
+"""How long a test waits to verify that a competing write does not land during a held lock."""
+
 ROADMAP_FIXTURES = FIXTURES / "roadmap"
 REPO = "dan-petty/devops-cli"
 ISSUE_URL = f"https://github.com/{REPO}/issues"
@@ -590,7 +593,7 @@ def test_two_stores_writing_one_issue_at_once_keep_each_others_keys(
             # does not land, and opens only once the other store is about to write, so it
             # times the store's lock, not a thread start-up.
             handoffs.append(writing.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
-            written.wait(timeout=0.3)
+            written.wait(timeout=_QUIET_SECONDS)
         return answer
 
     first_store = GitHubRoadmapStore(

@@ -47,7 +47,7 @@ from tests.support.fakes.github import (
     quota_headers,
 )
 from tests.support.paths import REPO_ROOT
-from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until, wait_while_running
 from tests.web_fakes import rebinding, scripted_resolver
 
 _SRC = REPO_ROOT / "src" / "devops_cli"
@@ -391,16 +391,22 @@ print(first, held.rest("GET", "/user")["login"], flush=True)
 def test_a_process_that_sent_a_request_exits_without_closing_its_session(tmp_path: Path) -> None:
     """A session left open at exit is closed while its event loop thread can still run, so the
     interpreter exits instead of waiting forever on the loop it stopped."""
-    proc = subprocess.run(
-        [sys.executable, "-c", _EXITING_CHILD],
-        cwd=REPO_ROOT,
-        env={**os.environ, "DEVOPS_CLI_DATA_DIR": str(tmp_path)},
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
+    stdout_file = tmp_path / "stdout.log"
+    with open(stdout_file, "w") as out:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", _EXITING_CHILD],
+            cwd=REPO_ROOT,
+            env={**os.environ, "DEVOPS_CLI_DATA_DIR": str(tmp_path)},
+            stdout=out,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    wait_while_running(
+        lambda: stdout_file.exists() and "octocat octocat" in stdout_file.read_text(),
+        proc,
     )
-    assert (proc.returncode, proc.stdout) == (0, "octocat octocat\n")
+    proc.wait()
+    assert (proc.returncode, stdout_file.read_text()) == (0, "octocat octocat\n")
 
 
 async def _sleep_on_the_loop(_api: object, seconds: float) -> None:
@@ -466,7 +472,7 @@ def test_closing_a_session_mid_flight_fails_each_request_with_a_typed_error(
     clock.sleep(0.03)
     session.close()
     for caller in callers:
-        caller.join(timeout=10.0)
+        caller.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     session.close()
     assert set(outcomes) <= {"octocat", "GitHubUnreadError"}
 

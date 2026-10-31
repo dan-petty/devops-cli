@@ -12,6 +12,7 @@ from tests.support.ui import (
     _docker,
     _k8s,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def test_publish_records_a_snapshot_readable_by_domain(state: DashboardState) -> None:
@@ -109,13 +110,13 @@ def test_subscribers_are_notified_outside_the_lock(state: DashboardState) -> Non
 
     def slow(_: DomainSnapshot) -> None:
         entered.set()
-        release.wait(timeout=5)
+        release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     state.publish("k8s", _k8s())
     state.subscribe(slow)
     blocker = threading.Thread(target=lambda: state.publish("k8s", _k8s()))
     blocker.start()
-    assert entered.wait(timeout=5)
+    assert entered.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     read = threading.Event()
 
@@ -126,11 +127,13 @@ def test_subscribers_are_notified_outside_the_lock(state: DashboardState) -> Non
 
     worker = threading.Thread(target=reader)
     worker.start()
-    assert read.wait(timeout=5), "the store stayed locked while a subscriber ran"
+    assert read.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS), (
+        "the store stayed locked while a subscriber ran"
+    )
 
     release.set()
-    blocker.join(timeout=5)
-    worker.join(timeout=5)
+    blocker.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    worker.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
 
 def test_pending_domains_lists_every_domain_before_any_fetch(state: DashboardState) -> None:
@@ -181,6 +184,6 @@ def test_concurrent_publishes_across_threads_lose_nothing(state: DashboardState)
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=5)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     stored = state.snapshots()
     assert (len(stored), all(stored[d].data == d for d in domains)) == (40, True)
