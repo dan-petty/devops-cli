@@ -9,8 +9,9 @@ command, bounds it and escapes it to one line. The line after the call holds no 
 content, no output and no text of a refusal, as an argument can hold a path or a secret and the
 text of one refusal repeats the whole command. A retry is the one exception (#2866): its line
 holds the reason that the tool returned, which `logged_reason` masks, escapes and cuts, as that
-reason is the only evidence of why a tool kept refusing a call. A refusal by policy and a failed
-validation have no reason. The program is the
+reason is the only evidence of why a tool kept refusing a call. The reason shows the `path`
+argument of the call only when the checkout holds that path, as the model chose the text of the
+argument. A refusal by policy and a failed validation have no reason. The program is the
 first word of the command, as the shell reads it, and only when it is a program that the project
 knows: a program of the allowlist, or a program of the table of replacements (#2773). Any other
 first word is written as "other", also a short bare word, as the model can read a password or a
@@ -32,6 +33,7 @@ import shlex
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -181,23 +183,54 @@ def retry_text(error: BaseException) -> str:
     return ""
 
 
-def logged_reason(error: BaseException, args: ValidatedToolArgs) -> str:
+def checkout_path(root: Path | None, path: str) -> str:
+    """The path that `path` names inside the checkout `root`, relative to it, or empty when it names
+    no file or directory there: a path that does not exist, one that leaves the root, and any path
+    when there is no root. The `path` argument is text that the model chose, so it can be a password
+    or a token that the mask of secrets cannot find. Only a path that the checkout holds is safe to
+    show, and the text shown is the one that the file system gives."""
+    if root is None or not (candidate := root / path).exists():
+        return ""
+    base = root.resolve()
+    resolved = candidate.resolve()
+    return resolved.relative_to(base).as_posix() if resolved.is_relative_to(base) else ""
+
+
+def _escaped(text: str) -> str:
+    """`text` masked and cut to a fixed length by `bounded_text`, then escaped to one line."""
+    return bounded_text(text).encode("unicode_escape").decode("ascii")
+
+
+def _cut(text: str, limit: int) -> str:
+    """`text`, or its first `limit` characters and the mark of a cut when it is longer."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + MESSAGES.roadmap.implement_tool_cut
+
+
+def logged_reason(error: BaseException, args: ValidatedToolArgs, root: Path | None = None) -> str:
     """What the log shows of the reason that a tool returned with a retry (#2866): its message,
     with the `path` argument after it when the message lacks the path, masked, escaped to one line
-    and cut to `CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS`. Empty for a refusal by policy, as its
-    text repeats the command or names a path outside the root, and for a message that is no
-    string. A message of the file tools holds a path, a pattern, a count or a hash, and no
-    content of a file, so the text of the model's `old_text` never shows."""
+    and cut to `CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS`. The path always shows: the cut takes the
+    end of the message, not the path. The path shows only when it names a file or a directory of the
+    checkout `root` (`checkout_path`). Any other path is text that the model chose, so every place
+    that the message names it shows "<path>" instead, and no path follows the message. Empty for a
+    refusal by policy, as its text repeats the command or names a path outside the root, and for a
+    message that is no string. A message of the file tools holds a path, a pattern, a count or a
+    hash, and no content of a file, so the text of the model's `old_text` never shows."""
     if is_policy_refusal(error) or not (text := retry_text(error)):
         return ""
+    texts = MESSAGES.roadmap
     path = args.get("path")
-    if isinstance(path, str) and path and path not in text:
-        text = MESSAGES.roadmap.implement_tool_reason_path.format(reason=text, path=path)
-    escaped = bounded_text(text).encode("unicode_escape").decode("ascii")
-    cut = len(escaped) > CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
-    return escaped[:CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS] + (
-        MESSAGES.roadmap.implement_tool_cut if cut else ""
-    )
+    shown = ""
+    if isinstance(path, str) and path:
+        shown = checkout_path(root, path)
+        text = text.replace(path, shown or texts.implement_tool_path_hidden)
+    limit = CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
+    suffix = ""
+    if shown and shown not in text:
+        suffix = " " + _cut(_escaped(texts.implement_tool_reason_path.format(path=shown)), limit)
+    return _cut(_escaped(text), max(limit - len(suffix), 0)) + suffix
 
 
 @dataclass
@@ -205,8 +238,10 @@ class ToolCallLog:
     """The counters of one step, and the hooks that fill them. `refused` counts the refused shell
     commands by program, and `retried` the other retries, over all turns of the step. `reasons`
     holds the last reasons of the retries of each tool (#2866), and `ended_on` the tool whose
-    retries ended the run."""
+    retries ended the run. `root` is the checkout: a reason shows the `path` argument of a call
+    only when the checkout holds that path. A log with no root shows no path."""
 
+    root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
     retried: int = 0
     reasons: dict[str, deque[str]] = field(default_factory=dict[str, deque[str]])
@@ -291,7 +326,7 @@ class ToolCallLog:
                 call.tool_name,
                 program,
                 ToolOutcome.REFUSED if refused else ToolOutcome.RETRY,
-                logged_reason(error, args),
+                logged_reason(error, args, self.root),
             )
             raise
         except ToolFailedError:

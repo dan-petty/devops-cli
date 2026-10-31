@@ -1383,7 +1383,7 @@ def test_a_tool_that_ends_the_run_on_retries_names_its_last_reasons(
 
     assert outcome.reason.endswith(
         "\nRefused commands: 0. Other retries: 6.\nLast retries of edit_file: "
-        "File not found: src/other3.py | File not found: src/other4.py | "
+        "File not found: <path> | File not found: <path> | "
         f"{MISSING_TEXT}"
     )
     assert "SENTINEL-OLD-TEXT" not in outcome.reason
@@ -1396,16 +1396,32 @@ def test_the_last_reasons_of_a_run_hold_no_secret(
 
     outcome = _step(store, checkout, script)
 
-    assert "Last retries of edit_file: File not found: src/" in outcome.reason
+    assert "Last retries of edit_file: File not found: <path>" in outcome.reason
     assert TOKEN[:12] not in outcome.reason
     assert TOKEN[-12:] not in outcome.reason
+
+
+def test_the_last_reasons_of_a_run_hold_no_plain_secret_that_the_model_chose_as_a_path(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A password has no form that the mask of secrets finds. The stop comment is public, so the
+    reason shows a path only when it names a file of the checkout."""
+    secret = "hunter2-Sup3rS3cretPassw0rd"
+    script = ModelScript(*(_edit_missing(secret) for _ in range(6)))
+
+    outcome = _step(store, checkout, script)
+
+    assert secret not in outcome.reason
+    assert "Last retries of edit_file: File not found: <path> | " in outcome.reason
 
 
 def test_the_last_reasons_of_a_run_are_cut_to_the_constant_length(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     limit = constants.CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
-    script = ModelScript(_edit_missing("src/" + "d" * (3 * limit) + ".py"))
+    long_name = "d" * (limit - 10)
+    path = f"src/{long_name}.py"
+    script = ModelScript(tool_calls(write_call(path, "X = 1\n")), _edit_missing(path))
 
     outcome = _step(store, checkout, script)
 

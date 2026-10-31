@@ -32,6 +32,8 @@ AWS_KEY_ID = "AKIA" + "IOSFODNN7EXAMPLE"
 # password or the header of a token that the model read from a file.
 PASSWORD = "hunter2password"
 JWT_HEADER = "eyJhbGciOiJIUzI1NiJ9"
+# A secret that the mask of secrets cannot find, as it has no form.
+PLAIN_SECRET = "hunter2-Sup3rS3cretPassw0rd"
 
 
 @pytest.fixture
@@ -391,9 +393,14 @@ MISSING = "old_text not found in src/other.py. No changes were written."
 
 
 def _retry_lines(
-    reason: str, capsys: pytest.CaptureFixture[str], *, path: str | None = None
+    reason: str,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    path: str | None = None,
+    root: Path | None = None,
 ) -> list[str]:
-    """The lines of one call of a tool that retries with `reason`, and then a good call."""
+    """The lines of one call of a tool that retries with `reason`, and then a good call. `root` is
+    the checkout that the log checks the `path` argument against."""
     calls = {"count": 0}
 
     def edit(path: str = "") -> str:
@@ -406,7 +413,7 @@ def _retry_lines(
     Agent(
         ModelScript(tool_call("edit", **args), tool_call("edit", **args), say("Done.")).model(),
         tools=[edit],
-        capabilities=[ToolCallLog().hooks()],
+        capabilities=[ToolCallLog(root).hooks()],
     ).run_sync("go")
     return _lines(capsys)
 
@@ -467,9 +474,9 @@ def test_a_reason_without_the_path_gets_the_path_of_the_call(
 
 
 def test_a_reason_that_has_the_path_gets_no_second_path(
-    capsys: pytest.CaptureFixture[str],
+    checkout: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert _retry_lines(MISSING, capsys, path="src/other.py")[0] == (
+    assert _retry_lines(MISSING, capsys, path="src/other.py", root=checkout)[0] == (
         f"Tool call: edit, retry ({MISSING})."
     )
 
@@ -482,12 +489,95 @@ def test_a_secret_in_a_reason_never_reaches_the_log(capsys: pytest.CaptureFixtur
 
 
 def test_a_secret_in_the_path_of_a_call_never_reaches_the_log(
-    capsys: pytest.CaptureFixture[str],
+    checkout: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    lines = _retry_lines("Not here.", capsys, path=f"src/{TOKEN}.py")
+    lines = _retry_lines("Not here.", capsys, path=f"src/{TOKEN}.py", root=checkout)
 
     assert [line for line in lines if TOKEN[:12] in line or TOKEN[-12:] in line] == []
-    assert lines[0].startswith("Tool call: edit, retry (Not here. Path: src/")
+    assert lines[0] == "Tool call: edit, retry (Not here.)."
+
+
+def test_a_plain_secret_as_the_path_of_a_call_is_hidden_in_the_reason(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The mask of secrets finds a secret by its form, and a password has none. The path of the
+    call is text that the model chose, so the line shows it only when it names a file of the
+    checkout."""
+    lines = _retry_lines(
+        f"File not found: {PLAIN_SECRET}", capsys, path=PLAIN_SECRET, root=checkout
+    )
+
+    assert lines[0] == "Tool call: edit, retry (File not found: <path>)."
+    assert [line for line in lines if PLAIN_SECRET in line] == []
+
+
+def test_a_plain_secret_as_the_path_gets_no_path_after_a_reason_that_lacks_it(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines = _retry_lines("Not here.", capsys, path=PLAIN_SECRET, root=checkout)
+
+    assert lines[0] == "Tool call: edit, retry (Not here.)."
+
+
+def test_a_path_that_is_no_file_of_the_checkout_is_hidden_wherever_it_is_named(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A file outside the root, and a path with a null byte, are no file of the checkout."""
+    outside = checkout.parent / "outside.txt"
+    outside.write_text("x", encoding="utf-8")
+    shown = [
+        _retry_lines(f"Missing {path} and {path}.", capsys, path=path, root=checkout)[0]
+        for path in ("../outside.txt", str(outside), "src/a\0b.py")
+    ]
+
+    assert shown == ["Tool call: edit, retry (Missing <path> and <path>.)."] * 3
+
+
+def test_a_log_with_no_root_knows_no_path(capsys: pytest.CaptureFixture[str]) -> None:
+    lines = _retry_lines("File not found: src/other.py", capsys, path="src/other.py")
+
+    assert lines[0] == "Tool call: edit, retry (File not found: <path>)."
+
+
+def test_an_absolute_path_of_the_checkout_is_shown_relative_to_it(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = str(checkout / "src" / "other.py")
+
+    lines = _retry_lines(f"File not found: {path}", capsys, path=path, root=checkout)
+
+    assert lines[0] == "Tool call: edit, retry (File not found: src/other.py)."
+
+
+def test_a_reason_without_the_path_gets_the_path_of_the_call_when_the_log_knows_it(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines = _retry_lines("Not here.", capsys, path="src/other.py", root=checkout)
+
+    assert lines[0] == "Tool call: edit, retry (Not here. Path: src/other.py)."
+
+
+def test_a_long_reason_without_the_path_still_ends_with_the_path(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    limit = constants.CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
+    suffix = " Path: src/other.py"
+
+    lines = _retry_lines("x" * (3 * limit), capsys, path="src/other.py", root=checkout)
+
+    assert lines[0] == f"Tool call: edit, retry ({'x' * (limit - len(suffix))} ...{suffix})."
+
+
+def test_a_reason_that_fits_with_the_path_is_not_cut(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    limit = constants.CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
+    suffix = " Path: src/other.py"
+    reason = "x" * (limit - len(suffix))
+
+    lines = _retry_lines(reason, capsys, path="src/other.py", root=checkout)
+
+    assert lines[0] == f"Tool call: edit, retry ({reason}{suffix})."
 
 
 def test_a_reason_is_cut_to_the_constant_length(capsys: pytest.CaptureFixture[str]) -> None:

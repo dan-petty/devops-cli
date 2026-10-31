@@ -1058,7 +1058,7 @@ def _attempt(
 ) -> StepOutcome:
     """Run the agent, then judge the exit and commit."""
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
-        log = ToolCallLog()
+        log = ToolCallLog(source)
         agent = build_agent(model, source, inputs.instructions, window, Path(home), log)
         run = _turn(agent, model, log, inputs.message)
         failure = _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start)
