@@ -79,14 +79,17 @@ tests:
         exp_alerts: []
       - eval_time: 80m
         alertname: RoadmapServiceJobsFailing
+        exp_alerts: []
+      - eval_time: 95m
+        alertname: RoadmapServiceJobsFailing
         exp_alerts:
           - exp_labels:
               severity: warning
               repo: example/app
               lane: model
             exp_annotations:
-              summary: "3 model jobs of example/app failed in the last hour"
-              description: "Three or more model jobs of example/app failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
+              summary: "All model jobs of example/app failed in the last hour"
+              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
 
   - name: An error series with no sample near the start of the hour counts only the errors of the hour
     interval: 10m
@@ -98,16 +101,26 @@ tests:
     alert_rule_test:
       - eval_time: 120m
         alertname: RoadmapServiceJobsFailing
-        exp_alerts: []
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              lane: model
+            exp_annotations:
+              summary: "All model jobs of example/app failed in the last hour"
+              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
 
   - name: A new error series with one sample of 3 fires
     interval: 10m
     input_series:
       # One sample at 60m: 3 jobs failed before the Service sent the series.
       - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", result="error"}'
-        values: '_x6 3'
+        values: '_x5 0 3'
     alert_rule_test:
       - eval_time: 65m
+        alertname: RoadmapServiceJobsFailing
+        exp_alerts: []
+      - eval_time: 95m
         alertname: RoadmapServiceJobsFailing
         exp_alerts:
           - exp_labels:
@@ -115,8 +128,8 @@ tests:
               repo: example/app
               lane: model
             exp_annotations:
-              summary: "3 model jobs of example/app failed in the last hour"
-              description: "Three or more model jobs of example/app failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
+              summary: "All model jobs of example/app failed in the last hour"
+              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
 
   - name: A lane with no job start for over 2 hours fires after 10 minutes while a replica is available
     interval: 1m

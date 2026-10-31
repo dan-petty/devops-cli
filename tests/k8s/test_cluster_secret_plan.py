@@ -291,6 +291,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "monitoring/grafana admin-password",
             ("deployment/grafana",),
         ),
+        ("monitoring/alertmanager-mattermost", "url", "infra", False, None, None, ()),
         ("argocd/argocd-notifications-secret", "github-appID", "infra", False, None, None, ()),
         (
             "argocd/argocd-notifications-secret",
@@ -761,3 +762,22 @@ def test_mattermost_db_secret_plan_and_dsn_shape() -> None:
         5432,
         "/mattermost",
     )
+
+
+def test_alertmanager_mattermost_secret_plan_and_derived_url() -> None:
+    """The Alertmanager Mattermost Secret row has infra stack and derived webhook URL (#1392)."""
+    from devops_cli.config.constants import CONST_K8S_MATTERMOST_URL
+    from devops_cli.k8s.cluster_secrets import DerivedSource
+
+    (secret,) = [s for s in CLUSTER_SECRETS if s.ref == "monitoring/alertmanager-mattermost"]
+    assert (secret.secret_type, secret.stack, secret.restarts) == (
+        "Opaque",
+        "infra",
+        (),
+    )
+    entries = {e.key: e for e in secret.entries}
+    assert not entries["url"].required
+    url_source = entries["url"].source
+    assert isinstance(url_source, DerivedSource)
+    assert url_source.template == f"{CONST_K8S_MATTERMOST_URL}/hooks/{{hook}}"
+    assert url_source.inputs["hook"].option == "mattermost.alerts_hook"

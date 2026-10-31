@@ -354,39 +354,53 @@ def _alertmanager() -> dict[str, Any]:
     return alertmanager
 
 
-def test_alertmanager_sends_nowhere_until_the_webhook_secret_exists() -> None:
-    """The default receiver has no integration, and critical and warning alerts go to a webhook.
+def test_alertmanager_sends_nowhere_until_the_mattermost_secret_exists() -> None:
+    """The default receiver has no integration, and critical and warning alerts go to Mattermost.
 
-    The webhook reads its URL from a file in the optional `alertmanager-webhook` Secret, mounted
-    as a directory (no `subPath`), so creating that Secret later wires a channel without a
+    Mattermost reads its webhook URL from a file in the optional `alertmanager-mattermost` Secret,
+    mounted as a directory (no `subPath`), so creating that Secret later wires a channel without a
     restart, and a missing Secret does not keep the pod from starting.
     """
     alertmanager = _alertmanager()
     config = alertmanager["config"]
     receivers = {receiver["name"]: receiver for receiver in config["receivers"]}
-    webhook = receivers["webhook"]["webhook_configs"]
+    mattermost = receivers["mattermost"]["mattermost_configs"]
     mounts = {mount["secretName"]: mount for mount in alertmanager["extraSecretMounts"]}
-    mount = mounts["alertmanager-webhook"]
-    url_file = PurePosixPath(webhook[0]["url_file"])
+    mount = mounts["alertmanager-mattermost"]
+    url_file = PurePosixPath(mattermost[0]["webhook_url_file"])
 
     assert (
         alertmanager["enabled"],
         config["route"]["receiver"],
         sorted(receivers),
         set(receivers["null"]),
-        [set(entry) for entry in webhook],
+        [set(entry) for entry in mattermost],
         [(r["receiver"], r["matchers"]) for r in config["route"]["routes"]],
         (str(url_file.parent), url_file.name),
+        mattermost[0].get("title_link"),
+        "channel" in mattermost[0],
+        "username" in mattermost[0],
         (mount["readOnly"], mount["optional"], "subPath" in mount),
     ) == (
         True,
         "null",
-        ["null", "webhook"],
+        ["mattermost", "null"],
         {"name"},
-        [{"url_file", "send_resolved"}],
-        [("webhook", ['severity=~"critical|warning"'])],
+        [{"webhook_url_file", "send_resolved", "title_link"}],
+        [("mattermost", ['severity=~"critical|warning"'])],
         (mount["mountPath"], "url"),
+        "",
+        False,
+        False,
         (True, True, False),
+    )
+
+
+def test_alertmanager_notifications_failing_rule_waits_for_the_mattermost_secret() -> None:
+    """The rule fires only once the alertmanager-mattermost Secret exists in monitoring."""
+    rule = next(r for r in _rules() if r.get("alert") == "AlertmanagerNotificationsFailing")
+    assert (
+        'kube_secret_info{namespace="monitoring", secret="alertmanager-mattermost"}' in rule["expr"]
     )
 
 
@@ -838,12 +852,10 @@ ROADMAP_SERVICE_RULES = [
     ),
     (
         "RoadmapServiceJobsFailing",
-        "sum by (repo, lane) ( "
-        + _window_count(
-            'devops_cli_service_jobs_total{job="roadmap-service", result="error"}', "1h"
-        )
-        + " ) >= 3",
-        "0m",
+        'sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0'
+        " unless on (repo, lane)"
+        ' sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0',
+        "30m",
         "warning",
     ),
     (
@@ -946,6 +958,27 @@ def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_vo
         (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
         for rule in _group(ROADMAP_SERVICE_GROUP)
     ] == ROADMAP_SERVICE_RULES
+
+
+def test_roadmap_service_jobs_failing_rule_groups_and_joins_on_repo_and_lane() -> None:
+    """The rule groups by and joins on exactly (repo, lane), and describes a Loki query."""
+    rule = next(r for r in _rules() if r.get("alert") == "RoadmapServiceJobsFailing")
+    assert (
+        rule["for"],
+        rule["labels"]["severity"],
+        "{{ $labels.repo }}" in rule["annotations"]["summary"],
+        "{{ $labels.lane }}" in rule["annotations"]["summary"],
+        '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (k8s/README.md, Roadmap service)',
+    ) == (
+        "30m",
+        "warning",
+        True,
+        True,
+        rule["annotations"]["description"],
+    )
+    expr = rule["expr"]
+    assert expr.count("sum by (repo, lane)") == 2
+    assert "unless on (repo, lane)" in expr
 
 
 def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes() -> None:
@@ -1161,7 +1194,7 @@ def _readme_section(heading: str) -> str:
 @pytest.mark.parametrize("group", ROADMAP_SERVICE_GROUPS)
 def test_each_roadmap_service_alert_points_to_its_step_in_the_readme(group: str) -> None:
     """Each description names `k8s/README.md, Roadmap service`, that section says what to do for
-    each alert, and it says that no alert leaves the cluster without the webhook Secret (#2472,
+    each alert, and it says that no alert leaves the cluster without the Mattermost Secret (#2472,
     #2476)."""
     section = _readme_section("Roadmap service")
     rules = _group(group)
@@ -1169,7 +1202,7 @@ def test_each_roadmap_service_alert_points_to_its_step_in_the_readme(group: str)
     assert (
         [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
         [r["alert"] for r in rules if f"`{r['alert']}`" not in section],
-        "`monitoring/alertmanager-webhook`" in section,
+        "`monitoring/alertmanager-mattermost`" in section,
     ) == ([], [], True)
 
 

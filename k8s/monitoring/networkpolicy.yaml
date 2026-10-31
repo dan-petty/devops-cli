@@ -157,6 +157,8 @@ spec:
               kubernetes.io/metadata.name: mattermost
       ports:
         - protocol: TCP
+          port: 8065
+        - protocol: TCP
           port: 9187
     - to:
         - namespaceSelector:

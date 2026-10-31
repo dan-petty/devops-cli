@@ -74,6 +74,9 @@ spec:
         name: devops-cli-config
       - group: ''
         kind: Secret
+        name: alertmanager-mattermost
+      - group: ''
+        kind: Secret
         name: grafana-admin
       - group: ''
         kind: Secret
