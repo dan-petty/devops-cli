@@ -697,29 +697,14 @@ class AIConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _migrate_append_cache(cls, data: Any) -> Any:
+    def _migrate_legacy_fields(cls, data: Any) -> Any:
         if isinstance(data, dict):
             data.pop("durable", None)
             if "ollama_base_url" in data:
                 val = data.pop("ollama_base_url")
                 if "ollama_urls" not in data and val:
                     data["ollama_urls"] = [val] if isinstance(val, str) else val
-            if "append_cache" in data:
-                val = data.pop("append_cache")
-                if "cache" in data and isinstance(data["cache"], dict):
-                    data["cache"].setdefault("append_cache", val)
-                elif "cache" not in data:
-                    data["cache"] = {"append_cache": val}
         return data
-
-    @property
-    def append_cache(self) -> bool:
-        """Convenience property delegating to self.cache.append_cache."""
-        return self.cache.append_cache
-
-    @append_cache.setter
-    def append_cache(self, value: bool) -> None:
-        self.cache.append_cache = value
 
     @property
     def get_ollama_urls(self) -> list[str]:
@@ -945,7 +930,7 @@ class ServiceConfig(BaseModel):
                     parsed = json.loads(v[0])
                     if isinstance(parsed, list):
                         return [str(item) for item in parsed if item]
-                except Exception:
+                except json.JSONDecodeError:
                     pass
             return [str(item) for item in v if item]
         return []
@@ -1053,6 +1038,7 @@ class Settings(BaseSettings):
         extra="ignore",
         frozen=False,
         hide_input_in_errors=True,
+        validate_assignment=True,
     )
 
     @classmethod
