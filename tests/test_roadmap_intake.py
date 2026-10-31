@@ -1997,6 +1997,37 @@ def test_an_off_list_proposal_skips_its_candidate_after_one_model_call(roadmap: 
     ) == (Outcome.SKIP, 1, True, True, None)
 
 
+def test_intake_proposal_uses_triage_task_model_or_falls_back_to_ai_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Intake uses ai.tasks.triage model when set; when unset, it falls back to ai.model."""
+    from devops_cli.config.settings import AIConfig, AITaskOverride, AITasksConfig
+    from devops_cli.roadmap.intake_model import GatewayIntakeModel
+
+    captured_configs: list[tuple[str, str]] = []
+
+    def fake_get_llm_client(*, task: str, config: Any, api_key: Any = None) -> Any:
+        captured_configs.append((task, config.model))
+        return None
+
+    monkeypatch.setattr("devops_cli.ai.client.get_llm_client", fake_get_llm_client)
+
+    # 1. Unset triage task: falls back to ai.model
+    ai_unset = AIConfig(model="base-chat-model")
+    model_unset = GatewayIntakeModel(ai_unset, embedder=_Embedder())
+    _ = model_unset._client
+    assert captured_configs[-1] == ("triage", "base-chat-model")
+
+    # 2. Set triage task: uses triage.model
+    ai_set = AIConfig(
+        model="base-chat-model",
+        tasks=AITasksConfig(triage=AITaskOverride(model="devops-triage")),
+    )
+    model_set = GatewayIntakeModel(ai_set, embedder=_Embedder())
+    _ = model_set._client
+    assert captured_configs[-1] == ("triage", "devops-triage")
+
+
 def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(
     opened: Roadmap, fake_model: FakeModel, tmp_path: Path
 ) -> None:

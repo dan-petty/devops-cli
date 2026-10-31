@@ -47,13 +47,16 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
     CONST_ROADMAP_P0_PRIORITIES,
+    CONST_ROADMAP_REFINE_DUE_STAMP,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
+    CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_SERVICE_SOURCE_POLL,
 )
@@ -447,7 +450,12 @@ def _run_intake_adapter(
     applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
     if plan.has_writes:
         raise_for_failed_placements(applied)
-    return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
+    placed_p0 = _places_critical_or_p0(plan)
+    if placed_p0:
+        _record_success(
+            repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME, CONST_ROADMAP_REFINE_DUE_STAMP, now
+        )
+    return JobOutcome(placed_critical_or_p0=placed_p0)
 
 
 @dataclass(frozen=True)
@@ -490,7 +498,12 @@ def _intake_one(
     applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
     if plan.has_writes:
         raise_for_failed_placements(applied)
-    return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
+    placed_p0 = _places_critical_or_p0(plan)
+    if placed_p0:
+        _record_success(
+            repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME, CONST_ROADMAP_REFINE_DUE_STAMP, now
+        )
+    return JobOutcome(placed_critical_or_p0=placed_p0)
 
 
 def _job_clone(job: str, clone_path: Path | None) -> Path:
@@ -638,7 +651,7 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
 implement Job, which only talks to the Kubernetes API and GitHub. The model runs in the Job, so
 a model-lane round that is still running never delays the row (#2757)."""
 
-MODEL_LANE_ROWS: tuple[JobRow, ...] = (
+TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="intake",
         interval=timedelta(minutes=DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES),
@@ -647,6 +660,10 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
         due_rule=_intake_due,
     ),
+)
+"""The row that runs intake on the fast devops-triage model in its own triage lane (#1534)."""
+
+MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="refine",
         interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES),
@@ -673,7 +690,7 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
 """The rows that call the model, which answers one call at a time: intake, refine, stage and the
 daily check for alternative tools (#2652)."""
 
-DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS)
+DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
 """Every row, the status lane's first: what `devops roadmap run` runs in one round."""
 
 
@@ -687,7 +704,7 @@ class ScopedUpdate:
     runner: Callable[..., JobOutcome]
 
 
-_SCOPED_INTAKE = ScopedUpdate(job="intake", lane=CONST_SERVICE_LANE_MODEL, runner=_intake_one)
+_SCOPED_INTAKE = ScopedUpdate(job="intake", lane=CONST_SERVICE_LANE_TRIAGE, runner=_intake_one)
 
 SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
     {("issues", action): _SCOPED_INTAKE for action in ("opened", "edited", "reopened")}
@@ -816,6 +833,10 @@ class _Poll:
         last = self.schedule.get(row.name)
         if _is_interval_due(row, last, self.now) or _batch_matches(self.batch, row):
             return True
+        if row.name == "refine":
+            refine_due = self.schedule.get(CONST_ROADMAP_REFINE_DUE_STAMP)
+            if refine_due is not None and (last is None or refine_due > last):
+                return True
         if row.due_rule is None:
             return False
         since = last or self.now
@@ -1201,6 +1222,12 @@ def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
             clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
             failures=failures,
         ),
+        CONST_SERVICE_LANE_TRIAGE: partial(
+            service_job,
+            table=TRIAGE_LANE_ROWS,
+            clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
+            failures=failures,
+        ),
         CONST_SERVICE_LANE_MODEL: partial(
             service_job,
             table=MODEL_LANE_ROWS,
@@ -1215,6 +1242,7 @@ __all__ = [
     "MODEL_LANE_ROWS",
     "SCOPED_UPDATES",
     "STATUS_LANE_ROWS",
+    "TRIAGE_LANE_ROWS",
     "FailureLedger",
     "JobOutcome",
     "JobRow",

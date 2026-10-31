@@ -6,8 +6,8 @@ real `git` against bare remotes in `tmp_path`, with the session's `gh api user` 
 at the process edge (#1366). The last cases run the GitHub store over `GitHubFake`, a fake at
 the `gh` process edge, to count a round's reads and show that no round reads a project board
 (#1361, ADR 0016). The table holds the status lane's
-metrics and implement rows and the model lane's intake, refine, stage and alternatives rows;
-every clone tracks origin's default branch.
+metrics and implement rows, the triage lane's intake row and the model lane's refine, stage and
+alternatives rows; every clone tracks origin's default branch.
 """
 
 from __future__ import annotations
@@ -37,15 +37,19 @@ from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
+    CONST_ROADMAP_REFINE_DUE_STAMP,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+    CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_HALT_FILENAME,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
+    CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
     CONST_URL_GITHUB_STATUS_SUMMARY,
 )
@@ -73,6 +77,7 @@ from devops_cli.roadmap.run import (
     MODEL_LANE_ROWS,
     SCOPED_UPDATES,
     STATUS_LANE_ROWS,
+    TRIAGE_LANE_ROWS,
     FailureLedger,
     JobOutcome,
     JobRow,
@@ -330,12 +335,12 @@ def _poll_round(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics and implement rows run first, then the model lane's intake,
-    refine, stage and alternatives; no row closes items, cuts or starts a release (#1360, #2652,
-    #2659, #2667, #2757)."""
+    """The status lane's metrics and implement rows run first, then the triage lane's intake row,
+    then the model lane's refine, stage and alternatives rows; no row closes items, cuts or starts
+    a release (#1360, #1534, #2652, #2659, #2667, #2757)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
-        DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS),
+        DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
     ) == (
         ["metrics", "implement", "intake", "refine", "stage", "alternatives"],
@@ -725,9 +730,9 @@ def test_service_wiring(
     seeded_store: InMemoryRoadmapStore,
     roadmap_store_repos: list[str],
 ) -> None:
-    """`devops serve --service` passes the two lanes' jobs to create_service_app, with no
+    """`devops serve --service` passes the three lanes' jobs to create_service_app, with no
     reader of a round pause: no roadmap read has a budget refusal that names one (ADR 0016).
-    Each lane's job opens the store and runs its own rows in its own clone (#1532)."""
+    Each lane's job opens the store and runs its own rows in its own clone (#1532, #1534)."""
     with patch("uvicorn.run") as mock_uvicorn:
         res = runner.invoke(serve_app, ["--service"])
         fastapi_app = mock_uvicorn.call_args[0][0]()
@@ -747,17 +752,21 @@ def test_service_wiring(
         fastapi_app.state.pause_until is no_round_pause,
         REPO in roadmap_store_repos,
         lanes,
-        [[row.name for row in rows] for rows in (STATUS_LANE_ROWS, MODEL_LANE_ROWS)],
+        [
+            [row.name for row in rows]
+            for rows in (STATUS_LANE_ROWS, TRIAGE_LANE_ROWS, MODEL_LANE_ROWS)
+        ],
     ) == (
         0,
-        [CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_MODEL],
+        [CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_TRIAGE, CONST_SERVICE_LANE_MODEL],
         True,
         True,
         [
             (REPO, STATUS_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
+            (REPO, TRIAGE_LANE_ROWS, CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME),
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
-        [["metrics", "implement"], ["intake", "refine", "stage", "alternatives"]],
+        [["metrics", "implement"], ["intake"], ["refine", "stage", "alternatives"]],
     )
 
 
@@ -1545,6 +1554,92 @@ def test_intake_placing_p2_medium_issue_labelled_type_bug_does_not_make_refine_d
     ) == (("intake",), ["intake"], ("P2-Medium", PLANNED))
 
 
+def test_cross_lane_refine_becomes_due_at_next_model_lane_round_via_stamp(
+    tmp_path: Path,
+) -> None:
+    """Intake placing a P0 item in the triage lane stamps refine_due in schedule.json, making
+    refine due in the next model-lane round, and refine succeeding updates its stamp so it is no
+    longer due (#1534)."""
+    clock = _Clock()
+    store = InMemoryRoadmapStore(clock=clock)
+    store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
+    store.seed_milestone(PLANNED)
+    store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
+    store.seed_issue(
+        "P0 critical bug",
+        body="Failed run 4242.",
+        labels=["type/bug"],
+        author_association="COLLABORATOR",
+    )
+    proposal = ModelProposal(
+        type="type/bug",
+        type_reason="defect.",
+        priority="P0-Critical",
+        priority_reason="critical.",
+        value="High",
+        value_reason="high.",
+        effort="Low",
+        effort_reason="low.",
+        evidence=ModelEvidence(kind="failed_run", value="4242"),
+    )
+    model = _IntakeModel(proposals={"P0 critical bug": proposal})
+    intake = partial(_run_intake_adapter, model=model)
+    _stamp(
+        tmp_path,
+        intake=NOW - timedelta(minutes=61),
+        refine=NOW - timedelta(minutes=5),
+        stage=NOW - timedelta(minutes=5),
+        alternatives=NOW - timedelta(minutes=5),
+    )
+
+    triage_table = build_stub_table({"intake": intake})
+    triage_ran = run_due_jobs(
+        REPO,
+        store,
+        batch={POLL_KEY: 1},
+        table=triage_table,
+        data_dir=tmp_path,
+        now=NOW,
+    )
+    assert triage_ran == ("intake",)
+    schedule = json.loads((tmp_path / REPO_DIR / "schedule.json").read_text(encoding="utf-8"))
+    assert CONST_ROADMAP_REFINE_DUE_STAMP in schedule
+    assert schedule[CONST_ROADMAP_REFINE_DUE_STAMP] == NOW.isoformat()
+
+    model_ran: list[str] = []
+    model_table = build_stub_table(
+        {
+            "refine": _recorded(model_ran, "refine"),
+            "stage": _recorded(model_ran, "stage"),
+            "alternatives": _recorded(model_ran, "alternatives"),
+        }
+    )
+    ran_jobs = run_due_jobs(
+        REPO,
+        store,
+        batch={POLL_KEY: 1},
+        table=model_table,
+        data_dir=tmp_path,
+        now=NOW,
+    )
+    assert ran_jobs == ("refine",)
+    schedule_after = json.loads((tmp_path / REPO_DIR / "schedule.json").read_text(encoding="utf-8"))
+    assert schedule_after["refine"] == NOW.isoformat()
+
+    model_ran.clear()
+    next_now = NOW + timedelta(minutes=1)
+    ran_again = run_due_jobs(
+        REPO,
+        store,
+        batch={POLL_KEY: 1},
+        table=model_table,
+        data_dir=tmp_path,
+        now=next_now,
+    )
+    assert ran_again == ()
+    assert model_ran == []
+
+
 # ── On the GitHub store, at the `gh` process edge (#1361) ─────────────────────
 
 
@@ -1691,6 +1786,24 @@ def test_a_status_lane_poll_reads_no_change_and_sends_no_request(
     assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
 
 
+def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No model-lane row has a due rule, so its poll reads no change: with nothing due by its
+    interval, the round sends no request, and reads no roadmap file as it opens the store (#1534)."""
+    github = _service_github(_labeled(2, "alice"))
+    _serve_over(tmp_path, monkeypatch, github)
+    recent = datetime.now(UTC) - timedelta(minutes=1)
+    _stamp(
+        tmp_path,
+        refine=recent,
+        stage=recent,
+        alternatives=recent,
+    )
+    service_jobs(tmp_path)[CONST_SERVICE_LANE_MODEL](POLL)
+    assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
+
+
 def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1749,6 +1862,72 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
         refine_still_running,
         bool(refine_released) and all(refine_released),
     ) == (True, ["metrics", "implement"], [True], True, True)
+
+
+def test_opened_issue_webhook_runs_triage_lane_while_model_lane_blocked_and_reports_queue_depth(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refine round blocks on a slow model in the model lane. In the same repository the triage
+    lane runs intake for an opened issue without waiting, and reports its queue depth (#1534)."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    refining, model_answers = threading.Event(), threading.Event()
+    refine_released: list[bool] = []
+    triage_ran: list[str] = []
+    during_refine: list[bool] = []
+
+    def intake(**_: Any) -> JobOutcome:
+        during_refine.append(not model_answers.is_set())
+        triage_ran.append("intake")
+        return JobOutcome()
+
+    def refine(**_: Any) -> JobOutcome:
+        refining.set()
+        refine_released.append(model_answers.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        return JobOutcome()
+
+    lanes = {
+        CONST_SERVICE_LANE_TRIAGE: partial(
+            service_job,
+            table=_lane(TRIAGE_LANE_ROWS, intake=intake),
+            clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
+        ),
+        CONST_SERVICE_LANE_MODEL: partial(
+            service_job,
+            table=_lane(MODEL_LANE_ROWS, refine=refine),
+            clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+        ),
+    }
+    manager = ServiceManager(
+        ServiceConfig(repos=[REPO]), {}, lanes, lambda: datetime.now(UTC), asyncio.sleep
+    )
+    triage_worker = manager.workers[(REPO, CONST_SERVICE_LANE_TRIAGE)]
+    model_worker = manager.workers[(REPO, CONST_SERVICE_LANE_MODEL)]
+    for worker in manager.workers.values():
+        worker.start()
+
+    manager.enqueue_trigger(REPO, "poll", "", "")
+    assert refining.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    assert triage_worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    triage_ran.clear()
+    during_refine.clear()
+
+    manager.enqueue_trigger(REPO, "webhook", "issues", "opened")
+    triage_finished = triage_worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    refine_still_running = model_worker.is_active()
+    model_answers.set()
+    asyncio.run(manager.drain_and_stop())
+
+    triage_depth = GLOBAL_METRICS.get_gauge_value(
+        CONST_SERVICE_METRIC_QUEUE_DEPTH, labels={"lane": CONST_SERVICE_LANE_TRIAGE, "repo": REPO}
+    )
+    assert (
+        triage_finished,
+        triage_ran,
+        during_refine,
+        refine_still_running,
+        triage_depth,
+        bool(refine_released) and all(refine_released),
+    ) == (True, ["intake"], [True], True, 0.0, True)
 
 
 def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_hint(
@@ -1861,12 +2040,20 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A model-lane round records intake, refine, stage and alternatives while a status-lane round
+    """A triage-lane round and a model-lane round record their jobs while a status-lane round
     is running metrics, which had read `schedule.json` before them: the success of metrics and the
-    one of implement, which follows it, keep theirs."""
+    one of implement, which follows it, keep theirs (#1534)."""
     later = NOW + timedelta(seconds=1)
 
     def metrics(**_: Any) -> JobOutcome:
+        triage_round = run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={POLL_KEY: 1},
+            table=_lane(TRIAGE_LANE_ROWS),
+            data_dir=tmp_path,
+            now=later,
+        )
         model_round = run_due_jobs(
             REPO,
             seeded_store,
@@ -1875,7 +2062,10 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             data_dir=tmp_path,
             now=later,
         )
-        assert model_round == ("intake", "refine", "stage", "alternatives")
+        assert (triage_round, model_round) == (
+            ("intake",),
+            ("refine", "stage", "alternatives"),
+        )
         return JobOutcome()
 
     ran = run_due_jobs(
@@ -2136,14 +2326,16 @@ def test_a_service_round_needs_no_roadmap_file(
 def test_service_job_unreadable_github_roadmap_propagates_unchanged(
     unreadable_github_roadmap: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A model-lane round whose read of the changes GitHub cannot answer (HTTP 503) raises
-    GitHubOperationError unchanged (#1365)."""
+    """A triage-lane round whose read of the changes GitHub cannot answer (HTTP 503) raises
+    GitHubOperationError unchanged (#1365, #1534)."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
     batch = TriggerBatch(repo="example/repo", counts={OPENED: 1}, first_at=NOW, last_at=NOW)
 
     with pytest.raises(GitHubOperationError) as exc_info:
-        service_job(batch, table=MODEL_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME)
+        service_job(
+            batch, table=TRIAGE_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME
+        )
 
     assert not isinstance(exc_info.value, ConfigurationError)
 
@@ -2156,13 +2348,13 @@ def _delivery(action: str, number: int, *, event: str = "issues") -> WebhookDeli
     return WebhookDelivery(repo=REPO, event=event, action=action, number=number)
 
 
-def test_the_issues_actions_run_a_scoped_intake_on_the_model_lane() -> None:
-    """`issues` opened, edited and reopened each run intake of one issue on the model lane, and
-    no other event has a scoped update."""
+def test_the_issues_actions_run_a_scoped_intake_on_the_triage_lane() -> None:
+    """`issues` opened, edited and reopened each run intake of one issue on the triage lane, and
+    no other event has a scoped update (#1534)."""
     assert {key: (update.job, update.lane) for key, update in SCOPED_UPDATES.items()} == {
-        ("issues", "opened"): ("intake", CONST_SERVICE_LANE_MODEL),
-        ("issues", "edited"): ("intake", CONST_SERVICE_LANE_MODEL),
-        ("issues", "reopened"): ("intake", CONST_SERVICE_LANE_MODEL),
+        ("issues", "opened"): ("intake", CONST_SERVICE_LANE_TRIAGE),
+        ("issues", "edited"): ("intake", CONST_SERVICE_LANE_TRIAGE),
+        ("issues", "reopened"): ("intake", CONST_SERVICE_LANE_TRIAGE),
     }
 
 
@@ -2308,7 +2500,12 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
 
     def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
         _stamp(tmp_path, **stamps)
-        return _poll_round(seeded_store, tmp_path, table=_lane(MODEL_LANE_ROWS), batch=batch)
+        return _poll_round(
+            seeded_store,
+            tmp_path,
+            table=_lane((*TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)),
+            batch=batch,
+        )
 
     first = ran({POLL_KEY: 1})
     too_soon = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(hours=23, minutes=59))

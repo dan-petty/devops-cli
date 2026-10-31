@@ -10,7 +10,7 @@ import logging
 import queue
 import sys
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
@@ -1461,18 +1462,22 @@ def test_a_pause_reader_that_fails_holds_nothing_and_the_worker_carries_on(
 
 # ── A status-lane round never waits for a model-lane round (#1532) ────────────
 
-STATUS_LANE, MODEL_LANE = CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_MODEL
+STATUS_LANE, TRIAGE_LANE, MODEL_LANE = (
+    CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_LANE_TRIAGE,
+    CONST_SERVICE_LANE_MODEL,
+)
 
 
 class _Lanes:
-    """One repository's two lane jobs: the model lane's first round blocks, as on a slow model,
+    """One repository's lane jobs: the model lane's first round blocks, as on a slow model,
     until the test lets it go; every round is recorded by lane."""
 
-    def __init__(self) -> None:
+    def __init__(self, lane_names: Sequence[str] = (STATUS_LANE, MODEL_LANE)) -> None:
         self.model_started = threading.Event()
         self.model_answers = threading.Event()
         self.model_released: bool | None = None
-        self.batches: dict[str, list[TriggerBatch]] = {STATUS_LANE: [], MODEL_LANE: []}
+        self.batches: dict[str, list[TriggerBatch]] = {lane: [] for lane in lane_names}
         self.most_at_once = dict.fromkeys(self.batches, 0)
         self._running = dict.fromkeys(self.batches, 0)
         self._lock = threading.Lock()
@@ -1717,9 +1722,11 @@ def _webhook_keys(lanes: _Lanes) -> dict[str, list[tuple[str, str, str]]]:
     }
 
 
-def _unblocked_lanes() -> _Lanes:
+def _unblocked_lanes(
+    lane_names: Sequence[str] = (STATUS_LANE, TRIAGE_LANE, MODEL_LANE),
+) -> _Lanes:
     """Lane jobs that record their rounds, the model lane's start-up round answering at once."""
-    lanes = _Lanes()
+    lanes = _Lanes(lane_names)
     lanes.model_answers.set()
     return lanes
 
@@ -1762,14 +1769,17 @@ def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_rou
     assert ([(r.status_code, r.json()) for r in responses], settled, _webhook_keys(lanes)) == (
         [(200, {"status": "no_subscriber"})] * 2,
         True,
-        {STATUS_LANE: [], MODEL_LANE: []},
+        {STATUS_LANE: [], TRIAGE_LANE: [], MODEL_LANE: []},
     )
 
 
 @pytest.mark.parametrize("event", ["issues"])
-def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_both_lanes(event: str) -> None:
+def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_all_three_lanes(
+    event: str,
+) -> None:
     """Each event a roadmap job's batch keys name, the issues events alone, reaches the status
-    lane and the model lane as a ("webhook", <event>, <action>) trigger, whatever its action."""
+    lane, the triage lane and the model lane as a ("webhook", <event>, <action>) trigger, whatever
+    its action (#1534)."""
     lanes = _unblocked_lanes()
     app = _lanes_app(lanes)
     with TestClient(app) as client:
@@ -1780,7 +1790,7 @@ def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_both_lanes(eve
         202,
         {"status": "accepted"},
         True,
-        {STATUS_LANE: [key], MODEL_LANE: [key]},
+        {STATUS_LANE: [key], TRIAGE_LANE: [key], MODEL_LANE: [key]},
     )
 
 
@@ -1789,7 +1799,7 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
     action: str, monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
 ) -> None:
     """A delivery of `issues` opened, edited or reopened with an issue number runs its scoped update
-    on the model lane worker, and queues no full round on either lane (ADR 0017, #1533)."""
+    on the triage lane worker, and queues no full round on any lane (ADR 0017, #1533, #1534)."""
     ran_updates: list[tuple[Any, str]] = []
 
     def fake_scoped(delivery: Any, store: Any, **kwargs: Any) -> Any:
@@ -1815,7 +1825,7 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
         202,
         {"status": "accepted"},
         True,
-        {STATUS_LANE: [], MODEL_LANE: []},
+        {STATUS_LANE: [], TRIAGE_LANE: [], MODEL_LANE: []},
         1,
     )
     delivery, thread_name = ran_updates[0]
@@ -1825,7 +1835,7 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
         action,
         42,
     )
-    assert f"-{MODEL_LANE}" in thread_name
+    assert f"-{TRIAGE_LANE}" in thread_name
 
 
 @pytest.mark.parametrize(
@@ -1837,7 +1847,7 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
 )
 def test_an_unscopeable_delivery_keeps_the_whole_round_hint(payload: dict[str, Any]) -> None:
     """An issues event without an issue number, or with an action not in SCOPED_UPDATES, keeps the
-    whole-round hint to all lanes."""
+    whole-round hint to all lanes (#1534)."""
     lanes = _unblocked_lanes()
     app = _lanes_app(lanes)
     with TestClient(app) as client:
@@ -1849,7 +1859,7 @@ def test_an_unscopeable_delivery_keeps_the_whole_round_hint(payload: dict[str, A
         202,
         {"status": "accepted"},
         True,
-        {STATUS_LANE: [key], MODEL_LANE: [key]},
+        {STATUS_LANE: [key], TRIAGE_LANE: [key], MODEL_LANE: [key]},
     )
 
 
@@ -1885,7 +1895,7 @@ def test_enqueue_scoped_unmanaged_repo_or_unknown_lane() -> None:
     def dummy() -> None:
         pass
 
-    assert mgr.enqueue_scoped("example-org/unmanaged", MODEL_LANE, dummy) is False
+    assert mgr.enqueue_scoped("example-org/unmanaged", TRIAGE_LANE, dummy) is False
     assert mgr.enqueue_scoped(REPO_A, "nonexistent-lane", dummy) is False
 
 
@@ -1903,7 +1913,7 @@ def test_the_app_bots_own_event_reaches_neither_lane() -> None:
         200,
         {"status": "ignored_own_write"},
         True,
-        {STATUS_LANE: [], MODEL_LANE: []},
+        {STATUS_LANE: [], TRIAGE_LANE: [], MODEL_LANE: []},
     )
 
 
@@ -2264,7 +2274,7 @@ def test_the_app_bots_event_is_refused_by_the_roadmap_consumer_alone() -> None:
         [(202, {"status": "accepted"})] * 2,
         [(REPO_A, "issues", "opened"), (REPO_A, "issues", "closed")],
         True,
-        {STATUS_LANE: [key], MODEL_LANE: [key]},
+        {STATUS_LANE: [key], TRIAGE_LANE: [key], MODEL_LANE: [key]},
     )
 
 

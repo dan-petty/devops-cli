@@ -6,7 +6,7 @@ The update that a subscribed webhook event of the roadmap runs at once, scoped t
 ## Requirements
 
 ### Requirement: An issues delivery runs intake of its one issue
-`run_scoped_update` SHALL run intake of the one issue that a delivery of the `issues` event with the action `opened`, `edited` or `reopened` names, on the model lane, with intake's own decision code. It SHALL decide and write nothing for another issue.
+`run_scoped_update` SHALL run intake of the one issue that a delivery of the `issues` event with the action `opened`, `edited` or `reopened` names, on the triage lane, with intake's own decision code. It SHALL decide and write nothing for another issue.
 
 #### Scenario: A delivery about one of three candidates
 - **WHEN** a delivery of `issues` with the action `opened`, `edited` or `reopened` names candidate 2 of three candidates

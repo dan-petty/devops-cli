@@ -84,6 +84,12 @@ model_list:
       timeout: 1100
       num_retries: 0
 
+  # devops-triage: fast triage and roadmap intake on the 64 GiB standard tier.
+  - model_name: devops-triage
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
+
   # devops-review: one model name spread over the interactive Ollama tiers. The least-busy
   # router sends each request to the deployment with the fewest requests in flight:
   # - qwen3-coder:30b on ollama-48gib-fast (2x RTX 3090) and ollama-64gib-standard (Tesla V100).
@@ -211,6 +217,11 @@ router_settings:
     # No devops-chat rule: fallbacks chain, so devops-coder and devops-reasoning failures
     # would reach the background tier through devops-chat.
     - devops-review: [devops-background]
+    # Fallback chain: devops-review -> devops-background -> qwen3.8:27b means background and
+    # review work can reach the interactive tiers when the background tier fails. devops-triage
+    # falls back to qwen3.8:27b if the standard tier deployment is unavailable.
+    - devops-triage: [qwen3.8:27b]
+    - devops-background: [qwen3.8:27b]
   # Prompt too long for the model: escalate to a larger context window.
   context_window_fallbacks:
     - devops-chat: [devops-coder, devops-reasoning]

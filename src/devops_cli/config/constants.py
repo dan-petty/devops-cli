@@ -1512,6 +1512,7 @@ CONST_SERVICE_CAUSE_UNKNOWN: Final[str] = "unknown"
 # lane runs the jobs that call the model, so a status-lane round never waits for a model-lane
 # round. A service app given no jobs runs its logging job in the default lane.
 CONST_SERVICE_LANE_STATUS: Final[str] = "status"
+CONST_SERVICE_LANE_TRIAGE: Final[str] = "triage"
 CONST_SERVICE_LANE_MODEL: Final[str] = "model"
 CONST_SERVICE_LANE_DEFAULT: Final[str] = "default"
 CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
@@ -3061,9 +3062,12 @@ CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
+# The triage lane's clone beside it, so the triage lane's checkout never touches another lane's clone (#1534).
+CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME: Final[str] = "triage-clone"
 # The model lane's own clone beside it, so the model lane's checkout never touches the status
 # lane's `clone` (#1532).
 CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME: Final[str] = "model-clone"
+CONST_ROADMAP_REFINE_DUE_STAMP: Final[str] = "refine_due"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),

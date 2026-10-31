@@ -88,7 +88,7 @@ _Avoid_: proposal, suggestion
 
 **Intake**:
 The single entry point that turns a candidate into an item: it rejects duplicates, sets priority and puts the item in the backlog.
-_Avoid_: ingestion, triage
+_Avoid_: ingestion
 
 **Duplicate**:
 A candidate that asks for the same change as an item: the same result and the same acceptance criteria, so that the delivery of one delivers the other. A shared theme, goal, umbrella or file does not make a duplicate. A candidate is never a duplicate of the issue that it is split from. It is also never a duplicate of an issue that has sub-issues, because the sub-issues deliver that issue.
@@ -104,7 +104,7 @@ _Avoid_: research
 
 **Refinement**:
 Answering an item's key questions until it is ready.
-_Avoid_: grooming, triage
+_Avoid_: grooming
 
 **Alternative**:
 An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none or not-applicable. A person decides what an alternative means for the item: refinement asks a person to adopt a covering tool or to keep the item with a reason.
@@ -139,7 +139,7 @@ The long-running devops-cli deployment that runs the roadmap jobs when they are 
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's two paths for a repository's jobs, each running one round at a time: the model lane runs intake, refinement, staging and the alternatives check, which call the model, and the status lane runs the metrics and the implement row, which call no model. Both get every trigger, and a round in one never waits for a round in the other.
+One of the Service's three paths for a repository's jobs, each running one round at a time. The triage lane runs intake on the fast devops-triage model. The model lane runs refinement, staging and the alternatives check, which call the devops-background model. The status lane runs the metrics and implement rows, which call no model. All three get every trigger, and a round in one never waits for a round in the others.
 _Avoid_: queue, track, worker
 
 ## Code review
