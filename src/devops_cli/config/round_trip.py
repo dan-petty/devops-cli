@@ -195,18 +195,23 @@ def find(text: str, dotted: str, *, name: str) -> tuple[KeyPath, int] | None:
         raise ConfigurationError(
             f"Cannot read {name}: it is not valid YAML ({type(exc).__name__})."
         ) from None
-    return _find(document, dotted, ())
+    return _find(document, dotted, (), name=name)
 
 
-def _find(node: Any, dotted: str, prefix: KeyPath) -> tuple[KeyPath, int] | None:
+def _find(node: Any, dotted: str, prefix: KeyPath, *, name: str) -> tuple[KeyPath, int] | None:
     """The key path and the line of `dotted` in the mapping `node`, under the key path `prefix`."""
     if not isinstance(node, CommentedMap):
         return None
     if dotted in node:
-        return (*prefix, dotted), int(node.lc.key(dotted)[0]) + 1
+        position = node.lc.key(dotted)
+        if position is None:
+            raise ConfigurationError(
+                f"Cannot unset {name}: the key {dotted!r} comes from a YAML merge key."
+            )
+        return (*prefix, dotted), int(position[0]) + 1
     for key, value in node.items():
         if isinstance(key, str) and dotted.startswith(f"{key}."):
-            found = _find(value, dotted.removeprefix(f"{key}."), (*prefix, key))
+            found = _find(value, dotted.removeprefix(f"{key}."), (*prefix, key), name=name)
             if found is not None:
                 return found
     return None
