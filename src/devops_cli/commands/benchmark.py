@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
-from devops_cli.ai.benchmark.execution import (
-    execute_embedding_benchmark,
-    execute_tasks_benchmark,
-)
 from devops_cli.ai.benchmark.model_spec import parse_model_list
 from devops_cli.config.constants import CONST_BENCHMARK_TYPES
 from devops_cli.config.defaults import (
@@ -96,6 +92,24 @@ def _parse_server_list(servers: str | None) -> list[str] | None:
                 field="servers",
             ) from exc
     return server_list or None
+
+
+def _execute_embedding_benchmark(*args: Any, **kwargs: Any) -> None:
+    from devops_cli.ai.benchmark.execution import execute_embedding_benchmark
+
+    execute_embedding_benchmark(*args, **kwargs)
+
+
+def _execute_tasks_benchmark(*args: Any, **kwargs: Any) -> None:
+    from devops_cli.ai.benchmark.execution import execute_tasks_benchmark
+
+    execute_tasks_benchmark(*args, **kwargs)
+
+
+def _record_benchmark(*args: Any, **kwargs: Any) -> None:
+    from devops_cli.ai.benchmark.execution import record_benchmark
+
+    record_benchmark(*args, **kwargs)
 
 
 @dry_run_class("request-plan")
@@ -240,7 +254,7 @@ def run_benchmark(
             else:
                 emb_model = getattr(getattr(settings.ai.tasks, "embedding", None), "model", None)
                 model_list = [emb_model] if emb_model else [settings.ai.model]
-        execute_embedding_benchmark(
+        _execute_embedding_benchmark(
             model_list=model_list,
             settings=settings,
             provider=provider,
@@ -255,7 +269,7 @@ def run_benchmark(
         )
         return
 
-    execute_tasks_benchmark(
+    _execute_tasks_benchmark(
         model_list=model_list,
         tasks_filter=tasks_filter,
         settings=settings,

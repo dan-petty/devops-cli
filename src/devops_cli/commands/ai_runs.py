@@ -19,7 +19,6 @@ from devops_cli.ai.run_store import (
     RunIndex,
     RunIndexNotConfiguredError,
     RunRecord,
-    SavedRun,
     check_regression,
     compare_runs,
     find_baseline_run,
@@ -49,7 +48,6 @@ from devops_cli.k8s.node_port import (
 from devops_cli.lang.en.help import HELP
 from devops_cli.output import (
     escape_text,
-    get_stderr_console,
     print_error,
     print_info,
     print_section,
@@ -65,36 +63,6 @@ app = new_typer(
     help=HELP.ai.runs,
     no_args_is_help=True,
 )
-
-
-def announce_runs(saved: list[SavedRun], *, to_stderr: bool = False) -> None:
-    """Say where runs were kept, and whether other workstations can see them.
-
-    Commands writing JSON or Markdown to stdout announce on stderr, keeping their output parseable.
-    """
-    if not saved:
-        return
-    console = get_stderr_console() if to_stderr else None
-    first = saved[0]
-    kept = (
-        f"{first.record.mechanism.value} run {first.record.run_id} → "
-        f"[bold]{escape_text(str(first.path))}[/bold]"
-        if len(saved) == 1
-        else f"{len(saved)} {first.record.mechanism.value} runs → "
-        f"[bold]{escape_text(str(first.path.parent))}[/bold]"
-    )
-    print_success(f"Saved {kept}", console=console)
-    if not first.shared:
-        print_info(
-            f"Kept on this workstation only: {escape_text(first.detail)}.",
-            prefix=False,
-            console=console,
-        )
-
-
-def announce_run(saved: SavedRun, *, to_stderr: bool = False) -> None:
-    """Say where a run was kept, and whether other workstations can see it."""
-    announce_runs([saved], to_stderr=to_stderr)
 
 
 @app.command("reindex")

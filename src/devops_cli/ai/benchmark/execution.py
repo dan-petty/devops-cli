@@ -8,18 +8,10 @@ from typing import Any
 
 import typer
 
-from devops_cli.ai.ai_plans import plan_ai_benchmark
-from devops_cli.ai.benchmark.code_chunk_corpus import code_tree_digest
-from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
 from devops_cli.ai.benchmark.labels import model_label, server_label
-from devops_cli.ai.benchmark.runner import BenchmarkRunner
-from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
-from devops_cli.ai.run_store import Mechanism, file_digest, record_run
-from devops_cli.commands.ai_runs import announce_run
+from devops_cli.ai.run_store import Mechanism, announce_run, file_digest, record_run
 from devops_cli.dry_run import is_dry_run
-from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.lang import ERRORS
-from devops_cli.models.benchmark import BenchmarkReport
 from devops_cli.output import print_error, print_success, write_stdout, write_text_file
 
 
@@ -68,6 +60,8 @@ def render_tasks_dry_run(
     format_type: str,
 ) -> None:
     """Render simulated results and request plan during dry-run."""
+    from devops_cli.dry_run.requests import render_request_plan
+
     if format_type.lower() == "json":
         data = report.model_dump(mode="json")
         data["requests"] = [r.__dict__ for r in planned]
@@ -93,6 +87,10 @@ def execute_embedding_benchmark(
     format_type: str,
 ) -> None:
     """Execute embedding model benchmark run."""
+    from devops_cli.ai.ai_plans import plan_ai_benchmark
+    from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
+    from devops_cli.dry_run.requests import render_request_plan
+
     embed_runner = EmbeddingBenchmarkRunner(
         models=model_list,
         settings=settings,
@@ -125,6 +123,8 @@ def execute_embedding_benchmark(
         raise typer.Exit(1)
 
     if not dry_run:
+        from devops_cli.ai.benchmark.code_chunk_corpus import code_tree_digest
+
         record_benchmark(
             "embedding",
             embed_report,
@@ -166,6 +166,11 @@ def execute_tasks_benchmark(
     format_type: str,
 ) -> None:
     """Execute peer-grading task benchmark run."""
+    from devops_cli.ai.ai_plans import plan_ai_benchmark
+    from devops_cli.ai.benchmark.runner import BenchmarkRunner
+    from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
+    from devops_cli.models.benchmark import BenchmarkReport
+
     cat_filters = [c.strip() for c in tasks_filter.split(",")] if tasks_filter else None
     task_list = get_benchmark_tasks(cat_filters)
 

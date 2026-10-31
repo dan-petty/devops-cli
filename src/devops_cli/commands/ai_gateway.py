@@ -9,7 +9,11 @@ import httpx2
 import typer
 
 from devops_cli.ai.client.models import AICredentialsError
-from devops_cli.ai.gateway import GatewayRoute, GatewayRouter, probe_gateway_liveliness_and_models
+from devops_cli.ai.gateway import (
+    GatewayRoute,
+    GatewayRouter,
+    probe_gateway_liveliness_and_models,
+)
 from devops_cli.ai.gateway_tune import (
     GatewayTuneError,
     GpuInfo,
@@ -17,8 +21,7 @@ from devops_cli.ai.gateway_tune import (
     tune_pool,
 )
 from devops_cli.ai.pool_load import PoolLoad, pool_load, prometheus_query
-from devops_cli.ai.run_store import Mechanism, record_run
-from devops_cli.commands.ai_runs import announce_run
+from devops_cli.ai.run_store import Mechanism, announce_run, record_run
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_CAPABILITY_PROBE_NAMES,
@@ -59,6 +62,8 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, normalize_format
 from devops_cli.security.sanitizer import mask_secrets
+
+_probe_gateway_liveliness_and_models = probe_gateway_liveliness_and_models
 
 app = new_typer(
     help="LLM Gateway and distributed inference mesh management.",
@@ -255,7 +260,7 @@ def connect_cmd(
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     try:
-        probe_gateway_liveliness_and_models(base_url, headers, timeout)
+        _probe_gateway_liveliness_and_models(base_url, headers, timeout)
     except ValidationError as exc:
         print_error(str(exc))
         raise typer.Exit(code=1) from exc
