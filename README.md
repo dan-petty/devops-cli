@@ -241,7 +241,7 @@ k8s/. |
 |  | `devops k8s tunnel COMMAND [ARGS]...` | Keep the local end of the Kubernetes API route at k8s.\<domain\> running: one 'cloudflared access tcp' forward, for the tunnel kubeconfig context off the home network. |
 |  | `devops k8s volume COMMAND [ARGS]...` | Move a local-path claim to a volume on another node, and reclaim orphaned PersistentVolumes. |
 | [**kustomize**](docs/commands/kustomize.md) | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
-|  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
+|  | `devops kustomize diff [OPTIONS] <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
 | [**docker**](docs/commands/docker.md) | `devops docker images [OPTIONS]` | List local Docker images. |
 |  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |

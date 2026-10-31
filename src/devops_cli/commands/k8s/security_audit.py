@@ -17,7 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.k8s.rbac import RbacBindingList, RbacRoleList, audit_rbac
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -102,6 +102,7 @@ def rbac_audit(
     raise typer.Exit(1)
 
 
+@dry_run_class("no-external-request")
 def k8s_lint(
     target: Annotated[
         Path,
@@ -127,11 +128,6 @@ def k8s_lint(
     findings = run_kubelinter_scan(target=target_abs)
 
     if is_dry_run():
-        render_dry_run_result(
-            command=f"devops k8s lint {target}",
-            action="kubelinter_manifest_audit",
-            details={"target": str(target_abs), "findings_count": len(findings)},
-        )
         return
 
     if findings.status != "ran":
@@ -203,6 +199,7 @@ def k8s_audit(
     print(TablePayload(title="Popeye Cluster Health Audit", columns=columns, rows=rows))
 
 
+@dry_run_class("request-plan")
 def k8s_check_deprecated(
     target: Annotated[
         Path,
@@ -214,25 +211,22 @@ def k8s_check_deprecated(
     ] = False,
 ) -> None:
     """Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto."""
-    from devops_cli.dry_run.state import set_dry_run
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.manifest_plans import plan_k8s_check_deprecated
+
+        requests = plan_k8s_check_deprecated(target)
+        render_request_plan("devops k8s check-deprecated", requests)
+        return
+
     from devops_cli.security.pluto import run_pluto_scan
 
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
-    if not is_dry_run():
-        print_info(
-            f"[dim]Checking for deprecated Kubernetes APIs in '{target_abs}'...[/dim]", prefix=False
-        )
+    print_info(
+        f"[dim]Checking for deprecated Kubernetes APIs in '{target_abs}'...[/dim]", prefix=False
+    )
 
     findings = run_pluto_scan(target=target_abs)
-
-    if is_dry_run():
-        render_dry_run_result(
-            command=f"devops k8s check-deprecated {target}",
-            action="pluto_deprecation_scan",
-            details={"target": str(target_abs), "findings_count": len(findings)},
-        )
-        return
 
     if not findings:
         print_success(MESSAGES.k8s.pluto_passed)
@@ -257,6 +251,7 @@ def k8s_check_deprecated(
     )
 
 
+@dry_run_class("request-plan")
 def k8s_validate(
     manifest_path: Annotated[
         Path,
@@ -284,16 +279,20 @@ def k8s_validate(
     ] = False,
 ) -> None:
     """Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform."""
-    from devops_cli.security.kubeconform import run_kubeconform_validation
-
     target_path = manifest_path.resolve()
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops k8s validate {manifest_path} --kubernetes-version {k8s_version}",
-            action="kubeconform_validation",
-            target=str(target_path),
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.manifest_plans import plan_k8s_validate
+
+        requests = plan_k8s_validate(
+            manifest_path=target_path,
+            k8s_version=k8s_version,
+            strict=strict,
         )
+        render_request_plan("devops k8s validate", requests)
         return
+
+    from devops_cli.security.kubeconform import run_kubeconform_validation
 
     print_muted(f"Validating Kubernetes manifests at '{target_path}' (k8s: {k8s_version})...")
     findings = run_kubeconform_validation(
@@ -321,6 +320,7 @@ def k8s_validate(
     print(format_k8s_schema_table(findings, target_path.name or str(target_path)))
 
 
+@dry_run_class("no-external-request")
 def validate_policy_cmd(
     manifest_path: Annotated[
         Path,

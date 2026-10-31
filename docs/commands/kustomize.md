@@ -23,6 +23,7 @@ devops kustomize build [OPTIONS] <path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output`, `-o` | `string` | - | Destination file or directory for generated manifests. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -31,7 +32,7 @@ devops kustomize build [OPTIONS] <path>
 **Show a diff of pending changes (delegates to kubectl diff -k).**
 
 ```bash
-devops kustomize diff <path>
+devops kustomize diff [OPTIONS] <path>
 ```
 
 **Arguments:**
@@ -39,6 +40,12 @@ devops kustomize diff <path>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<path>` | `path` | No | Target kustomize directory path. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

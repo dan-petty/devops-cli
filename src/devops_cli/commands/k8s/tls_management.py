@@ -21,7 +21,12 @@ from devops_cli.config.defaults import (
     DEFAULT_TLS_DIR,
 )
 from devops_cli.crypto.tls_certificates import generate_homelab_tls_bundle
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
+from devops_cli.k8s.manifest_plans import (
+    plan_k8s_create_tls_secret,
+    plan_k8s_enable_tls,
+)
 from devops_cli.lang import HELP
 from devops_cli.models.tls import KubernetesTLSSecretResult
 from devops_cli.output import (
@@ -100,6 +105,7 @@ def _deploy_tls_secret(
     return None if created.returncode == 0 else "Failed to create secret via kubectl"
 
 
+@dry_run_class("request-plan")
 def create_tls_secret(
     secret_name: Annotated[
         str,
@@ -133,18 +139,14 @@ def create_tls_secret(
     runtime._validate_k8s_identifier(secret_name, "secret_name")
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s create-tls-secret",
-            target=secret_name,
-            action="create_k8s_tls_secret",
-            details={
-                "secret_name": secret_name,
-                "namespace": namespace,
-                "cert_path": str(cert_path),
-                "key_path": str(key_path),
-                "context": context,
-            },
+        requests = plan_k8s_create_tls_secret(
+            secret_name=secret_name,
+            namespace=namespace,
+            cert_path=cert_path,
+            key_path=key_path,
+            context=context,
         )
+        render_request_plan("devops k8s create-tls-secret", requests)
         return
 
     if not cert_path.exists():
@@ -176,6 +178,7 @@ def create_tls_secret(
     )
 
 
+@dry_run_class("request-plan")
 def enable_tls_stack(
     context: Annotated[
         str | None,
@@ -216,18 +219,14 @@ def enable_tls_stack(
         namespaces_to_target.extend(["llm"])
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s enable-tls",
-            target=stack,
-            action="enable_k8s_tls_stack",
-            details={
-                "tls_dir": str(tls_dir),
-                "secret_name": secret_name,
-                "stack": stack,
-                "namespaces": namespaces_to_target,
-                "context": context,
-            },
+        requests = plan_k8s_enable_tls(
+            stack=stack,
+            tls_dir=tls_dir,
+            secret_name=secret_name,
+            context=context,
+            overwrite=overwrite,
         )
+        render_request_plan("devops k8s enable-tls", requests)
         return
 
     # Check if certificates exist; if not and overwrite is requested, generate bundle

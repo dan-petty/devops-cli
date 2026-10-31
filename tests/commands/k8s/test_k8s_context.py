@@ -109,13 +109,13 @@ def test_k8s_apply_dry_run_previews_and_starts_no_kubectl(
     result = runner.invoke(app, ["apply", str(manifest), "--dry-run"])
     assert result.exit_code == 0, result.output
     assert "devops k8s apply" in result.output
-    assert "kubectl_apply" in result.output
+    assert "kubectl apply" in result.output
 
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
     env_result = runner.invoke(app, ["apply", str(manifest)])
     assert env_result.exit_code == 0, env_result.output
     assert "devops k8s apply" in env_result.output
-    assert "kubectl_apply" in env_result.output
+    assert "kubectl apply" in env_result.output
 
 
 def test_k8s_apply_template_dry_run_previews_and_starts_no_kubectl(
@@ -135,7 +135,7 @@ def test_k8s_apply_template_dry_run_previews_and_starts_no_kubectl(
     )
     assert result.exit_code == 0, result.output
     assert "devops k8s apply" in result.output
-    assert "kubectl_apply_template" in result.output
+    assert "kubectl apply" in result.output
 
 
 def test_k8s_config_default_context() -> None:

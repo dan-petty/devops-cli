@@ -31,7 +31,7 @@ def test_k8s_create_tls_secret_dry_run(tmp_path: Path) -> None:
         )
         assert result.exit_code == 0
         assert "devops k8s create-tls-secret" in result.output
-        assert "create_k8s_tls_secret" in result.output
+        assert "kubectl create secret tls test-tls" in result.output
     finally:
         set_dry_run(False)
 
@@ -52,7 +52,7 @@ def test_k8s_enable_tls_dry_run(tmp_path: Path) -> None:
         )
         assert result.exit_code == 0
         assert "devops k8s enable-tls" in result.output
-        assert "enable_k8s_tls_stack" in result.output
+        assert "kubectl create secret tls custom-tls" in result.output
     finally:
         set_dry_run(False)
 

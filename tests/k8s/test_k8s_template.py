@@ -163,7 +163,7 @@ def test_k8s_apply_cli_template_dry_run(tmp_path: Path, cli: Callable[..., Any])
     )
     assert result.exit_code == 0, result.output
     assert "devops k8s apply" in result.output
-    assert "kubectl_apply_template" in result.output
+    assert "kubectl apply" in result.output
 
 
 def test_k8s_apply_cli_template_global_dry_run(
@@ -182,7 +182,7 @@ def test_k8s_apply_cli_template_global_dry_run(
         "--domain",
         "example.com",
     )
-    assert (result.exit_code, "kubectl_apply_template" in result.output) == (0, True)
+    assert (result.exit_code, "kubectl apply" in result.output) == (0, True)
 
 
 def test_k8s_apply_cli_template_live(

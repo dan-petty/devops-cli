@@ -14,7 +14,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_ALL_STACK,
     DEFAULT_K8S_DIR,
 )
-from devops_cli.dry_run import dry_run_command
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -23,12 +23,7 @@ from devops_cli.output import (
 )
 
 
-@dry_run_command(
-    command="devops k8s bootstrap",
-    action="minikube_bootstrap",
-    target_param="k8s_dir",
-    detail_params=["auto_start", "k8s_dir", "stack"],
-)
+@dry_run_class("request-plan")
 def bootstrap(
     k8s_dir: Annotated[
         Path, typer.Option("--dir", "-d", help=HELP.k8s.manifests_dir)
@@ -46,6 +41,14 @@ def bootstrap(
     ] = False,
 ) -> None:
     """Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.manifest_plans import plan_k8s_bootstrap
+
+        requests = plan_k8s_bootstrap(k8s_dir=k8s_dir, stack=stack, auto_start=auto_start)
+        render_request_plan("devops k8s bootstrap", requests)
+        return
+
     if not runtime._minikube_running():
         if auto_start:
             print_info(MESSAGES.k8s.starting_minikube, prefix=False)

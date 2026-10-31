@@ -186,6 +186,7 @@ def stream_logs_cmd(
         raise typer.Exit(rc)
 
 
+@dry_run_class("request-plan")
 def diff_helm_cmd(
     release_name: Annotated[
         str,
@@ -209,6 +210,19 @@ def diff_helm_cmd(
     ] = False,
 ) -> None:
     """Preview Kubernetes manifest diffs before executing a Helm upgrade."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.manifest_plans import plan_k8s_diff_helm
+
+        requests = plan_k8s_diff_helm(
+            release_name=release_name,
+            chart_path=chart_path.resolve(),
+            namespace=namespace,
+            values=[v.resolve() for v in values] if values else None,
+        )
+        render_request_plan("devops k8s diff-helm", requests)
+        return
+
     from devops_cli.k8s.diff import diff_helm_release
 
     rc, diff_output = diff_helm_release(
@@ -227,6 +241,7 @@ def diff_helm_cmd(
         raise typer.Exit(rc)
 
 
+@dry_run_class("request-plan")
 def chaos_cmd(
     experiment: Annotated[
         str,
@@ -258,6 +273,19 @@ def chaos_cmd(
     ] = False,
 ) -> None:
     """Run resilience and chaos experiments against Kubernetes workloads."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.manifest_plans import plan_k8s_chaos
+
+        requests = plan_k8s_chaos(
+            experiment=experiment,
+            deployment=deployment,
+            namespace=namespace,
+            duration=duration,
+        )
+        render_request_plan("devops k8s chaos", requests)
+        return
+
     from devops_cli.k8s.chaos import execute_chaos_experiment
 
     result = execute_chaos_experiment(
