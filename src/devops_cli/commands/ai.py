@@ -158,6 +158,7 @@ app.add_typer(
 )
 
 
+@dry_run_class("no-external-request")
 @app.callback(invoke_without_command=True)
 def ai_main(
     ctx: typer.Context,
@@ -278,6 +279,7 @@ def _print_task_override(task: str, override: Any) -> None:
     )
 
 
+@dry_run_class("no-external-request")
 @app.command()
 def config(
     provider: Annotated[
@@ -1236,6 +1238,7 @@ def chat(  # noqa: C901
 # =============================================================================
 
 
+@dry_run_class("no-external-request")
 @app.command("bundle-models")
 def bundle_models(
     output_dir: Annotated[
@@ -1382,6 +1385,7 @@ def pipeline(
 # =============================================================================
 
 
+@dry_run_class("no-external-request")
 @app.command("token-count")
 def token_count(
     target: Annotated[
@@ -1460,6 +1464,7 @@ def token_count(
 # =============================================================================
 
 
+@dry_run_class("no-external-request")
 @app.command("spec")
 def spec_verify_cmd(
     spec_path: Annotated[
@@ -1470,10 +1475,6 @@ def spec_verify_cmd(
         Path | None,
         typer.Option("--target", "-t", help=HELP.ai.target_dir),
     ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -1485,16 +1486,11 @@ def spec_verify_cmd(
 ) -> None:
     """Verify codebase against executable markdown architecture specification contracts."""
     from devops_cli.ai.spec import verify_architecture_spec
-    from devops_cli.dry_run import is_dry_run
 
     report = verify_architecture_spec(
         spec_path=spec_path,
         target_dir=target_dir,
-        dry_run=dry_run,
     )
-
-    if dry_run or is_dry_run():
-        return
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
@@ -1529,6 +1525,7 @@ def spec_verify_cmd(
 # =============================================================================
 
 
+@dry_run_class("no-external-request")
 @app.command("repomap")
 def repomap_cmd(
     target_dir: Annotated[
@@ -1555,27 +1552,9 @@ def repomap_cmd(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Generate compact whole-repository AST symbol and relationship map."""
     from devops_cli.ai.repomap import generate_repo_map, render_repo_map_text
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai repomap",
-            action="generate_symbol_map",
-            details={
-                "max_files": max_files,
-                "include_tests": include_tests,
-                "multilingual": multilingual,
-                "status": "DRY_RUN_MAPPED",
-            },
-        )
-        return
 
     maps = generate_repo_map(
         target_dir,
@@ -1622,6 +1601,7 @@ def _render_drift_report(
         write_stdout(f"[{color}]{tag}[/{color}] {f.file_path}:{f.line_number} {f.message}\n")
 
 
+@dry_run_class("no-external-request")
 @app.command("audit-library-usage")
 def audit_library_usage_cmd(
     package: Annotated[
@@ -1648,28 +1628,10 @@ def audit_library_usage_cmd(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Audit workspace code for library API drift and deprecated calls."""
-    from devops_cli.ai.library.drift_auditor import LibraryDriftAuditor
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai audit-library-usage",
-            action="audit_library_drift",
-            details={
-                "package": package or "all",
-                "fail_on_breaking": fail_on_breaking,
-                "status": "DRY_RUN_AUDITED",
-            },
-        )
-        return
-
     from devops_cli.ai.analyze.cache import analysis_directory
+    from devops_cli.ai.library.drift_auditor import LibraryDriftAuditor
 
     auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
     ws_dir = target_dir or Path.cwd()
@@ -1697,6 +1659,7 @@ def audit_library_usage_cmd(
 # =============================================================================
 
 
+@dry_run_class("no-external-request")
 @app.command("pack-context")
 def pack_context_cmd(
     target_path: Annotated[
@@ -1727,28 +1690,9 @@ def pack_context_cmd(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Pack and prune source code context to fit token budget while preserving signatures."""
     from devops_cli.ai.context_packer import ContextPacker, PackingConfig
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops ai pack-context {target_path}",
-            action="pack_context",
-            details={
-                "target_path": str(target_path),
-                "max_tokens": max_tokens,
-                "strip_private": strip_private,
-                "skeletonize": skeletonize,
-                "status": "DRY_RUN_PACKED",
-            },
-        )
-        return
 
     ref_symbols = [s.strip() for s in referenced.split(",") if s.strip()] if referenced else None
     config = PackingConfig(
@@ -1846,6 +1790,7 @@ def _handle_raw_read(
         write_stdout(content + ("\n" if not content.endswith("\n") else ""))
 
 
+@dry_run_class("no-external-request")
 @app.command("read", help=HELP.ai.read_cmd)
 def read_cmd(
     target_path: Annotated[
@@ -1880,31 +1825,8 @@ def read_cmd(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Inspect and read source code across 3 multi-scale focal zoom levels."""
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops ai read {target_path}",
-            action="ai_read",
-            details={
-                "target_path": str(target_path),
-                "inspect": inspect,
-                "level": level,
-                "lines": lines,
-                "symbol": symbol,
-                "format": format,
-                "repo": str(repo) if repo else None,
-                "status": "READ_DRY_RUN",
-            },
-        )
-        return
-
     is_inspect = inspect or (level is not None) or (symbol is not None)
     if is_inspect:
         _handle_inspect_read(target_path, level, lines, symbol, format, json_output, repo=repo)
@@ -1917,6 +1839,7 @@ def read_cmd(
 # =============================================================================
 
 
+@dry_run_class("no-external-request")
 @app.command("diagram")
 def diagram_cmd(
     diagram_type: Annotated[
@@ -1935,22 +1858,9 @@ def diagram_cmd(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams."""
     from devops_cli.ai.diagram import generate_architecture_diagram, generate_threat_diagram
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops ai diagram {diagram_type}",
-            action="generate_diagram",
-            details={"type": diagram_type, "status": "DRY_RUN_DIAGRAM_GENERATED"},
-        )
-        return
 
     if diagram_type.lower() == "threat":
         diag = generate_threat_diagram(target_dir)
@@ -2070,6 +1980,7 @@ def prompt_eval_cmd(
 # =============================================================================
 
 
+@dry_run_class("no-external-request")
 @app.command("test-gen")
 def test_gen_cmd(
     target_file: Annotated[
@@ -2088,26 +1999,9 @@ def test_gen_cmd(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Generate failing pytest unit test scaffolds for functions or source files."""
     from devops_cli.ai.test_gen import synthesize_unit_tests
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai test-gen",
-            action="scaffold_unit_tests",
-            details={
-                "target_file": str(target_file),
-                "function": function_name,
-                "status": "SCAFFOLD_DRY_RUN",
-            },
-        )
-        return
 
     res = synthesize_unit_tests(target_file, function_filter=function_name)
     resolved = resolve_format(output_format, json_output=json_output)

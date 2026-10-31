@@ -17,6 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_PROVIDER,
     DEFAULT_TABLE_FORMAT,
 )
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_info,
@@ -53,6 +54,7 @@ def _render_constellation_status_table(status: ConstellationStatus) -> None:
     print_info(MESSAGES.ai.constellation_flag_only)
 
 
+@dry_run_class("no-external-request")
 def run_quiesce_cmd(
     reason: Annotated[
         str,
@@ -68,6 +70,7 @@ def run_quiesce_cmd(
     ] = False,
 ) -> None:
     """Set the constellation quiesce flag with a reason; it stops nothing."""
+    dry_run = dry_run or is_dry_run()
     manager = ConstellationManager()
     res = manager.quiesce(reason=reason, dry_run=dry_run)
 
@@ -83,6 +86,7 @@ def run_quiesce_cmd(
         print_success(MESSAGES.ai.quiesce_executed.format(badge=badge, reason=res.reason))
 
 
+@dry_run_class("no-external-request")
 def run_failover_cmd(
     target_provider: Annotated[
         str,
@@ -102,6 +106,7 @@ def run_failover_cmd(
     ] = False,
 ) -> None:
     """Record a fallback route in the constellation flag; it reroutes nothing."""
+    dry_run = dry_run or is_dry_run()
     manager = ConstellationManager()
     res = manager.failover(
         target_provider=target_provider,
@@ -122,6 +127,7 @@ def run_failover_cmd(
         print_success(MESSAGES.ai.failover_executed.format(badge=badge, target=target_str))
 
 
+@dry_run_class("no-external-request")
 def run_resume_cmd(
     output_format: Annotated[
         str,
@@ -133,6 +139,7 @@ def run_resume_cmd(
     ] = False,
 ) -> None:
     """Clear the constellation quiesce or failover flag."""
+    dry_run = dry_run or is_dry_run()
     manager = ConstellationManager()
     res = manager.resume(dry_run=dry_run)
 
@@ -148,6 +155,7 @@ def run_resume_cmd(
         print_success(f"{badge} {res.message}")
 
 
+@dry_run_class("no-external-request")
 def run_constellation_cmd(
     output_format: Annotated[
         str,

@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.repomap import generate_repo_map, parse_file_symbols, render_repo_map_text
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.main import app as root_app
 
 runner = CliRunner()
 
@@ -35,9 +36,8 @@ def test_repomap_generation(tmp_path: Path) -> None:
 
 def test_repomap_cli(tmp_path: Path) -> None:
     """Verify devops ai repomap CLI command."""
-    res = runner.invoke(ai_app, ["repomap", "--dry-run"])
+    res = runner.invoke(root_app, ["--dry-run", "ai", "repomap", "--target", str(tmp_path)])
     assert res.exit_code == 0
-    assert "DRY_RUN_MAPPED" in res.output or "generate_symbol_map" in res.output
 
     sample = tmp_path / "sample.py"
     sample.write_text("def hello() -> None:\n    pass\n", encoding="utf-8")

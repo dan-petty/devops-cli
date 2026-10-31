@@ -9,6 +9,7 @@ import typer
 
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class
 from devops_cli.lang import HELP, MESSAGES
 
 app = new_typer(
@@ -43,6 +44,7 @@ def _build_status_rows(harness: Any) -> list[list[str]]:
     ]
 
 
+@dry_run_class("no-external-request")
 @app.command(name="status")
 def harness_status(
     output_format: Annotated[
@@ -120,6 +122,7 @@ def _render_offload_result(
     )
 
 
+@dry_run_class("no-external-request")
 @app.command(name="offload")
 def harness_offload(
     repo: Annotated[
@@ -138,26 +141,9 @@ def harness_offload(
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot."""
     from devops_cli.ai.harness.slots import AgentHarness
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai harness offload",
-            action="subagent_offload",
-            details={
-                "repo": str(repo),
-                "symbol": symbol,
-                "pattern": pattern,
-            },
-        )
-        return
 
     harness = AgentHarness.from_config()
     subagent = harness.subagent_slot
@@ -172,6 +158,7 @@ def harness_offload(
     _render_offload_result(res, output_format)
 
 
+@dry_run_class("no-external-request")
 @app.command(name="run")
 def harness_run(
     task: Annotated[
@@ -190,27 +177,10 @@ def harness_run(
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Run the sub-agent's local AST or glob search for a task and report what it found."""
     from devops_cli.ai.harness.slots import AgentHarness
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
     from devops_cli.output import format_json, print_table, write_stdout
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai harness run",
-            action="execute_tiered_synthesis",
-            details={
-                "task": task,
-                "repo": str(repo),
-                "symbol": symbol,
-            },
-        )
-        return
 
     harness = AgentHarness.from_config()
     result = harness.execute_tiered(task=task, repo_path=repo, symbol_query=symbol)

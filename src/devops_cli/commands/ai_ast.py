@@ -15,7 +15,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class
 from devops_cli.lang import HELP
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.output.serialization import emit_serialized, resolve_format
@@ -54,6 +54,7 @@ def _query_file(
         raise typer.Exit(code=1) from exc
 
 
+@dry_run_class("no-external-request")
 @app.command(name="parse")
 def ast_parse_cmd(
     file_path: Annotated[Path, typer.Argument(help=HELP.ai.ast_parse)],
@@ -63,17 +64,8 @@ def ast_parse_cmd(
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Parse source file concrete syntax tree and extract structural symbols."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai ast parse",
-            action="parse_syntax_tree",
-            details={"file": str(file_path), "query": query, "status": "DRY_RUN_PARSED"},
-        )
-        return
-
     if not file_path.is_file():
         print_error(f"Target source file not found: {file_path}")
         raise typer.Exit(code=1)
@@ -103,6 +95,7 @@ def ast_parse_cmd(
     write_stdout(_render_symbols_text(file_path, file_map.symbols) + "\n")
 
 
+@dry_run_class("no-external-request")
 @app.command(name="graph")
 def ast_graph_cmd(
     target_dir: Annotated[Path | None, typer.Option("--dir", "-d", help=HELP.ai.target_dir)] = None,
@@ -111,22 +104,8 @@ def ast_graph_cmd(
         Path | None, typer.Option("--output", "-o", help=HELP.options.output_path)
     ] = None,
     fmt: Annotated[str, typer.Option("--format", "-f", help=HELP.ai.graph_format)] = "json",
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Synthesize whole-repository symbol dependency and reference graph."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai ast graph",
-            action="build_code_graph",
-            details={
-                "target_dir": str(target_dir) if target_dir else ".",
-                "max_files": max_files,
-                "format": fmt,
-                "status": "DRY_RUN_GRAPHED",
-            },
-        )
-        return
-
     builder = CodeGraphBuilder(root_dir=target_dir, max_files=max_files)
     graph = builder.build()
 

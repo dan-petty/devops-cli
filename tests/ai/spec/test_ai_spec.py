@@ -8,12 +8,13 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.spec.verifier import verify_architecture_spec
 from devops_cli.commands.ai import app
+from devops_cli.main import app as root_app
 
 runner = CliRunner()
 
 
-def test_verify_architecture_spec_dry_run() -> None:
-    report = verify_architecture_spec(dry_run=True)
+def test_verify_architecture_spec_default() -> None:
+    report = verify_architecture_spec()
     assert report.total_rules >= 1
     assert report.passed_rules >= 1
     assert report.failed_rules == 0
@@ -80,9 +81,9 @@ def test_the_spec_verifier_leaves_nesting_depth_to_ruff(tmp_path: Path) -> None:
 
 
 def test_cli_ai_spec_dry_run() -> None:
-    result = runner.invoke(app, ["spec", "--dry-run"])
+    result = runner.invoke(root_app, ["--dry-run", "ai", "spec"])
     assert result.exit_code == 0
-    assert "DRY_RUN" in result.stdout
+    assert "Architecture specification verified" in result.stdout
 
 
 def test_cli_ai_spec_live(tmp_path: Path) -> None:

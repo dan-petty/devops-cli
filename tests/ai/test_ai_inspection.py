@@ -597,9 +597,9 @@ def test_cli_ai_read_raw_and_lines(tmp_path: Path) -> None:
 
     # Dry-run
     res_dry = runner.invoke(
-        app, ["ai", "read", str(test_file), "--dry-run", "--repo", str(tmp_path)]
+        app, ["--dry-run", "ai", "read", str(test_file), "--repo", str(tmp_path)]
     )
-    assert (res_dry.exit_code, "READ_DRY_RUN" in res_dry.stdout) == (0, True)
+    assert (res_dry.exit_code, "line1 = 1" in res_dry.stdout) == (0, True)
 
 
 def test_cli_ai_read_inspect_modes(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.diagram import generate_architecture_diagram, generate_threat_diagram
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.main import app as root_app
 
 runner = CliRunner()
 
@@ -27,9 +28,9 @@ def test_diagram_generation() -> None:
 
 def test_diagram_cli() -> None:
     """Verify devops ai diagram CLI command."""
-    res_arch = runner.invoke(ai_app, ["diagram", "arch", "--dry-run"])
+    res_arch = runner.invoke(root_app, ["--dry-run", "ai", "diagram", "arch"])
     assert res_arch.exit_code == 0
-    assert "DRY_RUN_DIAGRAM_GENERATED" in res_arch.output
+    assert "graph TD" in res_arch.output
 
     res_threat = runner.invoke(ai_app, ["diagram", "threat", "--json"])
     assert res_threat.exit_code == 0

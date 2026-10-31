@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_SPECS_DIR_PATH
 from devops_cli.core.repo import find_repo_root, list_repo_files
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
@@ -87,32 +86,8 @@ def _verify_source_file(
 def verify_architecture_spec(
     spec_path: Path | None = None,
     target_dir: Path | None = None,
-    dry_run: bool = False,
 ) -> ArchitectureSpecReport:
     """Verify repository code against architectural contracts in markdown specs."""
-    if dry_run or is_dry_run():
-        mock_rule = SpecContractRule(
-            name="Forbidden Imports Check",
-            rule_type="forbidden_import",
-            target_path="src/devops_cli",
-            passed=True,
-            details="[DRY-RUN] No module imports a forbidden module.",
-        )
-        report = ArchitectureSpecReport(
-            spec_name="architecture_invariants.spec.md",
-            spec_path=str(spec_path or CONST_SPECS_DIR_PATH / "architecture_invariants.spec.md"),
-            total_rules=1,
-            passed_rules=1,
-            failed_rules=0,
-            rule_results=[mock_rule],
-        )
-        render_dry_run_result(
-            command="devops ai spec",
-            action="verify_architecture_spec",
-            details=report.model_dump(),
-        )
-        return report
-
     with trace_span("ai.verify_spec"):
         repo = find_repo_root(target_dir or Path.cwd())
         src_files = [p for p in list_repo_files(repo / "src") if p.suffix == ".py"]

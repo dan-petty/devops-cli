@@ -28,6 +28,7 @@ from devops_cli.ai.harness.slots import (
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import HarnessValidationError
+from devops_cli.main import app as root_app
 
 
 @pytest.fixture
@@ -521,19 +522,20 @@ def test_cli_ai_harness_offload_dry_run_and_json(runner: CliRunner, sample_repo_
     """Verify dry-run and JSON output modes for offload command."""
     # Dry run
     res_dry = runner.invoke(
-        ai_app,
+        root_app,
         [
+            "--dry-run",
+            "ai",
             "harness",
             "offload",
             "--repo",
             str(sample_repo_path),
             "--symbol",
             "DataProcessor",
-            "--dry-run",
         ],
     )
     assert res_dry.exit_code == 0
-    assert "DRY RUN" in res_dry.stdout or "subagent_offload" in res_dry.stdout
+    assert "Sub-Agent Local Offload" in res_dry.stdout or "subagent_offload" in res_dry.stdout
 
     # JSON output
     res_json = runner.invoke(
@@ -581,8 +583,10 @@ def test_cli_ai_harness_run_dry_run_and_json(runner: CliRunner, sample_repo_path
     """Verify devops ai harness run dry-run and JSON modes."""
     # Dry run
     res_dry = runner.invoke(
-        ai_app,
+        root_app,
         [
+            "--dry-run",
+            "ai",
             "harness",
             "run",
             "Inspect DataProcessor implementation",
@@ -590,11 +594,10 @@ def test_cli_ai_harness_run_dry_run_and_json(runner: CliRunner, sample_repo_path
             str(sample_repo_path),
             "--symbol",
             "DataProcessor",
-            "--dry-run",
         ],
     )
     assert res_dry.exit_code == 0
-    assert "DRY RUN" in res_dry.stdout or "execute_tiered_synthesis" in res_dry.stdout
+    assert "Harness Run" in res_dry.stdout or "execute_tiered_synthesis" in res_dry.stdout
 
     # JSON output
     res_json = runner.invoke(
