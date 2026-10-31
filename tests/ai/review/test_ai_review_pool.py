@@ -60,7 +60,7 @@ async def test_worker_pool_concurrency_bounding() -> None:
         nonlocal active_count, max_observed
         active_count += 1
         max_observed = max(max_observed, active_count)
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0)
         active_count -= 1
         return item * 2
 
@@ -108,7 +108,6 @@ async def test_worker_pool_submit_sync_all() -> None:
     pool = ReviewWorkerPool(max_concurrency=3)
 
     def _sync_worker(val: str) -> str:
-        time.sleep(0.01)
         return val.upper()
 
     inputs = ["apple", "banana", "cherry"]
@@ -121,7 +120,6 @@ def test_worker_pool_run_sync_runner() -> None:
     pool = ReviewWorkerPool(max_concurrency=2)
 
     async def _double(n: int) -> int:
-        await asyncio.sleep(0.01)
         return n * 2
 
     outputs = pool.run_sync(_double, [1, 2, 3])

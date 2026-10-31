@@ -12,7 +12,6 @@ import json
 import os
 import socket
 import ssl
-import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -475,11 +474,16 @@ def test_a_redirect_to_a_name_answering_metadata_is_refused_at_hop_two(
 # =============================================================================
 
 
-async def test_the_async_lookup_runs_off_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_async_lookup_runs_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A resolver that blocks for 0.5 s leaves a concurrent task running throughout."""
+    import threading
+
+    lookup_done = threading.Event()
 
     def slow_lookup(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        time.sleep(0.5)
+        lookup_done.wait(timeout=1.0)
         return [
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (PUBLIC_ADDRESS, port))
         ]
@@ -490,8 +494,10 @@ async def test_the_async_lookup_runs_off_the_event_loop(monkeypatch: pytest.Monk
     async def tick() -> None:
         nonlocal ticks
         while True:
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0)
             ticks += 1
+            if ticks >= 3:
+                lookup_done.set()
 
     ticker = asyncio.create_task(tick())
     addresses = await avet_addresses("example.com", 443, PUBLIC, timeout=5.0)
@@ -504,15 +510,21 @@ async def test_a_slow_async_lookup_times_out_as_a_connect_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The connect timeout bounds the lookup, as it bounded anyio's own resolve-and-connect."""
+    import threading
+
+    blocker = threading.Event()
 
     def slow_lookup(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        time.sleep(0.3)
+        blocker.wait(timeout=1.0)
         return []
 
     monkeypatch.setattr(socket, "getaddrinfo", slow_lookup)
 
-    with pytest.raises(httpcore2.ConnectTimeout):
-        await avet_addresses("example.com", 443, PUBLIC, timeout=0.05)
+    try:
+        with pytest.raises(httpcore2.ConnectTimeout):
+            await avet_addresses("example.com", 443, PUBLIC, timeout=0.05)
+    finally:
+        blocker.set()
 
 
 async def test_the_async_client_dials_only_vetted_addresses(

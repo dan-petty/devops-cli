@@ -6,9 +6,7 @@ interfaces, recording calls and returning scripted answers.
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
-import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +15,7 @@ from typing import Any
 import pytest
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.core import clock as clock_seam
 from devops_cli.core.process import (
     PlannedProcessResult,
     _prepare_cmd,
@@ -172,10 +171,9 @@ class ProcessFake:
         ans = self._match_answer(call)
 
         if timeout > 0 and ans.delay > timeout:
-            time.sleep(timeout)
             raise subprocess.TimeoutExpired(cmd=list(call.argv), timeout=timeout)
         if ans.delay > 0:
-            time.sleep(ans.delay)
+            clock_seam.sleep(ans.delay)
 
         if ans.side_effect is not None:
             if isinstance(ans.side_effect, BaseException):
@@ -262,10 +260,9 @@ class ProcessFake:
         ans = self._match_answer(call)
 
         if timeout > 0 and ans.delay > timeout:
-            await asyncio.sleep(timeout)
             raise subprocess.TimeoutExpired(cmd=list(call.argv), timeout=timeout)
         if ans.delay > 0:
-            await asyncio.sleep(ans.delay)
+            clock_seam.sleep(ans.delay)
 
         if ans.side_effect is not None:
             if isinstance(ans.side_effect, BaseException):

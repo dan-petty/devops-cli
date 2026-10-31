@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.argo import app
 from devops_cli.config.settings import Settings
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
+from tests.support.waits import wait_until
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -87,11 +88,11 @@ def test_scan_manifest_drift(tmp_path: Path) -> None:
     state1 = compute_manifest_state([tmp_path])
 
     # Modify f1, delete f2, create f3
-    time.sleep(0.01)
     f1.write_text("replicas: 2", encoding="utf-8")
     f2.unlink()
     f3 = tmp_path / "ingress.yaml"
     f3.write_text("host: example.com", encoding="utf-8")
+    assert wait_until(lambda: compute_manifest_state([tmp_path]) != state1)
 
     state2 = compute_manifest_state([tmp_path])
     events = scan_manifest_drift(state1, state2)
@@ -217,7 +218,7 @@ def test_trigger_argocd_sync_failure() -> None:
 
 def test_gitops_watcher_lifecycle(tmp_path: Path) -> None:
     """Ensure GitOpsWatcher detects drift, aggregates changes, and triggers sync."""
-    from devops_cli.argo.gitops import GitOpsWatcher
+    from devops_cli.argo.gitops import GitOpsWatcher, compute_manifest_state
 
     manifest = tmp_path / "deployment.yaml"
     manifest.write_text("replicas: 1", encoding="utf-8")
@@ -240,8 +241,8 @@ def test_gitops_watcher_lifecycle(tmp_path: Path) -> None:
     assert len(initial) == 0
 
     # Modify file
-    time.sleep(0.02)
     manifest.write_text("replicas: 3", encoding="utf-8")
+    assert wait_until(lambda: compute_manifest_state([tmp_path]) != watcher._last_state)
 
     # Run watcher with max_events=1
     results = watcher.watch(max_events=1)

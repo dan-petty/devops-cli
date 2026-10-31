@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +11,7 @@ import pytest
 
 from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.ai.rag.investigator import (
+    _PROBE_COORDINATOR,
     _RAG_STOPPED,
     clear_investigation_cache,
     format_rag_investigation_for_prompt,
@@ -20,6 +20,7 @@ from devops_cli.ai.rag.investigator import (
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.config.settings import Settings
 from tests.support.fakes.clock import ClockFake
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -181,7 +182,9 @@ def test_format_rag_investigation_for_prompt() -> None:
     assert "<rag_context>def main(): pass</rag_context>" in formatted
 
 
-def test_concurrent_lookups_wait_for_probe_outcome() -> None:
+def test_concurrent_lookups_wait_for_probe_outcome(
+    clock: ClockFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """20 concurrent lookups against a hanging stub send at most 2 requests and skip when the probe fails.
 
     A lookup that did not wait for the probe would send its own request, so the count shows the
@@ -196,12 +199,27 @@ def test_concurrent_lookups_wait_for_probe_outcome() -> None:
 
     request_count = 0
     lock = threading.Lock()
+    all_waiting = threading.Event()
+    waiting_count = 0
+    waiting_lock = threading.Lock()
+    original_coordinate = _PROBE_COORDINATOR.coordinate
+
+    def wrapped_coordinate(search_fn: Any) -> Any:
+        nonlocal waiting_count
+        with waiting_lock:
+            waiting_count += 1
+            if waiting_count == 20:
+                all_waiting.set()
+        return original_coordinate(search_fn)
+
+    monkeypatch.setattr(_PROBE_COORDINATOR, "coordinate", wrapped_coordinate)
 
     def hanging_embed_query(query: str) -> list[float]:
         nonlocal request_count
         with lock:
             request_count += 1
-        time.sleep(0.2)
+        all_waiting.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+        clock.sleep(0.2)
         raise EmbeddingsError("Timeout hanging query", is_transient=True)
 
     with (

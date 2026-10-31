@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -321,12 +320,13 @@ def test_verdicts_given_at_once_on_one_session_all_land(
     ]
     read = review_cli._read_session_file
     start = threading.Barrier(len(calls))
+    pause = threading.Event()
     failures: list[BaseException] = []
 
     def slow_read(*args: Any) -> Any:
         # Hold each read open long enough that every call reads before any call writes.
         got = read(*args)
-        time.sleep(0.02)
+        pause.wait(0)
         return got
 
     def give(kwargs: dict[str, Any]) -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import math
 import threading
-import time
 import urllib.parse
 import uuid
 from collections.abc import Callable, Sequence
@@ -20,6 +19,7 @@ from devops_cli.config.defaults import (
     DEFAULT_QDRANT_QUANTIZATION_QUANTILE,
     DEFAULT_QDRANT_URL,
 )
+from devops_cli.core import clock as clock_seam
 from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
 from devops_cli.telemetry import trace_span
@@ -126,7 +126,13 @@ def _format_query_hits(points: list[Any]) -> list[dict[str, Any]]:
 
 
 def _record_retry(
-    operation: str, target: str, attempt: int, max_attempts: int, exc: Exception
+    operation: str,
+    target: str,
+    attempt: int,
+    max_attempts: int,
+    exc: Exception,
+    *,
+    sleep: Callable[[float], None] = clock_seam.sleep,
 ) -> None:
     """Log and count a transient Qdrant error, then back off before the next attempt.
 
@@ -152,7 +158,7 @@ def _record_retry(
         is_rhe = False
     cause = getattr(exc, "source", exc) if is_rhe else exc
     emit(QDRANT_RETRIES_TOTAL, 1, {"operation": operation, "error_type": type(cause).__name__})
-    time.sleep(0.5 * attempt)
+    sleep(0.5 * attempt)
 
 
 def _build_quantization_config(enabled: bool) -> Any:
@@ -416,6 +422,8 @@ class QdrantClient:
         operation: str,
         target: str = "",
         max_attempts: int = DEFAULT_MAX_RETRIES,
+        *,
+        sleep: Callable[[float], None] = clock_seam.sleep,
     ) -> Any:
         """Execute a Qdrant client operation with automatic reconnect and exponential backoff.
 
@@ -428,13 +436,13 @@ class QdrantClient:
                 return fn(client)
             except Exception as exc:
                 if attempt < max_attempts and _is_transient_qdrant_error(exc):
-                    _record_retry(operation, target, attempt, max_attempts, exc)
+                    _record_retry(operation, target, attempt, max_attempts, exc, sleep=sleep)
                     continue
                 raise
 
     def is_alive(self, *, force_check: bool = False) -> bool:
         """Check if Qdrant server is reachable and responsive (cached for 15s)."""
-        now = time.monotonic()
+        now = clock_seam.monotonic()
         if not force_check and self._last_alive is not None:
             last_time, status = self._last_alive
             if now - last_time < 15.0:

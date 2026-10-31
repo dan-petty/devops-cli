@@ -444,14 +444,16 @@ def test_pydantic_agent_retries_and_budget_exhaustion() -> None:
 
 def test_pydantic_agent_tool_class_and_timeouts() -> None:
     """Verify Tool.from_function, timeout enforcement, and retry feedback."""
-    import time
+    import threading
 
     from devops_cli.ai.agents.tools import Tool
 
+    unblock = threading.Event()
+
     # 1. Tool.from_function
     def slow_fn(sec: float) -> str:
-        """A function that sleeps."""
-        time.sleep(sec)
+        """A function that waits for an event."""
+        unblock.wait(timeout=1.0)
         return "done"
 
     tool_obj = Tool.from_function(slow_fn, name="slow_tool", timeout=0.05)
@@ -474,10 +476,13 @@ def test_pydantic_agent_tool_class_and_timeouts() -> None:
         "Tool timed out, completed with fallback.",
     ]
 
-    res = agent.run("Run slow task", max_turns=2, skip_rag=True)
-    assert "completed with fallback" in res.content
-    assert len(res.tool_calls) == 1
-    assert "Timed out" in str(res.tool_calls[0].result)
+    try:
+        res = agent.run("Run slow task", max_turns=2, skip_rag=True)
+        assert "completed with fallback" in res.content
+        assert len(res.tool_calls) == 1
+        assert "Timed out" in str(res.tool_calls[0].result)
+    finally:
+        unblock.set()
 
 
 def test_pydantic_agent_advanced_tools_and_tool_return() -> None:

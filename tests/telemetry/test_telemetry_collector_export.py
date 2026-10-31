@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -27,6 +26,7 @@ from devops_cli.telemetry.collector import collector_endpoint
 from devops_cli.telemetry.exporter import CONNECT_FAILED, OtlpSignal
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 from tests.support.config_writes import written_keys
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
@@ -182,14 +182,19 @@ def test_non_interactive_runs_stay_quiet(
 class _SlowCollector(FakeCollector):
     """A collector that takes a moment to answer, as one across a network does."""
 
+    def __init__(self, clock: ClockFake | None = None) -> None:
+        super().__init__()
+        self._clock = clock
+
     def export(self, signal: OtlpSignal, body: bytes, content_type: str) -> None:
-        time.sleep(0.2)
+        if self._clock is not None:
+            self._clock.sleep(0.2)
         super().export(signal, body, content_type)
 
 
-def test_exports_in_flight_are_drained_at_shutdown() -> None:
+def test_exports_in_flight_are_drained_at_shutdown(clock: ClockFake) -> None:
     """Verify spans queued at a command's end are sent, not cancelled, when the tool exits."""
-    collector = _SlowCollector()
+    collector = _SlowCollector(clock)
     client = collector.client()
     with client.span("last_span"):
         pass

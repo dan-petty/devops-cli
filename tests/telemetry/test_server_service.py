@@ -524,6 +524,7 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
     tick_batches: list[TriggerBatch] = []
     tick_event = threading.Event()
     job_ran = threading.Event()
+    sleep_release = asyncio.Event()
 
     simulated_now = datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC)
 
@@ -534,7 +535,7 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
         nonlocal simulated_now
         simulated_now += timedelta(seconds=seconds)
         tick_event.set()
-        await asyncio.sleep(0.01)
+        await sleep_release.wait()
 
     def tick_job(batch: TriggerBatch) -> None:
         tick_batches.append(batch)

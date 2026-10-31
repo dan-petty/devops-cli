@@ -1,7 +1,6 @@
 """Unit tests for OpenTelemetry tracer and metrics emitter."""
 
 import os
-import time
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -20,6 +19,7 @@ from devops_cli.telemetry.tracer import (
     reset_tracer,
     trace_span,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import POLL_INTERVAL_SECONDS
 
@@ -526,15 +526,20 @@ def test_response_span_attributes_enriched(collector: str) -> None:
 class _SlowCollector(FakeCollector):
     """A collector that takes a moment to answer, as one across a network does."""
 
+    def __init__(self, clock: ClockFake | None = None) -> None:
+        super().__init__()
+        self._clock = clock
+
     def export(self, signal: OtlpSignal, body: bytes, content_type: str) -> None:
-        time.sleep(0.2)
+        if self._clock is not None:
+            self._clock.sleep(0.2)
         super().export(signal, body, content_type)
 
 
-def test_a_reset_lets_no_export_of_the_dropped_tracer_run_on() -> None:
+def test_a_reset_lets_no_export_of_the_dropped_tracer_run_on(clock: ClockFake) -> None:
     """Every test resets the tracer, and an export still in flight from one test ran on into the
     next, whose socket probe then saw connections it never made."""
-    otlp = _SlowCollector()
+    otlp = _SlowCollector(clock)
     otlp.flush_before_reads(lambda: get_tracer().flush())
     install_exporter(otlp)
     with trace_span("last_span_of_a_test"):
