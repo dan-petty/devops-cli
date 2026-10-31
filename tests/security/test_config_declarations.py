@@ -145,6 +145,7 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_ROADMAP_STAGE_LIMIT",  # #2659
         "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY",  # #2667
         "DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR",  # #2755
+        "DEVOPS_CLI_MATTERMOST_ALERTS_HOOK",  # #1392
     }
 )
 
@@ -170,6 +171,7 @@ _KEYRING_BEFORE = {
 # Credentials added after the declaration moved onto the fields.
 _KEYRING_OF_LATER_CREDENTIALS = {
     "argocd.github_app_private_key": "argocd_github_app_private_key",  # #2000
+    "mattermost.alerts_hook": "mattermost_alerts_hook",  # #1392
 }
 
 

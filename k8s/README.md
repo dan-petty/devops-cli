@@ -456,11 +456,12 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `ValkeyCacheErrors` | A Valkey exporter reports `redis_up == 0` or rejected client connections | 5m | warning |
 | `ValkeyMemoryNearBound` | A Valkey with the policy `noeviction` and a bound keeps its data above 80% of its `maxmemory`; at the bound it refuses each write | 10m | warning |
 | `RoadmapServiceIdentityRefused`, `RoadmapServiceGitHubThrottled` | GitHub refused the identity of the roadmap Service, or throttled its requests; see Roadmap service, Alerts | — | critical |
-| `RoadmapServiceJobsFailing`, `RoadmapServiceLaneStalled`, `RoadmapServiceRestarted`, `RoadmapServiceUnavailable`, `RoadmapServiceGitHubRequestsHigh`, `RoadmapServiceModelRequestsHigh` | The roadmap Service's jobs fail or stall, its pod restarts or is unavailable, or its GitHub or model requests in an hour are high; see Roadmap service, Alerts | 0–10m | warning |
+| `RoadmapServiceJobsFailing` | All jobs of one repository and lane failed in 1 hour | 30m | warning |
+| `RoadmapServiceLaneStalled`, `RoadmapServiceRestarted`, `RoadmapServiceUnavailable`, `RoadmapServiceGitHubRequestsHigh`, `RoadmapServiceModelRequestsHigh` | The roadmap Service stalls, its pod restarts or is unavailable, or its GitHub or model requests in an hour are high; see Roadmap service, Alerts | 0–10m | warning |
 | `RoadmapServiceWebhooksRejected` | The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes; see Roadmap service, Alerts | — | warning |
 | `ClusterMetricsMissing` | `kube_node_status_condition` is absent, so the node rules cannot fire | 10m | critical |
 | `PrometheusConfigReloadFailed`, `PrometheusRuleEvaluationFailures`, `PrometheusNotConnectedToAlertmanager`, `PrometheusDroppingAlerts`, `PrometheusCompactionsFailing` | Prometheus's own health | 0–15m | warning |
-| `AlertmanagerConfigReloadFailed`, `AlertmanagerNotificationsFailing` | Alertmanager's own health; the second only once the webhook Secret exists | 10m, 15m | warning |
+| `AlertmanagerConfigReloadFailed`, `AlertmanagerNotificationsFailing` | Alertmanager's own health; the second only once the alertmanager-mattermost Secret exists | 10m, 15m | warning |
 
 Retention, volume sizes and what `LogOrMetricVolumeDiskLow` and `PrometheusNearRetentionSizeCap` watch are in Log and Metric Retention, above.
 
@@ -470,15 +471,21 @@ The GPU power budget is one number for the whole site, from the GPUs' draw befor
 
 ### Receiver
 
-Alerts without a routed severity go to the `null` receiver, which sends nowhere. `critical` and `warning` alerts go to `webhook`, which posts Alertmanager's webhook JSON to the URL in the `url` key of the Secret `alertmanager-webhook` in `monitoring`. The Secret is mounted optional, as a directory, at `/etc/alertmanager-webhook`, so Alertmanager starts without it and the running pod sees the file about a minute after the Secret is created. Until then each webhook notification fails, Alertmanager logs `Notify for alerts failed`, and nothing leaves the cluster.
+Alerts without a routed severity go to the `null` receiver, which sends nowhere. `critical` and `warning` alerts go to `mattermost`, which posts to Mattermost's incoming webhook using the URL in the `url` key of the Secret `alertmanager-mattermost` in `monitoring`. The Secret is mounted optional, as a directory, at `/etc/alertmanager-mattermost`, so Alertmanager starts without it and the running pod sees the file about a minute after the Secret is created. Until then each notification fails, Alertmanager logs the failure, and nothing leaves the cluster. No alert arrives while Mattermost, Alertmanager, or the node under either is down (#1390).
 
-To wire a channel, write its URL to a file (so it stays out of shell history) and create the Secret:
+To wire the channel:
 
-```bash
-kubectl -n monitoring create secret generic alertmanager-webhook --from-file=url=<file-holding-the-url>
-```
+1. Create the incoming webhook in Mattermost for `alerts`, with "Lock to this channel" selected.
+2. Store the webhook token in the keyring:
+   ```bash
+   uv run devops config set mattermost.alerts_hook
+   ```
+3. Push the Secret to the cluster:
+   ```bash
+   uv run devops k8s push-secrets --only monitoring/alertmanager-mattermost --context <context>
+   ```
 
-The monitoring perimeter lets Alertmanager reach ports 80 and 443 outside the cluster; a receiver on another port needs an egress rule in `monitoring/networkpolicy.yaml`.
+The monitoring perimeter allows Alertmanager egress to namespace `mattermost` on TCP port 8065, and ports 80 and 443 outside the cluster.
 
 ### Planned maintenance
 
@@ -524,6 +531,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/devops-cli` | `DEVOPS_CLI_VALKEY_PASSWORD` | keyring `valkey_devops_password` | yes | adopt from `llm/valkey-devops-auth password`; else generate 64 hex | devops | `deployment/roadmap-service` |
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
+| `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-installationID` | setting argocd.github_app_installation_id | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-privateKey` | keyring `argocd_github_app_private_key` | no | adopt the live value; else skip with a warning | infra | none |
@@ -540,6 +548,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - A row may name its Secret type, such as `kubernetes.io/basic-auth`. The default is `Opaque`. Kubernetes cannot change the type of an existing Secret, so a row names its type before its first push.
 - `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` is the private key of GitHub App `devops-cli-service`, which the roadmap Service and the cluster Jobs act as ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Store it with `devops config set service.github_app.private_key --from-file <key.pem>`. A pod whose environment holds the key acts as the App: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as GH_TOKEN. A workstation keeps the key only in the keyring, so a workstation run keeps the gh login of its person.
 - `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>` and `devops config set argocd.github_app_private_key --from-file <key.pem>`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
+- `monitoring/alertmanager-mattermost` holds the incoming webhook URL that Alertmanager uses to post critical and warning alerts to Mattermost. Store the webhook token with `devops config set mattermost.alerts_hook`, then push with `devops k8s push-secrets --only monitoring/alertmanager-mattermost`. The `homelab` project ignores the Secret as an orphan.
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
 - `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
 - `chat` rows are pushed by `push-secrets` with no `--stack` or with `--stack chat`, and by `deploy-stack --stack chat` or `all`. The database password is generated or adopted, and `DB_CONNECTION_STRING` is derived from it. The `homelab` project ignores the Secret as an orphan.
@@ -637,7 +646,7 @@ The rule group `roadmap-service` in `monitoring/prometheus-values.yaml` watches 
 | :--- | :--- | :--- | :--- | :--- |
 | `RoadmapServiceIdentityRefused` | GitHub refused the identity of the Service. The Service stopped all rounds and starts no round, also after a restart, until a person removes its halt record, and `/healthz` stays healthy. A start that finds the halt record counts the refusal again, so the alert holds through a restart. | — | critical | Read the refusal in the Service log. Repair the App or its installation (step 1), or rotate its private key (step 9). Then remove the halt record and restart the Service (step 11). |
 | `RoadmapServiceGitHubThrottled` | GitHub refused a request of the Service with a rate limit, or gave a 5xx for a read, in the last 15 minutes | — | critical | Read the GitHub API panels of the `devops-cli Telemetry` dashboard. Lower `service.github_requests_per_hour` or remove a repository from `service.repos`, then run `devops k8s deploy-stack --stack devops`. |
-| `RoadmapServiceJobsFailing` | 3 or more jobs of one repository and lane failed in 1 hour. A job that fails 3 rounds in a row stops until its input changes. | — | warning | Read the errors of that repository in the Service log: `kubectl -n devops logs deployment/roadmap-service`. Repair the cause, for example the repository's `.github/roadmap.toml`. |
+| `RoadmapServiceJobsFailing` | All jobs of one repository and lane failed in 1 hour (increase in errors is greater than zero, and increase in successes is zero). | 30m | warning | Read the errors of that repository in the Service log: `kubectl -n devops logs deployment/roadmap-service`. Repair the cause, for example the repository's `.github/roadmap.toml`. |
 | `RoadmapServiceLaneStalled` | No job of a repository and lane started in 2 hours while the deployment has an available replica. In a new pod, the 2 hours start when the worker of the lane starts. | 10m | warning | Find in the Service log a pause of the rounds, a spent request budget, or a job that does not end. If a job does not end, restart the deployment. |
 | `RoadmapServiceRestarted` | The `service` container restarted in the last hour | — | warning | Read the log before the restart: `kubectl -n devops logs deployment/roadmap-service --previous`. |
 | `RoadmapServiceUnavailable` | The deployment has an unavailable replica. A rollout stops the old pod before it starts the new one, so the rule waits 10 minutes. | 10m | warning | Read the events: `kubectl -n devops describe deployment/roadmap-service` and `kubectl -n devops get events --sort-by=.lastTimestamp`. |
@@ -653,7 +662,7 @@ The rule group `roadmap-service-activity` watches what the Service writes, the d
 | `RoadmapServiceSelfDeliveriesHigh` | The Service got more than 150 webhook deliveries of its own writes in 1 hour. Each write can come back as one delivery, so another bot or workflow can answer each write of the Service. | — | warning | Find the repository in the delivery log lines of the Service (`outcome` `self`), and find the bot or workflow that writes after the Service on it. Turn that repository's webhook off (stop switch, step 5) until the loop is broken. |
 | `RoadmapServiceFirecrawlRefused` | Firecrawl refused a web search of the Service in the last hour: HTTP 402 when the account has no credits, HTTP 429 at its rate limit. Refine goes on without the search results. | — | warning | Read the usage page of the Firecrawl account. Add credits or wait for the rate limit to end. To stop the searches, a person removes the key `DEVOPS_CLI_FIRECRAWL_API_KEY` from Secret `devops/devops-cli`, then restarts the Service. |
 
-No alert leaves the cluster until the Secret `monitoring/alertmanager-webhook` exists (Alerting, Receiver). Creating it is a step for the owner, who chose Mattermost as the route for the alerts (#1391, #1392). Until then, read the alerts in Grafana (Alerting, with the `Alertmanager` datasource) or on the Alerts page of Prometheus.
+No alert leaves the cluster until the Secret `monitoring/alertmanager-mattermost` exists (Alerting, Receiver). Creating it is a step for the owner, who chose Mattermost as the route for the alerts (#1391, #1392). Until then, read the alerts in Grafana (Alerting, with the `Alertmanager` datasource) or on the Alerts page of Prometheus.
 
 `tests/test_k8s_monitoring_alerting.py` pins each rule and runs the pinned promtool (`devops install-tools --tool promtool`) on it. `promtool test rules` runs the unit tests of each group, in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `roadmap_service_webhooks_tests.yaml` and `roadmap_service_activity_tests.yaml`: each alert fires on a sample series with the labels and annotations that the tests pin, and stays quiet on a normal series and on the same series of another job. To run them by hand, write the group to the file that the tests' `rule_files` names, then run `promtool test rules <tests-file>` in that directory.
 

@@ -17,6 +17,7 @@ from urllib.parse import quote
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_K8S_GITEA_ADMIN_USER,
+    CONST_K8S_MATTERMOST_URL,
 )
 from devops_cli.config.env import credential
 
@@ -350,6 +351,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "grafana"),),
         labels={"app.kubernetes.io/name": "grafana"},
+    ),
+    ClusterSecret(
+        namespace="monitoring",
+        name="alertmanager-mattermost",
+        stack="infra",
+        entries=(
+            SecretEntry(
+                "url",
+                DerivedSource(
+                    f"{CONST_K8S_MATTERMOST_URL}/hooks/{{hook}}",
+                    {"hook": KeyringSource.for_credential("mattermost.alerts_hook")},
+                ),
+                required=False,
+            ),
+        ),
+        labels={"app.kubernetes.io/name": "alertmanager"},
     ),
     # The GitHub App of Argo CD's GitHub notifier (#2000). Its `service.github` refers to these
     # keys as `$github-appID`, `$github-installationID` and `$github-privateKey`. The values

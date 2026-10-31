@@ -43,6 +43,17 @@ spec:
       ports:
         - protocol: TCP
           port: 9187
+    # 5. Alertmanager webhook notifications
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 8065
   egress:
     # 1. CoreDNS egress
     - to:

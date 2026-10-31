@@ -818,6 +818,8 @@ def _secret_references(node: Any) -> Iterator[str]:
             yield str(value["name"])
         elif str(key).lower().endswith("existingsecret") and isinstance(value, str) and value:
             yield value
+        elif key == "secretName" and isinstance(value, str) and value:
+            yield value
         else:
             yield from _secret_references(value)
 
@@ -862,10 +864,15 @@ def test_every_secret_referenced_under_k8s_has_a_table_row() -> None:
 def test_a_reference_without_a_row_fails_the_guard(tmp_path: Path) -> None:
     (tmp_path / "values.yaml").write_text(
         "metadata: {namespace: tools}\nfooExistingSecret: unlisted\n"
-        "env: [{valueFrom: {secretKeyRef: {name: also-unlisted, key: k}}}]\n",
+        "env: [{valueFrom: {secretKeyRef: {name: also-unlisted, key: k}}}]\n"
+        "extraSecretMounts: [{secretName: mounted-unlisted}]\n",
         encoding="utf-8",
     )
-    assert referenced_secrets(tmp_path) - TABLE_REFS == {"tools/unlisted", "tools/also-unlisted"}
+    assert referenced_secrets(tmp_path) - TABLE_REFS == {
+        "tools/unlisted",
+        "tools/also-unlisted",
+        "tools/mounted-unlisted",
+    }
 
 
 def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:

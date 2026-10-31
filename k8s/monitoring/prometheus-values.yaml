@@ -42,10 +42,10 @@ server:
 
 # Alertmanager (#549). Prometheus finds it through the chart's pod discovery, and Grafana reads
 # it as the `alertmanager` datasource. Alerts without a routed severity go to `null`, which sends
-# nowhere. Critical and warning alerts go to `webhook`, whose URL is the `url` key of the Secret
-# `alertmanager-webhook` in `monitoring`. No channel is chosen yet, so that Secret does not exist:
-# until it does, those notifications fail and nothing is sent. Creating it wires the channel; the
-# optional mount is a directory, so the running pod sees the file without a restart.
+# nowhere. Critical and warning alerts go to `mattermost`, whose webhook URL is the `url` key of
+# the Secret `alertmanager-mattermost` in `monitoring`. If that Secret does not exist, those
+# notifications fail and nothing is sent. Creating it wires the channel; the optional mount is a
+# directory, so the running pod sees the file without a restart.
 alertmanager:
   enabled: true
   # Alertmanager does not call the Kubernetes API, so its pod mounts no ServiceAccount token (#1652).
@@ -76,9 +76,9 @@ alertmanager:
     prometheus.io/port: "9093"
     k8s.grafana.com/metrics.container: alertmanager
   extraSecretMounts:
-    - name: webhook-url
-      mountPath: /etc/alertmanager-webhook
-      secretName: alertmanager-webhook
+    - name: mattermost-url
+      mountPath: /etc/alertmanager-mattermost
+      secretName: alertmanager-mattermost
       readOnly: true
       optional: true
   config:
@@ -89,15 +89,16 @@ alertmanager:
       group_interval: 5m
       repeat_interval: 4h
       routes:
-        - receiver: webhook
+        - receiver: mattermost
           matchers:
             - severity=~"critical|warning"
     receivers:
       - name: "null"
-      - name: webhook
-        webhook_configs:
-          - url_file: /etc/alertmanager-webhook/url
+      - name: mattermost
+        mattermost_configs:
+          - webhook_url_file: /etc/alertmanager-mattermost/url
             send_resolved: true
+            title_link: ""
     inhibit_rules:
       # A node that is not Ready takes its scrape targets with it.
       - source_matchers:
@@ -503,10 +504,10 @@ serverFiles:
             annotations:
               summary: "Alertmanager failed to reload its configuration"
               description: "Alertmanager's last configuration reload failed and has not succeeded since; it runs the configuration it had before."
-          # Without the webhook Secret every webhook notification fails by design, so this fires
+          # Without the Mattermost Secret every notification fails by design, so this fires
           # only once the Secret exists.
           - alert: AlertmanagerNotificationsFailing
-            expr: sum by (integration) (increase(alertmanager_notifications_failed_total[15m])) > 0 and on () kube_secret_info{namespace="monitoring", secret="alertmanager-webhook"}
+            expr: sum by (integration) (increase(alertmanager_notifications_failed_total[15m])) > 0 and on () kube_secret_info{namespace="monitoring", secret="alertmanager-mattermost"}
             for: 15m
             labels:
               severity: warning
@@ -697,21 +698,18 @@ serverFiles:
             annotations:
               summary: "GitHub throttled {{ $labels.resource }} requests of the roadmap Service"
               description: "In the last 15 minutes GitHub refused a {{ $labels.resource }} request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (k8s/README.md, Roadmap service)."
-          # Three failed rounds in a row suspend a job (roadmap-service-limits), so three errors
-          # in an hour is a job that fails at each round.
+          # When all rounds of a repository and lane fail in one hour, alert after 30 minutes.
           - alert: RoadmapServiceJobsFailing
             expr: >-
-              sum by (repo, lane) (
-              (last_over_time(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])
-              unless last_over_time(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h] offset 1h))
-              or increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])
-              ) >= 3
-            for: 0m
+              sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0
+              unless on (repo, lane)
+              sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0
+            for: 30m
             labels:
               severity: warning
             annotations:
-              summary: '{{ printf "%.0f" $value }} {{ $labels.lane }} jobs of {{ $labels.repo }} failed in the last hour'
-              description: "Three or more {{ $labels.lane }} jobs of {{ $labels.repo }} failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
+              summary: "All {{ $labels.lane }} jobs of {{ $labels.repo }} failed in the last hour"
+              description: '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (k8s/README.md, Roadmap service)'
           # Each poll starts a round on every lane, every 5 minutes by default. A worker sets the
           # job start of its lane when it starts, so a lane of a new pod that starts no job also
           # fires (#2505). A replica that is not available starts no job, and
