@@ -1073,6 +1073,16 @@ def test_the_instructions_say_that_a_step_ends_only_when_every_task_is_ticked(
     assert "`- [ ]` to `- [x]`" in inputs.instructions
 
 
+def test_the_instructions_say_that_a_reply_has_a_cap_and_a_long_file_is_written_in_parts(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+
+    assert "Each reply of yours has an output cap" in inputs.instructions
+    assert "stops and all your work is lost" in inputs.instructions.split("output cap")[1]
+    assert "in parts with `edit_file`" in inputs.instructions
+
+
 # ── The diff of a stopped step (#2721) ────────────────────────────────────────────────────
 
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"

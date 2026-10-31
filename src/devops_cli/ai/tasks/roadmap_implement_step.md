@@ -19,6 +19,7 @@ Keep these rules of the project:
 - Swallow no error. Fix a defect at its cause.
 - Keep every test that exists. You may add tests. Do not remove, rename or replace a test. If a step loses a test, it stops and all your work is lost. To change a test file, add to it or edit the test.
 - Keep the complexity of a function at 10 or less, and its nesting at 5 or less.
+- Each reply of yours has an output cap. If a reply reaches it, the step stops and all your work is lost. Write a long file in parts: create it with a short first version, then add to it in parts with `edit_file`. Do not write a file of more than 600 lines in one `write_file` call.
 - Write the prose of documents, messages and comments in simple, short sentences.
 - Write no secret, internal host name, private IP address or e-mail address. Use `example.com` and the addresses of RFC 5737.
 - Do not edit `CHANGELOG.md`, a manifest or a version line.
