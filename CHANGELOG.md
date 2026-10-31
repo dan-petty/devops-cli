@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.23.0](https://github.com/dan-petty/devops-cli/compare/v0.22.7...v0.23.0) (2026-10-31)
+
+
+### Features
+
+* **review:** confirm finding on human VERIFIED verdict ([#2813](https://github.com/dan-petty/devops-cli/issues/2813)) ([26203af](https://github.com/dan-petty/devops-cli/commit/26203af4a8bf65d00c736e08e98b20f94445034a)), closes [#2414](https://github.com/dan-petty/devops-cli/issues/2414)
+* **roadmap:** intake runs in triage lane on devops-triage model ([#2816](https://github.com/dan-petty/devops-cli/issues/2816)) ([35e6172](https://github.com/dan-petty/devops-cli/commit/35e61725ecc33d965cbdb8fe6351741e7688d131)), closes [#1534](https://github.com/dan-petty/devops-cli/issues/1534)
+* **roadmap:** link candidate from source as a sub-issue ([#2812](https://github.com/dan-petty/devops-cli/issues/2812)) ([aee2c85](https://github.com/dan-petty/devops-cli/commit/aee2c8573141c0348a60f59809dc57ef008aa8bc)), closes [#2035](https://github.com/dan-petty/devops-cli/issues/2035)
+* **service:** each subscribed webhook event runs its scoped update ([#2811](https://github.com/dan-petty/devops-cli/issues/2811)) ([0564c08](https://github.com/dan-petty/devops-cli/commit/0564c088701af87e64d07a09ba3a07050d9bff63)), closes [#1533](https://github.com/dan-petty/devops-cli/issues/1533)
+
+
+### Bug Fixes
+
+* **config:** config files and their copies keep the mode of the file,... ([#2801](https://github.com/dan-petty/devops-cli/issues/2801)) ([72b82e3](https://github.com/dan-petty/devops-cli/commit/72b82e38795ed162276e274d9da48cd2acbd86a2))
+* **k8s:** bound the test workers and log the command of a step ([#2809](https://github.com/dan-petty/devops-cli/issues/2809)) ([2314ef9](https://github.com/dan-petty/devops-cli/commit/2314ef987f367f7428be8899e1504189888919ff)), closes [#2806](https://github.com/dan-petty/devops-cli/issues/2806)
+* **roadmap:** a step may not lose a test that existed ([#2807](https://github.com/dan-petty/devops-cli/issues/2807)) ([7d104a5](https://github.com/dan-petty/devops-cli/commit/7d104a5483a3acf335c1032c301ad238593a7a2e)), closes [#2804](https://github.com/dan-petty/devops-cli/issues/2804)
+* **security:** lock graphql-core at 3.3.1 and pyasn1 at 0.6.5 ([#2814](https://github.com/dan-petty/devops-cli/issues/2814)) ([8234a83](https://github.com/dan-petty/devops-cli/commit/8234a837f74d2fc0dcfc61e260c3da78bbf07bc8)), closes [#2808](https://github.com/dan-petty/devops-cli/issues/2808)
+
+
+### Code Refactoring
+
+* **ai:** seams and fakes for Valkey, Qdrant and embedder ([#2815](https://github.com/dan-petty/devops-cli/issues/2815)) ([1e03417](https://github.com/dan-petty/devops-cli/commit/1e03417f42947617062329cef26e32431320f3d6)), closes [#1317](https://github.com/dan-petty/devops-cli/issues/1317)
+
+
+### Reverts
+
+* fix(config): config files and their copies keep the mode... ([#2805](https://github.com/dan-petty/devops-cli/issues/2805)) ([6c50285](https://github.com/dan-petty/devops-cli/commit/6c502854d76ec26fd52177e0c4266abdbffdda90))
+
 ## [0.22.7](https://github.com/dan-petty/devops-cli/compare/v0.22.6...v0.22.7) (2026-10-30)
 
 
