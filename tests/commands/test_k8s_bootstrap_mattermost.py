@@ -121,3 +121,117 @@ def test_bootstrap_mattermost_full_flow() -> None:
 
         # Check secret push was called
         mock_push.assert_called_once()
+
+
+def test_extract_json_payload_edges() -> None:
+    """Verify JSON extraction handles empty string, decode errors, and lists."""
+    from devops_cli.commands.k8s.mattermost_bootstrap import _extract_json_payload
+
+    assert _extract_json_payload("") is None
+    assert _extract_json_payload("not json {invalid") is None
+    assert _extract_json_payload("[1, 2, 3]") == [1, 2, 3]
+
+
+def test_find_admin_user_id_branches() -> None:
+    """Verify user selection handles preferred user, bot filtering, and malformed lines."""
+    from devops_cli.commands.k8s.mattermost_bootstrap import _find_admin_user_id
+
+    out = "invalid line\nuser_id_1: specific_user (user@example.com)\nbot_id: calls (calls@example.com)\n"
+    assert _find_admin_user_id(out, preferred_user="specific_user") == "user_id_1"
+    assert _find_admin_user_id("bot_id: calls (calls@example.com)\n") == "bot_id"
+    assert _find_admin_user_id("invalid line") == "admin"
+
+
+def _handle_missing_resources_cmd(cmd: list[str]) -> str:
+    cmd_str = " ".join(cmd)
+    table = [
+        ("get pods", "mattermost-pod-123"),
+        ("user list", "admin_user_id: admin (admin@example.com)\n"),
+        ("team create", json.dumps({"id": "team_created_123", "name": "homelab"})),
+        ("channel create", json.dumps({"id": "channel_created_456"})),
+        ("webhook create-incoming", json.dumps({"id": "hook_token_abc"})),
+        ("command create", json.dumps({"token": "cmd_token_xyz"})),
+        ("team list", "[]"),
+        ("channel list", "[]"),
+        ("webhook list", "[]"),
+        ("command list", "[]"),
+    ]
+    for key, val in table:
+        if key in cmd_str:
+            return val
+    return "{}"
+
+
+def _handle_existing_resources_cmd(cmd: list[str]) -> str:
+    cmd_str = " ".join(cmd)
+    table = [
+        ("get pods", "mattermost-pod-123"),
+        ("user list", "admin_user_id: admin (admin@example.com)\n"),
+        ("team list", json.dumps([{"id": "team123", "name": "homelab"}])),
+        (
+            "channel list",
+            json.dumps(
+                [
+                    {"id": "chan_alerts", "name": "alerts"},
+                    {"id": "chan_deploys", "name": "deploys"},
+                ]
+            ),
+        ),
+        (
+            "webhook list",
+            json.dumps(
+                [
+                    {
+                        "id": "existing_alert_token",
+                        "channel_id": "chan_alerts",
+                        "channel_locked": True,
+                    },
+                    {
+                        "id": "existing_deploy_token",
+                        "channel_id": "chan_deploys",
+                        "channel_locked": True,
+                    },
+                ]
+            ),
+        ),
+        ("command list", json.dumps([{"trigger": "roadmap", "token": "existing_cmd_token"}])),
+    ]
+    for key, val in table:
+        if key in cmd_str:
+            return val
+    return "{}"
+
+
+def test_bootstrap_mattermost_creates_missing_team_and_channels() -> None:
+    """Verify team and channel creation when they do not already exist."""
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run,
+        patch("devops_cli.config.os_keyring.store_keyring_secret"),
+        patch("devops_cli.commands.k8s.cluster_secret_push.push_secrets"),
+    ):
+        mock_run.side_effect = lambda cmd, *a, **kw: MagicMock(
+            returncode=0, stdout=_handle_missing_resources_cmd(cmd)
+        )
+        res = runner.invoke(app, ["k8s", "bootstrap-mattermost"])
+        assert res.exit_code == 0
+        assert "Creating Mattermost team 'homelab'..." in res.output
+        assert "Creating channel 'alerts'..." in res.output
+        assert "Creating channel 'deploys'..." in res.output
+
+
+def test_bootstrap_mattermost_reuses_existing_resources() -> None:
+    """Verify idempotency when webhooks and slash commands already exist."""
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run,
+        patch("devops_cli.config.os_keyring.store_keyring_secret") as mock_keyring,
+        patch("devops_cli.commands.k8s.cluster_secret_push.push_secrets"),
+    ):
+        mock_run.side_effect = lambda cmd, *a, **kw: MagicMock(
+            returncode=0, stdout=_handle_existing_resources_cmd(cmd)
+        )
+        res = runner.invoke(app, ["k8s", "bootstrap-mattermost", "--no-push-secrets"])
+        assert res.exit_code == 0
+        saved_keys = {call.args[0]: call.args[1] for call in mock_keyring.call_args_list}
+        assert saved_keys["mattermost_alerts_hook"] == "existing_alert_token"
+        assert saved_keys["mattermost_deploys_hook"] == "existing_deploy_token"
+        assert saved_keys["mattermost_command_token"] == "existing_cmd_token"
