@@ -119,7 +119,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: mattermost
+      app.kubernetes.io/name: mattermost
   policyTypes:
     - Egress
   egress:
