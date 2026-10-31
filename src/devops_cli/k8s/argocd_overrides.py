@@ -133,14 +133,8 @@ def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:
         ]
     if doc.get("kind") == "Mattermost":
         ingress = spec.get("ingress") or {}
-        fields: list[tuple[str, str]] = []
-        if isinstance(ingress, dict):
-            if "host" in ingress and isinstance(ingress["host"], str):
-                fields.append(("/spec/ingress/host", ingress["host"]))
-            for i, entry in enumerate(ingress.get("hosts") or []):
-                if isinstance(entry, dict) and "hostName" in entry:
-                    fields.append((f"/spec/ingress/hosts/{i}/hostName", entry["hostName"]))
-        return fields
+        if isinstance(ingress, dict) and isinstance(ingress.get("host"), str):
+            return [("/spec/ingress/host", ingress["host"])]
     return []
 
 

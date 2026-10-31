@@ -974,9 +974,6 @@ def _hosts(rendered: str) -> list[str]:
             ingress = doc.get("spec", {}).get("ingress", {})
             if host := ingress.get("host"):
                 hosts.append(host)
-            for h in ingress.get("hosts", []):
-                if name := h.get("hostName"):
-                    hosts.append(name)
     return hosts
 
 

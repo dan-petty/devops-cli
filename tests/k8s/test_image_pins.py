@@ -164,6 +164,20 @@ spec:
     ]
 
 
+def test_image_values_combines_image_and_version_for_operators() -> None:
+    """When a Custom Resource separates repository and version into image and version fields,
+    image_values combines them into a single reference (#1391)."""
+    rendered = """apiVersion: installation.mattermost.com/v1beta1
+kind: Mattermost
+metadata:
+  name: mattermost
+spec:
+  image: mattermost/mattermost-team-edition
+  version: 11.7.11
+"""
+    assert image_values(rendered) == ["mattermost/mattermost-team-edition:11.7.11"]
+
+
 @pytest.mark.parametrize(
     "image",
     [
