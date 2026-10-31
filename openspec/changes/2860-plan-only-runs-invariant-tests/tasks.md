@@ -1,8 +1,8 @@
 # Tasks
 
 ## 1. Contract Tests First
-- [ ] 1.1 Add the contract tests of the plan-only rule to `tests/invariants/test_workflow_contracts.py`: the job `test` has the filter step, the reduced run and the step conditions; a table of sample paths says which are plan-only; a mutation test removes each part. See them fail; verify with `uv run devops ci test tests/invariants/test_workflow_contracts.py`
-- [ ] 1.2 Update the test of the step `Changed-Line Coverage` in `tests/commands/test_ci.py` for its new condition; verify with `uv run devops ci test tests/commands/test_ci.py`
+- [x] 1.1 Add the contract tests of the plan-only rule to `tests/invariants/test_workflow_contracts.py`: the job `test` has the filter step, the reduced run and the step conditions; a table of sample paths says which are plan-only; a mutation test removes each part. See them fail; verify with `uv run devops ci test tests/invariants/test_workflow_contracts.py`
+- [x] 1.2 Update the test of the step `Changed-Line Coverage` in `tests/commands/test_ci.py` for its new condition; verify with `uv run devops ci test tests/commands/test_ci.py`
 
 ## 2. Workflow
 - [ ] 2.1 Add the filter step, the permission `pull-requests: read`, the reduced run and the step conditions to the job `test` of `.github/workflows/ci.yml`; verify with `uv run devops ci test tests/invariants/test_workflow_contracts.py tests/commands/test_ci.py`

@@ -21,6 +21,7 @@ import yaml
 from devops_cli.commands.ci import get_check_spec, resolve_step_rows
 from devops_cli.config.constants import (
     CONST_DEFECT_TITLE_PATTERN,
+    CONST_OPENSPEC_CHANGE_FOLDER_RE,
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
 )
 from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
@@ -1320,3 +1321,180 @@ def test_actionlint_digest_pinned_in_dockerfile_and_ci() -> None:
     assert dockerfile_ref == ci_yaml_ref, (
         f"Dockerfile and ci.yml actionlint digests differ: {dockerfile_ref} != {ci_yaml_ref}"
     )
+
+
+# ── The plan-only pull request (#2860) ────────────────────────────────────────
+
+PLAN_FILTERS = "outside_plan:\n  - '**'\n  - '!openspec/changes/[0-9]*-*/**/*'\n"
+PLAN_STEP = "Detect Plan-Only Changes"
+FULL_SUITE_STEP = "Tests & Coverage Quality Gate"
+PLAN_SUITE_STEP = "Plan-Only Invariant Tests"
+COVERAGE_STEP = "Changed-Line Coverage"
+# Only the exact text `false` selects the reduced run: a skipped filter step leaves no output.
+FULL_SUITE_WHEN = "steps.changes.outputs.outside_plan != 'false'"
+PLAN_SUITE_WHEN = "steps.changes.outputs.outside_plan == 'false'"
+COVERAGE_WHEN = f"github.event_name == 'pull_request' && {FULL_SUITE_WHEN}"
+FULL_GATE = "uv run devops ci --check --no-cache --only test"
+PLAN_GATE = "uv run pytest tests/invariants"
+
+
+def _plan_only_problems(jobs: dict[str, Any]) -> list[str]:
+    """What differs from the plan-only contract in the job `test` of a workflow's `jobs`: the
+    filter step, the two runs and the coverage step with their conditions, and a job that no
+    condition or `needs` can make skip or wait, so the required check always reports."""
+    job = jobs["test"]
+    steps = {step.get("name"): step for step in job["steps"]}
+    order = [step.get("name") for step in job["steps"]]
+    plan, full = steps.get(PLAN_STEP, {}), steps.get(FULL_SUITE_STEP, {})
+    reduced, coverage = steps.get(PLAN_SUITE_STEP, {}), steps.get(COVERAGE_STEP, {})
+    expected = [
+        ("job name", job["name"], "Tests & Coverage"),
+        ("job if", job["if"], "github.event_name != 'schedule'"),
+        ("job needs", _needs(job), []),
+        ("jobs that need it", [n for n, o in jobs.items() if "test" in _needs(o)], []),
+        ("permissions", job["permissions"], {"contents": "read", "pull-requests": "read"}),
+        ("filter id", plan.get("id"), "changes"),
+        ("filter action", plan.get("uses"), PATHS_FILTER),
+        ("filter event", plan.get("if"), "github.event_name == 'pull_request'"),
+        (
+            "filter inputs",
+            plan.get("with"),
+            {"filters": PLAN_FILTERS, "predicate-quantifier": "some-with-excludes"},
+        ),
+        ("filter fails open", plan.get("continue-on-error"), None),
+        ("full suite", (full.get("if"), full.get("run")), (FULL_SUITE_WHEN, FULL_GATE)),
+        ("plan suite", (reduced.get("if"), reduced.get("run")), (PLAN_SUITE_WHEN, PLAN_GATE)),
+        ("coverage condition", coverage.get("if"), COVERAGE_WHEN),
+        (
+            "order",
+            [n for n in order if n in (PLAN_STEP, FULL_SUITE_STEP, PLAN_SUITE_STEP, COVERAGE_STEP)],
+            [PLAN_STEP, FULL_SUITE_STEP, PLAN_SUITE_STEP, COVERAGE_STEP],
+        ),
+    ]
+    return [f"{label}: {actual!r}" for label, actual, wanted in expected if actual != wanted]
+
+
+def test_a_plan_only_pull_request_runs_the_invariant_tests_and_no_more() -> None:
+    """The job `Tests & Coverage` takes about 300 s to 370 s, and a pull request that only adds a
+    plan under `openspec/changes/` changes no line that the suite tests, except the files that
+    the tests of `tests/invariants` read: names and forms, private addresses, the pull request
+    template and the architectural rules. A `dorny/paths-filter` step finds such a pull request,
+    and the job then runs `tests/invariants` and no coverage step. Any other pull request, push or
+    manual run gets the full gate. The job keeps its name, its `if` and an empty `needs`, and
+    its steps are skipped, not the job, so the required check reports success (#2860)."""
+    jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
+
+    assert _plan_only_problems(jobs) == []
+    assert Path("tests/invariants").is_dir()
+
+
+def _without_step(jobs: dict[str, Any], name: str) -> dict[str, Any]:
+    """`jobs` with the step `name` removed from the job `test`."""
+    changed = copy.deepcopy(jobs)
+    changed["test"]["steps"] = [s for s in changed["test"]["steps"] if s.get("name") != name]
+    return changed
+
+
+def _with_step_field(jobs: dict[str, Any], name: str, field: str, value: Any) -> dict[str, Any]:
+    """`jobs` with `field` of the step `name` of the job `test` set to `value`."""
+    changed = copy.deepcopy(jobs)
+    step = next(s for s in changed["test"]["steps"] if s.get("name") == name)
+    step[field] = value
+    return changed
+
+
+def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
+    """`jobs` with the filters of the plan step set to `filters`."""
+    changed = copy.deepcopy(jobs)
+    step = next(s for s in changed["test"]["steps"] if s.get("name") == PLAN_STEP)
+    step["with"] = {**step["with"], "filters": filters}
+    return changed
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda jobs: _without_step(jobs, PLAN_STEP),
+        lambda jobs: _without_step(jobs, PLAN_SUITE_STEP),
+        lambda jobs: _with_step_field(jobs, PLAN_SUITE_STEP, "run", "uv run pytest"),
+        lambda jobs: _with_step_field(jobs, PLAN_SUITE_STEP, "if", "always()"),
+        lambda jobs: _with_step_field(jobs, FULL_SUITE_STEP, "if", PLAN_SUITE_WHEN),
+        lambda jobs: _with_step_field(jobs, FULL_SUITE_STEP, "if", "github.event_name == 'push'"),
+        lambda jobs: _with_step_field(
+            jobs, COVERAGE_STEP, "if", "github.event_name == 'pull_request'"
+        ),
+        lambda jobs: _with_filters(jobs, "outside_plan:\n  - '**'\n  - '!openspec/changes/**'\n"),
+        lambda jobs: _with_filters(jobs, "outside_plan:\n  - 'src/**'\n"),
+    ],
+    ids=[
+        "no filter",
+        "no reduced run",
+        "reduced run without the directory",
+        "reduced run always",
+        "full suite only for a plan",
+        "full suite only for a push",
+        "coverage runs for a plan",
+        "archive counts as plan",
+        "only src counts as outside",
+    ],
+)
+def test_the_plan_only_contract_fails_when_a_part_is_removed_or_widened(
+    mutate: Any,
+) -> None:
+    """Each part of the rule is held by the contract: dropping the filter or the reduced run, or
+    widening the plan paths to the archive, makes the contract report a problem (#2860)."""
+    jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
+
+    assert _plan_only_problems(mutate(jobs)) != []
+
+
+def _outside_plan(path: str, filters: str) -> bool:
+    """Whether a changed file `path` makes the filter `outside_plan` true, with the rule of
+    `predicate-quantifier: some-with-excludes`: some pattern includes it, and no negated pattern
+    excludes it. A negated pattern excludes the files that match it once the `!` is dropped.
+    `PurePosixPath.full_match` stands for picomatch with `dot: true`; the plan of #2860 shows both
+    agree on these paths."""
+    patterns = yaml.safe_load(filters)["outside_plan"]
+    included = any(PurePosixPath(path).full_match(p) for p in patterns if not p.startswith("!"))
+    excluded = any(PurePosixPath(path).full_match(p[1:]) for p in patterns if p.startswith("!"))
+    return included and not excluded
+
+
+@pytest.mark.parametrize(
+    ("path", "is_plan_file"),
+    [
+        ("openspec/changes/2860-plan-only/proposal.md", True),
+        ("openspec/changes/2860-plan-only/specs/ci/spec.md", True),
+        ("openspec/changes/2860-plan-only/.openspec.yaml", True),
+        ("openspec/changes/2860-plan-only/a/b/c.md", True),
+        ("openspec/changes/2026-10-31-plan-only/proposal.md", True),
+        ("openspec/changes/archive/2026-10-31-2860-plan-only/proposal.md", False),
+        ("openspec/changes/archive/notes.md", False),
+        ("openspec/changes/README.md", False),
+        ("openspec/changes/.gitkeep", False),
+        ("openspec/changes/2860-plan-only", False),
+        ("openspec/changes/2860/proposal.md", False),
+        ("openspec/changes/plan-only/proposal.md", False),
+        ("openspec/specs/ci-job-time/spec.md", False),
+        ("openspec/config.yaml", False),
+        (".github/workflows/ci.yml", False),
+        ("src/devops_cli/commands/ci.py", False),
+        ("tests/invariants/test_change_folders.py", False),
+        ("docs/SDLC.md", False),
+        ("README.md", False),
+        ("pyproject.toml", False),
+    ],
+)
+def test_only_a_file_of_an_active_change_folder_counts_as_plan_only(
+    path: str, is_plan_file: bool
+) -> None:
+    """The filter lets a file count as plan-only only when it lies in an active change folder,
+    `openspec/changes/<issue>-<slug>/<file>`. The archive, the living specs, the OpenSpec
+    config, the workflows, `docs/`, the README, source and tests all run the full suite. A
+    rename out of `src/` lists its old path as a deleted file, so it is outside the plan, too.
+    The paths agree with the grammar of an active change in `CONST_OPENSPEC_CHANGE_FOLDER_RE`
+    (#2860)."""
+    assert (
+        not _outside_plan(path, PLAN_FILTERS),
+        re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, path) is not None,
+    ) == (is_plan_file, is_plan_file)
