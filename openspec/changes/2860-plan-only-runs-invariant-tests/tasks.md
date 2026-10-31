@@ -5,8 +5,8 @@
 - [x] 1.2 Update the test of the step `Changed-Line Coverage` in `tests/commands/test_ci.py` for its new condition; verify with `uv run devops ci test tests/commands/test_ci.py`
 
 ## 2. Workflow
-- [ ] 2.1 Add the filter step, the permission `pull-requests: read`, the reduced run and the step conditions to the job `test` of `.github/workflows/ci.yml`; verify with `uv run devops ci test tests/invariants/test_workflow_contracts.py tests/commands/test_ci.py`
-- [ ] 2.2 Check the workflow with `uv run devops ci --check --only actionlint,zizmor`
+- [x] 2.1 Add the filter step, the permission `pull-requests: read`, the reduced run and the step conditions to the job `test` of `.github/workflows/ci.yml`; verify with `uv run devops ci test tests/invariants/test_workflow_contracts.py tests/commands/test_ci.py`
+- [x] 2.2 Check the workflow with `uv run devops ci --check --only actionlint,zizmor`
 
 ## 3. Documentation
 - [ ] 3.1 Name the rule in the CI section of `docs/SDLC.md`; verify with `uv run devops ci test tests/docs`

@@ -88,6 +88,14 @@ jobs:
           sarif_file: .data/scan.sarif
           category: "/devops-scan"
 
+  # A pull request that only adds a plan under openspec/changes/<issue>-<slug>/ changes no line the
+  # suite tests, so it runs tests/invariants, which read the change folders, and nothing more of
+  # the suite (#2860). The filter `outside_plan` is true when any changed file is not a file of an
+  # active change folder: the archive, the specs, the OpenSpec config, the workflows and every
+  # other path count as outside. A renamed file lists its old path as deleted, so a move out of
+  # src/ counts, too. Only the exact text `false` selects the reduced run. A push, a manual run
+  # or a skipped filter step leaves no output, so those run the full gate. The job and its name
+  # stay as they are, so the required check reports success.
   test:
     name: Tests & Coverage
     if: github.event_name != 'schedule'
@@ -95,8 +103,20 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      pull-requests: read # paths-filter reads the changed files from the REST API
 
     steps:
+      - name: Detect Plan-Only Changes
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            outside_plan:
+              - '**'
+              - '!openspec/changes/[0-9]*-*/**/*'
+
       # Full history so the changed-line coverage step can find the merge base.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -120,7 +140,15 @@ jobs:
           uv run devops install-tools --tool promtool --only-missing
 
       - name: Tests & Coverage Quality Gate
+        if: steps.changes.outputs.outside_plan != 'false'
         run: uv run devops ci --check --no-cache --only test
+
+      # No coverage option: the coverage of tests/invariants alone is under the floor of the whole
+      # tree, and a plan holds no Python line. `devops ci test` cannot take a directory: it
+      # maps files to tests, finds none and exits 0.
+      - name: Plan-Only Invariant Tests
+        if: steps.changes.outputs.outside_plan == 'false'
+        run: uv run pytest tests/invariants
 
       # Changed-line coverage against the pull request's own base branch (#850). The job fails
       # when under 90% of the changed lines are covered (#2356); the global floor is
@@ -130,7 +158,7 @@ jobs:
       # is appended after it. The step keeps diff-cover's status, so the list is in the summary
       # when the figure fails, and exits with that status last.
       - name: Changed-Line Coverage
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
