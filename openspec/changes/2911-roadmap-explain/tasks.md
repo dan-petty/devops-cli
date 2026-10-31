@@ -2,9 +2,9 @@
 
 ## 1. The reasons and the one walk
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_stage_selection.py` and `tests/roadmap/test_roadmap_implement_selection.py` for `StageFilter.mismatch` (the family, the values of the filter and the value of the item), for `walk_named` (taken, left out, and beyond the limit, with and without a probe), and for the shared texts of "not an item" and "closed"
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_stage_selection.py` and `tests/roadmap/test_roadmap_implement_selection.py` for `StageFilter.mismatch` (the family, the values of the filter and the value of the item), for `walk_named` (taken, left out, and beyond the limit, with and without a probe), and for the shared texts of "not an item" and "closed"
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py tests/roadmap/test_roadmap_implement_selection.py`
-- [ ] 1.2 Add `StageFilter.mismatch`, `walk_named` and `read_stage_selection` to `src/devops_cli/roadmap/stage.py`; use the walk in `select_stageable` and `plan_implement`; replace the four copies of the texts with `item_left_not_item` and `item_left_closed`; add `item_left_filter` and `item_left_limit`
+- [x] 1.2 Add `StageFilter.mismatch`, `walk_named` and `read_stage_selection` to `src/devops_cli/roadmap/stage.py`; use the walk in `select_stageable` and `plan_implement`; replace the four copies of the texts with `item_left_not_item` and `item_left_closed`; add `item_left_filter` and `item_left_limit`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_stage_job.py tests/roadmap/test_roadmap_implement_job.py`
 
 ## 2. The plans list the items that matched no filter

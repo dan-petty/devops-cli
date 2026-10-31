@@ -9,6 +9,7 @@ import pytest
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_FILTER
 from devops_cli.exceptions import ValidationError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import (
@@ -58,6 +59,7 @@ def _select(
     planned: PlannedChanges = NO_PLANS,
     item: int | None = None,
     limit: int = 3,
+    probe: int | None = None,
 ) -> StageSelection:
     return select_stageable(
         store,
@@ -66,6 +68,7 @@ def _select(
         planned=planned,
         item_number=item,
         limit=limit,
+        probe=probe,
     )
 
 
@@ -433,3 +436,78 @@ def test_an_item_that_the_service_holds_is_staged_as_one_with_no_owner(
     held = _seed(store, labels=(*BUG, "owner/service"))
 
     assert _numbers(_select(store)) == [held]
+
+
+# ── The reason of a filter, the limit and the shared texts (#2911) ────────────
+
+
+def test_the_filter_names_the_family_the_item_misses_with_both_values(
+    store: InMemoryRoadmapStore,
+) -> None:
+    held = store.item(_seed(store, labels=(*BUG, "effort/medium")))
+    assert held is not None
+
+    miss = parse_filters(("type=bug", "effort=low")).mismatch(held)
+
+    assert miss == "The filter takes effort low. The item has effort medium."
+
+
+def test_the_filter_lists_its_alternatives_and_says_none_for_a_family_the_item_lacks(
+    store: InMemoryRoadmapStore,
+) -> None:
+    held = store.item(_seed(store))
+    assert held is not None
+
+    miss = parse_filters(("value=medium", "value=high")).mismatch(held)
+
+    assert miss == "The filter takes value high or medium. The item has value none."
+
+
+def test_an_item_that_the_filter_names_has_no_mismatch(store: InMemoryRoadmapStore) -> None:
+    held = store.item(_seed(store, labels=(*BUG, "effort/low")))
+    assert held is not None
+
+    assert parse_filters(("type=bug", "effort=low")).mismatch(held) is None
+
+
+def test_the_walk_judges_no_item_past_the_limit_unless_it_is_the_probe(
+    store: InMemoryRoadmapStore,
+) -> None:
+    first = _seed(store, priority="P0-Critical")
+    skipped = _seed(store, priority="P2-Medium", status="New")
+    last = _seed(store, priority="P3-Low")
+
+    plain = _select(store, "type=bug", limit=1)
+    probed = _select(store, "type=bug", limit=1, probe=last)
+
+    assert (_numbers(plain), plain.left_out, plain.beyond) == ([first], (), ())
+    assert (_numbers(probed), probed.beyond, skipped in _reasons(probed)) == (
+        [first],
+        (last,),
+        False,
+    )
+
+
+def test_the_probe_past_the_limit_that_breaks_a_rule_has_its_reason(
+    store: InMemoryRoadmapStore,
+) -> None:
+    first = _seed(store, priority="P0-Critical")
+    late = _seed(store, priority="P3-Low", status="New")
+
+    selection = _select(store, "type=bug", limit=1, probe=late)
+
+    assert (_numbers(selection), selection.beyond, set(_reasons(selection))) == (
+        [first],
+        (),
+        {late},
+    )
+
+
+def test_a_named_issue_that_is_closed_has_the_shared_reason(store: InMemoryRoadmapStore) -> None:
+    number = _seed(store, state=GitHubState.CLOSED)
+
+    assert _reasons(_select(store, item=number)) == {number: MESSAGES.roadmap.item_left_closed}
+
+
+def test_a_named_issue_that_is_no_item_has_the_shared_reason(store: InMemoryRoadmapStore) -> None:
+    assert _reasons(_select(store, item=99)) == {99: MESSAGES.roadmap.item_left_not_item}

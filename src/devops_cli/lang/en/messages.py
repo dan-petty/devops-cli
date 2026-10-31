@@ -1854,6 +1854,18 @@ class RoadmapMessages:
     claim_unchanged: str = "Item #{number} has the owner {owner} already. Nothing was written."
     claim_release_unchanged: str = "Item #{number} has no owner. Nothing was written."
     item_left_claimed: str = "It is claimed by {owner}."
+    # The reasons that both jobs and `devops roadmap explain` give (#2911).
+    item_left_not_item: str = (
+        "It is not an item of the roadmap: the issue does not exist, is a pull request, or has "
+        "no Priority label."
+    )
+    item_left_closed: str = "It is closed."
+    item_heading_unmatched: str = "## Matched no filter"
+    item_left_filter: str = "The filter takes {family} {wanted}. The item has {family} {have}."
+    item_left_limit: str = (
+        "It passes every rule, but a run takes {limit} item(s) and {limit} item(s) of higher "
+        "priority, or of the same priority and a lower number, come first."
+    )
     field_value_unknown: str = "{value!r} is not a {field} value; the values are {values}."
     record_unreadable: str = (
         "The job record block of {issue} holds no JSON object of text values, so it reads as "
@@ -2150,8 +2162,6 @@ class RoadmapMessages:
     implement_model_target: str = "{model} for group {group} of item #{item}"
     implement_model_repeat: str = "up to {limit} times"
     # `devops roadmap implement` as a job (#2665): why it leaves an item out, and its plan.
-    implement_left_not_item: str = "It is not an item of the roadmap."
-    implement_left_closed: str = "It is closed."
     implement_left_not_ready: str = "Its Status is {status}, not Ready or Planned."
     implement_left_not_staged: str = (
         "It is neither Staged nor Planned: its record holds no staged branch or pull request, "
@@ -2345,10 +2355,6 @@ class RoadmapMessages:
     )
     stage_left_planned: str = "Its plan is on {branch}: the change folder `{folder}` is there."
     stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
-    stage_left_closed: str = "The issue is closed."
-    stage_left_not_item: str = (
-        "The issue is no item: it has no Priority label, or it does not exist."
-    )
     # The files of the change that the stage job writes, and what its checks find wrong (#2654).
     stage_invalid: str = "The change fails its checks, also after a second try: {problem}"
     stage_closing: str = (

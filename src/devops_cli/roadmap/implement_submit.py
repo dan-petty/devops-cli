@@ -118,7 +118,7 @@ def _settles_as_stop(item: Item) -> bool:
 def _fresh(store: RoadmapStore, number: int) -> Item:
     held = store.item(number)
     if held is None:
-        raise LookupError(MESSAGES.roadmap.implement_left_not_item)
+        raise LookupError(MESSAGES.roadmap.item_left_not_item)
     return held
 
 

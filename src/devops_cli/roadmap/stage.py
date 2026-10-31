@@ -43,12 +43,12 @@ import json
 import shutil
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 from pydantic import BaseModel
 
@@ -127,9 +127,35 @@ class StageFilter:
 
     families: Mapping[str, frozenset[str]]
 
+    def _missed(self, item: Item) -> tuple[str, frozenset[str]] | None:
+        """The first family, in the order of the filter, of which `item` holds no label."""
+        return next(
+            (
+                (family, wanted)
+                for family, wanted in self.families.items()
+                if wanted.isdisjoint(item.labels)
+            ),
+            None,
+        )
+
     def matches(self, item: Item) -> bool:
         """Whether `item` holds a label of every family of the filter."""
-        return all(not wanted.isdisjoint(item.labels) for wanted in self.families.values())
+        return self._missed(item) is None
+
+    def mismatch(self, item: Item) -> str | None:
+        """The reason the filter does not name `item`: the family it misses, the values the filter
+        takes and the value the item has. None when the filter names the item (#2911)."""
+        missed = self._missed(item)
+        if missed is None:
+            return None
+        family, wanted = missed
+        prefix = f"{family}/"
+        have = [label.removeprefix(prefix) for label in item.labels if label.startswith(prefix)]
+        return MESSAGES.roadmap.item_left_filter.format(
+            family=family,
+            wanted=" or ".join(sorted(label.removeprefix(prefix) for label in wanted)),
+            have=", ".join(have) or MESSAGES.roadmap.stage_status_none,
+        )
 
 
 def parse_filters(options: Iterable[str], defaults: Sequence[str] | None = None) -> StageFilter:
@@ -194,11 +220,75 @@ class LeftOut:
 
 
 @dataclass(frozen=True)
+class Walk[T]:
+    """What a walk over the items that a filter names found: the items taken, the items left out
+    with their reasons, and the numbers of the items that pass every rule but come after the
+    limit."""
+
+    taken: tuple[T, ...] = ()
+    left_out: tuple[LeftOut, ...] = ()
+    beyond: tuple[int, ...] = ()
+
+
+def walk_named[T](
+    named: Iterable[Item],
+    judge: Callable[[Item], T | str],
+    limit: int,
+    *,
+    probe: int | None = None,
+) -> Walk[T]:
+    """Judge `named`, in order, until `limit` items are taken; both jobs select this way. A judge
+    gives the target of an item it takes, or the reason it leaves the item out. After the limit the
+    walk judges no item, except the item numbered `probe` (`devops roadmap explain`, #2911): that
+    item is left out with its reason, or is `beyond` when it passes every rule."""
+    taken: list[T] = []
+    left_out: list[LeftOut] = []
+    beyond: list[int] = []
+    for item in named:
+        full = len(taken) >= limit
+        if full and item.number != probe:
+            if probe is None:
+                break
+            continue
+        verdict = judge(item)
+        if isinstance(verdict, str):
+            left_out.append(LeftOut(item.number, verdict, item.title))
+        elif full:
+            beyond.append(item.number)
+        else:
+            taken.append(verdict)
+    return Walk(tuple(taken), tuple(left_out), tuple(beyond))
+
+
+def _open_items(store: RoadmapStore) -> list[Item]:
+    """The open items, highest priority first."""
+    return sorted(
+        (item for item in store.items() if item.state is GitHubState.OPEN), key=priority_order
+    )
+
+
+def named_items(store: RoadmapStore, filters: StageFilter) -> list[Item]:
+    """The open items that `filters` names, highest priority first."""
+    return [item for item in _open_items(store) if filters.matches(item)]
+
+
+def unmatched_items(store: RoadmapStore, filters: StageFilter) -> tuple[LeftOut, ...]:
+    """The open items that `filters` does not name, each with the family it misses (`--why`)."""
+    return tuple(
+        LeftOut(item.number, why, item.title)
+        for item in _open_items(store)
+        if (why := filters.mismatch(item)) is not None
+    )
+
+
+@dataclass(frozen=True)
 class StageSelection:
-    """The items one run stages, and those it leaves out with their reasons."""
+    """The items one run stages, and those it leaves out with their reasons. `beyond` holds the
+    numbers of the items that pass every rule but come after the limit (see `walk_named`)."""
 
     selected: tuple[StageTarget, ...] = ()
     left_out: tuple[LeftOut, ...] = ()
+    beyond: tuple[int, ...] = ()
 
 
 class _Judge:
@@ -323,9 +413,9 @@ def _named_item(judge: _Judge, store: RoadmapStore, number: int) -> StageSelecti
     item = store.item(number)
     why: str | None
     if item is None:
-        why = texts.stage_left_not_item
+        why = texts.item_left_not_item
     elif item.state is not GitHubState.OPEN:
-        why = texts.stage_left_closed
+        why = texts.item_left_closed
     else:
         why = judge.reason(item, named=True)
     if item is not None and why is None:
@@ -341,35 +431,24 @@ def select_stageable(
     planned: PlannedChanges,
     limit: int,
     item_number: int | None = None,
+    probe: int | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
     `holder_of` tells who holds an issue and its new `branch` (`worktree_add.issue_holder`), or None. `planned` holds
     the change folders of the default branch (#2714). With `item_number` the filter and the limit
-    do not apply.
+    do not apply. `probe` is the issue that `walk_named` judges also after the limit.
     """
     judge = _Judge(store, holder_of, planned)
     if item_number is not None:
         return _named_item(judge, store, item_number)
-    named = sorted(
-        (
-            item
-            for item in store.items()
-            if item.state is GitHubState.OPEN and filters.matches(item)
-        ),
-        key=priority_order,
-    )
-    selected: list[StageTarget] = []
-    left_out: list[LeftOut] = []
-    for item in named:
-        if len(selected) >= limit:
-            break
+
+    def verdict(item: Item) -> StageTarget | str:
         why = judge.reason(item, named=False)
-        if why is None:
-            selected.append(_target_of(item))
-        else:
-            left_out.append(LeftOut(item.number, why, item.title))
-    return StageSelection(tuple(selected), tuple(left_out))
+        return _target_of(item) if why is None else why
+
+    walked = walk_named(named_items(store, filters), verdict, limit, probe=probe)
+    return StageSelection(walked.taken, walked.left_out, walked.beyond)
 
 
 # ── The plan of one item ──────────────────────────────────────────────────────
@@ -469,6 +548,7 @@ class StagePlan:
     requests: tuple[PlannedRequest, ...] = ()
     write_requests: tuple[PlannedRequest, ...] = ()
     planned: PlannedChanges | None = None
+    unmatched: tuple[LeftOut, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -701,6 +781,44 @@ def _reconcile(
     return tuple(removals), tuple(kept)
 
 
+class StageRead(NamedTuple):
+    """What the stage job reads before it asks the model: the commit of the default branch, the
+    heads of `origin`, the plans on the default branch, and the selection."""
+
+    sha: str
+    heads: str
+    planned: PlannedChanges
+    selection: StageSelection
+
+
+def read_stage_selection(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    source: Path,
+    filters: StageFilter,
+    limit: int,
+    item_number: int | None = None,
+    probe: int | None = None,
+) -> StageRead:
+    """Select the items to stage in the clone `source`, with no model call and no write to git or
+    to GitHub. `plan_stage` and `devops roadmap explain` read the selection through this one
+    function."""
+    sha = inspect_checkout(source, repo)
+    heads = read_remote_heads(source)
+    planned = read_planned_changes(source, operation=_GIT_OPERATION)
+    selection = select_stageable(
+        store,
+        filters=filters,
+        holder_of=lambda issue, branch: issue_holder(source, issue, heads, branch),
+        planned=planned,
+        item_number=item_number,
+        limit=limit,
+        probe=probe,
+    )
+    return StageRead(sha, heads, planned, selection)
+
+
 def plan_stage(
     store: RoadmapStore,
     *,
@@ -711,28 +829,28 @@ def plan_stage(
     limit: int | None = None,
     step_tokens: int | None = None,
     model: LLMClient | None = None,
+    why: bool = False,
 ) -> StagePlan:
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`; `model` overrides the client
-    of the `analysis` task.
+    of the `analysis` task. With `why`, the plan also lists the open items that the filter does
+    not name (#2911).
     """
     checkout = Path(source)
-    sha = inspect_checkout(checkout, repo)
-    heads = read_remote_heads(checkout)
     settings = load_settings()
-    planned = read_planned_changes(checkout, operation=_GIT_OPERATION)
-    selection = select_stageable(
+    sha, heads, planned, selection = read_stage_selection(
         store,
+        repo=repo,
+        source=checkout,
         filters=filters,
-        holder_of=lambda issue, branch: issue_holder(checkout, issue, heads, branch),
-        planned=planned,
-        item_number=item_number,
         limit=limit or settings.roadmap.stage.limit,
+        item_number=item_number,
     )
     budget = step_tokens or settings.roadmap.stage.step_tokens
     removals, kept = _reconcile(store, checkout, heads)
+    unmatched = unmatched_items(store, filters) if why and item_number is None else ()
     plan = StagePlan(
         repo,
         sha,
@@ -741,6 +859,7 @@ def plan_stage(
         removals=removals,
         kept=kept,
         planned=planned,
+        unmatched=unmatched,
     )
     if not selection.selected:
         return plan
@@ -757,18 +876,7 @@ def plan_stage(
             tool=tool,
         )
         ready, stopped, failed = _plan_each(planner, selection.selected)
-    return StagePlan(
-        repo,
-        sha,
-        budget,
-        ready=tuple(ready),
-        over_budget=tuple(stopped),
-        failed=tuple(failed),
-        left_out=selection.left_out,
-        removals=removals,
-        kept=kept,
-        planned=planned,
-    )
+    return replace(plan, ready=tuple(ready), over_budget=tuple(stopped), failed=tuple(failed))
 
 
 def dry_run_stage(repo: str, *, item: int | None = None, limit: int | None = None) -> StagePlan:
@@ -1099,6 +1207,13 @@ def render_stage_plan(plan: StagePlan) -> str:
     lines += _section(texts.stage_heading_ready, ready)
     lines += _section(texts.stage_heading_over, over)
     lines += _section(texts.stage_heading_left, left)
+    lines += _section(
+        texts.item_heading_unmatched,
+        [
+            texts.stage_left_line.format(number=x.number, title=x.title, reason=x.reason)
+            for x in plan.unmatched
+        ],
+    )
     lines += _section(texts.stage_heading_failed, failed)
     lines += _section(texts.stage_heading_removals, removals)
     lines += _section(texts.stage_heading_kept, kept)
@@ -1135,19 +1250,25 @@ __all__ = [
     "StageFailure",
     "StageFilter",
     "StagePlan",
+    "StageRead",
     "StageResult",
     "StageSelection",
     "StageTarget",
     "StagedChange",
+    "Walk",
     "apply_stage",
     "dry_run_stage",
     "emit_stage_results",
+    "named_items",
     "parse_filters",
     "plan_stage",
     "priority_order",
     "raise_for_failed",
+    "read_stage_selection",
     "render_stage_plan",
     "select_stageable",
     "stage_results",
+    "unmatched_items",
+    "walk_named",
     "write_each",
 ]
