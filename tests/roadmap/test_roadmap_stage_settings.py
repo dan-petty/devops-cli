@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 Cli = Callable[..., Any]
 
-DEFAULT_FILTER = ["status=ready", "priority=p0-critical", "priority=p1-high", "type=bug"]
+DEFAULT_FILTER = ["status=ready"]
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def _stage_settings() -> tuple[list[str], int, int]:
     return loaded.filter, loaded.limit, loaded.step_tokens
 
 
-def test_the_defaults_are_the_ready_p0_and_p1_bugs_three_items_and_forty_thousand_tokens(
+def test_the_defaults_are_every_ready_item_three_items_and_forty_thousand_tokens(
     config_file: Path,
 ) -> None:
     assert _stage_settings() == (DEFAULT_FILTER, 3, 40000)

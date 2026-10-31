@@ -2288,6 +2288,10 @@ class RoadmapMessages:
     stage_left_needs_split: str = (
         "The item has the label needs-split. Refine proposed a split, and a person makes it first."
     )
+    stage_left_tracker: str = (
+        "The item is a tracker: it has sub-issues or the label type/epic. Its sub-issues deliver "
+        "it, so it gets no plan of its own."
+    )
     stage_left_author: str = (
         "The author's association with the repository is {association}. The model reads the "
         "body, so the stage job takes only the items that the owner, a member or a collaborator "

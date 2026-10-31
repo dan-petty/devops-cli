@@ -249,7 +249,8 @@ class Item(BaseModel):
     issue's body, with no record block, as the read the Item came from gave it, so a job can
     judge an Item by its text without a read of each issue. `author_association` is the
     author's relation to the repository, as on `IssueRecord`: a refine round refines only an
-    Item that the owner, a member or a collaborator opened (#2478).
+    Item that the owner, a member or a collaborator opened (#2478). `sub_issues` is how many
+    sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -263,6 +264,7 @@ class Item(BaseModel):
     labels: tuple[str, ...] = ()
     milestone: str | None = None
     author_association: str | None = None
+    sub_issues: int = 0
     status: str | None = None
     priority: str | None = None
     value: str | None = None

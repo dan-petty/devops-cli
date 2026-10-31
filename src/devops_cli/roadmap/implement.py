@@ -17,7 +17,7 @@ also when its plan is on the default branch.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`: the values of one family are alternatives, and the
-families all apply. With no filter the job takes the Ready P0 and P1 bugs of low effort. An item
+families all apply. With no filter the job takes the Ready items of low effort. An item
 that the filter names, and that the job leaves out, is in the plan with its reason: its Status
 is not Ready, it is neither Staged nor Planned, a step stopped it and no person cleared the stop,
 its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
@@ -83,14 +83,9 @@ from devops_cli.roadmap.store import (
 
 GIT_OPERATION: Final[str] = "roadmap.implement"
 
-# What the job implements without a `--filter`: the Ready P0 and P1 bugs of low effort.
-DEFAULT_IMPLEMENT_FILTERS: Final[tuple[str, ...]] = (
-    "status=ready",
-    "priority=p0-critical",
-    "priority=p1-high",
-    "type=bug",
-    "effort=low",
-)
+# What the job implements without a `--filter`: the Ready items of low effort, of any type,
+# priority and value (#2906).
+DEFAULT_IMPLEMENT_FILTERS: Final[tuple[str, ...]] = ("status=ready", "effort=low")
 
 
 def parse_implement_filters(options: Iterable[str]) -> StageFilter:
