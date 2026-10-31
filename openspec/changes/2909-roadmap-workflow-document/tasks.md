@@ -1,10 +1,10 @@
 # Tasks
 
 ## 1. The document and its check
-- [ ] 1.1 Write `tests/invariants/test_roadmap_workflow_doc.py` and see it fail: the document does not exist; verify with `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
-- [ ] 1.2 Write `docs/ROADMAP_WORKFLOW.md` with the purpose, the steps, the transitions, the labels and record keys, the stop and retry path, the gates, the manual path, the diagram and the planned changes; verify with `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
-- [ ] 1.3 Add the document to the hand-written class of `CONST_DOCS_INVENTORY`; verify with `uv run devops docs check`
-- [ ] 1.4 Regenerate the documentation with `uv run devops docs generate --sync-readme`
+- [x] 1.1 Write `tests/invariants/test_roadmap_workflow_doc.py` and see it fail: the document does not exist; verify with `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
+- [x] 1.2 Write `docs/ROADMAP_WORKFLOW.md` with the purpose, the steps, the transitions, the labels and record keys, the stop and retry path, the gates, the manual path, the diagram and the planned changes; verify with `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
+- [x] 1.3 Add the document to the hand-written class of `CONST_DOCS_INVENTORY`; verify with `uv run devops docs check`
+- [x] 1.4 Regenerate the documentation with `uv run devops docs generate --sync-readme`
 
 ## 2. The routes to the document
 - [ ] 2.1 Replace words of one row of the table in `AGENTS.md` so that it links to the document and the file stays within its cap; verify with `uv run devops ci test tests/invariants/test_agents_md_claims.py`
