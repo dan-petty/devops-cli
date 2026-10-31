@@ -7,11 +7,15 @@ that has a command writes one more line before it runs, with the program and its
 (#2806), so a call that the kernel kills leaves its cause in the log. `logged_command` masks that
 command, bounds it and escapes it to one line. The line after the call holds no argument, no file
 content, no output and no text of a refusal, as an argument can hold a path or a secret and the
-text of one refusal repeats the whole command. The program is the
+text of one refusal repeats the whole command. A retry is the one exception (#2866): its line
+holds the reason that the tool returned, which `logged_reason` masks, escapes and cuts, as that
+reason is the only evidence of why a tool kept refusing a call. The reason shows the `path`
+argument of the call only when the checkout holds that path, as the model chose the text of the
+argument. A refusal by policy and a failed validation have no reason. The program is the
 first word of the command, as the shell reads it, and only when it is a program that the project
 knows: a program of the allowlist, or a program of the table of replacements (#2773). Any other
 first word is written as "other", also a short bare word, as the model can read a password or a
-token from a file and run it as a command. The line has no reason for a refusal. The tool name and the program tell a refused program
+token from a file and run it as a command. The tool name and the program tell a refused program
 from a refused path.
 
 It also counts the shell commands that the shell refused by its policy, by program, and the calls
@@ -26,9 +30,10 @@ level INFO, so such a line would never reach the Job log.
 from __future__ import annotations
 
 import shlex
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -48,10 +53,13 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS,
+    CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS,
+    CONST_ROADMAP_IMPLEMENT_STOP_REASONS,
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
+from devops_cli.roadmap.agent_run import bounded_text
 from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model
@@ -159,13 +167,85 @@ def logged_command(args: ValidatedToolArgs) -> str:
     )
 
 
+def retry_text(error: BaseException) -> str:
+    """The message of the `ModelRetry` behind `error` (#2866): the content of the `ToolRetryError`
+    that pydantic-ai makes of it, or the retry in the cause chain of the error that ends the run
+    when a tool exceeds its retries. Empty when the content is no string: the content of a failed
+    validation is a list of errors, and each holds the input of the model."""
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, ToolRetryError):
+            content = cause.tool_retry.content
+            return content if isinstance(content, str) else ""
+        if isinstance(cause, ModelRetry):
+            return cause.message
+        cause = cause.__cause__
+    return ""
+
+
+def checkout_path(root: Path | None, path: str) -> str:
+    """The path that `path` names inside the checkout `root`, relative to it, or empty when it names
+    no file or directory there: a path that does not exist, one that leaves the root, and any path
+    when there is no root. The `path` argument is text that the model chose, so it can be a password
+    or a token that the mask of secrets cannot find. Only a path that the checkout holds is safe to
+    show, and the text shown is the one that the file system gives."""
+    if root is None or not (candidate := root / path).exists():
+        return ""
+    base = root.resolve()
+    resolved = candidate.resolve()
+    return resolved.relative_to(base).as_posix() if resolved.is_relative_to(base) else ""
+
+
+def _escaped(text: str) -> str:
+    """`text` masked and cut to a fixed length by `bounded_text`, then escaped to one line."""
+    return bounded_text(text).encode("unicode_escape").decode("ascii")
+
+
+def _cut(text: str, limit: int) -> str:
+    """`text`, or its first `limit` characters and the mark of a cut when it is longer."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + MESSAGES.roadmap.implement_tool_cut
+
+
+def logged_reason(error: BaseException, args: ValidatedToolArgs, root: Path | None = None) -> str:
+    """What the log shows of the reason that a tool returned with a retry (#2866): its message,
+    with the `path` argument after it when the message lacks the path, masked, escaped to one line
+    and cut to `CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS`. The path always shows: the cut takes the
+    end of the message, not the path. The path shows only when it names a file or a directory of the
+    checkout `root` (`checkout_path`). Any other path is text that the model chose, so every place
+    that the message names it shows "<path>" instead, and no path follows the message. Empty for a
+    refusal by policy, as its text repeats the command or names a path outside the root, and for a
+    message that is no string. A message of the file tools holds a path, a pattern, a count or a
+    hash, and no content of a file, so the text of the model's `old_text` never shows."""
+    if is_policy_refusal(error) or not (text := retry_text(error)):
+        return ""
+    texts = MESSAGES.roadmap
+    path = args.get("path")
+    shown = ""
+    if isinstance(path, str) and path:
+        shown = checkout_path(root, path)
+        text = text.replace(path, shown or texts.implement_tool_path_hidden)
+    limit = CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
+    suffix = ""
+    if shown and shown not in text:
+        suffix = " " + _cut(_escaped(texts.implement_tool_reason_path.format(path=shown)), limit)
+    return _cut(_escaped(text), max(limit - len(suffix), 0)) + suffix
+
+
 @dataclass
 class ToolCallLog:
     """The counters of one step, and the hooks that fill them. `refused` counts the refused shell
-    commands by program, and `retried` the other retries, over all turns of the step."""
+    commands by program, and `retried` the other retries, over all turns of the step. `reasons`
+    holds the last reasons of the retries of each tool (#2866), and `ended_on` the tool whose
+    retries ended the run. `root` is the checkout: a reason shows the `path` argument of a call
+    only when the checkout holds that path. A log with no root shows no path."""
 
+    root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
     retried: int = 0
+    reasons: dict[str, deque[str]] = field(default_factory=dict[str, deque[str]])
+    ended_on: str = ""
 
     def refused_text(self) -> str:
         """The refused commands for the reason of a stop: the programs from the most refused to the
@@ -179,20 +259,39 @@ class ToolCallLog:
             shown[MESSAGES.roadmap.implement_tool_other] += rest
         return ", ".join(f"{program} {count}" for program, count in shown.most_common())
 
+    def retries_text(self) -> str:
+        """The last reasons of the tool that exceeded its retries, for the reason of a stop
+        (#2866), or empty when no tool did or the tool gave no reason."""
+        if not (reasons := self.reasons.get(self.ended_on)):
+            return ""
+        return MESSAGES.roadmap.implement_stop_retries.format(
+            tool=self.ended_on,
+            reasons=MESSAGES.roadmap.implement_stop_reasons_separator.join(reasons),
+        )
+
     def hooks(self) -> Hooks[None]:
         """The capability for the agent of the step."""
         return Hooks(tool_execute=self._execute, tool_validate_error=self._invalid)
 
-    def _note(self, tool: str, program: str, outcome: ToolOutcome) -> None:
-        """Count a refusal or a retry, and write the line of the call."""
+    def _note(self, tool: str, program: str, outcome: ToolOutcome, reason: str = "") -> None:
+        """Count a refusal or a retry, keep its reason, and write the line of the call."""
         if outcome is ToolOutcome.REFUSED:
             self.refused[program] += 1
         self.retried += outcome is ToolOutcome.RETRY
         texts = MESSAGES.roadmap
+        if reason:
+            self.reasons.setdefault(
+                tool, deque(maxlen=CONST_ROADMAP_IMPLEMENT_STOP_REASONS)
+            ).append(reason)
+        ended = (
+            texts.implement_tool_reason.format(outcome=outcome, reason=reason)
+            if reason
+            else outcome
+        )
         line = (
-            texts.implement_tool_line_program.format(tool=tool, program=program, outcome=outcome)
+            texts.implement_tool_line_program.format(tool=tool, program=program, outcome=ended)
             if program
-            else texts.implement_tool_line.format(tool=tool, outcome=outcome)
+            else texts.implement_tool_line.format(tool=tool, outcome=ended)
         )
         print_muted(line, to_stderr=True, safe=True)
 
@@ -221,8 +320,13 @@ class ToolCallLog:
             result = await handler(args)
         except (ToolRetryError, UnexpectedModelBehavior) as error:
             refused = bool(program) and is_policy_refusal(error)
+            if isinstance(error, UnexpectedModelBehavior):
+                self.ended_on = call.tool_name
             self._note(
-                call.tool_name, program, ToolOutcome.REFUSED if refused else ToolOutcome.RETRY
+                call.tool_name,
+                program,
+                ToolOutcome.REFUSED if refused else ToolOutcome.RETRY,
+                logged_reason(error, args, self.root),
             )
             raise
         except ToolFailedError:

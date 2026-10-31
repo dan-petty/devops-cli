@@ -2045,6 +2045,11 @@ class RoadmapMessages:
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tool_started: str = "Tool call: {tool}, started: {command}"
     implement_tool_cut: str = " ..."
+    implement_tool_reason: str = "{outcome} ({reason})"
+    implement_tool_reason_path: str = "Path: {path}"
+    implement_tool_path_hidden: str = "<path>"
+    implement_stop_retries: str = "Last retries of {tool}: {reasons}"
+    implement_stop_reasons_separator: str = " | "
     implement_tool_masked: str = "<masked>"
     implement_tick_turn: str = (
         "The checks of your group passed, but `{path}` still holds these tasks of your group "

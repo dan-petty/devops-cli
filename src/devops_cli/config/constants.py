@@ -3027,6 +3027,11 @@ CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS: Final[int] = 160
 CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS: Final[int] = (
     4 * CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS
 )
+# The most characters of the reason of a retried tool call that the Job log shows, and the most
+# reasons of one tool that the reason of a stopped run names (#2866). The reason is the message
+# of the retry that the tool returned. The log and the reason of the stop cut it to the same length.
+CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS: Final[int] = 240
+CONST_ROADMAP_IMPLEMENT_STOP_REASONS: Final[int] = 3
 CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.

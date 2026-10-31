@@ -264,6 +264,14 @@ def test_ai_chat_helpers_print_thought_and_tool(capsys: pytest.CaptureFixture[st
         True,
     )
 
+    captured = capsys.readouterr()
+    shown = captured.out + captured.err
+    assert ("Checking dependencies" in shown, "search" in shown, "Found 3 results" in shown) == (
+        True,
+        True,
+        True,
+    )
+
 
 def test_ai_chat_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
     """Verify chat rejects unknown persona names."""
