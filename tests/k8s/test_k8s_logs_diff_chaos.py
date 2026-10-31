@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
+import shutil
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.k8s import app
 from devops_cli.k8s.chaos import execute_chaos_experiment
 from devops_cli.k8s.diff import diff_helm_release
 from devops_cli.k8s.logs import stream_multi_pod_logs
-from tests.support.fakes.kubernetes import healthy_pod
-
-runner = CliRunner()
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 def test_stream_multi_pod_logs_dry_run() -> None:
@@ -22,22 +20,27 @@ def test_stream_multi_pod_logs_dry_run() -> None:
     assert rc == 0
 
 
-@patch("shutil.which", return_value="/usr/local/bin/stern")
-@patch("devops_cli.k8s.logs.run_subprocess")
-def test_stream_multi_pod_logs_stern(mock_run: MagicMock, mock_which: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+def test_stream_multi_pod_logs_stern(process_fake: ProcessFake) -> None:
+    process_fake.answer(
+        lambda call: "stern" in call.argv[0],
+        ProcessAnswer(returncode=0, stdout=""),
+    )
     rc = stream_multi_pod_logs("test-app", namespace="prod", follow=False)
     assert rc == 0
-    assert mock_run.called
+    assert len(process_fake.calls) > 0
 
 
-@patch("shutil.which", return_value=None)
-@patch("devops_cli.k8s.logs.run_subprocess")
-def test_stream_multi_pod_logs_kubectl_fallback(mock_run: MagicMock, mock_which: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+def test_stream_multi_pod_logs_kubectl_fallback(
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    process_fake.answer(
+        lambda call: "kubectl" in call.argv[0],
+        ProcessAnswer(returncode=0, stdout=""),
+    )
     rc = stream_multi_pod_logs("test-app", namespace="default", follow=False)
     assert rc == 0
-    assert mock_run.called
+    assert len(process_fake.calls) > 0
 
 
 def test_diff_helm_release_dry_run(tmp_path: Path) -> None:
@@ -48,9 +51,11 @@ def test_diff_helm_release_dry_run(tmp_path: Path) -> None:
     assert "Deployment" in output
 
 
-@patch("devops_cli.k8s.diff.run_subprocess")
-def test_diff_helm_release_live(mock_run: MagicMock, tmp_path: Path) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="No changes", stderr="")
+def test_diff_helm_release_live(process_fake: ProcessFake, tmp_path: Path) -> None:
+    process_fake.answer(
+        lambda call: "helm" in call.argv[0],
+        ProcessAnswer(returncode=0, stdout="No changes"),
+    )
     chart = tmp_path / "mychart"
     chart.mkdir()
     rc, output = diff_helm_release("my-rel", chart)
@@ -64,73 +69,37 @@ def test_execute_chaos_experiment_dry_run() -> None:
     assert result.pods_affected == 1
 
 
-@patch("devops_cli.k8s.chaos.run_subprocess")
-def test_execute_chaos_experiment_live(mock_run: MagicMock) -> None:
-    # First get pods returns pod/web-app-123, delete returns 0, rollout returns 0
-    mock_run.side_effect = [
-        MagicMock(returncode=0, stdout="pod/web-app-123\n", stderr=""),
-        MagicMock(returncode=0, stdout="", stderr=""),
-        MagicMock(returncode=0, stdout="deployment successfully rolled out\n", stderr=""),
-    ]
+def test_execute_chaos_experiment_live(process_fake: ProcessFake) -> None:
+    process_fake.answer(
+        lambda call: "get" in call.argv,
+        ProcessAnswer(returncode=0, stdout="pod/web-app-123\n"),
+    )
+    process_fake.answer(
+        lambda call: "delete" in call.argv,
+        ProcessAnswer(returncode=0, stdout=""),
+    )
+    process_fake.answer(
+        lambda call: "rollout" in call.argv,
+        ProcessAnswer(returncode=0, stdout="deployment successfully rolled out\n"),
+    )
     result = execute_chaos_experiment("pod-kill", "web-app", duration_seconds=1)
     assert result.recovered_successfully is True
     assert result.pods_affected == 1
 
 
-def test_cli_k8s_subcommands_dry_run() -> None:
-    res_logs = runner.invoke(app, ["stream-logs", "test-app", "--dry-run"])
+def test_cli_k8s_subcommands_dry_run(cli: Callable[..., Any]) -> None:
+    res_logs = cli("k8s", "stream-logs", "test-app", "--dry-run")
     assert res_logs.exit_code == 0
 
-    res_diff = runner.invoke(app, ["diff-helm", "my-release", "--dry-run"])
+    res_diff = cli("k8s", "diff-helm", "my-release", "--dry-run")
     assert res_diff.exit_code == 0
 
-    res_chaos = runner.invoke(app, ["chaos", "pod-kill", "--dry-run"])
+    res_chaos = cli("k8s", "chaos", "pod-kill", "--dry-run")
     assert res_chaos.exit_code == 0
 
-    res_pods = runner.invoke(app, ["pods", "--dry-run", "-n", "kube-system"])
+    res_pods = cli("k8s", "pods", "--dry-run", "-n", "kube-system")
     assert res_pods.exit_code == 0
     assert "list_namespaced_pod" in res_pods.output
-
-
-def test_k8s_pods_table_builder() -> None:
-    import datetime
-
-    from devops_cli.commands.k8s.diagnostics import _build_pods_table
-    from devops_cli.output import format_timestamp_age
-
-    # Test format_timestamp_age helper
-    now_iso = datetime.datetime.now(datetime.UTC).isoformat()
-    assert format_timestamp_age(now_iso) != "—"
-    assert format_timestamp_age("invalid-timestamp") == "—"
-
-    mock_pod = healthy_pod("web-123")
-
-    mock_v1 = MagicMock()
-    mock_v1.list_namespaced_pod.return_value = MagicMock(items=[mock_pod])
-    mock_v1.list_pod_for_all_namespaces.return_value = MagicMock(items=[mock_pod])
-
-    with (
-        patch("kubernetes.config.load_incluster_config", side_effect=Exception("No cluster")),
-        patch("kubernetes.config.load_kube_config"),
-        patch("kubernetes.client.CoreV1Api", return_value=mock_v1),
-    ):
-        table = _build_pods_table("default", label_selector=None, all_namespaces=False)
-        assert table.row_count == 1
-
-        table_all = _build_pods_table(None, label_selector="app=web", all_namespaces=True)
-        assert table_all.row_count == 1
-
-
-def test_build_pods_table_masks_credentials_in_exceptions() -> None:
-    from devops_cli.commands.k8s.diagnostics import _build_pods_table
-
-    with patch(
-        "kubernetes.config.load_kube_config",
-        side_effect=RuntimeError("Token secret_token_xyz123 failed"),
-    ):
-        table = _build_pods_table("default", None, False)
-        rendered = str(table.rows)
-        assert "secret_token_xyz123" not in rendered
 
 
 def test_execute_chaos_experiment_rejects_injection_arguments() -> None:
@@ -143,10 +112,12 @@ def test_execute_chaos_experiment_rejects_injection_arguments() -> None:
         execute_chaos_experiment("pod-kill", "web-app; rm -rf", namespace="default")
 
 
-@patch("devops_cli.k8s.chaos.run_subprocess")
-def test_execute_chaos_experiment_rejects_invalid_target_pod(mock_run: MagicMock) -> None:
+def test_execute_chaos_experiment_rejects_invalid_target_pod(process_fake: ProcessFake) -> None:
     from devops_cli.exceptions import ValidationError
 
-    mock_run.return_value = MagicMock(returncode=0, stdout="pod/--flag-injection\n", stderr="")
+    process_fake.answer(
+        lambda call: "get" in call.argv,
+        ProcessAnswer(returncode=0, stdout="pod/--flag-injection\n"),
+    )
     with pytest.raises(ValidationError, match="Invalid Kubernetes pod identifier"):
         execute_chaos_experiment("pod-kill", "web-app", duration_seconds=1)

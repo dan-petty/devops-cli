@@ -2,15 +2,31 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import functools
+import os
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from unittest.mock import patch
 
 import pytest
 import yaml
 from packaging.version import Version
 
+from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
+from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
+from devops_cli.config.env import keyring_names, option_env_vars
+from devops_cli.k8s.argocd_overrides import host_patches
+from devops_cli.k8s.cluster_secrets import (
+    CLUSTER_SECRETS,
+    DEVOPS_CACHE_VALKEY_AUTH_KEY,
+    LLM_GATEWAY_MASTER_KEY,
+    KeyringSource,
+    keyring_only_keys,
+    keyring_sources,
+)
+from tests.k8s_manifests import kustomize
 from tests.support.k8s_tree import (
     POD_SPEC_PATHS,
     application_sources,
@@ -668,8 +684,8 @@ def unread_kustomization_keys(directory: Path, kustomization: dict[str, Any]) ->
     """The keys of a kustomization that change objects that the readers do not see, and each
     patch of an object that a check reads or of a kind that the test cannot tell."""
     unread = [key for key in kustomization if key not in _READ_KUSTOMIZATION_KEYS]
-    for patch in kustomization.get("patches") or []:
-        kinds = _patched_kinds(directory, patch)
+    for patch_entry in kustomization.get("patches") or []:
+        kinds = _patched_kinds(directory, patch_entry)
         if not kinds:
             unread.append("patch of no kind")
         unread.extend(f"patch of {kind}" for kind in sorted(kinds & _CHECKED_KINDS))
@@ -758,3 +774,206 @@ def test_the_readers_see_each_value_and_patch_that_reaches_a_checked_object() ->
             for key in unread_kustomization_keys((REPO_ROOT / relative).parent, document)
         ),
     ) == ([], [])
+
+
+# =============================================================================
+# Secret References and Table Alignment (#1322)
+# =============================================================================
+
+K8S_DIR = REPO_ROOT / "k8s"
+TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
+DOMAIN = "example.org"
+
+
+def _secret_references(node: Any) -> Iterator[str]:
+    """Secret names a manifest or values document references, at any depth."""
+    if isinstance(node, list):
+        for item in node:
+            yield from _secret_references(item)
+        return
+    if not isinstance(node, dict):
+        return
+    for key, value in node.items():
+        if key in ("secretKeyRef", "secretRef") and isinstance(value, dict) and value.get("name"):
+            yield str(value["name"])
+        elif str(key).lower().endswith("existingsecret") and isinstance(value, str) and value:
+            yield value
+        else:
+            yield from _secret_references(value)
+
+
+def _values_namespaces() -> dict[str, str]:
+    return {
+        str(Path(release["values"]).resolve()): release["namespace"]
+        for releases in HELM_RELEASES_BY_STACK.values()
+        for release in releases
+    }
+
+
+@functools.cache
+def yaml_documents(root: Path) -> tuple[tuple[Path, Any], ...]:
+    """Every YAML document under root, parsed once with libyaml's safe loader."""
+    return tuple(
+        (path, document)
+        for path in sorted(root.rglob("*.yaml"))
+        for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+    )
+
+
+def referenced_secrets(root: Path) -> set[str]:
+    """`namespace/name` of every Secret a YAML file under root references."""
+    values_namespaces = _values_namespaces()
+    found: set[str] = set()
+    for path, document in yaml_documents(root):
+        names = set(_secret_references(document))
+        metadata = document.get("metadata") if isinstance(document, dict) else None
+        namespace = (metadata or {}).get("namespace") or values_namespaces.get(
+            str(path.resolve()), "?"
+        )
+        found.update(f"{namespace}/{name}" for name in names)
+    return found
+
+
+def test_every_secret_referenced_under_k8s_has_a_table_row() -> None:
+    references = referenced_secrets(K8S_DIR)
+    assert (references - TABLE_REFS, len(references) >= 5) == (set(), True)
+
+
+def test_a_reference_without_a_row_fails_the_guard(tmp_path: Path) -> None:
+    (tmp_path / "values.yaml").write_text(
+        "metadata: {namespace: tools}\nfooExistingSecret: unlisted\n"
+        "env: [{valueFrom: {secretKeyRef: {name: also-unlisted, key: k}}}]\n",
+        encoding="utf-8",
+    )
+    assert referenced_secrets(tmp_path) - TABLE_REFS == {"tools/unlisted", "tools/also-unlisted"}
+
+
+def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
+    sources = [
+        source
+        for secret in CLUSTER_SECRETS
+        for entry in secret.entries
+        for source in keyring_sources(entry)
+    ]
+    managed = set(keyring_names().values())
+    assert (
+        all(keyring_names()[s.option] == s.key for s in sources if s.option),
+        {s.key for s in sources if not s.option} == keyring_only_keys(),
+        keyring_only_keys() & managed,
+        keyring_only_keys(),
+    ) == (
+        True,
+        True,
+        frozenset(),
+        frozenset({LLM_GATEWAY_MASTER_KEY, DEVOPS_CACHE_VALKEY_AUTH_KEY}),
+    )
+
+
+def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
+    devops_cli = next(s for s in CLUSTER_SECRETS if s.ref == "devops/devops-cli")
+    option_keys = [e.key for e in devops_cli.entries if e.key.startswith("DEVOPS_CLI_")]
+    option_of = {variable: key for key, variable in option_env_vars().items()}
+    assert {key: option_of.get(key) for key in option_keys} == {
+        "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY": "service.github_app.private_key",
+        "DEVOPS_CLI_AI_API_KEY": "ai.api_key",
+        "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": "service.webhook_secrets",
+        "DEVOPS_CLI_FIRECRAWL_API_KEY": "firecrawl.api_key",
+        "DEVOPS_CLI_VALKEY_PASSWORD": "valkey.password",
+    }
+
+
+def _manifest_workloads() -> set[str]:
+    return {
+        f"{str(document.get('kind', '')).lower()}/{document['metadata'].get('name')}"
+        for _, document in yaml_documents(K8S_DIR)
+        if isinstance(document, dict) and isinstance(document.get("metadata"), dict)
+    }
+
+
+def test_every_restart_target_is_a_manifest_workload_or_helm_release() -> None:
+    releases = {r["name"] for rs in HELM_RELEASES_BY_STACK.values() for r in rs}
+    targets = [w for secret in CLUSTER_SECRETS for w in secret.restarts]
+    workloads = _manifest_workloads()
+    assert [str(t) for t in targets if str(t) not in workloads and t.name not in releases] == []
+
+
+@pytest.mark.usefixtures("keyring_store")
+def test_no_table_secret_is_copied_back_by_sync() -> None:
+    from devops_cli.k8s.credentials import sync_k8s_credentials
+
+    read: list[str] = []
+
+    def record(secret_name: str, namespace: str, context: str | None = None) -> dict[str, str]:
+        read.append(f"{namespace}/{secret_name}")
+        return {}
+
+    with patch("devops_cli.k8s.credentials.fetch_secret_data", side_effect=record):
+        sync_k8s_credentials(stack="all", save_to_keyring=False)
+    assert (set(read) & TABLE_REFS, bool(read)) == (set(), True)
+
+
+def _readme_row(secret: Any, entry: Any) -> str:
+    source = entry.source
+    label = f"keyring `{source.key}`" if isinstance(source, KeyringSource) else source.label
+    absent = "fail" if entry.required else "skip with a warning"
+    if isinstance(source, KeyringSource):
+        generator = entry.generator
+        if generator is not None:
+            body = (
+                f"{generator.nbytes * 2} hex"
+                if generator.encoding == "hex"
+                else f"`token_urlsafe({generator.nbytes})`"
+            )
+            absent = (
+                f"generate `{generator.prefix}` + {body}"
+                if generator.prefix
+                else f"generate {body}"
+            )
+        adopt = f"adopt from `{entry.adopt_from}`" if entry.adopt_from else "adopt the live value"
+        absent = f"{adopt}; else {absent}"
+    restarts = ", ".join(f"`{w}`" for w in secret.restarts) or "none"
+    required = "yes" if entry.required else "no"
+    cells = [f"`{secret.ref}`", f"`{entry.key}`", label, required, absent, secret.stack, restarts]
+    return "| " + " | ".join(cells) + " |"
+
+
+def test_readme_lists_the_table() -> None:
+    readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
+    rows = [_readme_row(s, e) for s in CLUSTER_SECRETS for e in s.entries]
+    assert [row for row in rows if row not in readme] == []
+
+
+def _hosts(rendered: str) -> list[str]:
+    hosts = []
+    for doc in yaml.safe_load_all(rendered):
+        if doc and doc.get("kind") == "Ingress":
+            hosts += [rule["host"] for rule in doc["spec"]["rules"] if "host" in rule]
+        if doc and doc.get("kind") == "IngressRoute":
+            hosts += [route["match"] for route in doc["spec"]["routes"]]
+    return hosts
+
+
+def _overlay(tmp_path: Path, source: Path, patches: list[dict]) -> Path:
+    """A kustomization over `source` with `patches`, the way Argo CD builds an Application."""
+    (tmp_path / "kustomization.yaml").write_text(
+        yaml.safe_dump({"resources": [os.path.relpath(source, tmp_path)], "patches": patches}),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.mark.parametrize("application", CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS)
+def test_kustomize_applies_the_overrides_to_every_host_the_application_renders(
+    application: str, tmp_path: Path
+) -> None:
+    manifest = yaml.safe_load((K8S_DIR / "argocd" / "apps" / f"{application}.yaml").read_text())
+    source = REPO_ROOT / manifest["spec"]["source"]["path"]
+    before = kustomize(source, check=False).stdout
+    after = kustomize(_overlay(tmp_path, source, host_patches(before, DOMAIN)), check=False)
+    hosts = _hosts(after.stdout)
+    assert (
+        after.returncode,
+        len(hosts) == len(_hosts(before)) > 0,
+        [h for h in hosts if "example.com" in h],
+        all("example.org" in h for h in hosts),
+    ) == (0, True, [], True)

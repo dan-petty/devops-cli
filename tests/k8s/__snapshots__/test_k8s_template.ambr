@@ -1,0 +1,11 @@
+# serializer version: 1
+# name: test_render_manifest_template_substitutions
+  '''
+  host: chat.example.com
+  other: ai.example.com
+  legacy: api.example.com
+  k8s: app.example.com
+  extra: production
+  
+  '''
+# ---

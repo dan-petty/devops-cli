@@ -40,7 +40,7 @@ def test_a_proxy_endpoint_splits_into_a_base_url_and_a_prefix() -> None:
     That shape is what lets a k8s:// address work for a library this project does not
     control, rather than only for its own requests.
     """
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()):
+    with patch("devops_cli.k8s.service_proxy.kube_configuration", return_value=_configuration()):
         connection = resolve_proxy_connection(
             ServiceRef(namespace="llm", service="qdrant", port="6333")
         )
@@ -52,7 +52,7 @@ def test_a_proxy_endpoint_splits_into_a_base_url_and_a_prefix() -> None:
 
 def test_the_connection_carries_the_cluster_credentials() -> None:
     """The client authenticates as the kubeconfig does, with nothing new to configure."""
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()):
+    with patch("devops_cli.k8s.service_proxy.kube_configuration", return_value=_configuration()):
         connection = resolve_proxy_connection(
             ServiceRef(namespace="llm", service="qdrant", port="6333")
         )
@@ -62,7 +62,7 @@ def test_the_connection_carries_the_cluster_credentials() -> None:
 
 def test_the_prefix_carries_no_leading_or_trailing_slash() -> None:
     """The client joins the prefix to the base itself; a stray slash doubles up."""
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()):
+    with patch("devops_cli.k8s.service_proxy.kube_configuration", return_value=_configuration()):
         prefix = resolve_proxy_connection(
             ServiceRef(namespace="llm", service="qdrant", port="6333")
         ).prefix
@@ -88,7 +88,7 @@ def test_a_cluster_address_builds_a_proxied_client() -> None:
     from devops_cli.ai.rag.qdrant import create_native_qdrant_client
 
     with (
-        patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()),
+        patch("devops_cli.k8s.service_proxy.kube_configuration", return_value=_configuration()),
         patch("devops_cli.ai.rag.qdrant.NativeQdrantClient") as native,
     ):
         create_native_qdrant_client(CLUSTER_URL)

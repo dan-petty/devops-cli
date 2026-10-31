@@ -4,24 +4,20 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.k8s.networking import port_forward_status, port_forward_stop
-from devops_cli.core.cli import new_typer
 from devops_cli.k8s.port_forward_daemon import (
     PortForwardDaemonManager,
     PortForwardInfo,
+    get_daemon_manager,
+    reset_daemon_manager,
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
-
-runner = CliRunner()
-dummy_app = new_typer()
-dummy_app.command("status")(port_forward_status)
-dummy_app.command("stop")(port_forward_stop)
 
 
 def _own_start_ticks() -> int:
@@ -107,37 +103,40 @@ def test_daemon_manager_stop_forwards(tmp_path: Path) -> None:
     assert len(remaining) == 0
 
 
-def test_cli_port_forward_status_empty(tmp_path: Path) -> None:
+def test_cli_port_forward_status_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+) -> None:
     """Test CLI port-forward status when no daemons are running."""
-    with patch("devops_cli.k8s.port_forward_daemon.get_daemon_manager") as mock_get:
-        mgr = PortForwardDaemonManager(state_file=tmp_path / "port_forwards.json")
-        mock_get.return_value = mgr
-        res = runner.invoke(dummy_app, ["status"])
-        assert res.exit_code == 0
-        assert "No active" in res.output or "Active Kubernetes Port-Forward" in res.output
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    reset_daemon_manager()
+    res = cli("k8s", "port-forward-status")
+    assert res.exit_code == 0
+    assert "No active" in res.output or "Active Kubernetes Port-Forward" in res.output
 
 
-def test_cli_port_forward_stop(tmp_path: Path) -> None:
+def test_cli_port_forward_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+) -> None:
     """Test CLI port-forward stop command."""
-    with patch("devops_cli.k8s.port_forward_daemon.get_daemon_manager") as mock_get:
-        mgr = PortForwardDaemonManager(state_file=tmp_path / "port_forwards.json")
-        item = PortForwardInfo(
-            pid=54321,
-            service="svc/prometheus",
-            namespace="monitoring",
-            local_port=8090,
-            remote_port=9090,
-            address="127.0.0.1",
-            stack="infra",
-            start_ticks=None,
-        )
-        mgr.save_forwards([item])
-        mock_get.return_value = mgr
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    reset_daemon_manager()
+    mgr = get_daemon_manager()
+    item = PortForwardInfo(
+        pid=54321,
+        service="svc/prometheus",
+        namespace="monitoring",
+        local_port=8090,
+        remote_port=9090,
+        address="127.0.0.1",
+        stack="infra",
+        start_ticks=None,
+    )
+    mgr.save_forwards([item])
 
-        with patch("os.kill"):
-            res = runner.invoke(dummy_app, ["stop"])
-            assert res.exit_code == 0
-            assert "Terminated" in res.output or "Stopped" in res.output
+    with patch("os.kill"):
+        res = cli("k8s", "port-forward-stop")
+        assert res.exit_code == 0
+        assert "Terminated" in res.output or "Stopped" in res.output
 
 
 def test_daemon_manager_corrupt_state_file(tmp_path: Path) -> None:

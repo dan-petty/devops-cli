@@ -208,41 +208,25 @@ def _kubeconfig_mtime() -> float:
         return 0.0
 
 
-def _kube_configuration(context: str | None = None) -> Any:
-    """Load the Kubernetes client configuration for the resolved context.
-
-    Cached on the context and the kubeconfig's modification time. Reloading and reparsing
-    the kubeconfig per call cost 24 ms of a 32 ms proxied request -- more than the HTTP --
-    and the dashboard issues one of these per panel per refresh. Keying on mtime means a
-    context switch or an edited kubeconfig is still picked up on the next call.
-    """
-    from kubernetes import client as k8s_client  # type: ignore[import-untyped]
-    from kubernetes import config as k8s_config
+def kube_configuration(context: str | None = None) -> Any:
+    """Load the Kubernetes client configuration for the resolved context."""
+    from devops_cli.k8s.service import KubernetesService
 
     resolved = resolve_context(context)
-    cache_key = (resolved, _kubeconfig_mtime())
-    with _CONFIG_LOCK:
-        cached = _CONFIGURATIONS.get(cache_key)
-        if cached is not None:
-            return cached
-
+    service = KubernetesService.get_instance()
     try:
-        k8s_config.load_incluster_config()
-    except Exception:
-        try:
-            k8s_config.load_kube_config(context=resolved)
-        except Exception as exc:
+        config = service.configuration(resolved)
+        if config is None:
             raise ServiceAddressError(
-                f"No usable Kubernetes configuration for context '{resolved or 'current'}': {exc}"
-            ) from exc
-
-    configuration = k8s_client.Configuration.get_default_copy()
-    with _CONFIG_LOCK:
-        # Only the current key is retained: a kubeconfig edit or context switch makes every
-        # earlier entry unreachable, and keeping them would hold stale credentials.
-        _CONFIGURATIONS.clear()
-        _CONFIGURATIONS[cache_key] = configuration
-    return configuration
+                f"No usable Kubernetes configuration for context '{resolved or 'current'}'"
+            )
+        return config
+    except ServiceAddressError:
+        raise
+    except Exception as exc:
+        raise ServiceAddressError(
+            f"No usable Kubernetes configuration for context '{resolved or 'current'}': {exc}"
+        ) from exc
 
 
 def reset_configuration_cache() -> None:
@@ -251,7 +235,7 @@ def reset_configuration_cache() -> None:
         _CONFIGURATIONS.clear()
 
 
-def _ssl_context(configuration: Any) -> ssl.SSLContext:
+def ssl_context(configuration: Any) -> ssl.SSLContext:
     """Build the TLS context for talking to the API server.
 
     Client certificates and a custom CA cannot both be passed to httpx as plain values, so
@@ -351,14 +335,14 @@ def resolve_proxy_target(
     """Resolve a Service reference into a concrete API server URL and credentials."""
     from devops_cli.http.urls import append_path
 
-    configuration = _kube_configuration(context)
+    configuration = kube_configuration(context)
     host = str(getattr(configuration, "host", "") or "").rstrip("/")
     if not host:
         raise ServiceAddressError("The Kubernetes configuration has no API server host.")
     return ProxyTarget(
         url=str(append_path(host, ref.proxy_path(path))),
         headers=_auth_headers(configuration),
-        ssl_context=_ssl_context(configuration),
+        ssl_context=ssl_context(configuration),
     )
 
 
@@ -369,10 +353,12 @@ __all__ = [
     "ServiceRef",
     "discover_service",
     "is_service_url",
+    "kube_configuration",
     "parse_service_url",
     "reset_configuration_cache",
     "resolve_proxy_connection",
     "resolve_proxy_target",
+    "ssl_context",
 ]
 
 

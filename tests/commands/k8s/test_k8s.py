@@ -2998,3 +2998,140 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
             *_CONTEXT,
         ],
     ]
+
+
+def test_k8s_pods_table_builder() -> None:
+    import datetime
+
+    from devops_cli.commands.k8s.diagnostics import _build_pods_table
+    from devops_cli.output import format_timestamp_age
+    from tests.support.fakes.kubernetes import healthy_pod
+
+    now_iso = datetime.datetime.now(datetime.UTC).isoformat()
+    assert format_timestamp_age(now_iso) != "—"
+    assert format_timestamp_age("invalid-timestamp") == "—"
+
+    mock_pod = healthy_pod("web-123")
+
+    mock_v1 = MagicMock()
+    mock_v1.list_namespaced_pod.return_value = MagicMock(items=[mock_pod])
+    mock_v1.list_pod_for_all_namespaces.return_value = MagicMock(items=[mock_pod])
+
+    with (
+        patch("kubernetes.config.load_incluster_config", side_effect=Exception("No cluster")),
+        patch("kubernetes.config.load_kube_config"),
+        patch("kubernetes.client.CoreV1Api", return_value=mock_v1),
+    ):
+        table = _build_pods_table("default", label_selector=None, all_namespaces=False)
+        assert table.row_count == 1
+
+        table_all = _build_pods_table(None, label_selector="app=web", all_namespaces=True)
+        assert table_all.row_count == 1
+
+
+def test_build_pods_table_masks_credentials_in_exceptions() -> None:
+    from devops_cli.commands.k8s.diagnostics import _build_pods_table
+
+    with patch(
+        "kubernetes.config.load_kube_config",
+        side_effect=RuntimeError("Token secret_token_xyz123 failed"),
+    ):
+        table = _build_pods_table("default", None, False)
+        rendered = str(table.rows)
+        assert "secret_token_xyz123" not in rendered
+
+
+def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two answers for one pod would be worse than either; both now come from one port."""
+    import devops_cli.ui.data_providers as data_providers
+    from devops_cli.commands.k8s.diagnostics import _build_pods_table
+    from devops_cli.k8s.service import KubernetesService
+    from devops_cli.output import Text
+    from devops_cli.ui.projections import k8s_rows
+    from tests.support.fakes.kubernetes import (
+        FakeCoreV1,
+        crashlooping_pod,
+        healthy_pod,
+        pod,
+        running,
+        status,
+        terminated,
+        waiting,
+    )
+
+    def _plain(cell: str) -> str:
+        return Text.from_markup(cell).plain
+
+    mixed_pods = [
+        healthy_pod("api-0", "shop"),
+        crashlooping_pod("exporter-0", "monitoring"),
+        pod(phase="Pending", statuses=[status("app", waiting("ContainerCreating"))]),
+        pod(phase="Succeeded", statuses=[status("app", terminated(0, "Completed"))]),
+        pod(
+            containers=("app", "vault-agent"),
+            statuses=[
+                status("vault-agent", running(), ready=True),
+                status("app", running(), ready=True),
+            ],
+        ),
+    ]
+    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: FakeCoreV1(pods=mixed_pods))
+    monkeypatch.setattr(data_providers, "_k8s_context_name", lambda: "lab")
+    dashboard = [
+        (_plain(row[2]), _plain(row[3])) for row in k8s_rows(data_providers.fetch_k8s_status())
+    ]
+
+    service = MagicMock()
+    service.list_pods.return_value = mixed_pods
+
+    with patch.object(KubernetesService, "get_instance", return_value=service):
+        table = _build_pods_table(None, None, all_namespaces=True)
+    cli_table = [(_plain(row[2]), _plain(row[3])) for row in table.rows]
+    assert (dashboard, cli_table) == (
+        [
+            ("Running", "1/1"),
+            ("CrashLoopBackOff", "0/1"),
+            ("ContainerCreating", "0/1"),
+            ("Completed", "0/1"),
+            ("Running", "2/2"),
+        ],
+        dashboard,
+    )
+
+
+def test_k8s_pods_colours_a_status_by_health_not_by_phase() -> None:
+    """A crashlooping pod in phase Running was printed green."""
+    from devops_cli.commands.k8s.diagnostics import _build_pods_table
+    from devops_cli.k8s.service import KubernetesService
+    from tests.support.fakes.kubernetes import crashlooping_pod, healthy_pod
+
+    service = MagicMock()
+    service.list_pods.return_value = [healthy_pod("api-0"), crashlooping_pod("exporter-0")]
+
+    with patch.object(KubernetesService, "get_instance", return_value=service):
+        table = _build_pods_table(None, None, all_namespaces=True)
+    assert [row[2] for row in table.rows] == [
+        "[green]Running[/green]",
+        "[red]CrashLoopBackOff[/red]",
+    ]
+
+
+def test_watching_pods_prints_the_reason_a_container_gives() -> None:
+    """`devops k8s pods --watch` printed the phase, Running, for a crashlooping pod."""
+    from devops_cli.commands.k8s import app as k8s_app
+    from devops_cli.k8s.service import KubernetesService
+    from tests.support.fakes.kubernetes import crashlooping_pod
+
+    watcher = MagicMock()
+    watcher.stream.return_value = [{"type": "MODIFIED", "object": crashlooping_pod("exporter-0")}]
+    service = MagicMock()
+    service.load_config.return_value = True
+
+    with (
+        patch("kubernetes.watch.Watch", return_value=watcher),
+        patch.object(KubernetesService, "get_instance", return_value=service),
+    ):
+        result = runner.invoke(k8s_app, ["pods", "--watch", "-A"])
+    assert (result.exit_code, "default/exporter-0 (CrashLoopBackOff)" in result.output) == (0, True)

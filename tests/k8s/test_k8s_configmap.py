@@ -115,7 +115,7 @@ def test_render_devops_configmap_with_timeouts_and_poll() -> None:
     ) == (90, 180)
 
 
-def test_render_active_devops_configmap_success(tmp_path: Path) -> None:
+def test_render_active_devops_configmap_produces_valid_yaml(tmp_path: Path) -> None:
     """Verify render_active_devops_configmap renders content in memory without creating files."""
     devops_dir = tmp_path / "devops"
     devops_dir.mkdir(parents=True)

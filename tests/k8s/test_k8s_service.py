@@ -234,7 +234,7 @@ def test_k8s_service_reachability_is_probed_once_and_cached(cluster: FakeCluster
     )
 
 
-def test_k8s_service_reachability_failure(cluster: FakeCluster) -> None:
+def test_k8s_service_reports_unreachable_on_connection_error(cluster: FakeCluster) -> None:
     cluster.unreachable()
 
     assert KubernetesService.get_instance().is_cluster_reachable() is False
@@ -311,7 +311,7 @@ def test_k8s_service_read_pod_logs_follow(cluster: FakeCluster) -> None:
     assert (lines, cluster.core.calls[0][1]["follow"]) == (["stream-1", "stream-2"], True)
 
 
-def test_k8s_service_read_pod_logs_failure(cluster: FakeCluster) -> None:
+def test_k8s_service_read_pod_logs_raises_on_error(cluster: FakeCluster) -> None:
     cluster.core.answers["read_namespaced_pod_log"] = RuntimeError("not found")
 
     with pytest.raises(KubernetesContextError, match="Failed to read pod logs"):
@@ -353,11 +353,10 @@ def test_k8s_service_list_exceptions(cluster: FakeCluster) -> None:
 def test_k8s_service_cache_expiration(clock: ClockFake) -> None:
     """Verify _get_cached invalidates entries after TTL."""
     svc = KubernetesService(FakeCluster())
-    svc._cache_ttl = 0.01
     svc._set_cached("test-key", "test-val")
     val_immediate = svc._get_cached("test-key")
 
-    clock.sleep(0.02)
+    clock.shift(301.0)
     val_expired = svc._get_cached("test-key")
     assert (val_immediate, val_expired) == ("test-val", None)
 
@@ -369,7 +368,6 @@ def test_cache_honours_per_entry_ttl() -> None:
     ttl argument was accepted and silently ignored, pinning failures for the full TTL.
     """
     svc = KubernetesService(FakeCluster())
-    svc._cache_ttl = 300.0
 
     svc._set_cached("short", "negative", ttl=0.0)
     svc._set_cached("long", "positive")
@@ -616,7 +614,7 @@ def test_stop_interrupts_watcher_and_joins_thread(cluster: FakeCluster) -> None:
     )
 
 
-def test_stop_survives_watcher_failure(cluster: FakeCluster) -> None:
+def test_stop_survives_watcher_exception(cluster: FakeCluster) -> None:
     """A watcher that refuses to stop does not prevent the informer from shutting down."""
     informer = ResourceInformer()
     mock_watch = MagicMock()

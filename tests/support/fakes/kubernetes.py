@@ -707,12 +707,29 @@ class FakeCluster:
         version: FakeVersion | None = None,
         contexts: tuple[str, ...] = (FAKE_CONTEXT,),
         current: str | None = FAKE_CONTEXT,
+        configuration: Any = None,
     ) -> None:
+        from types import SimpleNamespace
+
         self.core = core or FakeCoreV1()
         self.custom_objects = custom_objects or FakeCustomObjects()
         self.version = version or FakeVersion()
         self.context_names = list(contexts)
         self.current = current
+        self.configuration = (
+            configuration
+            if configuration is not None
+            else SimpleNamespace(
+                host="https://cluster.example.com:6443",
+                ssl_ca_cert=None,
+                verify_ssl=True,
+                cert_file=None,
+                key_file=None,
+                api_key={},
+                api_key_prefix={},
+                refresh_api_key_hook=None,
+            )
+        )
         self.connects: list[str | None] = []
 
     def unreachable(self) -> FakeCluster:
@@ -741,7 +758,10 @@ class FakeCluster:
                 f"No kubeconfig context named '{name}', and no service account", context=name
             )
         return KubernetesApis(
-            core=self.core, custom_objects=self.custom_objects, version=self.version
+            core=self.core,
+            custom_objects=self.custom_objects,
+            version=self.version,
+            configuration=self.configuration,
         )
 
 

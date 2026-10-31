@@ -9,23 +9,15 @@ from __future__ import annotations
 
 import datetime
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
-import devops_cli.ui.data_providers as data_providers
-from devops_cli.commands.k8s.diagnostics import _build_pods_table
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo, node_is_ready
-from devops_cli.output import Text
-from devops_cli.ui.projections import k8s_rows
 from tests.support.fakes.kubernetes import (
     NOW,
-    FakeCoreV1,
     client,
     crashlooping_pod,
     event,
-    healthy_pod,
     node,
     pod,
     ready_app,
@@ -34,8 +26,6 @@ from tests.support.fakes.kubernetes import (
     terminated,
     waiting,
 )
-
-runner = CliRunner()
 
 # =============================================================================
 # Pod Status
@@ -405,83 +395,3 @@ def test_an_event_keeps_its_type_reason_and_message() -> None:
     """The inspector shows what the event says, not just when."""
     info = PodEventInfo.from_event(event("BackOff", kind="Warning", message="Back-off restarting"))
     assert (info.type, info.reason, info.message) == ("Warning", "BackOff", "Back-off restarting")
-
-
-# =============================================================================
-# Surfaces Agree
-# =============================================================================
-
-
-def _mixed_pods() -> list[Any]:
-    return [
-        healthy_pod("api-0", "shop"),
-        crashlooping_pod("exporter-0", "monitoring"),
-        STATUS_CASES["container-creating"][0],
-        STATUS_CASES["completed"][0],
-        STATUS_CASES["running-sidecar-and-ready-app"][0],
-    ]
-
-
-def _plain(cell: str) -> str:
-    return Text.from_markup(cell).plain
-
-
-def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Two answers for one pod would be worse than either; both now come from one port."""
-    mixed_pods = _mixed_pods()
-    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: FakeCoreV1(pods=mixed_pods))
-    monkeypatch.setattr(data_providers, "_k8s_context_name", lambda: "lab")
-    dashboard = [
-        (_plain(row[2]), _plain(row[3])) for row in k8s_rows(data_providers.fetch_k8s_status())
-    ]
-
-    service = MagicMock()
-    service.list_pods.return_value = mixed_pods
-    from devops_cli.k8s.service import KubernetesService
-
-    with patch.object(KubernetesService, "get_instance", return_value=service):
-        table = _build_pods_table(None, None, all_namespaces=True)
-    cli = [(_plain(row[2]), _plain(row[3])) for row in table.rows]
-    assert (dashboard, cli) == (
-        [
-            ("Running", "1/1"),
-            ("CrashLoopBackOff", "0/1"),
-            ("ContainerCreating", "0/1"),
-            ("Completed", "0/1"),
-            ("Running", "2/2"),
-        ],
-        dashboard,
-    )
-
-
-def test_k8s_pods_colours_a_status_by_health_not_by_phase() -> None:
-    """A crashlooping pod in phase Running was printed green."""
-    service = MagicMock()
-    service.list_pods.return_value = [healthy_pod("api-0"), crashlooping_pod("exporter-0")]
-    from devops_cli.k8s.service import KubernetesService
-
-    with patch.object(KubernetesService, "get_instance", return_value=service):
-        table = _build_pods_table(None, None, all_namespaces=True)
-    assert [row[2] for row in table.rows] == [
-        "[green]Running[/green]",
-        "[red]CrashLoopBackOff[/red]",
-    ]
-
-
-def test_watching_pods_prints_the_reason_a_container_gives(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`devops k8s pods --watch` printed the phase, Running, for a crashlooping pod."""
-    watcher = MagicMock()
-    watcher.stream.return_value = [{"type": "MODIFIED", "object": crashlooping_pod("exporter-0")}]
-    service = MagicMock()
-    service.load_config.return_value = True
-    from devops_cli.commands.k8s import app as k8s_app
-    from devops_cli.k8s.service import KubernetesService
-
-    with (
-        patch("kubernetes.watch.Watch", return_value=watcher),
-        patch.object(KubernetesService, "get_instance", return_value=service),
-    ):
-        result = runner.invoke(k8s_app, ["pods", "--watch", "-A"])
-    assert (result.exit_code, "default/exporter-0 (CrashLoopBackOff)" in result.output) == (0, True)

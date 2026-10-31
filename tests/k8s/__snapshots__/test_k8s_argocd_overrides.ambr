@@ -1,0 +1,25 @@
+# serializer version: 1
+# name: test_the_patch_sets_the_kustomize_patches_of_the_application_source
+  list([
+    dict({
+      'patch': '[{"op": "test", "path": "/spec/rules/0/host", "value": "chat.example.com"}, {"op": "replace", "path": "/spec/rules/0/host", "value": "chat.example.org"}, {"op": "test", "path": "/spec/rules/1/host", "value": "example.com"}, {"op": "replace", "path": "/spec/rules/1/host", "value": "example.org"}, {"op": "test", "path": "/spec/rules/2/host", "value": "*.example.com"}, {"op": "replace", "path": "/spec/rules/2/host", "value": "*.example.org"}, {"op": "test", "path": "/spec/tls/0/hosts/0", "value": "chat.example.com"}, {"op": "replace", "path": "/spec/tls/0/hosts/0", "value": "chat.example.org"}]',
+      'target': dict({
+        'group': 'networking.k8s.io',
+        'kind': 'Ingress',
+        'name': 'chat',
+        'namespace': 'llm',
+        'version': 'v1',
+      }),
+    }),
+    dict({
+      'patch': '[{"op": "test", "path": "/spec/routes/0/match", "value": "Host(`traefik.example.com`) && PathPrefix(`/dashboard`)"}, {"op": "replace", "path": "/spec/routes/0/match", "value": "Host(`traefik.example.org`) && PathPrefix(`/dashboard`)"}]',
+      'target': dict({
+        'group': 'traefik.io',
+        'kind': 'IngressRoute',
+        'name': 'dashboard',
+        'namespace': 'kube-system',
+        'version': 'v1alpha1',
+      }),
+    }),
+  ])
+# ---

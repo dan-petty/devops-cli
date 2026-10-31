@@ -96,7 +96,7 @@
   "src/devops_cli/k8s/port_forward_daemon.py": 1,
   "src/devops_cli/k8s/security_stream.py": 2,
   "src/devops_cli/k8s/service.py": 3,
-  "src/devops_cli/k8s/service_proxy.py": 2,
+  "src/devops_cli/k8s/service_proxy.py": 1,
   "src/devops_cli/output/console.py": 1,
   "src/devops_cli/review/fingerprint.py": 1,
   "src/devops_cli/roadmap/run.py": 4,

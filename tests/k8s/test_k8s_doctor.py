@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import datetime
 import json
+from collections.abc import Callable
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 import yaml
-from typer.testing import CliRunner
 
-from devops_cli.commands.k8s import app
 from devops_cli.config.constants import (
     CONST_K8S_DOCTOR_RULE_NODE_CORDONED,
     CONST_K8S_DOCTOR_RULE_NODE_NOT_READY,
@@ -25,10 +23,13 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.k8s.doctor import Snapshot, collect, diagnose
+from devops_cli.k8s.service import KubernetesService
 from devops_cli.models.k8s import Finding
 from tests.support.fakes.kubernetes import (
     NOW,
+    FakeCluster,
     FakeCoreV1,
+    FakeVersion,
     crashlooping_pod,
     event,
     healthy_pod,
@@ -41,10 +42,9 @@ from tests.support.fakes.kubernetes import (
 )
 
 
-def test_doctor_is_registered_with_its_options() -> None:
+def test_doctor_is_registered_with_its_options(cli: Callable[..., Any]) -> None:
     """Verify that doctor command is registered and exposes its expected CLI options."""
-    runner = CliRunner()
-    result = runner.invoke(app, ["doctor", "--help"])
+    result = cli("k8s", "doctor", "--help")
     expected_options = ("--namespace", "--context", "--tail", "--format", "--dry-run")
     options_present = tuple(opt in result.stdout for opt in expected_options)
     assert (result.exit_code, options_present) == (0, (True, True, True, True, True))
@@ -333,10 +333,10 @@ def test_doctor_ranks_cluster_findings_first() -> None:
         remediation="clear",
     )
 
-    from devops_cli.k8s.doctor import _sort_findings
+    from devops_cli.k8s.doctor import sort_findings
 
     unordered = [workload_warn, cluster_warn, workload_crit, cluster_crit]
-    sorted_findings = _sort_findings(unordered, pod_restarts={})
+    sorted_findings = sort_findings(unordered, pod_restarts={})
     assert tuple(f.rule for f in sorted_findings) == (
         CONST_K8S_DOCTOR_RULE_NODE_NOT_READY,
         CONST_K8S_DOCTOR_RULE_NODE_CORDONED,
@@ -410,14 +410,15 @@ def test_doctor_namespace_narrows_the_calls() -> None:
     )
 
 
-def test_doctor_json_output_round_trips() -> None:
+def test_doctor_json_output_round_trips(cluster: FakeCluster, cli: Callable[..., Any]) -> None:
     """JSON and YAML output formats serialize the DoctorReport correctly."""
-    runner = CliRunner()
-    fake_core = FakeCoreV1(nodes=[node("worker-broken", ready="False")])
+    cluster.context_names.append("test-cluster")
+    cluster.core = FakeCoreV1(nodes=[node("worker-broken", ready="False")])
+    cluster.version = FakeVersion("v1.37.1")
+    KubernetesService.install(cluster)
 
-    with patch("devops_cli.k8s.doctor.get_k8s_client", return_value=fake_core):
-        res_json = runner.invoke(app, ["doctor", "--context", "test-cluster", "--format", "json"])
-        res_yaml = runner.invoke(app, ["doctor", "--context", "test-cluster", "--format", "yaml"])
+    res_json = cli("k8s", "doctor", "--context", "test-cluster", "--format", "json")
+    res_yaml = cli("k8s", "doctor", "--context", "test-cluster", "--format", "yaml")
 
     assert (res_json.exit_code, res_yaml.exit_code) == (2, 2)
     data_json = json.loads(res_json.stdout)
@@ -440,40 +441,42 @@ def test_doctor_json_output_round_trips() -> None:
     )
 
 
-def test_doctor_exit_codes() -> None:
+def test_doctor_exit_codes(cluster: FakeCluster, cli: Callable[..., Any]) -> None:
     """Exit codes are 0 (clean), 2 (findings), and 1 (unreachable/error with secret masking)."""
-    runner = CliRunner()
     clean_core = FakeCoreV1(nodes=[node("worker-1", ready="True")], pods=[healthy_pod("app-1")])
     findings_core = FakeCoreV1(nodes=[node("worker-1", ready="False")], pods=[])
     secret_err = Exception("Auth failed: token=secret_token_xyz123 invalid credentials")
     error_core = FakeCoreV1(nodes=secret_err)
 
-    with patch("devops_cli.k8s.doctor.get_k8s_client", return_value=clean_core):
-        res_clean = runner.invoke(app, ["doctor"])
-    with patch("devops_cli.k8s.doctor.get_k8s_client", return_value=findings_core):
-        res_findings = runner.invoke(app, ["doctor"])
-    with patch("devops_cli.k8s.doctor.get_k8s_client", return_value=error_core):
-        res_err = runner.invoke(app, ["doctor"])
+    cluster.version = FakeVersion("v1.37.1")
+
+    cluster.core = clean_core
+    KubernetesService.install(cluster)
+    res_clean = cli("k8s", "doctor")
+
+    cluster.core = findings_core
+    KubernetesService.install(cluster)
+    res_findings = cli("k8s", "doctor")
+
+    cluster.core = error_core
+    KubernetesService.install(cluster)
+    res_err = cli("k8s", "doctor")
 
     assert (res_clean.exit_code, res_findings.exit_code, res_err.exit_code) == (0, 2, 1)
     assert "No problems were found." in res_clean.stdout
     assert "secret_token_xyz123" not in res_err.stdout + res_err.stderr
 
     # Format json and yaml also retain exit code 2 when findings are present
-    with patch("devops_cli.k8s.doctor.get_k8s_client", return_value=findings_core):
-        res_fmt_json = runner.invoke(app, ["doctor", "--format", "json"])
-        res_fmt_yaml = runner.invoke(app, ["doctor", "--format", "yaml"])
+    cluster.core = findings_core
+    KubernetesService.install(cluster)
+    res_fmt_json = cli("k8s", "doctor", "--format", "json")
+    res_fmt_yaml = cli("k8s", "doctor", "--format", "yaml")
     assert (res_fmt_json.exit_code, res_fmt_yaml.exit_code) == (2, 2)
 
 
-def test_doctor_dry_run_makes_no_request() -> None:
+def test_doctor_dry_run_makes_no_request(cli: Callable[..., Any]) -> None:
     """Dry run performs no external requests, loads no kubeconfig, and renders the request plan."""
-    runner = CliRunner()
-    with patch(
-        "kubernetes.config.load_kube_config",
-        side_effect=AssertionError("Kubeconfig loaded in dry-run"),
-    ):
-        result = runner.invoke(app, ["doctor", "--dry-run"])
+    result = cli("k8s", "doctor", "--dry-run")
 
     assert result.exit_code == 0
     lines = result.stdout.strip().splitlines()
