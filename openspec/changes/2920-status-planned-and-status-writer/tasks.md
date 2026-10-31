@@ -27,7 +27,7 @@
 
 ## 4. The documents
 
-- [ ] 4.1 Amend ADR 0016 (six Status labels, the Service as writer) and update `CONTEXT.md`, `k8s/README.md`, `docs/ROUTINE_TASKS.md` and the help text of `devops roadmap implement`, then regenerate the documents
+- [x] 4.1 Amend ADR 0016 (six Status labels, the Service as writer) and update `CONTEXT.md`, `k8s/README.md`, `docs/ROUTINE_TASKS.md` and the help text of `devops roadmap implement`, then regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 5. Archive
