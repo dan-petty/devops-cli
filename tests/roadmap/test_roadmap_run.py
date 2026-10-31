@@ -335,15 +335,15 @@ def _poll_round(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics and implement rows run first, then the triage lane's intake row,
-    then the model lane's refine, stage and alternatives rows; no row closes items, cuts or starts
-    a release (#1360, #1534, #2652, #2659, #2667, #2757)."""
+    """The status lane's metrics, implement and stage_ready rows run first, then the triage lane's
+    intake row, then the model lane's refine, stage and alternatives rows; no row closes items,
+    cuts or starts a release (#1360, #1534, #2652, #2659, #2667, #2757, #2865)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
     ) == (
-        ["metrics", "implement", "intake", "refine", "stage", "alternatives"],
+        ["metrics", "implement", "stage_ready", "intake", "refine", "stage", "alternatives"],
         True,
         ["issues"],
     )
@@ -666,6 +666,7 @@ def test_idle_records_zero_or_one_store_calls(
         refine=HALF_HOUR_AGO,
         stage=HALF_HOUR_AGO,
         implement=recent,
+        stage_ready=recent,
         metrics=recent,
         alternatives=recent,
     )
@@ -766,7 +767,11 @@ def test_service_wiring(
             (REPO, TRIAGE_LANE_ROWS, CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME),
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
-        [["metrics", "implement"], ["intake"], ["refine", "stage", "alternatives"]],
+        [
+            ["metrics", "implement", "stage_ready"],
+            ["intake"],
+            ["refine", "stage", "alternatives"],
+        ],
     )
 
 
@@ -1699,7 +1704,7 @@ def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
     )
 
 
-DEFAULT_JOB_NAMES = ("metrics", "implement", "intake", "refine")
+DEFAULT_JOB_NAMES = ("metrics", "implement", "stage_ready", "intake", "refine")
 POLL = TriggerBatch(repo=REPO, counts={POLL_KEY: 1}, first_at=NOW, last_at=NOW)
 
 
@@ -1941,14 +1946,14 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
         _stamp(tmp_path, **stamps)
         return _poll_round(seeded_store, tmp_path, table=_lane(STATUS_LANE_ROWS), batch=batch)
 
-    fresh = {"metrics": NOW - timedelta(minutes=1)}
+    fresh = {"metrics": NOW - timedelta(minutes=1), "stage_ready": NOW - timedelta(minutes=1)}
     first = ran({POLL_KEY: 1})
     too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=9, seconds=59))
     ten_minutes = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=10))
     hinted = ran({OPENED: 1}, **fresh, implement=NOW - timedelta(minutes=2))
 
     assert (first, too_soon, ten_minutes, hinted) == (
-        ("metrics", "implement"),
+        ("metrics", "implement", "stage_ready"),
         (),
         ("implement",),
         (),
@@ -2034,7 +2039,11 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
     fixed["yes"] = True
     later = round_of(NOW + timedelta(hours=1, minutes=10))
 
-    assert (same_hour, later, len(calls)) == ((), ("metrics", "implement"), 4)
+    assert (same_hour, later, len(calls)) == (
+        ("stage_ready",),
+        ("metrics", "implement", "stage_ready"),
+        4,
+    )
 
 
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
@@ -2077,7 +2086,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         now=NOW,
     )
     assert (ran, _schedule(tmp_path)) == (
-        ("metrics", "implement"),
+        ("metrics", "implement", "stage_ready"),
         {
             "intake": later.isoformat(),
             "refine": later.isoformat(),
@@ -2085,6 +2094,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "alternatives": later.isoformat(),
             "metrics": NOW.isoformat(),
             "implement": NOW.isoformat(),
+            "stage_ready": NOW.isoformat(),
         },
     )
 
@@ -2531,7 +2541,7 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     assert (
         cli.exit_code,
-        "Due: metrics, implement, intake, refine, stage, alternatives\n" in cli.output,
+        "Due: metrics, implement, stage_ready, intake, refine, stage, alternatives\n" in cli.output,
     ) == (0, True)
 
 

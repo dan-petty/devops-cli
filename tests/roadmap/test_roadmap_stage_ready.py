@@ -8,6 +8,7 @@ session, its check runs are read through the session, and `gh pr ready` is the c
 from __future__ import annotations
 
 import subprocess
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap import stage_ready
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stage_ready import StageDraft, mark_stage_ready, ready_to_mark
 from devops_cli.roadmap.store import (
     CloseReason,
@@ -286,3 +288,34 @@ def test_ready_to_mark_is_true_for_passing_checks_only(store: InMemoryRoadmapSto
         verdict(CheckBucket.FAIL),
         verdict(CheckBucket.UNREAD),
     ) == (True, False, False, False)
+
+
+STAGE_READY_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "stage_ready")
+
+
+def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_every_ten_minutes() -> (
+    None
+):
+    """The row calls no model, so a long model-lane round never delays it."""
+    assert (
+        [row.name for row in STATUS_LANE_ROWS],
+        "stage_ready" in [row.name for row in MODEL_LANE_ROWS],
+        STAGE_READY_ROW.needs_clone,
+        STAGE_READY_ROW.first_run_due,
+        STAGE_READY_ROW.interval,
+    ) == (["metrics", "implement", "stage_ready"], False, False, True, timedelta(minutes=10))
+
+
+def test_a_round_of_the_row_marks_the_green_draft_ready(
+    store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
+) -> None:
+    seed_staged(store)
+    _pull(api)
+    _checks(api, PASS)
+
+    outcome = STAGE_READY_ROW.runner(store=store, repo=STAGE_REPO)
+
+    assert (outcome, ready.calls) == (
+        JobOutcome(),
+        [("pr", "ready", str(PULL), "--repo", STAGE_REPO)],
+    )

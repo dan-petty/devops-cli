@@ -115,7 +115,7 @@ def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_e
         IMPLEMENT_ROW.needs_clone,
         IMPLEMENT_ROW.first_run_due,
         IMPLEMENT_ROW.interval,
-    ) == (["metrics", "implement"], False, True, True, timedelta(minutes=10))
+    ) == (["metrics", "implement", "stage_ready"], False, True, True, timedelta(minutes=10))
 
 
 def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for_its_repository(

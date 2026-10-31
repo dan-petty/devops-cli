@@ -16,9 +16,9 @@
 
 ## 3. The row
 
-- [ ] 3.1 Write failing tests in `tests/roadmap/test_roadmap_run.py` and `tests/roadmap/test_roadmap_implement_submit.py`: the status lane holds `metrics`, `implement` and `stage_ready`, the new row is due on a first run and every 10 minutes, needs no clone, and the due table lists it
+- [x] 3.1 Write failing tests in `tests/roadmap/test_roadmap_stage_ready.py`, `tests/roadmap/test_roadmap_run.py` and `tests/roadmap/test_roadmap_implement_submit.py`: the status lane holds `metrics`, `implement` and `stage_ready`, the new row is due on a first run and every 10 minutes, needs no clone, and the due table lists it
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_run.py tests/roadmap/test_roadmap_implement_submit.py`
-- [ ] 3.2 Add the row `stage_ready` and its runner to `src/devops_cli/roadmap/run.py`, `DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES` to `src/devops_cli/config/defaults.py`, and the keys to `build_stub_table`
+- [x] 3.2 Add the row `stage_ready` and its runner to `src/devops_cli/roadmap/run.py`, `DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES` to `src/devops_cli/config/defaults.py`, and the keys to `build_stub_table`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_run.py tests/roadmap/test_roadmap_implement_submit.py tests/github/test_service_limits.py`
 
 ## 4. The documents
