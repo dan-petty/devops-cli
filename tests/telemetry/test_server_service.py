@@ -142,7 +142,7 @@ def test_webhook_delivery_and_batch_coalescing() -> None:
     received_batches: list[TriggerBatch] = []
     unblocked: list[bool] = []
 
-    def test_job(batch: TriggerBatch) -> None:
+    def service_job(batch: TriggerBatch) -> None:
         if ("poll", "", "") in batch.counts and len(batch.counts) == 1:
             return
         received_batches.append(batch)
@@ -152,7 +152,7 @@ def test_webhook_delivery_and_batch_coalescing() -> None:
         elif ("webhook", "issues", "labeled") in batch.counts:
             job_2_done.set()
 
-    app = create_service_app(jobs={LANE: test_job}, settings=settings, secrets=secrets)
+    app = create_service_app(jobs={LANE: service_job}, settings=settings, secrets=secrets)
 
     with TestClient(app) as client:
         # First delivery: triggers the job

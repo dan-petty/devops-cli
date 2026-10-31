@@ -29,10 +29,10 @@ def test_persona_registry_mapping_and_getattr(tmp_path) -> None:
     assert 123 not in PERSONAS
     assert PERSONAS["devsecops"].name == "devsecops"
 
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="nonexistent"):
         _ = PERSONAS["nonexistent"]
 
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="123"):
         _ = PERSONAS[123]  # type: ignore[index]
 
     # 2. Module __getattr__
@@ -40,7 +40,7 @@ def test_persona_registry_mapping_and_getattr(tmp_path) -> None:
     assert len(personas_mod.ANALYZE_PSEUDOCODE_SYSTEM_PROMPT) > 10
     assert len(personas_mod.ANALYZE_PSEUDOCODE_TASK_PROMPT) > 10
 
-    with pytest.raises(AttributeError):
+    with pytest.raises(AttributeError, match="NON_EXISTENT_PROMPT"):
         _ = getattr(personas_mod, "NON_EXISTENT_PROMPT")
 
     # 3. load_custom_repo_persona

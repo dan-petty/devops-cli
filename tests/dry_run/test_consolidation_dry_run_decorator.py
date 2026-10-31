@@ -69,7 +69,7 @@ def test_dry_run_command_restores_state_on_exception() -> None:
         "devops_cli.dry_run.decorator.render_dry_run_result",
         side_effect=RuntimeError("Render failure"),
     ):
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="Render failure"):
             sample_cmd(dry_run=True)
     assert not is_dry_run(), "is_dry_run() must be restored even if an exception occurs"
 

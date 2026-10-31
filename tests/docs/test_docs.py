@@ -700,7 +700,9 @@ def test_generate_all_docs_raises_on_group_import_failure(
         raise ImportError(f"No module named 'missing_optional_dep' while loading {module_path}")
 
     monkeypatch.setattr(gen_mod, "module_click_command", _failing_loader)
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(
+        RuntimeError, match="missing optional dependency now fails the docs stage, by design"
+    ) as exc_info:
         generator.generate_all_docs(tmp_path)
     msg = str(exc_info.value)
     assert (
@@ -729,7 +731,9 @@ def test_introspect_mcp_tools_raises_on_listing_failure(
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", _failing_import)
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(
+        RuntimeError, match="missing optional dependency now fails the docs stage, by design"
+    ) as exc_info:
         generator.introspect_mcp_tools()
     assert "missing optional dependency now fails the docs stage, by design" in str(exc_info.value)
 

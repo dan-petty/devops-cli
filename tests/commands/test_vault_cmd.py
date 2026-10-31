@@ -105,9 +105,9 @@ def _mock_broker(**attributes: Any) -> MagicMock:
 
 
 def test_validate_vault_path_valid() -> None:
-    _validate_vault_path("secret/data/myapp")
-    _validate_vault_path("vault://secret/data/myapp#token")
-    _validate_vault_path("secret/my-app_1/api-key")
+    assert _validate_vault_path("secret/data/myapp") is None
+    assert _validate_vault_path("vault://secret/data/myapp#token") is None
+    assert _validate_vault_path("secret/my-app_1/api-key") is None
 
 
 def test_validate_vault_path_empty_error() -> None:

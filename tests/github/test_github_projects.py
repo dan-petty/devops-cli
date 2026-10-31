@@ -183,7 +183,7 @@ def test_verify_project_auth_scopes_unrelated_error_ignored(
         ["gh", "project", "list"],
         ProcessAnswer(returncode=1, stderr="error: project not found"),
     )
-    verify_project_auth_scopes()
+    assert verify_project_auth_scopes() is None
 
 
 def test_sync_dry_run_makes_no_request_and_reports_no_board(
