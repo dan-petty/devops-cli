@@ -246,6 +246,7 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "PAGER",
     "LESSOPEN",
     "LESSCLOSE",
+    "LESS",
     "SSH_ASKPASS",
     "SSH_ASKPASS_REQUIRE",
     "SSH_SK_PROVIDER",
@@ -685,6 +686,35 @@ def _child_envs(run: MagicMock) -> list[tuple[list[str], str | None, str | None]
         (call.args[0], call.kwargs["env"].get("GH_TOKEN"), call.kwargs["env"].get("GITHUB_TOKEN"))
         for call in run.call_args_list
     ]
+
+
+def test_build_subprocess_env_refuses_less_override() -> None:
+    """Verify build_subprocess_env raises SecurityError for a caller-provided LESS override."""
+    with pytest.raises(
+        SecurityError, match="Prohibited dangerous environment variable override: 'LESS'"
+    ):
+        build_subprocess_env(env={"LESS": "+!x\n"})
+
+    # Test that it also works without isolation
+    with pytest.raises(
+        SecurityError, match="Prohibited dangerous environment variable override: 'LESS'"
+    ):
+        build_subprocess_env(env={"LESS": "+!x\n"}, isolate_env=False)
+
+
+def test_build_subprocess_env_refuses_lessopen_and_lessclose_override() -> None:
+    """Verify build_subprocess_env still raises SecurityError for LESSOPEN and LESSCLOSE overrides."""
+    # Test LESSOPEN refusal (should already work)
+    with pytest.raises(
+        SecurityError, match="Prohibited dangerous environment variable override: 'LESSOPEN'"
+    ):
+        build_subprocess_env(env={"LESSOPEN": "|x %s"})
+
+    # Test LESSCLOSE refusal (should already work)
+    with pytest.raises(
+        SecurityError, match="Prohibited dangerous environment variable override: 'LESSCLOSE'"
+    ):
+        build_subprocess_env(env={"LESSCLOSE": "|x %s"})
 
 
 @pytest.fixture
