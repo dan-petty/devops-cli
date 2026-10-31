@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 import logging
 from base64 import b64encode
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 from nacl import encoding, public
 from pydantic import BaseModel, Field
@@ -62,10 +66,15 @@ def encrypt_secret(public_key_b64: str, secret_value: str) -> str:
         ) from exc
 
 
+def get_public_key_args(repo: str) -> list[str]:
+    """Arguments for fetching the repository Actions public key."""
+    return ["api", f"repos/{repo}/actions/secrets/public-key"]
+
+
 def get_repository_public_key(repo: str) -> GitHubPublicKey:
     """Fetch the repository public key for Actions secrets encryption."""
     with trace_span("github.secrets.get_public_key", attributes={"repo": repo}):
-        cmd = [CONST_GH_CLI, "api", f"repos/{repo}/actions/secrets/public-key"]
+        cmd = [CONST_GH_CLI, *get_public_key_args(repo)]
         res = run_gh(cmd, check=False, quiet=True)
         if res.returncode != 0 or not res.stdout.strip():
             err_msg = mask_secrets(res.stderr.strip()[:256]) or "Failed to retrieve public key"
@@ -89,10 +98,23 @@ def get_repository_public_key(repo: str) -> GitHubPublicKey:
             ) from exc
 
 
+def list_secrets_args(repo: str) -> list[str]:
+    """Arguments for listing repository Actions secrets."""
+    return ["api", f"repos/{repo}/actions/secrets"]
+
+
+def list_secrets_requests(repo: str) -> list[PlannedRequest]:
+    """Planned requests for listing repository secrets."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    args = list_secrets_args(repo)
+    return [planned_gh(args, f"repos/{repo}/actions/secrets")]
+
+
 def list_repository_secrets(repo: str) -> list[str]:
     """List secret names configured in the repository (values are never exposed by GitHub)."""
     with trace_span("github.secrets.list", attributes={"repo": repo}):
-        cmd = [CONST_GH_CLI, "api", f"repos/{repo}/actions/secrets"]
+        cmd = [CONST_GH_CLI, *list_secrets_args(repo)]
         res = run_gh(cmd, check=False, quiet=True)
         if res.returncode != 0 or not res.stdout.strip():
             logger.debug("Failed to list secrets for repository %s", repo)
@@ -140,6 +162,26 @@ def _resolve_secret_from_source(
     )
 
 
+def upload_secret_args(repo: str, secret_name: str) -> list[str]:
+    """Arguments for uploading an encrypted secret via gh api."""
+    return ["api", "-X", "PUT", f"repos/{repo}/actions/secrets/{secret_name}", "--input", "-"]
+
+
+def sync_secrets_requests(repo: str, secret_names: list[str]) -> list[PlannedRequest]:
+    """Planned requests for synchronizing secrets to repository."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    unique_names = sorted(set(name.strip() for name in secret_names if name.strip()))
+    requests: list[PlannedRequest] = [
+        planned_gh(get_public_key_args(repo), f"repos/{repo}/actions/secrets/public-key")
+    ]
+    for name in unique_names:
+        args = upload_secret_args(repo, name)
+        payload = json.dumps({"encrypted_value": "<encrypted_secret>", "key_id": "<key_id>"})
+        requests.append(planned_gh(args, f"repos/{repo}/actions/secrets/{name}", stdin=payload))
+    return requests
+
+
 def _upload_encrypted_secret(
     repo: str,
     secret_name: str,
@@ -147,15 +189,7 @@ def _upload_encrypted_secret(
     key_id: str,
 ) -> bool:
     """Upload encrypted secret to GitHub Actions repository secrets via gh CLI."""
-    cmd = [
-        CONST_GH_CLI,
-        "api",
-        "-X",
-        "PUT",
-        f"repos/{repo}/actions/secrets/{secret_name}",
-        "--input",
-        "-",
-    ]
+    cmd = [CONST_GH_CLI, *upload_secret_args(repo, secret_name)]
     payload = json.dumps({"encrypted_value": encrypted_value, "key_id": key_id})
     res = run_gh(cmd, input=payload, check=False, quiet=True)
     if res.returncode != 0:

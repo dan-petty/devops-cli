@@ -1080,6 +1080,7 @@ Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_runs_list`
 

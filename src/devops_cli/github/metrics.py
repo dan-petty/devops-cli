@@ -19,7 +19,10 @@ import subprocess
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 from pydantic import BaseModel, Field
 
@@ -670,6 +673,44 @@ def collect_project_metrics_report(
         taxonomy_labels=taxonomy_labels,
         traffic=traffic,
     )
+
+
+def project_metrics_requests(
+    repo: str,
+    ci_limit: int = 50,
+) -> list[PlannedRequest]:
+    """Planned requests for collecting project velocity metrics."""
+    from devops_cli.roadmap.request_plan import StoreRequests, planned_gh
+
+    requests: list[PlannedRequest] = []
+    requests.extend(StoreRequests(repo).every_issue())
+    requests.append(
+        planned_gh(
+            ["api", f"repos/{repo}/actions/runs?per_page={min(ci_limit, 100)}"],
+            f"repos/{repo}/actions/runs",
+        )
+    )
+    requests.append(
+        planned_gh(
+            ["api", f"repos/{repo}/milestones?state=all&per_page=100"],
+            f"repos/{repo}/milestones",
+        )
+    )
+    requests.append(
+        planned_gh(
+            ["api", f"repos/{repo}/issues?state=open&per_page=100", "--paginate"],
+            f"repos/{repo}/issues",
+        )
+    )
+    requests.append(planned_gh(["api", f"repos/{repo}"], f"repos/{repo}"))
+    for endpoint in ("views", "clones", "popular/referrers", "popular/paths"):
+        requests.append(
+            planned_gh(
+                ["api", f"repos/{repo}/traffic/{endpoint}"],
+                f"repos/{repo}/traffic/{endpoint}",
+            )
+        )
+    return requests
 
 
 _sent_item_series: set[tuple[tuple[str, str], ...]] = set()

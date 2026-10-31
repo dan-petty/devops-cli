@@ -15,7 +15,6 @@ from devops_cli.github.branch_protection import (
     BranchProtectionAuditFinding,
     BranchProtectionAuditResult,
     BranchProtectionPolicy,
-    BranchProtectionSyncResult,
     ReviewsPolicy,
     StatusChecksPolicy,
     audit_branch_protection,
@@ -383,20 +382,16 @@ def test_cli_branch_protection_audit_drift_warning(
     assert "drift detected" in res.stdout.lower()
 
 
-@patch("devops_cli.commands.gh.sync_branch_protection")
 @patch("devops_cli.commands.gh.load_branch_protection_policies")
-def test_cli_branch_protection_sync_dry_run(mock_load: MagicMock, mock_sync: MagicMock) -> None:
+def test_cli_branch_protection_sync_dry_run(mock_load: MagicMock) -> None:
     mock_load.return_value = [BranchProtectionPolicy(branch="main")]
-    mock_sync.return_value = BranchProtectionSyncResult(
-        synced_branches=["main"], skipped_branches=[], failed_branches=[], dry_run=True
-    )
     res = runner.invoke(
         app,
         ["branch-protection", "sync", "--repo", "dan-petty/devops-cli", "--dry-run"],
     )
     assert res.exit_code == 0
-    assert "DRY RUN" in res.stdout
-    assert "1 synced" in res.stdout
+    assert "Plan for synchronizing branch protection (dan-petty/devops-cli)" in res.stdout
+    assert "gh api -X PUT repos/dan-petty/devops-cli/branches/main/protection" in res.stdout
 
 
 def test_cli_branch_protection_help_mentions_classic_and_rulesets() -> None:
