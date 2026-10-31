@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,3 +76,5 @@ class ModelChaosReport(BaseModel):
     results: list[ChaosFaultResult] = Field(default_factory=list)
     all_passed: bool = True
     duration_seconds: float = 0.0
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = Field(default_factory=list)
