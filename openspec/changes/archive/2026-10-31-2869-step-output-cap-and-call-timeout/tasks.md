@@ -9,7 +9,7 @@
 
 ## 2. The stop for a capped reply
 
-- [x] Write failing tests in the same file: a text reply with the finish reason `length` stops the step with a reason that holds the cap, with one request and a reset checkout; a tool call with arguments that are not whole and the finish reason `length` stops it the same way; a `write_file` call of about 12,000 tokens passes; the cut call does not run, and the request counts in the outcome.
+- [x] Write failing tests in the same file: a text reply with the finish reason `length` stops the step with a reason that holds the cap, with one request and a reset checkout; a tool call with arguments that are not whole and the finish reason `length` stops it the same way; a `write_file` call of three quarters of a small cap passes; the cut call does not run, and the request counts in the outcome; a call that keeps streaming ends at the deadline; the error of a capped reply is a `DevOpsCLIError` with the code `OUTPUT_CAP_REACHED`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_output_cap.py`
 - [x] Add `src/devops_cli/roadmap/implement_output_cap.py`, a hook that raises `OutputCapReached` on the finish reason `length`, add it to `build_agent`, and count the cut reply in `_run_turn`. Add the text of the reason to `src/devops_cli/lang/en/messages.py`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_output_cap.py tests/roadmap/test_roadmap_implement_step.py`
