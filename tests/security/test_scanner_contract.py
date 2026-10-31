@@ -35,6 +35,8 @@ from devops_cli.security.registry import ScannerRegistry
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.tool_executor import DirectToolExecutor, ToolRequest
 from devops_cli.tools_lock import load_tools_lock
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 from tests.support.fakes.scanners import ScannerFake, ScannerRun
 from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer
 from tests.support.paths import FIXTURES, REPO_ROOT
@@ -153,10 +155,11 @@ def test_every_scanner_of_the_registry_has_a_pinned_program() -> None:
 
 
 def test_the_fake_finds_and_answers_only_the_recorded_scanners(
-    scanner_fake: ScannerFake, tmp_path: Path
+    scanner_fake: ScannerFake, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """`shutil.which` finds each recorded scanner under `bin_dir`, the default executor hands a
     request for a recorded scanner to the fake, and it starts any other tool, such as git."""
+    git_fake.answer(lambda c: True, ProcessAnswer(stdout="git version 2.43.0\n"))
     tree = (tmp_path / "tree").resolve()
     tree.mkdir()
     gitleaks = ToolRequest(tool="gitleaks", arguments=("version",), workdir=tree, targets=(tree,))

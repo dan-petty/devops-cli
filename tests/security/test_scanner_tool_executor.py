@@ -38,11 +38,33 @@ from devops_cli.security.tool_executor import (
     ToolRequest,
 )
 from devops_cli.security.trivy import run_trivy_scan
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
 
 _RULES = "rules:\n  - id: any\n    languages: [python]\n    severity: ERROR\n    message: m\n    pattern: eval(...)\n"
 _MANIFEST = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n"
+
+
+def _handle_rev_parse(call: ProcessCall) -> ProcessAnswer:
+    if any("broken" in arg for arg in call.argv) or (call.cwd and "broken" in str(call.cwd)):
+        return ProcessAnswer(returncode=128, stderr="fatal: detected dubious ownership\n")
+    return ProcessAnswer(stdout="0123456789abcdef0123456789abcdef01234567\n")
+
+
+@pytest.fixture(autouse=True)
+def _answer_scanner_tool_git(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        _handle_rev_parse,
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        ProcessAnswer(stdout=""),
+    )
+
+
 _GITLEAKS_REPORT = (
     '[{"RuleID": "generic-api-key", "Description": "key", "File": "app.py", "StartLine": 1}]'
 )
@@ -171,11 +193,11 @@ def test_a_request_names_the_command_the_tree_the_directory_and_the_time_of_the_
 
 
 def test_the_tree_of_a_request_is_the_checkout_that_holds_the_targets(
-    scanner_tree: Path, tool_executor_fake: ToolExecutorFake, git: Callable[..., None]
+    scanner_tree: Path, tool_executor_fake: ToolExecutorFake
 ) -> None:
     """The commit of a run is the commit of the checkout, so the tree is the checkout and not the
     directory of the file."""
-    git(scanner_tree, "init", "--quiet")
+    (scanner_tree / ".git").mkdir(parents=True, exist_ok=True)
     (scanner_tree / "src").mkdir()
     target = scanner_tree / "src" / "lib.py"
     target.write_text("x = 1\n", encoding="utf-8")
@@ -569,11 +591,10 @@ def test_a_request_names_a_relative_target_by_its_absolute_path(
     scanner_tree: Path,
     tool_executor_fake: ToolExecutorFake,
     monkeypatch: pytest.MonkeyPatch,
-    git: Callable[..., None],
 ) -> None:
     """The executor reads a target against the tree. A relative target is a path from the current
     directory, which is not the tree."""
-    git(scanner_tree, "init", "--quiet")
+    (scanner_tree / ".git").mkdir(parents=True, exist_ok=True)
     (scanner_tree / "sub").mkdir()
     (scanner_tree / "sub" / "b.py").write_text("x = 1\n", encoding="utf-8")
     monkeypatch.chdir(scanner_tree / "sub")

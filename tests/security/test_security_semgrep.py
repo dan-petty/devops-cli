@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -28,6 +27,8 @@ from devops_cli.security.semgrep import (
 )
 from devops_cli.security.semgrep_registry import cached_ruleset
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import (
@@ -207,6 +208,26 @@ _REVIEWED_FILES = [f"pkg{index % 9}/mod_{index}.py" for index in range(333)]
 _REVIEWED_SOURCE = "import json\n\nvalue = json.loads('1')\n"
 
 
+def _handle_semgrep_ls_files(call: ProcessCall) -> ProcessAnswer:
+    return ProcessAnswer(stdout="\0".join(_REVIEWED_FILES) + "\0")
+
+
+@pytest.fixture(autouse=True)
+def _answer_semgrep_git(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        ProcessAnswer(stdout="0123456789abcdef0123456789abcdef01234567\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        ProcessAnswer(stdout=""),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        _handle_semgrep_ls_files,
+    )
+
+
 @pytest.fixture(scope="module")
 def checkout_of_333_files(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A checkout holding the 333 files; the scans only read it, so the tests share it."""
@@ -214,7 +235,7 @@ def checkout_of_333_files(tmp_path_factory: pytest.TempPathFactory) -> Path:
     for name in _REVIEWED_FILES:
         (tree / name).parent.mkdir(parents=True, exist_ok=True)
         (tree / name).write_text(_REVIEWED_SOURCE, encoding="utf-8")
-    subprocess.run(["git", "init", "--quiet", str(tree)], check=True, capture_output=True)
+    (tree / ".git").mkdir(parents=True, exist_ok=True)
     return tree
 
 
