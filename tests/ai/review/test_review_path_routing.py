@@ -38,9 +38,11 @@ from tests.support.fakes.github import (
     route_merge_base,
     route_pull_request,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 
 if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
     from tests.support.fakes.github import GitHubApiFake
 
 _ROUTED = (
@@ -72,6 +74,135 @@ def _write(root: Path, paths: tuple[str, ...]) -> None:
     for rel in paths:
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(_TEXT[rel], encoding="utf-8")
+
+
+class _RoutingGit:
+    def __init__(self, root: Path, git_fake: GitFake) -> None:
+        self.root = root.resolve()
+        self.git_fake = git_fake
+        self.branches: dict[str, str] = {"main": "1" * 40}
+        self.current_branch: str = "main"
+        self.changed_files: tuple[str, ...] = ()
+        self.commits: dict[str, set[str]] = {}
+        (self.root / ".git").mkdir(parents=True, exist_ok=True)
+
+    def run_cmd(self, *args: str) -> None:
+        cmd = list(args)
+        if not cmd:
+            return
+        if cmd[0] == "init":
+            branch = cmd[cmd.index("-b") + 1] if "-b" in cmd else "main"
+            self.current_branch = branch
+            self.branches[branch] = "1" * 40
+        elif cmd[0] in ("switch", "checkout"):
+            branch = cmd[-1]
+            self.current_branch = branch
+            self.branches[branch] = "2" * 40
+        elif cmd[0] == "commit":
+            sha = self.branches.get(self.current_branch, "1" * 40)
+            files = {
+                p.relative_to(self.root).as_posix()
+                for p in self.root.rglob("*")
+                if p.is_file() and not p.is_relative_to(self.root / ".git")
+            }
+            self.commits[sha] = files
+            self.changed_files = tuple(f for f in sorted(files) if f != "README.md")
+
+    def _handle_rev_parse(self, argv: tuple[str, ...]) -> ProcessAnswer:
+        if "--abbrev-ref" in argv:
+            return ProcessAnswer(stdout=self.current_branch + "\n")
+        if "--show-toplevel" in argv:
+            return ProcessAnswer(stdout=str(self.root) + "\n")
+        if "--verify" in argv:
+            ref = argv[-1].replace("refs/heads/", "")
+            if ref in self.branches:
+                return ProcessAnswer(stdout=self.branches[ref] + "\n")
+            return ProcessAnswer(returncode=1)
+        return ProcessAnswer(stdout="2" * 40 + "\n")
+
+    def _handle_diff(self, argv: tuple[str, ...]) -> ProcessAnswer:
+        if "-z" in argv:
+            status_z = "".join(f"A\0{rel}\0" for rel in self.changed_files)
+            return ProcessAnswer(stdout=status_z)
+        if "HEAD" in argv:
+            return ProcessAnswer(stdout="")
+        return ProcessAnswer(stdout=_diff(self.changed_files))
+
+    def _handle_ls_files(self, argv: tuple[str, ...]) -> ProcessAnswer:
+        files = [
+            p.relative_to(self.root).as_posix()
+            for p in sorted(self.root.rglob("*"))
+            if p.is_file() and not p.is_relative_to(self.root / ".git")
+        ]
+        delim = "\0" if "-z" in argv else "\n"
+        return ProcessAnswer(stdout=delim.join(files) + delim)
+
+    def _handle_ls_tree(self, argv: tuple[str, ...]) -> ProcessAnswer:
+        rev = argv[argv.index("--") - 1]
+        rel_path = argv[-1]
+        sha = self.branches.get(rev, rev)
+        snapshot = self.commits.get(sha, set())
+        if rel_path in snapshot:
+            return ProcessAnswer(stdout=f"100644 blob abcdef\t{rel_path}\0")
+        return ProcessAnswer(stdout="")
+
+    def _handle_cat_file(self, argv: tuple[str, ...]) -> ProcessAnswer:
+        rel = (
+            argv[-1]
+            if not argv[-1].startswith("-")
+            else self.changed_files[0]
+            if self.changed_files
+            else ""
+        )
+        return ProcessAnswer(stdout=_TEXT.get(rel, ""))
+
+    def _handle_misc(self, argv: tuple[str, ...]) -> ProcessAnswer | None:
+        if "check-ignore" in argv:
+            return ProcessAnswer(returncode=1)
+        if "status" in argv:
+            return ProcessAnswer(stdout="")
+        if "log" in argv:
+            return ProcessAnswer(stdout="2026-01-01T00:00:00+00:00\n")
+        if "for-each-ref" in argv:
+            return ProcessAnswer(stdout="\n".join(self.branches.keys()) + "\n")
+        if "merge-base" in argv:
+            return ProcessAnswer(stdout="1" * 40 + "\n")
+        return None
+
+    def handle_call(self, call: ProcessCall) -> ProcessAnswer:
+        argv = call.argv
+        if misc := self._handle_misc(argv):
+            return misc
+        if "rev-parse" in argv:
+            return self._handle_rev_parse(argv)
+        if "diff" in argv:
+            return self._handle_diff(argv)
+        if "ls-files" in argv:
+            return self._handle_ls_files(argv)
+        if "ls-tree" in argv:
+            return self._handle_ls_tree(argv)
+        if "cat-file" in argv:
+            return self._handle_cat_file(argv)
+        return ProcessAnswer()
+
+
+@pytest.fixture
+def git(git_fake: GitFake) -> Callable[..., None]:
+    state_by_root: dict[Path, _RoutingGit] = {}
+
+    def _get_state(root: Path) -> _RoutingGit:
+        resolved = root.resolve()
+        if resolved not in state_by_root:
+            state = _RoutingGit(root, git_fake)
+            state_by_root[resolved] = state
+            git_fake.answer(lambda _: True, state.handle_call)
+        return state_by_root[resolved]
+
+    def run(repo: Path, *args: str) -> None:
+        state = _get_state(repo)
+        state.run_cmd(*args)
+
+    return run
 
 
 def _project(tmp_path: Path, git: Callable[..., None]) -> Path:

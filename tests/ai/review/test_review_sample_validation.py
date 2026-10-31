@@ -8,12 +8,16 @@ defect corpus. Its problems name what did not work.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
+
+from tests.support.fakes.process import ProcessAnswer
+
+if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
 
 from devops_cli.ai.review.defects import CORPUS_FILES_DIR, CorpusScore, DefectCorpus
 from devops_cli.ai.review.profile import ReviewProfile, report_profile
@@ -26,7 +30,6 @@ from devops_cli.ai.review.samples import (
     SampleCatalog,
     SampleCategory,
     SampleRepository,
-    fetch_sample,
 )
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.commands import review as review_commands
@@ -138,21 +141,17 @@ def test_review_problems(review: CorpusReview | None, expected: list[str]) -> No
 
 
 @pytest.fixture
-def fetched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SampleRepository:
+def fetched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake) -> SampleRepository:
     """One local sample, fetched at its commit into the data directory the commands read."""
-    upstream = tmp_path / "upstream"
-    _write(upstream, {"LICENSE": "MIT License\n", "pkg/take.py": TAKE})
-    git = ["git", "-C", str(upstream), "-c", "user.name=t", "-c", "user.email=t@example.com"]
-    subprocess.run([*git, "init", "--quiet"], check=True)
-    subprocess.run([*git, "add", "."], check=True)
-    subprocess.run([*git, "commit", "--quiet", "-m", "pinned"], check=True)
-    commit = subprocess.run(
-        [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-    ).stdout.strip()
+    commit = "a" * 40
     data = tmp_path / "data"
+    sample_dir = data / "samples" / "demo"
+    sample_dir.mkdir(parents=True)
+    (sample_dir / ".git").mkdir()
+    _write(sample_dir, {"LICENSE": "MIT License\n", "pkg/take.py": TAKE})
+    git_fake.answer(lambda call: "rev-parse" in call.argv, ProcessAnswer(stdout=commit + "\n"))
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(data))
     sample = _sample(tmp_path, commit=commit)
-    assert fetch_sample(sample, data / "samples") == []
     monkeypatch.setattr(
         review_commands, "load_sample_catalog", lambda: SampleCatalog(samples=[sample])
     )

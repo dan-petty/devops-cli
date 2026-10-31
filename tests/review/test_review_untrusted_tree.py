@@ -30,12 +30,14 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings, load_settings, reset_settings_cache
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import CACHED_RULESET_WORKDIR_NAME
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolRequest
+    from tests.support.fakes.git import GitFake
 
 # The gateway the repository under review names, and the one the user's own config names.
 _PLANTED_GATEWAY = "http://example.com:4000"
@@ -47,12 +49,41 @@ _FETCH_MODULE = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _answer_untrusted_tree_git(git_fake: GitFake) -> None:
+    def _handle_git(call: ProcessCall) -> ProcessAnswer:
+        argv = call.argv
+        if "rev-parse" in argv:
+            if "--show-toplevel" in argv:
+                cwd = call.cwd or Path.cwd()
+                return ProcessAnswer(stdout=str(Path(cwd).resolve()) + "\n")
+            return ProcessAnswer(stdout="1" * 40 + "\n")
+        if "ls-files" in argv:
+            cwd = Path(argv[argv.index("-C") + 1]) if "-C" in argv else (call.cwd or Path.cwd())
+            files = [
+                p.relative_to(cwd).as_posix()
+                for p in sorted(cwd.rglob("*"))
+                if p.is_file() and not p.is_relative_to(cwd / ".git")
+            ]
+            delim = "\0" if "-z" in argv else "\n"
+            return ProcessAnswer(stdout=delim.join(files) + delim)
+        if "diff" in argv:
+            return ProcessAnswer(stdout="")
+        if "status" in argv:
+            return ProcessAnswer(stdout="")
+        if "log" in argv:
+            return ProcessAnswer(stdout="2026-01-01T00:00:00+00:00\n")
+        return ProcessAnswer()
+
+    git_fake.answer(lambda _: True, _handle_git)
+
+
 @pytest.fixture
-def hostile_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
+def hostile_repo(tmp_path: Path) -> Path:
     """A standalone repository under review, holding a module that fetches a caller's URL."""
     repo = tmp_path / "hostile"
     repo.mkdir()
-    git(repo, "init", "--quiet")
+    (repo / ".git").mkdir()
     (repo / "app.py").write_text(_FETCH_MODULE, encoding="utf-8")
     return repo
 
@@ -718,7 +749,7 @@ _OWN_GATEWAY = "http://example.org:4000"
 
 
 @pytest.fixture
-def own_repo(tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch) -> Path:
+def own_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A repository whose checkout holds the running devops-cli's source, as this repository's
     does under an editable install, committing its own project config."""
     repo = tmp_path / "own"
@@ -730,9 +761,7 @@ def own_repo(tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.Monke
     (repo / ".devops" / "config.yaml").write_text(
         f"ai:\n  gateway_url: {_OWN_GATEWAY}\n", encoding="utf-8"
     )
-    git(repo, "init", "--quiet")
-    git(repo, "add", ".")
-    git(repo, "commit", "--quiet", "-m", "first")
+    (repo / ".git").mkdir()
     monkeypatch.setattr("devops_cli.core.repo._own_source_dir", lambda: package.resolve())
     return repo
 
@@ -789,7 +818,6 @@ def test_devops_clis_own_repository_keeps_review_data_in_its_main_worktree_insid
 def test_every_worktree_of_devops_clis_own_repository_is_trusted(
     own_repo: Path,
     tmp_path: Path,
-    git: Callable[..., None],
     user_level: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -800,9 +828,20 @@ def test_every_worktree_of_devops_clis_own_repository_is_trusted(
     from devops_cli.review.session import ReviewSessionStore
 
     linked = tmp_path / "worktrees" / "feature"
-    git(own_repo, "worktree", "add", "--quiet", "-b", "feature", str(linked))
+    linked.mkdir(parents=True)
+    (linked / "src").mkdir(parents=True)
+    linked_gitdir = own_repo / ".git" / "worktrees" / "feature"
+    linked_gitdir.mkdir(parents=True)
+    (linked_gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+    (linked / ".git").write_text(f"gitdir: {linked_gitdir}\n", encoding="utf-8")
+
     nested = own_repo / ".claude" / "worktrees" / "wt"
-    git(own_repo, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    nested.mkdir(parents=True)
+    (nested / "src").mkdir(parents=True)
+    nested_gitdir = own_repo / ".git" / "worktrees" / "wt"
+    nested_gitdir.mkdir(parents=True)
+    (nested_gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+    (nested / ".git").write_text(f"gitdir: {nested_gitdir}\n", encoding="utf-8")
     checkouts = (own_repo, linked, nested / "src")
 
     run_from_main = [is_own_source_repository(checkout) for checkout in checkouts]
@@ -821,7 +860,7 @@ def test_every_worktree_of_devops_clis_own_repository_is_trusted(
 
 
 def test_a_clone_nested_in_devops_clis_own_checkout_is_not_trusted(
-    own_repo: Path, git: Callable[..., None], user_level: Path, monkeypatch: pytest.MonkeyPatch
+    own_repo: Path, user_level: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A clone under the checkout's `repos/` or `.data/samples/` is another repository, with a git
     directory of its own, though the checkout is the top-most root around it. A review started in
@@ -831,7 +870,7 @@ def test_a_clone_nested_in_devops_clis_own_checkout_is_not_trusted(
 
     clone = own_repo / "repos" / "owner" / "tool"
     clone.mkdir(parents=True)
-    git(clone, "init", "--quiet")
+    (clone / ".git").mkdir()
     (clone / "app.py").write_text(_FETCH_MODULE, encoding="utf-8")
     (clone / ".devops").mkdir()
     (clone / ".devops" / "config.yaml").write_text(

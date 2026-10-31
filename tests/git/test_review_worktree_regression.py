@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from devops_cli.ai.analyze.cache import FileAnalysisMeta
 from devops_cli.ai.review.path_classes import (
@@ -28,54 +28,41 @@ from devops_cli.git.worktree import (
 )
 from devops_cli.review.diff import diff_file_names
 from devops_cli.review.report import coverage_section
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
+
+if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
 
 
-def _init_git_repo(repo_dir: Path) -> None:
-    """Initialize a git repo with configured user."""
-    subprocess.run(["git", "init", "-b", "main", str(repo_dir)], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(repo_dir), "config", "user.name", "Test Runner"],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo_dir), "config", "user.email", "runner@example.com"],
-        check=True,
-        capture_output=True,
-    )
-
-
-def test_branch_review_worktree_isolation_regression(tmp_path: Path) -> None:
+def test_branch_review_worktree_isolation_regression(tmp_path: Path, git_fake: GitFake) -> None:
     """In tmp_path repo with base and branch commit changing app.py and uncommitted extra().
 
     Branch review metadata for app.py has commit content_hash and no extra in key_symbols.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
-    _init_git_repo(repo)
+    (repo / ".git").mkdir()
 
-    app_py = repo / "app.py"
-    app_py.write_text("def main():\n    pass\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "add", "app.py"], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-m", "initial"], check=True, capture_output=True
-    )
-
-    subprocess.run(
-        ["git", "-C", str(repo), "checkout", "-b", "feature"], check=True, capture_output=True
-    )
     commit_code = "def compute():\n    return 42\n"
-    app_py.write_text(commit_code, encoding="utf-8")
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-am", "feature commit"],
-        check=True,
-        capture_output=True,
-    )
+    uncommitted_code = "def compute():\n    return 42\n\ndef extra():\n    return 'uncommitted'\n"
+    app_py = repo / "app.py"
+    app_py.write_text(uncommitted_code, encoding="utf-8")
     expected_hash = hashlib.sha256(commit_code.encode("utf-8")).hexdigest()
 
-    # Working tree uncommitted edit: adds extra()
-    uncommitted_code = "def compute():\n    return 42\n\ndef extra():\n    return 'uncommitted'\n"
-    app_py.write_text(uncommitted_code, encoding="utf-8")
+    def _handle_git(call: ProcessCall) -> ProcessAnswer:
+        argv = call.argv
+        if "worktree" in argv and "add" in argv:
+            dest = Path(argv[argv.index("add") + 2])
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / ".git").mkdir(parents=True, exist_ok=True)
+            (dest / "app.py").write_text(commit_code, encoding="utf-8")
+            return ProcessAnswer()
+        if "rev-parse" in argv and "--show-toplevel" in argv:
+            cwd = call.cwd or repo
+            return ProcessAnswer(stdout=str(Path(cwd).resolve()) + "\n")
+        return ProcessAnswer()
+
+    git_fake.answer(lambda _: True, _handle_git)
 
     session_id = "test-iso-regression"
     with review_worktrees_context(
@@ -130,34 +117,15 @@ def test_pre_analysis_cache_reuse_bypassing_mtime(tmp_path: Path) -> None:
     assert (reused.content_hash, reused.key_symbols) == (content_hash, ["add"])
 
 
-def test_deleted_files_and_renames_diff_parsing(tmp_path: Path) -> None:
+def test_deleted_files_and_renames_diff_parsing(tmp_path: Path, git_fake: GitFake) -> None:
     """Git diff change set parsing marks deleted files and keeps old path on renames."""
     repo = tmp_path / "repo_diff"
     repo.mkdir()
-    _init_git_repo(repo)
+    (repo / ".git").mkdir()
 
-    del_file = repo / "to_delete.py"
-    del_file.write_text("print('delete me')\n", encoding="utf-8")
-    ren_file = repo / "old_name.py"
-    ren_file.write_text("print('rename me')\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-m", "init files"], check=True, capture_output=True
-    )
-
-    subprocess.run(
-        ["git", "-C", str(repo), "checkout", "-b", "diff_branch"], check=True, capture_output=True
-    )
-    subprocess.run(["git", "-C", str(repo), "rm", "to_delete.py"], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "mv", "old_name.py", "new_name.py"],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-m", "delete and rename"],
-        check=True,
-        capture_output=True,
+    git_fake.answer(
+        lambda call: "diff" in call.argv,
+        ProcessAnswer(stdout="D\0to_delete.py\0R100\0old_name.py\0new_name.py\0"),
     )
 
     changes = list_changed_files(repo, "main", "diff_branch")
@@ -307,16 +275,21 @@ def test_review_profile_coverage_and_partial_context() -> None:
     assert (profile.coverage, profile.partial_context) == (test_cov, True)
 
 
-def test_git_show_toplevel_resolution(tmp_path: Path) -> None:
+def test_git_show_toplevel_resolution(tmp_path: Path, git_fake: GitFake) -> None:
     """git_show_toplevel resolves repository root from single-file or nested directory."""
     repo = tmp_path / "repo_root_test"
     repo.mkdir()
-    _init_git_repo(repo)
+    (repo / ".git").mkdir()
 
     sub = repo / "sub" / "dir"
     sub.mkdir(parents=True)
     file_path = sub / "test.py"
     file_path.write_text("x = 1\n", encoding="utf-8")
+
+    git_fake.answer(
+        lambda call: "rev-parse" in call.argv and "--show-toplevel" in call.argv,
+        ProcessAnswer(stdout=str(repo.resolve()) + "\n"),
+    )
 
     resolved_from_sub = git_show_toplevel(sub)
     resolved_from_file = git_show_toplevel(file_path)
