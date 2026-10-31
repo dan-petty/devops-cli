@@ -4,6 +4,7 @@ a slot as a histogram by priority and outcome (#815)."""
 from __future__ import annotations
 
 import concurrent.futures
+import threading
 from collections.abc import Iterator
 
 import pytest
@@ -73,9 +74,19 @@ def test_concurrent_slot_leasing_across_threads(clock: ClockFake) -> None:
         "http://example.com:11435",
         "http://example.com:11436",
     ]
+    counter_lock = threading.Lock()
+    limit = len(candidates)
+    barrier = threading.Barrier(limit)
+    entered = 0
 
     def _worker(worker_id: int) -> str:
+        nonlocal entered
         with acquire_ollama_slot(candidates, max_parallel=1, timeout=3.0) as leased_url:
+            with counter_lock:
+                entered += 1
+                wait_at_barrier = entered <= limit
+            if wait_at_barrier:
+                barrier.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             clock.sleep(0.05)
             return str(leased_url)
 
