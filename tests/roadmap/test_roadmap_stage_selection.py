@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.exceptions import ValidationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
@@ -280,11 +281,31 @@ def test_an_item_with_a_recorded_split_waits_for_a_person(store: InMemoryRoadmap
     number = _seed(store)
     item = store.item(number)
     assert item is not None
-    store.set_marks(item, {StageRecordKey.NEEDS_SPLIT: "1. Group (50000 tokens)"})
+    store.set_marks(
+        item,
+        {
+            StageRecordKey.NEEDS_SPLIT: "1. Group (50000 tokens)",
+            StageRecordKey.FILE_CAP: str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS),
+        },
+    )
 
     assert _numbers(_select(store)) == []
     assert "1. Group (50000 tokens)" in _reasons(_select(store))[number]
     assert _numbers(_select(store, item=number)) == [number]
+
+
+def test_a_recorded_split_of_an_earlier_measure_does_not_stop_the_item(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _seed(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {StageRecordKey.NEEDS_SPLIT: "1. Group (50000 tokens)"})
+    store.set_marks(
+        item, {StageRecordKey.FILE_CAP: str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS + 1)}
+    )
+
+    assert _numbers(_select(store)) == [number]
 
 
 def test_the_limit_caps_the_run_by_priority_and_then_by_number(

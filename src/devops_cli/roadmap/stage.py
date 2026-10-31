@@ -17,22 +17,23 @@ It also leaves out an item with the label `needs-split`, an item whose author ha
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
 item whose title gives no branch name, an item whose text looks like a secret, and an item whose
-record holds `stage.needs_split`. A run takes at most `--limit`
+record holds `stage.needs_split` made with the file cap of now (`stage.file_cap`): a stop under
+another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
 Ready.
 
 **Plan.** For each item the job asks the model for one `StageProposal` (`ai.for_task("analysis")`,
 prompt `roadmap_stage_change.md`), measures each task group (`stage_change.measure_groups`) and
-asks once for a split of the groups over `--step-tokens`. A file counts as the implement step
-reads it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens (`step_files.packed_file`,
-#2838). A group still over the budget stops the item (`OverBudget`). The job validates the change with `openspec validate --strict` in a scratch
-directory when the binary is on `PATH`; a failure goes back to the model once, and a second one
-stops the item. A reply the rules refuse (`check_proposal`) takes the same one return. A group that
-changes no file, or has a blank text, fails the schema of the reply, and `chat_structured` sends it
-back once (`_REPLY_RETURNS`). The comment on the item names each changed path that is no file on the default branch and
-that no group creates (`missing_paths`); it never stops the item. The plan
-writes nothing to git or to GitHub. A model call that fails skips its item; rejected credentials
-stop the run.
+asks once for a split of the groups over `--step-tokens`. A group costs what its step reads: the
+files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens
+(`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
+change with `openspec validate --strict` in a scratch directory when the binary is on `PATH`; a
+failure goes back to the model once, and a second one stops the item. A reply the rules refuse
+(`check_proposal`) takes the same one return. A group that changes no file, or has a blank text,
+fails the schema of the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). The
+comment on the item names each changed path that is no file on the default branch and that no group
+creates (`missing_paths`); it never stops the item. The plan writes nothing to git or to GitHub. A
+model call that fails skips its item; rejected credentials stop the run.
 """
 
 from __future__ import annotations
@@ -60,6 +61,7 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
@@ -281,7 +283,8 @@ class _Judge:
 
     def _recorded_split(self, item: Item) -> str | None:
         detail = item.job_record.get(StageRecordKey.NEEDS_SPLIT)
-        if not detail:
+        cap = item.job_record.get(StageRecordKey.FILE_CAP)
+        if not detail or cap != str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS):
             return None
         return MESSAGES.roadmap.stage_left_recorded_split.format(detail=detail, number=item.number)
 
@@ -855,6 +858,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
             StageRecordKey.SHA: sha,
             StageRecordKey.GROUPS: _groups_recorded(change.groups),
             StageRecordKey.NEEDS_SPLIT: None,
+            StageRecordKey.FILE_CAP: None,
         },
     )
     texts = MESSAGES.roadmap
@@ -895,6 +899,7 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
             StageRecordKey.NEEDS_SPLIT: texts.stage_split_record.format(
                 title=worst.group.title, tokens=worst.tokens
             ),
+            StageRecordKey.FILE_CAP: str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS),
             StageRecordKey.GROUPS: _groups_recorded(stopped.groups),
         },
     )

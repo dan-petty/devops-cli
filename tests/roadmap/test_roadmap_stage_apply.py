@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli import exceptions
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.exceptions import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import ended_by_stop
@@ -157,7 +158,8 @@ def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
         item.job_record[StageRecordKey.SHA],
         [g[0] for g in groups],
         item.job_record.get(StageRecordKey.NEEDS_SPLIT),
-    ) == (BRANCH, "5", sha, ["Keep the last comment"], None)
+        item.job_record.get(StageRecordKey.FILE_CAP),
+    ) == (BRANCH, "5", sha, ["Keep the last comment"], None, None)
 
 
 def test_the_comment_names_a_changed_path_that_exists_nowhere_and_the_item_is_staged(
@@ -228,6 +230,7 @@ def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
     item = store.item(1)
     assert item is not None
     assert (item.job_record[StageRecordKey.NEEDS_SPLIT] or "").startswith("Keep the last comment (")
+    assert item.job_record[StageRecordKey.FILE_CAP] == str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS)
     assert StageRecordKey.BRANCH not in item.job_record
     assert _pushed(stage_repo) == ["main"]
     assert github_api.requested == []

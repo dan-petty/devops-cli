@@ -46,13 +46,13 @@ from devops_cli.roadmap.implement_step import (
     StepStatus,
     build_agent,
     build_step_inputs,
-    parse_task_groups,
     run_fix_step,
     run_step,
     shell_environment,
 )
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
     DOCS,

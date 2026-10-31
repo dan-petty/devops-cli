@@ -31,6 +31,7 @@ from devops_cli.roadmap.stage_change import (
 from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import (
+    NO_FILES,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
@@ -237,8 +238,8 @@ def test_a_group_over_the_budget_is_split_once(
     big = make_stage_proposal()
     heavy = heavy_group(stage_repo)
     light = [
-        heavy.model_copy(update={"title": "First half", "reads": []}),
-        heavy.model_copy(update={"title": "Second half", "reads": []}),
+        heavy.model_copy(update={"title": "First half", **NO_FILES}),
+        heavy.model_copy(update={"title": "Second half", **NO_FILES}),
     ]
     model_fake.answer(big.model_copy(update={"groups": [heavy]}), StageSplit(groups=light))
 
@@ -284,7 +285,7 @@ def test_a_corrected_reply_over_the_budget_does_not_ask_for_a_second_split(
     openspec: OpenSpecFake,
 ) -> None:
     heavy = heavy_group(stage_repo)
-    light = heavy.model_copy(update={"title": "Light", "reads": []})
+    light = heavy.model_copy(update={"title": "Light", **NO_FILES})
     openspec.script_sequence(VALIDATE, (1, "ERROR: a requirement has no scenario\n"), VALID)
     model_fake.answer(
         make_stage_proposal(groups=[heavy]),

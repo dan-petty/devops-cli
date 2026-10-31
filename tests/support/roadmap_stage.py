@@ -121,15 +121,25 @@ def seed_stageable(
     )
 
 
+# The update that makes a heavy group light: it reads no file and its tasks name none.
+NO_FILES = {"reads": [], "implementation": "Keep the last comment"}
+
+
 def heavy_group(repo: StageRepo, *, files: int = 4) -> StageGroup:
-    """A task group that reads `files` large Python files of the clone. The step packs each file
-    to the file cap, so the group measures about `files` times that cap: far over a budget of a
-    few thousand tokens when `files` is 4."""
+    """A task group that reads `files` large Python files of the clone and names each one in its
+    implementation task, as the step finds a file to read. The step packs each file to the file
+    cap, so the group measures about `files` times that cap: far over a budget of a few thousand
+    tokens when `files` is 4."""
     names = [f"src/devops_cli/big_{i}.py" for i in range(files)]
     lines = [f"def function_{i}(value):\n    return value + {i}\n" for i in range(1500)]
     for name in names:
         (repo.clone / name).write_text("\n".join(lines), encoding="utf-8")
-    return make_stage_proposal().groups[0].model_copy(update={"reads": names})
+    spans = ", ".join(f"`{name}`" for name in names)
+    return (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"reads": names, "implementation": f"Keep the last comment in {spans}"})
+    )
 
 
 def validate_args(change: str) -> tuple[str, ...]:
