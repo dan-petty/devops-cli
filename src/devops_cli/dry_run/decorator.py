@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import inspect
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, Final, Literal, TypeVar
 
 from devops_cli.dry_run.state import (
     is_dry_run,
@@ -14,6 +14,39 @@ from devops_cli.dry_run.state import (
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+DryRunClass = Literal["request-plan", "no-external-request"]
+CONST_DRY_RUN_CLASSES: Final[tuple[str, ...]] = ("request-plan", "no-external-request")
+
+
+def dry_run_class(classification: DryRunClass) -> Callable[[F], F]:
+    """Attach a dry-run classification to a CLI command callback.
+
+    Args:
+        classification: Either 'request-plan' or 'no-external-request'.
+    """
+    if classification not in CONST_DRY_RUN_CLASSES:
+        raise ValueError(
+            f"Unknown dry_run_class: {classification!r}. Expected one of {CONST_DRY_RUN_CLASSES}"
+        )
+
+    def decorator(fn: F) -> F:
+        setattr(fn, "_dry_run_class", classification)
+        return fn
+
+    return decorator
+
+
+def get_dry_run_class(target: Any) -> str | None:
+    """Resolve the dry-run class from a Click command or callback, unwrapping wrappers."""
+    if hasattr(target, "callback") and target.callback is not None:
+        target = target.callback
+    while target is not None:
+        cls = getattr(target, "_dry_run_class", None)
+        if isinstance(cls, str):
+            return cls
+        target = getattr(target, "__wrapped__", None)
+    return None
 
 
 def dry_run_command(

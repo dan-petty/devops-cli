@@ -346,8 +346,8 @@ def resolve_proxy_dry_run(
 ) -> tuple[bool, list[str] | None]:
     """Resolve a delegated command under dry-run and prepare forwarded arguments.
 
-    Returns (True, forwarded_args) if the leaf command declares --dry-run, or (False, None)
-    if it does not declare --dry-run (so the caller prints the generic preview line).
+    Returns (True, forwarded_args) if the leaf command declares --dry-run or has class
+    'no-external-request', or (False, None) if it does not (so the caller prints the generic preview line).
     Raises ClickException if the command does not resolve or its arguments do not parse.
     """
     is_root_level = cmd_name in CONST_CLI_ROOT_LEVEL_COMMANDS
@@ -359,7 +359,15 @@ def resolve_proxy_dry_run(
     prog_name = "devops" if is_root_level else cmd_name
     leaf_cmd, leaf_ctx, consumed = _walk_to_leaf(top_cmd, prog_name, initial_tokens)
 
-    if not _command_declares_dry_run(leaf_cmd) or leaf_ctx is None:
+    from devops_cli.dry_run.decorator import get_dry_run_class
+
+    cmd_class = get_dry_run_class(leaf_cmd)
+    declares_dry_run = _command_declares_dry_run(leaf_cmd)
+
+    if cmd_class == "no-external-request" and not declares_dry_run:
+        return True, list(args)
+
+    if not declares_dry_run or leaf_ctx is None:
         return False, None
 
     if bool(leaf_ctx.params.get("dry_run", False)):

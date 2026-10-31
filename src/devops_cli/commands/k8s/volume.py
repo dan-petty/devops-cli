@@ -13,7 +13,7 @@ from devops_cli.config.constants import (
     CONST_K8S_VOLUME_RECLAIM_HEADING,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.k8s import (
     VolumeMoveError,
@@ -56,6 +56,7 @@ def _is_interactive() -> bool:
 
 
 @app.command(name="reclaim", help=HELP.k8s.volume_reclaim)
+@dry_run_class("request-plan")
 def volume_reclaim_cmd(
     name: Annotated[str, typer.Argument(help=HELP.k8s.volume_reclaim_name)],
     dry_run: Annotated[
@@ -241,6 +242,7 @@ def _run_or_exit(plan: VolumeMovePlan, context: str | None) -> VolumeMoveResult:
 
 
 @app.command(name="move", help=HELP.k8s.volume_move)
+@dry_run_class("request-plan")
 def volume_move_cmd(
     claim: Annotated[str, typer.Argument(metavar="NAMESPACE/CLAIM", help=HELP.k8s.volume_move_ref)],
     to_node: Annotated[

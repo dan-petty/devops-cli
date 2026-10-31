@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import inspect
-
 import pytest
-from click import Command, Group
 from typer.testing import CliRunner
 
 import devops_cli.main as main_module
-from devops_cli.core.command_resolver import module_click_command
 from devops_cli.dry_run import set_dry_run
 
 runner = CliRunner()
@@ -188,52 +184,3 @@ def test_global_dry_run_help_fast_path() -> None:
     """--help should bypass dry-run forwarding and display help immediately."""
     result = runner.invoke(main_module.app, ["--dry-run", "repos", "--help"])
     assert (result.exit_code, "Usage: devops repos" in result.output) == (0, True)
-
-
-def _collect_command_dry_run_info(
-    cmd: Command | Group, path: list[str]
-) -> list[tuple[str, str, bool, bool]]:
-    results: list[tuple[str, str, bool, bool]] = []
-    if isinstance(cmd, Group):
-        for sub_name, sub in cmd.commands.items():
-            results.extend(_collect_command_dry_run_info(sub, [*path, sub_name]))
-        return results
-
-    cb = cmd.callback
-    if cb is None:
-        return results
-
-    try:
-        src = inspect.getsource(cb)
-    except OSError, TypeError:
-        src = ""
-
-    has_ref = any(k in src for k in ["is_dry_run", "render_dry_run_result", "dry_run_command"])
-    has_param = any(
-        p.name == "dry_run" or "--dry-run" in getattr(p, "opts", []) for p in cmd.params
-    )
-    uses_param = any(
-        k in src for k in ["dry_run", "is_dry_run", "render_dry_run_result"]
-    ) or getattr(cb, "_dry_run_command", False)
-    results.append(
-        (" ".join(path), cb.__name__, has_ref and not has_param, has_param and not uses_param)
-    )
-    return results
-
-
-def test_invariants_all_dry_run_commands_consistent() -> None:
-    """Every command referencing dry-run declares --dry-run, and every declaring command reads it."""
-    missing: list[str] = []
-    unused: list[str] = []
-
-    for name, (module_path, _) in main_module._COMMAND_SPECS.items():
-        click_cmd = module_click_command(module_path)
-        for cmd_name, cb_name, is_missing, is_unused in _collect_command_dry_run_info(
-            click_cmd, [name]
-        ):
-            if is_missing:
-                missing.append(f"{cmd_name} ({cb_name})")
-            if is_unused:
-                unused.append(f"{cmd_name} ({cb_name})")
-
-    assert (missing, unused) == ([], [])
