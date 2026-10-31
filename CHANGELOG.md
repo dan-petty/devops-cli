@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.35.0](https://github.com/dan-petty/devops-cli/compare/v0.34.0...v0.35.0) (2026-10-31)
+
+
+### Features
+
+* **roadmap:** items have one owner label and a claim ends a Job ([#2935](https://github.com/dan-petty/devops-cli/issues/2935)) ([8b7dc4b](https://github.com/dan-petty/devops-cli/commit/8b7dc4bd9ccc25bfd0d734322be3252086c7b2a1)), closes [#2910](https://github.com/dan-petty/devops-cli/issues/2910)
+
+
+### Bug Fixes
+
+* **k8s:** set containerSecurityContext for mattermost ([#2939](https://github.com/dan-petty/devops-cli/issues/2939)) ([5c79314](https://github.com/dan-petty/devops-cli/commit/5c7931479ff6d6d3c0d1f81cf480cf94af9d45a0))
+* **k8s:** specify runAsUser for mattermost-operator ([#2934](https://github.com/dan-petty/devops-cli/issues/2934)) ([fbf7427](https://github.com/dan-petty/devops-cli/commit/fbf74271c158d5f66e59d750a3022d3c2b15e282))
+* **roadmap:** show the cause of a model call stop in the Job comment ([#2938](https://github.com/dan-petty/devops-cli/issues/2938)) ([e988710](https://github.com/dan-petty/devops-cli/commit/e988710f600bbb160be3e1600922c16777bed68b)), closes [#2922](https://github.com/dan-petty/devops-cli/issues/2922)
+
 ## [0.34.0](https://github.com/dan-petty/devops-cli/compare/v0.33.1...v0.34.0) (2026-10-31)
 
 
