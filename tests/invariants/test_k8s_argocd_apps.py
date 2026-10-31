@@ -924,6 +924,15 @@ def test_mattermost_operator_run_as_user() -> None:
     assert pod_sec.get("runAsGroup") == 65532
 
 
+def test_mattermost_container_security_context() -> None:
+    """k8s/mattermost/mattermost.yaml sets containerSecurityContext for restricted PodSecurity (#2937)."""
+    doc = _load_yaml(K8S_DIR / "mattermost" / "mattermost.yaml")
+    pod_template = doc.get("spec", {}).get("podTemplate", {})
+    csc = pod_template.get("containerSecurityContext", {})
+    assert csc.get("allowPrivilegeEscalation") is False
+    assert csc.get("capabilities", {}).get("drop") == ["ALL"]
+
+
 def test_homelab_project_destinations() -> None:
     """AppProject homelab permits destination namespaces needed by Application base and workloads (#2925)."""
     homelab = next(
