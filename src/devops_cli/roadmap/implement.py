@@ -32,6 +32,10 @@ change is ticked. A run takes at most `--limit` items,
 the highest priority first. `--item` takes the one item it names and does not apply the filter or
 the limit.
 
+**Why.** `--why` adds to the plan the open items that the filter does not name, under their own
+heading, each with the family it misses (`StageFilter.mismatch`). `devops roadmap explain` gives the
+reason of one issue for this job and for the stage job (#2911).
+
 **Retry.** A person clears a stop with the comment `implement: retry`, made after the comment
 of the job that told of the stop. Only a comment of the owner, a member or a collaborator counts.
 """

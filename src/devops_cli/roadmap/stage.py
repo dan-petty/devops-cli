@@ -35,6 +35,10 @@ fails the schema of the reply, and `chat_structured` sends it back once (`_REPLY
 comment on the item names each changed path that is no file on the default branch and that no group
 creates (`missing_paths`); it never stops the item. The plan writes nothing to git or to GitHub. A
 model call that fails skips its item; rejected credentials stop the run.
+
+**Why.** `--why` adds to the plan the open items that the filter does not name, under their own
+heading, each with the family it misses (`StageFilter.mismatch`). They are not "left out": no rule
+of the job judged them. `devops roadmap explain` gives the reason of one issue (#2911).
 """
 
 from __future__ import annotations
