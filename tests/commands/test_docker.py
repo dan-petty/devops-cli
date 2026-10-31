@@ -74,7 +74,8 @@ def test_docker_stats_dry_run() -> None:
     try:
         res = runner.invoke(docker_app, ["stats", "--name", "myapp", "--interval", "1.5"])
         assert res.exit_code == 0
-        assert "docker_container_stats" in res.output
+        assert "DOCKER GET /containers/json?name=myapp" in res.output
+        assert "DOCKER GET /containers/<container-id>/stats" in res.output
     finally:
         set_dry_run(False)
 
@@ -150,19 +151,19 @@ def test_docker_client_and_error_branches(
             ["build", str(tmp_path), "--file", str(tmp_path / "Dockerfile"), "--no-cache"],
         )
         assert res_b_dry.exit_code == 0
-        assert "build_docker_image" in res_b_dry.output
+        assert "DOCKER POST /build" in res_b_dry.output
 
         res_p_dry = runner.invoke(docker_app, ["push", "myimage:latest"])
         assert res_p_dry.exit_code == 0
-        assert "push_docker_image" in res_p_dry.output
+        assert "DOCKER POST /images/myimage:latest/push" in res_p_dry.output
 
         res_pr_dry = runner.invoke(docker_app, ["prune"])
         assert res_pr_dry.exit_code == 0
-        assert "prune_docker_resources" in res_pr_dry.output
+        assert "DOCKER POST /containers/prune" in res_pr_dry.output
 
         res_img_dry = runner.invoke(docker_app, ["images"])
         assert res_img_dry.exit_code == 0
-        assert "list_docker_images" in res_img_dry.output
+        assert "DOCKER GET /images/json" in res_img_dry.output
     finally:
         set_dry_run(False)
 
@@ -385,7 +386,7 @@ def test_docker_prune_dry_run_sends_no_requests(docker_engine: Any, docker_clien
         res = runner.invoke(docker_app, ["prune", "--dry-run"])
 
     assert res.exit_code == 0
-    assert "prune_docker_resources" in res.output
+    assert "DOCKER POST /containers/prune" in res.output
     assert docker_client.mock_calls == []
 
 

@@ -598,6 +598,36 @@ def test_uv_preview_flags_injection() -> None:
     assert _prepare_cmd(["git", "status"]) == ["git", "status"]
 
 
+def test_default_process_runner_spawn_sandbox() -> None:
+    """DefaultProcessRunner.spawn_sandbox starts a process in a new session with piped streams."""
+    from devops_cli.core.process import DefaultProcessRunner
+
+    proc = DefaultProcessRunner().spawn_sandbox(["git", "--version"])
+    try:
+        stdout, _ = proc.communicate(timeout=5)
+        assert proc.returncode == 0
+        assert b"git version" in stdout
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_terminate_process_group_custom_os() -> None:
+    """terminate_process_group uses custom os module when passed."""
+    import signal
+    from unittest.mock import MagicMock
+
+    from devops_cli.core.process import terminate_process_group
+
+    mock_os = MagicMock()
+    mock_os.getpid.return_value = 999
+    mock_os.getpgrp.return_value = 100
+    mock_os.getpgid.side_effect = lambda p: 200 if p == 200 else 100
+    assert terminate_process_group(200, os_module=mock_os) is True
+    mock_os.killpg.assert_called_once_with(200, signal.SIGTERM)
+
+
 def test_dry_run_intent_handling() -> None:
     """Under dry run, mutating commands return PlannedProcessResult and do not execute; declared local reads execute."""
     from devops_cli.dry_run import set_dry_run

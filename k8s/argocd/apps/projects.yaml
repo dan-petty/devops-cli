@@ -45,6 +45,10 @@ spec:
       namespace: registry
     - server: https://kubernetes.default.svc
       namespace: mattermost
+    - server: https://kubernetes.default.svc
+      namespace: mattermost-operator
+    - server: https://kubernetes.default.svc
+      namespace: cnpg-system
   orphanedResources:
     warn: true
     ignore:

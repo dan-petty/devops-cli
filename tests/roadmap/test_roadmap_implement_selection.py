@@ -64,14 +64,8 @@ def _reasons(plan: ImplementPlan) -> dict[int, str]:
     return {left.number: left.reason for left in plan.left_out}
 
 
-def test_the_default_filter_names_the_ready_low_effort_p0_and_p1_bugs() -> None:
-    assert DEFAULT_IMPLEMENT_FILTERS == (
-        "status=ready",
-        "priority=p0-critical",
-        "priority=p1-high",
-        "type=bug",
-        "effort=low",
-    )
+def test_the_default_filter_names_the_ready_and_planned_items_of_low_effort() -> None:
+    assert DEFAULT_IMPLEMENT_FILTERS == ("status=ready", "status=planned", "effort=low")
 
 
 def test_a_staged_low_effort_p1_bug_is_selected_with_its_branch_and_pull_request(
@@ -91,8 +85,8 @@ def test_an_item_that_the_filter_does_not_name_is_not_in_the_plan(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:
     seed_staged(store, labels=("type/bug", "effort/high"))
-    seed_staged(store, priority="P3-Low")
-    seed_staged(store, labels=("type/feature", "effort/low"))
+    seed_staged(store, labels=("type/feature", "effort/medium"))
+    seed_staged(store, labels=("type/docs",))
 
     plan = _plan(store, staged_repo)
 
@@ -112,16 +106,53 @@ def test_the_highest_priority_goes_first_and_the_limit_caps_the_run(
     assert [target.item.number for target in plan.selected] == [urgent]
 
 
-def test_an_item_that_is_not_ready_is_left_out_whatever_the_filter_says(
+def test_an_item_that_is_neither_ready_nor_planned_is_left_out_whatever_the_filter_says(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    number = seed_staged(store, status="In Review")
+
+    plan = _plan(store, staged_repo, "status=in-review", "priority=p1-high")
+
+    assert (plan.selected, _reasons(plan)) == (
+        (),
+        {number: "Its Status is In Review, not Ready or Planned."},
+    )
+
+
+def test_a_staged_item_with_the_status_planned_is_selected_by_the_default_filter(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    number = seed_staged(store, status="Planned")
+
+    plan = _plan(store, staged_repo)
+
+    assert [target.item.number for target in plan.selected] == [number]
+
+
+def test_an_item_in_progress_stays_in_the_plan_while_its_record_names_a_job_nobody_reported(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    """The Service sets In Progress when it makes the Job, and the Job plans its own item."""
+    number = seed_staged(store, status="In Progress")
+    held = store.item(number)
+    assert held is not None
+    store.set_marks(held, {ImplementRecordKey.JOB: "devops-cli-runner-1"})
+
+    plan = _plan(store, staged_repo, item=number)
+
+    assert [target.item.number for target in plan.selected] == [number]
+
+
+def test_an_item_in_progress_with_no_job_is_left_out_and_the_reason_names_the_status(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:
     number = seed_staged(store, status="In Progress")
 
-    plan = _plan(store, staged_repo, "status=in-progress", "priority=p1-high")
+    plan = _plan(store, staged_repo, item=number)
 
     assert (plan.selected, _reasons(plan)) == (
         (),
-        {number: "Its Status is In Progress, not Ready."},
+        {number: "Its Status is In Progress, not Ready or Planned."},
     )
 
 

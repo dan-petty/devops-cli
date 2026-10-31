@@ -93,37 +93,6 @@ def _tmpfs_mount_args(path: str, options: str) -> list[str]:
     return [*args, "--tmpfs", path]
 
 
-def _is_mock_subprocess(proc: Any) -> bool:
-    """Check if process object is a mock or non-standard subprocess."""
-    return (
-        type(proc).__module__ != "subprocess"
-        or type(proc).__name__ != "Popen"
-        or hasattr(proc, "_mock_return_value")
-        or not hasattr(proc.stdout, "fileno")
-    )
-
-
-def _communicate_mock(proc: Any, timeout: float) -> _SandboxOutcome:
-    """Communicate with mocked subprocess in test environments."""
-    try:
-        raw_out, raw_err = proc.communicate(timeout=timeout)
-        out_str = (
-            raw_out.decode("utf-8", errors="replace")
-            if isinstance(raw_out, bytes)
-            else (raw_out or "")
-        )
-        err_str = (
-            raw_err.decode("utf-8", errors="replace")
-            if isinstance(raw_err, bytes)
-            else (raw_err or "")
-        )
-        return _SandboxOutcome(proc.returncode, out_str, err_str, None)
-    except subprocess.TimeoutExpired as exc:
-        return _SandboxOutcome(-1, "", "", str(exc), timed_out=True)
-    except Exception as exc:
-        return _SandboxOutcome(-1, "", "", str(exc))
-
-
 def _drain_ready_channel(
     key: selectors.SelectorKey,
     proc: Any,
@@ -252,9 +221,6 @@ def _communicate_bounded(
     max_output_bytes: int,
 ) -> _SandboxOutcome:
     """Stream stdout and stderr with timeout and byte limit, terminating on breach."""
-    if _is_mock_subprocess(proc):
-        return _communicate_mock(proc, timeout)
-
     deadline = time.monotonic() + timeout
     sel = selectors.DefaultSelector()
     stdout_buf = bytearray()
@@ -292,18 +258,14 @@ def _run_sandbox_process(
     RLIMIT_NPROC under bubblewrap and require external cgroup v2 containerization.
     """
     del pids_limit
-    proc: subprocess.Popen[bytes] | None = None
+    proc: Any = None
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
+        from devops_cli.core.process import get_process_runner
+
+        proc = get_process_runner().spawn_sandbox(cmd)
         return _communicate_bounded(proc, timeout, max_output_bytes)
     except Exception as exc:
-        if proc is not None:
+        if proc is not None and hasattr(proc, "pid"):
             _terminate_process_group(proc.pid, signal.SIGKILL)
         return _SandboxOutcome(-1, "", "", f"Subprocess error: {exc}")
 

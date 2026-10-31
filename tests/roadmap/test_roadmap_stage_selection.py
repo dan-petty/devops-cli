@@ -7,6 +7,7 @@ from collections.abc import Callable
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_FILTER
 from devops_cli.exceptions import ValidationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
@@ -37,6 +38,7 @@ def _seed(
     body: str = "",
     author: str = "OWNER",
     state: GitHubState = GitHubState.OPEN,
+    sub_issues: int = 0,
 ) -> int:
     return store.seed_issue(
         title,
@@ -45,6 +47,7 @@ def _seed(
         fields={ItemField.STATUS: status, ItemField.PRIORITY: priority},
         author_association=author,
         state=state,
+        sub_issues=sub_issues,
     )
 
 
@@ -79,17 +82,44 @@ def store() -> InMemoryRoadmapStore:
     return InMemoryRoadmapStore(repo=REPO)
 
 
-def test_the_default_filter_names_the_ready_p0_and_p1_bugs(store: InMemoryRoadmapStore) -> None:
-    ready_p1 = _seed(store)
-    ready_p0 = _seed(store, priority="P0-Critical")
-    _seed(store, priority="P2-Medium")
+def test_the_default_filter_names_every_ready_item(store: InMemoryRoadmapStore) -> None:
+    bug = _seed(store)
+    docs = _seed(store, "docs(k8s): fix a path", priority="P2-Medium", labels=("type/docs",))
+    chore = _seed(store, "chore(deps): bump a tool", priority="P3-Low", labels=("type/chore",))
     _seed(store, status="New")
-    _seed(store, labels=("type/feature",))
+    _seed(store, status="In Progress", priority="P0-Critical")
 
-    selection = _select(store)
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER)
 
-    assert _numbers(selection) == [ready_p0, ready_p1]
+    assert _numbers(selection) == [bug, docs, chore]
     assert selection.left_out == ()
+
+
+def test_a_ready_p0_item_goes_before_a_ready_p3_item_under_the_default_filter(
+    store: InMemoryRoadmapStore,
+) -> None:
+    chore = _seed(store, "chore(deps): bump a tool", priority="P3-Low", labels=("type/chore",))
+    feature = _seed(store, "feat(cli): add a flag", priority="P2-Medium", labels=("type/feature",))
+    docs = _seed(store, "docs(k8s): fix a path", priority="P0-Critical", labels=("type/docs",))
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, limit=2)
+
+    assert _numbers(selection) == [docs, feature]
+    assert chore not in _numbers(selection)
+
+
+def test_a_staged_item_takes_the_type_of_its_title_not_fix(store: InMemoryRoadmapStore) -> None:
+    feature = _seed(store, "feat(cli): add a flag", labels=("type/feature",))
+    docs = _seed(store, "docs(k8s): fix a path", labels=("type/docs",))
+    tests = _seed(store, "test(cli): hold a flag", labels=("type/test",))
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER)
+
+    assert {target.item.number: target.branch for target in selection.selected} == {
+        feature: f"feat/{feature}-add-a-flag",
+        docs: f"docs/{docs}-fix-a-path",
+        tests: f"test/{tests}-hold-a-flag",
+    }
 
 
 def test_values_of_one_family_are_alternatives_and_families_all_apply(
@@ -162,6 +192,23 @@ def test_an_item_that_is_started_or_to_split_is_left_out(
 
     assert selection.selected == ()
     assert reason in _reasons(selection)[number]
+
+
+@pytest.mark.parametrize(
+    ("labels", "sub_issues"),
+    [(("type/epic",), 0), (BUG, 2), (("type/epic",), 3)],
+    ids=["epic-label", "sub-issues", "epic-with-sub-issues"],
+)
+def test_a_tracker_is_left_out_under_the_wide_default_filter(
+    store: InMemoryRoadmapStore, labels: tuple[str, ...], sub_issues: int
+) -> None:
+    tracker = _seed(store, "feat(roadmap): the tracker", labels=labels, sub_issues=sub_issues)
+    plain = _seed(store, "fix(roadmap): a plain bug")
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER)
+
+    assert _numbers(selection) == [plain]
+    assert "tracker" in _reasons(selection)[tracker]
 
 
 def test_an_item_of_an_account_without_write_access_is_left_out(

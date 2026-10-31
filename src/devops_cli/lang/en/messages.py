@@ -1750,6 +1750,13 @@ class ServeMessages:
         "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
         "it does not run again until its input changes."
     )
+    # Ephemeral chat replies for Mattermost /roadmap slash command (#1395). Each string is one line.
+    chat_roadmap_status_round: str = "{repo} [{lane}]: {state}, {pending} pending triggers, last round: {start} to {end} UTC ({result})"
+    chat_roadmap_status_no_round: str = (
+        "{repo} [{lane}]: {state}, {pending} pending triggers, no round yet"
+    )
+    chat_roadmap_unknown_repo: str = "Unknown repository {repo}. Known repositories: {repos}."
+    chat_roadmap_usage: str = "Usage: /roadmap [status [<repo>]]"
 
 
 @dataclass(frozen=True)
@@ -2140,7 +2147,7 @@ class RoadmapMessages:
     # `devops roadmap implement` as a job (#2665): why it leaves an item out, and its plan.
     implement_left_not_item: str = "It is not an item of the roadmap."
     implement_left_closed: str = "It is closed."
-    implement_left_not_ready: str = "Its Status is {status}, not Ready."
+    implement_left_not_ready: str = "Its Status is {status}, not Ready or Planned."
     implement_left_not_staged: str = (
         "It is neither Staged nor Planned: its record holds no staged branch or pull request, "
         "and {branch} holds no change folder for it."
@@ -2310,6 +2317,10 @@ class RoadmapMessages:
     stage_left_needs_split: str = (
         "The item has the label needs-split. Refine proposed a split, and a person makes it first."
     )
+    stage_left_tracker: str = (
+        "The item is a tracker: it has sub-issues or the label type/epic. Its sub-issues deliver "
+        "it, so it gets no plan of its own."
+    )
     stage_left_author: str = (
         "The author's association with the repository is {association}. The model reads the "
         "body, so the stage job takes only the items that the owner, a member or a collaborator "
@@ -2399,6 +2410,7 @@ class RoadmapMessages:
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
+    status_sync_failed: str = "the Status of {count} item(s) could not be set: {items}"
     stage_plain_note: str = (
         "Stage without a mode flag runs as --plan: it reads GitHub and calls the model, and "
         "writes nothing. --dry-run makes no request."

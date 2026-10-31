@@ -1,7 +1,9 @@
 name: Clear Status
 
 # A closed issue is done, so it holds no Status label and no claim (ADR 0016). The workflow removes
-# the `status/*` and `owner/*` labels when an issue closes, by a merge or by a person.
+# the `status/*` and `owner/*` labels when an issue closes, by a merge or by a person. It reads the
+# labels that the issue holds when the job runs, not the labels of the event: the Service may write
+# a label between the close and the job.
 on:
   issues:
     types: [closed]
@@ -22,9 +24,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.issue.number }}
-          LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
         run: |
-          labels="$(jq -r '[.[] | select(startswith("status/") or startswith("owner/"))] | join(",")' <<<"$LABELS")"
+          labels="$(gh issue view "$NUMBER" --json labels \
+            --jq '[.labels[].name | select(startswith("status/") or startswith("owner/"))] | join(",")')"
           if [ -n "$labels" ]; then
             gh issue edit "$NUMBER" --remove-label "$labels"
           fi

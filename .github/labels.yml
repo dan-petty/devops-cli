@@ -238,6 +238,10 @@
   color: "1D76DB"
   description: "Status Ready: problem, acceptance criteria and an answer to each key question"
 
+- name: "status/planned"
+  color: "C2E0C6"
+  description: "Status Planned: the plan is merged and the item waits for its implementation"
+
 - name: "status/in-progress"
   color: "BFDADC"
   description: "Actively being designed or implemented by developer or agent"

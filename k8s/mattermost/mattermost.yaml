@@ -62,6 +62,8 @@ spec:
       value: "false"
     - name: MM_SERVICESETTINGS_ENABLELOCALMODE
       value: "true"
+    - name: MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS
+      value: "roadmap-service.devops.svc.cluster.local"
     - name: MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS
       value: "false"
     - name: MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE

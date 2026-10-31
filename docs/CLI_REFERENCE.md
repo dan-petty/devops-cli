@@ -6515,7 +6515,7 @@ devops roadmap alternatives [OPTIONS]
 
 ### `devops roadmap stage`
 
-**Make Ready items Staged: for each item that a label filter names, make the branch \<type\>/\<issue\>-\<slug\> at the fetched default branch, write the OpenSpec change of the item in task groups that each fit the step budget, make one commit as the identity of the session, push it, and open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The branch keeps the type of the issue. The Status of the item stays Ready, and the job does not mark the pull request ready: the Service does, in its row stage_ready, when all checks of the draft have passed. One comment on the issue names the branch, the pull request and the task groups with their measures. The default filter is status=ready, priority=p0-critical, priority=p1-high and type=bug. The job leaves out an item that is not Ready, an item with the label needs-split, an item that an account without write access opened, an item that depends on an open issue, an item that a pushed branch or a worktree holds, an item whose plan is on the default branch or whose change is archived there, and an item whose text looks like a secret; the plan says why. A task group over the budget goes back to the model once, and a group still over it stops the item. An item whose model call fails is skipped and reported, the others are still staged, and the command then exits 1. Each run also removes the draft and the branch of a closed item when only the identity of the session wrote to them.**
+**Make Ready items Staged: for each item that a label filter names, make the branch \<type\>/\<issue\>-\<slug\> at the fetched default branch, write the OpenSpec change of the item in task groups that each fit the step budget, make one commit as the identity of the session, push it, and open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The branch keeps the type of the issue. The Status of the item stays Ready, and the job does not mark the pull request ready: the Service does, in its row stage_ready, when all checks of the draft have passed. One comment on the issue names the branch, the pull request and the task groups with their measures. The default filter is status=ready: the job takes the Ready items of any type, priority and effort, the highest priority first. The job leaves out an item that is not Ready, an item with the label needs-split, an item that an account without write access opened, an item that depends on an open issue, an item that a pushed branch or a worktree holds, an item whose plan is on the default branch or whose change is archived there, and an item whose text looks like a secret; the plan says why. A task group over the budget goes back to the model once, and a group still over it stops the item. An item whose model call fails is skipped and reported, the others are still staged, and the command then exits 1. Each run also removes the draft and the branch of a closed item when only the identity of the session wrote to them.**
 
 ```bash
 devops roadmap stage [OPTIONS]
@@ -6553,7 +6553,7 @@ devops roadmap run [OPTIONS]
 
 ### `devops roadmap implement`
 
-**Implement a Staged item, in bounded steps. With --group it runs one task group of the change of an item in the checkout --source: the agent is pydantic-ai's Coder on the model of ai.tasks.implement. Its inputs are the item's title, problem and acceptance criteria, the change's proposal, design and tasks, the group, and the files the group names. The command refuses to start when they do not fit the window of the task, or when the checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and mypy, with a scratch home. When the agent returns, the command runs the verification commands of the group and ruff and mypy on the changed Python files, and checks that the agent made no commit, removed or renamed no test that existed at the start of the step, and ticked every task of the group. The command writes the tasks file back to its text before the run and keeps only the ticks of the group, so no edit of that file stops the step. An agent that forgets a tick gets one more turn that asks only for the ticks, and that may change only the tasks file. When every check passes, it commits the checkout as '<group title> (#\<item\>)'. Otherwise it resets the checkout to the commit where the step started, reports the step as stopped with the reason and the masked diff of the work it discarded, and exits 1. It writes nothing to GitHub. Without --group it is the job. It takes each Staged or Planned item that a label filter names (default: status=ready, priority=p0-critical, priority=p1-high, type=bug, effort=low). A Staged item has its staged branch and draft on origin. A Planned item has its change folder on the default branch and no branch: the job makes the branch \<type\>/\<issue\>-\<slug\> there, with the slug of the folder, and opens the draft when the branch first holds a commit. The job rebases the branch, runs a step for each task group that has an unticked task, regenerates the documentation, archives the change, pushes, sets the title and the body of the pull request (the title of the issue, and a body that closes it), watches the checks, runs one fix step for a failed check, and marks the pull request ready. A step that fails stops the item: the job comments why and shows the masked diff of the discarded work, sets the Status to Ready, and runs the item again only after a comment 'implement: retry'. The job leaves out an item that an agent or a person claimed with a label owner/agent or owner/human. When one claims an item that a running job works on, the job ends it at the next group boundary, with no push and no pull request. The job never merges. --confirm runs steps only when the setting roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell of the agent is no security boundary.**
+**Implement a Staged item, in bounded steps. With --group it runs one task group of the change of an item in the checkout --source: the agent is pydantic-ai's Coder on the model of ai.tasks.implement. Its inputs are the item's title, problem and acceptance criteria, the change's proposal, design and tasks, the group, and the files the group names. The command refuses to start when they do not fit the window of the task, or when the checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and mypy, with a scratch home. When the agent returns, the command runs the verification commands of the group and ruff and mypy on the changed Python files, and checks that the agent made no commit, removed or renamed no test that existed at the start of the step, and ticked every task of the group. The command writes the tasks file back to its text before the run and keeps only the ticks of the group, so no edit of that file stops the step. An agent that forgets a tick gets one more turn that asks only for the ticks, and that may change only the tasks file. When every check passes, it commits the checkout as '<group title> (#\<item\>)'. Otherwise it resets the checkout to the commit where the step started, reports the step as stopped with the reason and the masked diff of the work it discarded, and exits 1. It writes nothing to GitHub. Without --group it is the job. It takes each Staged or Planned item that a label filter names (default: status=ready, status=planned, effort=low). A Staged item has its staged branch and draft on origin. A Planned item has its change folder on the default branch and no branch: the job makes the branch \<type\>/\<issue\>-\<slug\> there, with the slug of the folder, and opens the draft when the branch first holds a commit. The job rebases the branch, runs a step for each task group that has an unticked task, regenerates the documentation, archives the change, pushes, sets the title and the body of the pull request (the title of the issue, and a body that closes it), watches the checks, runs one fix step for a failed check, and marks the pull request ready. A step that fails stops the item: the job comments why and shows the masked diff of the discarded work, sets the Status to Ready, and runs the item again only after a comment 'implement: retry'. The job leaves out an item that an agent or a person claimed with a label owner/agent or owner/human. When one claims an item that a running job works on, the job ends it at the next group boundary, with no push and no pull request. The job never merges. --confirm runs steps only when the setting roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell of the agent is no security boundary.**
 
 ```bash
 devops roadmap implement [OPTIONS]
@@ -8909,6 +8909,7 @@ devops cloudflare status [OPTIONS]
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops cloudflare service-status`
 
@@ -8925,6 +8926,7 @@ devops cloudflare service-status [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops cloudflare dns`
 
@@ -8949,6 +8951,7 @@ devops cloudflare dns list [OPTIONS]
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output DNS records in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops cloudflare dns sync`
 
@@ -8966,7 +8969,7 @@ devops cloudflare dns sync [OPTIONS]
 | `--tunnel-cname`, `-c` | `string` | - | Target tunnel CNAME or Tunnel UUID |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
-| `--dry-run` | `boolean` | - | Preview DNS record reconciliation without applying changes |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output reconciliation summary in JSON format |
 
@@ -8991,7 +8994,7 @@ devops cloudflare dns delete [OPTIONS] <targets>
 | `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
 | `--force`, `-f` | `boolean` | - | Force deletion of records not marked as 'Managed by devops-cli' |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
-| `--dry-run` | `boolean` | - | Preview DNS record deletions without applying changes |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output deletion results in JSON format |
 
@@ -9017,6 +9020,7 @@ devops cloudflare tunnel routes [OPTIONS]
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output tunnel ingress routes in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops cloudflare tunnel sync`
 
@@ -9035,7 +9039,7 @@ devops cloudflare tunnel sync [OPTIONS]
 | `--service` | `string` | `http://traefik.kube-system.svc.cluster.local:80` | Cluster ingress destination service URL |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
-| `--dry-run` | `boolean` | - | Preview tunnel configuration without updating |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output updated tunnel configuration in JSON format |
 
@@ -9060,6 +9064,7 @@ devops cloudflare access status [OPTIONS]
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output access applications in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops cloudflare access sync`
 
@@ -9077,7 +9082,7 @@ devops cloudflare access sync [OPTIONS]
 | `--allowed-emails`, `-e` | `string` | - | Comma-separated emails permitted to access |
 | `--bypass-ips`, `-b` | `string` | - | Comma-separated public IP addresses or CIDRs to bypass Access authentication (e.g. homelab public IP) |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
-| `--dry-run` | `boolean` | - | Preview Access application changes without applying |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output Access sync summary in JSON format |
 
@@ -9102,6 +9107,7 @@ devops cloudflare access policies [OPTIONS] <app_id>
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output policies in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -9682,6 +9688,7 @@ devops sandbox status [OPTIONS] <instance_id>
 | `--all`, `-a` | `boolean` | - | Apply operation across all registered sandbox instances. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops sandbox stop`
 
@@ -9725,6 +9732,7 @@ devops sandbox exec [OPTIONS] <instance_id> <command>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workdir`, `-w` | `string` | - | Working directory inside the container for command execution. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops sandbox probe`
 
@@ -9853,6 +9861,7 @@ devops sandbox network-policy [OPTIONS]
 | `--public-whitelist` | `string` | - | Comma-separated public destinations allowed for egress, each opening one TCP port: scheme://host:port, host:port or [v6]:port. A bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
 | `--local-whitelist` | `string` | - | Comma-separated local or private destinations allowed for egress, with the same forms and ports as --public-whitelist: scheme://host:port, host:port or [v6]:port; a bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
 | `--allow-collector` | `boolean` | - | Add one egress rule to the OTel collector's pods in the otel namespace on TCP 4317 and 4318 (sandbox_namespace, public_whitelist and local_whitelist modes) |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

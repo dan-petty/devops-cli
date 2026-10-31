@@ -20,10 +20,10 @@ from kubernetes.client.rest import ApiException
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement import plan_implement
+from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
-from devops_cli.roadmap.store import ImplementRecordKey, ItemField
+from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.kubernetes import FakeCluster, pod
 from tests.support.paths import REPO_ROOT
@@ -86,6 +86,12 @@ def _creates(kube: FakeCluster) -> list[dict[str, Any]]:
         for call in kube.custom_objects.calls
         if call[0] == "create_namespaced_custom_object"
     ]
+
+
+def _held(store: InMemoryRoadmapStore, number: int = 1) -> Item:
+    item = store.item(number)
+    assert item is not None
+    return item
 
 
 def _record(store: InMemoryRoadmapStore, number: int = 1) -> dict[str, str | None]:
@@ -300,6 +306,45 @@ def test_a_job_that_ended_and_left_the_item_ready_and_unstopped_stops_it_too(
         "job",
         1,
     )
+
+
+def test_the_round_sets_in_progress_for_the_item_of_the_job_it_makes(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The label shows the Job as soon as the record names it, and the Job finds its own item."""
+    number = seed_staged(store)
+    store.set_field(_held(store, number), ItemField.STATUS, "Ready")
+
+    _round(store, staged_repo)
+
+    plan = plan_implement(
+        store,
+        repo=STAGE_REPO,
+        source=staged_repo.clone,
+        filters=parse_implement_filters(()),
+        item_number=number,
+    )
+    assert (_held(store, number).status, [t.item.number for t in plan.selected]) == (
+        "In Progress",
+        [number],
+    )
+
+
+def test_a_job_that_ended_and_left_the_item_planned_and_unstopped_stops_it_too(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store, status="Planned")
+    merge_plan(stage_repo, number)
+    _round(store, stage_repo)
+    _end(kube, "Complete")
+
+    _round(store, stage_repo)
+
+    assert (
+        _record(store, number)["implement.stopped"],
+        _record(store, number)["implement.job_state"],
+        len(_creates(kube)),
+    ) == ("job", "succeeded", 1)
 
 
 def test_a_job_that_no_longer_exists_is_recorded_gone_and_stops_the_item(

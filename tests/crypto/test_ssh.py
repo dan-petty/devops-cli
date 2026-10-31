@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import os
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -11,6 +11,8 @@ from typing import Any
 
 import pytest
 
+from devops_cli.config.commands import BIN_GIT
+from devops_cli.core.process import run_subprocess
 from devops_cli.crypto.ssh_keys import (
     find_newest_key,
     generate_ed25519_key,
@@ -19,7 +21,54 @@ from devops_cli.crypto.ssh_keys import (
     parse_key_date,
 )
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
+
+
+def _get_ssh_config_file(args: list[str], repo_dir: Path | None) -> Path:
+    if "--local" in args and repo_dir:
+        return repo_dir / ".git" / "config"
+    return Path(os.environ.get("GIT_CONFIG_GLOBAL", "/dev/null"))
+
+
+def _read_ssh_config_key(cfg_file: Path, key: str) -> ProcessAnswer:
+    if not cfg_file.exists():
+        return ProcessAnswer(returncode=1)
+    for line in cfg_file.read_text(encoding="utf-8").splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            if k.strip().lower() == key.strip().lower():
+                return ProcessAnswer(stdout=v.strip() + "\n", returncode=0)
+    return ProcessAnswer(returncode=1)
+
+
+def _handle_ssh_git_config(call: ProcessCall) -> ProcessAnswer:
+    args = list(call.argv[1:])
+    repo_dir = None
+    if len(args) >= 2 and args[0] == "-C":
+        repo_dir = Path(args[1])
+        args = args[2:]
+    if args and args[0] == "config":
+        args = args[1:]
+    cfg_file = _get_ssh_config_file(args, repo_dir)
+    cfg_file.parent.mkdir(parents=True, exist_ok=True)
+    clean_args = [a for a in args if a not in ("--global", "--local")]
+
+    if "--get" in clean_args:
+        idx = clean_args.index("--get")
+        return _read_ssh_config_key(cfg_file, clean_args[idx + 1])
+
+    if len(clean_args) == 2 and not clean_args[0].startswith("-"):
+        with open(cfg_file, "a", encoding="utf-8") as f:
+            f.write(f"\t{clean_args[0]} = {clean_args[1]}\n")
+    return ProcessAnswer(returncode=0)
+
+
+@pytest.fixture(autouse=True)
+def _answer_ssh_git(git_fake: GitFake) -> None:
+    git_fake.answer(["git", "config"], _handle_ssh_git_config)
+    git_fake.answer(["git", "-C"], _handle_ssh_git_config)
 
 
 def test_generate_creates_key_pair(tmp_path: Path) -> None:
@@ -895,24 +944,21 @@ def test_status_of_a_project_with_no_key_names_the_prefix_and_points_to_generate
 
 
 def test_git_signing_points_the_global_config_and_a_repository_at_the_key(
-    tmp_path: Path, git: Callable[..., None], global_git_config: Path
+    tmp_path: Path, global_git_config: Path
 ) -> None:
     """`configure_git_signing` sets SSH commit signing with the key in the global git config and
     in the local config of the repository it is given."""
     from devops_cli.crypto.ssh_keys import configure_git_signing
 
     repo = tmp_path / "repo"
-    repo.mkdir()
-    git(repo, "init", "-q")
+    (repo / ".git").mkdir(parents=True)
     key = tmp_path / "devops-cli-id_ed25519-20260901"
 
     configure_git_signing(key, repo)
 
     def read(*where: str) -> list[str]:
         return [
-            subprocess.run(
-                ["git", *where, "--get", name], capture_output=True, text=True, check=False
-            ).stdout.strip()
+            run_subprocess([BIN_GIT, *where, "--get", name], quiet=True).stdout.strip()
             for name in ("gpg.format", "user.signingkey", "commit.gpgsign")
         ]
 

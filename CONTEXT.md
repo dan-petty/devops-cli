@@ -115,11 +115,11 @@ Making a Ready item Staged: a branch, an OpenSpec change in task groups that eac
 _Avoid_: scaffolding, pre-work
 
 **Staged**:
-A Ready item whose staging is done and whose staged branch is on `origin`. Its Status stays Ready until a person or an agent starts the code. The draft pull request on its branch is the record.
+A Ready item whose staging is done and whose staged branch is on `origin`. Its Status stays Ready until a person merges the plan, and then it is Planned. The draft pull request on its branch is the record.
 _Avoid_: prepared, queued
 
 **Planned**:
-A Ready item whose change folder `openspec/changes/<issue>-<slug>/` is on the default branch, and that has no branch on `origin`: a person merged the staging pull request. The stage job leaves it out, and also an item whose change is archived there. The implement job takes it: it makes the branch `<type>/<issue>-<slug>` at the default branch, with the slug of the folder, runs the groups that have an unticked task, and opens the draft pull request that closes the issue.
+An item whose change folder `openspec/changes/<issue>-<slug>/` is on the default branch, and that has no branch on `origin`: a person merged the staging pull request. The Service sets its Status to Planned (`status/planned`) from its job record, as the single writer of that label: Ready until the plan merges, Planned after, and In Progress while a runner Job holds it. The runner Job sets In Review. It never changes a label that a person set. The stage job leaves it out, and also an item whose change is archived there. The implement job takes it: it makes the branch `<type>/<issue>-<slug>` at the default branch, with the slug of the folder, runs the groups that have an unticked task, and opens the draft pull request that closes the issue.
 _Avoid_: merged plan, orphan
 
 **Claim**:
@@ -131,7 +131,7 @@ The work of one task group of a staged change, sized so that its inputs fit a bu
 _Avoid_: chunk, phase
 
 **Implementing**:
-Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item goes back to Ready, shows the masked diff of the work it discarded, and waits for the comment `implement: retry`. A person merges.
+Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item goes back to Ready (Planned, once the Service sees the plan on the default branch), shows the masked diff of the work it discarded, and waits for the comment `implement: retry`. A person merges.
 _Avoid_: building, executing
 
 **Runner**:

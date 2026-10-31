@@ -915,6 +915,21 @@ def test_mattermost_operator_limitrange() -> None:
     assert container_limit["default"] == {"cpu": "500m", "memory": "256Mi"}
 
 
+def test_homelab_project_destinations() -> None:
+    """AppProject homelab permits destination namespaces needed by Application base and workloads (#2925)."""
+    homelab = next(
+        doc["spec"]
+        for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+        if doc["metadata"]["name"] == "homelab"
+    )
+    dest_namespaces = {
+        d.get("namespace") for d in homelab.get("destinations", []) if d.get("namespace")
+    }
+    assert "mattermost" in dest_namespaces
+    assert "mattermost-operator" in dest_namespaces
+    assert "cnpg-system" in dest_namespaces
+
+
 def test_mattermost_namespaces_in_namespaces_yaml() -> None:
     """k8s/namespaces.yaml declares mattermost, cnpg-system, and mattermost-operator with restricted Pod Security."""
     docs = [

@@ -434,3 +434,88 @@ Echo-only previews and explicit `--dry-run` options SHALL be removed from read-o
 #### Scenario: Dry run on scan workflows
 - **WHEN** user executes `devops --dry-run scan workflows`
 - **THEN** the command executes local workflow audit without external requests
+
+### Requirement: docker-request-plans
+Nine commands in `docker` SHALL carry the `request-plan` dry-run class: `docker build`, `docker cache`, `docker images`, `docker prune`, `docker push`, `docker sandbox`, `docker sign`, `docker stats`, and `docker verify`.
+Under dry run, each command SHALL make zero external requests, execute zero daemon socket calls, invoke zero subprocesses, and output its planned requests.
+
+#### Scenario: Dry run on docker images
+- **WHEN** user executes `devops docker images --dry-run`
+- **THEN** the command prints planned Docker engine image listing requests and makes zero daemon calls
+
+#### Scenario: Dry run on docker build
+- **WHEN** user executes `devops docker build . -t test:latest --dry-run`
+- **THEN** the command prints planned Docker engine build requests and makes zero daemon calls
+
+#### Scenario: Dry run on docker sign
+- **WHEN** user executes `devops docker sign test:latest --key cosign.key --dry-run`
+- **THEN** the command prints planned cosign sign requests and executes zero subprocesses
+
+#### Scenario: Dry run on docker verify
+- **WHEN** user executes `devops docker verify test:latest --key cosign.pub --dry-run`
+- **THEN** the command prints planned cosign verify requests and executes zero subprocesses
+
+### Requirement: sandbox-request-plans
+Nine commands in `sandbox` SHALL carry the `request-plan` dry-run class: `sandbox deploy`, `sandbox exec`, `sandbox logs`, `sandbox metrics`, `sandbox network-policy`, `sandbox probe`, `sandbox status`, `sandbox stop`, and `sandbox traces`.
+Under dry run, each command SHALL make zero external requests, execute zero daemon socket calls, perform zero HTTP or DNS requests, and output its planned requests.
+
+#### Scenario: Dry run on sandbox deploy
+- **WHEN** user executes `devops sandbox deploy --dry-run`
+- **THEN** the command prints planned container creation and start requests and makes zero engine calls
+
+#### Scenario: Dry run on sandbox exec
+- **WHEN** user executes `devops sandbox exec ls --dry-run`
+- **THEN** the command prints planned exec requests and makes zero engine calls
+
+#### Scenario: Dry run on sandbox probe
+- **WHEN** user executes `devops sandbox probe --dry-run`
+- **THEN** the command prints planned HTTP health probe requests and makes zero network calls
+
+#### Scenario: Dry run on sandbox metrics
+- **WHEN** user executes `devops sandbox metrics --dry-run`
+- **THEN** the command prints planned Prometheus metrics endpoint requests and makes zero network calls
+
+### Requirement: cloudflare-request-plans
+Ten commands in `cloudflare` SHALL carry the `request-plan` dry-run class:
+`cloudflare status`, `cloudflare service-status`, `cloudflare dns list`, `cloudflare dns sync`, `cloudflare dns delete`, `cloudflare tunnel routes`, `cloudflare tunnel sync`, `cloudflare access status`, `cloudflare access sync`, and `cloudflare access policies`.
+Under dry run, each command SHALL make zero external HTTP requests, open zero sockets, and output its planned requests.
+
+#### Scenario: Dry run on cloudflare status
+- **WHEN** user executes `devops cloudflare status --dry-run`
+- **THEN** the command prints planned token verification and zone details requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare service-status
+- **WHEN** user executes `devops cloudflare service-status --dry-run`
+- **THEN** the command prints planned statuspage summary requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare dns list
+- **WHEN** user executes `devops cloudflare dns list --dry-run`
+- **THEN** the command prints planned DNS record listing requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare dns sync
+- **WHEN** user executes `devops cloudflare dns sync --dry-run`
+- **THEN** the command prints planned DNS record reconciliation requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare dns delete
+- **WHEN** user executes `devops cloudflare dns delete example.com --dry-run`
+- **THEN** the command prints planned DNS record deletion requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare tunnel routes
+- **WHEN** user executes `devops cloudflare tunnel routes --dry-run`
+- **THEN** the command prints planned tunnel configuration retrieval requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare tunnel sync
+- **WHEN** user executes `devops cloudflare tunnel sync --dry-run`
+- **THEN** the command prints planned tunnel configuration update requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare access status
+- **WHEN** user executes `devops cloudflare access status --dry-run`
+- **THEN** the command prints planned Access application listing requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare access sync
+- **WHEN** user executes `devops cloudflare access sync --domain example.com --allowed-emails user@example.com --dry-run`
+- **THEN** the command prints planned Access application and policy configuration requests and makes zero external calls
+
+#### Scenario: Dry run on cloudflare access policies
+- **WHEN** user executes `devops cloudflare access policies app-123 --dry-run`
+- **THEN** the command prints planned Access policy retrieval requests and makes zero external calls

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_FILTER
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.configmap import (
@@ -240,7 +241,7 @@ def test_the_repository_template_sets_the_stage_job_of_the_service() -> None:
     stage = Settings.model_validate(inner).roadmap.stage
 
     assert inner["roadmap"]["stage"] == {
-        "filter": ["status=ready", "priority=p0-critical", "priority=p1-high", "type=bug"],
+        "filter": ["status=ready"],
         "limit": 3,
         "step_tokens": 40000,
     }
@@ -249,6 +250,7 @@ def test_the_repository_template_sets_the_stage_job_of_the_service() -> None:
         3,
         40000,
     )
+    assert inner["roadmap"]["stage"]["filter"] == list(DEFAULT_ROADMAP_STAGE_FILTER)
 
 
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:

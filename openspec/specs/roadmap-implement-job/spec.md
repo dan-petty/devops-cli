@@ -13,11 +13,11 @@ The job SHALL run a step only when the setting `roadmap.implement.in_runner` is 
 - **THEN** the command exits 1, the message names `roadmap.implement.in_runner`, the model is not asked, and no git command and no GitHub request runs
 
 ### Requirement: The job takes a Staged or a Planned item that the filter names
-A Staged item SHALL have a recorded branch on `origin` and an open draft pull request. The pair is `implement.branch` and `implement.pr`, else `stage.branch` and `stage.pr`. A Planned item SHALL have no recorded branch on `origin` and its change folder on `origin/<default branch>`. A branch on `origin` makes it Staged. The default filter SHALL be `status=ready`, `priority=p0-critical`, `priority=p1-high`, `type=bug` and `effort=low`. `--limit` SHALL default to 1.
+A Staged item SHALL have a recorded branch on `origin` and an open draft pull request. The pair is `implement.branch` and `implement.pr`, else `stage.branch` and `stage.pr`. A Planned item SHALL have no recorded branch on `origin` and its change folder on `origin/<default branch>`. A branch on `origin` makes it Staged. The default filter SHALL be `status=ready`, `status=planned` and `effort=low`. `--limit` SHALL default to 1.
 
 #### Scenario: The default filter
-- **WHEN** the roadmap holds a Staged Ready P1 bug of low effort, a Staged Ready P1 bug of high effort, and a Staged Ready P3 bug of low effort
-- **THEN** the plan selects the first item, and does not name the other two, which the filter does not name
+- **WHEN** the roadmap holds a Staged Ready P1 bug of low effort, a Staged Ready P1 bug of high effort, a Staged Ready P3 feature of low effort, and a Staged Ready P2 bug of medium effort
+- **THEN** the plan selects the first item when the limit is 1, and with a limit of 2 it selects the first item and the feature, and it does not name the other two, which the filter does not name
 
 #### Scenario: A plan on the default branch and a branch that is gone
 - **WHEN** a Ready P1 bug of low effort has a record with a merged `stage.pr` and a `stage.branch` that is not on `origin`, and `origin/main` holds its change folder
@@ -31,8 +31,23 @@ A Staged item SHALL have a recorded branch on `origin` and an open draft pull re
 - **WHEN** two Ready P1 bugs of low effort have their change folders on `origin/main`, and the limit is 2
 - **THEN** the plan selects both, the lower number first
 
+#### Scenario: A Planned feature
+- **WHEN** a Ready P2 item titled `feat(cli): add a flag`, of low effort, has its change folder on `origin/main` and no branch
+- **THEN** the plan selects it as a Planned item with the branch `feat/<issue>-<slug>`
+
+#### Scenario: An item with the Status Planned
+- **WHEN** a P1 bug of low effort has the Status Planned and its change folder is on `origin/main`
+- **THEN** the plan selects it as a Planned item
+
+### Requirement: The job takes the highest priority first
+A run SHALL take the items that the filter names with the highest priority first, and the lowest issue number first among equal priorities. An item with no priority SHALL go last.
+
+#### Scenario: Priority order
+- **WHEN** the roadmap holds a Staged Ready P3 item and a Staged Ready P0 item, both of low effort
+- **THEN** the plan selects the P0 item first
+
 ### Requirement: The job leaves out an item and says why
-The job SHALL leave out, with a reason in the plan, an item that the filter names and that is not Ready, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. It SHALL also leave out a Planned item with a branch of `origin` or a worktree that holds it, an archived change, no branch type, no branch name, no `tasks.md`, or no unticked task.
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. It SHALL also leave out a Planned item with a branch or worktree that holds it, an archived change, no branch name, no `tasks.md`, or no unticked task.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record and no change folder on `origin/main`
@@ -77,6 +92,14 @@ The job SHALL leave out, with a reason in the plan, an item that the filter name
 #### Scenario: A closed Planned item
 - **WHEN** `--item N` names a closed issue whose change folder is on `origin/main`
 - **THEN** the plan leaves it out because it is closed
+
+#### Scenario: The item of a Job that runs
+- **WHEN** the Service set an item In Progress for the Job it made, and the Job plans the item with `--item`
+- **THEN** the plan selects the item
+
+#### Scenario: An item that is In Progress with no Job
+- **WHEN** an item is In Progress and its record names no Job
+- **THEN** the plan leaves it out with its Status
 
 ### Requirement: The job runs the unticked groups in order and finishes the change
 For each selected item the job SHALL set Status to In Progress and rebase the staged branch onto the fetched default branch. A conflict SHALL stop the item before any step. The job SHALL run one step, in order, for each group of `tasks.md` that has an unticked task.

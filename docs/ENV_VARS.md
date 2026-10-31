@@ -79,6 +79,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_K8S_DOMAIN` | `k8s.domain` | No | Base domain name for homelab ingress routes and tunnel services (e.g. example.com) |
 | `DEVOPS_CLI_K8S_TUNNEL_HOST` | `k8s.tunnel_host` | No | Hostname of the Kubernetes API route through the Cloudflare tunnel, which 'devops k8s tunnel start' forwards to a local port (e.g. k8s.example.com) |
 | `DEVOPS_CLI_MATTERMOST_ALERTS_HOOK` | `mattermost.alerts_hook` | 🔒 Yes | Mattermost incoming webhook token for the alerts channel (stored in OS keyring) |
+| `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` | `mattermost.command_token` | 🔒 Yes | Mattermost slash command token for the /roadmap command (stored in OS keyring) |
 | `DEVOPS_CLI_MATTERMOST_DEPLOYS_HOOK` | `mattermost.deploys_hook` | 🔒 Yes | Mattermost incoming webhook token for the deploys channel (stored in OS keyring) |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |

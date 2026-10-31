@@ -122,6 +122,7 @@ from devops_cli.roadmap.stage import (
     raise_for_failed,
 )
 from devops_cli.roadmap.stage_ready import mark_stage_ready
+from devops_cli.roadmap.status_sync import sync_statuses
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
@@ -553,7 +554,12 @@ def _run_stage_adapter(
     plan = plan_stage(store, repo=repo, source=source, filters=parse_filters(()))
     applied = apply_stage(store, plan, source=source)
     emit_stage_results(plan, applied)
+    synced = (
+        sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
+    )
     raise_for_failed([*plan.failed, *applied.failed])
+    if synced is not None:
+        raise_for_failed(synced.failed, summary=MESSAGES.roadmap.status_sync_failed)
     return JobOutcome()
 
 
@@ -576,6 +582,7 @@ def _run_implement_adapter(
     )
     if result.left is not None:
         logger.info(MESSAGES.roadmap.implement_round_left.format(number=result.left))
+    raise_for_failed(result.status_failed, summary=MESSAGES.roadmap.status_sync_failed)
     return JobOutcome()
 
 

@@ -7,6 +7,18 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.cloudflare.client import CloudflareClient
+from devops_cli.cloudflare.cloudflare_plans import (
+    plan_cloudflare_access_policies,
+    plan_cloudflare_access_status,
+    plan_cloudflare_access_sync,
+    plan_cloudflare_dns_delete,
+    plan_cloudflare_dns_list,
+    plan_cloudflare_dns_sync,
+    plan_cloudflare_service_status,
+    plan_cloudflare_status,
+    plan_cloudflare_tunnel_routes,
+    plan_cloudflare_tunnel_sync,
+)
 from devops_cli.config.constants import (
     CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
     CONST_CLOUDFLARE_CATCHALL_SERVICE,
@@ -18,18 +30,17 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import Settings, get_cloudflare_api_token, load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, mark_dry_run_invocation
+from devops_cli.dry_run import dry_run_class, is_dry_run, set_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.cloudflare import CloudflareAuthError
 from devops_cli.lang import HELP
-from devops_cli.models.cloudflare import CloudflareDNSRecord, CloudflareTunnelIngressRule
+from devops_cli.models.cloudflare import CloudflareDNSRecord
 from devops_cli.output import (
-    format_json,
     print_error,
     print_info,
     print_success,
     print_table,
     print_warning,
-    write_stdout,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.telemetry import trace_span
@@ -93,6 +104,7 @@ def _render_status_table(
 
 
 @app.command("status")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.status")
 def cloudflare_status(
     output_format: Annotated[
@@ -103,16 +115,40 @@ def cloudflare_status(
         bool,
         typer.Option("--json", "-j", help="Output status details in JSON format"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Verify Cloudflare API token authentication and inspect zone status."""
+    set_dry_run(dry_run)
     settings = load_settings()
+    resolved = resolve_format(output_format, json_output=json_output)
+    if is_dry_run():
+        plan = plan_cloudflare_status(
+            account_id=settings.cloudflare.account_id,
+            zone_id=settings.cloudflare.zone_id,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "token": {"id": "<token-id>", "status": "active"},
+                "account_id": settings.cloudflare.account_id,
+                "zone": None,
+                "tunnel_id": settings.cloudflare.tunnel,
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan("Planned requests for devops cloudflare status (DRY RUN):", plan)
+        return
+
     client = _resolve_client(settings)
     token_status = client.verify_token()
     zone = client.get_zone() if client.zone_id else None
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        payload: dict[str, Any] = {
+        payload = {
             "token": {"id": token_status.id, "status": token_status.status},
             "account_id": client.account_id,
             "zone": zone.model_dump() if zone else None,
@@ -130,6 +166,7 @@ def cloudflare_status(
 
 
 @app.command("service-status")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.service_status")
 def cloudflare_service_status(
     output_format: Annotated[
@@ -147,8 +184,36 @@ def cloudflare_service_status(
             help="Emit operational service status metrics over OpenTelemetry to Prometheus",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Display Cloudflare published operational status, key components, and active incidents."""
+    set_dry_run(dry_run)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if is_dry_run():
+        plan = plan_cloudflare_service_status()
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "page": {
+                    "id": "statuspage-cloudflare",
+                    "name": "Cloudflare",
+                    "url": "https://www.cloudflarestatus.com/api/v2/summary.json",
+                },
+                "status": {"indicator": "none", "description": "All Systems Operational"},
+                "components": [],
+                "incidents": [],
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan(
+            "Planned requests for devops cloudflare service-status (DRY RUN):", plan
+        )
+        return
+
     from devops_cli.exceptions.telemetry import ServiceStatusError
     from devops_cli.telemetry.service_status import (
         emit_service_status_telemetry,
@@ -165,7 +230,6 @@ def cloudflare_service_status(
     if emit_telemetry:
         emit_service_status_telemetry(summary, "cloudflare")
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(summary.model_dump(), resolved)
         return
@@ -177,6 +241,7 @@ def cloudflare_service_status(
 
 
 @dns_app.command("list")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.dns.list")
 def dns_list(
     record_type: Annotated[
@@ -199,12 +264,32 @@ def dns_list(
         bool,
         typer.Option("--json", "-j", help="Output DNS records in JSON format"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List DNS records in the designated Cloudflare zone."""
+    set_dry_run(dry_run)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if is_dry_run():
+        settings = load_settings()
+        eff_zone_id = zone_id or settings.cloudflare.zone_id
+        plan = plan_cloudflare_dns_list(zone_id=eff_zone_id, record_type=record_type, name=name)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "records": [],
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan("Planned requests for devops cloudflare dns list (DRY RUN):", plan)
+        return
+
     client = _resolve_client()
     records = client.list_dns_records(zone_id=zone_id, record_type=record_type, name=name)
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized([r.model_dump() for r in records], resolved)
         return
@@ -240,16 +325,6 @@ def _format_subdomain_hostname(sub: str, domain: str) -> str:
     return f"{sub}.{domain}"
 
 
-def _preview_dns_sync(domain: str, tunnel: str, subs: tuple[str, ...]) -> None:
-    """Display dry-run preview of DNS synchronization."""
-    print_info(
-        f"[yellow][DRY RUN][/yellow] Would synchronize DNS records for {domain} to {tunnel}:"
-    )
-    for sub in subs:
-        rec_name = _format_subdomain_hostname(sub, domain)
-        print_info(f"  • {rec_name} -> {tunnel}")
-
-
 def _render_dns_sync_results(
     domain: str,
     tunnel: str,
@@ -279,6 +354,7 @@ def _render_dns_sync_results(
 
 
 @dns_app.command("sync")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.dns.sync")
 def dns_sync(
     domain: Annotated[
@@ -299,9 +375,7 @@ def dns_sync(
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option(
-            "--dry-run", help="Preview DNS record reconciliation without applying changes"
-        ),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     output_format: Annotated[
         str,
@@ -313,6 +387,7 @@ def dns_sync(
     ] = False,
 ) -> None:
     """Synchronize CNAME records for root and subdomains to the Cloudflare tunnel."""
+    set_dry_run(dry_run)
     settings = load_settings()
     eff_domain = domain or settings.cloudflare.domain
     eff_tunnel = tunnel_cname or settings.cloudflare.tunnel
@@ -326,9 +401,28 @@ def dns_sync(
         raise typer.Exit(1)
 
     subs = _parse_subdomains_arg(subdomains)
+    resolved = resolve_format(output_format, json_output=json_output)
 
-    if dry_run or is_dry_run():
-        _preview_dns_sync(eff_domain, eff_tunnel, subs)
+    if is_dry_run():
+        plan = plan_cloudflare_dns_sync(
+            domain=eff_domain,
+            tunnel_id_or_cname=eff_tunnel,
+            subdomains=subs,
+            zone_id=zone_id or settings.cloudflare.zone_id,
+            account_id=settings.cloudflare.account_id,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            summary = {_format_subdomain_hostname(s, eff_domain): "synced" for s in subs}
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                **summary,
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan(
+            f"Planned requests for devops cloudflare dns sync {eff_domain} (DRY RUN):", plan
+        )
         return
 
     client = _resolve_client(settings)
@@ -390,11 +484,10 @@ def _execute_dns_deletions(
     targets: list[str],
     domain: str,
     zone_id: str | None,
-    dry_run: bool,
     record_type: str | None = None,
     force: bool = False,
 ) -> tuple[list[tuple[str, str]], list[str]]:
-    """Delete matched DNS records or preview deletion."""
+    """Delete matched DNS records."""
     existing = client.list_dns_records(zone_id=zone_id)
     deleted: list[tuple[str, str]] = []
     not_found: list[str] = []
@@ -407,8 +500,7 @@ def _execute_dns_deletions(
             not_found.append(target)
             continue
         for rec in matched:
-            if not dry_run:
-                client.delete_dns_record(rec.id, zone_id=zone_id)
+            client.delete_dns_record(rec.id, zone_id=zone_id)
             deleted.append((rec.name, rec.id))
     return deleted, not_found
 
@@ -416,7 +508,6 @@ def _execute_dns_deletions(
 def _render_dns_delete_results(
     deleted: list[tuple[str, str]],
     not_found: list[str],
-    dry_run: bool,
     output_format: str = DEFAULT_TABLE_FORMAT,
     json_output: bool = False,
 ) -> None:
@@ -426,23 +517,21 @@ def _render_dns_delete_results(
         payload = {
             "deleted": [{"name": name, "id": rid} for name, rid in deleted],
             "not_found": not_found,
-            "dry_run": dry_run,
         }
         emit_serialized(payload, resolved)
         return
 
-    prefix = "[yellow][DRY RUN][/yellow] " if dry_run else ""
     if deleted:
         columns = [("Record Name", "bold cyan"), "Record ID", "Status"]
-        status_text = "Would Delete" if dry_run else "[green]Deleted[/green]"
-        rows = [[name, rid, status_text] for name, rid in deleted]
-        print_table(f"{prefix}DNS Deletion Results", columns=columns, rows=rows)
-        print_success(f"{prefix}Processed {len(deleted)} DNS record(s).")
+        rows = [[name, rid, "[green]Deleted[/green]"] for name, rid in deleted]
+        print_table("DNS Deletion Results", columns=columns, rows=rows)
+        print_success(f"Processed {len(deleted)} DNS record(s).")
     if not_found:
         print_warning(f"Records not found: {', '.join(not_found)}")
 
 
 @dns_app.command("delete")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.dns.delete")
 def dns_delete(
     targets: Annotated[
@@ -469,7 +558,7 @@ def dns_delete(
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Preview DNS record deletions without applying changes"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     output_format: Annotated[
         str,
@@ -481,9 +570,30 @@ def dns_delete(
     ] = False,
 ) -> None:
     """Delete one or more DNS records by name or record ID."""
+    set_dry_run(dry_run)
     settings = load_settings()
     eff_domain = settings.cloudflare.domain or ""
-    is_dry = dry_run or is_dry_run()
+    resolved = resolve_format(output_format, json_output=json_output)
+
+    if is_dry_run():
+        plan = plan_cloudflare_dns_delete(
+            targets=targets,
+            domain=eff_domain,
+            zone_id=zone_id or settings.cloudflare.zone_id,
+            record_type=record_type,
+            force=force,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "deleted": [{"name": t, "id": f"<{t}-id>"} for t in targets],
+                "not_found": [],
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan("Planned requests for devops cloudflare dns delete (DRY RUN):", plan)
+        return
 
     client = _resolve_client(settings)
     deleted, not_found = _execute_dns_deletions(
@@ -491,14 +601,14 @@ def dns_delete(
         targets=targets,
         domain=eff_domain,
         zone_id=zone_id,
-        dry_run=is_dry,
         record_type=record_type,
         force=force,
     )
-    _render_dns_delete_results(deleted, not_found, is_dry, output_format, json_output)
+    _render_dns_delete_results(deleted, not_found, output_format, json_output)
 
 
 @tunnel_app.command("routes")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.tunnel.routes")
 def tunnel_routes(
     tunnel_id: Annotated[
@@ -517,8 +627,13 @@ def tunnel_routes(
         bool,
         typer.Option("--json", "-j", help="Output tunnel ingress routes in JSON format"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Inspect Cloudflare tunnel ingress routes configuration."""
+    set_dry_run(dry_run)
     settings = load_settings()
     eff_tunnel = tunnel_id or settings.cloudflare.tunnel
     if not eff_tunnel:
@@ -527,10 +642,30 @@ def tunnel_routes(
         )
         raise typer.Exit(1)
 
+    resolved = resolve_format(output_format, json_output=json_output)
+    if is_dry_run():
+        plan = plan_cloudflare_tunnel_routes(
+            tunnel_id=eff_tunnel,
+            account_id=account_id or settings.cloudflare.account_id,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "tunnel_id": eff_tunnel,
+                "version": 1,
+                "ingress": [],
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan(
+            f"Planned requests for devops cloudflare tunnel routes {eff_tunnel} (DRY RUN):", plan
+        )
+        return
+
     client = _resolve_client(settings)
     cfg = client.get_tunnel_configuration(tunnel_id=eff_tunnel, account_id=account_id)
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(cfg.model_dump(), resolved)
         return
@@ -546,32 +681,6 @@ def tunnel_routes(
         for i, r in enumerate(cfg.ingress)
     ]
     print_table(f"Tunnel Ingress Configuration (Tunnel: {eff_tunnel})", columns=columns, rows=rows)
-
-
-def _preview_tunnel_sync(
-    domain: str,
-    tunnel: str,
-    service: str,
-    subs: tuple[str, ...],
-    current_ingress: list[CloudflareTunnelIngressRule] | None = None,
-) -> None:
-    """Display dry-run preview of tunnel ingress route synchronization."""
-    print_info(f"[yellow][DRY RUN][/yellow] Would configure tunnel {tunnel} ingress routes:")
-    target_hosts = {_format_subdomain_hostname(sub, domain).lower() for sub in subs}
-    for sub in subs:
-        hostname = _format_subdomain_hostname(sub, domain)
-        print_info(f"  • [green]+[/green] {hostname} -> {service}")
-
-    if current_ingress:
-        for r in current_ingress:
-            if not r.hostname and not r.path:
-                continue
-            if r.hostname and r.hostname.lower() in target_hosts:
-                continue
-            r_host = r.hostname or "(any)"
-            print_info(f"  • [blue]=[/blue] {r_host} -> {r.service} (preserved)")
-
-    print_info("  • (catch-all) -> http_status:404")
 
 
 def _render_tunnel_sync_results(
@@ -596,6 +705,7 @@ def _render_tunnel_sync_results(
 
 
 @tunnel_app.command("sync")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.tunnel.sync")
 def tunnel_sync(
     tunnel_id: Annotated[
@@ -620,7 +730,7 @@ def tunnel_sync(
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Preview tunnel configuration without updating"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     output_format: Annotated[
         str,
@@ -632,6 +742,7 @@ def tunnel_sync(
     ] = False,
 ) -> None:
     """Synchronize tunnel ingress rules to route subdomains to the cluster ingress controller."""
+    set_dry_run(dry_run)
     settings = load_settings()
     eff_tunnel = tunnel_id or settings.cloudflare.tunnel
     eff_domain = domain or settings.cloudflare.domain
@@ -645,38 +756,36 @@ def tunnel_sync(
         raise typer.Exit(1)
 
     subs = _parse_subdomains_arg(subdomains)
+    resolved = resolve_format(output_format, json_output=json_output)
 
-    if dry_run or is_dry_run():
-        mark_dry_run_invocation(True)
-        _preview_tunnel_sync(eff_domain, eff_tunnel, service, subs, current_ingress=None)
-        aid = account_id or settings.cloudflare.account_id or "<account-id>"
-        get_payload = {
-            "method": "GET",
-            "url": f"accounts/{aid}/cfd_tunnel/{eff_tunnel}/configurations",
-        }
-        put_ingress: list[dict[str, Any]] = [
-            {
-                "service": service,
-                "hostname": (
-                    eff_domain
-                    if sub == "@"
-                    else (f"*.{eff_domain}" if sub == "*" else f"{sub}.{eff_domain}")
-                ),
+    if is_dry_run():
+        plan = plan_cloudflare_tunnel_sync(
+            tunnel_id=eff_tunnel,
+            domain=eff_domain,
+            service=service,
+            subdomains=subs,
+            account_id=account_id or settings.cloudflare.account_id,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "tunnel_id": eff_tunnel,
+                "version": 1,
+                "ingress": [
+                    {
+                        "service": service,
+                        "hostname": _format_subdomain_hostname(sub, eff_domain),
+                    }
+                    for sub in subs
+                ]
+                + [{"service": CONST_CLOUDFLARE_CATCHALL_SERVICE}],
             }
-            for sub in subs
-        ]
-        put_ingress.append({"service": CONST_CLOUDFLARE_CATCHALL_SERVICE})
-        put_payload = {
-            "method": "PUT",
-            "url": f"accounts/{aid}/cfd_tunnel/{eff_tunnel}/configurations",
-            "body": {
-                "config": {
-                    "ingress": put_ingress,
-                }
-            },
-        }
-        write_stdout(f"GET: {format_json(get_payload)}\n")
-        write_stdout(f"PUT: {format_json(put_payload)}\n")
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan(
+            f"Planned requests for devops cloudflare tunnel sync {eff_tunnel} (DRY RUN):", plan
+        )
         return
 
     client = _resolve_client(settings)
@@ -691,6 +800,7 @@ def tunnel_sync(
 
 
 @access_app.command("status")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.access.status")
 def access_status(
     account_id: Annotated[
@@ -705,12 +815,32 @@ def access_status(
         bool,
         typer.Option("--json", "-j", help="Output access applications in JSON format"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Inspect Cloudflare Zero Trust Access applications and protected domains."""
+    set_dry_run(dry_run)
     settings = load_settings()
+    resolved = resolve_format(output_format, json_output=json_output)
+    if is_dry_run():
+        plan = plan_cloudflare_access_status(
+            account_id=account_id or settings.cloudflare.account_id,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "applications": [],
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan("Planned requests for devops cloudflare access status (DRY RUN):", plan)
+        return
+
     client = _resolve_client(settings)
     apps = client.list_access_applications(account_id=account_id)
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized([a.model_dump() for a in apps], resolved)
         return
@@ -737,19 +867,6 @@ def _resolve_bypass_ips(
     return []
 
 
-def _preview_access_sync(domain: str, emails: list[str], bypass_ips: list[str]) -> None:
-    """Preview access synchronization actions in dry-run mode."""
-    details: list[str] = []
-    if emails:
-        details.append(f"emails: {', '.join(emails)}")
-    if bypass_ips:
-        details.append(f"bypassing IPs: {', '.join(bypass_ips)}")
-    summary_str = f" ({'; '.join(details)})" if details else ""
-    print_info(
-        f"[yellow][DRY RUN][/yellow] Would protect {domain} with Cloudflare Access{summary_str}"
-    )
-
-
 def _render_access_sync_results(
     summary: dict[str, Any],
     output_format: str = DEFAULT_TABLE_FORMAT,
@@ -772,6 +889,7 @@ def _render_access_sync_results(
 
 
 @access_app.command("sync")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.access.sync")
 def access_sync(
     domain: Annotated[
@@ -796,7 +914,7 @@ def access_sync(
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Preview Access application changes without applying"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     output_format: Annotated[
         str,
@@ -808,6 +926,7 @@ def access_sync(
     ] = False,
 ) -> None:
     """Synchronize Cloudflare Zero Trust Access application and email allow-list policy."""
+    set_dry_run(dry_run)
     settings = load_settings()
     eff_domain = domain or settings.cloudflare.domain
     if not eff_domain:
@@ -828,9 +947,32 @@ def access_sync(
         )
         raise typer.Exit(1)
 
-    is_dry = dry_run or is_dry_run()
-    if is_dry:
-        _preview_access_sync(eff_domain, emails, eff_bypass_ips)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if is_dry_run():
+        plan = plan_cloudflare_access_sync(
+            domain=eff_domain,
+            allowed_emails=emails,
+            bypass_ips=eff_bypass_ips,
+            account_id=account_id or settings.cloudflare.account_id,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "app_id": "<app-id>",
+                "app_name": "Homelab Ingress",
+                "domain": eff_domain,
+                "app_action": "created",
+                "policy_id": "<policy-id>",
+                "allowed_emails": emails,
+                "bypass_ips": eff_bypass_ips,
+                "bypass_policy_id": "<bypass-policy-id>" if eff_bypass_ips else None,
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan(
+            f"Planned requests for devops cloudflare access sync {eff_domain} (DRY RUN):", plan
+        )
         return
 
     client = _resolve_client(settings)
@@ -844,6 +986,7 @@ def access_sync(
 
 
 @access_app.command("policies")
+@dry_run_class("request-plan")
 @trace_span("cloudflare.access.policies")
 def access_policies(
     app_id: Annotated[str, typer.Argument(help="Access application ID")],
@@ -859,12 +1002,36 @@ def access_policies(
         bool,
         typer.Option("--json", "-j", help="Output policies in JSON format"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List Cloudflare Zero Trust Access policies for an application."""
+    set_dry_run(dry_run)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if is_dry_run():
+        settings = load_settings()
+        plan = plan_cloudflare_access_policies(
+            app_id=app_id,
+            account_id=account_id or settings.cloudflare.account_id,
+        )
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            payload: dict[str, Any] = {
+                "dry_run": True,
+                "requests": [r.__dict__ for r in plan],
+                "policies": [],
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan(
+            f"Planned requests for devops cloudflare access policies {app_id} (DRY RUN):", plan
+        )
+        return
+
     settings = load_settings()
     client = _resolve_client(settings)
     policies = client.get_access_policies(app_id, account_id=account_id)
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized([p.model_dump() for p in policies], resolved)
         return

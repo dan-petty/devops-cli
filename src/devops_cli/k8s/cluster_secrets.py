@@ -332,6 +332,11 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
                 adopt_from=SecretKeyRef("llm", "valkey-devops-auth", "password"),
             ),
+            SecretEntry(
+                "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN",
+                KeyringSource.for_credential("mattermost.command_token"),
+                required=False,
+            ),
         ),
         restarts=(Workload("deployment", "roadmap-service"),),
         labels={"app.kubernetes.io/name": "devops-cli"},
