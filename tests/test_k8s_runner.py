@@ -77,9 +77,18 @@ def test_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> None
         "IfNotPresent",
         {
             "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "2Gi"},
-            "limits": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "6Gi"},
+            "limits": {"cpu": "2", "memory": "8Gi", "ephemeral-storage": "6Gi"},
         },
     )
+
+
+def test_the_runner_bounds_the_workers_of_the_test_runner_to_its_cpu_limit() -> None:
+    """`pytest-xdist` counts the CPUs of the node, not the CPU limit of the pod. On a node with 48
+    CPUs a test run started 48 workers of about 280 MB each in a pod with 2 CPUs (#2806)."""
+    container = _runner_container()
+    env = {entry["name"]: entry.get("value") for entry in container["env"]}
+
+    assert env["PYTEST_XDIST_AUTO_NUM_WORKERS"] == container["resources"]["limits"]["cpu"]
 
 
 def test_the_runner_pod_is_restricted_and_mounts_no_token() -> None:

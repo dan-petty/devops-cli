@@ -99,6 +99,10 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
         "GIT_COMMITTER_EMAIL",
         "CI",
         "PYTEST_CURRENT_TEST",
+        # A number only. `pytest-xdist` counts the CPUs of the node, not of the pod, so a child that
+        # runs `pytest` (the gate of `devops ci`) must keep the bound that the runner pod sets
+        # (#2806).
+        "PYTEST_XDIST_AUTO_NUM_WORKERS",
         "XDG_RUNTIME_DIR",
         "DBUS_SESSION_BUS_ADDRESS",
     }

@@ -65,6 +65,12 @@ spec:
                 # jobs.
                 - name: OTEL_SERVICE_NAME
                   value: devops-cli-job
+                # `pytest-xdist` starts one worker for each CPU of the node, not of the pod
+                # (`-n logical`, 280 MB each). On a node with 48 CPUs that is about 13 GB in a pod
+                # with 2 CPUs (#2806). The value equals the CPU limit; a test checks it. The shell
+                # of a step takes it from here.
+                - name: PYTEST_XDIST_AUTO_NUM_WORKERS
+                  value: "2"
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
@@ -77,14 +83,18 @@ spec:
                   readOnly: true
               resources:
                 # The storage limit covers both volumes below (4 Gi and 1 Gi) and the log, so a
-                # step cannot fill the disk of the node.
+                # step cannot fill the disk of the node. The memory request is the normal peak of
+                # a Job (1.24 GB at most over the 10 Jobs that did not run out of memory). The
+                # memory limit is a burst class (#2806): twice the 4.13 GB that the killed Job had
+                # reached, and below the 15 Gi that the smallest node can allocate, so a pod that
+                # lands on it cannot starve the node. The CPU limit only slows a step, so it stays.
                 requests:
                   cpu: "2"
                   memory: 4Gi
                   ephemeral-storage: 2Gi
                 limits:
                   cpu: "2"
-                  memory: 4Gi
+                  memory: 8Gi
                   ephemeral-storage: 6Gi
           volumes:
             - name: tmp

@@ -2,9 +2,12 @@
 
 A step that stops discards its checkout, so the Job log is the only evidence of what the agent
 did. `ToolCallLog` is a pydantic-ai `Hooks` capability. It writes one line to the standard error
-stream for each tool call: the tool name, the program of a shell command, and the outcome. A line
-holds no other argument, no file content, no output and no text of a refusal, as an argument can
-hold a path or a secret and the text of one refusal repeats the whole command. The program is the
+stream for each tool call: the tool name, the program of a shell command, and the outcome. A call
+that has a command writes one more line before it runs, with the program and its first arguments
+(#2806), so a call that the kernel kills leaves its cause in the log. `logged_command` masks that
+command, bounds it and escapes it to one line. The line after the call holds no argument, no file
+content, no output and no text of a refusal, as an argument can hold a path or a secret and the
+text of one refusal repeats the whole command. The program is the
 first word of the command, as the shell reads it, and only when it is a program that the project
 knows: a program of the allowlist, or a program of the table of replacements (#2773). Any other
 first word is written as "other", also a short bare word, as the model can read a password or a
@@ -41,9 +44,15 @@ from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config.commands import IMPLEMENT_ALLOWED_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS,
+    CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
+    CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS,
+    CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS,
+)
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
+from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model
 # reaches the log, and the count of the programs in the reason stays small by design.
@@ -97,6 +106,59 @@ def logged_program(word: str | None) -> str:
     return MESSAGES.roadmap.implement_tool_other
 
 
+def _logged_word(word: str) -> str:
+    """What the log shows of one argument. The mask of secrets finds a secret by its form, and
+    the value of `name=value` has none, so the line keeps the name and hides the value, except for
+    a number such as `--numprocesses=48`. A word with a space is free text, such as a message of a
+    commit, and the line hides it (#2806)."""
+    name, separator, value = word.partition("=")
+    if any(char.isspace() for char in name):
+        return MESSAGES.roadmap.implement_tool_masked
+    if separator and name and value and not value.isdecimal():
+        return f"{name}={MESSAGES.roadmap.implement_tool_masked}"
+    return word
+
+
+def _logged_words(words: list[str]) -> list[str]:
+    """The words through `_logged_word`, then through the mask of secrets for the words that
+    `_logged_word` left as they were. The mask of secrets reads a flag and its next word, such as
+    `--password hunter2`, and it never rewrites the name of a word that `_logged_word` masked."""
+    masked = sanitize_command_args_for_display(words)
+    return [
+        shown if (shown := _logged_word(word)) != word else other
+        for word, other in zip(words, masked, strict=True)
+    ]
+
+
+def logged_command(args: ValidatedToolArgs) -> str:
+    """What the log shows of a command before the call runs (#2806): the first word and the words
+    after it, at most `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS`, through `_logged_words`, with
+    control characters escaped and the text cut to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS`.
+    Empty when the call has no command word. The word "other" when the first word is no known
+    program: it can be a password or a token, and the words after it mean nothing without it. Each
+    word is read to a fixed length before the mask, so that the cut cannot split a secret."""
+    word = command_word(args)
+    if word is None:
+        return ""
+    if word not in _KNOWN_PROGRAMS:
+        return MESSAGES.roadmap.implement_tool_other
+    words = shlex.split(str(args["command"]))
+    shown = _logged_words(
+        [
+            argument[:CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS]
+            for argument in words[:CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS]
+        ]
+    )
+    escaped = " ".join(shown).encode("unicode_escape").decode("ascii")
+    cut = (
+        len(words) > CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS
+        or len(escaped) > CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS
+    )
+    return escaped[:CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS] + (
+        MESSAGES.roadmap.implement_tool_cut if cut else ""
+    )
+
+
 @dataclass
 class ToolCallLog:
     """The counters of one step, and the hooks that fill them. `refused` counts the refused shell
@@ -147,6 +209,14 @@ class ToolCallLog:
         """Run the call, write its line, and pass on the result or the error. The call that
         exceeds the limit of retries reaches here as `UnexpectedModelBehavior`."""
         program = logged_program(command_word(args))
+        if command := logged_command(args):
+            print_muted(
+                MESSAGES.roadmap.implement_tool_started.format(
+                    tool=call.tool_name, command=command
+                ),
+                to_stderr=True,
+                safe=True,
+            )
         try:
             result = await handler(args)
         except (ToolRetryError, UnexpectedModelBehavior) as error:

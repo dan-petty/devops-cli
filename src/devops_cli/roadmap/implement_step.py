@@ -477,13 +477,18 @@ class StepOutcome(BaseModel):
 # ── The agent ─────────────────────────────────────────────────────────────────────────────
 
 
+_PASSED_VARIABLES = ("UV_PYTHON", "PYTEST_XDIST_AUTO_NUM_WORKERS")
+
+
 def shell_environment(home: Path) -> dict[str, str]:
     """The variables a shell command gets on top of the workspace's own: a scratch `home` in place
     of the user's, so that no git configuration, credential helper or key of the user reaches the
     agent, no system git configuration, no prompt for a password, and the cache of `uv` where the
-    user keeps it, so that `uv run` finds its packages. `UV_PYTHON` goes on when the process has
-    it: the runner image sets it, as it forbids a Python download and `uv run` finds no
-    interpreter without it."""
+    user keeps it, so that `uv run` finds its packages. The variables in `_PASSED_VARIABLES` go on
+    when the process has them. `UV_PYTHON`: the runner image sets it, as it forbids a Python
+    download and `uv run` finds no interpreter without it. `PYTEST_XDIST_AUTO_NUM_WORKERS`: the
+    pod of the runner sets it to its CPU limit, as `pytest-xdist` counts the CPUs of the node and
+    a test run started one worker for each of them (#2806)."""
     env = {
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
@@ -491,8 +496,7 @@ def shell_environment(home: Path) -> dict[str, str]:
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"),
     }
-    if interpreter := os.environ.get("UV_PYTHON"):
-        env["UV_PYTHON"] = interpreter
+    env.update({name: os.environ[name] for name in _PASSED_VARIABLES if os.environ.get(name)})
     return env
 
 

@@ -424,6 +424,17 @@ def test_no_key_of_the_ambient_allowlist_is_refused_from_a_caller(key: str) -> N
     assert build_subprocess_env(env={key: "example"})[key] == "example"
 
 
+def test_an_isolated_child_keeps_the_worker_bound_of_the_test_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`devops ci` starts `pytest` through an isolated child. `pytest-xdist` counts the CPUs of the
+    node, so the child must keep the bound that the runner pod sets, or the full gate starts one
+    worker for each CPU of the node (#2806)."""
+    monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "2")
+
+    assert build_subprocess_env()["PYTEST_XDIST_AUTO_NUM_WORKERS"] == "2"
+
+
 # Each of these keys makes a library of the child load a module that the caller chooses, or
 # makes Python start from a virtual environment of the caller (#2503). OpenSSL reads a
 # configuration from OPENSSL_CONF, included files from OPENSSL_CONF_INCLUDE, providers from

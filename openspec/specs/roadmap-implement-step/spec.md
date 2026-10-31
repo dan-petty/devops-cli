@@ -308,11 +308,7 @@ A step that stops on a pydantic-ai error SHALL count the tool calls that a tool 
 - **THEN** the reason holds the message of the error and holds neither count
 
 ### Requirement: Every tool call of a step writes one line to the Job log
-The agent of a step SHALL write one line to the standard error stream for each tool call. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist or a program of `IMPLEMENT_SHELL_REPLACEMENTS`, else the word `other`. The line SHALL hold nothing else.
-
-#### Scenario: A refused program
-- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py --secret-flag=abc`, and then ends its run
-- **THEN** the standard error stream holds the line "Tool call: shell, program pytest, refused." and holds no text of the arguments
+The agent of a step SHALL write one line to the standard error stream for each tool call, when it ends. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when it is a program of the allowlist or of `IMPLEMENT_SHELL_REPLACEMENTS`, else the word `other`. The line SHALL hold nothing else.
 
 #### Scenario: A program of the allowlist
 - **WHEN** the model calls a tool with the command `git status`
@@ -326,10 +322,6 @@ The agent of a step SHALL write one line to the standard error stream for each t
 - **WHEN** the model calls `read_file` without its `path` argument
 - **THEN** the standard error stream holds the line "Tool call: read_file, retry."
 
-#### Scenario: A first word that is no program
-- **WHEN** the first word of a shell command is an assignment such as `API_KEY=hunter2`, a path, a word with a space or a quote, an escape sequence, or the command has an unclosed quote
-- **THEN** the line holds "program other" and holds no part of the word
-
 #### Scenario: A short bare word that is no known program
 - **WHEN** the first word of a shell command is a short bare word such as `hunter2password` that the model read from a file
 - **THEN** the line and the reason of a stopped run hold "other" and not the word
@@ -341,6 +333,41 @@ The agent of a step SHALL write one line to the standard error stream for each t
 #### Scenario: A call that the tool reports as failed
 - **WHEN** a tool reports a failed call
 - **THEN** the standard error stream holds the line "Tool call: <tool>, failed."
+
+### Requirement: A call with a command writes the command to the Job log before it runs
+Before a call that has a `command` runs, the agent SHALL write the line `Tool call: <tool>, started: <command>`. The command SHALL be the first word and at most `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS` words, escaped and cut to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS` characters. The line SHALL hide each secret, the value of each `name=value` word that is not a number, and each word with a space. When the first word is no known program, the command SHALL be `other`.
+
+#### Scenario: A refused program
+- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py`, and then ends its run
+- **THEN** the standard error stream holds the lines "Tool call: shell, started: pytest tests/test_sample.py" and "Tool call: shell, program pytest, refused."
+
+#### Scenario: The line comes before the call
+- **WHEN** the model calls the shell tool with `uv run pytest -n 48`, and the tool is still running
+- **THEN** the standard error stream holds the line "Tool call: shell, started: uv run pytest -n 48" and no line with an outcome
+
+#### Scenario: A long command
+- **WHEN** the command has more words than `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS`, or more characters than `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS`
+- **THEN** the line holds the first words, cut, and ends with " ..."
+
+#### Scenario: A secret in an argument
+- **WHEN** the command is `git remote add origin https://user:ghp_<token>@example.com/x.git`, with a GitHub token in place of `<token>`
+- **THEN** the line holds no part of the token
+
+#### Scenario: A value after a name
+- **WHEN** an argument has the form `name=value` and the value is not a number, for example `ai.api_key=<value>` or `http.extraheader=AUTHORIZATION: basic <value>`
+- **THEN** the line holds the name and the word `<masked>` in place of the value, and an argument with a number as the value, such as `--numprocesses=48`, stays as it is
+
+#### Scenario: Free text in an argument
+- **WHEN** an argument holds a space, as the message of a commit does
+- **THEN** the line holds the word `<masked>` in place of the argument
+
+#### Scenario: A control character in an argument
+- **WHEN** an argument holds an escape sequence or another control character that is no space
+- **THEN** the line is one line, and it holds the escaped form of the character
+
+#### Scenario: A first word that is no program
+- **WHEN** the first word of a shell command is an assignment such as `API_KEY=hunter2`, a path, a word with a space or a quote, an escape sequence, or the command has an unclosed quote
+- **THEN** the lines hold "started: other" and "program other" and hold no part of the command
 
 ### Requirement: The table of a stopped step shows the reason as text
 The table of `devops roadmap implement` SHALL print the reason and the last message as text. A bracket in either SHALL NOT be read as markup, and SHALL NOT raise an error.
@@ -568,6 +595,17 @@ The turn for a failed static check SHALL change no file except `tasks.md` and th
 #### Scenario: The turn changes a file that the step changed
 - **WHEN** the model changes `src/sample.py` in the extra turn, and the step had changed it
 - **THEN** the step checks all exit checks again and does not stop for the change
+
+### Requirement: The shell of a step takes the worker bound of the process
+The shell of a step SHALL get `PYTEST_XDIST_AUTO_NUM_WORKERS` with the value of the process when the process has it, and SHALL not set it otherwise.
+
+#### Scenario: The process has the variable
+- **WHEN** the process sets `PYTEST_XDIST_AUTO_NUM_WORKERS` to `2`
+- **THEN** the environment of the shell holds the same value
+
+#### Scenario: The process has no variable
+- **WHEN** the process does not set it
+- **THEN** the environment of the shell does not hold it
 
 ### Requirement: A step keeps the tests that existed
 Every test that a `.py` file under `tests/` held at the commit where the step started SHALL be in the checkout after the run, by qualified name (`test_x` or `Class.test_x`). A test is a function named `test_*`. When a test is lost, the step SHALL stop with a reason that names the file and at most `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests, and SHALL give no extra turn. A file that does not parse is skipped.

@@ -56,7 +56,7 @@ def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().err.splitlines()
 
 
-def test_a_refused_bare_word_is_logged_by_name_with_no_argument(
+def test_a_refused_program_is_logged_by_name_with_its_first_arguments(
     store: InMemoryRoadmapStore,
     checkout: Path,
     programs: ProcessFake,
@@ -69,13 +69,14 @@ def test_a_refused_bare_word_is_logged_by_name_with_no_argument(
 
     _step(store, checkout, script)
 
-    err = capsys.readouterr().err
-    assert err.splitlines() == ["Tool call: shell, program pytest, refused."]
-    assert "sentinel-value" not in err
+    assert _lines(capsys) == [
+        "Tool call: shell, started: pytest tests/test_sample.py --flag=<masked>",
+        "Tool call: shell, program pytest, refused.",
+    ]
 
 
-def _program_line(command: str, capsys: pytest.CaptureFixture[str]) -> str:
-    """The line of one call of a tool that has a `command` argument and takes any command."""
+def _call_lines(command: str, capsys: pytest.CaptureFixture[str]) -> list[str]:
+    """The lines of one call of a tool that has a `command` argument and takes any command."""
 
     def shell(command: str) -> str:
         return "the output"
@@ -85,7 +86,12 @@ def _program_line(command: str, capsys: pytest.CaptureFixture[str]) -> str:
         tools=[shell],
         capabilities=[ToolCallLog().hooks()],
     ).run_sync("go")
-    return capsys.readouterr().err.strip()
+    return _lines(capsys)
+
+
+def _program_line(command: str, capsys: pytest.CaptureFixture[str]) -> str:
+    """The line of the outcome of one call. The line before the call is `_call_lines()[0]`."""
+    return _call_lines(command, capsys)[-1]
 
 
 @pytest.mark.parametrize("program", ["git", "uv", "ruff", "mypy", "openspec", "devops"])
@@ -154,7 +160,10 @@ def test_a_secret_as_the_first_word_never_reaches_the_log_of_a_step(
 
     _step(store, checkout, script)
 
-    assert _lines(capsys) == ["Tool call: shell, program other, refused."]
+    assert _lines(capsys) == [
+        "Tool call: shell, started: other",
+        "Tool call: shell, program other, refused.",
+    ]
 
 
 def test_a_call_that_returns_is_logged_with_neither_its_path_nor_its_content(
@@ -244,8 +253,132 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
             "Tool call: broken, failed.",
             "Tool call: fine, ok.",
             "Tool call: forbidden, program cat, refused.",
+            "Tool call: forbidden, started: cat",
             "Tool call: outside, retry.",
         ],
         Counter(cat=1),
         2,
     )
+
+
+@pytest.mark.parametrize(
+    ("command", "shown"),
+    [
+        pytest.param("git status", "git status", id="short"),
+        pytest.param(
+            "uv run devops ci test tests/test_a.py",
+            "uv run devops ci test tests/test_a.py",
+            id="six-words",
+        ),
+        pytest.param("uv run pytest -n 48 'tests/a b.py'", "uv run pytest -n 48 <masked>", id="q"),
+        pytest.param("uv run pytest --numprocesses=48", "uv run pytest --numprocesses=48", id="n"),
+        pytest.param(
+            "git log --oneline -n 5 -- src tests docs", "git log --oneline -n 5 -- ...", id="words"
+        ),
+        pytest.param("git log " + "a" * 500, "git log " + "a" * 152 + " ...", id="chars"),
+        pytest.param("API_KEY=hunter2 uv run x", "other", id="assignment"),
+        pytest.param(PASSWORD, "other", id="password"),
+        pytest.param("'unclosed quote", "other", id="unclosed"),
+    ],
+)
+def test_the_command_of_a_call_is_logged_before_the_call_with_its_first_arguments(
+    capsys: pytest.CaptureFixture[str], command: str, shown: str
+) -> None:
+    assert _call_lines(command, capsys)[0] == f"Tool call: shell, started: {shown}"
+
+
+@pytest.mark.parametrize("command", ["", "   "])
+def test_a_command_with_no_word_has_no_line_before_the_call(
+    capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    assert _call_lines(command, capsys) == ["Tool call: shell, ok."]
+
+
+def test_the_line_of_a_command_is_written_before_the_call_runs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A call that the kernel kills never ends, so only a line written before it names the
+    cause (#2806)."""
+    seen: list[list[str]] = []
+
+    def shell(command: str) -> str:
+        seen.append(_lines(capsys))
+        return "the output"
+
+    Agent(
+        ModelScript(tool_call("shell", command="uv run pytest -n 48"), say("Done.")).model(),
+        tools=[shell],
+        capabilities=[ToolCallLog().hooks()],
+    ).run_sync("go")
+
+    assert seen == [["Tool call: shell, started: uv run pytest -n 48"]]
+
+
+def test_a_secret_in_an_argument_never_reaches_the_line_of_a_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lines = _call_lines(f"git remote add origin https://user:{TOKEN}@example.com/x.git", capsys)
+
+    assert [line for line in lines if TOKEN[:12] in line or TOKEN[-12:] in line] == []
+    assert lines[0].startswith("Tool call: shell, started: git remote add origin ")
+
+
+def test_an_escape_sequence_in_an_argument_stays_on_one_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lines = _call_lines("git log one\x1b[31mred\x07", capsys)
+
+    assert lines == [
+        "Tool call: shell, started: git log one\\x1b[31mred\\x07",
+        "Tool call: shell, program git, ok.",
+    ]
+
+
+def test_a_line_break_in_an_argument_is_hidden_with_the_text_around_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lines = _call_lines("git commit -m 'one\ntwo'", capsys)
+
+    assert lines[0] == "Tool call: shell, started: git commit -m <masked>"
+
+
+@pytest.mark.parametrize(
+    ("command", "shown"),
+    [
+        pytest.param(
+            "git -c http.extraheader='AUTHORIZATION: basic dXNlcjpwYXNzd29yZDEyMw==' fetch",
+            "git -c http.extraheader=<masked> fetch",
+            id="header",
+        ),
+        pytest.param(
+            "uv run devops config set ai.api_key=supersecretvalue123",
+            "uv run devops config set ai.api_key=<masked>",
+            id="dotted-key",
+        ),
+        pytest.param(
+            "uv run devops x SECRET=abcdef1234567890abcdef",
+            "uv run devops x SECRET=<masked>",
+            id="upper-key",
+        ),
+        pytest.param(
+            "uv run devops x password=hunter2", "uv run devops x password=<masked>", id="p"
+        ),
+        pytest.param(
+            "git commit -m 'the password is hunter2'", "git commit -m <masked>", id="text"
+        ),
+        pytest.param(
+            "uv run devops --api-key=abc123def456ghi789jkl012",
+            "uv run devops --api-key=<masked>",
+            id="hyphen",
+        ),
+        pytest.param(
+            "uv run devops --password hunter2", "uv run devops --password <masked>", id="flag"
+        ),
+    ],
+)
+def test_an_argument_with_a_value_after_a_name_shows_its_name_and_not_its_value(
+    capsys: pytest.CaptureFixture[str], command: str, shown: str
+) -> None:
+    """The mask of secrets finds a secret by its form, and a secret has no form in an argument
+    such as `name=value`. The line keeps the name and hides the value, except for a number (#2806)."""
+    assert _call_lines(command, capsys)[0] == f"Tool call: shell, started: {shown}"
