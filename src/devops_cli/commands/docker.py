@@ -19,8 +19,21 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.docker.docker_plans import (
+    plan_docker_build,
+    plan_docker_cache,
+    plan_docker_images,
+    plan_docker_prune,
+    plan_docker_push,
+    plan_docker_sandbox,
+    plan_docker_sign,
+    plan_docker_stats,
+    plan_docker_verify,
+)
 from devops_cli.docker.engine import DockerEngineService, get_engine
 from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.docker import DockerEngineError, DockerError
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.docker import BuildCacheReport, ContainerStatEntry
@@ -33,7 +46,6 @@ from devops_cli.output import (
     print_info,
     print_success,
     print_table,
-    render_dry_run_result,
     write_stderr,
     write_stdout,
 )
@@ -67,6 +79,7 @@ def _engine() -> DockerEngineService:
 
 
 @app.command("images")
+@dry_run_class("request-plan")
 def list_images(
     name: Annotated[str | None, typer.Option("--name", "-n", help=HELP.docker.name_filter)] = None,
     dry_run: Annotated[
@@ -76,11 +89,8 @@ def list_images(
 ) -> None:
     """List local Docker images."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops docker images",
-            action="list_docker_images",
-            details={"name_filter": name},
-        )
+        plan = plan_docker_images(name=name)
+        render_request_plan("Planned requests for devops docker images:", plan)
         return
     images = _engine().list_images(name=name)
 
@@ -105,6 +115,7 @@ def list_images(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def build(
     context: Annotated[Path, typer.Argument(help=HELP.docker.context_dir)] = DEFAULT_CURRENT_PATH,
     tag: Annotated[str | None, typer.Option("--tag", "-t", help=HELP.docker.tag)] = None,
@@ -119,16 +130,8 @@ def build(
 ) -> None:
     """Build a Docker image."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops docker build",
-            target=str(context),
-            action="build_docker_image",
-            details={
-                "tag": tag,
-                "dockerfile": str(dockerfile) if dockerfile else None,
-                "no_cache": no_cache,
-            },
-        )
+        plan = plan_docker_build(context=context, tag=tag, dockerfile=dockerfile, no_cache=no_cache)
+        render_request_plan("Planned requests for devops docker build:", plan)
         return
     client = _engine().client()
     kwargs: dict[str, Any] = {"path": str(context), "rm": True, "nocache": no_cache}
@@ -154,6 +157,7 @@ def build(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def push(
     image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
     dry_run: Annotated[
@@ -163,12 +167,8 @@ def push(
 ) -> None:
     """Push a Docker image to a registry."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops docker push",
-            target=image,
-            action="push_docker_image",
-            details={"image": image},
-        )
+        plan = plan_docker_push(image=image)
+        render_request_plan("Planned requests for devops docker push:", plan)
         return
     from http import HTTPStatus
 
@@ -207,6 +207,7 @@ def push(
 
 
 @app.command(help=HELP.docker.prune)
+@dry_run_class("request-plan")
 def prune(
     volumes: Annotated[bool, typer.Option("--volumes", help=HELP.docker.volumes)] = False,
     force: Annotated[bool, typer.Option("--force", "-f", help=HELP.options.force)] = False,
@@ -217,11 +218,8 @@ def prune(
 ) -> None:
     """Remove stopped containers, unused networks, dangling images and, with --volumes, unused volumes."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops docker prune",
-            action="prune_docker_resources",
-            details={"volumes": volumes, "force": force},
-        )
+        plan = plan_docker_prune(volumes=volumes)
+        render_request_plan("Planned requests for devops docker prune:", plan)
         return
     if not force:
         prompt = (
@@ -282,6 +280,7 @@ def _build_docker_stats_table(name_filter: str | None) -> TablePayload:
 
 
 @app.command("stats")
+@dry_run_class("request-plan")
 def stats(
     name: Annotated[str | None, typer.Option("--name", "-n", help=HELP.docker.name_filter)] = None,
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.docker.watch)] = False,
@@ -290,11 +289,8 @@ def stats(
 ) -> None:
     """Display live container CPU, memory, and network I/O statistics."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops docker stats",
-            action="docker_container_stats",
-            details={"name_filter": name, "watch": watch, "interval": interval},
-        )
+        plan = plan_docker_stats(name=name)
+        render_request_plan("Planned requests for devops docker stats:", plan)
         return
 
     if watch:
@@ -335,6 +331,7 @@ def _build_cache_rows(report: BuildCacheReport) -> list[list[str]]:
 
 
 @app.command("cache")
+@dry_run_class("request-plan")
 def build_cache(
     prune: Annotated[bool, typer.Option("--prune", help=HELP.docker.prune_cache)] = False,
     output_format: Annotated[
@@ -346,11 +343,8 @@ def build_cache(
 ) -> None:
     """Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops docker cache",
-            action="docker_build_cache_introspect",
-            details={"prune": prune},
-        )
+        plan = plan_docker_cache(prune=prune)
+        render_request_plan("Planned requests for devops docker cache:", plan)
         return
 
     engine = _engine()
@@ -398,6 +392,7 @@ def build_cache(
 
 
 @app.command("sandbox")
+@dry_run_class("request-plan")
 def docker_sandbox(
     command: Annotated[
         list[str],
@@ -495,11 +490,18 @@ def docker_sandbox(
     sandbox_runner = WorkloadSandboxRunner(cfg)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops docker sandbox {' '.join(command)}",
-            action="docker_workload_sandbox",
-            details=sandbox_runner.build_dry_run_details(),
+        ws_resolved = sandbox_runner._validate_workspace_dir()
+        plan = plan_docker_sandbox(
+            command=command,
+            image=image,
+            workspace=ws_resolved,
+            network_mode=effective_mode,
+            read_only=read_only,
+            rootless=rootless,
+            declared_controls=sandbox_runner.declared_controls(),
+            seccomp_profile=policy.seccomp_profile.path if policy.seccomp_profile else None,
         )
+        render_request_plan("Planned requests for devops docker sandbox (dry-run):", plan)
         return
 
     print_info(f"Running command in sandbox ({image}, network={cfg.network_mode})...")
@@ -520,6 +522,7 @@ def docker_sandbox(
 
 
 @app.command("sign")
+@dry_run_class("request-plan")
 def docker_sign(
     image: Annotated[
         str, typer.Argument(help="Target container image reference (name:tag or digest)")
@@ -552,6 +555,17 @@ def docker_sign(
     ] = False,
 ) -> None:
     """Sign a container image using Sigstore Cosign (keyless or keyed)."""
+    if dry_run or is_dry_run():
+        plan = plan_docker_sign(
+            image=image,
+            key=key,
+            keyless=keyless,
+            upload=upload,
+            annotations=annotation,
+        )
+        render_request_plan("Planned requests for devops docker sign (dry-run):", plan)
+        return
+
     from devops_cli.docker.cosign import CosignRunner
     from devops_cli.exceptions.docker import CosignError
     from devops_cli.exceptions.tools import DependencyError
@@ -565,22 +579,8 @@ def docker_sign(
         oidc_token=oidc_token,
         annotations=annotation or [],
         upload=upload,
-        dry_run=dry_run or is_dry_run(),
+        dry_run=False,
     )
-
-    if req.dry_run:
-        render_dry_run_result(
-            command=f"devops docker sign {image}",
-            action="docker_cosign_sign",
-            details={
-                "image": image,
-                "keyless": keyless,
-                "key": key or "none",
-                "annotations": annotation or [],
-                "upload": upload,
-            },
-        )
-        return
 
     try:
         res = runner.sign_image(req)
@@ -591,6 +591,7 @@ def docker_sign(
 
 
 @app.command("verify")
+@dry_run_class("request-plan")
 def docker_verify(
     image: Annotated[str, typer.Argument(help="Target container image reference to verify")],
     key: Annotated[
@@ -629,6 +630,19 @@ def docker_verify(
     ] = False,
 ) -> None:
     """Verify container image signature or attestation using Sigstore Cosign."""
+    if dry_run or is_dry_run():
+        plan = plan_docker_verify(
+            image=image,
+            key=key,
+            cert_identity=certificate_identity,
+            cert_issuer=certificate_oidc_issuer,
+            attestation=attestation,
+            predicate_type=predicate_type,
+            insecure_ignore_tlog=insecure_ignore_tlog,
+        )
+        render_request_plan("Planned requests for devops docker verify (dry-run):", plan)
+        return
+
     from devops_cli.docker.cosign import CosignRunner
     from devops_cli.exceptions.docker import CosignVerificationError
     from devops_cli.exceptions.tools import DependencyError
@@ -643,22 +657,8 @@ def docker_verify(
         attestation=attestation,
         predicate_type=predicate_type,
         insecure_ignore_tlog=insecure_ignore_tlog,
-        dry_run=dry_run or is_dry_run(),
+        dry_run=False,
     )
-
-    if req.dry_run:
-        render_dry_run_result(
-            command=f"devops docker verify {image}",
-            action="docker_cosign_verify",
-            details={
-                "image": image,
-                "key": key or "none",
-                "cert_identity": certificate_identity or "none",
-                "cert_issuer": certificate_oidc_issuer or "none",
-                "attestation": attestation,
-            },
-        )
-        return
 
     try:
         res = runner.verify_image(req)

@@ -193,7 +193,7 @@ def test_ingress_has_class_traefik_one_host_and_a_prefix_path_for_each_tunnel_pr
     assert (rule["host"], routed) == ("hooks.example.com", expected)
 
 
-def test_networkpolicy_admits_only_traefik_and_monitoring_on_8000() -> None:
+def test_networkpolicy_admits_traefik_monitoring_and_mattermost_on_8000() -> None:
     policy = _doc("networkpolicy.yaml")
     spec = policy["spec"]
     ingress_rules = spec["ingress"]
@@ -213,6 +213,13 @@ def test_networkpolicy_admits_only_traefik_and_monitoring_on_8000() -> None:
         == "monitoring"
         for peer in from_peers
     )
+    has_mattermost = any(
+        peer.get("namespaceSelector", {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
+        == "mattermost"
+        and peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+        == "mattermost"
+        for peer in from_peers
+    )
 
     assert (
         policy["metadata"]["name"],
@@ -220,11 +227,13 @@ def test_networkpolicy_admits_only_traefik_and_monitoring_on_8000() -> None:
         spec["policyTypes"],
         has_traefik,
         has_monitoring,
+        has_mattermost,
         set(ports),
     ) == (
         "roadmap-service-ingress",
         {"app.kubernetes.io/name": "roadmap-service"},
         ["Ingress"],
+        True,
         True,
         True,
         {8000},

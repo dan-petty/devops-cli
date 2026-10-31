@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,6 +17,7 @@ from devops_cli.config.constants import CONST_ALLOWED_CRITERIA_BINARIES
 from devops_cli.exceptions.sandbox import SandboxValidationError
 from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
 from devops_cli.sandbox.models import SandboxPolicy
+from tests.support.fakes.process import FakeSandboxProcess, ProcessFake
 from tests.support.paths import REPO_ROOT
 
 _SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin"
@@ -159,6 +162,68 @@ def test_host_sandbox_fails_closed_when_bwrap_missing(tmp_path: Path) -> None:
     )
 
 
+def test_host_sandbox_kills_process_group_on_output_cap_exceeded(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """A child writing more than the output cap is killed with its group, and the result names the cap (#2149)."""
+    stub_bwrap = tmp_path / "bwrap"
+    stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
+    stub_bwrap.chmod(0o755)
+    sandbox = HostSandbox(bwrap_binary=stub_bwrap)
+
+    proc = FakeSandboxProcess(stdout=b"x" * 2048)
+    process_fake.answer_sandbox(proc)
+
+    res = sandbox.execute(["true"], cwd=tmp_path, max_output_bytes=1024)
+    assert (
+        res.passed,
+        "Output exceeded maximum limit of 1024 bytes" in str(res.error),
+        signal.SIGKILL in proc.signals,
+    ) == (False, True, True)
+
+
+def test_host_sandbox_kills_process_group_on_timeout(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """A child passing the deadline is killed and timed_out is true (#2149)."""
+    stub_bwrap = tmp_path / "bwrap"
+    stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
+    stub_bwrap.chmod(0o755)
+    sandbox = HostSandbox(bwrap_binary=stub_bwrap)
+
+    proc = FakeSandboxProcess(pipe_stdout_writer=True)
+    process_fake.answer_sandbox(proc)
+
+    res = sandbox.execute(["true"], cwd=tmp_path, timeout=0.05)
+    proc.close()
+    assert (
+        res.passed,
+        res.timed_out,
+        "Criterion execution timed out after 0.05s" in str(res.error),
+        signal.SIGKILL in proc.signals,
+    ) == (False, True, True, True)
+
+
+def test_host_sandbox_reaps_hung_process_after_kill(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """A child not exiting after the initial wait is killed and reaped (#2149)."""
+    stub_bwrap = tmp_path / "bwrap"
+    stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
+    stub_bwrap.chmod(0o755)
+    sandbox = HostSandbox(bwrap_binary=stub_bwrap)
+
+    proc = FakeSandboxProcess(stdout=b"done\n", hang_on_first_wait=True)
+    process_fake.answer_sandbox(proc)
+
+    res = sandbox.execute(["true"], cwd=tmp_path)
+    assert (
+        res.passed,
+        len(proc.waits) == 2,
+        signal.SIGKILL in proc.signals,
+    ) == (True, True, True)
+
+
 def test_host_sandbox_build_args_structure(tmp_path: Path) -> None:
     """Verify bubblewrap command argument compilation structure and isolation flags."""
     sandbox = HostSandbox()
@@ -176,22 +241,19 @@ def test_host_sandbox_build_args_structure(tmp_path: Path) -> None:
     ) == (True, True, True, True, True, True, True, True, True)
 
 
-def test_host_sandbox_handles_namespace_refusal(tmp_path: Path) -> None:
+def test_host_sandbox_handles_namespace_refusal(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Verify that bubblewrap namespace refusal is caught and reported as sandbox error."""
     stub_bwrap = tmp_path / "bwrap"
     stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
     stub_bwrap.chmod(0o755)
     sandbox = HostSandbox(bwrap_binary=stub_bwrap)
-    mock_proc = MagicMock()
-    mock_proc.communicate.return_value = (
-        "",
-        "bwrap: Setting up uid map: Permission denied\n",
+    proc = FakeSandboxProcess(
+        stderr=b"bwrap: Setting up uid map: Permission denied\n",
+        returncode=1,
     )
-    mock_proc.returncode = 1
-    mock_proc.pid = 999999
+    process_fake.answer_sandbox(proc)
 
-    with patch("subprocess.Popen", return_value=mock_proc):
-        res = sandbox.execute(["python3", "-c", "pass"], cwd=tmp_path)
+    res = sandbox.execute(["python3", "-c", "pass"], cwd=tmp_path)
 
     assert (
         res.passed,
@@ -224,6 +286,26 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
         "CUSTOM_SECRET" not in str(args),
         "SAFE_VAR" in str(args),
     ) == (True, True, True, True, True, True, True, True)
+
+
+def test_host_sandbox_handles_unexpected_exception_after_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """An unexpected exception during communicate terminates the spawned process group."""
+    from devops_cli.sandbox.host import _run_sandbox_process
+
+    fake_proc = FakeSandboxProcess(returncode=0)
+    process_fake.answer_sandbox(fake_proc)
+
+    def _exploding_communicate(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("devops_cli.sandbox.host._communicate_bounded", _exploding_communicate)
+    outcome = _run_sandbox_process(["bwrap"], 10.0, 1024, 10)
+    assert outcome.exit_code == -1
+    assert outcome.error is not None
+    assert "boom" in outcome.error
+    assert signal.SIGKILL in fake_proc.signals
 
 
 def test_host_sandbox_default_policy_mounts_tmp_as_declared(tmp_path: Path) -> None:
@@ -292,7 +374,6 @@ def test_host_sandbox_nested_clone_cannot_read_parent_workspace(tmp_path: Path) 
 @pytest.mark.bwrap
 def test_host_sandbox_linked_worktree_runs_git(tmp_path: Path) -> None:
     """Verify linked worktree binds common git directory so git commands succeed (#663)."""
-    import subprocess
 
     main_repo = tmp_path / "main_repo"
     main_repo.mkdir()
@@ -626,21 +707,22 @@ def test_sandbox_binds_each_writable_directory_read_write_after_the_read_only_bi
     ]
 
 
-def test_host_sandbox_reports_a_timeout_apart_from_a_failure(tmp_path: Path) -> None:
+def test_host_sandbox_reports_a_timeout_apart_from_a_failure(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """A command stopped at its time limit is marked timed out; one that exits non-zero is not (#847)."""
     stub_bwrap = tmp_path / "bwrap"
     stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
     stub_bwrap.chmod(0o755)
     sandbox = HostSandbox(bwrap_binary=stub_bwrap)
-    hung, failing = MagicMock(), MagicMock()
-    hung.communicate.side_effect = subprocess.TimeoutExpired(cmd="python", timeout=0.1)
-    hung.pid = 999999
-    failing.communicate.return_value = (b"", b"AssertionError\n")
-    failing.returncode = 1
-    failing.pid = 999998
-    with patch("subprocess.Popen", side_effect=[hung, failing]):
-        timed_out = sandbox.execute(["python", "-c", "pass"], cwd=tmp_path, timeout=0.1)
-        failed = sandbox.execute(["python", "-c", "assert False"], cwd=tmp_path)
+    hung = FakeSandboxProcess(pipe_stdout_writer=True)
+    failing = FakeSandboxProcess(stderr=b"AssertionError\n", returncode=1)
+    process_fake.answer_sandbox(hung)
+    process_fake.answer_sandbox(failing)
+
+    timed_out = sandbox.execute(["python", "-c", "pass"], cwd=tmp_path, timeout=0.05)
+    hung.close()
+    failed = sandbox.execute(["python", "-c", "assert False"], cwd=tmp_path)
     assert (
         (timed_out.passed, timed_out.exit_code, timed_out.timed_out),
         (failed.passed, failed.exit_code, failed.timed_out),

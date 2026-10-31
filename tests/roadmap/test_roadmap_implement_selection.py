@@ -64,15 +64,8 @@ def _reasons(plan: ImplementPlan) -> dict[int, str]:
     return {left.number: left.reason for left in plan.left_out}
 
 
-def test_the_default_filter_names_the_ready_and_planned_low_effort_p0_and_p1_bugs() -> None:
-    assert DEFAULT_IMPLEMENT_FILTERS == (
-        "status=ready",
-        "status=planned",
-        "priority=p0-critical",
-        "priority=p1-high",
-        "type=bug",
-        "effort=low",
-    )
+def test_the_default_filter_names_the_ready_and_planned_items_of_low_effort() -> None:
+    assert DEFAULT_IMPLEMENT_FILTERS == ("status=ready", "status=planned", "effort=low")
 
 
 def test_a_staged_low_effort_p1_bug_is_selected_with_its_branch_and_pull_request(
@@ -92,8 +85,8 @@ def test_an_item_that_the_filter_does_not_name_is_not_in_the_plan(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:
     seed_staged(store, labels=("type/bug", "effort/high"))
-    seed_staged(store, priority="P3-Low")
-    seed_staged(store, labels=("type/feature", "effort/low"))
+    seed_staged(store, labels=("type/feature", "effort/medium"))
+    seed_staged(store, labels=("type/docs",))
 
     plan = _plan(store, staged_repo)
 

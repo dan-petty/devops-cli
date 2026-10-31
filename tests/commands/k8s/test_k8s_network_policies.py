@@ -673,3 +673,62 @@ def test_mattermost_ingress_admits_argocd_notifications_controller_port_8065() -
         == "argocd-notifications-controller"
     ]
     assert len(matches) == 1
+
+
+def test_mattermost_egress_allows_devops_port_8000() -> None:
+    """The mattermost pod allows egress to namespace devops on TCP port 8000 (#1395)."""
+    policy_path = K8S_DIR / "mattermost" / "networkpolicy.yaml"
+    docs = [
+        doc
+        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
+    ]
+    egress_rules = [
+        rule
+        for doc in docs
+        if doc.get("spec", {})
+        .get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/name")
+        == "mattermost"
+        for rule in doc.get("spec", {}).get("egress", [])
+    ]
+    ports: list[int] = []
+    for rule in egress_rules:
+        targets = [
+            peer.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            for peer in rule.get("to", [])
+        ]
+        if "devops" in targets:
+            ports.extend(p.get("port") for p in rule.get("ports", []) if "port" in p)
+    assert 8000 in ports
+
+
+def test_roadmap_service_ingress_admits_mattermost_port_8000() -> None:
+    """The roadmap-service ingress policy admits TCP 8000 from mattermost pods in mattermost (#1395)."""
+    policy_path = K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml"
+    docs = [
+        doc
+        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
+    ]
+    peers = [
+        peer
+        for doc in docs
+        for rule in doc.get("spec", {}).get("ingress", [])
+        if 8000 in [p.get("port") for p in rule.get("ports", [])]
+        for peer in rule.get("from", [])
+    ]
+    matches = [
+        peer
+        for peer in peers
+        if peer.get("namespaceSelector", {})
+        .get("matchLabels", {})
+        .get("kubernetes.io/metadata.name")
+        == "mattermost"
+        and peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+        == "mattermost"
+    ]
+    assert len(matches) == 1

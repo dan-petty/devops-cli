@@ -1367,7 +1367,7 @@ def test_cli_docker_cache_dry_run() -> None:
     """The cache command supports dry-run inspection without contacting the daemon."""
     result = runner.invoke(docker_app, ["cache", "--dry-run"])
     assert result.exit_code == 0
-    assert "docker_build_cache_introspect" in result.output
+    assert "DOCKER GET /system/df" in result.output
 
 
 def test_cli_docker_cache_podman_engine(docker_daemon: DockerEngineFake) -> None:

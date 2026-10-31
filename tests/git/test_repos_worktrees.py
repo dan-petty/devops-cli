@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.core.process import run_subprocess
 from devops_cli.git.worktree_inventory import (
     count_dirty_paths,
     directory_size,
     parse_worktree_porcelain_z,
 )
 from devops_cli.output import format_bytes
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import github_json
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -31,24 +34,246 @@ Git = Callable[..., None]
 Cli = Callable[..., Any]
 
 
+class WorktreeRepoState:
+    """In-memory git worktree tracking for hermetic tests (#700, #2183)."""
+
+    def __init__(
+        self, repo_dir: Path, git_fake: GitFake, origin_url: str | None = ORIGIN_URL
+    ) -> None:
+        self.repo_dir = repo_dir.resolve()
+        self.origin_url = origin_url
+        self.main_sha = "1111111111111111111111111111111111111111"
+        self.worktrees: dict[Path, dict[str, Any]] = {
+            self.repo_dir: {
+                "branch": "refs/heads/main",
+                "head": self.main_sha,
+                "locked": False,
+                "lock_reason": None,
+                "ahead": 0,
+                "is_main": True,
+            }
+        }
+        self.remotes: dict[str, str] = {}
+        git_fake.answer(self._matches, self._handle_call)
+
+    def add_worktree(self, branch: str | None, path: Path, *, commit: bool = False) -> str:
+        resolved = path.resolve()
+        sha = (
+            hashlib.sha1(f"{branch}-{path}".encode(), usedforsecurity=False).hexdigest()
+            if commit
+            else self.main_sha
+        )
+        self.worktrees[resolved] = {
+            "branch": f"refs/heads/{branch}" if branch else None,
+            "head": sha,
+            "locked": False,
+            "lock_reason": None,
+            "ahead": 1 if commit else 0,
+            "is_main": False,
+        }
+        return sha
+
+    def _matches(self, call: ProcessCall) -> bool:
+        return bool(call.argv and Path(call.argv[0]).name == "git")
+
+    def _handle_remote(self, sub_argv: list[str]) -> ProcessAnswer:
+        if "get-url" in sub_argv:
+            if self.origin_url:
+                return ProcessAnswer(stdout=f"{self.origin_url}\n")
+            return ProcessAnswer(returncode=128, stderr="fatal: No such remote 'origin'")
+        return ProcessAnswer(stdout="origin\n")
+
+    def _handle_rev_parse(self, sub_argv: list[str], repo_dir: Path) -> ProcessAnswer:
+        if "HEAD" in sub_argv:
+            wt_info = self.worktrees.get(repo_dir)
+            head = wt_info["head"] if wt_info else self.main_sha
+            return ProcessAnswer(stdout=f"{head}\n")
+        return ProcessAnswer(returncode=0)
+
+    def _handle_rev_list(self, sub_argv: list[str]) -> ProcessAnswer:
+        for word in sub_argv:
+            if ".." in word:
+                _, head = word.split("..", 1)
+                for wt in self.worktrees.values():
+                    if wt["head"] == head:
+                        return ProcessAnswer(stdout=f"{wt['ahead']}\n")
+        return ProcessAnswer(stdout="0\n")
+
+    def _collect_status_tokens(self, repo_dir: Path) -> list[str]:
+        if not repo_dir.exists():
+            return []
+        tokens: list[str] = []
+        for item in sorted(repo_dir.iterdir()):
+            if item.name == ".git":
+                continue
+            if not item.name.endswith(".txt"):
+                continue
+            if item.name == "file.txt":
+                text = item.read_text(encoding="utf-8", errors="replace")
+                if text == "modified\n":
+                    tokens.append(f" M {item.name}")
+            elif not item.name.startswith("branch-"):
+                tokens.append(f"?? {item.name}")
+        return tokens
+
+    def _handle_status(self, repo_dir: Path) -> ProcessAnswer:
+        if repo_dir != self.repo_dir and repo_dir not in self.worktrees:
+            return ProcessAnswer(returncode=128, stderr="fatal: not a git repository")
+        git_marker = repo_dir / ".git"
+        if git_marker.is_file():
+            content = git_marker.read_text(encoding="utf-8", errors="replace")
+            if not content.startswith("gitdir:"):
+                return ProcessAnswer(returncode=128, stderr="fatal: invalid gitdir pointer")
+        tokens = self._collect_status_tokens(repo_dir)
+        if tokens:
+            return ProcessAnswer(stdout="".join(f"{t}\0" for t in tokens))
+        return ProcessAnswer(stdout="")
+
+    def _worktree_list_porcelain(self) -> ProcessAnswer:
+        tokens: list[str] = []
+        for p, info in list(self.worktrees.items()):
+            tokens.append(f"worktree {p}")
+            tokens.append(f"HEAD {info['head']}")
+            if info["branch"]:
+                tokens.append(f"branch {info['branch']}")
+            else:
+                tokens.append("detached")
+            if info.get("bare"):
+                tokens.append("bare")
+            if info["locked"]:
+                lock_text = f"locked {info['lock_reason']}" if info["lock_reason"] else "locked"
+                tokens.append(lock_text)
+            if not p.exists():
+                tokens.append("prunable gitdir file points to non-existent location")
+            tokens.append("")
+        return ProcessAnswer(stdout="\0".join(tokens) + "\0")
+
+    def _worktree_list_standard(self) -> ProcessAnswer:
+        lines: list[str] = []
+        for p, info in self.worktrees.items():
+            branch_label = (
+                f"[{info['branch'].removeprefix('refs/heads/')}]"
+                if info["branch"]
+                else "(detached HEAD)"
+            )
+            lines.append(f"{p}  {info['head'][:7]} {branch_label}")
+        return ProcessAnswer(stdout="\n".join(lines) + "\n")
+
+    def _handle_worktree_remove(self, sub_argv: list[str]) -> ProcessAnswer:
+        target_path = Path(sub_argv[-1]).resolve()
+        wt_info = self.worktrees.get(target_path)
+        if wt_info and wt_info["locked"] and sub_argv.count("--force") < 2:
+            return ProcessAnswer(
+                returncode=128,
+                stderr=f"fatal: '{target_path}' is locked: {wt_info['lock_reason']}",
+            )
+        self.worktrees.pop(target_path, None)
+        shutil.rmtree(target_path, ignore_errors=True)
+        return ProcessAnswer(returncode=0)
+
+    def _handle_worktree_add(self, sub_argv: list[str]) -> ProcessAnswer:
+        target_path = Path(sub_argv[-1]).resolve()
+        branch = None
+        if "-b" in sub_argv:
+            idx = sub_argv.index("-b")
+            branch = sub_argv[idx + 1]
+        self.add_worktree(branch, target_path, commit=False)
+        target_path.mkdir(parents=True, exist_ok=True)
+        pointer = self.repo_dir / ".git" / "worktrees" / (branch or "detached")
+        (target_path / ".git").write_text(f"gitdir: {pointer}\n", encoding="utf-8")
+        return ProcessAnswer(returncode=0)
+
+    def _handle_worktree(self, sub_argv: list[str]) -> ProcessAnswer:
+        subcmd = sub_argv[1] if len(sub_argv) > 1 else ""
+        if subcmd == "list":
+            if "--porcelain" in sub_argv:
+                return self._worktree_list_porcelain()
+            return self._worktree_list_standard()
+        if subcmd == "lock":
+            reason = (
+                sub_argv[sub_argv.index("--reason") + 1] if "--reason" in sub_argv else "locked"
+            )
+            target = Path(sub_argv[-1]).resolve()
+            if target in self.worktrees:
+                self.worktrees[target]["locked"] = True
+                self.worktrees[target]["lock_reason"] = reason
+            return ProcessAnswer(returncode=0)
+        if subcmd == "unlock":
+            target = Path(sub_argv[-1]).resolve()
+            if target in self.worktrees:
+                self.worktrees[target]["locked"] = False
+                self.worktrees[target]["lock_reason"] = None
+            return ProcessAnswer(returncode=0)
+        if subcmd == "remove":
+            return self._handle_worktree_remove(sub_argv)
+        if subcmd == "add":
+            return self._handle_worktree_add(sub_argv)
+        return ProcessAnswer(returncode=0)
+
+    def _handle_commit(self, repo_dir: Path) -> ProcessAnswer:
+        wt_info = self.worktrees.get(repo_dir)
+        if wt_info:
+            wt_info["ahead"] += 1
+            seed = f"{wt_info['branch']}-{wt_info['ahead']}".encode()
+            wt_info["head"] = hashlib.sha1(seed, usedforsecurity=False).hexdigest()
+        return ProcessAnswer(returncode=0)
+
+    def _handle_call(self, call: ProcessCall) -> ProcessAnswer:
+        argv = call.argv
+        repo_dir = self.repo_dir
+        sub_argv = list(argv[1:])
+        if len(sub_argv) >= 2 and sub_argv[0] == "-C":
+            repo_dir = Path(sub_argv[1]).resolve()
+            sub_argv = sub_argv[2:]
+
+        cmd = sub_argv[0] if sub_argv else ""
+        if cmd == "remote":
+            return self._handle_remote(sub_argv)
+        if cmd == "rev-parse":
+            return self._handle_rev_parse(sub_argv, repo_dir)
+        if cmd == "rev-list":
+            return self._handle_rev_list(sub_argv)
+        if cmd == "status":
+            return self._handle_status(repo_dir)
+        if cmd == "worktree":
+            return self._handle_worktree(sub_argv)
+        if cmd == "commit":
+            return self._handle_commit(repo_dir)
+        if cmd == "update-ref":
+            ref = sub_argv[1] if len(sub_argv) > 1 else ""
+            val = sub_argv[2] if len(sub_argv) > 2 else ""
+            self.remotes[ref] = val
+            return ProcessAnswer(returncode=0)
+        return ProcessAnswer(returncode=0)
+
+
 @pytest.fixture
-def git_repo(tmp_path: Path, git: Git) -> Path:
+def git_repo(tmp_path: Path, git_fake: GitFake) -> Path:
     """A repository with a committed main branch and a GitHub origin."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    git(repo, "init", "-b", "main")
+    (repo / ".git").mkdir()
     (repo / "file.txt").write_text("base\n", encoding="utf-8")
-    git(repo, "add", "file.txt")
-    git(repo, "commit", "-m", "init")
-    git(repo, "remote", "add", "origin", ORIGIN_URL)
+    WorktreeRepoState(repo, git_fake)
     return repo
+
+
+@pytest.fixture
+def git() -> Callable[..., None]:
+    """In-process git command runner that dispatches to git_fake."""
+
+    def runner(repo: Path, *args: str) -> None:
+        run_subprocess(["git", "-C", str(repo), *args])
+
+    return runner
 
 
 def _tip(path: Path) -> str:
     """The commit a worktree is at."""
-    return subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-    ).stdout.strip()
+    res = run_subprocess(
+        ["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True
+    )
+    return res.stdout.strip()
 
 
 def _add_worktree(git: Git, repo: Path, branch: str, path: Path, *, commit: bool = False) -> str:
@@ -293,8 +518,8 @@ def test_prune_removes_the_record_of_a_worktree_whose_directory_is_gone(
 
     result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
 
-    listed = subprocess.run(
-        ["git", "-C", str(git_repo), "worktree", "list"], check=True, capture_output=True, text=True
+    listed = run_subprocess(
+        ["git", "-C", str(git_repo), "worktree", "list"], capture_output=True, text=True
     ).stdout
     assert (result.exit_code, "wt_gone" in listed, github_api.requested) == (0, False, [])
     assert _outcomes(json.loads(result.stdout))["wt_gone"] == ("removed", None)
@@ -378,15 +603,14 @@ def test_prune_refuses_dry_run_with_confirm(
 
 
 def test_prune_without_a_github_origin_names_the_cause(
-    tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake, git_fake: GitFake
 ) -> None:
     """The merged pull request is read from the origin; without one prune stops before any read."""
     repo = tmp_path / "plain"
     repo.mkdir()
-    git(repo, "init", "-b", "main")
+    (repo / ".git").mkdir()
     (repo / "file.txt").write_text("base\n", encoding="utf-8")
-    git(repo, "add", "file.txt")
-    git(repo, "commit", "-m", "init")
+    WorktreeRepoState(repo, git_fake, origin_url=None)
     wt = tmp_path / "wt_one"
     _add_worktree(git, repo, "branch-one", wt, commit=True)
 
@@ -413,8 +637,8 @@ def test_forced_prune_of_a_locked_worktree_reports_the_failure_and_keeps_the_dir
     )
 
     report = json.loads(result.stdout)
-    listed = subprocess.run(
-        ["git", "-C", str(git_repo), "worktree", "list"], check=True, capture_output=True, text=True
+    listed = run_subprocess(
+        ["git", "-C", str(git_repo), "worktree", "list"], capture_output=True, text=True
     ).stdout
     status, reason = _outcomes(report)["wt_locked"]
     assert (result.exit_code, status, "agent-42" in (reason or "")) == (1, "failed", True)
@@ -431,8 +655,8 @@ def test_forced_prune_removes_an_unmerged_worktree_without_reading_github(
 
     result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--force", "--confirm")
 
-    listed = subprocess.run(
-        ["git", "-C", str(git_repo), "worktree", "list"], check=True, capture_output=True, text=True
+    listed = run_subprocess(
+        ["git", "-C", str(git_repo), "worktree", "list"], capture_output=True, text=True
     ).stdout
     assert (result.exit_code, unmerged.exists(), "wt_force" in listed, github_api.requested) == (
         0,

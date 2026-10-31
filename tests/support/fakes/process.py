@@ -6,6 +6,8 @@ interfaces, recording calls and returning scripted answers.
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -71,6 +73,89 @@ class EndedProcess:
         return self.returncode
 
 
+class FakeSandboxProcess:
+    """A double for a sandboxed child process with real OS pipes for stdout and stderr (#2149)."""
+
+    def __init__(
+        self,
+        *,
+        pid: int = 12345,
+        returncode: int | None = None,
+        stdout: bytes = b"",
+        stderr: bytes = b"",
+        hang_on_first_wait: bool = False,
+        pipe_stdout_writer: bool = False,
+    ) -> None:
+        self.pid = pid
+        self.returncode = (
+            returncode if returncode is not None else (None if pipe_stdout_writer else 0)
+        )
+        self.signals: list[int] = []
+        self.waits: list[float | None] = []
+        self._hang_on_first_wait = hang_on_first_wait
+        self._wait_count = 0
+        self._poll_count = 0
+
+        r_out, self._w_out = os.pipe()
+        r_err, self._w_err = os.pipe()
+
+        if stdout:
+            os.write(self._w_out, stdout)
+        if not pipe_stdout_writer:
+            os.close(self._w_out)
+            self._w_out = -1
+
+        if stderr:
+            os.write(self._w_err, stderr)
+        os.close(self._w_err)
+        self._w_err = -1
+
+        self.stdout = os.fdopen(r_out, "rb", buffering=0)
+        self.stderr = os.fdopen(r_err, "rb", buffering=0)
+
+    def write_stdout(self, data: bytes) -> None:
+        """Write additional bytes to stdout pipe while open."""
+        if self._w_out >= 0:
+            os.write(self._w_out, data)
+
+    def close_stdout_writer(self) -> None:
+        """Close write end of stdout pipe to signal EOF."""
+        if self._w_out >= 0:
+            os.close(self._w_out)
+            self._w_out = -1
+
+    def poll(self) -> int | None:
+        self._poll_count += 1
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.waits.append(timeout)
+        self._wait_count += 1
+        if self._hang_on_first_wait and self._wait_count == 1:
+            raise subprocess.TimeoutExpired(cmd=["bwrap"], timeout=timeout or 1.0)
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+    def send_signal(self, sig: int) -> None:
+        self.signals.append(sig)
+        if self.returncode is None:
+            self.returncode = -sig
+
+    def kill(self) -> None:
+        self.send_signal(signal.SIGKILL)
+
+    def terminate(self) -> None:
+        self.send_signal(signal.SIGTERM)
+
+    def close(self) -> None:
+        self.close_stdout_writer()
+        if not self.stdout.closed:
+            self.stdout.close()
+        if not self.stderr.closed:
+            self.stderr.close()
+
+
 class ProcessFake:
     """A fake process runner that records calls and returns scripted answers."""
 
@@ -82,6 +167,42 @@ class ProcessFake:
                 ProcessAnswer | Callable[[ProcessCall], ProcessAnswer],
             ]
         ] = []
+        self.sandbox_processes: list[FakeSandboxProcess] = []
+        self._sandbox_answers: list[FakeSandboxProcess | Callable[..., FakeSandboxProcess]] = []
+        self.terminated_pids: list[tuple[int, int]] = []
+
+    def answer_sandbox(
+        self,
+        answer: FakeSandboxProcess | Callable[..., FakeSandboxProcess],
+    ) -> None:
+        """Script an answer for sandbox process execution."""
+        self._sandbox_answers.append(answer)
+
+    def spawn_sandbox(
+        self,
+        cmd: Sequence[str] | list[str],
+    ) -> FakeSandboxProcess:
+        """Spawn a fake sandbox process with piped streams and recorded execution."""
+        call = ProcessCall(argv=tuple(cmd), capture_output=True)
+        self.calls.append(call)
+        if self._sandbox_answers:
+            item = self._sandbox_answers.pop(0)
+            proc = item(call) if callable(item) else item
+        else:
+            proc = FakeSandboxProcess(returncode=0)
+        self.sandbox_processes.append(proc)
+        return proc
+
+    def terminate_process_group(self, pid: int, sig: int = signal.SIGTERM) -> bool:
+        """Record process group termination and signal matching fake processes."""
+        self.terminated_pids.append((pid, sig))
+        for proc in self.sandbox_processes:
+            if proc.pid == pid:
+                proc.send_signal(sig)
+                return True
+        from devops_cli.core.process import _terminate_process_group_os
+
+        return _terminate_process_group_os(pid, sig)
 
     @property
     def call_count(self) -> int:
@@ -318,4 +439,6 @@ def process_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ProcessFake]:
     try:
         yield fake
     finally:
+        for proc in fake.sandbox_processes:
+            proc.close()
         reset_process_runner()

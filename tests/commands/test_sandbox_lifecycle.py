@@ -1543,9 +1543,22 @@ def test_a_whitelist_without_an_egress_proxy_declares_its_network_and_refuses_to
 
 def _printed_declared_controls(response: Any) -> dict[str, Any]:
     """The declared_controls a dry run printed, parsed from its JSON response."""
-    printed: dict[str, Any] = json.loads(response.output.split("Command response:\n")[1])
-    controls: dict[str, Any] = printed["details"]["declared_controls"]
-    return controls
+    for line in response.output.splitlines():
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                data = json.loads(line)
+                if "declared_controls" in data:
+                    return data["declared_controls"]
+                if "details" in data and "declared_controls" in data["details"]:
+                    return data["details"]["declared_controls"]
+            except Exception:
+                continue
+    if "Command response:\n" in response.output:
+        printed: dict[str, Any] = json.loads(response.output.split("Command response:\n")[1])
+        controls: dict[str, Any] = printed["details"]["declared_controls"]
+        return controls
+    raise ValueError(f"Could not parse declared_controls from output: {response.output}")
 
 
 def test_both_dry_runs_print_the_controls_without_asking_the_engine(

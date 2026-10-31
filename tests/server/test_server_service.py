@@ -76,6 +76,8 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 LANE = CONST_SERVICE_LANE_DEFAULT
 """The one lane of the tests that run one job per repository."""
 
+pytestmark = pytest.mark.usefixtures("keyring_store")
+
 
 def _sign(payload: bytes, secret: str) -> str:
     """Generate X-Hub-Signature-256 header value for given payload and secret."""

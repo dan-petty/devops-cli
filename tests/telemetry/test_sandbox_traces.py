@@ -257,8 +257,8 @@ def test_sandbox_traces_dry_run(runner: CliRunner) -> None:
     """Verify dry-run mode for devops sandbox traces."""
     res = runner.invoke(app, ["traces", "test-sandbox", "--dry-run"])
     assert res.exit_code == 0
-    assert "dry_run" in res.output.lower()
-    assert "test-sandbox" in res.output
+    assert "Planned requests for devops sandbox traces" in res.output
+    assert "http://tempo.monitoring.svc:3200/api/traces/<latest-trace-id>" in res.output
 
 
 def test_sandbox_traces_with_buffered_spans(runner: CliRunner) -> None:

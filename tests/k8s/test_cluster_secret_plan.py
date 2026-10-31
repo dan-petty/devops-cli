@@ -275,6 +275,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/roadmap-service",),
         ),
         (
+            "devops/devops-cli",
+            "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN",
+            "devops",
+            False,
+            None,
+            None,
+            ("deployment/roadmap-service",),
+        ),
+        (
             "monitoring/grafana-admin",
             "admin-user",
             "infra",
@@ -560,6 +569,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
     planned = [r for r in requests if not r.condition or r.condition in holds]
     stub_keyring.values["service_webhook_secrets"] = "service-secrets-value-0001"
     stub_keyring.values["firecrawl_api_key"] = "firecrawl-secrets-value-0001"
+    stub_keyring.values["mattermost_command_token"] = "mattermost-secrets-value-0001"
     result = _push("--only", "llm/qdrant-api-key", "--only", "devops/devops-cli")
     planned_apply = json.loads(next(r.stdin for r in planned if r.stdin) or "{}")
     applied = cluster.applied_items()
@@ -573,7 +583,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
         [call.argv for call in cluster.calls],
         [f"devops-cli/{key}" for key in stub_keyring.reads],
         [{**i, "data": sorted(i["data"])} for i in applied],
-        ["<>", "<>", "<>", "<>", "<>", "<>"],
+        ["<>", "<>", "<>", "<>", "<>", "<>", "<>"],
     )
 
 

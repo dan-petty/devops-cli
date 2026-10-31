@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -331,15 +330,15 @@ def test_repos_update_no_repos(tmp_path: Path) -> None:
     assert "No repositories" in result.output
 
 
-def test_repo_origin_and_git_ignore_helpers(tmp_path: Path) -> None:
+def test_repo_origin_and_git_ignore_helpers(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify get_repo_origin_name and is_ignored_by_git."""
     (tmp_path / ".git").mkdir()
-    mock_proc = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="git@github.com:org/repo.git\n", stderr=""
+    git_fake.answer(
+        ["git", "remote", "get-url", "origin"],
+        ProcessAnswer(stdout="git@github.com:org/repo.git\n"),
     )
-    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_proc):
-        origin = get_repo_origin_name(tmp_path)
-        assert origin == "org/repo"
+    origin = get_repo_origin_name(tmp_path)
+    assert origin == "org/repo"
 
     (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
     assert is_ignored_by_git(tmp_path, tmp_path / "ignored.txt") is True
@@ -427,33 +426,66 @@ class Workspace(NamedTuple):
     clone: Path
 
 
+def _make_worktree(
+    repo_root: Path, wt_path: Path, branch: str = "wt", *, relative: bool = False
+) -> None:
+    wt_path.mkdir(parents=True, exist_ok=True)
+    git_base = repo_root if (repo_root / "config").is_file() else repo_root / ".git"
+    gitdir = git_base / "worktrees" / branch
+    gitdir.mkdir(parents=True, exist_ok=True)
+    if relative:
+        rel_to_common = os.path.relpath(git_base, gitdir)
+        (gitdir / "commondir").write_text(f"{rel_to_common}\n", encoding="utf-8")
+        (gitdir / "gitdir").write_text(
+            f"{wt_path / '.git'}\n", encoding="utf-8", errors="surrogateescape"
+        )
+        (wt_path / ".git").write_text(
+            f"gitdir: {os.path.relpath(gitdir, wt_path)}\n",
+            encoding="utf-8",
+            errors="surrogateescape",
+        )
+    else:
+        (gitdir / "commondir").write_text(f"{git_base}\n", encoding="utf-8")
+        (gitdir / "gitdir").write_text(
+            f"{wt_path / '.git'}\n", encoding="utf-8", errors="surrogateescape"
+        )
+        (wt_path / ".git").write_text(
+            f"gitdir: {gitdir}\n", encoding="utf-8", errors="surrogateescape"
+        )
+
+
 @pytest.fixture
-def workspace_with_worktrees(tmp_path: Path, git: Callable[..., None]) -> Workspace:
+def workspace_with_worktrees(tmp_path: Path) -> Workspace:
     """A checkout with a nested and an outside linked worktree, a submodule and a clone."""
     main = tmp_path / "main"
-    main.mkdir()
-    git(main, "init", "--quiet")
+    (main / ".git").mkdir(parents=True)
     (main / ".gitignore").write_text(".claude/\nrepos/\n", encoding="utf-8")
     (main / "pyproject.toml").write_text('[project]\nname = "main"\n', encoding="utf-8")
-    git(main, "add", ".")
-    git(main, "commit", "--quiet", "-m", "first")
 
     library = tmp_path / "library"
-    library.mkdir()
-    git(library, "init", "--quiet")
+    (library / ".git").mkdir(parents=True)
     (library / "README.md").write_text("library\n", encoding="utf-8")
-    git(library, "add", ".")
-    git(library, "commit", "--quiet", "-m", "first")
 
     nested = main / ".claude" / "worktrees" / "wt"
-    git(main, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    _make_worktree(main, nested, "wt")
+
     outside = tmp_path / "worktrees" / "outside"
-    git(main, "worktree", "add", "--quiet", "-b", "outside", str(outside))
-    git(main, "-c", "protocol.file.allow=always", "submodule", "add", str(library), "libs/sub")
-    git(main, "commit", "--quiet", "-m", "submodule")
+    _make_worktree(main, outside, "outside")
+
+    submodule = main / "libs" / "sub"
+    submodule.mkdir(parents=True)
+    sub_gitdir = main / ".git" / "modules" / "libs" / "sub"
+    sub_gitdir.mkdir(parents=True)
+    (submodule / ".git").write_text(f"gitdir: {sub_gitdir}\n", encoding="utf-8")
+    (main / ".gitmodules").write_text(
+        '[submodule "libs/sub"]\n\tpath = libs/sub\n\turl = ../library\n', encoding="utf-8"
+    )
+
     clone = main / "repos" / "org" / "name"
-    git(tmp_path, "clone", "--quiet", str(library), str(clone))
-    return Workspace(main, nested, outside, main / "libs" / "sub", clone)
+    clone.mkdir(parents=True)
+    (clone / ".git").mkdir(parents=True)
+    (clone / "README.md").write_text("library\n", encoding="utf-8")
+    return Workspace(main, nested, outside, submodule, clone)
 
 
 def test_a_worktree_outside_the_checkout_checks_itself(
@@ -495,12 +527,14 @@ def test_a_clone_under_repos_resolves_to_the_workspace(
 
 
 def test_a_clone_inside_a_nested_worktree_resolves_to_that_worktree(
-    workspace_with_worktrees: Workspace, tmp_path: Path, git: Callable[..., None]
+    workspace_with_worktrees: Workspace,
 ) -> None:
     """Verify the nearest linked worktree wins over the checkout around it."""
     nested = workspace_with_worktrees.nested
     clone = nested / "repos" / "org" / "x"
-    git(tmp_path, "clone", "--quiet", str(tmp_path / "library"), str(clone))
+    clone.mkdir(parents=True)
+    (clone / ".git").mkdir(parents=True)
+    (clone / "README.md").write_text("library\n", encoding="utf-8")
 
     assert find_worktree_root(clone) == nested.resolve()
 
@@ -515,15 +549,12 @@ def test_a_file_path_resolves_to_its_worktree(workspace_with_worktrees: Workspac
 
 
 def test_a_worktree_with_a_relative_gitdir_checks_itself(
-    workspace_with_worktrees: Workspace, git: Callable[..., None]
+    workspace_with_worktrees: Workspace,
 ) -> None:
     """Verify a worktree added with `--relative-paths` resolves to itself."""
     main = workspace_with_worktrees.main
     relative = main / ".claude" / "worktrees" / "rel"
-    try:
-        git(main, "worktree", "add", "--quiet", "--relative-paths", "-b", "rel", str(relative))
-    except subprocess.CalledProcessError:
-        pytest.skip("git does not support `worktree add --relative-paths`")
+    _make_worktree(main, relative, "rel", relative=True)
 
     assert find_worktree_root(relative) == relative.resolve()
 
@@ -538,14 +569,14 @@ def test_the_top_level_root_still_climbs_out_of_a_nested_worktree(
 
 
 def test_worktrees_of_a_clone_under_repos_resolve_to_the_workspace(
-    workspace_with_worktrees: Workspace, git: Callable[..., None]
+    workspace_with_worktrees: Workspace,
 ) -> None:
     """Verify a clone's own worktrees, beside it or nested in it, resolve with the clone."""
     clone = workspace_with_worktrees.clone
     beside = clone.parent / "name-wt"
     nested = clone / ".claude" / "worktrees" / "x"
-    git(clone, "worktree", "add", "--quiet", "-b", "beside", str(beside))
-    git(clone, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    _make_worktree(clone, beside, "beside")
+    _make_worktree(clone, nested, "nested")
 
     roots = (find_worktree_root(beside), find_worktree_root(nested))
 
@@ -607,21 +638,17 @@ def test_a_submodule_with_a_missing_git_directory_resolves_to_the_workspace(
     )
 
 
-def test_worktrees_of_a_bare_repository_check_themselves(
-    tmp_path: Path, git: Callable[..., None]
-) -> None:
+def test_worktrees_of_a_bare_repository_check_themselves(tmp_path: Path) -> None:
     """Verify the worktrees of a `.bare` clone, whose container's `.git` file names it,
     resolve to themselves rather than to the container, which holds no project."""
-    source = tmp_path / "source"
-    source.mkdir()
-    git(source, "init", "--quiet")
-    git(source, "commit", "--quiet", "--allow-empty", "-m", "first")
     container = tmp_path / "proj"
-    git(tmp_path, "clone", "--quiet", "--bare", str(source), str(container / ".bare"))
+    bare = container / ".bare"
+    bare.mkdir(parents=True)
+    (bare / "config").write_text("[core]\n\tbare = true\n", encoding="utf-8")
     (container / ".git").write_text("gitdir: ./.bare\n", encoding="utf-8")
     feature, other = container / "feature", container / "other"
-    git(container, "worktree", "add", "--quiet", "-b", "feature", str(feature))
-    git(container, "worktree", "add", "--quiet", "-b", "other", str(other))
+    _make_worktree(bare, feature, "feature")
+    _make_worktree(bare, other, "other")
     (feature / "src").mkdir()
 
     roots = [find_worktree_root(path) for path in (feature, feature / "src", other)]
@@ -630,19 +657,16 @@ def test_worktrees_of_a_bare_repository_check_themselves(
 
 
 def test_a_worktree_of_a_checkout_inside_another_repository_checks_itself(
-    tmp_path: Path, git: Callable[..., None]
+    tmp_path: Path,
 ) -> None:
     """Verify a nested worktree of a checkout that lies below another repository, such as a
     dotfiles repository at `$HOME`, checks itself and resolves to its own repository (#617)."""
     outer = tmp_path / "outer"
-    outer.mkdir()
-    git(outer, "init", "--quiet")
+    (outer / ".git").mkdir(parents=True)
     checkout = outer / "src" / "proj"
-    checkout.mkdir(parents=True)
-    git(checkout, "init", "--quiet")
-    git(checkout, "commit", "--quiet", "--allow-empty", "-m", "first")
+    (checkout / ".git").mkdir(parents=True)
     nested = checkout / ".claude" / "worktrees" / "wt"
-    git(checkout, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    _make_worktree(checkout, nested, "wt")
 
     assert (
         find_worktree_root(nested),
@@ -662,14 +686,14 @@ def test_a_worktree_of_a_checkout_inside_another_repository_checks_itself(
 
 
 def test_a_worktree_of_a_repository_outside_the_workspace_checks_itself(
-    workspace_with_worktrees: Workspace, tmp_path: Path, git: Callable[..., None]
+    workspace_with_worktrees: Workspace, tmp_path: Path
 ) -> None:
     """Verify a live worktree of an external repository, nested in the workspace, and its
     subdirectory check that worktree and resolve to their own repository, not the workspace
     around them (#617)."""
     main = workspace_with_worktrees.main
     external = main / ".claude" / "worktrees" / "lib"
-    git(tmp_path / "library", "worktree", "add", "--quiet", "-b", "ext", str(external))
+    _make_worktree(tmp_path / "library", external, "ext")
     (external / "sub").mkdir()
 
     roots = (
@@ -684,25 +708,21 @@ def test_a_worktree_of_a_repository_outside_the_workspace_checks_itself(
 
 
 def test_deeply_nested_unrelated_checkouts_and_worktrees_resolve_to_own_repositories(
-    tmp_path: Path, git: Callable[..., None]
+    tmp_path: Path,
 ) -> None:
     """Verify checkouts and worktrees nested at multiple levels resolve to their own repositories,
     regardless of how many unrelated repositories or projects enclose them (#617)."""
     outer = tmp_path / "outer"
-    outer.mkdir()
-    git(outer, "init", "--quiet")
+    (outer / ".git").mkdir(parents=True)
 
     middle = outer / "sub" / "middle"
-    middle.mkdir(parents=True)
-    git(middle, "init", "--quiet")
+    (middle / ".git").mkdir(parents=True)
 
     inner = middle / "vendor" / "inner"
-    inner.mkdir(parents=True)
-    git(inner, "init", "--quiet")
-    git(inner, "commit", "--quiet", "--allow-empty", "-m", "init")
+    (inner / ".git").mkdir(parents=True)
 
     worktree = inner / ".worktrees" / "wt"
-    git(inner, "worktree", "add", "--quiet", "-b", "wt", str(worktree))
+    _make_worktree(inner, worktree, "wt")
 
     assert (
         find_top_level_repo_root(worktree),
@@ -751,7 +771,7 @@ def test_an_undecodable_git_file_resolves_to_the_workspace(
 
 
 def test_a_worktree_whose_path_is_not_utf8_checks_itself(
-    workspace_with_worktrees: Workspace, git: Callable[..., None]
+    workspace_with_worktrees: Workspace,
 ) -> None:
     """Verify a worktree at a path holding Latin-1 bytes, which git writes into its `.git`
     file unchanged, is still recognised as a live linked worktree of its main checkout."""
@@ -760,8 +780,7 @@ def test_a_worktree_whose_path_is_not_utf8_checks_itself(
         latin1.mkdir(parents=True)
     except OSError:
         pytest.skip("the filesystem rejects file names that are not UTF-8")
-    latin1.rmdir()
-    git(workspace_with_worktrees.main, "worktree", "add", "--quiet", "-b", "latin1", str(latin1))
+    _make_worktree(workspace_with_worktrees.main, latin1, "latin1")
 
     assert (
         find_worktree_root(latin1),
@@ -770,8 +789,10 @@ def test_a_worktree_whose_path_is_not_utf8_checks_itself(
     ) == (latin1.resolve(), False, workspace_with_worktrees.main.resolve())
 
 
-def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:
+def test_core_repo_gitignore_and_files(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify gitignore parsing and listing repo files."""
+    (tmp_path / ".git").mkdir(exist_ok=True)
+    git_fake.answer(lambda c: "ls-files" in c.argv, ProcessAnswer(returncode=1))
     gitignore = tmp_path / ".gitignore"
     gitignore.write_text("*.tmp\nbuild/\n# comment\n", encoding="utf-8")
 
@@ -792,10 +813,9 @@ def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:
 
     # Ignore rules are evaluated in-process; no git subprocess is spawned. A miss is the
     # common case, so the previous per-file `git check-ignore` fallback ran constantly.
-    (tmp_path / ".git").mkdir(exist_ok=True)
-    with patch("devops_cli.core.repo.run_subprocess") as mock_proc:
-        assert is_ignored_by_git(tmp_path, tmp_path / "dynamic_ignored.txt") is False
-        mock_proc.assert_not_called()
+    call_count_before = len(git_fake.calls)
+    assert is_ignored_by_git(tmp_path, tmp_path / "dynamic_ignored.txt") is False
+    assert len(git_fake.calls) == call_count_before
 
     # A rule added after the first evaluation takes effect once the cache is reset.
     # Compiled ignore files are revalidated on an interval rather than stat-ed per call,
@@ -835,11 +855,15 @@ def test_repos_commands_dry_run(tmp_path: Path) -> None:
         assert res_sync.exit_code == 0
 
 
-def test_repos_branch_and_workspace_helpers(tmp_path: Path) -> None:
+def test_repos_branch_and_workspace_helpers(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify _current_branch and _resolve_workspace_file."""
     from devops_cli.commands.repos import _current_branch, _resolve_workspace_file
     from devops_cli.config.constants import CONST_VSCODE_WORKSPACE_FILE
 
+    git_fake.answer(
+        lambda c: "branch" in c.argv and "--show-current" in c.argv,
+        ProcessAnswer(returncode=128, stderr="fatal: not a git repository"),
+    )
     # Non-git directory returns "unknown"
     assert _current_branch(tmp_path / "not_git") == "unknown"
 
@@ -931,7 +955,7 @@ def test_repos_sync_reports_failures_and_exits_nonzero(tmp_path: Path, git_fake:
     ) == (1, True, True, True)
 
 
-def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
+def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify is_safe_subpath, resolve_safe_subpath traversal guard, and git-tracked files."""
     from devops_cli.core.repo import (
         _list_git_tracked_files,
@@ -957,20 +981,20 @@ def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
         resolve_safe_subpath(base, "../outside.txt")
 
     # 2. _list_git_tracked_files
-    mock_proc = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="src/app.py\nREADME.md\nimage.png\n", stderr=""
-    )
     (base / ".git").mkdir()
     (base / "src").mkdir()
     (base / "src" / "app.py").write_text("code", encoding="utf-8")
     (base / "README.md").write_text("docs", encoding="utf-8")
     (base / "image.png").write_text("binary", encoding="utf-8")
 
-    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_proc):
-        tracked = _list_git_tracked_files(base, base)
-        assert tracked is not None
-        assert base / "src" / "app.py" in tracked
-        assert base / "image.png" not in tracked  # binary filtered
+    git_fake.answer(
+        lambda c: "ls-files" in c.argv,
+        ProcessAnswer(stdout="src/app.py\nREADME.md\nimage.png\n"),
+    )
+    tracked = _list_git_tracked_files(base, base)
+    assert tracked is not None
+    assert base / "src" / "app.py" in tracked
+    assert base / "image.png" not in tracked  # binary filtered
 
     # 3. list_repo_files for single file, missing target, and directory walk fallback
     single_f = base / "src" / "app.py"
@@ -979,34 +1003,33 @@ def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
 
     assert list_repo_files(tmp_path / "non_existent_folder") == []
 
-    with patch("devops_cli.core.repo._list_git_tracked_files", return_value=None):
-        walked = list_repo_files(base)
-        assert base / "src" / "app.py" in walked
+    git_fake.answer(lambda c: "ls-files" in c.argv, ProcessAnswer(returncode=1))
+    walked = list_repo_files(base)
+    assert base / "src" / "app.py" in walked
 
     # 4. get_repo_origin_name parsing
     from devops_cli.core.repo import get_repo_origin_name
 
     get_repo_origin_name.cache_clear()
-    mock_ssh_origin = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="git@github.com:dan-petty/devops-cli.git\n", stderr=""
+    git_fake.answer(
+        lambda c: "remote" in c.argv,
+        ProcessAnswer(stdout="git@github.com:dan-petty/devops-cli.git\n"),
     )
-    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_ssh_origin):
-        ssh_origin = get_repo_origin_name(base)
+    ssh_origin = get_repo_origin_name(base)
 
     get_repo_origin_name.cache_clear()
-    mock_https_origin = subprocess.CompletedProcess(
-        args=["git"],
-        returncode=0,
-        stdout="https://github.com/dan-petty/devops-cli\n",
-        stderr="",
+    git_fake.answer(
+        lambda c: "remote" in c.argv,
+        ProcessAnswer(stdout="https://github.com/dan-petty/devops-cli\n"),
     )
-    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_https_origin):
-        https_origin = get_repo_origin_name(base)
+    https_origin = get_repo_origin_name(base)
 
     assert (ssh_origin, https_origin) == ("dan-petty/devops-cli", "dan-petty/devops-cli")
 
 
-def test_repo_files_stay_inside_the_checkout_through_links(tmp_path: Path) -> None:
+def test_repo_files_stay_inside_the_checkout_through_links(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
     """The files git lists are listed only where their real path is in the checkout.
 
     A tracked directory that the working tree replaced with a link to outside the checkout
@@ -1014,21 +1037,22 @@ def test_repo_files_stay_inside_the_checkout_through_links(tmp_path: Path) -> No
     """
     repo = tmp_path / "repo"
     outside = tmp_path / "outside"
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    (repo / "pkg").mkdir()
-    (repo / "pkg" / "a.py").write_text("a = 1\n", encoding="utf-8")
+    (repo / ".git").mkdir(parents=True)
     (repo / "top.py").write_text("top = 1\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
     outside.mkdir()
     (outside / "a.py").write_text("secret = 1\n", encoding="utf-8")
-    shutil.rmtree(repo / "pkg")
     (repo / "pkg").symlink_to(outside, target_is_directory=True)
     (repo / "link.py").symlink_to(repo / "top.py")
+
+    git_fake.answer(
+        lambda c: "ls-files" in c.argv,
+        ProcessAnswer(stdout="link.py\0pkg/a.py\0top.py\0"),
+    )
 
     assert list_repo_files(repo) == [repo / "link.py", repo / "top.py"]
 
 
-def test_repo_edge_cases(tmp_path: Path) -> None:
+def test_repo_edge_cases(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify find_top_level_repo_root from file, gitignore read error, and symlink edge cases."""
     from devops_cli.core.repo import (
         find_top_level_repo_root,
@@ -1056,8 +1080,8 @@ def test_repo_edge_cases(tmp_path: Path) -> None:
 
     # 3. is_ignored_by_git with subprocess exception
     (root / ".git").mkdir()
-    with patch("devops_cli.core.repo.run_subprocess", side_effect=Exception("git error")):
-        assert is_ignored_by_git(root, sub_file) is False
+    git_fake.answer(["git"], ProcessAnswer(side_effect=Exception("git error")))
+    assert is_ignored_by_git(root, sub_file) is False
 
     # 4. list_repo_files with symlink outside root
     external_dir = tmp_path / "external_target"
@@ -1069,16 +1093,16 @@ def test_repo_edge_cases(tmp_path: Path) -> None:
     except OSError, NotImplementedError:
         pass
 
-    with patch("devops_cli.core.repo._list_git_tracked_files", return_value=None):
-        files = list_repo_files(root)
-        assert all("secret.txt" not in str(f) for f in files)
+    git_fake.answer(["git", "ls-files"], ProcessAnswer(returncode=1))
+    files = list_repo_files(root)
+    assert all("secret.txt" not in str(f) for f in files)
 
     # 5. is_safe_subpath with exception
     with patch.object(Path, "resolve", side_effect=Exception("resolve error")):
         assert is_safe_subpath(root, "any/path") is False
 
 
-def test_repos_reload_workspace_and_resolve(tmp_path: Path) -> None:
+def test_repos_reload_workspace_and_resolve(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Verify _reload_workspace handles success and failure, and _resolve_workspace_file returns expected paths."""
     from devops_cli.commands.repos import _reload_workspace, _resolve_workspace_file
 
@@ -1086,13 +1110,12 @@ def test_repos_reload_workspace_and_resolve(tmp_path: Path) -> None:
     ws_file.write_text("{}", encoding="utf-8")
 
     # Success
-    with patch("devops_cli.commands.repos.run_subprocess") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=0)
-        _reload_workspace(ws_file)
+    process_fake.answer(["code"], ProcessAnswer(returncode=0))
+    _reload_workspace(ws_file)
 
     # Subprocess failure handles exception safely
-    with patch("devops_cli.commands.repos.run_subprocess", side_effect=OSError("not found")):
-        _reload_workspace(ws_file)
+    process_fake.answer(["code"], ProcessAnswer(side_effect=OSError("not found")))
+    _reload_workspace(ws_file)
 
     # _resolve_workspace_file variations
     root = tmp_path / "repos"
@@ -1140,40 +1163,41 @@ def test_a_directory_with_no_repository_has_no_origin_whatever_the_environment(
     assert (get_repo_origin_name(tmp_path), process_fake.calls) == (None, [])
 
 
-def test_repo_origin_lru_caching(tmp_path: Path) -> None:
+def test_repo_origin_lru_caching(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify get_repo_origin_name caches subsequent lookups for the same repo root."""
     from devops_cli.core.repo import get_repo_origin_name
 
     (tmp_path / ".git").mkdir()
-    mock_proc = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="git@github.com:org/cached-repo.git\n", stderr=""
+    git_fake.answer(
+        ["git", "remote", "get-url", "origin"],
+        ProcessAnswer(stdout="git@github.com:org/cached-repo.git\n"),
     )
     get_repo_origin_name.cache_clear()
-    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_proc) as mock_sub:
-        res1 = get_repo_origin_name(tmp_path)
-        res2 = get_repo_origin_name(tmp_path)
-        assert (res1, res2, mock_sub.call_count) == ("org/cached-repo", "org/cached-repo", 1)
+    res1 = get_repo_origin_name(tmp_path)
+    res2 = get_repo_origin_name(tmp_path)
+    remote_calls = [c for c in git_fake.calls if "remote" in c.argv]
+    assert (res1, res2, len(remote_calls)) == ("org/cached-repo", "org/cached-repo", 1)
 
     res_list = runner.invoke(app, ["--dry-run", "repos", "list"])
     assert (res_list.exit_code, "devops repos list" in res_list.output) == (0, True)
 
 
-def test_list_repo_files_handles_spaces_non_ascii_and_renames(tmp_path: Path) -> None:
+def test_list_repo_files_handles_spaces_non_ascii_and_renames(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
     """Real git repository file listing includes unquoted non-ASCII files and files with spaces."""
     repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+    (repo / ".git").mkdir(parents=True)
 
     (repo / "first.py").write_text("a = 1\n", encoding="utf-8")
-    (repo / "old.py").write_text("b = 2\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
-
     (repo / "path with space.py").write_text("c = 3\n", encoding="utf-8")
     (repo / "café.py").write_text("d = 4\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "mv", "old.py", "renamed.py"], check=True)
+    (repo / "renamed.py").write_text("b = 2\n", encoding="utf-8")
+
+    git_fake.answer(
+        lambda c: "ls-files" in c.argv,
+        ProcessAnswer(stdout="café.py\0first.py\0path with space.py\0renamed.py\0"),
+    )
 
     files = list_repo_files(repo)
     expected = [

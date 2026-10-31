@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import (
     ServiceConfig,
     Settings,
+    _resolve,
     get_service_webhook_secrets,
     load_settings,
 )
@@ -70,6 +71,28 @@ class TriggerBatch(BaseModel):
     counts: dict[tuple[str, str, str], int]
     first_at: datetime
     last_at: datetime
+
+
+class WorkerRound(BaseModel):
+    """The execution window and outcome of one round run by a worker (#1395)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    start: datetime
+    end: datetime
+    result: str
+
+
+class LaneStatus(BaseModel):
+    """The live execution state of one repository lane (#1395)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    repo: str
+    lane: str
+    active: bool
+    pending_triggers: int
+    last_round: WorkerRound | None = None
 
 
 PauseReader = Callable[[Exception], datetime | None]
@@ -404,6 +427,19 @@ class RepoWorker:
         self._last_at: datetime | None = None
         self._thread: threading.Thread | None = None
         self._error: Exception | None = None
+        self._last_round: WorkerRound | None = None
+
+    @property
+    def pending_triggers(self) -> int:
+        """The total number of triggers currently pending in this worker's queue (#1395)."""
+        with self._cond:
+            return sum(self._pending_counts.values()) + len(self._pending_scoped)
+
+    @property
+    def last_round(self) -> WorkerRound | None:
+        """The last completed round's start, end, and result, or None if no round has run (#1395)."""
+        with self._cond:
+            return self._last_round
 
     def start(self) -> None:
         """Start the daemon worker thread. The job start of the lane is the time the worker
@@ -509,7 +545,8 @@ class RepoWorker:
     def _execute_scoped(self, scoped_func: Callable[[], None]) -> None:
         """Execute a scoped update task and record Prometheus metrics and execution duration."""
         start_time = time.perf_counter()
-        start_epoch = self.clock().timestamp()
+        start_dt = self.clock()
+        start_epoch = start_dt.timestamp()
         GLOBAL_METRICS.set_gauge(
             CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels=self._labels
         )
@@ -552,17 +589,20 @@ class RepoWorker:
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
                 self.pause.round_ended()
+                end_dt = self.clock()
                 try:
                     tracer.flush()
                 finally:
                     with self._cond:
+                        self._last_round = WorkerRound(start=start_dt, end=end_dt, result=result)
                         self._is_active = False
                         self._cond.notify_all()
 
     def _execute_batch(self, batch: TriggerBatch) -> None:
         """Execute the job function and record Prometheus metrics and execution duration."""
         start_time = time.perf_counter()
-        start_epoch = self.clock().timestamp()
+        start_dt = self.clock()
+        start_epoch = start_dt.timestamp()
         GLOBAL_METRICS.set_gauge(
             CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels=self._labels
         )
@@ -607,6 +647,7 @@ class RepoWorker:
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
                 self.pause.round_ended()
+                end_dt = self.clock()
                 try:
                     # The Service is one long process, and the exit hook sends the OTLP counters
                     # only when the pod stops. So each batch sends what it recorded, such as its
@@ -614,6 +655,7 @@ class RepoWorker:
                     tracer.flush()
                 finally:
                     with self._cond:
+                        self._last_round = WorkerRound(start=start_dt, end=end_dt, result=result)
                         self._is_active = False
                         self._cond.notify_all()
 
@@ -664,10 +706,12 @@ class ServiceManager:
         pause_until: PauseReader = no_round_pause,
         identity_refused: IdentityReader = no_identity_refusal,
         state_dir: Path | None = None,
+        command_token: str | None = None,
     ) -> None:
         self.config = config
         self.secrets = secrets
         self.jobs = jobs
+        self.command_token = command_token
         network.set_model_call_limit(config.model_call_concurrency)
         self.clock = clock
         self.sleep_func = sleep_func
@@ -750,6 +794,26 @@ class ServiceManager:
             return False
         worker.enqueue_scoped(scoped_func)
         return True
+
+    def lane_statuses(self, repo: str | None = None) -> list[LaneStatus]:
+        """Return the current execution status of each lane, for `repo` or for every configured
+        repository and lane (#1395)."""
+        repos = [repo] if repo is not None else list(self.config.repos)
+        statuses: list[LaneStatus] = []
+        for r in repos:
+            for lane in self.jobs:
+                worker = self.workers.get((r, lane))
+                if worker is not None:
+                    statuses.append(
+                        LaneStatus(
+                            repo=r,
+                            lane=lane,
+                            active=worker.is_active(),
+                            pending_triggers=worker.pending_triggers,
+                            last_round=worker.last_round,
+                        )
+                    )
+        return statuses
 
     def is_ready(self) -> bool:
         """Return True when service startup is complete and service is not draining."""
@@ -884,6 +948,7 @@ def create_service_app(
     identity_refused: IdentityReader | None = None,
     consumers: Sequence[WebhookConsumer] | None = None,
     state_dir: Path | None = None,
+    command_token: str | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
@@ -912,6 +977,11 @@ def create_service_app(
         pause_until=pause_reader,
         identity_refused=identity_refused or no_identity_refusal,
         state_dir=state_dir,
+        command_token=(
+            command_token
+            if command_token is not None
+            else _resolve("mattermost.command_token", active_settings)
+        ),
     )
 
     @asynccontextmanager

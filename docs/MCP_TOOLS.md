@@ -1939,6 +1939,7 @@ Execute a command inside an active sandbox container.
 | `instance_id` | `string` | Yes | - | Unique instance ID or name of the sandbox. |
 | `command` | `array[string]` | Yes | - | Command and arguments to execute inside sandbox |
 | `workdir` | `string` | No | - | Working directory inside the container for command execution. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `sandbox_network_policy`
 
@@ -1956,6 +1957,7 @@ Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolatio
 | `public_whitelist` | `string` | No | - | Comma-separated public destinations allowed for egress, each opening one TCP port: scheme://host:port, host:port or [v6]:port. A bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
 | `local_whitelist` | `string` | No | - | Comma-separated local or private destinations allowed for egress, with the same forms and ports as --public-whitelist: scheme://host:port, host:port or [v6]:port; a bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
 | `allow_collector` | `boolean` | No | `False` | Add one egress rule to the OTel collector's pods in the otel namespace on TCP 4317 and 4318 (sandbox_namespace, public_whitelist and local_whitelist modes) |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `sandbox_status`
 
@@ -1970,6 +1972,7 @@ Inspect status of deployed sandbox containers.
 | `instance_id` | `string` | No | - | Unique instance ID or name of the sandbox. |
 | `all_instances` | `boolean` | No | `False` | Apply operation across all registered sandbox instances. |
 | `json_output` | `boolean` | No | `False` | Output details in structured JSON format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `sandbox_stop`
 

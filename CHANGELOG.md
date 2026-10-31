@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.33.0](https://github.com/dan-petty/devops-cli/compare/v0.32.0...v0.33.0) (2026-10-31)
+
+
+### Features
+
+* **docker:** preview requests in dry run for docker and sandbox commands ([#2923](https://github.com/dan-petty/devops-cli/issues/2923)) ([b35ac53](https://github.com/dan-petty/devops-cli/commit/b35ac532685cd304683446e38047da6a188bcbcf)), closes [#2251](https://github.com/dan-petty/devops-cli/issues/2251)
+* **roadmap:** add mattermost /roadmap slash command ([#2914](https://github.com/dan-petty/devops-cli/issues/2914)) ([d669c15](https://github.com/dan-petty/devops-cli/commit/d669c151d9c8194bd62a0df742188dd3f845b6c6)), closes [#1395](https://github.com/dan-petty/devops-cli/issues/1395)
+* **roadmap:** stage every Ready item, implement low effort ([#2924](https://github.com/dan-petty/devops-cli/issues/2924)) ([7950748](https://github.com/dan-petty/devops-cli/commit/7950748fc73d84902f91b3918c0ee782f988904a)), closes [#2906](https://github.com/dan-petty/devops-cli/issues/2906)
+* **scan:** preview requests in dry run for scan commands ([#2903](https://github.com/dan-petty/devops-cli/issues/2903)) ([310322c](https://github.com/dan-petty/devops-cli/commit/310322c3f47364583e237bb97f159bca140e1fc8)), closes [#2250](https://github.com/dan-petty/devops-cli/issues/2250)
+
 ## [0.32.0](https://github.com/dan-petty/devops-cli/compare/v0.31.0...v0.32.0) (2026-10-31)
 
 

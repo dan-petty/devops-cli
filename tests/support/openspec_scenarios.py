@@ -10,7 +10,6 @@ are the same.
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -217,4 +216,4 @@ def build_scenario(name: str, root: Path, committed_skills: Path) -> None:
     for path, content in generated_files(committed_skills).items():
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_bytes(content)
-    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True, capture_output=True)
+    (root / ".git").mkdir(parents=True, exist_ok=True)
