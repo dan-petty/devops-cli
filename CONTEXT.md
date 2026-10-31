@@ -119,7 +119,7 @@ A Ready item whose staging is done and whose staged branch is on `origin`. Its S
 _Avoid_: prepared, queued
 
 **Planned**:
-An item whose change folder `openspec/changes/<issue>-<slug>/` is on the default branch, and that has no branch on `origin`: a person merged the staging pull request. The Service sets its Status to Planned (`status/planned`) from its job record, as the single writer of that label: Ready until the plan merges, Planned after, In Progress while a runner Job holds it, In Review when its pull request is ready. It never changes a label that a person set. The stage job leaves it out, and also an item whose change is archived there. The implement job takes it: it makes the branch `<type>/<issue>-<slug>` at the default branch, with the slug of the folder, runs the groups that have an unticked task, and opens the draft pull request that closes the issue.
+An item whose change folder `openspec/changes/<issue>-<slug>/` is on the default branch, and that has no branch on `origin`: a person merged the staging pull request. The Service sets its Status to Planned (`status/planned`) from its job record, as the single writer of that label: Ready until the plan merges, Planned after, and In Progress while a runner Job holds it. The runner Job sets In Review. It never changes a label that a person set. The stage job leaves it out, and also an item whose change is archived there. The implement job takes it: it makes the branch `<type>/<issue>-<slug>` at the default branch, with the slug of the folder, runs the groups that have an unticked task, and opens the draft pull request that closes the issue.
 _Avoid_: merged plan, orphan
 
 **Step**:
