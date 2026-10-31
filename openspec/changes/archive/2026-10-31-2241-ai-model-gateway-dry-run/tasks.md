@@ -1,0 +1,21 @@
+# Tasks: Dry-Run Classification for AI Model and Gateway Commands
+
+- [x] 1. Create `src/devops_cli/ai/ai_plans.py` with pure plan functions returning `list[PlannedRequest]`.
+- [x] 2. Update `src/devops_cli/commands/ai_gateway.py`:
+  - [x] Add `@dry_run_class("request-plan")` to `status`, `routes`, `connect`, `probe-backend`, `tune`, and `load`.
+  - [x] Add `@dry_run_class("no-external-request")` to `failover` and `render`.
+  - [x] Add `--dry-run` to commands lacking it.
+  - [x] Support `--dry-run` with request plans and local preview.
+- [x] 3. Update `src/devops_cli/commands/ai.py`:
+  - [x] Add `@dry_run_class("request-plan")` to `agents`, `chat`, `models`, `pipeline`, `preload`, `prewarm`, `prompt-eval`, and `test`.
+  - [x] Add `--dry-run` to commands lacking it.
+  - [x] Remove echo-only previews in `pipeline` and `prompt-eval`.
+- [x] 4. Update `src/devops_cli/commands/benchmark.py`:
+  - [x] Add `@dry_run_class("request-plan")` to `run_benchmark`.
+  - [x] Implement request planning in dry run.
+- [x] 5. Update `src/devops_cli/commands/ai_chaos.py`:
+  - [x] Add `@dry_run_class("request-plan")` to `run_chaos_model_cmd`.
+  - [x] Implement request planning in dry run.
+- [x] 6. Update `tests/fixtures/dry_run_gaps.json` to remove all 18 commands.
+- [x] 7. Write comprehensive tests in `tests/commands/test_ai_model_gateway_dry_run.py`.
+- [x] 8. Verify all quality gates: static analysis, formatting, type checking, ratchet invariants, and full test suite.

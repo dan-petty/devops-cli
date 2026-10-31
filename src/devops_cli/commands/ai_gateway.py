@@ -28,6 +28,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_DEPLOYMENT,
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     DEFAULT_AI_GATEWAY_SERVICE,
+    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_GATEWAY_TUNE_CONCURRENCY,
     DEFAULT_GATEWAY_TUNE_IMAGE,
     DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
@@ -41,12 +42,14 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import get_ai_api_key, load_settings, save_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError, SSRFBlockedError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.k8s.context import resolve_context
 from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError, node_port_address
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -80,6 +83,7 @@ def _render_routes_table(routes: list[GatewayRoute]) -> None:
     print_table(columns=headers, rows=rows, title="LLM Gateway Virtual Model Routes")
 
 
+@dry_run_class("request-plan")
 @app.command("status")
 def status_cmd(
     gateway_url: Annotated[
@@ -94,8 +98,32 @@ def status_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Probe LLM Gateway health, latency, and circuit breaker metrics."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_gateway_status
+        from devops_cli.ai.gateway import GatewayStatus
+
+        planned = plan_ai_gateway_status(gateway_url)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            settings = load_settings()
+            effective_url = gateway_url or settings.ai.gateway_url or DEFAULT_AI_GATEWAY_URL
+            res = GatewayStatus(
+                healthy=True,
+                gateway_url=effective_url,
+                dry_run=True,
+                requests=[r.__dict__ for r in planned],
+            )
+            emit_serialized(res.model_dump(), resolved)
+            return
+        render_request_plan("Plan for LLM gateway status", planned)
+        return
+
     settings = load_settings()
     router = GatewayRouter(settings.ai, provider=provider)
     result = router.probe_gateway(gateway_url, provider=provider)
@@ -123,6 +151,7 @@ def status_cmd(
         _render_routes_table(result.active_routes)
 
 
+@dry_run_class("request-plan")
 @app.command("routes")
 def routes_cmd(
     gateway_url: Annotated[
@@ -141,8 +170,23 @@ def routes_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List registered virtual models and target backend inference instances."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_gateway_routes
+
+        planned = plan_ai_gateway_routes(gateway_url)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
+            return
+        render_request_plan("Plan for LLM gateway routes", planned)
+        return
+
     settings = load_settings()
     router = GatewayRouter(settings.ai, provider=provider, api_key=get_ai_api_key(settings))
     try:
@@ -188,6 +232,7 @@ def _probe_gateway_liveliness_and_models(
         raise typer.Exit(code=1) from exc
 
 
+@dry_run_class("request-plan")
 @app.command("connect")
 def connect_cmd(
     context: Annotated[
@@ -206,8 +251,19 @@ def connect_cmd(
         float,
         typer.Option("--timeout", help="Health probe timeout in seconds."),
     ] = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Find the cluster's LLM gateway NodePort, verify it answers, and configure LAN review calls."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_gateway_connect
+
+        planned = plan_ai_gateway_connect(context=context, namespace=namespace, service=service)
+        render_request_plan("Plan for connecting to LLM gateway", planned)
+        return
+
     spec = NodePortSpec(
         what="LLM gateway",
         port=4000,
@@ -236,6 +292,7 @@ def connect_cmd(
     print_success(f"Connected to LLM gateway at {node_port_url} (LAN path enabled).")
 
 
+@dry_run_class("no-external-request")
 @app.command("failover")
 def failover_cmd(
     virtual_model: Annotated[
@@ -269,6 +326,10 @@ def failover_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset."""
     if reset == bool(virtual_model):
@@ -277,6 +338,32 @@ def failover_cmd(
     settings = load_settings()
     router = GatewayRouter(settings.ai)
     resolved = normalize_format(output_format)
+    if dry_run or is_dry_run():
+        from devops_cli.ai.gateway import _failover_virtual_models
+
+        if not virtual_model:
+            outcome = {
+                "status": "dry_run",
+                "restored_routes": _failover_virtual_models(router._active_routes),
+                "circuit_breaker_tripped": False,
+                "dry_run": True,
+            }
+            _report_failover_reset(outcome, resolved)
+            return
+        outcome = router.trigger_failover(virtual_model, simulate=True, force=force)
+        outcome["dry_run"] = True
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(outcome, resolved)
+            return
+        print_section("Model Failover Execution")
+        print_info(
+            f"Virtual Model: {outcome['virtual_model']}\n"
+            f"Fallback Target: {outcome['fallback_target']}\n"
+            f"Circuit Breaker Tripped: {outcome['circuit_breaker_tripped']}\n"
+            "Simulated: True (dry run)"
+        )
+        print_success(f"Failover status: {outcome['status']}")
+        return
     if not virtual_model:
         _report_failover_reset(router.reset_failover(), resolved)
         return
@@ -314,6 +401,7 @@ def _report_failover_reset(outcome: dict[str, Any], resolved_format: str) -> Non
     )
 
 
+@dry_run_class("request-plan")
 @app.command("probe-backend")
 def probe_backend_cmd(
     backend: Annotated[
@@ -328,8 +416,33 @@ def probe_backend_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Directly probe health and latency of an inference backend."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_gateway_probe_backend
+
+        planned = plan_ai_gateway_probe_backend(backend, backend_url=backend_url)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(
+                {
+                    "backend_type": backend,
+                    "url": backend_url or f"http://{backend}.local",
+                    "healthy": True,
+                    "latency_ms": 0.0,
+                    "dry_run": True,
+                    "requests": [r.__dict__ for r in planned],
+                },
+                resolved,
+            )
+            return
+        render_request_plan(f"Plan for probing inference backend '{backend}'", planned)
+        return
+
     settings = load_settings()
     router = GatewayRouter(settings.ai)
     result = router.probe_backend(backend, backend_url=backend_url)
@@ -427,6 +540,7 @@ def _render_tune_report(report: TuneReport) -> None:
     )
 
 
+@dry_run_class("request-plan")
 @app.command("tune")
 def tune_cmd(
     model: Annotated[
@@ -480,6 +594,10 @@ def tune_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Measure each deployment of a gateway model group and recommend routing weights.
 
@@ -487,6 +605,27 @@ def tune_cmd(
     pod, since the backends admit only the gateway. Read-only: the gateway configuration is not
     changed.
     """
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_gateway_tune
+
+        planned = plan_ai_gateway_tune(model=model, gateway_url=gateway_url)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            rep = TuneReport(
+                model_group=model,
+                prompt_tokens=prompt_tokens
+                if prompt_tokens is not None
+                else DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS,
+                max_tokens=max_tokens,
+                deployments=[],
+                dry_run=True,
+                requests=[r.__dict__ for r in planned],
+            )
+            emit_serialized(rep.model_dump(), resolved)
+            return
+        render_request_plan(f"Plan for tuning LLM gateway pool for '{model}'", planned)
+        return
+
     levels = _parse_levels(concurrency)
     settings = load_settings()
     router = GatewayRouter(settings.ai)
@@ -596,6 +735,7 @@ def _render_pool_load(load: PoolLoad) -> None:
         )
 
 
+@dry_run_class("request-plan")
 @app.command("load")
 def load_cmd(
     window: Annotated[
@@ -606,11 +746,33 @@ def load_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Report how busy each LLM backend and GPU was over a window, from Prometheus.
 
     Mean in flight is the gateway's call seconds per second on each deployment.
     """
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_gateway_load
+
+        planned = plan_ai_gateway_load(window=window)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            load_obj = PoolLoad(
+                window=window,
+                backends=[],
+                gpus=[],
+                dry_run=True,
+                requests=[r.__dict__ for r in planned],
+            )
+            emit_serialized(load_obj.model_dump(), resolved)
+            return
+        render_request_plan(f"Plan for querying pool load over '{window}'", planned)
+        return
+
     settings = load_settings()
     if not settings.prometheus.url:
         print_error(MESSAGES.prometheus.url_not_configured, prefix=False)
@@ -639,6 +801,7 @@ def load_cmd(
     _render_pool_load(load)
 
 
+@dry_run_class("no-external-request")
 @app.command("render")
 def render_cmd(
     apply: Annotated[

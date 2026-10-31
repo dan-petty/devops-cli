@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable
+from typing import Any
 
 import httpx2
 from pydantic import BaseModel, Field
@@ -99,6 +100,8 @@ class PoolLoad(BaseModel):
     window: str
     backends: list[BackendLoad] = Field(default_factory=list)
     gpus: list[GpuLoad] = Field(default_factory=list)
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _by_backend(query: Query, expr: str) -> dict[str, float]:

@@ -316,8 +316,8 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan report [OPTIONS] <target>` | Run every registered scanner and report deduplicated, correlated findings. |
 |  | `devops scan sarif [OPTIONS] <document>` | Ingest a SARIF document from any tool and report it in the unified taxonomy. |
 | [**ai**](docs/commands/ai.md) | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
-|  | `devops ai models` | List available models for the configured provider. |
-|  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
+|  | `devops ai models [OPTIONS]` | List available models for the configured provider. |
+|  | `devops ai preload [OPTIONS]` | Preload configured model into VRAM across all configured Ollama servers. |
 |  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity across configured servers. |
 |  | `devops ai prewarm [OPTIONS]` | Prewarm local models into GPU VRAM or evict idle models across cluster nodes. |
 |  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md). |

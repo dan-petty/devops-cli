@@ -62,6 +62,8 @@ from devops_cli.config.settings import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     escape_text,
@@ -492,9 +494,22 @@ def _apply_ai_settings(
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command()
-def models() -> None:
+def models(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """List available models for the configured provider."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_models
+
+        planned = plan_ai_models()
+        render_request_plan("Plan for listing AI models", planned)
+        return
+
     from devops_cli.ai.client import get_llm_client
     from devops_cli.config.settings import load_settings
 
@@ -518,9 +533,22 @@ def models() -> None:
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command()
-def preload() -> None:
+def preload(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Preload configured model into VRAM across all configured Ollama servers."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_preload
+
+        planned = plan_ai_preload()
+        render_request_plan("Plan for preloading AI models", planned)
+        return
+
     from devops_cli.ai.client import get_llm_client
     from devops_cli.config.settings import load_settings
 
@@ -615,6 +643,7 @@ def _run_ollama_server_tests(
         raise typer.Exit(1)
 
 
+@dry_run_class("request-plan")
 @app.command()
 def test(
     prompt: Annotated[
@@ -625,8 +654,19 @@ def test(
         str | None,
         typer.Option("--url", "-u", help=HELP.ai.url),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Send a test prompt to verify AI provider connectivity across configured servers."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_test
+
+        planned = plan_ai_test(prompt=prompt, url=url)
+        render_request_plan("Plan for AI connectivity test", planned)
+        return
+
     from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.task_loader import load_task_prompt
     from devops_cli.config.settings import load_settings
@@ -751,6 +791,7 @@ def _render_prewarm_results(
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command("prewarm", help=HELP.ai.prewarm_cmd)
 def prewarm(
     model: Annotated[
@@ -807,14 +848,40 @@ def prewarm(
             help="Output results as structured JSON.",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=HELP.options.dry_run,
+        ),
+    ] = False,
 ) -> None:
     """Prewarm local LLM models into GPU VRAM or proactively evict them to free memory."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_prewarm
+        from devops_cli.config.settings import load_settings
+
+        settings = load_settings()
+        urls = _resolve_prewarm_urls(url, all_nodes, settings.ai.get_ollama_urls)
+        target_model = model or settings.ai.model
+        target_keep_alive = DEFAULT_AI_EVICT_KEEP_ALIVE if evict else keep_alive
+        planned = plan_ai_prewarm(model=target_model, keep_alive=target_keep_alive, urls=urls)
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(
+                {"dry_run": True, "model": target_model, "requests": [r.__dict__ for r in planned]},
+                resolved,
+            )
+            return
+        render_request_plan(f"Plan for prewarming model '{target_model}'", planned)
+        return
+
     from devops_cli.ai.client import RequestPriority, get_llm_client, request_priority_scope
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
     target_model = model or settings.ai.model
-    target_keep_alive: str | int = DEFAULT_AI_EVICT_KEEP_ALIVE if evict else keep_alive
+    target_keep_alive = DEFAULT_AI_EVICT_KEEP_ALIVE if evict else keep_alive
     urls = _resolve_prewarm_urls(url, all_nodes, settings.ai.get_ollama_urls)
 
     with (
@@ -918,6 +985,7 @@ def _generate_agents_content(repo: Path, template: bool) -> str:
     return content
 
 
+@dry_run_class("request-plan")
 @app.command()
 def agents(
     repo: Annotated[
@@ -941,8 +1009,19 @@ def agents(
             help=HELP.ai.generate_file,
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md)."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_agents
+
+        planned = plan_ai_agents(repo=repo, template=template)
+        render_request_plan("Plan for generating AI agent files", planned)
+        return
+
     from devops_cli.lang import MESSAGES
 
     repo = repo.resolve()
@@ -1048,6 +1127,7 @@ def _run_interactive_chat_turn(
         render_chat_response(reply.strip())
 
 
+@dry_run_class("request-plan")
 @app.command()
 def chat(  # noqa: C901
     persona: Annotated[
@@ -1087,6 +1167,10 @@ def chat(  # noqa: C901
         bool,
         typer.Option("--explain", "-e", help=HELP.ai.explain_chat),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG)."""
     if explain:
@@ -1094,6 +1178,14 @@ def chat(  # noqa: C901
 
         render_explanation("rag")
         return
+
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_chat
+
+        planned = plan_ai_chat(persona=str(persona), model=model)
+        render_request_plan(f"Plan for AI chat with persona '{persona}'", planned)
+        return
+
     import sys
 
     from devops_cli.ai.agents.agent import PydanticAgent
@@ -1231,6 +1323,7 @@ def bundle_models(
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command("pipeline")
 def pipeline(
     prompt: Annotated[
@@ -1276,7 +1369,6 @@ def pipeline(
     from devops_cli.ai.tools import get_default_tools, get_persona_tools
     from devops_cli.config.settings import load_settings
     from devops_cli.dry_run import is_dry_run
-    from devops_cli.output import render_dry_run_result
 
     persona_names = [p.strip().lower() for p in personas.split(",") if p.strip()]
     valid_personas: list[Persona] = []
@@ -1289,18 +1381,14 @@ def pipeline(
         valid_personas.append(Persona(name))
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai pipeline",
-            target=prompt,
-            action="multi_agent_pipeline_execution",
-            details={
-                "personas": [p.value for p in valid_personas],
-                "prompt": prompt,
-                "max_turns": max_turns,
-                "rag": rag,
-                "stage_context_tokens": stage_context_tokens,
-            },
+        from devops_cli.ai.ai_plans import plan_ai_pipeline
+
+        planned = plan_ai_pipeline(
+            prompt=prompt,
+            personas=[p.value for p in valid_personas],
+            stage_context_tokens=stage_context_tokens,
         )
+        render_request_plan("Plan for multi-agent AI pipeline (devops ai pipeline)", planned)
         return
 
     settings = load_settings()
@@ -1951,6 +2039,7 @@ def diagram_cmd(
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 @app.command("prompt-eval")
 def prompt_eval_cmd(
     producer: Annotated[
@@ -1983,16 +2072,23 @@ def prompt_eval_cmd(
     The counts are reported for each labeller, and a label a deterministic check wrote is left
     out unless --include-deterministic: it is a machine's label, not a person's.
     """
-    from devops_cli.ai.prompt_eval import evaluate_persona_prompts
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai prompt-eval",
-            action="benchmark_prompts",
-            details={"producer": producer, "status": "BENCHMARK_DRY_RUN"},
+        from devops_cli.ai.ai_plans import plan_ai_prompt_eval
+
+        planned = plan_ai_prompt_eval(producer=producer, dataset=dataset)
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(
+                {"dry_run": True, "producer": producer, "requests": [r.__dict__ for r in planned]},
+                resolved,
+            )
+            return
+        render_request_plan(
+            f"Plan for AI prompt evaluation for '{producer}' (BENCHMARK_DRY_RUN)", planned
         )
         return
+
+    from devops_cli.ai.prompt_eval import evaluate_persona_prompts
 
     res = evaluate_persona_prompts(
         producer=producer, dataset_path=dataset, include_deterministic=include_deterministic

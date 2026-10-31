@@ -114,6 +114,8 @@ class GatewayStatus(BaseModel):
     failover_routes: list[str] = Field(default_factory=list)
     backend_counts: dict[str, int] = Field(default_factory=dict)
     details: dict[str, Any] = Field(default_factory=dict)
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _build_default_routes() -> list[GatewayRoute]:
