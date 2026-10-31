@@ -67,6 +67,10 @@ class TFOutputResult(BaseModel):
         default_factory=dict, description="Discovered output variable values"
     )
     success: bool = Field(default=True, description="Whether output query succeeded")
+    dry_run: bool = Field(default=False, description="Whether query was executed under dry run")
+    requests: list[dict[str, Any]] = Field(
+        default_factory=list, description="Ordered planned requests in dry run"
+    )
 
 
 class TFLintRequest(BaseModel):
@@ -91,6 +95,10 @@ class TFLintResult(BaseModel):
     passed: bool = Field(default=True, description="Whether all static rules passed")
     issues_count: int = Field(default=0, description="Total count of lint issues found")
     issues: list[TFLintIssue] = Field(default_factory=list, description="Discovered lint issues")
+    dry_run: bool = Field(default=False, description="Whether check was executed under dry run")
+    requests: list[dict[str, Any]] = Field(
+        default_factory=list, description="Ordered planned requests in dry run"
+    )
 
 
 class TFCostResource(BaseModel):
@@ -127,6 +135,12 @@ class TFCostBreakdownResult(BaseModel):
     )
     source: str = Field(
         default="infracost", description="Execution engine source (infracost, mock)"
+    )
+    dry_run: bool = Field(
+        default=False, description="Whether estimation was executed under dry run"
+    )
+    requests: list[dict[str, Any]] = Field(
+        default_factory=list, description="Ordered planned requests in dry run"
     )
     raw_json: dict[str, Any] | None = Field(default=None, description="Raw JSON data payload")
 

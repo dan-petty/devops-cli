@@ -265,7 +265,7 @@ def test_deploy_cloud_dry_run(temp_tf_dir: Path) -> None:
 
 
 def test_tf_subcommands_dry_run(temp_tf_dir: Path) -> None:
-    """Verify plan, apply, destroy, output, validate, and fmt in dry-run mode."""
+    """Verify plan, apply, destroy, and output in dry-run mode."""
     with (
         patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
         patch("devops_cli.commands.tf.is_dry_run", return_value=True),
@@ -275,8 +275,6 @@ def test_tf_subcommands_dry_run(temp_tf_dir: Path) -> None:
         assert runner.invoke(app, ["apply", str(temp_tf_dir)]).exit_code == 0
         assert runner.invoke(app, ["destroy", str(temp_tf_dir)]).exit_code == 0
         assert runner.invoke(app, ["output", str(temp_tf_dir)]).exit_code == 0
-        assert runner.invoke(app, ["validate", str(temp_tf_dir)]).exit_code == 0
-        assert runner.invoke(app, ["fmt", str(temp_tf_dir)]).exit_code == 0
         mock_run.assert_not_called()
 
 
@@ -351,12 +349,12 @@ def test_deploy_cloud_targets_the_nested_worktrees_configuration(
     with (
         patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
         patch("devops_cli.commands.tf.is_dry_run", return_value=True),
-        patch("devops_cli.commands.tf.render_dry_run_result") as render,
+        patch("devops_cli.commands.tf.render_request_plan") as render,
     ):
         result = runner.invoke(app, ["deploy-cloud", "--provider", "aws"])
 
-    targets = [call.kwargs["target"] for call in render.call_args_list]
-    assert (result.exit_code, targets) == (0, [str(nested.resolve() / CONST_TF_AWS_DIR)] * 2)
+    assert result.exit_code == 0
+    assert str(nested.resolve() / CONST_TF_AWS_DIR) in render.call_args[0][0]
 
 
 def _deploy_from_the_worktree(

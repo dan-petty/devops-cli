@@ -13,9 +13,9 @@ runner = CliRunner()
 
 def test_tf_notify_plan_cli() -> None:
     """Verify devops tf notify-plan command."""
-    res = runner.invoke(tf_app, ["notify-plan", "--dry-run"])
+    res = runner.invoke(tf_app, ["notify-plan"])
     assert res.exit_code == 0
-    assert "post_tf_pr_comment" in res.output
+    assert "OpenTofu / Terraform Plan Summary" in res.output
 
     res_json = runner.invoke(tf_app, ["notify-plan", "--json", "--pr", "42"])
     assert res_json.exit_code == 0

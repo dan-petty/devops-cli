@@ -550,13 +550,13 @@ def test_cli_drift_warns_when_state_absent(tf_dir: Path) -> None:
 
 
 def test_cli_commands_support_dry_run(tf_dir: Path) -> None:
-    """Both analysis commands support dry-run inspection."""
+    """Both analysis commands run locally in dry run as no-external-request commands."""
     graph_result = runner.invoke(tf_app, ["graph", str(tf_dir)], env={"DEVOPS_CLI_DRY_RUN": "true"})
     drift_result = runner.invoke(tf_app, ["drift", str(tf_dir)], env={"DEVOPS_CLI_DRY_RUN": "true"})
 
     assert (graph_result.exit_code, drift_result.exit_code) == (0, 0)
-    assert "analyze_iac_dependency_graph" in graph_result.output
-    assert "detect_iac_configuration_drift" in drift_result.output
+    assert "IaC Resource Dependency Graph" in graph_result.output
+    assert "state unavailable" in drift_result.output.lower()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -2279,7 +2279,6 @@ Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comm
 |---|---|---|---|---|
 | `plan_file` | `string` | No | - | Path to raw plan output or log file. |
 | `pr_number` | `integer` | No | - | Pull Request number to post plan comment to. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 | `output_format` | `string` | No | `table` | Output format (table, json, yaml, csv) |
 
