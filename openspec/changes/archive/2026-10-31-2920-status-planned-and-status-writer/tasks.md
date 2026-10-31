@@ -9,7 +9,7 @@
 
 ## 2. The one function
 
-- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_status_sync.py` for the scenarios of the requirements "The Service sets the Status from the job record" and "The Service never reverts a person's Status": `derive_status` for each order of the facts, the Blocked fact, a drift that is repaired, a label of a person that stays, an item with no record, an item in another Status, a race with a person that raises, and one failed item that does not stop the others
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_status_sync.py` for the scenarios of the requirements "The Service sets the Status from the job record" and "The Service never reverts a person's Status": `derive_status` for each order of the facts, a drift that is repaired, a label of a person that stays, an item with no record, an item in another Status, a stale view that is skipped, and one failed item that does not stop the others
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py`
 - [x] 2.2 Write `src/devops_cli/roadmap/status_sync.py` with `StatusFacts`, `derive_status`, `facts_of`, `sync_status` and `sync_statuses`, and the message of a failed sweep
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py`
@@ -30,9 +30,14 @@
 - [x] 4.1 Amend ADR 0016 (six Status labels, the Service as writer) and update `CONTEXT.md`, `k8s/README.md`, `docs/ROUTINE_TASKS.md` and the help text of `devops roadmap implement`, then regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 5. Archive
+## 5. Review fixes
 
-- [x] 5.1 Archive the change
+- [x] 5.1 Remove the facts that no round reaches (Blocked, delivery pull request), read the issue again before a write, and make `clear-status` read the labels of the closed issue
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py tests/roadmap/test_roadmap_status_round.py`
+
+## 6. Archive
+
+- [x] 6.1 Archive the change
   - Verification: `uv run devops openspec archive 2920-status-planned-and-status-writer`
 
 ## Workflow follow-up
