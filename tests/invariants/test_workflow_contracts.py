@@ -964,8 +964,9 @@ def test_the_static_job_starts_bandit_once_mutation() -> None:
         if "bandit" in scanners:
             bandit_starts += 1
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError) as raised:
         assert bandit_starts == 1
+    assert raised.value is not None
 
 
 def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() -> None:
@@ -1337,7 +1338,7 @@ FULL_SUITE_WHEN = "steps.changes.outputs.outside_plan != 'false'"
 PLAN_SUITE_WHEN = "steps.changes.outputs.outside_plan == 'false'"
 COVERAGE_WHEN = f"github.event_name == 'pull_request' && {FULL_SUITE_WHEN}"
 FULL_GATE = "uv run devops ci --check --no-cache --only test"
-PLAN_GATE = "uv run pytest tests/invariants"
+PLAN_GATE = "uv run devops ci test tests/invariants"
 
 
 def _plan_only_problems(jobs: dict[str, Any]) -> list[str]:

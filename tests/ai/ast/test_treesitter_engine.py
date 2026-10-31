@@ -213,8 +213,9 @@ def test_query_answers_with_the_nodes_it_captures() -> None:
 def test_a_malformed_query_raises_instead_of_answering_with_symbols() -> None:
     """Verify an S-expression the grammar cannot compile raises tree-sitter's QueryError; the
     engine swallowed it and answered every query with every symbol of the file."""
-    with pytest.raises(QueryError):
+    with pytest.raises(QueryError) as raised:
         TreeSitterEngine().query_code("def f(): ...\n", "python", "(((")
+    assert str(raised.value) != "" or "query" in str(raised.value).lower()
 
 
 def test_a_language_without_a_grammar_has_no_captures() -> None:

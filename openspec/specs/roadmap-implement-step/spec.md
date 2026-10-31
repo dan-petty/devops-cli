@@ -388,7 +388,7 @@ A run that ends on a failed model call (a `ModelAPIError` that is not a refused 
 - **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of the work of the first turn, the requests of both turns, and the last text of the first turn, and the checkout is reset
 
 ### Requirement: A failed model call gives a reason with the error text of the provider
-The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status when it has one, and the name of the model. For a `ModelHTTPError` it SHALL also hold the error text of the body, masked and cut like other stop text, without a quoted part, a second line, or what follows the first `=` or `;`. It SHALL hold no other value of the body and not the message of the error.
+The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status when it has one, and the name of the model. For a `ModelHTTPError` it SHALL also hold the error text of the body, masked and cut like other stop text, without a quoted part, a second line, or what follows the first `=` or `;`. For a `ModelRequestTimeout` it SHALL hold the deadline in seconds. It SHALL hold no other value of the body and not the message of the error.
 
 #### Scenario: The body of a 400
 - **WHEN** the body of a `ModelHTTPError` with the status 400 is a dict with the `message` "XML syntax error on line 75: unexpected EOF"
@@ -409,6 +409,10 @@ The reason of a step that a failed model call ended SHALL hold the class of the 
 #### Scenario: The diff cannot be read
 - **WHEN** a model call fails and `git add` or `git diff` fails when the step reads the diff of the discarded work
 - **THEN** the step reports stopped with an empty diff, the reason starts with the class of the error and holds the text of the git error after it, and the checkout is reset
+
+#### Scenario: The deadline
+- **WHEN** a model call raises a `ModelRequestTimeout` for a deadline of 600 seconds
+- **THEN** the reason is "ModelRequestTimeout: model example-model, no complete reply in 600 seconds"
 
 ### Requirement: A refused key stops the whole run
 A model call that fails with a `ModelHTTPError` of the status 401 or 403 SHALL raise `AICredentialsError` out of the step after the checkout is reset, and the job SHALL NOT run the next item.
@@ -698,3 +702,41 @@ When a tool exceeds its retries, the reason of the stopped run SHALL end with a 
 #### Scenario: A run that ends on a limit
 - **WHEN** the run ends on the request limit after retries of `edit_file`
 - **THEN** the reason holds no line of reasons
+
+### Requirement: A model reply has an output cap and a call has a deadline
+The agent of a step SHALL set the model settings `max_tokens` to `CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS` and `request_timeout` to `CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS`. The deadline SHALL be less than the timeout of the router in `k8s/llm/gateway/config.yaml`. A call that runs past the deadline SHALL end the step as stopped, and the model SHALL get no second request for it.
+
+#### Scenario: The settings of the first request
+- **WHEN** the step makes its first model request
+- **THEN** the model settings of the request hold the cap and the deadline
+
+#### Scenario: The cap reaches the wire
+- **WHEN** the agent of a step sends a request to an OpenAI chat model
+- **THEN** the body of the request holds `max_completion_tokens` with the value of the cap, and no `request_timeout`
+
+#### Scenario: The deadline is short of the router timeout
+- **WHEN** a test reads `router_settings.timeout` of the gateway config
+- **THEN** the deadline is less than that timeout
+
+#### Scenario: A call that never ends
+- **WHEN** a model call does not answer within the deadline
+- **THEN** the step reports stopped with a reason that starts with `ModelRequestTimeout: ` and holds the deadline, the model got one request, and the checkout is reset
+
+### Requirement: A reply that reaches the output cap stops the step with its cause
+A model reply with the finish reason `length` SHALL end the run at once, without a further request or tool call. The step SHALL end as stopped, and SHALL reset the checkout. The reason SHALL start with `OutputCapReached: ` and SHALL hold the cap. The request SHALL count in the requests and the spend of the step, and the step SHALL not send it again. A reply of a size under the cap SHALL pass.
+
+#### Scenario: A reply that the cap ends
+- **WHEN** the model answers with a text and the finish reason `length`
+- **THEN** the step reports stopped with a reason that holds the cap as a number, the model got one request, the outcome counts one request, and the checkout is reset
+
+#### Scenario: A tool call that the cap cuts
+- **WHEN** the model answers with a `write_file` call whose arguments are not whole and the finish reason `length`
+- **THEN** the step reports stopped with the same reason, the model got one request, the tool did not run, and the checkout is reset
+
+#### Scenario: The counts stay in the reason
+- **WHEN** the shell tool refused one command, and a later reply has the finish reason `length`
+- **THEN** the reason holds the cap, and then the count of the refused commands
+
+#### Scenario: A reply under the cap
+- **WHEN** the model answers with a `write_file` call of three quarters of the cap and the finish reason `tool_calls`, and then ends the run
+- **THEN** the step ends done

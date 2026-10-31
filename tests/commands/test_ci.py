@@ -1753,10 +1753,11 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
     fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
     with (
         patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
-        pytest.raises(typer.Exit),
+        pytest.raises(typer.Exit) as raised,
     ):
         _handle_ci_results(fail_results, root=tmp_path, ci_options={})
         assert mock_clear.call_count == 1
+    assert raised.value.exit_code is not None
 
 
 def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
@@ -2374,7 +2375,8 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
     nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify `devops ci test -- --help`, where `--help` follows `--` and so is a path rather
-    than the help option, runs the check instead of printing help, and names the gate root."""
+    than the help option, runs the check instead of printing help, and names the gate root. The
+    path is not there, so the run is refused and names it (#2868)."""
     _, nested = nested_worktree
     announced: list[str] = []
     monkeypatch.chdir(nested)
@@ -2389,7 +2391,7 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
         result.exit_code,
         "Usage:" in result.output,
         MESSAGES.ci.gate_root.format(root=nested.resolve()) in announced,
-    ) == (0, False, True)
+    ) == (1, False, True)
 
 
 @pytest.mark.parametrize(

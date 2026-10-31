@@ -1533,6 +1533,57 @@ def _check_trigger_files(all_paths: set[str], fallback: bool, imports: SuiteImpo
     return False
 
 
+def _directory_modules(directory: str, root: Path) -> list[str]:
+    """The files a directory argument stands for, as sorted repo-relative paths: the test modules
+    inside a directory of tests/, and the Python modules inside a directory of src/, at any depth.
+    None for a directory elsewhere, and for one that holds no such file (#2868)."""
+    from devops_cli.config.constants import (
+        CONST_PYTHON_FILE_SUFFIX,
+        CONST_SOURCE_ROOT_DIR,
+        CONST_TESTS_ROOT_DIR,
+    )
+    from devops_cli.core.test_selection import is_test_module
+
+    tree = next(iter(Path(os.path.normpath(directory)).parts), "")
+    if tree not in (CONST_SOURCE_ROOT_DIR, CONST_TESTS_ROOT_DIR):
+        return []
+    found = (root / directory).rglob(f"*{CONST_PYTHON_FILE_SUFFIX}")
+    return sorted(
+        file.relative_to(root).as_posix()
+        for file in found
+        if file.is_file() and (tree == CONST_SOURCE_ROOT_DIR or is_test_module(file))
+    )
+
+
+def _expand_directories(paths: set[str], root: Path, imports: SuiteImports) -> set[str]:
+    """The paths with each directory replaced by the files it stands for. A path that does not
+    exist, and a directory that gives no file, are refused with an error that names them: running
+    no test must not be a pass. A trigger file that is gone, such as a deleted conftest.py, still
+    forces the full run (#2868)."""
+    from devops_cli.core.test_selection import forces_full_run
+
+    expanded: set[str] = set()
+    for path in paths:
+        if not (root / path).exists():
+            if not forces_full_run(path, imports):
+                print_error(MESSAGES.ci.path_not_found.format(path=path), prefix=False, safe=True)
+                raise typer.Exit(1)
+            expanded.add(path)
+        elif not (root / path).is_dir():
+            expanded.add(path)
+        else:
+            modules = _directory_modules(path, root)
+            if not modules:
+                print_error(
+                    MESSAGES.ci.directory_without_tests.format(directory=path),
+                    prefix=False,
+                    safe=True,
+                )
+                raise typer.Exit(1)
+            expanded.update(modules)
+    return expanded
+
+
 def _map_test_tree_path(
     path: str,
     root: Path,
@@ -1709,7 +1760,9 @@ def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None
     root = _get_project_root()
     index = load_index(resolve_coverage_index_path(root))
     imports = SuiteImports(root)
-    user_paths = {_normalize_repo_rel_path(p, root) for p in paths}
+    user_paths = _expand_directories(
+        {_normalize_repo_rel_path(p, root) for p in paths}, root, imports
+    )
     drift, has_index, removed = _drift_selection(index, root, imports)
     all_paths = user_paths | drift
 

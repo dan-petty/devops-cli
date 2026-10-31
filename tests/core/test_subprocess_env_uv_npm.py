@@ -190,7 +190,8 @@ def test_run_subprocess_starts_no_child_for_a_refused_uv_key(tmp_path: Path) -> 
     ran = tmp_path / "ran"
     program = [sys.executable, "-c", f"open({str(ran)!r}, 'w').close()"]
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         run_subprocess(program, env={"UV_PYTHON": str(tmp_path / "python")})
+    assert raised.value.error_code == "SECURITY_ERROR"
 
     assert not ran.exists()

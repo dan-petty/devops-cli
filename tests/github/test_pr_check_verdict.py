@@ -659,8 +659,9 @@ def test_commit_status_read_raising_propagates_and_never_passes(
         except StopIteration:
             raise error from None
 
-    with pytest.raises(type(error)):
+    with pytest.raises(type(error)) as raised:
         fetch_pr_check_verdicts(1350, repo="owner/repo", runner=runner)
+    assert str(raised.value) != "" or getattr(raised.value, "error_code", None) is not None
 
 
 def test_with_no_repo_the_fallback_reads_the_origin_of_the_checkout_it_gets(

@@ -475,8 +475,9 @@ def test_a_failed_fetch_raises_rather_than_reading_as_empty(process_fake: Proces
         ["gh", "api", "rate_limit"],
         ProcessAnswer(returncode=0, stdout=_rate_limit_reply()),
     )
-    with pytest.raises(GitHubOperationError):
+    with pytest.raises(GitHubOperationError) as raised:
         reconcile_project_custom_fields("o", REPO, 2, mode="write")
+    assert raised.value.error_code == "GITHUB_OPERATION_FAILED"
 
 
 def test_the_dry_run_lists_the_requests_a_run_sends_in_order(

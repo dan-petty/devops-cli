@@ -102,8 +102,9 @@ def test_every_sample_is_on_github_pinned_and_permissively_licensed() -> None:
 )
 def test_an_entry_outside_the_policy_is_rejected(field: str, value: object, tmp_path: Path) -> None:
     """Verify copyleft licences, moving refs, other transports and escaping paths are refused."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         _sample(tmp_path / "repo", **{"commit": "a" * 40, field: value})
+    assert len(raised.value.errors()) > 0
 
 
 def test_a_dual_licence_of_permissive_licences_is_accepted(tmp_path: Path) -> None:
@@ -117,8 +118,9 @@ def test_sample_names_are_unique(tmp_path: Path) -> None:
     """Verify a catalog naming two samples alike is refused, since each is a directory."""
     sample = _sample(tmp_path / "repo", "a" * 40)
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         SampleCatalog(samples=[sample, sample])
+    assert len(raised.value.errors()) > 0
 
 
 def test_selecting_by_name_and_category() -> None:

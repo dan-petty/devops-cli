@@ -15,7 +15,10 @@ import yaml
 from packaging.version import Version
 
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
-from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
+from devops_cli.config.constants import (
+    CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
+    CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+)
 from devops_cli.config.env import keyring_names, option_env_vars
 from devops_cli.k8s.argocd_overrides import host_patches
 from devops_cli.k8s.cluster_secrets import (
@@ -49,6 +52,16 @@ OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE = Version("0.40.4")
 # published against v3.7.x up to GHSA-hrpp-p4fc-wwf8 (2026-10-21). The 41.x charts end at v3.7.14,
 # so only chart 42 carries the later fixes (#1659).
 TRAEFIK_FIRST_CHART_WITH_V3_7_16 = Version("42.1.1")
+
+
+def test_the_deadline_of_a_step_call_is_under_the_router_timeout() -> None:
+    """A call of an implement step ends at its own deadline, so a runaway call is gone long before
+    the router gives up on it, and it does not hold the one slot of the tier until then (#2869)."""
+    config = yaml.safe_load((REPO_ROOT / "k8s/llm/gateway/config.yaml").read_text(encoding="utf-8"))
+
+    timeout = config["router_settings"]["timeout"]
+
+    assert 0 < CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS < timeout
 
 
 def test_the_gateway_keeps_a_streamed_chat_reply_open_under_the_edge_timeout() -> None:

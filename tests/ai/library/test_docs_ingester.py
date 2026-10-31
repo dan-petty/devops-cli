@@ -80,11 +80,13 @@ def test_ingest_local_docs_nonexistent_path(tmp_path: Path) -> None:
 def test_ingest_remote_docs_blocks_ssrf(tmp_path: Path) -> None:
     ingester = DocsIngester()
     # Attempting to ingest private loopback or RFC 1918 endpoint without bypass must raise SSRFBlockedError
-    with pytest.raises((SSRFBlockedError, DocsIngestionError)):
+    with pytest.raises((SSRFBlockedError, DocsIngestionError)) as raised:
         ingester.ingest_remote_docs("http://192.168.1.1/docs", output_dir=tmp_path)
+    assert raised.value.error_code in ("SSRF_BLOCKED", "DOCS_INGESTION_ERROR")
 
-    with pytest.raises((SSRFBlockedError, DocsIngestionError)):
+    with pytest.raises((SSRFBlockedError, DocsIngestionError)) as raised:
         ingester.ingest_remote_docs("http://127.0.0.1:8080/docs", output_dir=tmp_path)
+    assert raised.value.error_code in ("SSRF_BLOCKED", "DOCS_INGESTION_ERROR")
 
 
 def test_ingest_remote_docs_success(tmp_path: Path) -> None:

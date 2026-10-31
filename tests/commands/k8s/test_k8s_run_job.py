@@ -127,8 +127,9 @@ def test_the_job_equals_the_template_but_for_args_name_and_label() -> None:
 def test_a_template_without_the_devops_cli_container_is_refused() -> None:
     broken = copy.deepcopy(CRONJOB)
     broken["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["name"] = "other"
-    with pytest.raises(ClusterJobError):
+    with pytest.raises(ClusterJobError) as raised:
         build_job(broken, ["--version"], "devops-cli-x")
+    assert raised.value.error_code == "K8S_CLUSTER_JOB_ERROR"
 
 
 def test_job_names_carry_utc_time_and_four_hex() -> None:

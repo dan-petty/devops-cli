@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pydantic_ai.exceptions as p_exc
+from pydantic_ai.messages import ModelResponse
 
 from devops_cli.exceptions.ai import LLMInferenceError
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -49,6 +50,18 @@ class UnexpectedModelBehavior(p_exc.UnexpectedModelBehavior, LLMInferenceError):
             message,
             details=details,
         )
+
+
+class OutputCapReached(UnexpectedModelBehavior):
+    """A model reply ended with the finish reason `length`: the model did not stop, and the output
+    cap ended the call (#2869). The message names the cap. The run drops a reply that a hook
+    rejects, so the error holds it in `response`, for the spend."""
+
+    error_code = "OUTPUT_CAP_REACHED"
+
+    def __init__(self, message: str, *, response: ModelResponse) -> None:
+        super().__init__(message)
+        self.response = response
 
 
 class ToolFailed(p_exc.ToolFailed, DevOpsCLIError):

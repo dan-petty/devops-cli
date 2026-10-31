@@ -834,8 +834,9 @@ def test_a_record_that_names_no_executor_is_no_record(scenario: Scenario) -> Non
     """A reader of a record must see whether the run was confined, so the name is never empty."""
     run = ToolExecutorFake().run(scenario.request()).run
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         ToolRun.model_validate({**run.model_dump(), "executor": ""})
+    assert len(raised.value.errors()) > 0
 
 
 def test_the_direct_executor_refuses_a_target_outside_the_tree_before_it_starts_the_tool(

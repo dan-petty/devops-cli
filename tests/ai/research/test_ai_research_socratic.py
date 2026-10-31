@@ -105,7 +105,7 @@ def test_knowledge_gap_model_validation() -> None:
         "Payload structure is undefined",
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         KnowledgeGap.model_validate(
             {
                 "type": "UNKNOWN_TYPE",
@@ -113,6 +113,7 @@ def test_knowledge_gap_model_validation() -> None:
                 "rationale": "rat",
             }
         )
+    assert len(raised.value.errors()) > 0
 
 
 def test_clarifying_question_model_validation() -> None:
@@ -142,7 +143,7 @@ def test_code_lookup_instruction_model_validation() -> None:
         "Check existing timeout defaults",
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         CodeLookupInstruction.model_validate(
             {
                 "target": "target",
@@ -151,6 +152,7 @@ def test_code_lookup_instruction_model_validation() -> None:
                 "target_gap": "gap",
             }
         )
+    assert len(raised.value.errors()) > 0
 
 
 def test_socratic_inquiry_result_serialization() -> None:

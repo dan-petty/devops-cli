@@ -254,8 +254,9 @@ def test_a_read_after_a_404_is_answered_from_its_etag_with_the_quota_github_repo
     api = github(_A_READ_AROUND_A_404)
     session = get_github_session()
     label = session.rest("GET", _LABEL)
-    with pytest.raises(GitHubNotFoundError):
+    with pytest.raises(GitHubNotFoundError) as raised:
         session.rest("GET", _MISSING_LABEL)
+    assert raised.value.error_code == "GITHUB_NOT_FOUND"
     again = session.rest("GET", _LABEL)
     assert (label, again, _conditions(api), _remaining()) == (
         _BUG_LABEL,

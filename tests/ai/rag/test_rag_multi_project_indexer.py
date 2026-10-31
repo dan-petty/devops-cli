@@ -395,8 +395,9 @@ def test_delete_that_raises_leaves_cache_entry_and_next_run_deletes_points(tmp_p
 
     doc_file.unlink()
     qdrant.raise_on_delete = True
-    with pytest.raises(QdrantClientError):
+    with pytest.raises(QdrantClientError) as raised:
         indexer.index_workspace(repo, project="proj-x")
+    assert raised.value.error_code == "DEVOPS_CLI_ERROR"
 
     assert "proj-x:doc.md" in indexer._load_cache()
 
@@ -691,8 +692,9 @@ def test_count_that_raises_fails_run_and_reindexes_nothing(tmp_path: Path) -> No
 
     qdrant.raise_on_count = True
     upserts_before = len(qdrant.upsert_calls)
-    with pytest.raises(QdrantClientError):
+    with pytest.raises(QdrantClientError) as raised:
         indexer.index_workspace(repo, project="proj-count-fail")
+    assert raised.value.error_code == "DEVOPS_CLI_ERROR"
 
     assert len(qdrant.upsert_calls) == upserts_before
 

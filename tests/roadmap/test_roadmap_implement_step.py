@@ -766,8 +766,9 @@ def test_a_refused_key_raises_after_the_checkout_is_reset(
         ModelHTTPError(401, "gateway", {"error": "bad key"}),
     )
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         _step(store, checkout, script)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     assert is_clean_at(checkout, head)
 
@@ -1071,6 +1072,16 @@ def test_the_instructions_say_that_a_step_ends_only_when_every_task_is_ticked(
 
     assert "not done until every task of your group is ticked" in inputs.instructions
     assert "`- [ ]` to `- [x]`" in inputs.instructions
+
+
+def test_the_instructions_say_that_a_reply_has_a_cap_and_a_long_file_is_written_in_parts(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+
+    assert "Each reply of yours has an output cap" in inputs.instructions
+    assert "stops and all your work is lost" in inputs.instructions.split("output cap")[1]
+    assert "in parts with `edit_file`" in inputs.instructions
 
 
 # ── The diff of a stopped step (#2721) ────────────────────────────────────────────────────
@@ -1555,11 +1566,24 @@ def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_
 def test_a_model_call_that_fails_without_a_status_gives_the_model_in_the_reason(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    script = ModelScript(ModelAPIError("example-model", "The provider broke."))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == "ModelAPIError: model example-model"
+
+
+def test_a_model_call_that_runs_past_its_deadline_gives_the_deadline_in_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
     script = ModelScript(ModelRequestTimeout("example-model", 30))
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason == "ModelRequestTimeout: model example-model"
+    assert (
+        outcome.reason
+        == "ModelRequestTimeout: model example-model, no complete reply in 30 seconds"
+    )
 
 
 def test_the_reason_of_a_failed_model_call_leaves_out_the_message_and_the_body(
@@ -1753,8 +1777,9 @@ def test_a_refused_key_in_the_extra_turn_raises_after_the_checkout_is_reset(
         tool_calls(*WORK), say(FORGOT), ModelHTTPError(status, "example-model", {"error": "no"})
     )
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         _step(store, checkout, script)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     assert is_clean_at(checkout, head)
 

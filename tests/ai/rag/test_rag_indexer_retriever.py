@@ -430,8 +430,9 @@ def _interrupted_index(tmp_path: Path) -> tuple[FakeQdrantClient, Path, Path, di
     cache_dir = tmp_path / ".cache"
     failing = _BatchCountingEmbedder(fail_on_call=3)
     indexer = WorkspaceIndexer(qdrant=qdrant, embedder=failing, cache_dir=cache_dir)  # type: ignore[arg-type]
-    with pytest.raises(EmbeddingsError):
+    with pytest.raises(EmbeddingsError) as raised:
         indexer.index_workspace(tmp_path, project="p", include_kb=False)
+    assert raised.value.error_code == "EMBEDDINGS_ERROR"
     return qdrant, cache_dir, big, indexer._load_cache()
 
 

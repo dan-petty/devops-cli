@@ -537,10 +537,12 @@ def test_find_and_create_remote_project(process_fake: ProcessFake) -> None:
         lambda call: bool(call.argv and call.argv[0] == "gh" and "rate_limit" not in call.argv),
         ProcessAnswer(returncode=1, stderr="error"),
     )
-    with pytest.raises(GitHubOperationError):
+    with pytest.raises(GitHubOperationError) as raised:
         find_remote_project("dan-petty", "My Project")
-    with pytest.raises(GitHubOperationError):
+    assert raised.value.error_code == "GITHUB_UNREAD"
+    with pytest.raises(GitHubOperationError) as raised:
         create_remote_project("dan-petty", "My Project")
+    assert raised.value.error_code in ("GITHUB_OPERATION_FAILED", "GITHUB_UNREAD")
 
     # Match found
     process_fake.answer(
@@ -834,8 +836,9 @@ def test_the_cli_board_lookup_raises_unread_on_server_error(
     """A failure such as HTTP 500 raises GitHubUnreadError so a transient failure does not look
     like a missing board."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         find_project_via_cli("octo-org", "Roadmap")
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 _PARTIAL_GRAPHQL_ANSWER = (
@@ -1291,8 +1294,9 @@ def test_fetch_existing_fields_fails_closed_on_error(
 ) -> None:
     """fetch_existing_fields_by_name raises on failed gh command or malformed output."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
-    with pytest.raises(GitHubOperationError):
+    with pytest.raises(GitHubOperationError) as raised:
         fetch_existing_fields_by_name("owner", 2)
+    assert raised.value.error_code == "GITHUB_OPERATION_FAILED"
 
 
 def test_fetch_existing_fields_fails_closed_on_missing_scope(
@@ -1301,8 +1305,9 @@ def test_fetch_existing_fields_fails_closed_on_missing_scope(
 ) -> None:
     """fetch_existing_fields_by_name raises GitHubScopeError when token lacks scope."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
-    with pytest.raises(GitHubScopeError):
+    with pytest.raises(GitHubScopeError) as raised:
         fetch_existing_fields_by_name("owner", 2)
+    assert raised.value.error_code == "GITHUB_SCOPE_MISSING"
 
 
 def test_fetch_existing_fields_fails_closed_on_empty_output(
@@ -1316,8 +1321,9 @@ def test_fetch_existing_fields_fails_closed_on_empty_output(
         lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "field-list")),
         ProcessAnswer(returncode=0, stdout="", stderr=""),
     )
-    with pytest.raises(GitHubOperationError):
+    with pytest.raises(GitHubOperationError) as raised:
         fetch_existing_fields_by_name("owner", 2)
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_fetch_existing_fields_fails_closed_on_incomplete_listing(
@@ -1343,8 +1349,9 @@ def test_provision_single_field_raises_on_missing_scope(
     """provision_single_field raises GitHubScopeError when token lacks project scope."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
     field = ProjectField(name="TestField", type="text")
-    with pytest.raises(GitHubScopeError):
+    with pytest.raises(GitHubScopeError) as raised:
         provision_single_field("owner", 2, field)
+    assert raised.value.error_code == "GITHUB_SCOPE_MISSING"
 
 
 def test_provision_single_field_raises_on_unclassified_error(
@@ -1354,8 +1361,9 @@ def test_provision_single_field_raises_on_unclassified_error(
     """provision_single_field raises GitHubOperationError on non-zero exit."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: unclassified field error")
     field = ProjectField(name="TestField", type="text")
-    with pytest.raises(GitHubOperationError):
+    with pytest.raises(GitHubOperationError) as raised:
         provision_single_field("owner", 2, field)
+    assert raised.value.error_code == "GITHUB_OPERATION_FAILED"
 
 
 def test_link_project_to_repository_raises_on_missing_scope(
@@ -1364,8 +1372,9 @@ def test_link_project_to_repository_raises_on_missing_scope(
 ) -> None:
     """link_project_to_repository raises GitHubScopeError when token lacks project scope."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
-    with pytest.raises(GitHubScopeError):
+    with pytest.raises(GitHubScopeError) as raised:
         link_project_to_repository(2, "owner", "repo")
+    assert raised.value.error_code == "GITHUB_SCOPE_MISSING"
 
 
 def test_link_project_to_repository_raises_on_unclassified_error(
@@ -1374,8 +1383,9 @@ def test_link_project_to_repository_raises_on_unclassified_error(
 ) -> None:
     """link_project_to_repository raises GitHubOperationError on non-zero exit."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: link failure")
-    with pytest.raises(GitHubOperationError):
+    with pytest.raises(GitHubOperationError) as raised:
         link_project_to_repository(2, "owner", "repo")
+    assert raised.value.error_code == "GITHUB_OPERATION_FAILED"
 
 
 def test_create_remote_project_raises_on_missing_scope(
@@ -1384,8 +1394,9 @@ def test_create_remote_project_raises_on_missing_scope(
 ) -> None:
     """create_remote_project raises GitHubScopeError when token lacks project scope."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
-    with pytest.raises(GitHubScopeError):
+    with pytest.raises(GitHubScopeError) as raised:
         create_remote_project("owner", "Board Title")
+    assert raised.value.error_code == "GITHUB_SCOPE_MISSING"
 
 
 def test_find_project_via_repo_raises_on_server_error(
@@ -1394,8 +1405,9 @@ def test_find_project_via_repo_raises_on_server_error(
 ) -> None:
     """find_project_via_repo raises GitHubUnreadError on server error."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         find_project_via_repo("owner", "repo", "Roadmap")
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_find_project_via_repo_raises_on_empty_output(
@@ -1409,8 +1421,9 @@ def test_find_project_via_repo_raises_on_empty_output(
         lambda call: bool(call.argv and call.argv[0] == "gh" and "rate_limit" not in call.argv),
         ProcessAnswer(returncode=0, stdout="", stderr=""),
     )
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         find_project_via_repo("owner", "repo", "Roadmap")
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_find_project_via_rest_raises_on_server_error(
@@ -1419,8 +1432,9 @@ def test_find_project_via_rest_raises_on_server_error(
 ) -> None:
     """find_project_via_rest raises GitHubUnreadError on server error."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         find_project_via_rest("owner", "Roadmap")
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_list_projects_via_cli_raises_on_server_error(
@@ -1429,8 +1443,9 @@ def test_list_projects_via_cli_raises_on_server_error(
 ) -> None:
     """list_projects_via_cli raises GitHubUnreadError on server error."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         list_projects_via_cli("owner")
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_list_projects_via_cli_raises_on_missing_scope(
@@ -1439,5 +1454,6 @@ def test_list_projects_via_cli_raises_on_missing_scope(
 ) -> None:
     """list_projects_via_cli raises GitHubScopeError on missing scope."""
     _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
-    with pytest.raises(GitHubScopeError):
+    with pytest.raises(GitHubScopeError) as raised:
         list_projects_via_cli("owner")
+    assert raised.value.error_code == "GITHUB_SCOPE_MISSING"

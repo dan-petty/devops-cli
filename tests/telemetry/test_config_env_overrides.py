@@ -285,8 +285,9 @@ def test_the_telemetry_variables_hold_when_the_settings_cannot_load(
     monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENABLED")
     unset = _tracer_switch_and_endpoint()
 
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(ConfigurationError) as raised:
         settings.load_settings()
+    assert raised.value.error_code == "CONFIGURATION_ERROR"
     assert (switched_off, switched_on, unset) == (
         (False, "http://127.0.0.1:4319"),
         (True, "http://127.0.0.1:4319"),

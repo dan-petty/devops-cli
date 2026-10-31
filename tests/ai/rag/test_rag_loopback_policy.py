@@ -126,9 +126,10 @@ def test_the_example_config_still_refuses_other_private_hosts(
     example_settings: Settings, url: str
 ) -> None:
     """Verify a non-loopback private or metadata host is refused without allow_private_network."""
-    with pytest.raises(SSRFBlockedError):
+    with pytest.raises(SSRFBlockedError) as raised:
         QdrantClient(
             base_url=url,
             api_key="x",
             allow_private_network=example_settings.ai.allow_private_network,
         )
+    assert raised.value.error_code == "SSRF_BLOCKED"

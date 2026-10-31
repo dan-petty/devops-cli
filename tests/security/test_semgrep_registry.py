@@ -265,8 +265,9 @@ def test_a_refused_download_leaves_the_earlier_cache_as_it_was(stub_web: StubWeb
     paths = registry_cache_paths("p/default")
     stub_web.routes[DEFAULT_RULESET_URL] = (503, {}, b"")
 
-    with pytest.raises(ToolDownloadError):
+    with pytest.raises(ToolDownloadError) as raised:
         fetch_registry_ruleset("p/default")
+    assert raised.value.error_code == "TOOL_DOWNLOAD_ERROR"
 
     assert (paths.rules.read_bytes(), paths.etag.read_text(encoding="utf-8")) == (
         FIRST_RULESET,

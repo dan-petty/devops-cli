@@ -100,9 +100,10 @@ def test_a_stop_signal_ends_the_wait_and_holds_no_slot(
 
     with gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append):
         monkeypatch.setattr(clock_seam, "sleep", stop)
-        with pytest.raises(KeyboardInterrupt):
+        with pytest.raises(KeyboardInterrupt) as raised:
             with gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append):
                 pytest.fail("the run took a slot that another run held")
+        assert raised.value is not None
 
     monkeypatch.setattr(clock_seam, "sleep", clock.sleep)
     with gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append) as waited:

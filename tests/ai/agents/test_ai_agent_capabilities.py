@@ -385,8 +385,9 @@ def test_testing_utilities_and_agent_override() -> None:
 
         # Real model request fails
         real_agent = PydanticAgent(name="RealAgent", model="openai:gpt-4o")
-        with pytest.raises(ModelNotAllowedError):
+        with pytest.raises(ModelNotAllowedError) as raised:
             real_agent.run("Test query")
+        assert raised.value.error_code == "MODEL_REQUESTS_DISABLED"
 
         # TestModel succeeds even when ALLOW_MODEL_REQUESTS is False
         with real_agent.override(model=TestModel(custom_output_text="Safe test")):

@@ -313,8 +313,9 @@ def test_embedding_engine_provider_resolution() -> None:
         "gateway",
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         runner._engine_for_model("m@https://ollama.example.com")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_compute_ndcg_and_report_rendering() -> None:
@@ -429,8 +430,9 @@ def test_override_endpoint_gets_no_key(
     )
 
     engine = bench._engine_for_model(f"x@{server}")
-    with pytest.raises(EmbeddingsError):
+    with pytest.raises(EmbeddingsError) as raised:
         engine.embed_texts(["query"], is_query=True)
+    assert raised.value.error_code == "EMBEDDINGS_ERROR"
 
     assert [
         (str(sent.url), sent.headers.get("authorization"))

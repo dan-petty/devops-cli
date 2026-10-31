@@ -993,8 +993,9 @@ def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
     github_api.route("GET", "/user", github_json({"message": "Bad credentials"}, status=401))
     data_dir = tmp_path / "data"
 
-    with pytest.raises(GitHubUnauthenticatedError):
+    with pytest.raises(GitHubUnauthenticatedError) as raised:
         ensure_checkout(REPO, data_dir, remote_url=str(main_remote))
+    assert raised.value.error_code == "GITHUB_UNAUTHENTICATED"
 
     clone_dir = data_dir / "roadmap" / REPO / CONST_ROADMAP_RUN_CLONE_DIRNAME
     if (clone_dir / ".git").exists():
@@ -1020,7 +1021,7 @@ def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
 
     store_without_actor = seeded_store.as_actor("")
     store_without_actor._actor = None  # type: ignore[assignment]
-    with pytest.raises(GitHubUnauthenticatedError):
+    with pytest.raises(GitHubUnauthenticatedError) as raised:
         run_due_jobs(
             REPO,
             store_without_actor,
@@ -1029,6 +1030,7 @@ def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
             remote_url=str(main_remote),
             batch={POLL_KEY: 1},
         )
+    assert raised.value.error_code == "GITHUB_UNAUTHENTICATED"
 
 
 def test_a_rounds_clone_jobs_share_one_clone_on_the_default_branch(
@@ -1097,8 +1099,9 @@ def test_ensure_checkout_rejects_path_escape_and_malformed_repo_slugs(tmp_path: 
     ]
     results: list[bool] = []
     for malformed in escapes:
-        with pytest.raises(GitOperationError):
+        with pytest.raises(GitOperationError) as raised:
             ensure_checkout(malformed, data_dir)
+        assert raised.value.error_code == "GIT_OPERATION_ERROR"
         results.append(True)
 
     assert (len(results), all(results)) == (len(escapes), True)
@@ -1356,8 +1359,9 @@ def test_a_failed_placement_is_decided_again_after_the_fresh_candidates_and_its_
     model = _IntakeModel()
     table = _intake_table(model, [])
     stopping = StoppingStore(store, Fault(at=1, write="label_issue"))
-    with pytest.raises(RoadmapRunError):
+    with pytest.raises(RoadmapRunError) as raised:
         _poll_round(stopping.as_store(), tmp_path, table=table)
+    assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     placed = tuple(store.item(number) is not None for number in range(1, 6))
     asked = len(model.asked)
     _poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table)
@@ -1985,8 +1989,9 @@ def test_a_ledger_record_with_an_implement_entry_loads_and_keeps_the_row_suspend
         )
 
     for step in range(FailureLedger().limit):
-        with pytest.raises(RoadmapRunError):
+        with pytest.raises(RoadmapRunError) as raised:
             round_of(NOW + timedelta(minutes=step))
+        assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     kept = json.loads(record.read_text(encoding="utf-8"))
     GLOBAL_METRICS.reset()
     suspended_labels = {"repo": REPO, "row": "implement"}
@@ -2033,8 +2038,9 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
         )
 
     for step in range(failures.limit):
-        with pytest.raises(RoadmapRunError):
+        with pytest.raises(RoadmapRunError) as raised:
             round_of(NOW + timedelta(minutes=step))
+        assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     same_hour = round_of(NOW + timedelta(minutes=10))
     fixed["yes"] = True
     later = round_of(NOW + timedelta(hours=1, minutes=10))

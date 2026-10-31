@@ -37,7 +37,7 @@ devops ci test [OPTIONS] <paths>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<paths>` | `path` | No | Source or test files to verify. Narrows the run to covering tests; omit to run the full suite. |
+| `<paths>` | `path` | No | Source or test files, or directories of src/ or tests/, to verify. Narrows the run to covering tests; a directory of tests/ runs its test modules. A directory that gives no test, and a path that does not exist, are refused. Omit to run the full suite. |
 
 **Options:**
 

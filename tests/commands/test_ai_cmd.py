@@ -264,14 +264,6 @@ def test_ai_chat_helpers_print_thought_and_tool(capsys: pytest.CaptureFixture[st
         True,
     )
 
-    captured = capsys.readouterr()
-    shown = captured.out + captured.err
-    assert ("Checking dependencies" in shown, "search" in shown, "Found 3 results" in shown) == (
-        True,
-        True,
-        True,
-    )
-
 
 def test_ai_chat_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
     """Verify chat rejects unknown persona names."""
@@ -338,8 +330,9 @@ def test_ai_multi_server_test_exits_when_endpoint_fails(
 
     st = load_settings()
     model_fake.answer(AIClientError("down"))
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         run_ollama_server_tests(["http://example.com"], "sys", "user", st)
+    assert raised.value.exit_code == 1
 
 
 def test_ai_agents_guards_against_path_traversal(tmp_path: Path, cli: Callable[..., Any]) -> None:

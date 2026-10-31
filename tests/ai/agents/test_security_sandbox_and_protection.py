@@ -57,8 +57,9 @@ def test_prompt_eval_rejects_path_traversal_and_symlinks(tmp_path: Path) -> None
 
     # Relative path traversal outside repo root
     traversal_path = Path("../../outside_repo_dataset.jsonl")
-    with pytest.raises((ValueError, SecurityError)):
+    with pytest.raises((ValueError, SecurityError)) as raised:
         evaluate_persona_prompts(dataset_path=traversal_path)
+    assert str(raised.value) != "" or "outside" in str(raised.value).lower()
 
     # Symlink dataset path
     real_file = tmp_path / "real.jsonl"
@@ -66,8 +67,9 @@ def test_prompt_eval_rejects_path_traversal_and_symlinks(tmp_path: Path) -> None
     symlink_file = tmp_path / "symlink.jsonl"
     try:
         symlink_file.symlink_to(real_file)
-        with pytest.raises((ValueError, SecurityError)):
+        with pytest.raises((ValueError, SecurityError)) as raised:
             evaluate_persona_prompts(dataset_path=symlink_file)
+        assert str(raised.value) != "" or "outside" in str(raised.value).lower()
     except OSError:
         pass
 
@@ -82,8 +84,9 @@ def test_generate_ed25519_key_rejects_symlinks(tmp_path: Path) -> None:
     symlink_key = tmp_path / "id_ed25519"
     try:
         symlink_key.symlink_to(target_file)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as raised:
             generate_ed25519_key(symlink_key)
+        assert raised.value.error_code == "VALIDATION_ERROR"
         # Ensure target file was not overwritten
         assert target_file.read_text(encoding="utf-8") == "root:x:0:0:"
     except OSError:
@@ -146,8 +149,9 @@ async def test_subprocess_telemetry_masks_secrets_in_error_sample(
         "-c",
         "import sys; sys.stderr.write('Error: password=SuperSecretPassword123\\n'); sys.exit(1)",
     ]
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(subprocess.CalledProcessError) as raised:
         await run_subprocess_async(cmd, check=True)
+    assert str(raised.value) != "" or "outside" in str(raised.value).lower()
 
     found = False
     for span in otlp.spans:
@@ -314,8 +318,9 @@ def test_pipeline_run_error_message_does_not_disclose_system_path(
     from devops_cli.commands.pipeline import run_pipeline_cmd
 
     bad_path = Path("/home/secret_user/confidential_project/nonexistent_dagger_pipeline.go")
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         run_pipeline_cmd(pipeline_path=bad_path)
+    assert raised.value.exit_code is not None
 
     captured = capsys.readouterr()
     err_text = captured.err or captured.out

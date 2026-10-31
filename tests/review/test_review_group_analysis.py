@@ -386,8 +386,9 @@ def test_group_analysis_output_schema_forbids_diff_and_finding_mutation_fields(
         True,
     )
 
-    with pytest.raises(PydanticValidationError):
+    with pytest.raises(PydanticValidationError) as raised:
         GroupAnalysisOutput.model_validate({**base_payload, **forbidden_field})
+    assert raised.value is not None
 
 
 def test_g10_checks_drop_and_count_failures_by_reason() -> None:

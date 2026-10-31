@@ -53,8 +53,9 @@ def test_valid_k8s_label_names(value: str) -> None:
     ],
 )
 def test_invalid_k8s_label_names_rejected(value: str) -> None:
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         _validate_k8s_name(value, "namespace", namespace=True)
+    assert raised.value.exit_code == 1
 
 
 @pytest.mark.parametrize(
@@ -83,8 +84,9 @@ def test_valid_k8s_resource_names(value: str) -> None:
     ],
 )
 def test_invalid_k8s_resource_names_rejected(value: str) -> None:
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         _validate_k8s_name(value, "workflow name")
+    assert raised.value.exit_code == 1
 
 
 def test_argocd_app_from_api_item() -> None:

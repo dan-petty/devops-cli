@@ -52,8 +52,9 @@ def test_resolve_tf_binary_not_found() -> None:
         patch("shutil.which", return_value=None),
         patch("devops_cli.commands.tf.is_dry_run", return_value=False),
     ):
-        with pytest.raises(typer.Exit):
+        with pytest.raises(typer.Exit) as raised:
             _resolve_tf_binary()
+        assert raised.value.exit_code == 1
 
 
 def test_resolve_tf_binary_dry_run() -> None:
@@ -70,8 +71,9 @@ def test_validate_dir_valid(temp_tf_dir: Path) -> None:
 
 def test_validate_dir_invalid(tmp_path: Path) -> None:
     invalid = tmp_path / "non_existent_dir"
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_dir(invalid)
+    assert raised.value.exit_code == 1
 
 
 def test_get_cloud_dir(tmp_path: Path) -> None:
@@ -84,8 +86,9 @@ def test_get_cloud_dir(tmp_path: Path) -> None:
     gcp_dir = _get_cloud_dir("gcp", tmp_path)
     assert gcp_dir == tmp_path / "tf" / "gcp"
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         _get_cloud_dir("unknown", tmp_path)
+    assert raised.value.exit_code == 1
 
 
 def test_get_default_var_file(tmp_path: Path) -> None:
