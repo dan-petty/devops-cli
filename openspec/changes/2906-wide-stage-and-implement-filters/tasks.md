@@ -2,9 +2,9 @@
 
 ## 1. The stage default
 
-- [ ] Write failing tests. In `tests/roadmap/test_roadmap_stage_settings.py` the default filter is `["status=ready"]`. In `tests/k8s/test_k8s_configmap.py` the example ConfigMap holds the filter `["status=ready"]` and equals `DEFAULT_ROADMAP_STAGE_FILTER`. In `tests/roadmap/test_roadmap_stage_selection.py`, with `parse_filters(())`, a Ready P3 chore, a Ready P2 feature and a Ready P0 docs item are all named, the P0 item goes first, and the targets get the types `docs`, `feat` and `chore`.
+- [x] Write failing tests. In `tests/roadmap/test_roadmap_stage_settings.py` the default filter is `["status=ready"]`. In `tests/k8s/test_k8s_configmap.py` the example ConfigMap holds the filter `["status=ready"]` and equals `DEFAULT_ROADMAP_STAGE_FILTER`. In `tests/roadmap/test_roadmap_stage_selection.py`, with `parse_filters(())`, a Ready P3 chore, a Ready P2 feature and a Ready P0 docs item are all named, the P0 item goes first, and the targets get the types `docs`, `feat` and `chore`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_settings.py tests/roadmap/test_roadmap_stage_selection.py tests/k8s/test_k8s_configmap.py`
-- [ ] Set `DEFAULT_ROADMAP_STAGE_FILTER` to `("status=ready",)` in `src/devops_cli/config/defaults.py` and update its comment. Set the filter of `k8s/devops/configmap.example.yaml` to `status=ready`. Update the module text of `src/devops_cli/roadmap/stage.py` and the `stage` help text in `src/devops_cli/lang/en/help.py`.
+- [x] Set `DEFAULT_ROADMAP_STAGE_FILTER` to `("status=ready",)` in `src/devops_cli/config/defaults.py` and update its comment. Set the filter of `k8s/devops/configmap.example.yaml` to `status=ready`. Update the module text of `src/devops_cli/roadmap/stage.py` and the `stage` help text in `src/devops_cli/lang/en/help.py`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_settings.py tests/roadmap/test_roadmap_stage_selection.py tests/k8s/test_k8s_configmap.py`
 
 ## 2. The implement default

@@ -11,7 +11,7 @@ checks of the draft have passed (`stage_ready`).
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`. The values of one family are alternatives, and the
 families all apply. With no `--filter` the job takes the filter of the setting
-`roadmap.stage.filter`, by default the Ready P0 and P1 bugs. It leaves out an item
+`roadmap.stage.filter`, by default every Ready item. It leaves out an item
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
 It also leaves out an item with the label `needs-split`, an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
