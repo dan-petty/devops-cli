@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -122,24 +122,24 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
     assert len(blocks) >= 1
 
 
-def test_prepare_content_helpers(tmp_path: Path, github_api: GitHubApiFake) -> None:
+def test_prepare_content_helpers(
+    tmp_path: Path, github_api: GitHubApiFake, process_fake: ProcessFake
+) -> None:
     """Verify content preparation for paths, branches, and PRs."""
     test_file = REPO_ROOT / "src/devops_cli/main.py"
 
     pages, title, routed = _prepare_path_content(test_file, "*", working_directory=REPO_ROOT)
     assert (len(pages) >= 1, "main.py" in title, routed) == (True, True, [])
 
-    import subprocess
-
-    mock_cp = subprocess.CompletedProcess(
-        args=["git"],
-        returncode=0,
-        stdout="diff --git a/test.py b/test.py\n+def foo(): return 42\n",
-        stderr="",
+    process_fake.answer(
+        "git diff",
+        ProcessAnswer(
+            returncode=0,
+            stdout="diff --git a/test.py b/test.py\n+def foo(): return 42\n",
+        ),
     )
 
     with (
-        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_cp),
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
@@ -341,18 +341,23 @@ def test_review_findings_without_a_session_reads_the_latest_published_one(
     ) == (0, True, False, False)
 
 
-def test_detect_base_branch(tmp_path: Path) -> None:
+def test_detect_base_branch(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Verify base branch detection and fallback handling."""
     from devops_cli.ai.review.runner import _detect_base_branch
 
-    with patch("devops_cli.ai.review.runner._run_subprocess") as mock_sub:
-        mock_sub.return_value = MagicMock(returncode=0, stdout="origin/feat/1-example\n")
-        b = _detect_base_branch(tmp_path, preferred_base="feat/1-example")
-        assert "feat/1-example" in b
+    process_fake.answer(
+        lambda call: "origin/feat/1-example" in call.argv,
+        ProcessAnswer(returncode=0, stdout="origin/feat/1-example\n"),
+    )
+    b = _detect_base_branch(tmp_path, preferred_base="feat/1-example")
+    assert "feat/1-example" in b
 
-        mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="err")
-        b_fallback = _detect_base_branch(tmp_path)
-        assert b_fallback in ("main", "master")
+    process_fake.answer(
+        lambda call: True,
+        ProcessAnswer(returncode=1, stdout="", stderr="err"),
+    )
+    b_fallback = _detect_base_branch(tmp_path)
+    assert b_fallback in ("main", "master")
 
 
 def test_is_allowed_review_boundary() -> None:
@@ -425,74 +430,56 @@ def test_review_clients_wait_a_configured_task_timeout() -> None:
     ) == (30.0, DEFAULT_REVIEW_TIMEOUT_SECONDS)
 
 
-def test_get_current_git_branch() -> None:
+def test_get_current_git_branch(process_fake: ProcessFake) -> None:
     """Verify active branch name detection and detached HEAD handling."""
     from devops_cli.ai.review.runner import _get_current_git_branch
 
     # Attached branch
-    cp_branch = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="feat/20-example\n", stderr=""
-    )
-    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_branch):
-        assert _get_current_git_branch(Path(".")) == "feat/20-example"
+    process_fake.answer(lambda call: True, ProcessAnswer(returncode=0, stdout="feat/20-example\n"))
+    assert _get_current_git_branch(Path(".")) == "feat/20-example"
 
     # Detached HEAD
-    cp_head = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="HEAD\n", stderr="")
-    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_head):
-        assert _get_current_git_branch(Path(".")) == ""
+    process_fake.answer(lambda call: True, ProcessAnswer(returncode=0, stdout="HEAD\n"))
+    assert _get_current_git_branch(Path(".")) == ""
 
     # Failure
-    cp_fail = subprocess.CompletedProcess(args=["git"], returncode=1, stdout="", stderr="fatal")
-    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_fail):
-        assert _get_current_git_branch(Path(".")) == ""
+    process_fake.answer(lambda call: True, ProcessAnswer(returncode=1, stdout="", stderr="fatal"))
+    assert _get_current_git_branch(Path(".")) == ""
 
 
-def test_has_uncommitted_working_tree_changes() -> None:
+def test_has_uncommitted_working_tree_changes(process_fake: ProcessFake) -> None:
     """Verify detection of staged and unstaged working tree changes."""
     from devops_cli.ai.review.runner import _has_uncommitted_working_tree_changes
 
-    cp_dirty = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="diff --git a/f b/f\n", stderr=""
+    process_fake.answer(
+        lambda call: True, ProcessAnswer(returncode=0, stdout="diff --git a/f b/f\n")
     )
-    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_dirty):
-        assert _has_uncommitted_working_tree_changes(Path(".")) is True
+    assert _has_uncommitted_working_tree_changes(Path(".")) is True
 
-    cp_clean = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
-    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_clean):
-        assert _has_uncommitted_working_tree_changes(Path(".")) is False
+    process_fake.answer(lambda call: True, ProcessAnswer(returncode=0, stdout=""))
+    assert _has_uncommitted_working_tree_changes(Path(".")) is False
 
 
-def test_resolve_main_branch_fallback_base() -> None:
+def test_resolve_main_branch_fallback_base(process_fake: ProcessFake) -> None:
     """Verify base resolution on main using git tags and parent commits."""
     from devops_cli.ai.review.runner import _resolve_main_branch_fallback_base
 
     # Tag exists with non-empty diff
-    cp_diff = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="diff content\n", stderr=""
-    )
-    with (
-        patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"),
-        patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_diff),
-    ):
+    process_fake.answer(lambda call: True, ProcessAnswer(returncode=0, stdout="diff content\n"))
+    with patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"):
         assert _resolve_main_branch_fallback_base(Path("."), "main") == "v0.2.18"
 
     # Tag exists but diff is empty -> fallback to parent commit main~1
-    cp_empty = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
-    cp_parent_ok = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="commit-hash\n", stderr=""
+    process_fake.answer(
+        lambda call: any("main~1" in arg for arg in call.argv),
+        ProcessAnswer(returncode=0, stdout="commit-hash\n"),
+    )
+    process_fake.answer(
+        lambda call: "diff" in call.argv,
+        ProcessAnswer(returncode=0, stdout=""),
     )
 
-    def _mock_subp(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if "diff" in cmd:
-            return cp_empty
-        if len(cmd) > 4 and "main~1" in cmd[4]:
-            return cp_parent_ok
-        return cp_empty
-
-    with (
-        patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"),
-        patch("devops_cli.ai.review.runner._run_subprocess", side_effect=_mock_subp),
-    ):
+    with patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"):
         assert _resolve_main_branch_fallback_base(Path("."), "main") == "main~1"
 
 
@@ -552,15 +539,18 @@ def test_resolve_branch_targets() -> None:
         assert is_wt is False
 
 
-def test_prepare_branch_content_on_main_and_base_switching() -> None:
+def test_prepare_branch_content_on_main_and_base_switching(
+    process_fake: ProcessFake,
+) -> None:
     """Verify _prepare_branch_content properly prepares pages on main and base-passed branches."""
     from devops_cli.ai.review.runner import _prepare_branch_content
 
-    mock_diff = subprocess.CompletedProcess(
-        args=["git"],
-        returncode=0,
-        stdout="diff --git a/app.py b/app.py\n+print('hello')\n",
-        stderr="",
+    process_fake.answer(
+        "git diff",
+        ProcessAnswer(
+            returncode=0,
+            stdout="diff --git a/app.py b/app.py\n+print('hello')\n",
+        ),
     )
 
     # Calling with 'main' from feat/19-example
@@ -569,7 +559,6 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
             "devops_cli.ai.review.runner._get_current_git_branch", return_value="feat/19-example"
         ),
         patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
-        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
@@ -590,7 +579,6 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         patch(
             "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=True
         ),
-        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
         pages, title, target, _ = _prepare_branch_content(

@@ -184,6 +184,36 @@ def test_the_origin_lookup_takes_its_repository_root_from_the_caller(
     assert _origin_lookup_root_default(parsed_source_trees) == ""
 
 
+def _is_mock_import(node: ast.AST) -> bool:
+    if isinstance(node, ast.Import):
+        return any(
+            alias.name == "unittest.mock" or alias.name.startswith("unittest.mock.")
+            for alias in node.names
+        )
+    if isinstance(node, ast.ImportFrom):
+        return bool(
+            node.module == "unittest.mock"
+            or (node.module is not None and node.module.startswith("unittest.mock."))
+        )
+    return False
+
+
+def _mock_imports_in_src(trees: ParsedTreeMap) -> list[str]:
+    src = (REPO_ROOT / "src").resolve()
+    found: list[str] = []
+    for path, tree in trees.items():
+        rel = Path(path).resolve().relative_to(src).as_posix()
+        for node in ast.walk(tree):
+            if _is_mock_import(node) and hasattr(node, "lineno"):
+                found.append(f"{rel}:{node.lineno}")
+    return sorted(found)
+
+
+def test_no_mock_imports_in_src(parsed_source_trees: ParsedTreeMap) -> None:
+    """Product code under `src/` never imports unittest.mock (#1328)."""
+    assert _mock_imports_in_src(parsed_source_trees) == []
+
+
 CONST_ROOT_TESTS_CEILING = 0
 CONST_NON_MIRROR_TEST_CEILING = 0
 

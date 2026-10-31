@@ -11,7 +11,6 @@ import os
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -350,9 +349,6 @@ def test_is_scannable_manifest_with_mocks_and_real_files(tmp_path: Path) -> None
         _is_scannable_manifest(non_manifest),
         _is_scannable_manifest(ghost),
     ) == (True, False, False)
-
-    with patch("devops_cli.security.kubelinter.run_kubelinter_scan", MagicMock()):
-        assert _is_scannable_manifest(ghost) is True
 
 
 def test_scan_kubernetes_manifests_skips_non_k8s_and_deleted_files(
