@@ -127,6 +127,66 @@
   color: "FBCA04"
   description: "Valkey caches, queues and their keys"
 
+- name: "scope/agents"
+  color: "6F42C1"
+  description: "Agent instructions in AGENTS.md, skills and the agent hand-off"
+
+- name: "scope/argo"
+  color: "EF7B4D"
+  description: "Argo CD applications and Argo Workflows"
+
+- name: "scope/cloudflare"
+  color: "F6821F"
+  description: "Cloudflare tunnels, Access and DNS"
+
+- name: "scope/docker"
+  color: "0DB7ED"
+  description: "Docker and Podman commands and cleanup"
+
+- name: "scope/exceptions"
+  color: "B60205"
+  description: "Exception classes, error codes and exit codes"
+
+- name: "scope/gh"
+  color: "24292E"
+  description: "The devops gh commands"
+
+- name: "scope/lint"
+  color: "C5DEF5"
+  description: "Linters, formatters and their configuration"
+
+- name: "scope/openspec"
+  color: "0E8A16"
+  description: "OpenSpec changes, specs and their checks"
+
+- name: "scope/pr"
+  color: "24292E"
+  description: "The devops pr commands"
+
+- name: "scope/rag"
+  color: "6F42C1"
+  description: "The RAG index, retrieval and the knowledge base"
+
+- name: "scope/repos"
+  color: "24292E"
+  description: "The devops repos commands and worktrees"
+
+- name: "scope/sandbox"
+  color: "5319E7"
+  description: "The bubblewrap sandbox and its egress rules"
+
+- name: "scope/tests"
+  color: "FBCA04"
+  description: "The test suite, its fixtures, fakes and floor"
+
+- name: "scope/ui"
+  color: "C2E0C6"
+  description: "Terminal output, tables and the dashboard"
+
+- name: "scope/vault"
+  color: "E99695"
+  description: "Vault leases, secrets and their lifecycle"
+
 - name: "autorelease: pending"
   color: "EDEDED"
   description: "The release pull request that release-please keeps open"
