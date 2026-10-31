@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The job takes a Staged or a Planned item that the filter names
-A Staged item SHALL have a recorded branch on `origin` and an open draft pull request. The pair is `implement.branch` and `implement.pr`, else `stage.branch` and `stage.pr`. A Planned item SHALL have no recorded branch on `origin` and its change folder on `origin/<default branch>`. A branch on `origin` makes it Staged. The default filter SHALL be `status=ready`, `status=planned`, `priority=p0-critical`, `priority=p1-high`, `type=bug` and `effort=low`. `--limit` SHALL default to 1.
+A Staged item SHALL have a recorded branch on `origin` and an open draft pull request. The pair is `implement.branch` and `implement.pr`, else `stage.branch` and `stage.pr`. A Planned item SHALL have no recorded branch on `origin` and its change folder on `origin/<default branch>`. A branch on `origin` makes it Staged. The default filter SHALL be `status=ready`, `status=planned` and `effort=low`. `--limit` SHALL default to 1.
 
 #### Scenario: The default filter
 - **WHEN** the roadmap holds a Staged Ready P1 bug of low effort, a Staged Ready P1 bug of high effort, and a Staged Ready P3 bug of low effort
