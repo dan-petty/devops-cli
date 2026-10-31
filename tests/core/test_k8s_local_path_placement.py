@@ -93,6 +93,7 @@ CHART_CLAIMS: dict[
     "argo-cd": (),
     "argo-workflows": (),
     "argocd-image-updater": (),
+    "cloudnative-pg": (),
     "dcgm-exporter": (),
     # Chart 12.7.0 turns persistence on by default; 13.x turns it off.
     "gitea": (ClaimSite("gitea", _on(("persistence.enabled", True)), "affinity"),),
@@ -101,6 +102,7 @@ CHART_CLAIMS: dict[
     "grafana": (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
     "k8s-monitoring": _alloy_collectors,
     "loki": (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
+    "mattermost-operator": (),
     "open-webui": (
         ClaimSite("open-webui", _on(("persistence.enabled", True)), "affinity"),
         ClaimSite(

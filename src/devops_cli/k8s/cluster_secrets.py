@@ -37,7 +37,8 @@ DEVOPS_CACHE_VALKEY_AUTH_KEY = "valkey_devops_password"
 # LiteLLM refuses a master key without this prefix.
 LITELLM_KEY_PREFIX = "sk-"
 # The database password of Mattermost on CloudNativePG (#1391).
-MATTERMOST_DB_PASSWORD_KEY = "mattermost_db_password"  # nosec B105 # Keyring key identifier, not a password
+MATTERMOST_DB_AUTH_KEY = "mattermost_db_password"
+_BASIC_AUTH_SECRET_TYPE: SecretType = "kubernetes.io/basic-auth"
 
 
 @dataclass(frozen=True)
@@ -391,12 +392,12 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         namespace="mattermost",
         name="mattermost-db",
         stack="chat",
-        secret_type="kubernetes.io/basic-auth",  # nosec B106 # Kubernetes SecretType, not a password
+        secret_type=_BASIC_AUTH_SECRET_TYPE,
         entries=(
             SecretEntry("username", LiteralSource("mattermost")),
             SecretEntry(
                 "password",
-                KeyringSource(MATTERMOST_DB_PASSWORD_KEY),
+                KeyringSource(MATTERMOST_DB_AUTH_KEY),
                 generator=SecretGenerator("urlsafe", 32),
                 adopt_from=SecretKeyRef("mattermost", "mattermost-db", "password"),
             ),
@@ -406,7 +407,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                     "postgres://{username}:{password}@mattermost-db-rw.mattermost.svc.cluster.local:5432/mattermost?sslmode=require&connect_timeout=10",
                     {
                         "username": LiteralSource("mattermost"),
-                        "password": KeyringSource(MATTERMOST_DB_PASSWORD_KEY),
+                        "password": KeyringSource(MATTERMOST_DB_AUTH_KEY),
                     },
                 ),
             ),

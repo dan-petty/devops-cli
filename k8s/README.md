@@ -531,7 +531,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `gitea/gitea-admin` | `password` | keyring `gitea_admin_password` | yes | adopt the live value; else fail | gitea | `deployment/gitea` |
 | `mattermost/mattermost-db` | `username` | literal | yes | fail | chat | none |
 | `mattermost/mattermost-db` | `password` | keyring `mattermost_db_password` | yes | adopt from `mattermost/mattermost-db password`; else generate `token_urlsafe(32)` | chat | none |
-| `mattermost/mattermost-db` | `DB_CONNECTION_STRING` | derived from `username` and `password` | yes | fail | chat | none |
+| `mattermost/mattermost-db` | `DB_CONNECTION_STRING` | derived from literal, keyring mattermost_db_password | yes | fail | chat | none |
 
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.

@@ -721,7 +721,7 @@ def test_mattermost_db_secret_plan_and_dsn_shape() -> None:
     import urllib.parse
 
     from devops_cli.k8s.cluster_secrets import (
-        MATTERMOST_DB_PASSWORD_KEY,
+        MATTERMOST_DB_AUTH_KEY,
         DerivedSource,
         keyring_only_keys,
     )
@@ -732,7 +732,7 @@ def test_mattermost_db_secret_plan_and_dsn_shape() -> None:
         "chat",
         (),
     )
-    assert MATTERMOST_DB_PASSWORD_KEY in keyring_only_keys(CLUSTER_SECRETS)
+    assert MATTERMOST_DB_AUTH_KEY in keyring_only_keys(CLUSTER_SECRETS)
 
     entries = {e.key: e for e in secret.entries}
     dsn_source = entries["DB_CONNECTION_STRING"].source

@@ -31,7 +31,7 @@ def test_devops_stack_registration_and_resolution() -> None:
     ) == (
         True,
         ["devops"],
-        ["infra", "llm", "logging", "devops", "gitea"],
+        ["infra", "llm", "logging", "devops", "gitea", "chat"],
     )
 
 

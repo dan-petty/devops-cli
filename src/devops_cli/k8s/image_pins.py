@@ -165,6 +165,9 @@ def image_values(rendered: str) -> list[str]:
         for mapping in _mappings(document) if document is not None else ():
             image = _scalar(mapping, "image")
             if image:
+                version = _scalar(mapping, "version")
+                if version and ":" not in image.rsplit("/", 1)[-1] and "@" not in image:
+                    image = f"{image}:{version}"
                 found.append(image)
     return found
 
