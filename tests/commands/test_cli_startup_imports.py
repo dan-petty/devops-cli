@@ -14,7 +14,7 @@ import pytest
 
 from devops_cli.main import _COMMAND_SPECS
 from tests.support.paths import REPO_ROOT
-from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+from tests.support.waits import wait_while_running
 
 CONST_CLI_HEAVY_MODULES: tuple[str, ...] = (
     "pydantic_ai",
@@ -534,8 +534,8 @@ def test_startup_structural_budget_passes_under_cpu_load() -> None:
         for p in workers:
             try:
                 p.terminate()
-                p.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-            except OSError, subprocess.TimeoutExpired:
+                wait_while_running(lambda proc=p: proc.poll() is not None, p)
+            except OSError:
                 p.kill()
                 p.wait()
 

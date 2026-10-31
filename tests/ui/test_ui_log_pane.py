@@ -25,6 +25,7 @@ from tests.support.ui import (
     _stream_ended,
     _stream_into,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 async def test_the_log_pane_renders_only_its_viewport(
@@ -289,7 +290,7 @@ async def test_stopping_a_stream_halts_consumption(
 
     def gated() -> Any:
         yield "first"
-        gate.wait(timeout=10)
+        gate.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         yield "second"
         yield "third"
 

@@ -19,6 +19,11 @@ from devops_cli.k8s.port_forward_daemon import (
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
+_QUIET_SECONDS: float = 0.2
+"""How long a test waits to verify that a second spawn does not occur while locked."""
+_QUIET_LOCK_SECONDS: float = 0.1
+"""How long a test waits to verify that a locked operation does not finish while held."""
+
 
 def _own_start_ticks() -> int:
     """This process's start time in clock ticks after boot, field 22 of /proc/self/stat."""
@@ -287,7 +292,7 @@ def test_concurrent_launches_keep_both_records(
             # This short window checks that the second run does not spawn meanwhile, and opens
             # only once the second run has started, so it times the lock, not a thread start-up.
             handoffs.append(second_starting.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
-            second_spawned.wait(timeout=0.2)
+            second_spawned.wait(timeout=_QUIET_SECONDS)
         return MagicMock(pid=os.getpid())
 
     monkeypatch.setattr(
@@ -418,7 +423,7 @@ def test_listing_and_stopping_wait_for_a_run_holding_the_lock(
         asked = asking.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         # This short window checks that the run does not finish while the lock is held. It
         # opens only once the run has started, so it times the lock, not a thread start-up.
-        waited = not finished.wait(timeout=0.1)
+        waited = not finished.wait(timeout=_QUIET_LOCK_SECONDS)
     worker.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert (asked, waited, finished.is_set()) == (True, True, True)

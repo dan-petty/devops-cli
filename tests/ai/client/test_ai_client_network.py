@@ -28,6 +28,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import OPENAI_DONE, RecordedBody, openai_chunk, route_client
 from tests.llm_stream_fakes import reply as stream_reply
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 _LIMIT = 4096
 _KIB = b"x" * 1024
@@ -265,7 +266,7 @@ def test_gateway_slots_never_admit_more_than_the_slot_sum() -> None:
                 peak = max(peak, in_flight)
                 wait_at_barrier = entered <= limit
             if wait_at_barrier:
-                barrier.wait(timeout=5)
+                barrier.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             with counter_lock:
                 in_flight -= 1
 
@@ -273,7 +274,7 @@ def test_gateway_slots_never_admit_more_than_the_slot_sum() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=5)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert (peak, entered) == (min(peak, DEFAULT_GATEWAY_REVIEW_CONCURRENCY), 8)
 
@@ -366,7 +367,7 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
             is_first = peak == 1 and not first_entered.is_set()
         if is_first:
             first_entered.set()
-            release_first.wait(timeout=1.0)
+            release_first.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         with lock:
             in_flight -= 1
         return httpx2.Response(200, json=_CHAT_REPLY)
@@ -379,10 +380,10 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
     ]
     for lane in lanes:
         lane.start()
-    first_entered.wait(timeout=5)
+    first_entered.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     release_first.set()
     for lane in lanes:
-        lane.join(timeout=10)
+        lane.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert all(not lane.is_alive() for lane in lanes)
     assert (peak, len(sent)) == (1, 2)
@@ -405,7 +406,7 @@ def test_the_model_call_slot_admits_only_its_limit() -> None:
                 if in_flight >= 2:
                     two_in_flight.set()
             if not two_in_flight.is_set():
-                two_in_flight.wait(timeout=1.0)
+                two_in_flight.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             with lock:
                 in_flight -= 1
 
@@ -413,6 +414,6 @@ def test_the_model_call_slot_admits_only_its_limit() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=5)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert (peak, in_flight) == (2, 0)

@@ -17,6 +17,7 @@ from devops_cli.ui.state import DashboardState
 from tests.support.ui import (
     _k8s,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def test_refresh_domain_publishes_the_fetched_result(
@@ -78,18 +79,18 @@ def test_a_refresh_tick_does_not_stack_a_second_fetch_on_a_slow_domain(
     def slow() -> Any:
         calls.append(1)
         entered.set()
-        release.wait(timeout=5)
+        release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         return _k8s()
 
     patched_fetchers(k8s=slow)
     worker = threading.Thread(target=refresh_domain, args=(state, "k8s"))
     worker.start()
-    assert entered.wait(timeout=5)
+    assert entered.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert (refresh_domain(state, "k8s"), state.in_flight()) == (None, ["k8s"])
 
     release.set()
-    worker.join(timeout=5)
+    worker.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert (calls, state.in_flight()) == ([1], [])
 
 

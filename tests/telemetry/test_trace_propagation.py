@@ -47,6 +47,7 @@ from devops_cli.telemetry.tracer import (
     record_completed_span,
     reset_tracer,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 VALID_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
 VALID_SPAN_ID = "00f067aa0ba902b7"
@@ -438,7 +439,7 @@ def test_a_context_propagating_thread_continues_the_spawning_trace(tracer: Any) 
         expected = tracer.current_trace_id
         thread = ContextPropagatingThread(target=worker)
         thread.start()
-        thread.join(timeout=5)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert seen["trace_id"] == expected
 
@@ -453,7 +454,7 @@ def test_a_bare_thread_loses_the_trace_which_is_why_the_helper_exists(tracer: An
     with tracer.span("parent-operation"):
         thread = threading.Thread(target=worker)
         thread.start()
-        thread.join(timeout=5)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert seen["trace_id"] is None
 
@@ -466,7 +467,7 @@ def test_bind_context_carries_the_trace_into_a_foreign_executor(tracer: Any) -> 
         expected = tracer.current_trace_id
         bound = bind_context(lambda: tracer.current_trace_id)
         with ThreadPoolExecutor(max_workers=1) as pool:
-            observed = pool.submit(bound).result(timeout=5)
+            observed = pool.submit(bound).result(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert observed == expected
 
@@ -482,7 +483,7 @@ def test_binding_inside_the_worker_would_capture_nothing(tracer: Any) -> None:
     with tracer.span("parent-operation"):
         with ThreadPoolExecutor(max_workers=1) as pool:
             late = pool.submit(lambda: bind_context(lambda: tracer.current_trace_id)()).result(
-                timeout=5
+                timeout=THREAD_HANDOFF_BOUND_SECONDS
             )
 
     assert late is None

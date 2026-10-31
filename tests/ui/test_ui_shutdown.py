@@ -17,6 +17,9 @@ from tests.support.ui import (
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
+_HOLD_OUTLIVE_BOUND_SECONDS = 2 * THREAD_HANDOFF_BOUND_SECONDS
+"""How long a hold waits to ensure it outlives every wait observing it."""
+
 
 async def test_quitting_does_not_wait_on_a_silent_log_stream(
     patched_fetchers: Callable[..., None],
@@ -40,7 +43,7 @@ async def test_quitting_does_not_wait_on_a_silent_log_stream(
     def silent() -> Any:
         producing.set()
         # The hold outlives every wait that observes it, and records that it ran out by itself.
-        if not release.wait(timeout=2 * THREAD_HANDOFF_BOUND_SECONDS):
+        if not release.wait(timeout=_HOLD_OUTLIVE_BOUND_SECONDS):
             hold_ran_out.set()
         yield "eventually"
 
@@ -97,7 +100,7 @@ async def test_the_stream_reader_runs_on_a_daemon_thread(
 
             def _hanging_stream() -> list[str]:
                 reading.set()
-                release.wait(30)
+                release.wait()
                 return ["x"]
 
             pane.start_stream(_hanging_stream)

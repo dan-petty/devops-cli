@@ -22,6 +22,7 @@ from devops_cli.http.pool import (
     get_shared_async_client,
     get_shared_client,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 @pytest.fixture(autouse=True)
@@ -74,14 +75,14 @@ def test_concurrent_callers_receive_one_client() -> None:
     barrier = threading.Barrier(8)
 
     def grab() -> None:
-        barrier.wait(timeout=10)
+        barrier.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         clients.append(get_shared_client("racy", EgressLevel.PUBLIC))
 
     threads = [threading.Thread(target=grab) for _ in range(8)]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=10)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     assert len({id(client) for client in clients}) == 1
 
