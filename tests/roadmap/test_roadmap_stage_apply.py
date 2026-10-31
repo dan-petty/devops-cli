@@ -30,9 +30,9 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    heavy_group,
     seed_stageable,
     validate_args,
-    write_big_file,
 )
 from tests.support.service_stop import stop_error
 
@@ -215,8 +215,7 @@ def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
     model_fake: ModelFake,
     github_api: GitHubApiFake,
 ) -> None:
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     model_fake.answer(make_stage_proposal(groups=[heavy]), StageSplit(groups=[heavy]))
 
     applied = _stage(store, stage_repo, step_tokens=6000)
@@ -256,8 +255,7 @@ def test_a_comment_that_fails_for_a_stopped_item_leaves_the_others_stopped(
     store = _CommentRefused(repo=STAGE_REPO)
     store.refused = seed_stageable(store)
     other = seed_stageable(store, "fix(roadmap): the job drops a label")
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     stuck = make_stage_proposal(groups=[heavy])
     model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
 
@@ -274,8 +272,7 @@ def test_a_comment_that_fails_for_a_stopped_item_leaves_the_others_stopped(
 
 def _stuck_stage(stage_repo: StageRepo, model_fake: ModelFake, store: _CommentRefused) -> StagePlan:
     """The plan for two items whose group is over the budget, so each gets a comment."""
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     stuck = make_stage_proposal(groups=[heavy])
     model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
     return plan_stage(

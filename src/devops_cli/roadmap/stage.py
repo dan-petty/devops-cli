@@ -23,8 +23,9 @@ Ready.
 
 **Plan.** For each item the job asks the model for one `StageProposal` (`ai.for_task("analysis")`,
 prompt `roadmap_stage_change.md`), measures each task group (`stage_change.measure_groups`) and
-asks once for a split of the groups over `--step-tokens`. A group still over the budget stops the
-item (`OverBudget`). The job validates the change with `openspec validate --strict` in a scratch
+asks once for a split of the groups over `--step-tokens`. A file counts as the implement step
+reads it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens (`step_files.packed_file`,
+#2838). A group still over the budget stops the item (`OverBudget`). The job validates the change with `openspec validate --strict` in a scratch
 directory when the binary is on `PATH`; a failure goes back to the model once, and a second one
 stops the item. A reply the rules refuse (`check_proposal`) takes the same one return. A group that
 changes no file, or has a blank text, fails the schema of the reply, and `chat_structured` sends it
@@ -555,7 +556,7 @@ class _Planner:
         files = render_change(target.change, proposal, self._known, created=self._today)
         item = target.item
         shared = [f"{item.title}\n{item.body}", *files.values()]
-        measured = measure_groups(self._source, proposal.groups, shared=shared, limit=self._budget)
+        measured = measure_groups(self._source, proposal.groups, shared=shared)
         return files, measured
 
     def _fit(

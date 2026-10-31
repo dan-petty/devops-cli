@@ -21,7 +21,7 @@ The numbers show a different cause. The measure of a group packs each file it na
 - `roadmap-stage`: the measure of a task group counts each file as the step reads it.
 
 ## Impact
-The groups of the four items measure about 5000 to 8000 tokens, and the job stages them with no person. Every item that names a large file stops less often. The step budget of 40000 does not change.
+The largest group of each of the four items measures 5000 to 9000 tokens, and the job stages them with no person. Every item that names a large file stops less often. The step budget of 40000 does not change.
 
 The change fits one pull request: one new module of about 20 lines, two edited functions, and tests.
 
@@ -44,13 +44,13 @@ Files, which make the rest of each group:
 | Group | Group total | Shared | Group text | Files at the budget | Files as the step reads them |
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | #2735 "Add LESS to refused env patterns" | 41479 | 3029 | 291 | 38159 | 1847 |
-| #2739 "Add data-egress constant and extend the guard" | 45013 | 3642 | 231 | 41140 | 4828 |
+| #2739 "Add data-egress constant and extend the guard" | 45013 | 3642 | 231 | 41140 | 4507 |
 | #2147 "Remove the exemption sentence from the README" | 43076 | 3157 | 186 | 39733 | 3000 |
 | #2747 "Add PYTEST_ADDOPTS to the env guard" | 41732 | 3347 | 226 | 38159 | 1847 |
 
 One file makes the difference each time: `src/devops_cli/config/constants.py` is 61452 tokens raw, 38159 packed by the stage measure and 1847 as the step reads it. `k8s/README.md` is 41011 raw and counts 39733 in the stage measure, 3000 in the step. After a split, every new group that names `constants.py` was still over the budget (41598, 42242, 41906, 42003), because the file alone is 38159. A split moves files between groups. It cannot make one file smaller. A second ask, with the measured tokens, would see the same file in the same group and could only drop it, but the group needs the file. This matches the real flow: the step reads 1847 tokens of it and opens the rest with its tools.
 
-The groups with the corrected measure: #2735 about 5200, #2739 about 8800 (`constants.py` and `core/process.py` in one group; the model may keep one group), #2147 about 6600, #2747 about 5400. All are far under 40000.
+The same recorded replies, measured with the corrected code, give these largest groups: #2735 5167, #2739 8380, #2147 8974, #2747 5446. All are far under 40000, and the job stages each item from the first reply with no split ask.
 
 Command output: `uv run devops roadmap stage --plan` on 2026-10-31 lists the four items under "Left out". The scratch run that gave these numbers wraps `Planner._build` and records the replies.
 

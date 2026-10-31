@@ -55,8 +55,7 @@ from pydantic_ai_harness.shell import Shell
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 
 from devops_cli.ai.client.models import AICredentialsError
-from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
-from devops_cli.ai.context_packer import ContextPacker, PackingConfig
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import (
     BIN_GIT,
@@ -73,7 +72,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
-    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
@@ -104,6 +102,7 @@ from devops_cli.roadmap.agent_run import (
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
+from devops_cli.roadmap.step_files import packed_file
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -277,17 +276,6 @@ def find_change(source: Path, item: int, *, archived: bool = False) -> Path:
     return found[0]
 
 
-def _packed(path: Path) -> str:
-    """A file for the inputs: a Python file as its signatures, any other as its start."""
-    if path.suffix == ".py":
-        config = PackingConfig(
-            max_tokens=CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS, strip_private=False
-        )
-        return ContextPacker().pack_file(path, config=config).content
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return truncate_to_token_limit(text, CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS)
-
-
 def named_files(source: Path, group: TaskGroup) -> list[Path]:
     """The files of the checkout that the group names: each code span of its tasks that is an
     existing file inside the checkout. A span that names a file that does not exist yet is
@@ -338,7 +326,7 @@ class StepInputs:
 def _files_section(source: Path, group: TaskGroup) -> str:
     """The packed files of the group, each under its path."""
     parts = [
-        f"## {path.relative_to(source.resolve())}\n\n```\n{_packed(path)}\n```"
+        f"## {path.relative_to(source.resolve())}\n\n```\n{packed_file(path)}\n```"
         for path in named_files(source, group)
     ]
     return "# Files the group names (signatures only)\n\n" + "\n\n".join(parts) if parts else ""

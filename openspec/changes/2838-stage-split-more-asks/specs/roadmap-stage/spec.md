@@ -8,5 +8,5 @@ The job SHALL measure each task group with tiktoken. The measure SHALL be the to
 - **THEN** the comment on the issue gives the group's measure, and that measure is more than the tokens of the file packed
 
 #### Scenario: A large file counts as the step reads it
-- **WHEN** a group names a file of 60000 tokens and the budget is 40000
+- **WHEN** a group names one file that holds more tokens than the budget
 - **THEN** the group measure is under the budget, and the job asks the model for no split
