@@ -28,6 +28,10 @@ How an agent, a person and the Service claim a roadmap Item with one `owner/*` l
 - **WHEN** a claim names an issue that holds no `priority/*` label
 - **THEN** the command exits 1 and names the issue as no Item of the roadmap
 
+#### Scenario: A closed issue
+- **WHEN** a claim names a closed issue
+- **THEN** the command exits 1 and says that the issue is closed, and a release of a closed issue clears its `owner/*` label
+
 ### Requirement: A release clears the owner label
 `devops roadmap release <issue>` SHALL remove every `owner/*` label of the Item. A release of an Item with no owner SHALL send no write.
 
@@ -67,14 +71,14 @@ The `implement` row of the Service SHALL set `owner/service` in the write that r
 
 #### Scenario: A person claims before the Job exists
 - **WHEN** a person claims the planned Item after the plan and before the write of the round
-- **THEN** no Job is created, the Item keeps `owner/human`, and the round does not fail
+- **THEN** no Job is created, the Item keeps `owner/human`, the round does not fail, and the round logs that it left the Item
 
 #### Scenario: A person holds the Item when the Job is reported
 - **WHEN** the round reports a Job that ended and the Item holds `owner/human`
 - **THEN** the Item keeps `owner/human`
 
 ### Requirement: A claim of a person or an agent ends the Job at the next group boundary
-The implement job SHALL read the Item before each unticked task group and before the docs step. When the Item holds `owner/agent` or `owner/human`, the job SHALL end the Item at once: it SHALL push nothing, open no pull request, comment the owner and the boundary, and change neither the Status nor the owner. The round that reports the Job SHALL NOT set such an Item Ready and SHALL NOT record `implement.stopped`.
+The implement job SHALL read the Item before each unticked task group, when a step stops, and before the push. When the Item holds `owner/agent` or `owner/human`, the job SHALL end the Item at once: it SHALL push nothing, open no pull request, comment the owner and the boundary, and change neither the Status nor the owner. The round that reports the Job SHALL NOT set such an Item Ready and SHALL NOT record `implement.stopped`.
 
 #### Scenario: A person claims while group 1 runs
 - **WHEN** the Item holds `owner/human` when group 1 ends, and the change has a group 2
@@ -85,8 +89,12 @@ The implement job SHALL read the Item before each unticked task group and before
 - **THEN** the job runs no step and pushes nothing
 
 #### Scenario: A claim after the last group
-- **WHEN** the Item holds `owner/human` after the last group passed
-- **THEN** the job does not run the docs step, does not push, and opens no pull request
+- **WHEN** the Item holds `owner/human` after the last group passed, or after the docs and the archive steps
+- **THEN** the job does not push, does not mark a pull request ready, and opens no pull request
+
+#### Scenario: A claim while a group runs and fails
+- **WHEN** the Item holds `owner/human` when a group stops the job
+- **THEN** the job pushes nothing, opens no pull request, sets no Status, records no `implement.stopped`, and comments that a person claimed the Item
 
 #### Scenario: The Service holds the Item
 - **WHEN** the Item holds `owner/service` for the whole run

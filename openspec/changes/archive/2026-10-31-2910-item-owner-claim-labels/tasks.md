@@ -2,17 +2,17 @@
 
 ## 1. The owner label family and the rule of a claim
 
-- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_claim.py` and `tests/roadmap/test_roadmap_store_contract.py` for the scenarios of "One label family holds the owner of an Item" and of "A claim sets the owner label of one owner" and "A release clears the owner label": the owner read from the label, a person's label wins, a changed owner raises, a free claim, a person's claim over the Service, every refused claim, the same owner twice, a candidate, release of a held and a free Item, and the labels file declaring the label of every value of every field
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_store_contract.py`
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_claim.py` and `tests/roadmap/test_roadmap_labels_file.py` for the scenarios of "One label family holds the owner of an Item" and of "A claim sets the owner label of one owner" and "A release clears the owner label": the owner read from the label, a person's label wins, a changed owner raises, a free claim, a person's claim over the Service, every refused claim, the same owner twice, a candidate, a closed issue, release of a held and a free Item, and the labels file declaring the label of every value of every field
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_labels_file.py`
 - [x] 1.2 Add `ItemField.OWNER`, the owner constants, `Item.owner` and the three labels to `.github/labels.yml`; write `src/devops_cli/roadmap/claim.py` and `RoadmapClaimError`
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_intake.py`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_labels_file.py tests/roadmap/test_roadmap_intake.py`
 
 ## 2. The commands
 
-- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_claim.py` for the scenarios of "The claim commands write only with confirm": the plan without `--confirm`, the write with it, the dry run with no write, a refusal exits 1
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py`
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_claim_command.py` for the scenarios of "The claim commands write only with confirm": the plan without `--confirm`, the write with it, the dry run with no write, a refusal exits 1
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim_command.py`
 - [x] 2.2 Add `devops roadmap claim` and `devops roadmap release` to `src/devops_cli/commands/roadmap.py`, with the help text, the messages and the dry run requests
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_dry_runs.py`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim_command.py`
 
 ## 3. The jobs leave out a claimed item
 
@@ -23,7 +23,7 @@
 
 ## 4. The Service claims and a person's claim ends the Job
 
-- [x] 4.1 Write failing tests in `tests/roadmap/test_roadmap_implement_submit.py` and `tests/roadmap/test_roadmap_implement_job.py` for the scenarios of "The Service claims an Item for the Job it creates" and "A claim of a person or an agent ends the Job at the next group boundary": the claim at creation, the release at the report, a failed creation, a race with a person's claim, a person's claim kept at the report, the end at the boundary after group 1, before group 1 and after the last group, a run held by the Service, and a report that does not stop a claimed item
+- [x] 4.1 Write failing tests in `tests/roadmap/test_roadmap_implement_submit.py` and `tests/roadmap/test_roadmap_implement_job.py` for the scenarios of "The Service claims an Item for the Job it creates" and "A claim of a person or an agent ends the Job at the next group boundary": the claim at creation, the release at the report, a failed creation, a race with a person's claim, a person's claim kept at the report, the end at the boundary after group 1, before group 1, after the last group and after the docs step, a claim during a group that then stops, a run held by the Service, the log of an item that the round left, and a report that does not stop a claimed item
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_implement_job.py`
 - [x] 4.2 Claim and release in `src/devops_cli/roadmap/implement_submit.py`; read the owner at the group boundary in `src/devops_cli/roadmap/implement_run.py` and end the item without a push or a pull request
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_implement_job.py`
