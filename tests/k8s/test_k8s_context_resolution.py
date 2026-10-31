@@ -2,38 +2,31 @@
 
 from __future__ import annotations
 
+import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.k8s.context import configured_context, resolve_context
+from devops_cli.k8s.context import (
+    apply_configured_k8s_context,
+    configured_context,
+    reset_context_cache,
+    resolve_context,
+)
 from devops_cli.k8s.service import KubernetesService
 from tests.support.fakes.kubernetes import FakeCluster
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 @pytest.fixture(autouse=True)
 def clear_context_cache() -> Any:
     """The resolved context is cached process-wide; tests must not inherit one another's."""
-    from devops_cli.k8s.context import reset_context_cache
-
     reset_context_cache()
     yield
     reset_context_cache()
-
-
-def _settings(context: Any) -> Any:
-    """Build a settings object exposing k8s.context."""
-    settings = MagicMock()
-    settings.k8s.context = context
-    return settings
-
-
-def _with_settings(context: Any) -> Any:
-    """Patch load_settings to return a settings object with the given context."""
-    return patch("devops_cli.config.settings.load_settings", return_value=_settings(context))
 
 
 # =============================================================================
@@ -41,80 +34,96 @@ def _with_settings(context: Any) -> Any:
 # =============================================================================
 
 
-def test_the_configured_context_is_used_when_no_override_is_given() -> None:
-    """The recorded context was write-only: stored and displayed, never consulted.
+def test_the_configured_context_is_used_when_no_override_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The recorded context is consulted when no explicit override is given."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    assert resolve_context() == "homelab-k3s"
 
-    A workstation configured for one cluster therefore talked to whichever cluster
-    kubectl's current-context named, and the only symptom was a connection error citing an
-    address the operator never configured.
-    """
-    with _with_settings("homelab-k3s"):
-        assert resolve_context() == "homelab-k3s"
 
-
-def test_an_explicit_context_overrides_the_configured_one() -> None:
+def test_an_explicit_context_overrides_the_configured_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A --context flag is a deliberate override for a single command."""
-    with _with_settings("homelab-k3s"):
-        assert resolve_context("staging") == "staging"
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    assert resolve_context("staging") == "staging"
 
 
-def test_no_configured_context_defers_to_the_ambient_kubeconfig() -> None:
+def test_no_configured_context_defers_to_the_ambient_kubeconfig(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Returning None lets load_kube_config use kubectl's current-context, as before."""
-    with _with_settings(""):
-        assert resolve_context() is None
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: ''\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    assert resolve_context() is None
 
 
-@pytest.mark.parametrize("value", [None, "", "   ", 42, object()])
-def test_an_unusable_configured_value_defers_to_the_ambient_kubeconfig(value: Any) -> None:
-    """A blank or non-string setting must not be passed to the Kubernetes client."""
-    with _with_settings(value):
-        assert configured_context() is None
+@pytest.mark.parametrize("value", ["''", "'   '"])
+def test_an_unusable_configured_value_defers_to_the_ambient_kubeconfig(
+    value: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A blank setting must not be passed to the Kubernetes client."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(f"k8s:\n  context: {value}\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    assert configured_context() is None
 
 
-def test_surrounding_whitespace_is_stripped_from_the_configured_context() -> None:
+def test_surrounding_whitespace_is_stripped_from_the_configured_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A trailing space in a hand-edited config.yaml names no context at all."""
-    with _with_settings("  homelab-k3s  "):
-        assert resolve_context() == "homelab-k3s"
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: '  homelab-k3s  '\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    assert resolve_context() == "homelab-k3s"
 
 
 def test_surrounding_whitespace_is_stripped_from_an_explicit_context() -> None:
     """The same applies to a value arriving from a shell argument."""
-    with _with_settings(None):
-        assert resolve_context("  staging  ") == "staging"
+    assert resolve_context("  staging  ") == "staging"
 
 
-def test_a_blank_explicit_context_falls_back_rather_than_naming_nothing() -> None:
+def test_a_blank_explicit_context_falls_back_rather_than_naming_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An empty --context is not a request to connect to a context named ''."""
-    with _with_settings("homelab-k3s"):
-        assert resolve_context("   ") == "homelab-k3s"
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    assert resolve_context("   ") == "homelab-k3s"
 
 
-def test_unreadable_settings_do_not_make_the_cluster_unreachable() -> None:
+def test_unreadable_settings_do_not_make_the_cluster_unreachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A configuration problem must degrade to the ambient kubeconfig, not fail the call."""
-    with patch("devops_cli.config.settings.load_settings", side_effect=RuntimeError("bad config")):
-        assert resolve_context() is None
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("invalid: [yaml: broken\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    assert resolve_context() is None
 
 
-def test_a_context_change_is_followed_rather_than_pinned_at_startup() -> None:
-    """A long-running process must follow a context change, not the value it started with.
+def test_a_context_change_is_followed_rather_than_pinned_at_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long-running process must follow a context change, not the value it started with."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: first\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+    first = resolve_context()
 
-    The resolved context is cached against the configuration file's modification time
-    rather than re-read per call -- loading settings cost 10.8 ms and this is consulted on
-    every cluster request -- so the property is asserted here through a changed file rather
-    than through a reload count.
-    """
-    from devops_cli.k8s import context as context_module
-
-    context_module.reset_context_cache()
-    signatures = iter([1.0, 2.0])
-    with (
-        patch.object(context_module, "_config_signature", side_effect=lambda: next(signatures)),
-        patch("devops_cli.config.settings.load_settings") as load,
-    ):
-        load.side_effect = [_settings("first"), _settings("second")]
-        resolved = (resolve_context(), resolve_context())
-    context_module.reset_context_cache()
-    assert resolved == ("first", "second")
+    now = time.time() + 10.0
+    cfg.write_text("k8s:\n  context: second\n")
+    os.utime(cfg, (now, now))
+    second = resolve_context()
+    assert (first, second) == ("first", "second")
 
 
 # =============================================================================
@@ -130,106 +139,25 @@ def homelab(config: Callable[..., Path]) -> FakeCluster:
 
 
 def test_the_service_connects_using_the_configured_context(homelab: FakeCluster) -> None:
-    """The defect: load_config(None) passed None straight through to load_kube_config."""
+    """The service connects to the configured context."""
     KubernetesService(homelab).load_config()
-
     assert homelab.connects == ["homelab-k3s"]
 
 
 def test_a_second_call_naming_the_same_cluster_reuses_the_client(homelab: FakeCluster) -> None:
-    """An explicit context equal to the configured one is not a different cluster.
-
-    The cache key is the context actually connected to. Treating `None` and the configured
-    name as different keys would rebuild the client on alternating calls, and worse, could
-    serve a client built for a context the caller did not ask for.
-    """
+    """An explicit context equal to the configured one is not a different cluster."""
     service = KubernetesService(homelab)
-
     service.load_config()
     service.load_config("homelab-k3s")
-
     assert homelab.connects == ["homelab-k3s"]
 
 
 def test_switching_context_rebuilds_the_client(homelab: FakeCluster) -> None:
     """A genuinely different context must not be served from the cache."""
     service = KubernetesService(homelab)
-
     service.load_config()
     service.load_config("staging")
-
     assert homelab.connects == ["homelab-k3s", "staging"]
-
-
-# =============================================================================
-# Dashboard Integration
-# =============================================================================
-
-
-def test_the_dashboard_reads_the_configured_cluster() -> None:
-    """The dashboard must report on the same cluster as every other command.
-
-    Loading the kubeconfig without a context silently follows kubectl's current-context, so
-    the panel would describe a different cluster than `devops k8s pods` in the same shell.
-    """
-    from devops_cli.ui import data_providers
-
-    config_module = MagicMock()
-    with (
-        patch.dict(
-            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
-        ),
-        patch("devops_cli.k8s.context.resolve_context", return_value="homelab-k3s"),
-    ):
-        data_providers._get_k8s_client()
-
-    config_module.load_kube_config.assert_called_once_with(context="homelab-k3s")
-
-
-def test_the_dashboard_falls_back_to_in_cluster_configuration() -> None:
-    """Running the dashboard inside the cluster must still work.
-
-    A pod with no kubeconfig context to name connects with its service account, without
-    first failing to load a kubeconfig it does not have.
-    """
-    from devops_cli.ui import data_providers
-
-    config_module = MagicMock()
-    config_module.list_kube_config_contexts.side_effect = RuntimeError("no kubeconfig")
-    with (
-        patch.dict(
-            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
-        ),
-        patch.dict("os.environ", {"KUBERNETES_SERVICE_HOST": "example.com"}),
-        patch("devops_cli.k8s.context.resolve_context", return_value=None),
-    ):
-        data_providers._get_k8s_client()
-
-    assert (
-        config_module.load_incluster_config.call_count,
-        config_module.load_kube_config.call_count,
-    ) == (1, 0)
-
-
-def test_the_dashboard_outside_a_pod_reports_the_kubeconfig_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Outside a pod the in-cluster loader can only fail, hiding why the kubeconfig did."""
-    from devops_cli.ui import data_providers
-
-    config_module = MagicMock()
-    config_module.load_kube_config.side_effect = RuntimeError("context lab not found")
-    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
-    with (
-        patch.dict(
-            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
-        ),
-        patch("devops_cli.k8s.context.resolve_context", return_value="lab"),
-        pytest.raises(RuntimeError, match="context lab not found"),
-    ):
-        data_providers._get_k8s_client()
-
-    config_module.load_incluster_config.assert_not_called()
 
 
 # =============================================================================
@@ -237,120 +165,113 @@ def test_the_dashboard_outside_a_pod_reports_the_kubeconfig_error(
 # =============================================================================
 
 
-def _kubectl_router(contexts: str, use_rc: int = 0, list_rc: int = 0) -> Any:
-    """Route kubectl invocations for the post-start context step."""
-    calls: list[list[str]] = []
+def test_post_start_points_kubectl_at_the_configured_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
 
-    def route(args: list[str], **_: Any) -> Any:
-        calls.append(args)
-        if args[:3] == ["kubectl", "config", "get-contexts"]:
-            return MagicMock(returncode=list_rc, stdout=contexts, stderr="")
-        return MagicMock(returncode=use_rc, stdout="", stderr="denied")
+    process_fake.answer(
+        lambda call: "get-contexts" in call.argv,
+        ProcessAnswer(returncode=0, stdout="minikube\nhomelab-k3s\n"),
+    )
+    process_fake.answer(
+        lambda call: "use-context" in call.argv,
+        ProcessAnswer(returncode=0, stdout=""),
+    )
 
-    route.calls = calls  # type: ignore[attr-defined]
-    return route
-
-
-def test_post_start_points_kubectl_at_the_configured_context() -> None:
-    """kubectl and the CLI must agree on which cluster they are talking to.
-
-    The CLI resolves the configured context itself, but kubectl follows the kubeconfig's
-    own current-context, and that drifts back on any rebuild restoring a cached kubeconfig.
-    """
-    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
-
-    router = _kubectl_router("minikube\nhomelab-k3s\n")
-    with (
-        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
-        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
-    ):
-        actions = _apply_configured_k8s_context()
-
-    selected = [c for c in router.calls if c[:3] == ["kubectl", "config", "use-context"]]
-    assert (selected[0][3], "homelab-k3s" in actions[0]) == ("homelab-k3s", True)
+    actions = apply_configured_k8s_context()
+    use_calls = [c for c in process_fake.calls if "use-context" in c.argv]
+    assert len(use_calls) == 1
+    assert "homelab-k3s" in use_calls[0].argv
+    assert "homelab-k3s" in actions[0]
 
 
-def test_post_start_leaves_kubectl_alone_when_the_context_is_absent() -> None:
-    """Selecting a context that is not in the kubeconfig breaks kubectl outright.
+def test_post_start_leaves_kubectl_alone_when_the_context_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
 
-    Leaving it where it already pointed is the lesser failure, and the action says so.
-    """
-    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+    process_fake.answer(
+        lambda call: "get-contexts" in call.argv,
+        ProcessAnswer(returncode=0, stdout="minikube\n"),
+    )
 
-    router = _kubectl_router("minikube\n")
-    with (
-        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
-        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
-    ):
-        actions = _apply_configured_k8s_context()
-
-    attempted = [c for c in router.calls if c[:3] == ["kubectl", "config", "use-context"]]
-    assert (attempted, "not in the kubeconfig" in actions[0]) == ([], True)
-
-
-def test_post_start_does_nothing_without_a_configured_context() -> None:
-    """An unconfigured workstation keeps whatever kubectl was already using."""
-    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
-
-    with (
-        patch("devops_cli.commands.devcontainer.run_subprocess") as run,
-        patch("devops_cli.k8s.context.configured_context", return_value=None),
-    ):
-        actions = _apply_configured_k8s_context()
-
-    assert (actions, run.call_count) == ([], 0)
+    actions = apply_configured_k8s_context()
+    use_calls = [c for c in process_fake.calls if "use-context" in c.argv]
+    assert len(use_calls) == 0
+    assert "not in the kubeconfig" in actions[0]
 
 
-def test_post_start_reports_a_failed_selection() -> None:
-    """A silent failure would leave the container pointing at the wrong cluster."""
-    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+def test_post_start_does_nothing_without_a_configured_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: ''\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
 
-    router = _kubectl_router("homelab-k3s\n", use_rc=1)
-    with (
-        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
-        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
-    ):
-        actions = _apply_configured_k8s_context()
+    actions = apply_configured_k8s_context()
+    assert actions == []
+    assert len(process_fake.calls) == 0
 
+
+def test_post_start_reports_a_failed_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
+
+    process_fake.answer(
+        lambda call: "get-contexts" in call.argv,
+        ProcessAnswer(returncode=0, stdout="homelab-k3s\n"),
+    )
+    process_fake.answer(
+        lambda call: "use-context" in call.argv,
+        ProcessAnswer(returncode=1, stderr="denied"),
+    )
+
+    actions = apply_configured_k8s_context()
     assert "Failed setting" in actions[0]
 
 
-def test_post_start_tolerates_an_unreadable_kubeconfig() -> None:
-    """A container without kubectl, or with no kubeconfig yet, must still finish starting."""
-    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+def test_post_start_tolerates_an_unreadable_kubeconfig(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
 
-    router = _kubectl_router("", list_rc=1)
-    with (
-        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
-        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
-    ):
-        assert _apply_configured_k8s_context() == []
+    process_fake.answer(
+        lambda call: "get-contexts" in call.argv,
+        ProcessAnswer(returncode=1, stderr="error"),
+    )
+
+    actions = apply_configured_k8s_context()
+    assert actions == []
 
 
-def test_post_start_dry_run_changes_nothing() -> None:
-    """A preview must not mutate the kubeconfig."""
-    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+def test_post_start_dry_run_changes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("k8s:\n  context: homelab-k3s\n")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg))
 
-    with (
-        patch("devops_cli.commands.devcontainer.run_subprocess") as run,
-        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
-    ):
-        actions = _apply_configured_k8s_context(dry_run=True)
-
-    assert (run.call_count, "Would set" in actions[0]) == (0, True)
+    actions = apply_configured_k8s_context(dry_run=True)
+    assert len(process_fake.calls) == 0
+    assert "Would set" in actions[0]
 
 
 def test_context_alignment_runs_after_the_minikube_supervisor() -> None:
-    """Ordering is the point: `minikube start` rewrites kubectl's current-context.
-
-    Aligning before the supervisor is undone immediately, which is how a container
-    configured for one cluster ends up pointing at another on every rebuild.
-    """
     import inspect
 
     from devops_cli.commands import devcontainer
 
     source = inspect.getsource(devcontainer._run_post_start_lifecycle)
-    align = source.index("_apply_configured_k8s_context")
+    align = source.index("apply_configured_k8s_context")
     supervisor = source.index("_spawn_background_k8s_bootstrap")
     assert align > supervisor

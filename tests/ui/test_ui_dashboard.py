@@ -826,3 +826,67 @@ def test_resolve_initial_tab_rejects_unknown_tab_with_validation_error() -> None
     assert err.details.get("field") == "tab"
     for domain in CONST_DASHBOARD_DOMAINS:
         assert domain in err.message
+
+
+def test_the_dashboard_reads_the_configured_cluster() -> None:
+    """The dashboard must report on the same cluster as every other command."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.ui import data_providers
+
+    config_module = MagicMock()
+    with (
+        patch.dict(
+            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
+        ),
+        patch("devops_cli.k8s.context.resolve_context", return_value="homelab-k3s"),
+    ):
+        data_providers._get_k8s_client()
+
+    config_module.load_kube_config.assert_called_once_with(context="homelab-k3s")
+
+
+def test_the_dashboard_falls_back_to_in_cluster_configuration() -> None:
+    """Running the dashboard inside the cluster must still work."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.ui import data_providers
+
+    config_module = MagicMock()
+    config_module.list_kube_config_contexts.side_effect = RuntimeError("no kubeconfig")
+    with (
+        patch.dict(
+            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
+        ),
+        patch.dict("os.environ", {"KUBERNETES_SERVICE_HOST": "example.com"}),
+        patch("devops_cli.k8s.context.resolve_context", return_value=None),
+    ):
+        data_providers._get_k8s_client()
+
+    assert (
+        config_module.load_incluster_config.call_count,
+        config_module.load_kube_config.call_count,
+    ) == (1, 0)
+
+
+def test_the_dashboard_outside_a_pod_reports_the_kubeconfig_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outside a pod the in-cluster loader can only fail, hiding why the kubeconfig did."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.ui import data_providers
+
+    config_module = MagicMock()
+    config_module.load_kube_config.side_effect = RuntimeError("context lab not found")
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    with (
+        patch.dict(
+            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
+        ),
+        patch("devops_cli.k8s.context.resolve_context", return_value="lab"),
+        pytest.raises(RuntimeError, match="context lab not found"),
+    ):
+        data_providers._get_k8s_client()
+
+    config_module.load_incluster_config.assert_not_called()

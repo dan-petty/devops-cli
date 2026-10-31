@@ -645,7 +645,7 @@ def diagnose_version_skew(
     return findings
 
 
-def _sort_findings(findings: list[Finding], pod_restarts: dict[str, int]) -> list[Finding]:
+def sort_findings(findings: list[Finding], pod_restarts: dict[str, int]) -> list[Finding]:
     """Rank findings: cluster before workload, critical before warning, affected count, restarts, name."""
 
     def sort_key(f: Finding) -> tuple[int, int, int, int, str]:
@@ -723,7 +723,7 @@ def diagnose(
         name = str(getattr(meta, "name", "") or "")
         pod_restarts[f"Pod/{ns}/{name}"] = _pod_restarts(p)
 
-    ranked_findings = _sort_findings(findings, pod_restarts)
+    ranked_findings = sort_findings(findings, pod_restarts)
 
     return DoctorReport(
         context=s.context,
@@ -850,14 +850,10 @@ def collect(
 
 
 def get_k8s_client(context: str | None = None) -> Any:
-    """Retrieve an initialized Kubernetes CoreV1Api client for the specified context."""
-    from kubernetes import client, config
+    """Retrieve an initialized Kubernetes core API client for the specified context."""
+    from devops_cli.k8s.service import KubernetesService
 
-    from devops_cli.k8s.context import resolve_context
-
-    target_context = resolve_context(context)
-    config.load_kube_config(context=target_context)
-    return client.CoreV1Api()
+    return KubernetesService.get_instance().core_api(context=context)
 
 
 __all__ = [
@@ -868,4 +864,5 @@ __all__ = [
     "diagnose_version_skew",
     "get_k8s_client",
     "plan_doctor_requests",
+    "sort_findings",
 ]

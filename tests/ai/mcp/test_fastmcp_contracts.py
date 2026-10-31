@@ -1658,3 +1658,35 @@ def test_the_vault_tools_take_no_address() -> None:
         "vault_addr" not in parameters["vault_sync"],
         "vault_addr" not in parameters["vault_status"],
     ) == (True, True, True, True)
+
+
+def test_fastmcp_k8s_security_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devops_cli.ai.mcp.server import k8s_security_stream
+
+    calls: list[list[str]] = []
+
+    def mock_run(*args: object, **kwargs: object) -> str:
+        calls.append(args[0])
+        return '{"total_alerts": 1}'
+
+    monkeypatch.setattr("devops_cli.ai.mcp.server._run_mcp_cmd", mock_run)
+    res = k8s_security_stream(namespace="falco", severity="Critical", tail=50, simulate=True)
+    assert res == '{"total_alerts": 1}'
+    assert len(calls) == 1
+    cmd = calls[0]
+    assert "security-stream" in cmd
+    assert "--simulate" in cmd
+    assert "--severity" in cmd
+    assert "Critical" in cmd
+
+
+def test_fastmcp_k8s_security_stream_validation() -> None:
+    from fastmcp.exceptions import ToolError
+
+    from devops_cli.ai.mcp.server import k8s_security_stream
+
+    with pytest.raises(ToolError, match="1<=x<=10000"):
+        k8s_security_stream(tail=0)
+
+    with pytest.raises(ToolError, match="Invalid severity"):
+        k8s_security_stream(severity="NonExistent")

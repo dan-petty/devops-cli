@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -87,4 +89,59 @@ def resolve_context(explicit: str | None = None) -> str | None:
     return configured_context()
 
 
-__all__ = ["configured_context", "reset_context_cache", "resolve_context"]
+def apply_configured_k8s_context(
+    *, dry_run: bool = False, run_cmd: Callable[..., Any] | None = None
+) -> list[str]:
+    """Point kubectl at the context recorded in the project configuration.
+
+    The CLI resolves the configured context itself, but `kubectl` and every other tool in
+    the container follow the kubeconfig's own current-context. Leaving them disagreeing is
+    how a container ends up running `devops k8s pods` against one cluster and `kubectl get
+    pods` against another, and the current-context drifts back on any rebuild that restores
+    a cached kubeconfig.
+
+    Nothing is changed when the configured context is not present in the kubeconfig:
+    selecting a context that does not exist would break `kubectl` outright, which is worse
+    than leaving it pointing where it already pointed.
+    """
+    if run_cmd is None:
+        from devops_cli.core.process import run_subprocess
+
+        run_cmd = run_subprocess
+
+    desired = configured_context()
+    if not desired:
+        return []
+
+    if dry_run:
+        return [f"Would set kubectl current-context to '{desired}'"]
+
+    available = run_cmd(
+        ["kubectl", "config", "get-contexts", "-o", "name"],
+        check=False,
+        quiet=True,
+    )
+    if available.returncode != 0:
+        logger.debug("Could not list kubeconfig contexts: %s", available.stderr.strip())
+        return []
+
+    names = {line.strip() for line in available.stdout.splitlines() if line.strip()}
+    if desired not in names:
+        return [
+            f"Configured Kubernetes context '{desired}' is not in the kubeconfig; "
+            f"left current-context unchanged"
+        ]
+
+    result = run_cmd(["kubectl", "config", "use-context", desired], check=False, quiet=True)
+    if result.returncode != 0:
+        logger.debug("Failed selecting context '%s': %s", desired, result.stderr.strip())
+        return [f"Failed setting kubectl current-context to '{desired}'"]
+    return [f"Set kubectl current-context to configured context '{desired}'"]
+
+
+__all__ = [
+    "apply_configured_k8s_context",
+    "configured_context",
+    "reset_context_cache",
+    "resolve_context",
+]

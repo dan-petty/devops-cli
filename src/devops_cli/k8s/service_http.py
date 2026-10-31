@@ -24,7 +24,7 @@ from devops_cli.k8s.service_proxy import (
 logger = logging.getLogger(__name__)
 
 
-def _transport_key(url: str) -> str:
+def transport_key(url: str) -> str:
     """Identify the transport a URL uses: scheme, host and port.
 
     The path is deliberately excluded. Every path on one host shares a connection, so
@@ -57,7 +57,7 @@ def get_json(
         # shared across. Headers carry the credential and are passed per request, so two
         # callers of the same cluster reuse one connection instead of renegotiating TLS.
         client = get_shared_client(
-            f"k8s-proxy:{_transport_key(target.url)}",
+            f"k8s-proxy:{transport_key(target.url)}",
             EgressLevel.PRIVATE,
             verify=target.ssl_context,
         )
@@ -69,7 +69,7 @@ def get_json(
     # protection is not aimed at. The connect resolves the host once and refuses a cloud
     # metadata address, as it does for the API server proxy above.
     full_url = str(append_path(url, path)) if path else url
-    client = get_shared_client(f"direct:{_transport_key(full_url)}", EgressLevel.PRIVATE)
+    client = get_shared_client(f"direct:{transport_key(full_url)}", EgressLevel.PRIVATE)
     response = client.get(full_url, timeout=timeout)
     response.raise_for_status()
     return json.loads(response.text)
@@ -110,7 +110,7 @@ def reaches_service(
     ref = parse_service_url(url)
     target = resolve_proxy_target(ref, "/", context)
     client = get_shared_client(
-        f"k8s-proxy:{_transport_key(target.url)}",
+        f"k8s-proxy:{transport_key(target.url)}",
         EgressLevel.PRIVATE,
         verify=target.ssl_context,
     )
@@ -131,4 +131,4 @@ def describe_endpoint(url: str) -> str:
         return url
 
 
-__all__ = ["describe_endpoint", "get_json", "reaches_service"]
+__all__ = ["describe_endpoint", "get_json", "reaches_service", "transport_key"]

@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from subprocess import CompletedProcess
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner
+from syrupy.assertion import SnapshotAssertion
 
-from devops_cli.commands.k8s import app as k8s_app
-from devops_cli.commands.kustomize import app as kustomize_app
-from devops_cli.config.settings import Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.template import (
     normalize_domain,
@@ -19,8 +16,7 @@ from devops_cli.k8s.template import (
     render_manifest_template,
     resolve_template_domain,
 )
-
-runner = CliRunner()
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 def test_normalize_domain_valid() -> None:
@@ -40,46 +36,37 @@ def test_normalize_domain_invalid_raises() -> None:
         normalize_domain("")
 
 
-def test_resolve_template_domain_precedence() -> None:
+def test_resolve_template_domain_precedence(config: Callable[..., Path]) -> None:
     """CLI override takes precedence over config and environment."""
     cli_result = resolve_template_domain("custom.org")
     assert cli_result == "custom.org"
 
-    mock_settings = MagicMock(spec=Settings)
-    mock_settings.k8s = MagicMock(domain="example.com")
-    mock_settings.cloudflare = MagicMock(domain="cloudflare.org")
+    config(k8s={"domain": "example.com"}, cloudflare={"domain": "cloudflare.org"})
+    cfg_result = resolve_template_domain(None)
+    assert cfg_result == "example.com"
 
-    with patch("devops_cli.k8s.template.load_settings", return_value=mock_settings):
-        cfg_result = resolve_template_domain(None)
-        assert cfg_result == "example.com"
-
-    mock_settings.k8s.domain = None
-    with patch("devops_cli.k8s.template.load_settings", return_value=mock_settings):
-        cf_result = resolve_template_domain(None)
-        assert cf_result == "cloudflare.org"
+    config(k8s={"domain": None}, cloudflare={"domain": "cloudflare.org"})
+    cf_result = resolve_template_domain(None)
+    assert cf_result == "cloudflare.org"
 
 
-def test_resolve_template_domain_env_and_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_template_domain_env_and_missing(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Environment variables are used when config is unset, otherwise raises."""
-    mock_settings = MagicMock(spec=Settings)
-    mock_settings.k8s = None
-    mock_settings.cloudflare = None
+    config(k8s={"domain": None}, cloudflare={"domain": None})
 
     monkeypatch.setenv("DEVOPS_CLI_K8S_DOMAIN", "example.com")
-    with patch("devops_cli.k8s.template.load_settings", return_value=mock_settings):
-        env_result = resolve_template_domain(None)
-        assert env_result == "example.com"
+    env_result = resolve_template_domain(None)
+    assert env_result == "example.com"
 
     monkeypatch.delenv("DEVOPS_CLI_K8S_DOMAIN", raising=False)
     monkeypatch.delenv("DEVOPS_CLI_DOMAIN", raising=False)
-    with (
-        patch("devops_cli.k8s.template.load_settings", return_value=mock_settings),
-        pytest.raises(KubernetesContextError, match="No domain configured"),
-    ):
+    with pytest.raises(KubernetesContextError, match="No domain configured"):
         resolve_template_domain(None)
 
 
-def test_render_manifest_template_substitutions() -> None:
+def test_render_manifest_template_substitutions(snapshot: SnapshotAssertion) -> None:
     """Substitute example.com, ${DOMAIN}, $DOMAIN, ${K8S_DOMAIN}, and extra variables."""
     raw = (
         "host: chat.example.com\n"
@@ -93,14 +80,7 @@ def test_render_manifest_template_substitutions() -> None:
         domain="example.com",
         extra_vars={"CUSTOM_ENV": "production"},
     )
-    expected = (
-        "host: chat.example.com\n"
-        "other: ai.example.com\n"
-        "legacy: api.example.com\n"
-        "k8s: app.example.com\n"
-        "extra: production\n"
-    )
-    assert rendered == expected
+    assert rendered == snapshot
 
 
 def test_render_manifest_path_file(tmp_path: Path) -> None:
@@ -112,39 +92,33 @@ def test_render_manifest_path_file(tmp_path: Path) -> None:
     assert result == "host: chat.example.com"
 
 
-def test_render_manifest_path_kustomize_dir(tmp_path: Path) -> None:
+def test_render_manifest_path_kustomize_dir(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Render directory containing kustomization using kubectl kustomize output."""
     k_dir = tmp_path / "k_pkg"
     k_dir.mkdir()
     (k_dir / "kustomization.yaml").write_text("resources: []", encoding="utf-8")
 
-    mock_proc = CompletedProcess(
-        args=["kubectl", "kustomize"],
-        returncode=0,
-        stdout="host: chat.example.com",
-        stderr="",
+    process_fake.answer(
+        ["kubectl", "kustomize", str(k_dir)],
+        ProcessAnswer(stdout="host: chat.example.com"),
     )
-    with patch("devops_cli.k8s.template.run_subprocess", return_value=mock_proc):
-        rendered = render_manifest_path(k_dir, domain="example.com")
-        assert rendered == "host: chat.example.com"
+    rendered = render_manifest_path(k_dir, domain="example.com")
+    assert rendered == "host: chat.example.com"
 
 
-def test_render_manifest_path_kustomize_failure_raises(tmp_path: Path) -> None:
+def test_render_manifest_path_kustomize_failure_raises(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """Failing kubectl kustomize command raises KubernetesContextError."""
     k_dir = tmp_path / "k_pkg"
     k_dir.mkdir()
     (k_dir / "kustomization.yaml").write_text("resources: []", encoding="utf-8")
 
-    mock_proc = CompletedProcess(
-        args=["kubectl", "kustomize"],
-        returncode=1,
-        stdout="",
-        stderr="kustomize error",
+    process_fake.answer(
+        ["kubectl", "kustomize", str(k_dir)],
+        ProcessAnswer(returncode=1, stderr="kustomize error"),
     )
-    with (
-        patch("devops_cli.k8s.template.run_subprocess", return_value=mock_proc),
-        pytest.raises(KubernetesContextError, match="Kustomize build failed"),
-    ):
+    with pytest.raises(KubernetesContextError, match="Kustomize build failed"):
         render_manifest_path(k_dir, domain="example.com")
 
 
@@ -173,87 +147,105 @@ def test_render_manifest_path_missing_raises() -> None:
         render_manifest_path("non_existent_file.yaml", domain="example.com")
 
 
-def test_k8s_apply_cli_template_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_k8s_apply_cli_template_dry_run(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """devops k8s apply --template --dry-run renders the preview and starts no kubectl child."""
-
-    def _forbid_subprocess(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("dry run started a child process")
-
-    monkeypatch.setattr("subprocess.run", _forbid_subprocess)
-    monkeypatch.setattr("subprocess.Popen", _forbid_subprocess)
-
     manifest = tmp_path / "ingress.yaml"
     manifest.write_text("host: chat.example.com", encoding="utf-8")
 
-    result = runner.invoke(
-        k8s_app,
-        ["apply", str(manifest), "--template", "--domain", "example.com", "--dry-run"],
+    result = cli(
+        "k8s",
+        "apply",
+        str(manifest),
+        "--template",
+        "--domain",
+        "example.com",
+        "--dry-run",
     )
     assert result.exit_code == 0, result.output
     assert "devops k8s apply" in result.output
     assert "kubectl_apply_template" in result.output
 
 
-def test_k8s_apply_cli_template_global_dry_run(tmp_path: Path) -> None:
+def test_k8s_apply_cli_template_global_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+) -> None:
     """devops k8s apply --template in global dry-run renders dry-run output."""
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
     manifest = tmp_path / "ingress.yaml"
     manifest.write_text("host: chat.example.com", encoding="utf-8")
 
-    with patch("devops_cli.commands.k8s.cluster_context.is_dry_run", return_value=True):
-        result = runner.invoke(
-            k8s_app,
-            ["apply", str(manifest), "--template", "--domain", "example.com"],
-        )
-        assert (result.exit_code, "kubectl_apply_template" in result.output) == (0, True)
+    result = cli(
+        "k8s",
+        "apply",
+        str(manifest),
+        "--template",
+        "--domain",
+        "example.com",
+    )
+    assert (result.exit_code, "kubectl_apply_template" in result.output) == (0, True)
 
 
-def test_k8s_apply_cli_template_live(tmp_path: Path) -> None:
+def test_k8s_apply_cli_template_live(
+    tmp_path: Path, process_fake: ProcessFake, cli: Callable[..., Any]
+) -> None:
     """devops k8s apply --template pipes rendered input to kubectl apply -f -."""
     manifest = tmp_path / "ingress.yaml"
     manifest.write_text("host: chat.example.com", encoding="utf-8")
 
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run:
-        result = runner.invoke(
-            k8s_app,
-            ["apply", str(manifest), "--domain", "example.com", "--namespace", "test-ns"],
-        )
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args
-        assert (
-            call_args[0][0],
-            call_args[1].get("input"),
-        ) == (
-            ["kubectl", "apply", "-f", "-", "--namespace", "test-ns"],
-            "host: chat.example.com",
-        )
+    process_fake.answer(
+        ["kubectl", "apply"],
+        ProcessAnswer(stdout="applied"),
+    )
+    result = cli(
+        "k8s",
+        "apply",
+        str(manifest),
+        "--domain",
+        "example.com",
+        "--namespace",
+        "test-ns",
+    )
+    assert result.exit_code == 0
+    call = next(
+        c
+        for c in process_fake.calls
+        if c.argv == ("kubectl", "apply", "-f", "-", "--namespace", "test-ns")
+    )
+    assert call.stdin == "host: chat.example.com"
 
 
-def test_k8s_render_cli(tmp_path: Path) -> None:
+def test_k8s_render_cli(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """devops k8s render prints substituted manifest content to stdout."""
     manifest = tmp_path / "ingress.yaml"
     manifest.write_text("host: chat.example.com\nai: ${DOMAIN}", encoding="utf-8")
 
-    result = runner.invoke(k8s_app, ["render", str(manifest), "--domain", "example.com"])
+    result = cli("k8s", "render", str(manifest), "--domain", "example.com")
     assert (
         result.exit_code,
         "host: chat.example.com\nai: example.com\n" in result.output,
     ) == (0, True)
 
 
-def test_kustomize_apply_template_cli(tmp_path: Path) -> None:
+def test_kustomize_apply_template_cli(
+    tmp_path: Path, process_fake: ProcessFake, cli: Callable[..., Any]
+) -> None:
     """devops kustomize apply --template renders and applies manifests."""
     k_dir = tmp_path / "k_dir"
     k_dir.mkdir()
     (k_dir / "app.yaml").write_text("host: chat.example.com", encoding="utf-8")
 
-    with patch("devops_cli.commands.kustomize.run_subprocess") as mock_subproc:
-        result = runner.invoke(
-            kustomize_app,
-            ["apply", str(k_dir), "--template", "--domain", "example.com"],
-        )
-        assert result.exit_code == 0
-        mock_subproc.assert_called_once()
-        cmd = mock_subproc.call_args[0][0]
-        input_data = mock_subproc.call_args[1].get("input")
-        assert (cmd, input_data) == (["kubectl", "apply", "-f", "-"], "host: chat.example.com")
+    process_fake.answer(
+        ["kubectl", "apply"],
+        ProcessAnswer(stdout="applied"),
+    )
+    result = cli(
+        "kustomize",
+        "apply",
+        str(k_dir),
+        "--template",
+        "--domain",
+        "example.com",
+    )
+    assert result.exit_code == 0
+    call = next(c for c in process_fake.calls if c.argv == ("kubectl", "apply", "-f", "-"))
+    assert call.stdin == "host: chat.example.com"

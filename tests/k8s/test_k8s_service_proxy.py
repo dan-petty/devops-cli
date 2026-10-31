@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 import ssl
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.k8s.service_http import describe_endpoint, get_json
 from devops_cli.k8s.service_proxy import (
     ServiceAddressError,
     is_service_url,
+    kube_configuration,
     parse_service_url,
     resolve_proxy_target,
+    ssl_context,
 )
+from tests.support.fakes.kubernetes import FakeCluster
 
 
 @pytest.fixture(autouse=True)
@@ -29,8 +31,6 @@ def clear_configuration_cache() -> Any:
     yield
     reset_configuration_cache()
 
-
-runner = CliRunner()
 
 PROM = "k8s://monitoring/prometheus:9090"
 
@@ -172,55 +172,44 @@ def _configuration(**overrides: Any) -> Any:
     return configuration
 
 
-def test_the_proxy_url_is_built_from_the_api_server_host() -> None:
+def test_the_proxy_url_is_built_from_the_api_server_host(cluster: FakeCluster) -> None:
     """The whole point is that the API server is reachable wherever the kubeconfig is."""
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()):
-        target = resolve_proxy_target(parse_service_url(PROM), "api/v1/status")
+    target = resolve_proxy_target(parse_service_url(PROM), "api/v1/status")
     assert target.url == (
         "https://cluster.example.com:6443"
         "/api/v1/namespaces/monitoring/services/prometheus:9090/proxy/api/v1/status"
     )
 
 
-def test_a_trailing_slash_on_the_host_does_not_double_up() -> None:
+def test_a_trailing_slash_on_the_host_does_not_double_up(cluster: FakeCluster) -> None:
     """A doubled slash changes the path the API server matches."""
-    with patch(
-        "devops_cli.k8s.service_proxy._kube_configuration",
-        return_value=_configuration(host="https://cluster.example.com:6443/"),
-    ):
-        target = resolve_proxy_target(parse_service_url(PROM))
+    cluster.configuration.host = "https://cluster.example.com:6443/"
+    target = resolve_proxy_target(parse_service_url(PROM))
     assert "//api/v1/namespaces" not in target.url
 
 
-def test_a_bearer_token_becomes_an_authorization_header() -> None:
+def test_a_bearer_token_becomes_an_authorization_header(cluster: FakeCluster) -> None:
     """Token-authenticated clusters are the common case in CI."""
-    with patch(
-        "devops_cli.k8s.service_proxy._kube_configuration",
-        return_value=_configuration(
-            api_key={"authorization": "abc123"}, api_key_prefix={"authorization": "Bearer"}
-        ),
-    ):
-        target = resolve_proxy_target(parse_service_url(PROM))
+    cluster.configuration.api_key = {"authorization": "abc123"}
+    cluster.configuration.api_key_prefix = {"authorization": "Bearer"}
+    target = resolve_proxy_target(parse_service_url(PROM))
     assert target.headers["authorization"] == "Bearer abc123"
 
 
-def test_a_bearer_token_stored_under_bearer_token_key_becomes_authorization_header() -> None:
+def test_a_bearer_token_stored_under_bearer_token_key_becomes_authorization_header(
+    cluster: FakeCluster,
+) -> None:
     """kubernetes 36+ stores bearer tokens under BearerToken, which must map to authorization."""
-    with patch(
-        "devops_cli.k8s.service_proxy._kube_configuration",
-        return_value=_configuration(
-            api_key={"BearerToken": "cluster-token-xyz"},
-            api_key_prefix={"BearerToken": "Bearer"},
-        ),
-    ):
-        target = resolve_proxy_target(parse_service_url(PROM))
+    cluster.configuration.api_key = {"BearerToken": "cluster-token-xyz"}
+    cluster.configuration.api_key_prefix = {"BearerToken": "Bearer"}
+    target = resolve_proxy_target(parse_service_url(PROM))
     assert ("BearerToken" not in target.headers, target.headers.get("authorization")) == (
         True,
         "Bearer cluster-token-xyz",
     )
 
 
-def test_refresh_api_key_hook_rotates_token_on_each_request() -> None:
+def test_refresh_api_key_hook_rotates_token_on_each_request(cluster: FakeCluster) -> None:
     """Dynamic tokens (in-cluster, OIDC, exec) rotate through refresh_api_key_hook."""
     counter = 0
 
@@ -230,10 +219,9 @@ def test_refresh_api_key_hook_rotates_token_on_each_request() -> None:
         config.api_key["BearerToken"] = f"rotated-token-{counter}"
         config.api_key_prefix["BearerToken"] = "Bearer"
 
-    cfg = _configuration(refresh_api_key_hook=rotate)
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=cfg):
-        target1 = resolve_proxy_target(parse_service_url(PROM))
-        target2 = resolve_proxy_target(parse_service_url(PROM))
+    cluster.configuration.refresh_api_key_hook = rotate
+    target1 = resolve_proxy_target(parse_service_url(PROM))
+    target2 = resolve_proxy_target(parse_service_url(PROM))
 
     assert (
         target1.headers.get("authorization"),
@@ -242,42 +230,32 @@ def test_refresh_api_key_hook_rotates_token_on_each_request() -> None:
     ) == ("Bearer rotated-token-1", "Bearer rotated-token-2", False)
 
 
-def test_an_empty_credential_is_not_sent_as_a_header() -> None:
+def test_an_empty_credential_is_not_sent_as_a_header(cluster: FakeCluster) -> None:
     """An empty Authorization header is worse than none: it fails less clearly."""
-    with patch(
-        "devops_cli.k8s.service_proxy._kube_configuration",
-        return_value=_configuration(api_key={"authorization": ""}),
-    ):
-        assert resolve_proxy_target(parse_service_url(PROM)).headers == {}
+    cluster.configuration.api_key = {"authorization": ""}
+    assert resolve_proxy_target(parse_service_url(PROM)).headers == {}
 
 
-def test_client_certificates_are_loaded_into_the_ssl_context(tmp_path: Any) -> None:
+def test_client_certificates_are_loaded_into_the_ssl_context(cluster: FakeCluster) -> None:
     """A CA and a client certificate cannot both be passed to httpx as plain values, so
     they have to be combined into one context."""
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()):
-        target = resolve_proxy_target(parse_service_url(PROM))
+    target = resolve_proxy_target(parse_service_url(PROM))
     assert isinstance(target.ssl_context, ssl.SSLContext)
     assert target.ssl_context.verify_mode == ssl.CERT_REQUIRED
 
 
-def test_an_insecure_kubeconfig_disables_verification() -> None:
+def test_an_insecure_kubeconfig_disables_verification(cluster: FakeCluster) -> None:
     """Only reachable when the kubeconfig itself sets insecure-skip-tls-verify."""
-    with patch(
-        "devops_cli.k8s.service_proxy._kube_configuration",
-        return_value=_configuration(verify_ssl=False),
-    ):
-        context = resolve_proxy_target(parse_service_url(PROM)).ssl_context
+    cluster.configuration.verify_ssl = False
+    context = resolve_proxy_target(parse_service_url(PROM)).ssl_context
     assert (context.check_hostname, context.verify_mode) == (False, ssl.CERT_NONE)
 
 
-def test_a_configuration_without_a_host_is_an_error() -> None:
+def test_a_configuration_without_a_host_is_an_error(cluster: FakeCluster) -> None:
     """Building a URL against an empty host would request a relative path."""
-    with patch(
-        "devops_cli.k8s.service_proxy._kube_configuration",
-        return_value=_configuration(host=""),
-    ):
-        with pytest.raises(ServiceAddressError, match="API server host"):
-            resolve_proxy_target(parse_service_url(PROM))
+    cluster.configuration.host = ""
+    with pytest.raises(ServiceAddressError, match="API server host"):
+        resolve_proxy_target(parse_service_url(PROM))
 
 
 # =============================================================================
@@ -293,17 +271,14 @@ def _response(payload: str = '{"status": "success"}') -> Any:
     return response
 
 
-def test_a_service_url_is_fetched_through_the_api_server() -> None:
+def test_a_service_url_is_fetched_through_the_api_server(cluster: FakeCluster) -> None:
     """No local port is involved, which is the property this exists for."""
     client = MagicMock()
     client.__enter__ = MagicMock(return_value=client)
     client.__exit__ = MagicMock(return_value=False)
     client.get.return_value = _response('{"status": "success", "data": [1, 2]}')
 
-    with (
-        patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()),
-        patch("httpx2.Client", return_value=client),
-    ):
+    with patch("httpx2.Client", return_value=client):
         payload = get_json(PROM, "api/v1/label/__name__/values")
 
     requested = client.get.call_args[0][0]
@@ -326,7 +301,7 @@ def test_an_ordinary_url_is_fetched_directly() -> None:
     assert client.get.call_args[0][0] == "http://prometheus.internal:9090/api/v1/status"
 
 
-def test_a_failing_request_raises_rather_than_returning_empty() -> None:
+def test_a_failing_request_raises_rather_than_returning_empty(cluster: FakeCluster) -> None:
     """An empty result would read as "the service has no data"."""
     client = MagicMock()
     client.__enter__ = MagicMock(return_value=client)
@@ -335,10 +310,7 @@ def test_a_failing_request_raises_rather_than_returning_empty() -> None:
     response.raise_for_status.side_effect = RuntimeError("404 Not Found")
     client.get.return_value = response
 
-    with (
-        patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()),
-        patch("httpx2.Client", return_value=client),
-    ):
+    with patch("httpx2.Client", return_value=client):
         with pytest.raises(RuntimeError, match="404"):
             get_json(PROM)
 
@@ -363,36 +335,38 @@ def test_describing_a_malformed_service_url_returns_it_unchanged() -> None:
 # =============================================================================
 
 
-def test_the_command_prints_the_portable_address() -> None:
+def test_the_command_prints_the_portable_address(
+    cluster: FakeCluster, cli: Callable[..., Any]
+) -> None:
     """The address is what goes into config.yaml and works on any cluster."""
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()):
-        result = runner.invoke(
-            k8s_app, ["service-url", "prometheus", "-n", "monitoring", "-p", "9090", "--json"]
-        )
+    result = cli("k8s", "service-url", "prometheus", "-n", "monitoring", "-p", "9090", "--json")
     assert (result.exit_code, PROM in result.stdout) == (0, True)
 
 
-def test_the_command_still_prints_the_address_when_no_cluster_is_reachable() -> None:
+def test_the_command_still_prints_the_address_when_no_cluster_is_reachable(
+    cluster: FakeCluster, cli: Callable[..., Any]
+) -> None:
     """The address is valid configuration even when nothing can be contacted right now."""
-    with patch(
-        "devops_cli.k8s.service_proxy._kube_configuration",
-        side_effect=ServiceAddressError("no kubeconfig"),
-    ):
-        result = runner.invoke(
-            k8s_app, ["service-url", "prometheus", "-n", "monitoring", "-p", "9090", "--json"]
-        )
+    cluster.configuration = None
+    result = cli("k8s", "service-url", "prometheus", "-n", "monitoring", "-p", "9090", "--json")
     assert (result.exit_code, PROM in result.stdout) == (0, True)
 
 
-def test_the_command_reports_a_failed_fetch() -> None:
+def test_the_command_reports_a_failed_fetch(
+    cluster: FakeCluster, refusing_port: int, cli: Callable[..., Any]
+) -> None:
     """A silent failure would read as an empty response."""
-    with patch(
-        "devops_cli.k8s.service_http.get_json", side_effect=RuntimeError("connection refused")
-    ):
-        result = runner.invoke(
-            k8s_app,
-            ["service-url", "prometheus", "-n", "monitoring", "-p", "9090", "--fetch"],
-        )
+    cluster.configuration.host = f"http://127.0.0.1:{refusing_port}"
+    result = cli(
+        "k8s",
+        "service-url",
+        "prometheus",
+        "-n",
+        "monitoring",
+        "-p",
+        "9090",
+        "--fetch",
+    )
     assert result.exit_code == 1
 
 
@@ -401,86 +375,34 @@ def test_the_command_reports_a_failed_fetch() -> None:
 # =============================================================================
 
 
-def _k8s_modules(incluster_fails: bool = True, kubeconfig_fails: bool = False) -> Any:
-    """Patch the kubernetes client and config modules used to load credentials."""
-    config_module = MagicMock()
-    if incluster_fails:
-        config_module.load_incluster_config.side_effect = RuntimeError("not in a cluster")
-    if kubeconfig_fails:
-        config_module.load_kube_config.side_effect = RuntimeError("no kubeconfig")
-    client_module = MagicMock()
-    client_module.Configuration.get_default_copy.return_value = _configuration()
-    return config_module, client_module
-
-
-def test_credentials_are_loaded_for_the_resolved_context() -> None:
+def test_credentials_are_loaded_for_the_resolved_context(
+    cluster: FakeCluster, config: Callable[..., Path]
+) -> None:
     """Addressing must follow the configured context like every other cluster call."""
-    from devops_cli.k8s.service_proxy import _kube_configuration
-
-    config_module, client_module = _k8s_modules()
-    with (
-        patch.dict(
-            "sys.modules",
-            {"kubernetes": MagicMock(client=client_module, config=config_module)},
-        ),
-        patch("devops_cli.k8s.service_proxy.resolve_context", return_value="homelab-k3s"),
-    ):
-        _kube_configuration()
-
-    config_module.load_kube_config.assert_called_once_with(context="homelab-k3s")
+    cluster.context_names.append("homelab-k3s")
+    config(k8s={"context": "homelab-k3s"})
+    kube_configuration()
+    assert "homelab-k3s" in cluster.connects
 
 
-def test_in_cluster_credentials_take_precedence() -> None:
-    """Running inside the cluster must use the pod's service account."""
-    from devops_cli.k8s.service_proxy import _kube_configuration
-
-    config_module, client_module = _k8s_modules(incluster_fails=False)
-    with (
-        patch.dict(
-            "sys.modules",
-            {"kubernetes": MagicMock(client=client_module, config=config_module)},
-        ),
-        patch("devops_cli.k8s.service_proxy.resolve_context", return_value="homelab-k3s"),
-    ):
-        _kube_configuration()
-
-    assert (
-        config_module.load_incluster_config.call_count,
-        config_module.load_kube_config.call_count,
-    ) == (1, 0)
-
-
-def test_no_usable_configuration_names_the_context_that_failed() -> None:
-    """ "No kubeconfig" without naming the context is hard to act on."""
-    from devops_cli.k8s.service_proxy import _kube_configuration
-
-    config_module, client_module = _k8s_modules(kubeconfig_fails=True)
-    with (
-        patch.dict(
-            "sys.modules",
-            {"kubernetes": MagicMock(client=client_module, config=config_module)},
-        ),
-        patch("devops_cli.k8s.service_proxy.resolve_context", return_value="homelab-k3s"),
-    ):
-        with pytest.raises(ServiceAddressError, match="homelab-k3s"):
-            _kube_configuration()
+def test_no_usable_configuration_names_the_context_that_failed(cluster: FakeCluster) -> None:
+    """ "No usable configuration" names the context that failed."""
+    cluster.configuration = None
+    with pytest.raises(ServiceAddressError, match=cluster.current or "fake"):
+        kube_configuration()
 
 
 def test_client_certificates_are_loaded_when_both_files_are_present(tmp_path: Path) -> None:
     """k3s admin kubeconfigs authenticate with a client certificate, not a token."""
-    from devops_cli.k8s.service_proxy import _ssl_context
-
     cert_file, key_file = str(tmp_path / "client.crt"), str(tmp_path / "client.key")
     configuration = _configuration(cert_file=cert_file, key_file=key_file)
     with patch("ssl.SSLContext.load_cert_chain") as load_chain:
-        _ssl_context(configuration)
+        ssl_context(configuration)
     load_chain.assert_called_once_with(cert_file, key_file)
 
 
 def test_a_certificate_without_its_key_is_not_loaded(tmp_path: Path) -> None:
     """Half a credential is not a credential, and loading it raises."""
-    from devops_cli.k8s.service_proxy import _ssl_context
-
     with patch("ssl.SSLContext.load_cert_chain") as load_chain:
-        _ssl_context(_configuration(cert_file=str(tmp_path / "client.crt")))
+        ssl_context(_configuration(cert_file=str(tmp_path / "client.crt")))
     load_chain.assert_not_called()

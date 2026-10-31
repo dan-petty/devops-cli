@@ -100,7 +100,7 @@ _HELM_REPOS: dict[str, str] = {
 }
 
 
-_HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
+HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [
         # First: argocd's metrics.serviceMonitor, argo-workflows' controller.serviceMonitor,
         # pyroscope's serviceMonitor, qdrant's metrics.serviceMonitor and
@@ -223,7 +223,8 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     ],
 }
 
-_HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
+_HELM_RELEASES_BY_STACK = HELM_RELEASES_BY_STACK
+_HELM_RELEASES: list[dict[str, str]] = HELM_RELEASES_BY_STACK["infra"]
 
 # Paths applied right after the Secret push, before any chart: a directory with `kubectl apply -k`
 # and a file with `kubectl apply -f`, in order, and deleted in reverse order before the charts

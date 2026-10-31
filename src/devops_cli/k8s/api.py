@@ -98,6 +98,7 @@ class KubernetesApis:
     core: CoreApi
     custom_objects: CustomObjectsApi
     version: VersionApi
+    configuration: Any = None
 
 
 class KubernetesApiSource(Protocol):
@@ -163,6 +164,7 @@ class KubernetesClientSource:
             core=k8s_client.CoreV1Api(api_client),
             custom_objects=k8s_client.CustomObjectsApi(api_client),
             version=k8s_client.VersionApi(api_client),
+            configuration=api_client.configuration,
         )
 
     def _context_names(self) -> set[str]:

@@ -11,8 +11,11 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
+
+from tests.support.fakes.process import ProcessCall
 
 # The GitHub App's private key as the keyring holds it, and the Secret key it is pushed to.
 APP_KEY_ENTRY = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
@@ -84,15 +87,27 @@ class FakeCluster:
         """The Secrets of every server-side apply."""
         return [item for call in self.applies() for item in json.loads(call.stdin or "{}")["items"]]
 
-    def __call__(self, cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        argv = list(cmd)
+    def __call__(
+        self, cmd: Sequence[str] | ProcessCall, **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        if isinstance(cmd, ProcessCall):
+            argv = list(cmd.argv)
+            call_kwargs: dict[str, Any] = {
+                "input": cmd.stdin if isinstance(cmd.stdin, str) else None,
+                "env": cmd.env,
+            }
+            raw_cmd = list(cmd.argv)
+        else:
+            argv = list(cmd)
+            call_kwargs = kwargs
+            raw_cmd = list(cmd)
         if "--context" in argv:
             index = argv.index("--context")
             del argv[index : index + 2]
-        self.calls.append(Call(argv, kwargs.get("input"), dict(kwargs.get("env") or {})))
+        self.calls.append(Call(argv, call_kwargs.get("input"), dict(call_kwargs.get("env") or {})))
         self.events.append(" ".join(argv[:3]))
-        code, stdout = self._answer(argv, kwargs)
-        return subprocess.CompletedProcess(cmd, code, stdout, "error" if code else "")
+        code, stdout = self._answer(argv, call_kwargs)
+        return subprocess.CompletedProcess(raw_cmd, code, stdout, "error" if code else "")
 
     def _answer(self, argv: list[str], kwargs: dict[str, Any]) -> tuple[int, str]:
         if argv[2:3] and argv[2].startswith("secret/"):

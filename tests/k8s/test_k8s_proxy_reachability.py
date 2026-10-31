@@ -119,11 +119,7 @@ def _service_list(namespace: str) -> dict[str, Any]:
 def api_server(
     config: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[ApiServer]:
-    """A loopback API server that a kubeconfig of the test and the configured context point at.
-
-    The Kubernetes client reads `KUBECONFIG` once, when it is imported, into
-    `KUBE_CONFIG_DEFAULT_LOCATION`; the test sets that constant of the SDK as well as the variable.
-    """
+    """A loopback API server that a kubeconfig of the test and the configured context point at."""
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
     server = ApiServer(url=f"http://127.0.0.1:{httpd.server_address[1]}")
     httpd.RequestHandlerClass = _handler(server)
@@ -134,9 +130,6 @@ def api_server(
 
     kubeconfig = tmp_path / "kubeconfig"
     monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
-    monkeypatch.setattr(
-        "kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION", str(kubeconfig)
-    )
     kubeconfig.write_text(
         yaml.safe_dump(
             {

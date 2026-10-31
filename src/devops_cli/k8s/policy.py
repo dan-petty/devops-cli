@@ -41,7 +41,7 @@ class PolicyValidationReport(BaseModel):
     rule_results: list[PolicyRuleResult] = Field(default_factory=list)
 
 
-def _parse_kyverno_output(raw_stdout: str) -> list[PolicyRuleResult]:
+def parse_kyverno_output(raw_stdout: str) -> list[PolicyRuleResult]:
     """Parse JSON output from Kyverno CLI."""
     if not raw_stdout.strip():
         return []
@@ -91,7 +91,7 @@ def _parse_opa_eval_entry(entry: dict[str, Any]) -> list[PolicyRuleResult]:
     ]
 
 
-def _parse_opa_output(stdout: str) -> list[PolicyRuleResult]:
+def parse_opa_output(stdout: str) -> list[PolicyRuleResult]:
     """Parse JSON output from OPA CLI eval."""
     try:
         data = json.loads(stdout)
@@ -147,9 +147,9 @@ def validate_k8s_policy(
 
         res = run_subprocess(cmd, check=False)
         rule_results = (
-            _parse_opa_output(res.stdout)
+            parse_opa_output(res.stdout)
             if norm_engine == "opa"
-            else _parse_kyverno_output(res.stdout)
+            else parse_kyverno_output(res.stdout)
         )
 
         passed_c = sum(1 for r in rule_results if r.status in ("pass", "success"))
@@ -165,3 +165,12 @@ def validate_k8s_policy(
             warning_count=warn_c,
             rule_results=rule_results,
         )
+
+
+__all__ = [
+    "PolicyRuleResult",
+    "PolicyValidationReport",
+    "parse_kyverno_output",
+    "parse_opa_output",
+    "validate_k8s_policy",
+]

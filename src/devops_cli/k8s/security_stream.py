@@ -60,7 +60,7 @@ def _parse_json_falco_alert(data: dict[str, Any]) -> FalcoAlert:
     )
 
 
-def _parse_text_falco_alert(line: str) -> FalcoAlert | None:
+def parse_text_falco_alert(line: str) -> FalcoAlert | None:
     """Parse traditional formatted text line into FalcoAlert."""
     match = _TEXT_ALERT_RE.match(line)
     if not match:
@@ -93,7 +93,7 @@ def parse_falco_alert(raw_line: str) -> FalcoAlert | None:
                 return _parse_json_falco_alert(data)
         except Exception:
             pass
-    return _parse_text_falco_alert(clean_line)
+    return parse_text_falco_alert(clean_line)
 
 
 def generate_simulated_alerts(count: int = 3) -> list[FalcoAlert]:
@@ -163,7 +163,7 @@ def _build_kubectl_command(request: SecurityStreamRequest) -> list[str]:
     return cmd
 
 
-def _tally_severity_counts(alerts: list[FalcoAlert]) -> tuple[int, int, int]:
+def tally_severity_counts(alerts: list[FalcoAlert]) -> tuple[int, int, int]:
     """Calculate critical, warning, and notice alert frequency buckets derived from canonical severity ranks."""
     crit_count = 0
     warn_count = 0
@@ -203,7 +203,7 @@ def _build_stream_result(
     The stream reads the last lines of the Falco log, so a second read finds the same alerts
     again: a counter of them would count each alert once for each read.
     """
-    crit, warn, note = _tally_severity_counts(alerts)
+    crit, warn, note = tally_severity_counts(alerts)
     elapsed = time.monotonic() - start_time
     span.set_attribute("alerts.count", len(alerts))
     span.set_attribute("alerts.critical", crit)
@@ -275,7 +275,7 @@ def stream_security_events(
         return _build_stream_result(alerts, start_time, span)
 
 
-def _get_severity_color(priority: str) -> str:
+def get_severity_color(priority: str) -> str:
     """Return styling color markup based on canonical alert priority rank."""
     rank = CONST_FALCO_SEVERITY_LEVELS.get(priority.upper().strip())
     if rank is not None:
@@ -293,7 +293,7 @@ def render_security_alerts(result: SecurityStreamResult) -> None:
         return
 
     for alert in result.alerts:
-        color = _get_severity_color(alert.priority)
+        color = get_severity_color(alert.priority)
         time_str = f"[{escape_text(alert.time)}] " if alert.time else ""
         esc_prio = escape_text(alert.priority.upper())
         esc_rule = escape_text(alert.rule)
@@ -310,3 +310,15 @@ def render_security_alerts(result: SecurityStreamResult) -> None:
             body_lines.append(f"[cyan]{tags_str}[/cyan]")
 
         print_panel("\n".join(body_lines), title=header)
+
+
+__all__ = [
+    "FalcoAlert",
+    "SecurityStreamRequest",
+    "SecurityStreamResult",
+    "get_severity_color",
+    "parse_text_falco_alert",
+    "render_security_alerts",
+    "stream_security_events",
+    "tally_severity_counts",
+]

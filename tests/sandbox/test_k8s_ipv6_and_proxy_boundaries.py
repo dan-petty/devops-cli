@@ -30,7 +30,7 @@ from devops_cli.commands.k8s.networking import (
 )
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
-from devops_cli.k8s.service_http import _transport_key, get_json
+from devops_cli.k8s.service_http import get_json, transport_key
 from devops_cli.k8s.service_proxy import (
     ServiceAddressError,
     ServiceRef,
@@ -274,7 +274,7 @@ def test_proxy_target_resolution_and_path_prefix() -> None:
         query="query=up",
     )
 
-    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=mock_config):
+    with patch("devops_cli.k8s.service_proxy.kube_configuration", return_value=mock_config):
         target = resolve_proxy_target(ref)
         conn = resolve_proxy_connection(ref)
 
@@ -360,13 +360,13 @@ def test_service_url_cli_command_refuses_invalid_identifier_with_exit_1() -> Non
 
 
 def test_transport_key_unification() -> None:
-    """_transport_key gives identical key across casing, default ports, and userinfo."""
+    """transport_key gives identical key across casing, default ports, and userinfo."""
     urls = (
         "https://example.com/a",
         "https://EXAMPLE.com:443/b",
         "https://user:password@example.com/c",
     )
-    keys = {_transport_key(u) for u in urls}
+    keys = {transport_key(u) for u in urls}
     assert len(keys) == 1
     assert "example.com" in next(iter(keys))
 

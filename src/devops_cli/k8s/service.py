@@ -171,6 +171,12 @@ class KubernetesService:
         """Return the core API object of the resolved context, connecting first."""
         return self._connected(context, "Kubernetes client configuration is not available.").core
 
+    def configuration(self, context: str | None = None) -> Any:
+        """Return the client configuration of the resolved context, connecting first."""
+        return self._connected(
+            context, "Kubernetes client configuration is not available."
+        ).configuration
+
     def custom_objects_api(self, context: str | None = None) -> CustomObjectsApi:
         """Return the CustomObjectsApi client used to manipulate CRDs in-process."""
         return self._connected(
