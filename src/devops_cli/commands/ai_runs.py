@@ -19,6 +19,7 @@ from devops_cli.ai.run_store import (
     RunIndex,
     RunIndexNotConfiguredError,
     RunRecord,
+    SavedRun,
     check_regression,
     compare_runs,
     find_baseline_run,
@@ -63,6 +64,20 @@ app = new_typer(
     help=HELP.ai.runs,
     no_args_is_help=True,
 )
+
+
+def announce_runs(saved: list[SavedRun], *, to_stderr: bool = False) -> None:
+    """Say where runs were kept, and whether other workstations can see them."""
+    from devops_cli.ai.run_store import announce_runs as _announce_runs
+
+    _announce_runs(saved, to_stderr=to_stderr)
+
+
+def announce_run(saved: SavedRun, *, to_stderr: bool = False) -> None:
+    """Say where a run was kept, and whether other workstations can see it."""
+    from devops_cli.ai.run_store import announce_run as _announce_run
+
+    _announce_run(saved, to_stderr=to_stderr)
 
 
 @app.command("reindex")
