@@ -49,7 +49,7 @@ Confirmed on 2026-10-31 against the real system.
 - **Where the defaults are set.** `DEFAULT_ROADMAP_STAGE_FILTER` (`config/defaults.py`) is the default of the setting `roadmap.stage.filter` (`config/settings.py`). `DEFAULT_IMPLEMENT_FILTERS` (`roadmap/implement.py`) is the only default of the implement filter. No setting names it, and `k8s/devops/configmap.example.yaml` has no implement key. `implement_submit.py` calls `parse_implement_filters(())` for the Service round. So the implement default is set in code only, and the ConfigMap needs a change for the stage filter only.
 - **Selection order.** `select_stageable` and `plan_implement` sort with `stage.priority_order`: the rank in `CONST_ROADMAP_PRIORITY_VALUES`, then the issue number. A P0 item goes before a P3 item.
 - **The type of a branch.** The stage plan and the implement plan make the branch from the title (`stage._target_of`, `implement.py` line 247). A test with `feat(...)` and `docs(...)` titles holds the branch and the delivery title for the new default.
-- **After the change.** The same two commands list Ready items of any type (see the report of the pull request for the output).
+- **After the change.** `devops roadmap implement --plan` lists 30 Ready items of low effort that are neither Staged nor Planned, among them `fix`, `refactor`, `docs`, `test` and `feat` titles of priority P2 and P3, and no item of medium or high effort. `devops roadmap stage --plan --limit 1` plans #2152, a Ready P1 refactor, on the branch `refactor/2152-the-egress-checks-read-legacy-numeric`. It names #2147, a Ready P1 bug, first in the left-out list, because its plan is on `main`: the order is priority, then issue number.
 
 ## Existing Tool Considered
 
