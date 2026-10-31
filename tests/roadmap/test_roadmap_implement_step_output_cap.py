@@ -8,6 +8,7 @@ So a model that never stops is cut by the cap that the step sends, and no test r
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 import json
 from collections.abc import AsyncIterator, Iterator
@@ -17,6 +18,7 @@ from typing import Any
 
 import httpx2
 import pytest
+from pydantic_ai.messages import ModelResponse
 
 from devops_cli.ai import pydantic_ai_bridge
 from devops_cli.config.constants import (
@@ -24,6 +26,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings
+from devops_cli.exceptions.ai_pydantic import OutputCapReached, UnexpectedModelBehavior
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.roadmap import implement_step
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -146,6 +150,7 @@ async def _frames(reply: Reply, cap: int) -> AsyncIterator[bytes]:
             return
         yield _chunk(delta)
         sent += 1
+        await asyncio.sleep(0)
     yield _chunk({}, "tool_calls" if reply.calls else "stop")
     yield OPENAI_DONE
 
@@ -282,15 +287,16 @@ def test_a_cut_reply_after_other_replies_names_the_cap_and_keeps_the_counts(
     assert outcome.reason == f"{CAP_REASON}\nRefused commands: pytest 1. Other retries: 0."
 
 
-def test_a_whole_file_of_the_longest_honest_size_passes_under_the_cap(
+def test_a_reply_of_three_quarters_of_the_cap_passes(
     store: InMemoryRoadmapStore,
     checkout: Path,
     programs: ProcessFake,
     served: Any,
     small_cap: int,
 ) -> None:
-    """The longest reply of a step in the logs is under 2,000 tokens, an eighth of the cap. A file
-    of three quarters of the cap, as long as the biggest module of the project, is not cut."""
+    """A reply that stays under the cap is not cut. The test streams a whole file of three quarters
+    of a small cap: the fake server sends one event for each token, so the real cap of 16,384
+    tokens would take about 20 seconds. The real cap is 8 times the longest honest reply."""
     big = Reply(
         calls=(("write_file", {"path": "src/big.py", "content": ""}),),
         content_tokens=small_cap * 3 // 4,
@@ -326,3 +332,40 @@ def test_a_call_that_never_answers_ends_at_the_deadline_with_no_second_request(
         1,
     )
     assert is_clean_at(checkout, head)
+
+
+def test_a_call_that_keeps_streaming_ends_at_the_deadline_with_no_second_request(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    served: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `timeout` setting limits only the wait for each chunk, so a model that sends a chunk
+    all the time would never trip it. The deadline is one clock over the whole call: it ends this
+    call, which the cap cannot end because the cap is out of reach."""
+    monkeypatch.setattr(implement_step, "CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(implement_step, "CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS", 10**9)
+    head = git(checkout, "rev-parse", "HEAD")
+    model, server = served(Reply(text="I will start.", endless=True))
+
+    outcome = _step(store, checkout, model)
+
+    assert (outcome.status, outcome.reason, len(server.bodies)) == (
+        StepStatus.STOPPED,
+        f"ModelRequestTimeout: model {model.model_name}, no complete reply in 0.2 seconds",
+        1,
+    )
+    assert is_clean_at(checkout, head)
+
+
+# ── The error of a capped reply ───────────────────────────────────────────────────────────
+
+
+def test_the_error_of_a_capped_reply_is_a_domain_error_with_its_own_code() -> None:
+    message = "The model reply reached the output cap."
+    error = OutputCapReached(message, response=ModelResponse(parts=[]))
+
+    assert (error.error_code, error.message) == ("OUTPUT_CAP_REACHED", message)
+    assert isinstance(error, DevOpsCLIError)
+    assert isinstance(error, UnexpectedModelBehavior)

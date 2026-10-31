@@ -2987,8 +2987,10 @@ CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS: Final[int] = 40000
 # tokens, and the longest reply of any client of the tier is 11,634 tokens, so 16,384 cuts only a
 # model that does not stop. The deadline is `request_timeout`, one clock over the whole call, the
 # read of the stream included. It is more than a cold read of the largest window (about 90 s) and
-# a reply at the cap at the slowest measured rate (about 430 s), and it is under the timeout of
-# the router in `k8s/llm/gateway/config.yaml` (1500 s), which a test holds.
+# a reply at the cap at the average rate of the longest measured call (38 tokens per second, about
+# 430 s). The rate fell to 27.55 tokens per second for a short time in that call, so a very slow
+# call ends at the deadline before it reaches the cap. Both stops are fine. The deadline is under
+# the timeout of the router in `k8s/llm/gateway/config.yaml` (1500 s), which a test holds.
 CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS: Final[int] = 16384
 CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: Final[int] = 600
 # The tokens of one packed file in the inputs of a step. The agent reads more with its tools.

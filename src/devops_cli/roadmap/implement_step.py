@@ -90,6 +90,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.process_hardening import end_leftover_processes
+from devops_cli.exceptions.ai_pydantic import OutputCapReached
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
@@ -100,7 +101,7 @@ from devops_cli.roadmap.agent_run import (
     model_call_error,
     record_run_spend,
 )
-from devops_cli.roadmap.implement_output_cap import OutputCapReached, output_cap_hooks
+from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog

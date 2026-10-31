@@ -15,23 +15,11 @@ from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Hooks
-from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import ModelRequestContext
 
+from devops_cli.exceptions.ai_pydantic import OutputCapReached
 from devops_cli.lang import MESSAGES
-
-
-class OutputCapReached(UnexpectedModelBehavior):
-    """A model reply ended with the finish reason `length`: the model did not stop, and the cap
-    ended the call. The message names the cap, and it is the reason of the stopped step. The run
-    drops a reply that a hook rejects, so the error holds it in `response`, for the spend."""
-
-    response: ModelResponse
-
-    def __init__(self, response: ModelResponse, cap: int) -> None:
-        super().__init__(MESSAGES.roadmap.implement_stop_capped.format(tokens=cap))
-        self.response = response
 
 
 def output_cap_hooks(cap: int) -> Hooks[None]:
@@ -42,7 +30,9 @@ def output_cap_hooks(cap: int) -> Hooks[None]:
     ) -> ModelResponse:
         """Pass on a reply, or raise `OutputCapReached` when the cap ended it."""
         if response.finish_reason == "length":
-            raise OutputCapReached(response, cap)
+            raise OutputCapReached(
+                MESSAGES.roadmap.implement_stop_capped.format(tokens=cap), response=response
+            )
         return response
 
     return Hooks(after_model_request=stop_at_cap)
