@@ -1465,6 +1465,32 @@ class RoadmapCommandHelp:
         "Make no request: print the requests a run makes, in order, with placeholders for "
         "values a read gives."
     )
+    explain: str = (
+        "Say, for one issue, whether the stage job and the implement job take it. For each job "
+        "the answer is yes, or no with the reason of the first rule that fails: the issue is "
+        "closed or is no item, the filter, the rules of the job (the Status, the owner, the "
+        "stop on record, the plan and the branch), and the limit of a run. The reasons are the "
+        "texts of the 'Left out' list of stage --plan and implement --plan. The command reads "
+        "GitHub and git, calls no model and writes nothing. It uses the filter and the limit "
+        "that the Service uses for each job. A group over the step budget shows only when an "
+        "earlier run recorded it."
+    )
+    explain_arg: str = "The issue number to explain."
+    explain_source: str = (
+        "Path to a clone of the repository. Without it, the command uses the model clone."
+    )
+    explain_filter: str = (
+        "A label filter in the form family=value, for both jobs, over the families status, "
+        "priority, type, value and effort. Repeat the option. Without it, each job uses its own "
+        "default filter."
+    )
+    explain_limit: str = (
+        "Items a run takes, for both jobs. Without it, each job uses its own limit: the setting "
+        "roadmap.stage.limit for stage, and 1 for implement."
+    )
+    explain_dry_run: str = (
+        "Make no request: print the reads that a run makes, in order, with placeholders."
+    )
     release: str = (
         "Release an item: remove its owner/* label, whoever holds it. No job removes the claim "
         "of an agent or a person."

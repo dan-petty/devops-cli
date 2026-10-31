@@ -16,9 +16,9 @@
 
 ## 3. The command explain
 
-- [ ] 3.1 Write failing tests in `tests/roadmap/test_roadmap_explain.py` and `tests/roadmap/test_roadmap_explain_command.py` for the scenarios of "The command names the first rule that stops each job", "The command makes no model call and no write", "The dry run lists the reads" and "The options replace the filter and the limit for one run": an item of medium effort, a claimed item, a stopped item, an unplanned item, a recorded split, a closed issue, a missing issue, the limit, an item that is taken, a model that fails the test, a store that records writes, and the dry run with refused processes and sockets
+- [x] 3.1 Write failing tests in `tests/roadmap/test_roadmap_explain.py` and `tests/roadmap/test_roadmap_explain_command.py` for the scenarios of "The command names the first rule that stops each job", "The command makes no model call and no write", "The dry run lists the reads" and "The options replace the filter and the limit for one run": an item of medium effort, a claimed item, a stopped item, an unplanned item, a recorded split, a closed issue, a missing issue, the limit, an item that is taken, a model that fails the test, a store that records writes, and the dry run with refused processes and sockets
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py tests/roadmap/test_roadmap_explain_command.py`
-- [ ] 3.2 Write `src/devops_cli/roadmap/explain.py` and `explain_requests` in `src/devops_cli/roadmap/request_plan.py`; add `devops roadmap explain` with the class `request-plan`, its help and its messages
+- [x] 3.2 Write `src/devops_cli/roadmap/explain.py` and `explain_requests` in `src/devops_cli/roadmap/request_plan.py`; add `devops roadmap explain` with the class `request-plan`, its help and its messages
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py tests/roadmap/test_roadmap_explain_command.py tests/invariants/test_dry_run_class_ratchet.py`
 
 ## 4. The documents and the archive

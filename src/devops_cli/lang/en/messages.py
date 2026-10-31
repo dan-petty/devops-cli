@@ -1861,6 +1861,13 @@ class RoadmapMessages:
     )
     item_left_closed: str = "It is closed."
     item_heading_unmatched: str = "## Matched no filter"
+    # The report of `devops roadmap explain` (#2911).
+    explain_title: str = "# {repo} #{number}: {title}"
+    explain_title_untitled: str = "# {repo} #{number}"
+    explain_job_stage: str = "Stage"
+    explain_job_implement: str = "Implement"
+    explain_line_yes: str = "{job} job: yes."
+    explain_line_no: str = "{job} job: no. {reason}"
     item_left_filter: str = "The filter takes {family} {wanted}. The item has {family} {have}."
     item_left_limit: str = (
         "It passes every rule, but a run takes {limit} item(s) and {limit} item(s) of higher "

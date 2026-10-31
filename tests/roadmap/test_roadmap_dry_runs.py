@@ -98,6 +98,18 @@ def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
     ) == (0, True, True), result.output
 
 
+def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(no_requests: None) -> None:
+    """`explain` reads GitHub and git and writes nothing, so its plan holds the reads of a run and
+    no write (#2911)."""
+    result = runner.invoke(app, ["explain", "7", "--repo", REPO, "--dry-run"])
+    assert (
+        result.exit_code,
+        "Dry run: no request was made" in result.output,
+        "api repos/dan-petty/devops-cli/issues/7" in result.output,
+        MESSAGES.roadmap.plan_dry_run_writes in result.output,
+    ) == (0, True, True, False), result.output
+
+
 @pytest.mark.parametrize("job", JOBS)
 def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> None:
     with patch("devops_cli.commands.roadmap.is_dry_run", return_value=True):
