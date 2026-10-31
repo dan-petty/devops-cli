@@ -106,6 +106,7 @@ devops gh labels list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh labels sync`
 
@@ -136,6 +137,7 @@ devops gh labels audit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -159,6 +161,7 @@ devops gh milestones list [OPTIONS]
 |---|---|---|---|
 | `--state`, `-s` | `string` | `all` | Milestone state filter (open, closed or all) |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh milestones status`
 
@@ -179,6 +182,7 @@ devops gh milestones status [OPTIONS] <name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh milestones close`
 
@@ -199,6 +203,7 @@ devops gh milestones close [OPTIONS] <name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh milestones edit`
 
@@ -223,6 +228,7 @@ devops gh milestones edit [OPTIONS] <name>
 | `--state`, `-s` | `string` | - | New state (open or closed) |
 | `--due-date` | `string` | - | ISO due date (YYYY-MM-DD) |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -300,6 +306,7 @@ devops gh project link [OPTIONS] <project_number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh project list`
 
@@ -314,6 +321,7 @@ devops gh project list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--owner`, `-o` | `string` | - | Target user or organization |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh project audit`
 
@@ -329,6 +337,7 @@ devops gh project audit [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh project template`
 
@@ -366,6 +375,7 @@ devops gh project workflows list [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -417,6 +427,7 @@ devops gh views sync [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh views audit`
 
@@ -432,6 +443,7 @@ devops gh views audit [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -454,6 +466,7 @@ devops gh pages status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pages builds`
 
@@ -469,6 +482,7 @@ devops gh pages builds [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--limit`, `-l` | `integer` | `5` | Number of builds to retrieve |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pages build`
 
@@ -483,6 +497,7 @@ devops gh pages build [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pages verify`
 
@@ -523,6 +538,7 @@ devops gh issues list [OPTIONS]
 | `--milestone`, `-m` | `string` | - | Filter by milestone |
 | `--label`, `-l` | `string` | - | Filter by label |
 | `--limit` | `integer` | `30` | Max issues to return |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh issues view`
 
@@ -561,6 +577,7 @@ devops gh issues create [OPTIONS]
 | `--milestone`, `-m` | `string` | - | Target milestone |
 | `--label`, `-l` | `string` | - | Taxonomy label (repeatable) |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh issues triage`
 
@@ -575,6 +592,7 @@ devops gh issues triage [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh issues status`
 
@@ -589,6 +607,7 @@ devops gh issues status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh issues edit`
 
@@ -616,6 +635,7 @@ devops gh issues edit [OPTIONS] <number>
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh issues close`
 
@@ -664,6 +684,7 @@ devops gh runs list [OPTIONS]
 | `--branch`, `-b` | `string` | - | Filter by branch |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh runs view`
 
@@ -687,6 +708,7 @@ devops gh runs view [OPTIONS] <run_id>
 | `--log` | `boolean` | - | Display full execution logs for the workflow run. |
 | `--job`, `-j` | `string` | - | Filter workflow run logs to a specific job ID. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

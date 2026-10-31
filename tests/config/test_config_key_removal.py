@@ -393,3 +393,27 @@ def test_a_removal_of_a_credential_keeps_the_line_ends_of_each_copy(
     expected = crlf.replace(_SECRET, _REDACTED).encode()
     [first, second] = _copies(isolate_devops_cli_config.parent)
     assert (first.read_bytes(), second.read_bytes()) == (expected, expected)
+
+
+def test_a_removal_of_a_key_from_a_yaml_merge_key_raises_configuration_error(
+    isolate_devops_cli_config: Path,
+) -> None:
+    """A key provided via a YAML merge key cannot be pinpointed or removed without altering
+    the anchor, and devops config unset stops with ConfigurationError naming the merge key."""
+    text = """\
+a:
+  b: &d
+    api_key: secret-value
+ai:
+  <<: *d
+"""
+    _use(isolate_devops_cli_config, text)
+
+    with pytest.raises(ConfigurationError) as raised:
+        remove_config_key("ai.api_key")
+
+    assert (
+        "config.yaml" in raised.value.message,
+        "merge key" in raised.value.message,
+        "'api_key'" in raised.value.message,
+    ) == (True, True, True)

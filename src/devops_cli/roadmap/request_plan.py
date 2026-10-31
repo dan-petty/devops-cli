@@ -250,6 +250,48 @@ def _number(subject: str) -> str:
     return subject[1:] if subject.startswith("#") and subject[1:].isdigit() else subject
 
 
+def milestones_list_requests(repo: str) -> list[PlannedRequest]:
+    """Planned requests for listing milestones in a repository."""
+    return list(StoreRequests(repo).milestones())
+
+
+def milestones_status_requests(repo: str) -> list[PlannedRequest]:
+    """Planned requests for inspecting milestone status."""
+    return list(StoreRequests(repo).milestones())
+
+
+def milestones_close_requests(repo: str, name: str) -> list[PlannedRequest]:
+    """Planned requests for closing a milestone."""
+    from devops_cli.roadmap.github_store import milestone_edit_args
+
+    target = int(_number(name)) if _number(name).isdigit() else 0
+    store = StoreRequests(repo)
+    reads = list(store.milestones())
+    write = planned_gh(
+        milestone_edit_args(repo, target, [("state", "closed")]),
+        f"repos/{repo}/milestones/{name}",
+    )
+    return [*reads, write]
+
+
+def milestones_edit_requests(
+    repo: str,
+    name: str,
+    fields: Sequence[tuple[str, str]],
+) -> list[PlannedRequest]:
+    """Planned requests for editing a milestone."""
+    from devops_cli.roadmap.github_store import milestone_edit_args
+
+    target = int(_number(name)) if _number(name).isdigit() else 0
+    store = StoreRequests(repo)
+    reads = list(store.milestones())
+    write = planned_gh(
+        milestone_edit_args(repo, target, fields),
+        f"repos/{repo}/milestones/{name}",
+    )
+    return [*reads, write]
+
+
 # ── The jobs ──────────────────────────────────────────────────────────────────
 
 
@@ -671,6 +713,10 @@ __all__ = [
     "alternatives_requests",
     "implement_requests",
     "is_page_repeat",
+    "milestones_close_requests",
+    "milestones_edit_requests",
+    "milestones_list_requests",
+    "milestones_status_requests",
     "planned_gh",
     "planned_session_read",
     "refine_requests",

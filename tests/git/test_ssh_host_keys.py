@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import base64
+import logging
 import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
@@ -101,17 +101,27 @@ def test_ensure_known_host_preserves_file_without_trailing_newline(tmp_path: Pat
         assert line in content
 
 
-def test_ensure_known_host_unwritable_directory_logs_warning(tmp_path: Path) -> None:
+def test_ensure_known_host_unwritable_directory_logs_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """An unwritable directory logs one warning and allows clone to continue."""
     _ensure_known_host.cache_clear()
-    unwritable = tmp_path / "read_only_ssh" / "known_hosts"
+    blocked = tmp_path / "not_a_dir"
+    blocked.write_text("blocked", encoding="utf-8")
+    unwritable = blocked / "ssh" / "known_hosts"
 
-    with patch("pathlib.Path.mkdir", side_effect=PermissionError("Read-only filesystem")):
-        with patch("devops_cli.git.operations.logger.warning") as mock_warn:
-            _ensure_known_host(unwritable)
-            # Second call in same process is cached and logs no additional warning
-            _ensure_known_host(unwritable)
-            assert mock_warn.call_count == 1
+    with caplog.at_level(logging.WARNING, logger="devops_cli.git.operations"):
+        _ensure_known_host(unwritable)
+        # Second call in same process is cached and logs no additional warning
+        _ensure_known_host(unwritable)
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.name == "devops_cli.git.operations" and r.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+    assert "Could not update known_hosts" in warnings[0].message
 
 
 # =============================================================================

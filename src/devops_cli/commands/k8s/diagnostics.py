@@ -27,7 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SECURITY_STREAM_TAIL_LINES,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP
 from devops_cli.output import (
     TablePayload,
@@ -529,6 +529,7 @@ def _handle_doctor_output(report: Any, resolved_fmt: str) -> None:
         _render_doctor_table(report)
 
 
+@dry_run_class("request-plan")
 def doctor_cmd(
     namespace: Annotated[
         str | None,

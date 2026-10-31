@@ -40,7 +40,13 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
-from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan, set_dry_run
+from devops_cli.dry_run import (
+    PlannedRequest,
+    dry_run_class,
+    is_dry_run,
+    render_request_plan,
+    set_dry_run,
+)
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
@@ -2785,6 +2791,7 @@ def rules_test(
 
 
 @rules_app.command("fetch")
+@dry_run_class("request-plan")
 @trace_span("review.rules.fetch")
 def rules_fetch(
     ruleset: Annotated[

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 
 from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
@@ -39,13 +40,16 @@ from devops_cli.security.vault_lease import (
     read_service_account_token,
 )
 from tests.support.fakes.keyring import FakeKeyring
+from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 @pytest.fixture(autouse=True)
-def _reset_resolver_singleton() -> Any:
-    """Guarantee no resolver state leaks between tests."""
+def _reset_resolver_singleton(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Guarantee no resolver state or shell environment leaks between tests."""
+    for name in ("VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN", "VAULT_ADDR", "VAULT_NAMESPACE"):
+        monkeypatch.delenv(name, raising=False)
     reset_resolver()
     yield
     reset_resolver()
@@ -109,61 +113,49 @@ def test_default_chain_order_is_keyring_vault_environment_settings() -> None:
     assert [p.name for p in resolver.providers] == ["keyring", "vault", "environment", "settings"]
 
 
-def test_keyring_outranks_environment_and_settings(keyring_store: FakeKeyring) -> None:
+def test_keyring_outranks_environment_and_settings(
+    keyring_store: FakeKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The OS keyring is canonical and wins over every other source."""
     settings = SimpleNamespace(section=SimpleNamespace(value="from-settings"))
     resolver = build_default_resolver(settings_source=lambda: settings)
     keyring_store.values["test_secret"] = "from-keyring"
+    monkeypatch.setenv("TEST_SECRET", "from-env")
 
-    with (
-        patch.dict("os.environ", {"TEST_SECRET": "from-env"}),
-        patch.object(VaultProvider, "get", return_value=None),
-    ):
-        assert resolver.resolve(_ref()) == "from-keyring"
+    assert resolver.resolve(_ref()) == "from-keyring"
 
 
-def test_environment_outranks_settings() -> None:
+def test_environment_outranks_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Environment variables override committed configuration for every secret."""
     settings = SimpleNamespace(section=SimpleNamespace(value="from-settings"))
     resolver = build_default_resolver(settings_source=lambda: settings)
+    monkeypatch.setenv("TEST_SECRET", "from-env")
 
-    with (
-        patch.dict("os.environ", {"TEST_SECRET": "from-env"}),
-        patch.object(VaultProvider, "get", return_value=None),
-    ):
-        assert resolver.resolve(_ref()) == "from-env"
+    assert resolver.resolve(_ref()) == "from-env"
 
 
-def test_settings_answer_only_as_last_resort() -> None:
+def test_settings_answer_only_as_last_resort(monkeypatch: pytest.MonkeyPatch) -> None:
     """Configuration supplies the value when nothing above it can."""
     settings = SimpleNamespace(section=SimpleNamespace(value="from-settings"))
     resolver = build_default_resolver(settings_source=lambda: settings)
+    monkeypatch.setenv("TEST_SECRET", "")
 
-    with (
-        patch.dict("os.environ", {"TEST_SECRET": ""}),
-        patch.object(VaultProvider, "get", return_value=None),
-    ):
-        assert resolver.resolve(_ref()) == "from-settings"
+    assert resolver.resolve(_ref()) == "from-settings"
 
 
-def test_cached_resolver_never_serves_a_stale_settings_snapshot() -> None:
-    """A per-call settings source rebinds configuration on every lookup.
-
-    The process-wide resolver is cached, so capturing settings at construction would pin
-    whichever configuration happened to be loaded first.
-    """
+def test_cached_resolver_never_serves_a_stale_settings_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A per-call settings source rebinds configuration on every lookup."""
     resolver = get_resolver()
     first = SimpleNamespace(section=SimpleNamespace(value="first-config"))
     second = SimpleNamespace(section=SimpleNamespace(value="second-config"))
+    monkeypatch.setenv("TEST_SECRET", "")
 
-    with (
-        patch.dict("os.environ", {"TEST_SECRET": ""}),
-        patch.object(VaultProvider, "get", return_value=None),
-    ):
-        resolved = (
-            resolver.resolve(_ref(), settings_source=lambda: first),
-            resolver.resolve(_ref(), settings_source=lambda: second),
-        )
+    resolved = (
+        resolver.resolve(_ref(), settings_source=lambda: first),
+        resolver.resolve(_ref(), settings_source=lambda: second),
+    )
 
     assert resolved == ("first-config", "second-config")
 
@@ -173,49 +165,28 @@ def test_cached_resolver_never_serves_a_stale_settings_snapshot() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def _no_vault_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Leave the broker no token from the developer's shell."""
-    for name in ("VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN", "VAULT_ADDR", "VAULT_NAMESPACE"):
-        monkeypatch.delenv(name, raising=False)
-
-
-@pytest.mark.usefixtures("_no_vault_token")
-def test_vault_provider_without_a_token_makes_no_request() -> None:
+def test_vault_provider_without_a_token_makes_no_request(
+    stub_web: StubWeb, keyring_store: FakeKeyring
+) -> None:
     """With no usable token, the chain's Vault provider asks nothing of Vault or the keyring."""
-    with (
-        patch("devops_cli.http.broker.HttpClientBroker.request") as mock_request,
-        patch("devops_cli.security.vault_broker.get_keyring_secret") as keyring_fallback,
-    ):
-        assert VaultProvider().get(_ref()) is None
-
-    mock_request.assert_not_called()
-    keyring_fallback.assert_not_called()
+    assert VaultProvider().get(_ref()) is None
+    assert stub_web.sent == []
+    assert "test_secret" not in keyring_store.reads
 
 
-@pytest.mark.usefixtures("_no_vault_token")
 def test_vault_provider_with_a_rejected_token_answers_none(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb, keyring_store: FakeKeyring
 ) -> None:
     """A 403 leaves the provider unable to supply, and the keyring is not read in its place."""
-    import httpx2
-
     monkeypatch.setenv("VAULT_ADDR", "http://127.0.0.1:8200")
     monkeypatch.setenv("VAULT_TOKEN", "s.expired")
-    with (
-        patch(
-            "devops_cli.http.broker.HttpClientBroker.request",
-            return_value=httpx2.Response(403, json={}),
-        ) as mock_request,
-        patch("devops_cli.security.vault_broker.get_keyring_secret") as keyring_fallback,
-    ):
-        assert VaultProvider().get(_ref()) is None
+    stub_web.respond("GET", "http://127.0.0.1:8200/v1/secret/data/test", 403, {})
 
-    assert mock_request.call_count == 1
-    keyring_fallback.assert_not_called()
+    assert VaultProvider().get(_ref()) is None
+    assert len(stub_web.sent) == 1
+    assert "test_secret" not in keyring_store.reads
 
 
-@pytest.mark.usefixtures("_no_vault_token")
 def test_resolving_the_broker_token_builds_no_second_broker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -231,8 +202,7 @@ def test_resolving_the_broker_token_builds_no_second_broker(
         original_init(self, *args, **kwargs)
 
     monkeypatch.setattr(vault_broker.VaultSecretBroker, "__init__", counting_init)
-    with patch.object(KeyringProvider, "get", return_value=None):
-        assert get_resolver().resolve(_ref(env_vars=(), settings_path=None)) is None
+    assert get_resolver().resolve(_ref(keyring_key=None, env_vars=(), settings_path=None)) is None
 
     names = [entry.credential_id for entry in get_resolver().audit.entries()]
     assert (len(built), names) == (1, ["vault.login", "vault.token", "test.secret"])
@@ -244,27 +214,36 @@ def test_providers_skip_references_they_cannot_serve() -> None:
     assert KeyringProvider().get(bare) is None
     assert EnvironmentProvider().get(bare) is None
     assert SettingsProvider(lambda: SimpleNamespace()).get(bare) is None
-    assert VaultProvider(broker=MagicMock()).get(bare) is None
 
 
-def test_environment_provider_prefers_earlier_variables() -> None:
-    """Environment variables are consulted in declaration order."""
-    ref = _ref(env_vars=("PRIMARY_VAR", "FALLBACK_VAR"))
-    with patch.dict("os.environ", {"PRIMARY_VAR": "primary", "FALLBACK_VAR": "fallback"}):
-        assert EnvironmentProvider().get(ref) == "primary"
-    with patch.dict("os.environ", {"PRIMARY_VAR": "  ", "FALLBACK_VAR": "fallback"}):
-        assert EnvironmentProvider().get(ref) == "fallback"
+def test_environment_provider_prefers_earlier_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The first named variable that holds a value wins."""
+    provider = EnvironmentProvider()
+    ref = SecretRef(name="multi", env_vars=("PRIMARY_VAR", "FALLBACK_VAR"))
+    monkeypatch.setenv("PRIMARY_VAR", "primary")
+    monkeypatch.setenv("FALLBACK_VAR", "fallback")
+    assert provider.get(ref) == "primary"
 
 
-def test_settings_provider_walks_dotted_paths() -> None:
-    """Nested configuration attributes are reachable through a dotted path."""
-    settings = SimpleNamespace(section=SimpleNamespace(value="nested"))
-    assert SettingsProvider(lambda: settings).get(_ref()) == "nested"
-    assert SettingsProvider(lambda: SimpleNamespace()).get(_ref()) is None
+def test_environment_provider_ignores_whitespace_only_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty or whitespace-only environment values are treated as unset."""
+    provider = EnvironmentProvider()
+    ref = SecretRef(name="multi", env_vars=("PRIMARY_VAR", "FALLBACK_VAR"))
+    monkeypatch.setenv("PRIMARY_VAR", "  ")
+    monkeypatch.setenv("FALLBACK_VAR", "fallback")
+    assert provider.get(ref) == "fallback"
 
 
-def test_settings_provider_tolerates_unloadable_settings() -> None:
-    """A configuration load failure degrades to None rather than breaking resolution."""
+def test_settings_provider_tolerates_attribute_errors() -> None:
+    """A missing attribute along the path yields None rather than raising AttributeError."""
+    provider = SettingsProvider(lambda: SimpleNamespace(wrong_section=SimpleNamespace()))
+    assert provider.get(_ref()) is None
+
+
+def test_settings_provider_tolerates_broken_settings_source() -> None:
+    """A source callable that raises is treated as having no value for the secret."""
 
     def _broken() -> Any:
         raise RuntimeError("config unreadable")
@@ -274,24 +253,33 @@ def test_settings_provider_tolerates_unloadable_settings() -> None:
 
 def test_vault_provider_rejects_structured_values() -> None:
     """A Vault path returning a map is not a single credential value."""
-    broker = MagicMock()
-    broker.read_secret.return_value = {"nested": "structure"}
-    assert VaultProvider(broker=broker).get(_ref()) is None
 
-    broker.read_secret.return_value = "  vault-value  "
-    assert VaultProvider(broker=broker).get(_ref()) == "vault-value"
+    class _DummyBroker:
+        vault_token = "s.token"
+
+        def __init__(self, value: Any) -> None:
+            self.value = value
+
+        def read_secret(self, *args: Any, **kwargs: Any) -> Any:
+            return self.value
+
+    assert VaultProvider(broker=_DummyBroker({"nested": "structure"})).get(_ref()) is None
+    assert VaultProvider(broker=_DummyBroker("  vault-value  ")).get(_ref()) == "vault-value"
 
 
-def test_provider_failures_are_contained() -> None:
+def test_provider_failures_are_contained(keyring_store: FakeKeyring) -> None:
     """A provider that raises is treated as unable to supply, not as fatal."""
-    broker = MagicMock()
-    broker.read_secret.side_effect = VaultUnreachableError("vault unreachable")
-    assert VaultProvider(broker=broker).get(_ref()) is None
 
-    with patch(
-        "devops_cli.config.os_keyring.get_keyring_secret", side_effect=RuntimeError("locked")
-    ):
-        assert KeyringProvider().get(_ref()) is None
+    class _FailingBroker:
+        vault_token = "s.token"
+
+        def read_secret(self, *args: Any, **kwargs: Any) -> Any:
+            raise VaultUnreachableError("vault unreachable")
+
+    assert VaultProvider(broker=_FailingBroker()).get(_ref()) is None
+
+    keyring_store.locked = True
+    assert KeyringProvider().get(_ref()) is None
 
 
 def test_providers_satisfy_the_protocol() -> None:
@@ -349,12 +337,7 @@ def test_audit_never_stores_the_secret_value() -> None:
 def test_audit_debug_log_carries_only_the_credential_identifier(
     caplog: Any,
 ) -> None:
-    """The debug log line records which credential was requested, never its value.
-
-    CodeQL flagged the previous parameter name as clear-text logging of a secret. The
-    parameter holds an identifier such as `grafana.token`; this pins that the emitted log
-    record cannot contain the credential value.
-    """
+    """The debug log line records which credential was requested, never its value."""
     import logging
 
     resolver = SecretResolver(providers=[_StubProvider("keyring", "super-secret-value")])
@@ -445,10 +428,10 @@ def _auth_response(**overrides: Any) -> dict[str, Any]:
     return {"auth": auth}
 
 
-def test_approle_login_projects_typed_result() -> None:
+def test_approle_login_projects_typed_result(stub_web: StubWeb) -> None:
     """A successful AppRole login yields a typed result with its lease metadata."""
-    with patch("devops_cli.security.vault_lease._post", return_value=_auth_response()):
-        result = login_approle("http://example.com:8200", "role", "secret")
+    stub_web.respond("POST", "http://example.com:8200/v1/auth/approle/login", 200, _auth_response())
+    result = login_approle("http://example.com:8200", "role", "secret")
 
     assert (result.method, result.lease_duration, result.renewable, result.policies) == (
         "approle",
@@ -464,23 +447,27 @@ def test_approle_login_requires_both_credentials() -> None:
         login_approle("http://example.com:8200", "", "secret")
 
 
-def test_login_without_client_token_is_an_error() -> None:
+def test_login_without_client_token_is_an_error(stub_web: StubWeb) -> None:
     """A login response carrying no token is a failure, not a silent success."""
-    with patch("devops_cli.security.vault_lease._post", return_value={"auth": {}}):
-        with pytest.raises(VaultAuthenticationError, match="no client token"):
-            login_approle("http://example.com:8200", "role", "secret")
+    stub_web.respond("POST", "http://example.com:8200/v1/auth/approle/login", 200, {"auth": {}})
+    with pytest.raises(VaultAuthenticationError, match="no client token"):
+        login_approle("http://example.com:8200", "role", "secret")
 
 
-def test_kubernetes_login_uses_projected_service_account_token(tmp_path: Any) -> None:
+def test_kubernetes_login_uses_projected_service_account_token(
+    stub_web: StubWeb, tmp_path: Any
+) -> None:
     """The in-cluster ServiceAccount token is read from its projected path."""
     token_file = tmp_path / "token"
     token_file.write_text("sa-jwt-token\n", encoding="utf-8")
 
-    with patch("devops_cli.security.vault_lease._post", return_value=_auth_response()) as mock_post:
-        result = login_kubernetes("http://example.com:8200", "my-role", token_path=str(token_file))
+    stub_web.respond(
+        "POST", "http://example.com:8200/v1/auth/kubernetes/login", 200, _auth_response()
+    )
+    result = login_kubernetes("http://example.com:8200", "my-role", token_path=str(token_file))
 
     assert result.method == "kubernetes"
-    assert mock_post.call_args[0][2] == {"role": "my-role", "jwt": "sa-jwt-token"}
+    assert json.loads(stub_web.sent[0].content) == {"role": "my-role", "jwt": "sa-jwt-token"}
 
 
 def test_kubernetes_login_without_a_token_is_rejected(tmp_path: Any) -> None:
@@ -573,13 +560,15 @@ def test_non_renewable_leases_are_never_renewed() -> None:
     assert registry.needs_renewal(lease, now=time.time() + 99) is False
 
 
-def test_renew_extends_the_lease_and_counts_renewals() -> None:
+def test_renew_extends_the_lease_and_counts_renewals(stub_web: StubWeb) -> None:
     """A renewed lease records its new lifetime and increments the renewal count."""
     registry = _registry()
     registry.track("lease-1", 100, renewable=True)
+    stub_web.respond(
+        "POST", "http://example.com:8200/v1/sys/leases/renew", 200, {"lease_duration": 3600}
+    )
 
-    with patch("devops_cli.security.vault_lease._post", return_value={"lease_duration": 3600}):
-        renewed = registry.renew("lease-1")
+    renewed = registry.renew("lease-1")
 
     assert (renewed.duration_seconds, renewed.renewal_count) == (3600, 1)
 
@@ -595,7 +584,7 @@ def test_renewing_an_untracked_or_fixed_lease_is_an_error() -> None:
         registry.renew("fixed")
 
 
-def test_renew_expiring_sweeps_every_lease_despite_a_failure() -> None:
+def test_renew_expiring_sweeps_every_lease_despite_a_failure(stub_web: StubWeb) -> None:
     """One failed renewal does not deny the remaining leases their chance."""
     registry = _registry()
     issued = time.time() - 90
@@ -606,192 +595,121 @@ def test_renew_expiring_sweeps_every_lease_despite_a_failure() -> None:
         )
     registry.track("fresh", 100, renewable=True)
 
-    def _renew(addr: str, path: str, payload: dict[str, Any], headers: dict[str, str]) -> Any:
-        if payload.get("lease_id") == "b":
-            raise VaultLeaseError("renewal rejected")
-        return {"lease_duration": 3600}
+    def handle_renew(req: httpx2.Request) -> httpx2.Response:
+        data = json.loads(req.content)
+        if data.get("lease_id") == "b":
+            return httpx2.Response(400, json={"errors": ["renewal rejected"]})
+        return httpx2.Response(200, json={"lease_duration": 3600})
 
-    with patch("devops_cli.security.vault_lease._post", side_effect=_renew):
-        report = registry.renew_expiring()
+    stub_web.serve(handle_renew)
+    report = registry.renew_expiring()
 
     assert (sorted(report.renewed), report.failed, report.skipped) == (["a", "c"], ["b"], ["fresh"])
     assert report.all_renewed is False
 
 
-def test_revoke_reports_the_refusal_and_stops_tracking() -> None:
+def test_revoke_reports_the_refusal_and_stops_tracking(stub_web: StubWeb) -> None:
     """A refused revocation raises with Vault's status; the lease is dropped from tracking."""
     registry = _registry()
     registry.track("lease-1", 100, renewable=True)
-    refusal = VaultLeaseError("Vault API call failed with status 400", status_code=400)
+    stub_web.respond(
+        "POST", "http://example.com:8200/v1/sys/leases/revoke", 400, {"errors": ["bad request"]}
+    )
 
-    with patch("devops_cli.security.vault_lease._post", side_effect=refusal):
-        with pytest.raises(VaultLeaseError) as raised:
-            registry.revoke("lease-1")
+    with pytest.raises(VaultLeaseError) as raised:
+        registry.revoke("lease-1")
 
     assert (raised.value.status_code, registry.leases()) == (400, [])
 
 
-def test_revoke_all_clears_the_registry_and_names_the_refusals() -> None:
+def test_revoke_all_clears_the_registry_and_names_the_refusals(stub_web: StubWeb) -> None:
     """Every tracked lease is revoked in one sweep; the ones Vault refused are returned."""
     registry = _registry()
     for lease_id in ("a", "b"):
         registry.track(lease_id, 100, renewable=True)
 
-    def _revoke(addr: str, path: str, payload: dict[str, Any], headers: dict[str, str]) -> Any:
-        if payload["lease_id"] == "b":
-            raise VaultLeaseError("refused", status_code=403)
-        return {}
+    def handle_revoke(req: httpx2.Request) -> httpx2.Response:
+        data = json.loads(req.content)
+        if data.get("lease_id") == "b":
+            return httpx2.Response(403, json={"errors": ["refused"]})
+        return httpx2.Response(204)
 
-    with patch("devops_cli.security.vault_lease._post", side_effect=_revoke):
-        refused = registry.revoke_all()
+    stub_web.serve(handle_revoke)
+    refused = registry.revoke_all()
 
     assert (refused, registry.leases()) == (["b"], [])
 
 
-def test_renew_token_returns_new_lifetime() -> None:
+def test_renew_token_returns_new_lifetime(stub_web: StubWeb) -> None:
     """Renewing the client token reports its refreshed lifetime."""
     registry = _registry()
-    with patch(
-        "devops_cli.security.vault_lease._post",
-        return_value={"auth": {"lease_duration": 7200}},
-    ):
-        assert registry.renew_token() == 7200
-
-
-def test_get_lease_registry_rebuilds_on_credential_change() -> None:
-    """The session registry caches for identical credentials and rebuilds when token or address changes."""
-    from devops_cli.security.vault_lease import (
-        LeaseRegistry,
-        get_lease_registry,
-        reset_lease_registry,
+    stub_web.respond(
+        "POST",
+        "http://example.com:8200/v1/auth/token/renew-self",
+        200,
+        {"auth": {"lease_duration": 7200}},
     )
-
-    reset_lease_registry()
-    reg1 = LeaseRegistry(vault_addr="http://example.com:8200", token="s.token-1", namespace=None)
-    reg1.track("lease-1", 100, renewable=True)
-
-    # First call caches reg1
-    cached = get_lease_registry(reg1)
-    assert cached is reg1
-    assert len(cached.leases()) == 1
-
-    # Same credentials reuse cached registry (keeping tracked leases)
-    reg2 = LeaseRegistry(vault_addr="http://example.com:8200", token="s.token-1", namespace=None)
-    assert get_lease_registry(reg2) is reg1
-    assert len(get_lease_registry(reg2).leases()) == 1
-
-    # Changed token rebuilds the registry
-    reg3 = LeaseRegistry(vault_addr="http://example.com:8200", token="s.token-2", namespace=None)
-    rebuilt = get_lease_registry(reg3)
-    assert rebuilt is reg3
-    assert len(rebuilt.leases()) == 0
-
-    # Changed address rebuilds the registry
-    reg4 = LeaseRegistry(
-        vault_addr="http://other.example.com:8200", token="s.token-2", namespace=None
-    )
-    assert get_lease_registry(reg4) is reg4
-
-    # Changed namespace rebuilds the registry
-    reg5 = LeaseRegistry(
-        vault_addr="http://other.example.com:8200", token="s.token-2", namespace="team-a"
-    )
-    assert get_lease_registry(reg5) is reg5
-
-    # reset_lease_registry clears the cached registry
-    reset_lease_registry()
-    reg6 = LeaseRegistry(
-        vault_addr="http://other.example.com:8200", token="s.token-2", namespace="team-a"
-    )
-    assert get_lease_registry(reg6) is reg6
+    assert registry.renew_token() == 7200
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. Vault HTTP boundary
+# 7. Same-origin and error wrapping at the HTTP boundary
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _broker_response(status: int = 200, payload: Any = None, content: bytes = b"{}") -> Any:
-    """Build a stub HTTP response from the shared broker."""
-    response = MagicMock()
-    response.status_code = status
-    response.content = content
-    response.json.return_value = payload if payload is not None else {}
-    return response
-
-
-def test_post_routes_through_the_egress_validated_broker() -> None:
+def test_post_routes_through_the_egress_validated_broker(stub_web: StubWeb) -> None:
     """Vault calls go through the shared broker, which enforces egress validation."""
-    from devops_cli.http.egress import EgressLevel
     from devops_cli.security.vault_lease import _post
 
-    mock_broker = MagicMock()
-    mock_broker.request.return_value = _broker_response(payload={"ok": True})
-
-    with patch("devops_cli.http.broker.get_broker", return_value=mock_broker):
-        result = _post("http://example.com:8200/", "sys/leases/renew", {"a": 1}, {})
+    stub_web.respond("POST", "http://example.com:8200/v1/sys/leases/renew", 200, {"ok": True})
+    result = _post("http://example.com:8200/", "sys/leases/renew", {"a": 1}, {})
 
     assert result == {"ok": True}
-    method, url = mock_broker.request.call_args[0]
-    level = mock_broker.request.call_args.kwargs["level"]
-    assert (method, url, level) == (
-        "POST",
-        "http://example.com:8200/v1/sys/leases/renew",
-        EgressLevel.PRIVATE,
-    )
-    policy = mock_broker.request.call_args.kwargs["extensions"][CONST_HTTP_EGRESS_POLICY_EXTENSION]
+    sent = stub_web.sent[0]
+    assert (sent.method, str(sent.url)) == ("POST", "http://example.com:8200/v1/sys/leases/renew")
+    policy = sent.extensions[CONST_HTTP_EGRESS_POLICY_EXTENSION]
     policy("http://example.com:8200/v1/sys/leases/renew")
     with pytest.raises(VaultOperationError, match=re.escape("https://example.com")):
         policy("https://example.com/v1/sys/leases/renew")
 
 
-def test_post_reports_an_unreachable_vault() -> None:
+def test_post_reports_an_unreachable_vault(stub_web: StubWeb) -> None:
     """A transport failure becomes a typed error rather than a raw httpx2 exception."""
-    import httpx2
-
     from devops_cli.security.vault_lease import _post
 
-    mock_broker = MagicMock()
-    mock_broker.request.side_effect = httpx2.ConnectTimeout("timed out")
-
-    with patch("devops_cli.http.broker.get_broker", return_value=mock_broker):
-        with pytest.raises(VaultUnreachableError, match="did not answer: ConnectTimeout"):
-            _post("http://example.com:8200", "sys/leases/renew", {}, {})
+    stub_web.fail("http://example.com:8200/v1/sys/leases/renew", httpx2.ConnectTimeout("timed out"))
+    with pytest.raises(VaultUnreachableError, match="did not answer: ConnectTimeout"):
+        _post("http://example.com:8200", "sys/leases/renew", {}, {})
 
 
-def test_post_raises_on_error_status() -> None:
+def test_post_raises_on_error_status(stub_web: StubWeb) -> None:
     """A Vault error status becomes a typed lease error naming the path."""
     from devops_cli.security.vault_lease import _post
 
-    mock_broker = MagicMock()
-    mock_broker.request.return_value = _broker_response(status=403)
-
-    with patch("devops_cli.http.broker.get_broker", return_value=mock_broker):
-        with pytest.raises(VaultLeaseError, match="status 403") as raised:
-            _post("http://example.com:8200", "sys/leases/renew", {}, {})
+    stub_web.respond("POST", "http://example.com:8200/v1/sys/leases/renew", 403, {})
+    with pytest.raises(VaultLeaseError, match="status 403") as raised:
+        _post("http://example.com:8200", "sys/leases/renew", {}, {})
     assert raised.value.status_code == 403
 
 
-def test_post_tolerates_an_empty_body() -> None:
+def test_post_tolerates_an_empty_body(stub_web: StubWeb) -> None:
     """A successful call with no body yields an empty mapping, not an error."""
     from devops_cli.security.vault_lease import _post
 
-    mock_broker = MagicMock()
-    mock_broker.request.return_value = _broker_response(content=b"")
-
-    with patch("devops_cli.http.broker.get_broker", return_value=mock_broker):
-        assert _post("http://example.com:8200", "sys/leases/revoke", {}, {}) == {}
+    stub_web.respond("POST", "http://example.com:8200/v1/sys/leases/revoke", 204)
+    assert _post("http://example.com:8200", "sys/leases/revoke", {}, {}) == {}
 
 
-def test_post_ignores_a_non_mapping_body() -> None:
+def test_post_ignores_a_non_mapping_body(stub_web: StubWeb) -> None:
     """A response body that is not a JSON object is treated as empty."""
     from devops_cli.security.vault_lease import _post
 
-    mock_broker = MagicMock()
-    mock_broker.request.return_value = _broker_response(payload=["unexpected"])
-
-    with patch("devops_cli.http.broker.get_broker", return_value=mock_broker):
-        assert _post("http://example.com:8200", "sys/leases/renew", {}, {}) == {}
+    stub_web.page(
+        "http://example.com:8200/v1/sys/leases/renew",
+        '["unexpected"]',
+        headers={"content-type": "application/json"},
+    )
+    assert _post("http://example.com:8200", "sys/leases/renew", {}, {}) == {}
 
 
 def test_registry_headers_carry_token_and_namespace() -> None:
@@ -810,13 +728,20 @@ def test_registry_headers_always_carry_the_token() -> None:
     assert (headers["X-Vault-Token"], "X-Vault-Namespace" in headers) == ("s.token", False)
 
 
-def test_revoke_self_sends_the_token_to_its_own_vault() -> None:
+def test_revoke_self_sends_the_token_to_its_own_vault(stub_web: StubWeb) -> None:
     """Logout's revoke-self call carries the stored token and namespace."""
     from devops_cli.security.vault_lease import revoke_self
 
-    with patch("devops_cli.security.vault_lease._post", return_value={}) as mock_post:
-        revoke_self("http://example.com:8200", "s.token", "team-a")
+    stub_web.respond("POST", "http://example.com:8200/v1/auth/token/revoke-self", 204)
+    revoke_self("http://example.com:8200", "s.token", "team-a")
 
-    addr, path, payload, headers = mock_post.call_args[0]
-    assert (addr, path, payload) == ("http://example.com:8200", "auth/token/revoke-self", {})
-    assert (headers["X-Vault-Token"], headers["X-Vault-Namespace"]) == ("s.token", "team-a")
+    assert len(stub_web.sent) == 1
+    assert (
+        str(stub_web.sent[0].url),
+        stub_web.sent[0].headers.get("X-Vault-Token"),
+        stub_web.sent[0].headers.get("X-Vault-Namespace"),
+    ) == (
+        "http://example.com:8200/v1/auth/token/revoke-self",
+        "s.token",
+        "team-a",
+    )

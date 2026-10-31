@@ -894,17 +894,47 @@ def test_a_path_that_the_token_cannot_read_is_asked_once(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """After one 403 "Resource not accessible by integration" for a repository and an endpoint,
-    the process does not ask that path again. The first refusal logs one warning."""
+    the process does not ask that path again. The refusal logs zero warnings and one debug line (#2626)."""
     github = _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
 
-    with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.github.metrics"):
         get_repository_traffic_metrics("example/repo")
         get_repository_traffic_metrics("example/repo")
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and "traffic" in r.getMessage().lower()
+    ]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.DEBUG and "integration" in r.getMessage().lower()
+    ]
 
     assert (
         github.traffic_calls(),
-        sum("Failed to query" in r.getMessage() for r in caplog.records),
-    ) == (_traffic_paths("example/repo"), 4)
+        warnings,
+        len(debugs),
+    ) == (_traffic_paths("example/repo"), [], 1)
+
+
+def test_traffic_api_integration_403_skips_gauges(
+    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
+) -> None:
+    """When the traffic API returns 403 integration refusal, no traffic gauges are emitted (#2626)."""
+    _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+
+    traffic = get_repository_traffic_metrics("example/repo")
+    assert traffic.traffic_collected is False
+
+    report = ProjectMetricsReport(
+        repo="example/repo",
+        generated_at="2026-10-30 00:00:00 UTC",
+        traffic=traffic,
+    )
+    emit_project_metrics_telemetry(report)
+    assert [otlp.points(s.name) for s in TRAFFIC_SERIES] == [[] for _ in TRAFFIC_SERIES]
 
 
 def test_a_refusal_for_one_repository_does_not_stop_the_others(

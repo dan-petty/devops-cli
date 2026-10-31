@@ -29,8 +29,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
-from devops_cli.dry_run import is_dry_run
-from devops_cli.dry_run.requests import render_request_plan
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError
@@ -69,20 +69,33 @@ from devops_cli.github.milestones import (
 from devops_cli.github.pages import (
     get_pages_builds,
     get_pages_status,
+    pages_build_requests,
+    pages_builds_requests,
+    pages_status_requests,
     request_pages_build,
     verify_pages_configuration,
 )
 from devops_cli.github.projects import (
     ReconcileResult,
     audit_project_drift,
+    audit_project_requests,
     audit_remote_project_views,
+    audit_views_requests,
     get_project_workflows,
+    link_project_requests,
     link_project_to_repository,
     list_remote_projects,
     load_project_template,
+    project_list_requests,
     project_template_path,
+    project_workflows_requests,
     sync_remote_project,
     sync_remote_project_views,
+    sync_views_requests,
+)
+from devops_cli.github.rate_limit_view import (
+    format_rate_limit_rows,
+    parse_rate_limit_payload,
 )
 from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
 from devops_cli.github.secrets import (
@@ -138,12 +151,32 @@ def _resolve_repo(repo: str | None = None) -> str:
     return target or "unknown/repo"
 
 
-def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
-    """Retrieve repository labels via the gh CLI; none when gh cannot list them."""
-    cmd = ["label", "list", "--json", "name,color,description"]
-    cmd += ["--limit", str(DEFAULT_GH_LABEL_LIST_LIMIT)]
+def labels_list_args(repo: str | None = None) -> list[str]:
+    """Arguments for listing repository labels."""
+    cmd = [
+        "label",
+        "list",
+        "--json",
+        "name,color,description",
+        "--limit",
+        str(DEFAULT_GH_LABEL_LIST_LIMIT),
+    ]
     if repo:
         cmd.extend(["--repo", repo])
+    return cmd
+
+
+def labels_list_requests(repo: str | None = None) -> list[PlannedRequest]:
+    """Planned requests for listing repository labels."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    args = labels_list_args(repo)
+    return [planned_gh(args, f"repos/{repo or '<repo>'}/labels")]
+
+
+def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
+    """Retrieve repository labels via the gh CLI; none when gh cannot list them."""
+    cmd = labels_list_args(repo)
     res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
@@ -153,8 +186,8 @@ def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
     return []
 
 
-def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, Any]]:
-    """Retrieve open pull requests for taxonomy auditing."""
+def audit_labels_args(repo: str | None = None, limit: int = 30) -> list[str]:
+    """Arguments for retrieving open pull requests for taxonomy auditing."""
     cmd = [
         "pr",
         "list",
@@ -167,6 +200,20 @@ def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, An
     ]
     if repo:
         cmd.extend(["--repo", repo])
+    return cmd
+
+
+def audit_labels_requests(repo: str | None = None, limit: int = 30) -> list[PlannedRequest]:
+    """Planned requests for auditing repository taxonomy labels."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    args = audit_labels_args(repo, limit=limit)
+    return [planned_gh(args, f"repos/{repo or '<repo>'}/pulls")]
+
+
+def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, Any]]:
+    """Retrieve open pull requests for taxonomy auditing."""
+    cmd = audit_labels_args(repo, limit=limit)
     res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=15.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
@@ -182,10 +229,20 @@ def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, An
 
 
 @labels_app.command("list")
+@dry_run_class("request-plan")
 def list_labels(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List all labels defined in the remote repository."""
+    target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        planned = labels_list_requests(target_repo)
+        render_request_plan(f"Plan for listing labels in {target_repo}", planned)
+        return
     labels = _get_repo_labels(repo)
     if not labels:
         print_info("No remote repository labels found or gh CLI not configured.")
@@ -204,6 +261,7 @@ def list_labels(
 
 
 @labels_app.command("sync")
+@dry_run_class("request-plan")
 def sync_labels(
     file: Annotated[
         Path,
@@ -223,6 +281,13 @@ def sync_labels(
         print_error(f"Failed to load labels schema: {exc}")
         raise typer.Exit(1) from exc
 
+    if dry_run or is_dry_run():
+        from devops_cli.github.labels import sync_labels_requests
+
+        planned = sync_labels_requests(target_repo, desired)
+        render_request_plan(f"Plan for synchronizing labels in {target_repo}", planned)
+        return
+
     try:
         result = sync_repository_labels(
             GhCliClient(target_repo), target_repo, desired, dry_run=dry_run
@@ -239,10 +304,20 @@ def sync_labels(
 
 
 @labels_app.command("audit")
+@dry_run_class("request-plan")
 def audit_labels(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit open pull requests for mandatory type/ and scope/ taxonomy labels."""
+    target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        planned = audit_labels_requests(target_repo)
+        render_request_plan(f"Plan for taxonomy labels audit in {target_repo}", planned)
+        return
     prs = _get_repo_prs(repo)
     findings = audit_repository_labels(prs)
 
@@ -297,17 +372,28 @@ def _progress_row(prog: MilestoneProgress) -> list[str]:
 
 
 @milestones_app.command("list")
+@dry_run_class("request-plan")
 def list_milestones(
     state: Annotated[
         str, typer.Option("--state", "-s", help="Milestone state filter (open, closed or all)")
     ] = CONST_GH_MILESTONE_STATE_ALL,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List every milestone, by due date and then by number, with its issue completion rate."""
     if state not in CONST_GH_MILESTONE_STATE_FILTERS:
         print_error(f"Unsupported state '{state}'. Supported states: open, closed, all.")
         raise typer.Exit(1)
     target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        from devops_cli.roadmap.request_plan import milestones_list_requests
+
+        planned = milestones_list_requests(target_repo)
+        render_request_plan(f"Plan for listing milestones in {target_repo}", planned)
+        return
     with _exit_on_roadmap_error(f"Failed to list milestones in {target_repo}"):
         milestones = roadmap_store.get_roadmap_store(target_repo).milestones()
     shown = [m for m in milestones if state in (CONST_GH_MILESTONE_STATE_ALL, m.state)]
@@ -324,12 +410,23 @@ MilestoneArgument = Annotated[str, typer.Argument(help=HELP.gh.milestone_name)]
 
 
 @milestones_app.command("status")
+@dry_run_class("request-plan")
 def status_milestone(
     name: MilestoneArgument,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Inspect detailed progress and issue health for a specific milestone."""
     target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        from devops_cli.roadmap.request_plan import milestones_status_requests
+
+        planned = milestones_status_requests(target_repo)
+        render_request_plan(f"Plan for milestone '{name}' status in {target_repo}", planned)
+        return
     with _exit_on_roadmap_error(f"Failed to read milestone '{name}' in {target_repo}"):
         matched = roadmap_store.get_roadmap_store(target_repo).milestone(name)
     if matched is None:
@@ -351,18 +448,30 @@ def status_milestone(
 
 
 @milestones_app.command("close", help=HELP.gh.milestones_close)
+@dry_run_class("request-plan")
 def close_milestone(
     name: MilestoneArgument,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Close the milestone with the given title or number."""
     target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        from devops_cli.roadmap.request_plan import milestones_close_requests
+
+        planned = milestones_close_requests(target_repo, name)
+        render_request_plan(f"Plan for closing milestone '{name}' in {target_repo}", planned)
+        return
     with _exit_on_roadmap_error(f"Failed to close milestone '{name}' in {target_repo}"):
         roadmap_store.get_roadmap_store(target_repo).close_milestone(name)
     print_success(f"Successfully closed milestone '{name}' in {target_repo}.")
 
 
 @milestones_app.command("edit", help=HELP.gh.milestones_edit)
+@dry_run_class("request-plan")
 def edit_milestone_cmd(
     name: MilestoneArgument,
     title: Annotated[
@@ -382,6 +491,10 @@ def edit_milestone_cmd(
         typer.Option("--due-date", help="ISO due date (YYYY-MM-DD)"),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Edit an existing milestone's title, description, state, or due date; nothing else changes."""
     if all(change is None for change in (title, description, state, due_on)):
@@ -390,6 +503,22 @@ def edit_milestone_cmd(
 
     new_state, new_due_on = _parse_milestone_edits(state, due_on)
     target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        from devops_cli.roadmap.request_plan import milestones_edit_requests
+
+        fields: list[tuple[str, str]] = []
+        if title is not None:
+            fields.append(("title", title))
+        if description is not None:
+            fields.append(("description", description))
+        if state is not None and new_state is not None:
+            state_val = new_state.value if hasattr(new_state, "value") else str(new_state)
+            fields.append(("state", state_val))
+        if due_on is not None and new_due_on is not None:
+            fields.append(("due_on", new_due_on.isoformat()))
+        planned = milestones_edit_requests(target_repo, name, fields)
+        render_request_plan(f"Plan for editing milestone '{name}' in {target_repo}", planned)
+        return
     with _exit_on_roadmap_error(f"Failed to update milestone '{name}' in {target_repo}"):
         roadmap_store.get_roadmap_store(target_repo).edit_milestone(
             name, title=title, description=description, due_on=new_due_on, state=new_state
@@ -403,6 +532,7 @@ def edit_milestone_cmd(
 
 
 @project_app.command("status")
+@dry_run_class("no-external-request")
 def status_project(
     template_file: Annotated[
         Path | None,
@@ -421,6 +551,7 @@ def status_project(
 
 
 @project_app.command("sync", help=HELP.gh.project_sync)
+@dry_run_class("request-plan")
 def sync_project(
     template_file: Annotated[
         Path | None,
@@ -452,15 +583,13 @@ def sync_project(
     )
     texts = MESSAGES.project
     if res.dry_run:
-        print_info(
-            texts.sync_dry_run.format(
-                title=res.project_title,
-                owner=owner,
-                repo=target_repo,
-                fields=", ".join(f.name for f in template.fields),
-                reconcile=texts.sync_dry_run_reconcile if reconcile_fields else "",
-            )
+        heading = "\n\n".join(
+            [
+                f"devops gh project sync for {target_repo}",
+                f"[DRY RUN] No request was made. {MESSAGES.roadmap.plan_dry_run}",
+            ]
         )
+        render_request_plan(heading, res.requests, texts.dry_run_notes, described=True)
         return
     print_success(
         texts.sync_done.format(
@@ -519,6 +648,7 @@ def _report_reconcile(result: ReconcileResult, repo: str) -> None:
 
 
 @project_app.command("reconcile", help=HELP.gh.project_reconcile)
+@dry_run_class("request-plan")
 def reconcile_project_cmd(
     project_number: Annotated[
         int | None,
@@ -565,14 +695,23 @@ def reconcile_project_cmd(
 
 
 @project_app.command("link", help=HELP.gh.project_link)
+@dry_run_class("request-plan")
 def link_project(
     project_number: Annotated[int, typer.Argument(help="GitHub Projects v2 board number")],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Link a GitHub Projects v2 board to the repository."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
+    if dry_run or is_dry_run():
+        planned = link_project_requests(project_number, owner, repo_name)
+        render_request_plan(f"Plan for linking project #{project_number} to {target_repo}", planned)
+        return
     ok = link_project_to_repository(project_number, owner, repo_name)
     if ok:
         print_success(f"Linked project #{project_number} to {target_repo}.")
@@ -586,6 +725,7 @@ project_app.add_typer(workflows_app, name="workflows")
 
 
 @workflows_app.command("list", help=HELP.gh.project_workflows_list)
+@dry_run_class("request-plan")
 def list_project_workflows(
     project_number: Annotated[
         int | None,
@@ -597,10 +737,23 @@ def list_project_workflows(
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List built-in project workflows, enabled statuses, and configuration links."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    if dry_run or is_dry_run():
+        proj_num = project_number if project_number is not None else 1
+        planned = project_workflows_requests(proj_num, owner, repo=target_repo)
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
+            return
+        render_request_plan(f"Plan for listing workflows of project #{proj_num} ({owner})", planned)
+        return
     proj_num = _resolve_project_number(owner, target_repo, project_number)
 
     workflows = get_project_workflows(proj_num, owner, repo=target_repo)
@@ -653,13 +806,22 @@ def _report_workflow_gaps(workflows: list[dict[str, Any]], proj_num: int) -> Non
 
 
 @project_app.command("list", help=HELP.gh.project_list)
+@dry_run_class("request-plan")
 def list_projects(
     owner: Annotated[
         str | None, typer.Option("--owner", "-o", help="Target user or organization")
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List available GitHub Projects v2 boards."""
     resolved_owner = owner or _resolve_repo().split("/")[0]
+    if dry_run or is_dry_run():
+        planned = project_list_requests(resolved_owner)
+        render_request_plan(f"Plan for listing projects of {resolved_owner}", planned)
+        return
     projects = list_remote_projects(resolved_owner)
     if not projects:
         print_info(f"No GitHub Projects v2 boards found for owner '{resolved_owner}'.")
@@ -670,18 +832,27 @@ def list_projects(
 
 
 @project_app.command("audit", help=HELP.gh.project_audit)
+@dry_run_class("request-plan")
 def audit_project(
     template_file: Annotated[
         Path | None,
         typer.Option("--template", "-t", help=HELP.gh.project_template_file),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit project board health and alignment against standardized template."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
     template = load_project_template(template_file)
+    if dry_run or is_dry_run():
+        planned = audit_project_requests(owner, repo_name, template)
+        render_request_plan(f"Plan for auditing project drift ({owner}/{repo_name})", planned)
+        return
     res = audit_project_drift(owner, repo_name, template)
     if not res.get("project_found"):
         print_warning(f"No active project board found for repository '{target_repo}'.")
@@ -701,6 +872,7 @@ def audit_project(
 
 
 @project_app.command("template")
+@dry_run_class("no-external-request")
 def show_template(
     template_file: Annotated[
         Path | None,
@@ -719,6 +891,7 @@ def show_template(
 
 
 @views_app.command("list")
+@dry_run_class("no-external-request")
 def list_views(
     template_file: Annotated[
         Path | None,
@@ -742,6 +915,7 @@ def list_views(
 
 
 @views_app.command("spec")
+@dry_run_class("no-external-request")
 def spec_views(
     template_file: Annotated[
         Path | None,
@@ -782,18 +956,29 @@ def _display_issues_saved_views(target_repo: str) -> None:
 
 
 @views_app.command("sync", help=HELP.gh.views_sync)
+@dry_run_class("request-plan")
 def sync_views(
     template_file: Annotated[
         Path | None,
         typer.Option("--template", "-t", help=HELP.gh.project_template_file),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Synchronize standardized views with remote GitHub Projects v2 board."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
     template = load_project_template(template_file)
+
+    if dry_run or is_dry_run():
+        planned = sync_views_requests(owner, repo_name, template)
+        render_request_plan(f"Plan for syncing project views ({owner}/{repo_name})", planned)
+        _display_issues_saved_views(target_repo)
+        return
 
     try:
         res = sync_remote_project_views(owner, repo_name, template)
@@ -813,18 +998,27 @@ def sync_views(
 
 
 @views_app.command("audit", help=HELP.gh.views_audit)
+@dry_run_class("request-plan")
 def audit_views(
     template_file: Annotated[
         Path | None,
         typer.Option("--template", "-t", help=HELP.gh.project_template_file),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit remote project views against standardized view template specifications."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
     template = load_project_template(template_file)
+    if dry_run or is_dry_run():
+        planned = audit_views_requests(owner, repo_name, template)
+        render_request_plan(f"Plan for auditing project views ({owner}/{repo_name})", planned)
+        return
     res = audit_remote_project_views(owner, repo_name, template)
     if not res.get("project_number"):
         print_warning(f"No linked project board found for repository '{target_repo}'.")
@@ -848,11 +1042,20 @@ def audit_views(
 
 
 @pages_app.command("status", help=HELP.gh.pages_status)
+@dry_run_class("request-plan")
 def pages_status_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        planned = pages_status_requests(target_repo)
+        render_request_plan(f"Plan for checking GitHub Pages status ({target_repo})", planned)
+        return
     info = get_pages_status(target_repo)
     if not info:
         print_warning(
@@ -872,12 +1075,21 @@ def pages_status_cmd(
 
 
 @pages_app.command("builds", help=HELP.gh.pages_builds)
+@dry_run_class("request-plan")
 def pages_builds_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     limit: Annotated[int, typer.Option("--limit", "-l", help="Number of builds to retrieve")] = 5,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List recent GitHub Pages build history and durations."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        planned = pages_builds_requests(target_repo, limit=limit)
+        render_request_plan(f"Plan for retrieving Pages builds ({target_repo})", planned)
+        return
     builds = get_pages_builds(target_repo, limit=limit)
     if not builds:
         print_info(f"No recent GitHub Pages builds found for '{target_repo}'.")
@@ -897,11 +1109,20 @@ def pages_builds_cmd(
 
 
 @pages_app.command("build", help=HELP.gh.pages_build)
+@dry_run_class("request-plan")
 def pages_build_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Trigger a new deployment build for GitHub Pages."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        planned = pages_build_requests(target_repo)
+        render_request_plan(f"Plan for requesting Pages build ({target_repo})", planned)
+        return
     ok = request_pages_build(target_repo)
     if ok:
         print_success(f"Successfully requested GitHub Pages build for '{target_repo}'.")
@@ -911,6 +1132,7 @@ def pages_build_cmd(
 
 
 @pages_app.command("verify", help=HELP.gh.pages_verify)
+@dry_run_class("no-external-request")
 def pages_verify_cmd(
     root_dir: Annotated[
         Path,
@@ -935,6 +1157,7 @@ def pages_verify_cmd(
 
 
 @issues_app.command("list", help=HELP.gh.issues_list)
+@dry_run_class("request-plan")
 def issues_list_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     state: Annotated[
@@ -945,9 +1168,21 @@ def issues_list_cmd(
     ] = None,
     label: Annotated[str | None, typer.Option("--label", "-l", help="Filter by label")] = None,
     limit: Annotated[int, typer.Option("--limit", help="Max issues to return")] = 30,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List repository issues with milestone, taxonomy labels, and status."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        from devops_cli.github.issues import issues_list_requests
+
+        planned = issues_list_requests(
+            target_repo, state=state, milestone=milestone, label=label, limit=limit
+        )
+        render_request_plan(f"Plan for listing issues in {target_repo}", planned)
+        return
     issues = get_repository_issues(
         target_repo, state=state, milestone=milestone, label=label, limit=limit
     )
@@ -979,6 +1214,7 @@ def issues_view_cmd(
 
 
 @issues_app.command("create", help=HELP.gh.issues_create)
+@dry_run_class("request-plan")
 def issues_create_cmd(
     title: Annotated[str, typer.Option("--title", "-t", help="Issue title")],
     body: Annotated[str, typer.Option("--body", "-b", help="Issue description")] = "",
@@ -989,9 +1225,21 @@ def issues_create_cmd(
         list[str] | None, typer.Option("--label", "-l", help="Taxonomy label (repeatable)")
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Create a new issue linking milestone and taxonomy labels."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        from devops_cli.github.issues import create_issue_requests
+
+        planned = create_issue_requests(
+            target_repo, title=title, body=body, milestone=milestone, labels=label
+        )
+        render_request_plan(f"Plan for creating issue in {target_repo}", planned)
+        return
     created = create_repository_issue(
         target_repo,
         title=title,
@@ -1005,11 +1253,22 @@ def issues_create_cmd(
 
 
 @issues_app.command("triage", help=HELP.gh.issues_triage)
+@dry_run_class("request-plan")
 def issues_triage_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit open issues for mandatory taxonomy labels, and report those awaiting intake."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        from devops_cli.github.issues import issues_triage_requests
+
+        planned = issues_triage_requests(target_repo)
+        render_request_plan(f"Plan for issue triage in {target_repo}", planned)
+        return
     audit = audit_issues_triage(target_repo)
     columns = ["Metric", "Value", "Violating Issues"]
     rows = [
@@ -1039,11 +1298,22 @@ def issues_triage_cmd(
 
 
 @issues_app.command("status", help=HELP.gh.issues_status)
+@dry_run_class("request-plan")
 def issues_status_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Display aggregated issue counts by priority, type, and milestone."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        from devops_cli.github.issues import issues_status_requests
+
+        planned = issues_status_requests(target_repo)
+        render_request_plan(f"Plan for issue status summary in {target_repo}", planned)
+        return
     summary = get_issues_summary(target_repo)
     columns = ["Category", "Breakdown"]
     p_str = ", ".join(f"{k}: {v}" for k, v in sorted(summary.get("by_priority", {}).items()))
@@ -1059,6 +1329,7 @@ def issues_status_cmd(
 
 
 @issues_app.command("edit", help=HELP.gh.issues_edit)
+@dry_run_class("request-plan")
 def edit_issue_cmd(  # noqa: C901
     number: Annotated[int, typer.Argument(help="Issue number to edit.")],
     title: Annotated[
@@ -1097,6 +1368,10 @@ def edit_issue_cmd(  # noqa: C901
         str | None,
         typer.Option("--repo", "-R", help="Target repository"),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Edit an existing GitHub issue title, body, state, milestone, or taxonomy labels."""
     target_repo = repo or _resolve_repo()
@@ -1115,6 +1390,19 @@ def edit_issue_cmd(  # noqa: C901
         payload["body"] = body
     if state is not None:
         payload["state"] = state
+    if dry_run or is_dry_run():
+        from devops_cli.github.issues import issues_edit_requests
+
+        if clear_milestone:
+            payload["milestone"] = None
+        elif milestone is not None:
+            payload["milestone"] = milestone
+        if add_label:
+            payload["labels"] = list(add_label)
+        planned = issues_edit_requests(target_repo, number, payload)
+        render_request_plan(f"Plan for editing issue #{number} in {target_repo}", planned)
+        return
+
     if clear_milestone:
         payload["milestone"] = None
     elif milestone is not None:
@@ -1278,54 +1566,6 @@ def api_cmd(
 # =============================================================================
 
 
-def _format_reset_time(epoch_seconds: int | float) -> str:
-    """Format an epoch timestamp into a human-readable UTC string and countdown."""
-    import time
-
-    now = time.time()
-    diff = int(epoch_seconds - now)
-    dt_str = datetime.datetime.fromtimestamp(epoch_seconds, datetime.UTC).strftime("%H:%M:%S UTC")
-    if diff <= 0:
-        return f"{dt_str} (ready)"
-    mins, secs = divmod(diff, 60)
-    return f"{dt_str} (in {mins}m {secs}s)"
-
-
-def _parse_rate_limit_payload(stdout: str) -> dict[str, Any]:
-    """Parse and validate JSON payload from GitHub rate_limit API."""
-    try:
-        data = json.loads(stdout) if stdout.strip() else {}
-    except json.JSONDecodeError as exc:
-        print_error(f"Failed to parse rate limit response: {exc}")
-        raise typer.Exit(1) from exc
-
-    if not isinstance(data, dict):
-        print_error("Invalid rate limit response: expected JSON object")
-        raise typer.Exit(1)
-
-    resources = data.get("resources")
-    if not isinstance(resources, dict):
-        print_error("Invalid rate limit response: missing 'resources' object")
-        raise typer.Exit(1)
-
-    return data
-
-
-def _format_rate_limit_rows(resources: dict[str, Any]) -> list[list[str]]:
-    """Format rate limit resources dictionary into display table rows."""
-    rows: list[list[str]] = []
-    for res_name, info in sorted(resources.items()):
-        if not isinstance(info, dict):
-            continue
-        limit = str(info.get("limit", "-")) if info.get("limit") is not None else "-"
-        used = str(info.get("used", "-")) if info.get("used") is not None else "-"
-        remaining = str(info.get("remaining", "-")) if info.get("remaining") is not None else "-"
-        reset_epoch = info.get("reset")
-        reset_str = _format_reset_time(float(reset_epoch)) if reset_epoch is not None else "-"
-        rows.append([res_name, limit, used, remaining, reset_str])
-    return rows
-
-
 @app.command("rate-limit", help=HELP.gh.rate_limit)
 @app.command("rate_limit", hidden=True)
 def rate_limit_cmd(
@@ -1347,7 +1587,11 @@ def rate_limit_cmd(
         print_error(f"Failed to query rate limits: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
-    data = _parse_rate_limit_payload(res.stdout)
+    try:
+        data = parse_rate_limit_payload(res.stdout)
+    except GitHubOperationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
 
     limiter = get_github_rate_limiter()
     throttles = limiter.get_total_throttles()
@@ -1364,7 +1608,7 @@ def rate_limit_cmd(
     print_table(
         title="GitHub API Rate Limits & Quotas",
         columns=["Resource", "Limit", "Used", "Remaining", "Reset"],
-        rows=_format_rate_limit_rows(data["resources"]),
+        rows=format_rate_limit_rows(data["resources"]),
     )
     print_info(
         f"Rate Limiter Activity: {throttles} throttle(s), {wait_sec:.1f}s total backoff wait"
@@ -1450,6 +1694,7 @@ def _format_runs_table_rows(runs: list[dict[str, Any]]) -> list[list[str]]:
 
 
 @runs_app.command("list", help=HELP.gh.runs_list)
+@dry_run_class("request-plan")
 def runs_list_cmd(
     limit: Annotated[int, typer.Option("--limit", "-n", help=HELP.options.limit)] = 10,
     branch: Annotated[str | None, typer.Option("--branch", "-b", help="Filter by branch")] = None,
@@ -1457,6 +1702,10 @@ def runs_list_cmd(
     output_format: Annotated[
         str, typer.Option("--format", "-f", help=HELP.options.format_type)
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List recent GitHub Actions workflow runs."""
     if output_format not in {"table", "json"}:
@@ -1464,6 +1713,16 @@ def runs_list_cmd(
         raise typer.Exit(1)
 
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        from devops_cli.github.run_view import runs_list_requests
+
+        planned = runs_list_requests(limit=limit, branch=branch, repo=target_repo if repo else None)
+        if output_format == "json":
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, "json")
+            return
+        render_request_plan(f"Plan for listing workflow runs ({target_repo})", planned)
+        return
+
     cmd = [
         "run",
         "list",
@@ -1504,17 +1763,33 @@ def runs_list_cmd(
 
 
 @runs_app.command("view", help=HELP.gh.runs_view)
+@dry_run_class("request-plan")
 def runs_view_cmd(
     run_id: Annotated[int, typer.Argument(help="Workflow run database ID.")],
     log_failed: Annotated[bool, typer.Option("--log-failed", help=HELP.gh.runs_log_failed)] = False,
     full_log: Annotated[bool, typer.Option("--log", help=HELP.gh.runs_log)] = False,
     job: Annotated[str | None, typer.Option("--job", "-j", help=HELP.gh.runs_job)] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """View details or failure logs of a specific workflow run."""
-    from devops_cli.github.run_view import fetch_workflow_run_view
+    from devops_cli.github.run_view import fetch_workflow_run_view, runs_view_requests
 
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        planned = runs_view_requests(
+            run_id,
+            log_failed=log_failed,
+            full_log=full_log,
+            job=job,
+            repo=target_repo if repo else None,
+        )
+        render_request_plan(f"Plan for viewing workflow run #{run_id}", planned)
+        return
+
     res = fetch_workflow_run_view(
         run_id,
         log_failed=log_failed,

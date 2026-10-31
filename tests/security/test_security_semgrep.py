@@ -9,11 +9,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
 
 import pytest
 
-from devops_cli.ai.review import pipeline
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.profile import profiling
@@ -21,7 +19,7 @@ from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.config.constants import CONST_SANDBOX_TIMEOUT_EXIT_CODE
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.review.rules_pack import RULE_PACK_DIR
-from devops_cli.security.base import MaterializedTargets, ScanOutcome
+from devops_cli.security.base import MaterializedTargets
 from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.semgrep import (
     SemgrepScanner,
@@ -134,18 +132,21 @@ def test_run_semgrep_scan_dry_run(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
-def test_scan_semgrep_cli(tmp_path: Path, cli: Callable[..., Any]) -> None:
+def test_scan_semgrep_cli(
+    tmp_path: Path, cli: Callable[..., Any], scanner_fake: ScannerFake
+) -> None:
     test_file = tmp_path / "test.py"
     test_file.write_text("x = 1\n", encoding="utf-8")
 
-    clean_outcome = ScanOutcome(status="ran", findings=[], reason="")
-    with patch("devops_cli.commands.scan.run_semgrep_scan", return_value=clean_outcome):
-        res = cli(["scan", "sast", str(test_file)])
-        assert (res.exit_code, "No static AST pattern flaws detected" in res.stdout) == (0, True)
+    scanner_fake.script(
+        "semgrep", ToolAnswer(stdout=json.dumps({"results": [], "errors": []}), exit_code=0)
+    )
+    res = cli(["scan", "sast", str(test_file)])
+    assert (res.exit_code, "No static AST pattern flaws detected" in res.stdout) == (0, True)
 
-        res_json = cli(["scan", "sast", str(test_file), "--json"])
-        assert res_json.exit_code == 0
-        assert json.loads(res_json.stdout) == {"status": "ran", "reason": "", "findings": []}
+    res_json = cli(["scan", "sast", str(test_file), "--json"])
+    assert res_json.exit_code == 0
+    assert json.loads(res_json.stdout) == {"status": "ran", "reason": "", "findings": []}
 
 
 def test_semgrep_build_scan_command_target_filtering(tmp_path: Path) -> None:
@@ -218,13 +219,8 @@ def checkout_of_333_files(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture
-def reviewed_checkout(checkout_of_333_files: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The checkout under review, with every review scanner but Semgrep stubbed out."""
-    monkeypatch.setattr(
-        "devops_cli.security.bandit.run_bandit_scan", lambda *_, **__: ScanOutcome("ran")
-    )
-    monkeypatch.setattr(pipeline, "_scan_secrets", lambda *_, **__: [])
-    monkeypatch.setattr(pipeline, "print_info", lambda *_, **__: None)
+def reviewed_checkout(checkout_of_333_files: Path) -> Path:
+    """The checkout under review."""
     return checkout_of_333_files
 
 

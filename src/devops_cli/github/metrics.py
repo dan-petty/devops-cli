@@ -472,15 +472,26 @@ def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
 
 
 _refused_paths: set[str] = set()
+_refused_integration_repos: set[str] = set()
 """The GitHub paths that answered this process with HTTP 403 "Resource not accessible by
 integration": the token lacks the permission of the path and keeps lacking it until the process
-restarts, so the collector does not ask again (#2752). A path holds the repository and the
+restarts, so the collector does not ask again (#2752, #2626). A path holds the repository and the
 endpoint."""
 
 
 def reset_refused_paths() -> None:
     """Forget the refused paths, as a new process knows none."""
     _refused_paths.clear()
+    _refused_integration_repos.clear()
+
+
+def _is_integration_refusal(err: Exception) -> bool:
+    """Whether `err` indicates an HTTP 403 "Resource not accessible by integration"."""
+    if isinstance(err, GitHubOperationError):
+        stderr = str(err.details.get("stderr", ""))
+        if is_gh_refused_by_token(stderr):
+            return True
+    return "Resource not accessible by integration" in str(err)
 
 
 def _read_json(client: GhCliClient, path: str, what: str) -> Any | None:
@@ -492,11 +503,10 @@ def _read_json(client: GhCliClient, path: str, what: str) -> Any | None:
     try:
         return json.loads(client.api(path))
     except Exception as err:
-        logger.warning("Failed to query %s: %s", what, err)
-        if isinstance(err, GitHubOperationError) and is_gh_refused_by_token(
-            str(err.details.get("stderr", ""))
-        ):
+        if _is_integration_refusal(err):
             _refused_paths.add(path)
+        else:
+            logger.warning("Failed to query %s: %s", what, err)
     return None
 
 
@@ -573,12 +583,30 @@ def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
     """
     client = GhCliClient()
     stars, forks, open_issues = _fetch_repo_metadata(client, repo)
-    if acts_as_github_app():
+    if acts_as_github_app() or repo in _refused_integration_repos:
         return TrafficSummaryMetric(
             traffic_collected=False, stars=stars, forks=forks, open_issues=open_issues
         )
     views_count, views_uniques = _fetch_traffic_views(client, repo)
     clones_count, clones_uniques = _fetch_traffic_clones(client, repo)
+    referrers = _fetch_traffic_referrers(client, repo)
+    paths = _fetch_traffic_paths(client, repo)
+
+    traffic_paths = {
+        f"repos/{repo}/traffic/views",
+        f"repos/{repo}/traffic/clones",
+        f"repos/{repo}/traffic/popular/referrers",
+        f"repos/{repo}/traffic/popular/paths",
+    }
+    if traffic_paths & _refused_paths:
+        if repo not in _refused_integration_repos:
+            _refused_integration_repos.add(repo)
+            logger.debug(
+                "Traffic API not accessible by integration for %s: skipping traffic metrics", repo
+            )
+        return TrafficSummaryMetric(
+            traffic_collected=False, stars=stars, forks=forks, open_issues=open_issues
+        )
 
     return TrafficSummaryMetric(
         views_count=views_count,
@@ -588,8 +616,8 @@ def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
         stars=stars,
         forks=forks,
         open_issues=open_issues,
-        referrers=_fetch_traffic_referrers(client, repo),
-        paths=_fetch_traffic_paths(client, repo),
+        referrers=referrers,
+        paths=paths,
     )
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -12,7 +12,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_info, print_table
 from devops_cli.output.serialization import emit_serialized, resolve_format
@@ -23,6 +26,7 @@ from devops_cli.survey.capabilities import (
 )
 from devops_cli.survey.dependencies import (
     inspect_all_dependencies,
+    read_pinned_dependencies,
 )
 from devops_cli.survey.intake import (
     emit_all_gaps_to_intake,
@@ -104,7 +108,88 @@ def _render_capabilities_table(comparisons: list[CapabilityComparison]) -> None:
     print_table(MESSAGES.survey.survey_capabilities_title, columns, rows)
 
 
+def survey_requests(
+    repo: str,
+    *,
+    config_file: Path | None = None,
+    emit_candidates: bool = False,
+    dependencies_only: bool = False,
+    capabilities_only: bool = False,
+) -> list[PlannedRequest]:
+    """Planned requests for outward capability and upstream dependency survey."""
+    from devops_cli.dry_run.requests import PlannedRequest
+    from devops_cli.roadmap.intake import Filer, NewCandidate, dry_run_intake
+
+    requests: list[PlannedRequest] = []
+    if not capabilities_only:
+        pins = read_pinned_dependencies()
+        for pin in pins:
+            requests.append(
+                PlannedRequest(
+                    method="GET",
+                    target=f"PyPI package metadata for {pin.name}",
+                    argv=("curl", f"https://pypi.org/pypi/{pin.name}/json"),
+                )
+            )
+
+    if not dependencies_only and emit_candidates:
+        config = load_survey_config(config_file)
+        comparisons = compare_capabilities(config)
+        gaps = find_capability_gaps(comparisons)
+        for gap in gaps:
+            title = f"feat(cli): {gap.capability}"
+            body = (
+                "## Context & Rationale\n"
+                f"Outward-facing capability survey identified a capability gap.\n"
+                f"The feature is present in comparable tool '{gap.tool}' but absent in devops-cli.\n\n"
+                "## Scope & Deliverables\n"
+                f"{gap.description or gap.capability}\n\n"
+                "## Source Citation\n"
+                f"{gap.citation}\n"
+            )
+            candidate = NewCandidate(
+                title=title,
+                body=body,
+                source=gap.citation,
+                filed_by=Filer.AGENT,
+            )
+            plan = dry_run_intake(repo, new=candidate)
+            requests.extend(plan.requests)
+            requests.extend(plan.writes)
+
+    return requests
+
+
+def _render_survey_dry_run(
+    target_repo: str,
+    *,
+    config_file: Path | None,
+    emit_candidates: bool,
+    dependencies_only: bool,
+    capabilities_only: bool,
+    format_opt: str,
+    json_output: bool,
+) -> None:
+    from devops_cli.dry_run.requests import render_request_plan
+
+    planned = survey_requests(
+        target_repo,
+        config_file=config_file,
+        emit_candidates=emit_candidates,
+        dependencies_only=dependencies_only,
+        capabilities_only=capabilities_only,
+    )
+    resolved_format = resolve_format(format_opt, json_output=json_output)
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(
+            {"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved_format
+        )
+        return
+    render_request_plan(f"Plan for survey ({target_repo})", planned)
+
+
 @app.callback(invoke_without_command=True)
+@dry_run_class("request-plan")
 def survey_main(
     ctx: typer.Context,
     format_opt: Annotated[
@@ -147,6 +232,18 @@ def survey_main(
 
     effective_dry_run = dry_run or is_dry_run()
     target_repo = repo or "dan-petty/devops-cli"
+
+    if effective_dry_run:
+        _render_survey_dry_run(
+            target_repo,
+            config_file=config_file,
+            emit_candidates=emit_candidates,
+            dependencies_only=dependencies_only,
+            capabilities_only=capabilities_only,
+            format_opt=format_opt,
+            json_output=json_output,
+        )
+        return
 
     dependencies: list[DependencyMaturity] = []
     if not capabilities_only:

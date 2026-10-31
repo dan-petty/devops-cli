@@ -809,6 +809,7 @@ Create a new issue linking milestone and taxonomy labels.
 | `milestone` | `string` | No | - | Target milestone |
 | `label` | `array[string]` | No | - | Taxonomy label (repeatable) |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_issues_edit`
 
@@ -829,6 +830,7 @@ Edit an existing issue title, body, state, milestone, or taxonomy labels.
 | `add_label` | `array[string]` | No | - | Taxonomy label to attach (repeatable). |
 | `remove_label` | `array[string]` | No | - | Taxonomy label to detach (repeatable). |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_issues_list`
 
@@ -845,6 +847,7 @@ List repository issues with milestone, taxonomy labels, and status.
 | `milestone` | `string` | No | - | Filter by milestone |
 | `label` | `string` | No | - | Filter by label |
 | `limit` | `integer` | No | `30` | Max issues to return |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_issues_status`
 
@@ -857,6 +860,7 @@ Display aggregated issue counts by priority, type, and milestone.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_issues_triage`
 
@@ -869,6 +873,7 @@ Audit open issues for mandatory taxonomy labels, and report those with no priori
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_issues_view`
 
@@ -894,6 +899,7 @@ List all labels defined in the remote repository.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_labels_sync`
 
@@ -921,6 +927,7 @@ Close the milestone with this title or number.
 |---|---|---|---|---|
 | `name` | `string` | Yes | - | The milestone's exact title, or its number when no milestone has that title. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_milestones_edit`
 
@@ -938,6 +945,7 @@ Edit a milestone's title, description, state, or due date; fields left out stay 
 | `state` | `string` | No | - | New state (open or closed) |
 | `due_on` | `string` | No | - | ISO due date (YYYY-MM-DD) |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_milestones_list`
 
@@ -951,6 +959,7 @@ List every milestone, by due date and then by number, with its issue completion 
 |---|---|---|---|---|
 | `state` | `string` | No | `all` | Milestone state filter (open, closed or all) |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_pages_build`
 
@@ -963,6 +972,7 @@ Trigger a new deployment build for GitHub Pages.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_pages_status`
 
@@ -975,6 +985,7 @@ Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_pages_verify`
 
@@ -1000,6 +1011,7 @@ Audit the project board's views against the template.
 |---|---|---|---|---|
 | `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_project_list`
 
@@ -1012,6 +1024,7 @@ List available GitHub Projects v2 boards for user or organization.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `owner` | `string` | No | - | Target user or organization |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_project_reconcile`
 
@@ -1082,6 +1095,7 @@ List recent workflow runs for the repository or branch.
 | `branch` | `string` | No | - | Filter by branch |
 | `repo` | `string` | No | - | Target repository |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_runs_view`
 
@@ -1098,6 +1112,7 @@ View details and failure logs of a specific workflow run.
 | `full_log` | `boolean` | No | `False` | Display full execution logs for the workflow run. |
 | `job` | `string` | No | - | Filter workflow run logs to a specific job ID. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_views_audit`
 
@@ -1111,6 +1126,7 @@ Audit remote project views against standardized template specifications.
 |---|---|---|---|---|
 | `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `gh_views_spec`
 
@@ -1136,6 +1152,7 @@ Synchronize standardized views with the remote GitHub Projects v2 board.
 |---|---|---|---|---|
 | `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `grafana_dashboards_list`
 

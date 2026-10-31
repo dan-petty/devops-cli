@@ -32,7 +32,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
@@ -121,6 +121,7 @@ def _intake_dry_run(
 
 
 @app.command("intake", help=HELP.roadmap.intake)
+@dry_run_class("request-plan")
 def intake_cmd(
     repo: RepoOption = None,
     ref: RefOption = None,
@@ -241,6 +242,7 @@ def intake_eval_cmd(
 
 
 @app.command("refine", help=HELP.roadmap.refine)
+@dry_run_class("request-plan")
 def refine_cmd(
     repo: RepoOption = None,
     source: Annotated[Path, typer.Option("--source", help=HELP.roadmap.refine_source)] = Path("."),
@@ -404,17 +406,59 @@ def stage_cmd(
         raise_for_failed(failures)
 
 
+def _render_roadmap_run_dry_run(target: str) -> None:
+    from devops_cli.roadmap.request_plan import planned_session_read, render_dry_run
+
+    reads = [
+        planned_session_read(
+            f"/repos/{target}/issues/events",
+            "the issue events to judge what jobs are due",
+            repeat=MESSAGES.roadmap.plan_repeat_page,
+        )
+    ]
+    render_dry_run("run", target, reads, ())
+
+
+def _try_open_store(repo: RepoOption) -> RoadmapStore | None:
+    try:
+        _, store = _open_store(repo)
+        return store
+    except AssertionError:
+        return None
+
+
+def _show_due_jobs(target: str, store: RoadmapStore) -> None:
+    from devops_cli.roadmap.run import run_due_jobs
+
+    due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True)
+    if due:
+        write_stdout(f"Due: {', '.join(due)}\n")
+    else:
+        write_stdout("Due: (none)\n")
+
+
 @app.command("run", help=HELP.roadmap.run)
+@dry_run_class("request-plan")
 def run_cmd(
     repo: RepoOption = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.run_dry_run)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.run_confirm)] = False,
 ) -> None:
     """Run the roadmap jobs that are due, in order: metrics, intake, refinement and the alternatives check."""
+    if dry_run or is_dry_run():
+        target = _target(repo)
+        store = _try_open_store(repo)
+        from devops_cli.roadmap.github_store import GitHubRoadmapStore
+
+        if store is not None and not isinstance(store, GitHubRoadmapStore):
+            _show_due_jobs(target, store)
+        _render_roadmap_run_dry_run(target)
+        return
+
     target, store = _open_store(repo)
     from devops_cli.roadmap.run import run_due_jobs
 
-    if dry_run or not confirm or is_dry_run():
+    if not confirm:
         due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True)
         if due:
             write_stdout(f"Due: {', '.join(due)}\n")
@@ -604,6 +648,7 @@ def _resolve_comment(comment: str, comment_file: Path | None) -> str:
 
 
 @app.command("return", help=HELP.roadmap.return_item)
+@dry_run_class("request-plan")
 def return_cmd(
     item: Annotated[int, typer.Argument(help=HELP.roadmap.return_item_arg)],
     comment: Annotated[str, typer.Option("--comment", "-c", help=HELP.roadmap.return_comment)] = "",

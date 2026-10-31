@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from devops_cli.exceptions.git import GitHubOperationError
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 
 class LabelSpec(BaseModel):
@@ -148,6 +151,45 @@ def sync_repository_labels(
         client.edit_label(repo, spec.name, spec.color, spec.description)
 
     return result
+
+
+def sync_labels_requests(repo: str, desired: list[LabelSpec]) -> list[PlannedRequest]:
+    """Planned requests for synchronizing repository labels."""
+    from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    list_args = [
+        "label",
+        "list",
+        "--json",
+        "name,color,description",
+        "--limit",
+        str(DEFAULT_GH_LABEL_LIST_LIMIT),
+        "--repo",
+        repo,
+    ]
+    requests = [planned_gh(list_args, f"repos/{repo}/labels")]
+    for spec in desired:
+        color = spec.color.lstrip("#")
+        create_args = [
+            "label",
+            "create",
+            spec.name,
+            "--color",
+            color,
+            "--description",
+            spec.description,
+            "--repo",
+            repo,
+        ]
+        requests.append(
+            planned_gh(
+                create_args,
+                f"repos/{repo}/labels/{spec.name}",
+                condition=f"label {spec.name} missing or changed",
+            )
+        )
+    return requests
 
 
 def _check_pr_labels(pr: dict[str, Any]) -> LabelAuditResult | None:

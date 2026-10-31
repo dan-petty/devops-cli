@@ -11,6 +11,7 @@ from devops_cli.git.operations import (
     is_git_clean,
     iter_workspace_repos,
     list_branches,
+    parse_clone_destination,
     pull_tracking,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "is_git_clean",
     "iter_workspace_repos",
     "list_branches",
+    "parse_clone_destination",
     "pull_tracking",
 ]
