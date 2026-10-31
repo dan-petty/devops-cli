@@ -13,7 +13,7 @@ checks of the draft have passed (`stage_ready`).
 families all apply. With no `--filter` the job takes the filter of the setting
 `roadmap.stage.filter`, by default the Ready P0 and P1 bugs. It leaves out an item
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
-It also leaves out an item with the label `needs-split`, an item whose author has no write access
+It also leaves out an item that an agent or a person claimed with an `owner/*` label (#2910), an item with the label `needs-split`, an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
@@ -88,6 +88,7 @@ from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
+from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
@@ -219,6 +220,7 @@ class _Judge:
         item (`--item`) overrules the record of an earlier split."""
         checks = [
             self._not_ready,
+            self._claimed,
             self._needs_split,
             self._author,
             self._title,
@@ -236,6 +238,11 @@ class _Judge:
             return None
         texts = MESSAGES.roadmap
         return texts.stage_left_not_ready.format(status=item.status or texts.stage_status_none)
+
+    def _claimed(self, item: Item) -> str | None:
+        """An agent or a person holds the item (#2910): the Service takes no claimed item."""
+        owner = claimed_by(item)
+        return None if owner is None else MESSAGES.roadmap.item_left_claimed.format(owner=owner)
 
     def _needs_split(self, item: Item) -> str | None:
         return (

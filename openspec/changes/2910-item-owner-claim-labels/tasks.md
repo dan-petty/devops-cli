@@ -16,9 +16,9 @@
 
 ## 3. The jobs leave out a claimed item
 
-- [ ] 3.1 Write failing tests in `tests/roadmap/test_roadmap_stage_selection.py` and `tests/roadmap/test_roadmap_implement_selection.py` for the scenarios of "The job leaves out an item that an agent or a person claimed": a claimed item, a named item, the Service's own item
+- [x] 3.1 Write failing tests in `tests/roadmap/test_roadmap_stage_selection.py` and `tests/roadmap/test_roadmap_implement_selection.py` for the scenarios of "The job leaves out an item that an agent or a person claimed": a claimed item, a named item, the Service's own item
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py tests/roadmap/test_roadmap_implement_selection.py`
-- [ ] 3.2 Add the check to the judge of `src/devops_cli/roadmap/stage.py` and of `src/devops_cli/roadmap/implement.py`
+- [x] 3.2 Add the check to the judge of `src/devops_cli/roadmap/stage.py` and of `src/devops_cli/roadmap/implement.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py tests/roadmap/test_roadmap_implement_selection.py`
 
 ## 4. The Service claims and a person's claim ends the Job
