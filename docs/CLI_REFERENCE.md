@@ -3285,7 +3285,6 @@ devops scan secrets [OPTIONS] <target>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -3308,7 +3307,6 @@ devops scan workflows [OPTIONS] <target>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -3354,7 +3352,6 @@ devops scan complexity [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--max-complexity`, `-c` | `integer` | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -3378,7 +3375,6 @@ devops scan sbom [OPTIONS] <target>
 |---|---|---|---|
 | `--format`, `-f` | `string` | `cyclonedx` | SBOM format output (cyclonedx, spdx, json). |
 | `--output`, `-o` | `path` | - | Destination file path for generated SBOM document. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops scan aibom`
 
@@ -3400,7 +3396,6 @@ devops scan aibom [OPTIONS] <target>
 |---|---|---|---|
 | `--format`, `-f` | `string` | `cyclonedx` | AIBOM format output (cyclonedx, json). |
 | `--output`, `-o` | `path` | - | Destination file path for generated AIBOM manifest. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops scan fix`
 
@@ -3425,6 +3420,7 @@ devops scan fix [OPTIONS] <target>
 | `--apply` | `boolean` | - | Apply lockfile upgrades directly |
 | `--create-branch`, `-b` | `boolean` | - | Create a git topic branch for the remediation |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan injection`
 
@@ -3451,7 +3447,6 @@ devops scan injection [OPTIONS] <target>
 | `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops scan report`
 

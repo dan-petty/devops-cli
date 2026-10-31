@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import shlex
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.commands import BIN_TRIVY, build_zizmor_cmd
+from devops_cli.config.commands import BIN_TRIVY
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE, CONST_SCAN_NO_RESULT_STATUSES
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -23,10 +24,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run.models import CommandDryRunResult
-from devops_cli.dry_run.state import is_dry_run, set_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import render_request_plan
+from devops_cli.dry_run.state import is_dry_run
 from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.lang import HELP, MESSAGES
+from devops_cli.models.vulnerability import VulnerabilityRemediationResult
 from devops_cli.output import (
     format_json,
     print_error,
@@ -51,6 +54,12 @@ from devops_cli.security.pipeline import (
 from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.sarif import SarifError, read_sarif, write_sarif
 from devops_cli.security.sbom import run_trivy_sbom
+from devops_cli.security.scan_plans import (
+    plan_scan_fix,
+    plan_scan_report,
+    plan_semgrep_scan,
+    plan_trivy_scan,
+)
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.semgrep_registry import (
     CachedRuleset,
@@ -144,6 +153,7 @@ def _serialize_scanner_outcome(findings: Any) -> dict[str, Any]:
 
 
 @app.callback(invoke_without_command=True)
+@dry_run_class("request-plan")
 def callback(
     ctx: typer.Context,
     dry_run: Annotated[
@@ -166,6 +176,7 @@ def callback(
 
 
 @app.command("trivy")
+@dry_run_class("request-plan")
 def scan_trivy(
     target: Annotated[
         Path,
@@ -191,13 +202,27 @@ def scan_trivy(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Run Aqua Trivy vulnerability, secret, and misconfiguration scan."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
-
     resolved = resolve_format(output_format, json_output=json_output)
-    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
+
+    if dry_run or is_dry_run():
+        plans = plan_trivy_scan(target=target_abs, scan_type=scan_type, severity=severity)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            data = {
+                "dry_run": True,
+                "target": str(target_abs),
+                "scan_type": scan_type,
+                "requests": [asdict(req) for req in plans],
+                "findings": [],
+            }
+            emit_serialized(data, resolved)
+        else:
+            render_request_plan(f"Trivy scan for {target_abs}", plans)
+        return
+
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.trivy_executing.format(target=target_abs, scan_type=scan_type))
 
     findings = run_trivy_scan(target=target_abs, scan_type=scan_type, severity=severity)
@@ -205,39 +230,16 @@ def scan_trivy(
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = _serialize_scanner_outcome(findings)
         emit_serialized(data, resolved)
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan trivy {target} --type {scan_type}",
-                target=str(target_abs),
-                action="trivy_security_scan",
-                details={"scan_type": scan_type, "findings_count": len(findings)},
-            )
-        return None
+        return
 
     if _handle_single_scanner_result("Trivy", findings, MESSAGES.scan.no_flaws_found):
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan trivy {target} --type {scan_type}",
-                target=str(target_abs),
-                action="trivy_security_scan",
-                details={"scan_type": scan_type, "findings_count": 0},
-            )
-        return None
+        return
 
     _render_scan_results_table(
         title=f"Trivy Security Scan: {target_abs.name or target_abs}",
         findings=findings,
     )
-
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan trivy {target} --type {scan_type}",
-            target=str(target_abs),
-            action="trivy_security_scan",
-            details={"scan_type": scan_type, "findings_count": len(findings)},
-        )
-
-    return None
+    return
 
 
 # =============================================================================
@@ -246,15 +248,12 @@ def scan_trivy(
 
 
 @app.command("secrets")
+@dry_run_class("no-external-request")
 def scan_secrets(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_secrets),
     ] = DEFAULT_CURRENT_PATH,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -263,13 +262,12 @@ def scan_secrets(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Run Gitleaks secret pre-filter scan across workspace or targets."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
     resolved = resolve_format(output_format, json_output=json_output)
-    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.gitleaks_executing.format(target=target_abs))
 
     findings = run_gitleaks_scan(target=target_abs)
@@ -277,38 +275,16 @@ def scan_secrets(
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = _serialize_scanner_outcome(findings)
         emit_serialized(data, resolved)
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan secrets {target}",
-                target=str(target_abs),
-                action="gitleaks_secret_scan",
-                details={"findings_count": len(findings)},
-            )
-        return None
+        return
 
     if _handle_single_scanner_result("Gitleaks", findings, MESSAGES.scan.gitleaks_passed):
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan secrets {target}",
-                target=str(target_abs),
-                action="gitleaks_secret_scan",
-                details={"findings_count": 0},
-            )
-        return None
+        return
 
     _render_scan_results_table(
         title=f"Gitleaks Secret Scan: {target_abs.name or target_abs}",
         findings=findings,
     )
-
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan secrets {target}",
-            target=str(target_abs),
-            action="gitleaks_secret_scan",
-            details={"findings_count": len(findings)},
-        )
-    return None
+    return
 
 
 # =============================================================================
@@ -336,15 +312,12 @@ def _report_zizmor(target: Path, found: list[ZizmorFinding]) -> bool:
 
 
 @app.command("workflows")
+@dry_run_class("no-external-request")
 def scan_workflows(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_workflows),
     ] = DEFAULT_WORKFLOWS_SCAN_PATH,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -353,17 +326,9 @@ def scan_workflows(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
     and excessive permissions fail it, and every other finding is shown."""
-    set_dry_run(dry_run)
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan workflows {target}",
-            target=str(target),
-            action="zizmor_workflow_audit",
-            details={"command": build_zizmor_cmd(target)},
-        )
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.zizmor_executing.format(target=target))
@@ -406,6 +371,7 @@ def _registry_ruleset_for(config: str) -> CachedRuleset | None:
 
 
 @app.command("sast")
+@dry_run_class("request-plan")
 def scan_sast(
     target: Annotated[
         Path,
@@ -427,14 +393,28 @@ def scan_sast(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Run static application security testing (SAST) via Semgrep."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
-    ruleset = _registry_ruleset_for(config)
-
     resolved = resolve_format(output_format, json_output=json_output)
-    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
+
+    if dry_run or is_dry_run():
+        plans = plan_semgrep_scan(target=target_abs, config=config)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            data = {
+                "dry_run": True,
+                "target": str(target_abs),
+                "config": config,
+                "requests": [asdict(req) for req in plans],
+                "findings": [],
+            }
+            emit_serialized(data, resolved)
+        else:
+            render_request_plan(f"Semgrep SAST scan for {target_abs}", plans)
+        return
+
+    ruleset = _registry_ruleset_for(config)
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.semgrep_executing.format(target=target_abs, config=config))
 
     findings = run_semgrep_scan(target=target_abs, config=config, ruleset=ruleset)
@@ -442,38 +422,16 @@ def scan_sast(
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = _serialize_scanner_outcome(findings)
         emit_serialized(data, resolved)
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan sast {target} --config {config}",
-                target=str(target_abs),
-                action="semgrep_ast_scan",
-                details={"config": config, "findings_count": len(findings)},
-            )
-        return None
+        return
 
     if _handle_single_scanner_result("Semgrep", findings, MESSAGES.scan.semgrep_passed):
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan sast {target} --config {config}",
-                target=str(target_abs),
-                action="semgrep_ast_scan",
-                details={"config": config, "findings_count": 0},
-            )
-        return None
+        return
 
     _render_scan_results_table(
         title=f"Semgrep AST Scan: {target_abs.name or target_abs}",
         findings=findings,
     )
-
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan sast {target} --config {config}",
-            target=str(target_abs),
-            action="semgrep_ast_scan",
-            details={"config": config, "findings_count": len(findings)},
-        )
-    return None
+    return
 
 
 # =============================================================================
@@ -482,6 +440,7 @@ def scan_sast(
 
 
 @app.command("complexity")
+@dry_run_class("no-external-request")
 def scan_complexity(
     target: Annotated[
         Path,
@@ -491,10 +450,6 @@ def scan_complexity(
         int,
         typer.Option("--max-complexity", "-c", help=HELP.scan.max_complexity),
     ] = 10,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -503,13 +458,12 @@ def scan_complexity(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Run AST-based cyclomatic complexity analysis."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
     resolved = resolve_format(output_format, json_output=json_output)
-    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(f"Analyzing code complexity in {target_abs}...")
 
     findings = run_complexity_scan(target_path=target_abs, max_complexity=max_complexity)
@@ -517,39 +471,17 @@ def scan_complexity(
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
         emit_serialized(data, resolved)
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan complexity {target}",
-                target=str(target_abs),
-                action="ast_complexity_scan",
-                details={"findings_count": len(findings)},
-            )
-        return None
+        return
 
     if not findings:
         print_success("Code complexity within standard limits.")
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan complexity {target}",
-                target=str(target_abs),
-                action="ast_complexity_scan",
-                details={"findings_count": 0},
-            )
-        return None
+        return
 
     _render_scan_results_table(
         title=f"Code Complexity Analysis: {target_abs.name or target_abs}",
         findings=findings,
     )
-
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan complexity {target}",
-            target=str(target_abs),
-            action="ast_complexity_scan",
-            details={"findings_count": len(findings)},
-        )
-    return None
+    return
 
 
 # =============================================================================
@@ -558,6 +490,7 @@ def scan_complexity(
 
 
 @app.command("sbom")
+@dry_run_class("no-external-request")
 def scan_sbom(
     target: Annotated[
         Path,
@@ -571,13 +504,8 @@ def scan_sbom(
         Path | None,
         typer.Option("--output", "-o", help=HELP.scan.sbom_output),
     ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Generate Software Bill of Materials (SBOM) using Trivy (#1439)."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
     norm_format = format_type.lower().strip()
@@ -590,16 +518,6 @@ def scan_sbom(
             f"Unsupported SBOM format: '{format_type}'. Supported formats: 'cyclonedx', 'spdx', 'json'."
         )
         raise typer.Exit(1)
-
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan sbom {target} --format {format_type}",
-            target=str(target_abs),
-            action="generate_sbom",
-            details={
-                "format": norm_format,
-            },
-        )
 
     if not check_binary(BIN_TRIVY):
         print_error(f"Required dependency '{BIN_TRIVY}' is not installed.", prefix=False)
@@ -618,10 +536,11 @@ def scan_sbom(
     else:
         write_stdout(sbom_output)
 
-    return None
+    return
 
 
 @app.command("aibom")
+@dry_run_class("no-external-request")
 def scan_aibom(
     target: Annotated[
         Path,
@@ -635,16 +554,11 @@ def scan_aibom(
         Path | None,
         typer.Option("--output", "-o", help=HELP.scan.aibom_output),
     ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run() and output_file is not None:
+    if output_file is not None:
         print_muted(f"Generating AI Bill of Materials (AIBOM) for {target_abs}...")
 
     norm_format = format_type.lower().strip()
@@ -660,27 +574,17 @@ def scan_aibom(
 
     if output_file:
         out_path = output_file.resolve()
-        if not is_dry_run():
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(rendered_json, encoding="utf-8")
-            print_success(f"Generated AIBOM manifest at {out_path}")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(rendered_json, encoding="utf-8")
+        print_success(f"Generated AIBOM manifest at {out_path}")
     else:
         write_stdout(rendered_json)
 
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan aibom {target} --format {format_type}",
-            target=str(target_abs),
-            action="generate_aibom",
-            details={
-                "format": norm_format,
-                "models_count": len(aibom_data.get("components", [])),
-            },
-        )
-    return None
+    return
 
 
 @app.command("fix")
+@dry_run_class("request-plan")
 def scan_fix(
     target: Annotated[
         Path,
@@ -711,10 +615,34 @@ def scan_fix(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
-) -> CommandDryRunResult | None:
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
     """Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
+
+    if dry_run or is_dry_run():
+        plans = plan_scan_fix(
+            target=target_abs,
+            package=package,
+            min_severity=min_severity,
+            apply=apply,
+            create_branch=create_branch,
+        )
+        if json_output:
+            remediation_result = VulnerabilityRemediationResult(
+                target_path=str(target_abs),
+                summary="Planned vulnerability remediations in dry run",
+                dry_run=True,
+                requests=[asdict(req) for req in plans],
+            )
+            write_stdout(remediation_result.model_dump_json(indent=2))
+        else:
+            render_request_plan(f"Dependency vulnerability remediation in {target_abs}", plans)
+        return
+
     from devops_cli.security.dependency_remediator import DependencyRemediator
 
     remediator = DependencyRemediator(target_dir=target_abs)
@@ -739,17 +667,6 @@ def scan_fix(
         ]
         for a in result.actions
     ]
-
-    if is_dry_run():
-        print_table(
-            "Planned Dependency Vulnerability Remediations (DRY-RUN)", columns=columns, rows=rows
-        )
-        return CommandDryRunResult(
-            command=f"devops scan fix {target}",
-            target=str(target_abs),
-            action="remediate_dependencies",
-            details={"actions_count": len(result.actions), "ecosystem": result.ecosystem},
-        )
 
     if not apply:
         print_table("Planned Dependency Vulnerability Remediations", columns=columns, rows=rows)
@@ -931,6 +848,7 @@ def _check_injection_exit(report: ScanReport, fail_on: str | None) -> None:
 
 
 @app.command("injection")
+@dry_run_class("no-external-request")
 def scan_injection(
     target: Annotated[
         Path,
@@ -964,23 +882,10 @@ def scan_injection(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Scan target files for prompt-injection smuggling vectors and canary tokens."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
     policy = _load_policy_or_exit(suppress)
-
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan injection {target}",
-            target=str(target_abs),
-            action="prompt_injection_scan",
-            details={"sarif": str(sarif) if sarif else None},
-        )
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved == CONST_OUTPUT_FORMAT_TABLE:
@@ -1015,7 +920,62 @@ def _parse_scanner_names(names: Sequence[str] | None) -> list[str]:
     return parsed
 
 
+def _resolve_selected_scanners(
+    registry: Any,
+    scanners: list[str] | None,
+    skip: list[str] | None,
+) -> tuple[list[str], list[str] | None]:
+    all_registered = registry.list_scanners()
+    selected_names = _parse_scanner_names(scanners)
+    skip_names = _parse_scanner_names(skip)
+
+    if selected_names and skip_names:
+        print_error("Cannot combine --scanner and --skip options.")
+        raise typer.Exit(2)
+
+    if selected_names:
+        unknown = [name for name in selected_names if registry.get(name) is None]
+        if unknown:
+            print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
+            raise typer.Exit(2)
+        return selected_names, selected_names
+
+    if skip_names:
+        unknown = [name for name in skip_names if registry.get(name) is None]
+        if unknown:
+            print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
+            raise typer.Exit(2)
+        return [name for name in all_registered if name not in skip_names], None
+
+    return all_registered, None
+
+
+def _handle_scan_report_dry_run(
+    target_abs: Path,
+    selected: list[str],
+    min_severity: str | None,
+    output_format: str,
+    json_output: bool,
+) -> None:
+    plans = plan_scan_report(
+        target=target_abs,
+        selected_scanners=selected,
+        min_severity=min_severity,
+    )
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        report = ScanReport(
+            target=str(target_abs),
+            dry_run=True,
+            requests=[asdict(req) for req in plans],
+        )
+        emit_serialized(report.as_dict(), resolved)
+    else:
+        render_request_plan(f"Security scanner report for {target_abs}", plans)
+
+
 @app.command("report")
+@dry_run_class("request-plan")
 def scan_report(
     target: Annotated[
         Path,
@@ -1063,36 +1023,17 @@ def scan_report(
     ] = False,
 ) -> None:
     """Run every registered scanner and report deduplicated, correlated findings."""
-    set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
     policy = _load_policy_or_exit(suppress)
+    selected, explicit_scanners = _resolve_selected_scanners(
+        global_scanner_registry, scanners, skip
+    )
 
-    registry = global_scanner_registry
-    all_registered = registry.list_scanners()
+    if dry_run or is_dry_run():
+        _handle_scan_report_dry_run(target_abs, selected, min_severity, output_format, json_output)
+        return
 
-    selected_names = _parse_scanner_names(scanners)
-    skip_names = _parse_scanner_names(skip)
-
-    if selected_names and skip_names:
-        print_error("Cannot combine --scanner and --skip options.")
-        raise typer.Exit(2)
-
-    if selected_names:
-        unknown = [name for name in selected_names if registry.get(name) is None]
-        if unknown:
-            print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
-            raise typer.Exit(2)
-        selected = selected_names
-    elif skip_names:
-        unknown = [name for name in skip_names if registry.get(name) is None]
-        if unknown:
-            print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
-            raise typer.Exit(2)
-        selected = [name for name in all_registered if name not in skip_names]
-    else:
-        selected = all_registered
-
-    results = registry.scan_all(target_abs, names=selected)
+    results = global_scanner_registry.scan_all(target_abs, names=selected)
     report = build_report(results, target_abs, policy=policy, min_severity=min_severity)
 
     if sarif is not None:
@@ -1113,7 +1054,7 @@ def scan_report(
     _enforce_gate(
         report,
         fail_on=fail_on,
-        explicit_scanners=selected_names if selected_names else None,
+        explicit_scanners=explicit_scanners,
         json_output=(resolved != CONST_OUTPUT_FORMAT_TABLE),
     )
 
@@ -1164,6 +1105,7 @@ def resolve_scan_report_scanners(command_line: str) -> list[str]:
 
 
 @app.command("sarif")
+@dry_run_class("no-external-request")
 def scan_sarif(
     document: Annotated[
         Path,

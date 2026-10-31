@@ -46,6 +46,8 @@ class ScanReport:
     expired_suppressions: list[SuppressionRule] = field(default_factory=list)
     outcomes: dict[str, ScanOutcome] = field(default_factory=dict)
     duplicates_removed: int = 0
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def counts(self) -> dict[str, int]:
@@ -75,7 +77,7 @@ class ScanReport:
         """Render the report as a JSON-serializable mapping."""
         from devops_cli.security.normalization import as_dict as finding_as_dict
 
-        return {
+        data = {
             "target": self.target,
             "tools": list(self.outcomes.keys()),
             "counts": self.counts,
@@ -97,6 +99,10 @@ class ScanReport:
                 for cluster in self.clusters
             ],
         }
+        if self.dry_run:
+            data["dry_run"] = True
+            data["requests"] = self.requests
+        return data
 
 
 def _normalize_report_inputs(

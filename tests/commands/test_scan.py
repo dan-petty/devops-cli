@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.main import app as main_app
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.zizmor import ZizmorFinding
 
@@ -69,18 +70,10 @@ def _patched_scanners() -> ExitStack:
 
 
 def test_scan_dry_run() -> None:
-    """devops scan --dry-run prints simulated scan results."""
-    mock_finding = Finding(
-        severity="HIGH",
-        location="src/main.py:10",
-        title="Test Flaw",
-        description="Test description",
-        fix="Fix flaw",
-    )
-    with patch("devops_cli.commands.scan.run_trivy_scan", return_value=[mock_finding]):
-        result = runner.invoke(scan_app, ["--dry-run"])
-        assert result.exit_code == 0
-        assert "Trivy Security Scan" in result.output or "DRY-RUN" in result.output
+    """devops scan --dry-run prints planned scan requests."""
+    result = runner.invoke(scan_app, ["--dry-run"])
+    assert result.exit_code == 0
+    assert "Trivy scan for" in result.output or "trivy" in result.output
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
@@ -108,7 +101,7 @@ def test_scan_individual_tools(tmp_path: Path) -> None:
         res_sast = runner.invoke(scan_app, ["sast", str(tmp_path), "--json"])
         assert res_sast.exit_code == 0
 
-        res_secrets_dry = runner.invoke(scan_app, ["secrets", str(tmp_path), "--dry-run"])
+        res_secrets_dry = runner.invoke(main_app, ["--dry-run", "scan", "secrets", str(tmp_path)])
         assert res_secrets_dry.exit_code == 0
 
 
@@ -122,7 +115,7 @@ def test_scan_clean_and_dry_run(tmp_path: Path) -> None:
         res_trivy_clean = runner.invoke(scan_app, ["trivy", str(tmp_path), "--dry-run"])
         assert res_trivy_clean.exit_code == 0
 
-        res_secrets_clean = runner.invoke(scan_app, ["secrets", str(tmp_path), "--dry-run"])
+        res_secrets_clean = runner.invoke(main_app, ["--dry-run", "scan", "secrets", str(tmp_path)])
         assert res_secrets_clean.exit_code == 0
 
         res_sast_clean = runner.invoke(scan_app, ["sast", str(tmp_path), "--dry-run"])
@@ -134,7 +127,7 @@ def test_scan_clean_and_dry_run(tmp_path: Path) -> None:
         assert res_trivy_json_dry.exit_code == 0
 
         res_secrets_json_dry = runner.invoke(
-            scan_app, ["secrets", str(tmp_path), "--json", "--dry-run"]
+            main_app, ["--dry-run", "scan", "secrets", str(tmp_path), "--json"]
         )
         assert res_secrets_json_dry.exit_code == 0
 

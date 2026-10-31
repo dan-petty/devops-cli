@@ -38,7 +38,7 @@ devops scan secrets .
 devops scan secrets src/ --json
 
 # Run dry-run simulated secret scan
-devops scan secrets --dry-run
+devops --dry-run scan secrets
 ```
 
 ### Standard Gitleaks CLI Commands
