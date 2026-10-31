@@ -371,6 +371,27 @@ def _synthesize_check_items(
     return all_items
 
 
+def read_check_runs(
+    owner: str,
+    repo_name: str,
+    head_sha: str,
+    *,
+    session: GitHubSession | None = None,
+) -> CheckVerdictSummary:
+    """Read and classify the check runs of a commit, failing closed, with no commit status.
+
+    The roadmap Service acts as a GitHub App whose token holds `checks: read` and no `statuses`
+    permission, which the commit status endpoint needs (#2865). A commit with no check run reads
+    as one pending check, as in `read_commit_checks`.
+    """
+    if not head_sha:
+        return CheckVerdictSummary(unread_reason="PR head commit SHA is missing for checks query")
+    check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha, session)
+    if check_err:
+        return CheckVerdictSummary(unread_reason=check_err)
+    return CheckVerdictSummary(items=_synthesize_check_items(check_items, [], None))
+
+
 def read_commit_checks(
     owner: str,
     repo_name: str,

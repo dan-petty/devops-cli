@@ -4,8 +4,9 @@ The job turns each item that a label filter names into a branch `<type>/<issue>-
 fetched default branch, with the OpenSpec change `openspec/changes/<issue>-<slug>/` written from
 the refined body, one commit by the identity of the session, and a draft pull request whose title
 is `docs(openspec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
-`Plans #<issue>`. It never marks the pull request ready and never changes the item's
-Status. The staged branch and the draft are the record.
+`Plans #<issue>`. It never changes the item's Status. The staged branch and the draft are the
+record. The job does not mark the draft ready: the row `stage_ready` of the Service does, when the
+checks of the draft have passed (`stage_ready`).
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`. The values of one family are alternatives, and the
@@ -920,15 +921,24 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     store.set_marks(removal.item, {key: None for key in StageRecordKey})
 
 
-def _write_each(
-    writes: Iterable[tuple[Item, Callable[[], None]]], done: list[int], failed: list[StageFailure]
+_STOP_THE_RUN: tuple[type[DevOpsCLIError], ...] = (GitHubUnauthenticatedError, ServiceStoppingError)
+
+
+def write_each(
+    writes: Iterable[tuple[Item, Callable[[], None]]],
+    done: list[int],
+    failed: list[StageFailure],
+    *,
+    also_stop: tuple[type[DevOpsCLIError], ...] = (),
 ) -> None:
-    """Run each write. A write that fails adds a `StageFailure` and the next write still runs;
-    rejected GitHub credentials and the stop of the Service stop the run (#2753)."""
+    """Run each write. A write that fails adds a `StageFailure` and the next write still runs.
+    Rejected GitHub credentials and the stop of the Service stop the run (#2753), and so does
+    each class in `also_stop`. The row `stage_ready` runs its pull requests the same way (#2865)."""
+    stop = (*_STOP_THE_RUN, *also_stop)
     for item, write in writes:
         try:
             write()
-        except GitHubUnauthenticatedError, ServiceStoppingError:
+        except stop:
             raise
         except DevOpsCLIError as exc:
             failed.append(_write_failure(item, exc))
@@ -966,7 +976,7 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     )
     try:
         for writes, done in phases:
-            _write_each(writes, done, failed)
+            write_each(writes, done, failed)
     except ServiceStoppingError:
         raise_for_failed([*plan.failed, *failed])
         raise
@@ -1071,9 +1081,10 @@ def render_stage_plan(plan: StagePlan) -> str:
     return "\n".join(lines)
 
 
-def raise_for_failed(failures: Sequence[StageFailure]) -> None:
+def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = None) -> None:
     """Fail the run after the other items are written, naming each item that failed with the
-    class of its error. The message holds no text of the model."""
+    class of its error. The message holds no text of the model. `summary` is the message with
+    `{count}` and `{items}`; the stage job's own by default."""
     if not failures:
         return
     texts = MESSAGES.roadmap
@@ -1084,7 +1095,7 @@ def raise_for_failed(failures: Sequence[StageFailure]) -> None:
         for f in failures
     )
     raise RoadmapStageError(
-        texts.stage_failed.format(count=len(failures), items=items),
+        (summary or texts.stage_failed).format(count=len(failures), items=items),
         failed_items=[f.number for f in failures],
     )
 
@@ -1112,4 +1123,5 @@ __all__ = [
     "render_stage_plan",
     "select_stageable",
     "stage_results",
+    "write_each",
 ]

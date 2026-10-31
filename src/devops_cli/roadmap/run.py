@@ -1,9 +1,10 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's rows, metrics and implement, before the model lane's,
-intake, refine, stage and alternatives, so a burst of candidates never holds back the metrics
-(#1360), and a slow model never holds back the implement row (#2757). `devops roadmap run` runs the
-whole table in one round. The Service runs each lane in its own worker and its own clone
+The due table runs the status lane's rows, metrics, implement and stage_ready, before the model
+lane's, intake, refine, stage and alternatives, so a burst of candidates never holds back the
+metrics (#1360), and a slow model never holds back the implement or stage_ready row (#2757,
+#2865). The row stage_ready marks a green stage draft pull request ready. `devops roadmap run`
+runs the whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
 read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
 kept beside the repositories' schedules (`service_state_dir`), so a restart keeps it (#2474).
@@ -68,6 +69,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
 from devops_cli.config.settings import load_settings
@@ -119,6 +121,7 @@ from devops_cli.roadmap.stage import (
     plan_stage,
     raise_for_failed,
 )
+from devops_cli.roadmap.stage_ready import mark_stage_ready
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
@@ -574,6 +577,14 @@ def _run_implement_adapter(
     return JobOutcome()
 
 
+def _run_stage_ready_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
+    """Mark each green draft pull request that the stage job recorded ready for review, and fail,
+    once the others are done, when a pull request failed (#2865). A round with no recorded draft
+    sends no request of its own."""
+    mark_stage_ready(store, repo=repo)
+    return JobOutcome()
+
+
 def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
     """Check at most `roadmap.alternatives.limit` open items for an open tool that covers them
     (#2652). The check writes the others when one fails, and then the job fails naming it. A
@@ -646,10 +657,19 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         needs_clone=True,
         first_run_due=True,
     ),
+    JobRow(
+        name="stage_ready",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES),
+        runner=_run_stage_ready_adapter,
+        first_run_due=True,
+    ),
 )
-"""The rows that call no model: the one that refreshes the metrics, and the one that submits the
-implement Job, which only talks to the Kubernetes API and GitHub. The model runs in the Job, so
-a model-lane round that is still running never delays the row (#2757)."""
+"""The rows that call no model: the one that refreshes the metrics, the one that submits the
+implement Job, which only talks to the Kubernetes API and GitHub, and the one that marks a green
+stage pull request ready, which only talks to GitHub. The model runs in the Job, so a model-lane
+round that is still running never delays the rows (#2757, #2865). `stage_ready` follows
+`implement`, so a Staged item with a green draft gets its Job first, and the row leaves a pull
+request that a Job works on alone."""
 
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -754,15 +774,19 @@ def build_stub_table(
     include_alternatives: bool | None = None,
     include_stage: bool | None = None,
     include_implement: bool | None = None,
+    include_stage_ready: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
-    implement, intake, refine, stage and alternatives. Intake is always in; the others are added
-    when asked for or given a stub."""
+    implement, stage_ready, intake, refine, stage and alternatives. Intake is always in; the
+    others are added when asked for or given a stub."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
     add_stage = include_stage if include_stage is not None else ("stage" in r)
     add_implement = include_implement if include_implement is not None else ("implement" in r)
+    add_stage_ready = (
+        include_stage_ready if include_stage_ready is not None else ("stage_ready" in r)
+    )
     add_alternatives = (
         include_alternatives if include_alternatives is not None else ("alternatives" in r)
     )
@@ -771,6 +795,7 @@ def build_stub_table(
         "refine": add_refine,
         "stage": add_stage,
         "implement": add_implement,
+        "stage_ready": add_stage_ready,
         "alternatives": add_alternatives,
     }
     return tuple(
