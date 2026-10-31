@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Iterator
+from typing import Any
+
+import pytest
 
 from devops_cli.ai.rag.embeddings import EmbedderProtocol, EmbeddingsError
 
@@ -39,3 +43,16 @@ class FakeEmbedder(EmbedderProtocol):
         for t in texts:
             self.recorded_texts.append((t, is_query))
         return [_deterministic_vector(t, self.dimension) for t in texts]
+
+
+@pytest.fixture
+def embedder() -> Iterator[Any]:
+    """Install an in-memory FakeEmbedder as the embedder seam override, and return it."""
+    from devops_cli.ai.rag.embeddings import install_embedder, reset_embedder
+
+    fake = FakeEmbedder()
+    install_embedder(fake)
+    try:
+        yield fake
+    finally:
+        reset_embedder()

@@ -182,3 +182,98 @@ def test_the_origin_lookup_takes_its_repository_root_from_the_caller(
     (#2127). A default of no root made a call that gave none read the working directory of the
     process."""
     assert _origin_lookup_root_default(parsed_source_trees) == ""
+
+
+CONST_ROOT_TESTS_CEILING = 0
+CONST_NON_MIRROR_TEST_CEILING = 0
+
+_TEST_RESERVED_DIRECTORIES = frozenset(
+    {"fixtures", "golden", "__snapshots__", "__pycache__", "support", "invariants"}
+)
+
+
+def find_root_test_files(repo_root: Path) -> list[str]:
+    """Find all test_*.py files located directly in the tests/ directory."""
+    tests_dir = repo_root / "tests"
+    return sorted(p.name for p in tests_dir.glob("test_*.py"))
+
+
+def find_non_mirror_test_files(repo_root: Path) -> list[str]:
+    """Find test_*.py files situated in invalid or non-mirror directories."""
+    tests_dir = repo_root / "tests"
+    src_dir = repo_root / "src" / "devops_cli"
+    violations: list[str] = []
+    for path in sorted(tests_dir.rglob("test_*.py")):
+        rel = path.relative_to(tests_dir)
+        if len(rel.parts) == 1:
+            violations.append(rel.as_posix())
+            continue
+        if rel.parts[0] == "invariants":
+            continue
+        if rel.parts[0] == "support":
+            violations.append(rel.as_posix())
+            continue
+        if not (src_dir / rel.parent).is_dir():
+            violations.append(rel.as_posix())
+    return sorted(violations)
+
+
+def find_orphan_test_directories(repo_root: Path) -> list[str]:
+    """Find test directories that do not mirror a package in src/devops_cli/."""
+    tests_dir = repo_root / "tests"
+    src_dir = repo_root / "src" / "devops_cli"
+    orphans: list[str] = []
+    for path in sorted(tests_dir.rglob("*")):
+        if not path.is_dir():
+            continue
+        rel = path.relative_to(tests_dir)
+        if rel.parts[0] in _TEST_RESERVED_DIRECTORIES:
+            continue
+        if any(part in ("__pycache__", "__snapshots__") for part in rel.parts):
+            continue
+        if not (src_dir / rel).is_dir():
+            orphans.append(rel.as_posix())
+    return sorted(orphans)
+
+
+def test_tests_mirror_source_tree_layout() -> None:
+    """Every test file sits in a directory mirroring its devops_cli package or in tests/invariants/ (#1313)."""
+    assert len(find_root_test_files(REPO_ROOT)) <= CONST_ROOT_TESTS_CEILING
+    assert len(find_non_mirror_test_files(REPO_ROOT)) <= CONST_NON_MIRROR_TEST_CEILING
+    assert find_orphan_test_directories(REPO_ROOT) == []
+
+
+def test_layout_ratchet_flags_root_test_file(tmp_path: Path) -> None:
+    """The layout ratchet rejects test files located directly in the tests/ directory."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_orphan.py").touch()
+    (tmp_path / "src" / "devops_cli").mkdir(parents=True)
+    assert find_root_test_files(tmp_path) == ["test_orphan.py"]
+
+
+def test_layout_ratchet_flags_test_file_under_support(tmp_path: Path) -> None:
+    """The layout ratchet rejects test files placed under tests/support/."""
+    support_dir = tmp_path / "tests" / "support"
+    support_dir.mkdir(parents=True)
+    (support_dir / "test_helper.py").touch()
+    (tmp_path / "src" / "devops_cli").mkdir(parents=True)
+    assert "support/test_helper.py" in find_non_mirror_test_files(tmp_path)
+
+
+def test_layout_ratchet_flags_non_mirror_directory(tmp_path: Path) -> None:
+    """The layout ratchet rejects test files placed under directories without a src/devops_cli/ counterpart."""
+    pkg_tests = tmp_path / "tests" / "unknown_pkg"
+    pkg_tests.mkdir(parents=True)
+    (pkg_tests / "test_unknown.py").touch()
+    (tmp_path / "src" / "devops_cli").mkdir(parents=True)
+    assert "unknown_pkg/test_unknown.py" in find_non_mirror_test_files(tmp_path)
+    assert "unknown_pkg" in find_orphan_test_directories(tmp_path)
+
+
+def test_layout_ratchet_flags_orphan_mirror_directory(tmp_path: Path) -> None:
+    """The layout ratchet rejects test directories whose counterpart in src/devops_cli/ does not exist."""
+    removed_tests = tmp_path / "tests" / "legacy_module"
+    removed_tests.mkdir(parents=True)
+    (tmp_path / "src" / "devops_cli").mkdir(parents=True)
+    assert find_orphan_test_directories(tmp_path) == ["legacy_module"]

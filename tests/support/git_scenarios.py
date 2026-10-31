@@ -25,6 +25,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from devops_cli.ai.research.edges import extract_git_co_changes
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name, own_source_state, reset_repo_caches
@@ -534,3 +536,74 @@ def co_changes(ws: Workspace) -> Any:
 
     with ws.environment():
         return {"a": edges("a.py"), "latest_only": edges("a.py", 1), "alone": edges("lonely.py")}
+
+
+@pytest.fixture
+def known_hosts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The `~/.ssh/known_hosts` of a home in `tmp_path`, which the clone code writes (#2146).
+
+    A test asserts on this file, not on a call to the private function that writes it.
+    """
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    return home / ".ssh" / "known_hosts"
+
+
+@pytest.fixture
+def git() -> Callable[..., None]:
+    """Run `git -C <repo> <args>` with a throwaway identity; a git error fails the test.
+
+    Tests that build real repositories and worktrees in `tmp_path` share it.
+    """
+
+    def run(repo: Path, *args: str) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.com",
+                *args,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+    return run
+
+
+@pytest.fixture
+def nested_worktree(tmp_path: Path, git: Callable[..., None]) -> tuple[Path, Path]:
+    """A checkout and a linked worktree nested under its `.claude/worktrees/`, as Claude Code
+    places them; the checkout ignores `.claude/`, and its pyproject enables only ruff's
+    unused-import rule."""
+    main = tmp_path / "main"
+    main.mkdir()
+    git(main, "init", "--quiet")
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n',
+        encoding="utf-8",
+    )
+    git(main, "add", ".")
+    git(main, "commit", "--quiet", "-m", "first")
+    nested = main / ".claude" / "worktrees" / "wt"
+    git(main, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    return main, nested
+
+
+@pytest.fixture
+def symbol_removal_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
+    """A real repository whose `main` defines two functions and whose `feature` branch
+    removes one of them and adds another."""
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef gone(): pass\n", encoding="utf-8")
+    git(tmp_path, "add", "mod.py")
+    git(tmp_path, "commit", "--quiet", "-m", "base")
+    git(tmp_path, "switch", "--quiet", "-c", "feature")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef added(): pass\n", encoding="utf-8")
+    git(tmp_path, "commit", "--quiet", "-am", "remove gone")
+    return tmp_path

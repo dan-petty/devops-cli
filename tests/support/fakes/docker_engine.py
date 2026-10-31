@@ -26,7 +26,9 @@ import json
 import re
 import struct
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -1099,3 +1101,119 @@ def docker_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[Do
     DockerEngineService.install(fake.client_factory)
     yield fake
     DockerEngineService.reset_instance()
+
+
+@contextmanager
+def _installed_docker_client(client: Any) -> Iterator[Any]:
+    """Make `client` the SDK client of the process-wide DockerEngineService.
+
+    The floor resets the service after the test, so the block leaves the client installed and
+    unclosed for the test's assertions on its calls.
+    """
+    from devops_cli.docker.engine import DockerEngineService
+
+    yield DockerEngineService.install(lambda **_params: client)
+
+
+@pytest.fixture
+def docker_engine():
+    """Provide a factory that installs a test's own SDK client in the Docker engine service.
+
+    Its users pass the clients they build until their package's tests move to `docker_daemon`,
+    the in-memory engine of `tests/support/fakes/docker_engine.py` (#1316).
+    """
+    return _installed_docker_client
+
+
+def _build_specced_docker_client() -> Any:
+    from unittest.mock import create_autospec
+
+    import docker
+    from docker.models.containers import ContainerCollection
+    from docker.models.images import ImageCollection
+    from docker.models.networks import NetworkCollection
+    from docker.models.volumes import VolumeCollection
+
+    client = create_autospec(docker.DockerClient, instance=True)
+    client.containers = create_autospec(ContainerCollection, instance=True)
+    client.images = create_autospec(ImageCollection, instance=True)
+    client.networks = create_autospec(NetworkCollection, instance=True)
+    client.volumes = create_autospec(VolumeCollection, instance=True)
+    client.api = create_autospec(docker.APIClient, instance=True)
+    return client
+
+
+@pytest.fixture
+def docker_client() -> Any:
+    """Return an autospecced DockerClient instance with specced collections and api."""
+    return _build_specced_docker_client()
+
+
+@pytest.fixture
+def docker_endpoint_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unserved_side_channel_port: int
+):
+    """Provide an isolated environment for Docker endpoint resolution tests (#1108)."""
+    import hashlib
+    import json
+
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.docker.engine import DockerEngineService
+
+    monkeypatch.delenv("CONTAINER_HOST", raising=False)
+    monkeypatch.delenv("CONTAINER_CONNECTION", raising=False)
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
+    monkeypatch.delenv("DOCKER_TLS_VERIFY", raising=False)
+    monkeypatch.delenv("DOCKER_CERT_PATH", raising=False)
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+
+    fake_run_user = tmp_path / "run_user"
+    fake_rootful = tmp_path / "run_podman" / "podman.sock"
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(fake_run_user))
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_RUN_USER_BASE", fake_run_user)
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", fake_rootful)
+
+    endpoint_config = tmp_path / "devops_endpoint_config.yaml"
+    endpoint_config.write_text(
+        f"telemetry:\n  enabled: false\n  endpoint: http://127.0.0.1:{unserved_side_channel_port}\n"
+        "ai:\n  allow_private_network: false\n  rag:\n    enabled: false\n"
+        "qdrant:\n  url: http://localhost:6333\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(endpoint_config))
+    reset_settings_cache()
+
+    config_file = tmp_path / "config.json"
+    config_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    DockerEngineService.reset_instance()
+
+    def write_context(name: str, host: str, skip_tls_verify: bool = False) -> Path:
+        name_hash = hashlib.sha256(name.encode("utf-8")).hexdigest()
+        meta_dir = tmp_path / "contexts" / "meta" / name_hash
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta = {
+            "Name": name,
+            "Metadata": {},
+            "Endpoints": {
+                "docker": {
+                    "Host": host,
+                    "SkipTLSVerify": skip_tls_verify,
+                }
+            },
+        }
+        meta_path = meta_dir / "meta.json"
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        return meta_path
+
+    write_context.tmp_path = tmp_path  # type: ignore[attr-defined]
+    write_context.config_file = config_file  # type: ignore[attr-defined]
+    write_context.write_context = write_context  # type: ignore[attr-defined]
+    write_context.run_user_base = fake_run_user  # type: ignore[attr-defined]
+    write_context.rootful_socket = fake_rootful  # type: ignore[attr-defined]
+    yield write_context
+    DockerEngineService.reset_instance()
+    reset_settings_cache()
