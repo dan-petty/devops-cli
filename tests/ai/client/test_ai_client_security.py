@@ -163,11 +163,13 @@ def test_get_ollama_urls_parsing() -> None:
 
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         AIConfig(ollama_urls=["example.com:11434"])
+    assert len(raised.value.errors()) > 0
 
-    with pytest.raises(InvalidURLError):
+    with pytest.raises(InvalidURLError) as raised:
         normalize_ollama_base_url("example.com:11434")
+    assert raised.value.error_code == "INVALID_URL"
 
 
 def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:

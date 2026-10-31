@@ -747,8 +747,9 @@ def test_a_fake_core_api_object_records_and_refuses_like_the_real_one() -> None:
     with pytest.raises(ApiException) as missing:
         core.read_persistent_volume(name="pv-gone")
     FakeCluster(core=core).unreachable()
-    with pytest.raises(MaxRetryError):
+    with pytest.raises(MaxRetryError) as raised:
         core.list_node()
+    assert raised.value is not None
 
     assert (missing.value.status, core.calls) == (
         404,

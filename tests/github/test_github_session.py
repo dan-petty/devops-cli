@@ -240,8 +240,9 @@ def test_three_502s_raise_the_unread_error_after_the_retries(github_api: GitHubA
 def test_a_write_that_gets_a_502_is_not_sent_again(github_api: GitHubApiFake) -> None:
     """GitHub may have applied a write it answered with a 5xx, so the write is not repeated."""
     github_api.route("POST", "/user/keys", github_json({"message": "Bad Gateway"}, status=502))
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         get_github_session().rest("POST", "/user/keys", body={"title": "t", "key": "k"})
+    assert raised.value.error_code == "GITHUB_UNREAD"
     assert (len(github_api.sent), github_api.waits) == (1, [])
 
 
@@ -544,8 +545,9 @@ def test_the_sessions_requests_are_vetted_at_the_public_egress_level(
     scripted_resolver(monkeypatch, {"api.github.com": rebinding(1, "127.0.0.1")})
     session = get_github_session()
     first = session.rest("GET", "/user")
-    with pytest.raises(SSRFBlockedError):
+    with pytest.raises(SSRFBlockedError) as raised:
         session.rest("GET", "/user")
+    assert raised.value.error_code == "SSRF_BLOCKED"
     assert (first, github_api.levels, len(github_api.sent)) == (
         {"login": "octocat"},
         [EgressLevel.PUBLIC],

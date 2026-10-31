@@ -130,8 +130,9 @@ def test_search_checks_model_once_per_process() -> None:
         "qwen3-embedding:0.6b" in str(err),
     ) == (False, True, True)
 
-    with pytest.raises(EmbeddingsError):
+    with pytest.raises(EmbeddingsError) as raised:
         retriever.search("test query again")
+    assert raised.value.error_code == "EMBEDDINGS_ERROR"
 
     assert mock_qdrant.scroll_points.call_count == 1
 

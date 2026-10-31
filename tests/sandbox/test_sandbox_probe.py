@@ -476,8 +476,9 @@ def test_engine_probe_raises_when_not_found() -> None:
 
     engine = WorkloadSandboxEngine()
     with patch.object(engine.registry, "get_instance", return_value=None):
-        with pytest.raises(SandboxNotFoundError):
+        with pytest.raises(SandboxNotFoundError) as raised:
             engine.probe("missing-id")
+        assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
 def test_parse_target_endpoint_variations() -> None:

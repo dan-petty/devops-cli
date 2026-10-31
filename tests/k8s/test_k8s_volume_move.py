@@ -767,8 +767,9 @@ def test_a_dropped_copy_is_retried_once_on_an_empty_destination(
 def test_a_second_dropped_copy_undoes_every_step(cluster: Cluster, tmp_path: Path) -> None:
     cluster.copy_failures = 2
 
-    with pytest.raises(VolumeMoveError):
+    with pytest.raises(VolumeMoveError) as raised:
         _move(tmp_path)
+    assert raised.value.error_code == "K8S_VOLUME_MOVE_FAILED"
 
     assert cluster.changes == [*BEFORE_COPY, "copy", "empty /dst", "copy", *UNDO_AFTER_COPY]
 
@@ -776,8 +777,9 @@ def test_a_second_dropped_copy_undoes_every_step(cluster: Cluster, tmp_path: Pat
 def test_an_interrupted_copy_undoes_every_step(cluster: Cluster, tmp_path: Path) -> None:
     cluster.interrupt_copy = True
 
-    with pytest.raises(VolumeMoveError):
+    with pytest.raises(VolumeMoveError) as raised:
         _move(tmp_path)
+    assert raised.value.error_code == "K8S_VOLUME_MOVE_FAILED"
 
     assert cluster.changes == [*BEFORE_COPY, "copy", *UNDO_AFTER_COPY]
 
@@ -787,8 +789,9 @@ def test_a_failed_request_is_undone_as_if_it_made_its_change(
 ) -> None:
     cluster.failing = frozenset({"create PersistentVolumeClaim grafana-move"})
 
-    with pytest.raises(VolumeMoveError):
+    with pytest.raises(VolumeMoveError) as raised:
         _move(tmp_path)
+    assert raised.value.error_code == "K8S_VOLUME_MOVE_FAILED"
 
     assert cluster.changes == [
         *_pause(False, PAUSE),

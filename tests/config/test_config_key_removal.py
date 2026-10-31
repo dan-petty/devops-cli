@@ -63,8 +63,9 @@ def test_a_removal_deletes_the_key_that_stops_the_load_and_keeps_every_other_lin
     """The file before the removal is in the copy, the audit record names the removed key, and the
     settings load again."""
     _use(isolate_devops_cli_config, _WITH_REMOVED_KEY)
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(ConfigurationError) as raised:
         load_settings()
+    assert raised.value.error_code == "CONFIGURATION_ERROR"
     clock.move_to(_REMOVED_AT)
     backup = isolate_devops_cli_config.with_name(f"config.yaml.bak-{_STAMP}")
 

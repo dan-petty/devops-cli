@@ -263,17 +263,21 @@ def test_security_stream_request_validation() -> None:
     req = SecurityStreamRequest(severity="warning")
     assert req.severity == "WARNING"
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         SecurityStreamRequest(duration_seconds=0)
+    assert len(raised.value.errors()) > 0
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         SecurityStreamRequest(duration_seconds=5000)
+    assert len(raised.value.errors()) > 0
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         SecurityStreamRequest(tail_lines=0)
+    assert len(raised.value.errors()) > 0
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         SecurityStreamRequest(tail_lines=20000)
+    assert len(raised.value.errors()) > 0
 
 
 def test_security_stream_cli_invalid_severity(cli: Callable[..., Any]) -> None:

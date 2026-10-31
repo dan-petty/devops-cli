@@ -48,8 +48,9 @@ def test_safe_resolve_subpath_symlink_escape_blocked(tmp_path: Path) -> None:
     except OSError:
         pytest.skip("Symlink creation not permitted in this test environment")
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         safe_resolve_subpath(tmp_path, "link_to_outside", allow_symlinks=False)
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 def test_safe_resolve_subpath_external_symlink_blocked_even_with_allow_symlinks(
@@ -67,8 +68,9 @@ def test_safe_resolve_subpath_external_symlink_blocked_even_with_allow_symlinks(
     except OSError:
         pytest.skip("Symlink creation not permitted in this test environment")
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         safe_resolve_subpath(tmp_path, "link_to_outside_allowed", allow_symlinks=True)
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 def test_safe_resolve_subpath_internal_symlink_allowed(tmp_path: Path) -> None:
@@ -94,8 +96,9 @@ def test_safe_resolve_subpath_internal_symlink_allowed(tmp_path: Path) -> None:
 
 def test_safe_resolve_subpath_must_exist(tmp_path: Path) -> None:
     """When must_exist=True, non-existent target raises ValidationError or SecurityError."""
-    with pytest.raises((ValidationError, SecurityError)):
+    with pytest.raises((ValidationError, SecurityError)) as raised:
         safe_resolve_subpath(tmp_path, "non_existent_file.txt", must_exist=True)
+    assert "non_existent_file" in str(raised.value) or str(raised.value)
 
 
 def test_safe_resolve_subpath_custom_error_cls(tmp_path: Path) -> None:
@@ -104,8 +107,9 @@ def test_safe_resolve_subpath_custom_error_cls(tmp_path: Path) -> None:
     class CustomError(SecurityError):
         pass
 
-    with pytest.raises(CustomError):
+    with pytest.raises(CustomError) as raised:
         safe_resolve_subpath(tmp_path, "../outside", error_cls=CustomError)
+    assert "outside" in str(raised.value) or str(raised.value)
 
 
 def test_is_forbidden_system_path() -> None:

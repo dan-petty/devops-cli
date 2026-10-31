@@ -75,11 +75,13 @@ def test_k8s_apply_rejects_ssrf_and_private_metadata_urls() -> None:
 
     from devops_cli.commands.k8s.cluster_context import apply
 
-    with pytest.raises((ValueError, typer.Exit)):
+    with pytest.raises((ValueError, typer.Exit)) as raised:
         apply("http://169.254.169.254/latest/meta-data/")
+    assert str(raised.value) != "" or getattr(raised.value, "exit_code", 1) != 0
 
-    with pytest.raises((ValueError, typer.Exit)):
+    with pytest.raises((ValueError, typer.Exit)) as raised:
         apply("http://127.0.0.1:8080/manifest.yaml")
+    assert str(raised.value) != "" or getattr(raised.value, "exit_code", 1) != 0
 
 
 def test_k8s_apply_rejects_path_traversal() -> None:
@@ -88,8 +90,9 @@ def test_k8s_apply_rejects_path_traversal() -> None:
 
     from devops_cli.commands.k8s.cluster_context import apply
 
-    with pytest.raises((ValueError, typer.Exit)):
+    with pytest.raises((ValueError, typer.Exit)) as raised:
         apply("../../sensitive/secret.yaml")
+    assert str(raised.value) != "" or getattr(raised.value, "exit_code", 1) != 0
 
 
 def _forbid_subprocess(*_args: object, **_kwargs: object) -> None:
@@ -512,12 +515,14 @@ def test_k8s_run_cmd_kubeconfig_security(monkeypatch: pytest.MonkeyPatch) -> Non
     from devops_cli.exceptions.security import SecurityError
 
     monkeypatch.setenv("KUBECONFIG", "../../../etc/kubeconfig")
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         _run_cmd(["kubectl", "version"])
+    assert raised.value.error_code == "SECURITY_ERROR"
 
     monkeypatch.setenv("KUBECONFIG", "/etc/kubernetes/admin.conf")
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         _run_cmd(["kubectl", "version"])
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 def test_switch_context_logs_service_realignment_failure(

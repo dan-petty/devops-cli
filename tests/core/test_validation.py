@@ -104,14 +104,17 @@ def test_validate_path_and_dir_and_file(tmp_path: Path) -> None:
     assert validate_dir(d) == d
     assert validate_file(f) == f
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_dir(f)
+    assert raised.value.exit_code is not None
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_file(d)
+    assert raised.value.exit_code is not None
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_path(tmp_path / "nonexistent")
+    assert raised.value.exit_code is not None
 
 
 def test_validate_safe_key_path() -> None:
@@ -129,8 +132,9 @@ def test_validate_k8s_name() -> None:
     assert validate_k8s_name("valid-name") == "valid-name"
     assert validate_k8s_name("kube-system", namespace=True) == "kube-system"
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_k8s_name("INVALID_NAME!!")
+    assert raised.value.exit_code is not None
 
 
 def test_validate_path_parameterized(tmp_path: Path) -> None:
@@ -143,11 +147,13 @@ def test_validate_path_parameterized(tmp_path: Path) -> None:
     assert validate_path(f, kind="file", label="File") == f
     assert validate_path("id_ed25519", kind="key", allow_traversal=False) == Path("id_ed25519")
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_path("", label="Empty")
+    assert raised.value.exit_code is not None
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_path("../outside", allow_traversal=False)
+    assert raised.value.exit_code is not None
 
 
 def test_validation_edge_cases() -> None:
@@ -160,19 +166,24 @@ def test_validation_edge_cases() -> None:
 
     # 1. validate_safe_directory_path
     assert validate_safe_directory_path("src/devops_cli") == Path("src/devops_cli")
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         validate_safe_directory_path("")
-    with pytest.raises(ValidationError):
+    assert raised.value.error_code == "VALIDATION_ERROR"
+    with pytest.raises(ValidationError) as raised:
         validate_safe_directory_path("path/../traversal")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
     # 2. validate_session_id
     assert validate_session_id("valid-session_123") == "valid-session_123"
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         validate_session_id("")
-    with pytest.raises(ValidationError):
+    assert raised.value.error_code == "VALIDATION_ERROR"
+    with pytest.raises(ValidationError) as raised:
         validate_session_id("invalid session!!")
-    with pytest.raises(ValidationError):
+    assert raised.value.error_code == "VALIDATION_ERROR"
+    with pytest.raises(ValidationError) as raised:
         validate_session_id("session/../traversal")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
     from devops_cli.core.validation import validate_k8s_context_name
 
@@ -180,10 +191,12 @@ def test_validation_edge_cases() -> None:
         validate_k8s_context_name("arn:aws:eks:us-west-2:123456789012:cluster/my-cluster")
         == "arn:aws:eks:us-west-2:123456789012:cluster/my-cluster"
     )
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         validate_k8s_context_name("invalid context with spaces")
-    with pytest.raises(typer.Exit):
+    assert raised.value.exit_code is not None
+    with pytest.raises(typer.Exit) as raised:
         validate_k8s_context_name("invalid\ncontext")
+    assert raised.value.exit_code is not None
 
 
 def test_is_loopback_or_private_host() -> None:
@@ -301,8 +314,9 @@ def test_network_guard_refuses_and_reports_a_port_once_the_test_closes_its_serve
         server.close()
         address = service.getsockname()
         try:
-            with pytest.raises(ConnectionRefusedError):
+            with pytest.raises(ConnectionRefusedError) as raised:
                 client.connect(address)
+            assert raised.value is not None
             outcome = (probe.connect_ex(address), list(unexpected_loopback_connects))
         finally:
             unexpected_loopback_connects.clear()

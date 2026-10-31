@@ -142,8 +142,9 @@ def test_the_job_checks_the_token_scope_before_it_clears_its_dumpable_flag(
         "devops_cli.roadmap.implement_run.deny_environment_reads", lambda: seen.append("called")
     )
 
-    with pytest.raises(RoadmapImplementError):
+    with pytest.raises(RoadmapImplementError) as raised:
         job_world.run(two_groups())
+    assert raised.value.error_code == "ROADMAP_IMPLEMENT_REFUSED"
 
     assert seen == []
 
@@ -207,8 +208,9 @@ def test_a_job_outside_a_runner_does_not_touch_its_process(
         "devops_cli.roadmap.implement_run.deny_environment_reads", lambda: seen.append("called")
     )
 
-    with pytest.raises(RoadmapImplementError):
+    with pytest.raises(RoadmapImplementError) as raised:
         job_world.run(two_groups())
+    assert raised.value.error_code == "ROADMAP_IMPLEMENT_REFUSED"
 
     assert seen == []
 
@@ -537,8 +539,9 @@ def test_a_refused_key_stops_the_whole_run_and_not_only_the_item(job_world: JobW
         tool_calls(*group_one_calls()), ModelHTTPError(401, "example-model", {"error": "no"})
     )
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         job_world.run(script)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     assert job_world.issue_comments() == []
 

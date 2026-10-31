@@ -585,8 +585,9 @@ def test_get_repository_issue_fails_closed(
     """A failed read, and an answer that is no issue, raise the unread error: they never read as
     an empty issue."""
     github_api.route("GET", _REST_ISSUE, answer)
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         get_repository_issue("octo/repo", 9999)
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_get_repository_issue_refuses_a_pull_request(github_api: GitHubApiFake) -> None:

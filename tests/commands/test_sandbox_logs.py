@@ -127,8 +127,9 @@ def test_archive_incident_path_traversal_rejection(tmp_path: Path) -> None:
         panic_type=PanicType.SEGFAULT,
         message="segfault",
     )
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         archive_incident(incident, base_dir=tmp_path)
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,8 +269,9 @@ def test_engine_logs_not_found() -> None:
     engine = WorkloadSandboxEngine()
     engine.status = MagicMock(return_value=[])  # type: ignore[assignment]
 
-    with pytest.raises(SandboxNotFoundError):
+    with pytest.raises(SandboxNotFoundError) as raised:
         engine.logs(identifier="nonexistent-sandbox")
+    assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -467,8 +469,9 @@ def test_archive_incident_nested_or_absolute_traversal_rejection(tmp_path: Path)
             panic_type=PanicType.SEGFAULT,
             message="segfault",
         )
-        with pytest.raises(SecurityError):
+        with pytest.raises(SecurityError) as raised:
             archive_incident(incident, base_dir=tmp_path)
+        assert raised.value.error_code == "SECURITY_ERROR"
 
 
 def test_archive_incident_atomic_replacement(tmp_path: Path) -> None:

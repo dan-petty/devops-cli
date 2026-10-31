@@ -399,8 +399,9 @@ def _tasks_of(*groups: dict[str, Any]) -> str:
 def test_a_group_with_no_changed_file_a_blank_text_or_a_stray_new_path_is_refused(
     update: dict[str, Any],
 ) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         StageGroup.model_validate(_group(**update))
+    assert len(raised.value.errors()) > 0
 
 
 def test_a_group_with_no_reads_is_valid_and_its_line_says_none() -> None:
@@ -507,8 +508,9 @@ def test_rejected_credentials_stop_the_run(
 ) -> None:
     model_fake.answer(AICredentialsError("rejected"))
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         _plan(store, stage_repo)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
 def _reply_without(**update: Any) -> str:

@@ -130,8 +130,9 @@ def test_a_pull_request_that_lacks_a_title_is_unread(github_api: GitHubApiFake) 
 
 def test_a_missing_pull_request_raises_the_not_found_error(github_api: GitHubApiFake) -> None:
     """GitHub's 404 for a pull request is the not-found error, not an empty pull request."""
-    with pytest.raises(GitHubNotFoundError):
+    with pytest.raises(GitHubNotFoundError) as raised:
         _client().get_pull("octocat/Hello-World", 9999)
+    assert raised.value.error_code == "GITHUB_NOT_FOUND"
     assert github_api.requested == [
         "GET https://api.github.com/repos/octocat/Hello-World/pulls/9999"
     ]
@@ -264,8 +265,9 @@ def test_a_file_that_could_not_be_read_raises_instead_of_reading_as_absent(
     """A 500 that outlasts the retries, a refused token and a body that is no file raise the
     session's error: a failed read never looks like a file that is not there."""
     github_api.route("GET", _README_AT_BASE, answer)
-    with pytest.raises(error):
+    with pytest.raises(error) as raised:
         _client().get_file_at("octocat/Hello-World", "README", _BASE_SHA)
+    assert str(raised.value) != "" or getattr(raised.value, "error_code", None) is not None
 
 
 def test_the_merge_base_is_read_from_the_compare_endpoint(
@@ -301,8 +303,9 @@ def test_a_comparison_that_could_not_be_read_raises(
 ) -> None:
     """A 5xx that outlasts the retries, or a comparison without its merge base, is unread."""
     github_api.route("GET", _COMPARE, answer)
-    with pytest.raises(error):
+    with pytest.raises(error) as raised:
         _client().get_merge_base("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
+    assert str(raised.value) != "" or getattr(raised.value, "error_code", None) is not None
 
 
 def _listed_repositories() -> list[RepoInfo]:
@@ -392,8 +395,9 @@ def test_another_account_that_is_no_organization_raises_the_not_found_error(
     """A name that is not an organization and not the session's login is not listed from
     `/user/repos`: that listing would be the session's own repositories."""
     github_api.route("GET", "/user", github_json({"login": "somebody-else"}))
-    with pytest.raises(GitHubNotFoundError):
+    with pytest.raises(GitHubNotFoundError) as raised:
         _client().get_org_repos("octocat")
+    assert raised.value.error_code == "GITHUB_NOT_FOUND"
     assert "GET https://api.github.com" + _USER_OWNED_REPOS not in github_api.requested
 
 

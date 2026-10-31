@@ -342,7 +342,7 @@ def test_compute_dense_similarity() -> None:
 
 def test_cross_domain_analogy_schema_forbids_extra_fields() -> None:
     """Verify negative tool/model schema invariants: extra fields are forbidden."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         CrossDomainAnalogy.model_validate(
             {
                 "source": "src/a.py",
@@ -352,6 +352,7 @@ def test_cross_domain_analogy_schema_forbids_extra_fields() -> None:
                 "unexpected_field": "disallowed",
             }
         )
+    assert len(raised.value.errors()) > 0
 
 
 def test_analogy_report_model() -> None:

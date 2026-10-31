@@ -716,8 +716,9 @@ def test_a_rate_limited_listing_raises_rate_limit_error(github_api: GitHubApiFak
         github_json({"message": "rate"}, status=403, headers=quota_headers(0, reset_in=30.0)),
     )
     store, _ = over_github()
-    with pytest.raises(GitHubRateLimitError):
+    with pytest.raises(GitHubRateLimitError) as raised:
         store.milestones()
+    assert raised.value.error_code == "GITHUB_RATE_LIMIT_UNKNOWN"
 
 
 def test_a_failed_gh_read_raises_and_names_the_read() -> None:

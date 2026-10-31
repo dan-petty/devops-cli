@@ -65,8 +65,10 @@ def test_pipeline_run_failure(mock_run: MagicMock, mock_which: MagicMock, tmp_pa
 
 
 def test_pipeline_run_validates_path_and_function_name(tmp_path: Path) -> None:
-    with pytest.raises((typer.Exit, ValueError)):
+    with pytest.raises((typer.Exit, ValueError)) as raised:
         run_pipeline_cmd(pipeline_path=Path("/non/existent/dagger/pipeline.go"))
+    assert str(raised.value) != "" or getattr(raised.value, "exit_code", 1) != 0
 
-    with pytest.raises((typer.Exit, ValueError)):
+    with pytest.raises((typer.Exit, ValueError)) as raised:
         run_pipeline_cmd(pipeline_path=tmp_path, function_name="invalid;rm -rf /")
+    assert str(raised.value) != "" or getattr(raised.value, "exit_code", 1) != 0

@@ -77,8 +77,9 @@ def test_firecrawl_search_sends_the_result_cap(stub_web: StubWeb) -> None:
 
 def test_firecrawl_search_raises_on_http_error(stub_web: StubWeb) -> None:
     """A status the stub has no page for is a 404, which `raise_for_status` turns into an error."""
-    with pytest.raises(httpx2.HTTPStatusError):
+    with pytest.raises(httpx2.HTTPStatusError) as raised:
         firecrawl_search("test query", api_key="fc-test")
+    assert raised.value is not None
 
     assert stub_web.requested == [_FIRECRAWL_URL]
 
@@ -132,8 +133,9 @@ def test_a_search_firecrawl_refuses_counts_its_status_and_logs_it_without_the_ke
     an alert, so each status counts as itself."""
     stub_web.respond("POST", _FIRECRAWL_URL, status, {"success": False, "error": _QUERY})
 
-    with pytest.raises(httpx2.HTTPStatusError):
+    with pytest.raises(httpx2.HTTPStatusError) as raised:
         firecrawl_search(_QUERY, api_key=_KEY)
+    assert raised.value is not None
 
     logged = _warnings(caplog)
     assert (
@@ -167,8 +169,9 @@ def test_a_search_with_no_answer_or_no_web_results_counts_error_and_logs_its_cla
 ) -> None:
     serve(stub_web)
 
-    with pytest.raises((httpx2.HTTPError, ValueError)):
+    with pytest.raises((httpx2.HTTPError, ValueError)) as raised:
         firecrawl_search(_QUERY, api_key=_KEY)
+    assert raised.value is not None
 
     assert (otlp.points(FIRECRAWL_SEARCHES_TOTAL.name), _warnings(caplog)) == (
         [({"result": "error"}, 1.0)],

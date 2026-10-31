@@ -108,8 +108,9 @@ def test_an_override_path_may_carry_its_own_query() -> None:
 def test_a_malformed_service_url_is_rejected(description: str, url: str) -> None:
     """Treating a malformed k8s:// URL as an ordinary one produces a DNS failure naming a
     host the operator never configured, which is far harder to act on than an error."""
-    with pytest.raises(ServiceAddressError):
+    with pytest.raises(ServiceAddressError) as raised:
         parse_service_url(url)
+    assert raised.value.error_code == "K8S_ERROR"
 
 
 def test_the_port_is_required_rather_than_guessed() -> None:
@@ -130,8 +131,9 @@ def test_an_empty_url_is_not_a_service_url() -> None:
 
 def test_parsing_a_non_service_url_is_an_error() -> None:
     """The caller checked is_service_url first, so reaching here is a programming error."""
-    with pytest.raises(ServiceAddressError):
+    with pytest.raises(ServiceAddressError) as raised:
         parse_service_url("https://example.com")
+    assert raised.value.error_code == "K8S_ERROR"
 
 
 def test_a_reference_round_trips_through_its_configuration_form() -> None:

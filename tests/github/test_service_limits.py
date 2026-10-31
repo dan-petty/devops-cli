@@ -263,8 +263,9 @@ def test_a_refusal_ends_the_round_before_the_next_job_sends_a_request(tmp_path: 
 
     table = build_stub_table({"intake": refused, "refine": later})
     due = {("webhook", "issues", "opened"): 1, ("webhook", "issues", "labeled"): 1}
-    with pytest.raises(RoadmapRunError):
+    with pytest.raises(RoadmapRunError) as raised:
         run_due_jobs(REPO_A, InMemoryRoadmapStore(), due, table=table, data_dir=tmp_path)
+    assert raised.value.error_code == "DEVOPS_CLI_ERROR"
 
     assert ran == ["intake"]
 
@@ -570,8 +571,9 @@ def test_a_job_that_failed_its_limit_of_rounds_does_not_run_until_its_input_chan
         )
 
     for step in range(DEFAULT_SERVICE_MAX_FAILED_ROUNDS):
-        with pytest.raises(RoadmapRunError):
+        with pytest.raises(RoadmapRunError) as raised:
             round_of(_WEBHOOK if step == 0 else _POLL, START + timedelta(minutes=step))
+        assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     assert len(calls) == DEFAULT_SERVICE_MAX_FAILED_ROUNDS
     assert len([r for r in caplog.records if "failed 3 rounds in a row" in r.getMessage()]) == 1
 
@@ -581,8 +583,9 @@ def test_a_job_that_failed_its_limit_of_rounds_does_not_run_until_its_input_chan
     assert len(calls) == DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 
     # A webhook is new input, so the job runs again, and fails once more.
-    with pytest.raises(RoadmapRunError):
+    with pytest.raises(RoadmapRunError) as raised:
         round_of(_WEBHOOK, START + timedelta(minutes=20))
+    assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     assert len(calls) == DEFAULT_SERVICE_MAX_FAILED_ROUNDS + 1
 
 
@@ -636,8 +639,9 @@ class _Rounds:
 
     def fail(self, tmp_path: Path) -> None:
         """One round that is meant to end with its error."""
-        with pytest.raises(RoadmapRunError):
+        with pytest.raises(RoadmapRunError) as raised:
             self.poll(tmp_path)
+        assert raised.value.error_code == "DEVOPS_CLI_ERROR"
 
 
 def test_three_rounds_that_a_stop_ends_do_not_suspend_the_row_and_the_next_round_runs(
@@ -785,7 +789,7 @@ def test_a_restart_keeps_the_halt_the_budget_window_and_the_failure_ledger(
     table = _failing_table(calls)
     ledger = volume / CONST_SERVICE_FAILURES_FILENAME
     for step in range(DEFAULT_SERVICE_MAX_FAILED_ROUNDS):
-        with pytest.raises(RoadmapRunError):
+        with pytest.raises(RoadmapRunError) as raised:
             run_due_jobs(
                 REPO_A,
                 InMemoryRoadmapStore(),
@@ -795,6 +799,7 @@ def test_a_restart_keeps_the_halt_the_budget_window_and_the_failure_ledger(
                 now=START + timedelta(minutes=step),
                 failures=FailureLedger(record=ledger),
             )
+        assert raised.value.error_code == "DEVOPS_CLI_ERROR"
 
     # The new process's metrics start empty.
     GLOBAL_METRICS.reset()

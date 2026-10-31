@@ -835,7 +835,8 @@ def test_download_refuses_a_private_answer_whatever_the_flag(
     scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
     recorder = record_connects(monkeypatch, [])
 
-    with pytest.raises(SSRFBlockedError):
+    with pytest.raises(SSRFBlockedError) as raised:
         _download("https://example.com/tool.tar.gz")
+    assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert recorder.dialled == []
