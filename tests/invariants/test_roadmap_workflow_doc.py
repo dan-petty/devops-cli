@@ -140,8 +140,7 @@ def workflow_problems(text: str) -> list[str]:
     return problems
 
 
-@pytest.fixture(name="document")
-def document_fixture() -> str:
+def _document() -> str:
     """The text of the workflow document."""
     return DOCUMENT.read_text(encoding="utf-8")
 
@@ -150,42 +149,44 @@ def test_labels_file_declares_the_status_and_owner_values_of_the_code() -> None:
     assert _declared_labels() == _code_labels()
 
 
-def test_workflow_document_matches_the_labels_and_the_code(document: str) -> None:
-    assert workflow_problems(document) == []
+def test_workflow_document_matches_the_labels_and_the_code() -> None:
+    assert workflow_problems(_document()) == []
 
 
 @pytest.mark.parametrize("label", sorted(_code_labels()))
-def test_document_without_a_label_fails(document: str, label: str) -> None:
-    removed = document.replace(f"`{label}`", "")
+def test_document_without_a_label_fails(label: str) -> None:
+    removed = _document().replace(f"`{label}`", "")
     assert f"label {label} is missing" in workflow_problems(removed)
 
 
-def test_document_with_a_label_that_does_not_exist_fails(document: str) -> None:
-    assert "label status/done does not exist" in workflow_problems(document + "\n`status/done`\n")
+def test_document_with_a_label_that_does_not_exist_fails() -> None:
+    assert "label status/done does not exist" in workflow_problems(
+        _document() + "\n`status/done`\n"
+    )
 
 
 @pytest.mark.parametrize("key", sorted(RECORD_KEYS))
-def test_document_without_a_record_key_fails(document: str, key: str) -> None:
-    removed = document.replace(f"`{key}`", "")
+def test_document_without_a_record_key_fails(key: str) -> None:
+    removed = _document().replace(f"`{key}`", "")
     assert f"record key {key} is missing" in workflow_problems(removed)
 
 
-def test_document_with_a_record_key_that_does_not_exist_fails(document: str) -> None:
-    problems = workflow_problems(document + "\n`implement.nothing`\n")
+def test_document_with_a_record_key_that_does_not_exist_fails() -> None:
+    problems = workflow_problems(_document() + "\n`implement.nothing`\n")
     assert "record key implement.nothing does not exist" in problems
 
 
 @pytest.mark.parametrize("name", [*STEPS, *GATES])
-def test_document_without_a_step_or_a_gate_fails(document: str, name: str) -> None:
+def test_document_without_a_step_or_a_gate_fails(name: str) -> None:
     kind = "gate" if name in GATES else "step"
-    assert f"{kind} {name} is missing" in workflow_problems(document.replace(name, "xx"))
+    assert f"{kind} {name} is missing" in workflow_problems(_document().replace(name, "xx"))
 
 
-def test_document_without_the_transition_table_fails(document: str) -> None:
-    removed = document.replace("| From state |", "| State |")
+def test_document_without_the_transition_table_fails() -> None:
+    removed = _document().replace("| From state |", "| State |")
     assert "the transition table is missing" in workflow_problems(removed)
 
 
-def test_document_without_the_diagram_fails(document: str) -> None:
-    removed = document.replace("```mermaid", "```text")
+def test_document_without_the_diagram_fails() -> None:
+    removed = _document().replace("```mermaid", "```text")
     assert "the diagram is missing" in workflow_problems(removed)
