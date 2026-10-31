@@ -28,7 +28,7 @@ On 2026-10-09 the owner decided that each subscribed event runs, at once, the up
 
 ## Consequences
 
-- The roadmap consumer still makes a whole round for each delivery until it gives each subscribed event to its scoped update, the second part of #1533. The live check, a real delivery of each subscribed event, waits until the Service runs again.
+- The roadmap consumer gives each subscribed event to its scoped update on the lane that the table names, queueing no full round (#1533). The live check, a real delivery of each subscribed event, waits until the Service runs again.
 - A delivery of `issues` `edited` about an issue that is already an Item decides nothing.
 - Intake's hourly interval stays for the candidates that no delivery names.
 - The delivery target of ADR 0009 stays the one seam between the router and the jobs. A move of the delivery to another engine changes only that target.

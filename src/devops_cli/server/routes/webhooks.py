@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import inspect
 import logging
 import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -118,7 +119,7 @@ class WebhookConsumer(BaseModel):
     name: str
     provider: WebhookProviderName
     events: frozenset[str]
-    deliver: Callable[[str, str, str], None]
+    deliver: Callable[..., None]
     refusal: Callable[[GitHubWebhookPayload], str | None] = _takes_every_payload
 
 
@@ -139,15 +140,46 @@ WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
 
 def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     """The roadmap jobs' consumer: each event their batch keys name runs a round in every lane of
-    its repository, except the writes of the GitHub App's own bot. Its delivery target is
-    `ServiceManager.enqueue_trigger`, the one seam between the router and the lane workers."""
+    its repository, except the writes of the GitHub App's own bot. A subscribed event that can be
+    scoped runs its scoped update on the lane that the table names; another event stays a hint
+    (ADR 0017)."""
 
-    def deliver(repo: str, event: str, action: str) -> None:
-        service_manager.enqueue_trigger(repo, CONST_SERVICE_SOURCE_WEBHOOK, event, action)
+    def deliver(
+        repo: str,
+        event: str,
+        action: str,
+        payload: GitHubWebhookPayload | None = None,
+    ) -> None:
         GLOBAL_METRICS.increment_counter(
             CONST_SERVICE_METRIC_TRIGGERS,
             labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
         )
+        from devops_cli.roadmap.run import SCOPED_UPDATES, WebhookDelivery, run_scoped_update
+        from devops_cli.roadmap.store import get_roadmap_store
+
+        scoped = SCOPED_UPDATES.get((event, action))
+        if (
+            scoped is not None
+            and payload is not None
+            and payload.issue is not None
+            and payload.issue.number is not None
+        ):
+            delivery = WebhookDelivery(
+                repo=repo,
+                event=event,
+                action=action,
+                number=payload.issue.number,
+            )
+
+            def run_scoped() -> None:
+                store = get_roadmap_store(repo)
+                data_dir = service_manager.state_dir.parent if service_manager.state_dir else None
+                run_scoped_update(delivery, store, data_dir=data_dir)
+
+            if service_manager.enqueue_scoped(repo, scoped.lane, run_scoped):
+                return
+
+        service_manager.enqueue_trigger(repo, CONST_SERVICE_SOURCE_WEBHOOK, event, action)
 
     def refuse_own_write(payload: GitHubWebhookPayload) -> str | None:
         bot, sender = service_manager.bot_login, payload.sender
@@ -316,7 +348,16 @@ def _hand_to_consumers(
     takers = [consumer for consumer, refusal in verdicts if refusal is None]
     refusals = [refusal for _consumer, refusal in verdicts if refusal is not None]
     for consumer in takers:
-        consumer.deliver(payload.repository.full_name, delivery.event, payload.action or "")
+        sig = inspect.signature(consumer.deliver)
+        if len(sig.parameters) >= 4 or any(
+            p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+            for p in sig.parameters.values()
+        ):
+            consumer.deliver(
+                payload.repository.full_name, delivery.event, payload.action or "", payload
+            )
+        else:
+            consumer.deliver(payload.repository.full_name, delivery.event, payload.action or "")
     if takers:
         return _Reply(202, {"status": "accepted"}, CONST_SERVICE_OUTCOME_ACCEPTED)
     first = refusals[0]
