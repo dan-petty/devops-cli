@@ -69,20 +69,29 @@ from devops_cli.github.milestones import (
 from devops_cli.github.pages import (
     get_pages_builds,
     get_pages_status,
+    pages_build_requests,
+    pages_builds_requests,
+    pages_status_requests,
     request_pages_build,
     verify_pages_configuration,
 )
 from devops_cli.github.projects import (
     ReconcileResult,
     audit_project_drift,
+    audit_project_requests,
     audit_remote_project_views,
+    audit_views_requests,
     get_project_workflows,
+    link_project_requests,
     link_project_to_repository,
     list_remote_projects,
     load_project_template,
+    project_list_requests,
     project_template_path,
+    project_workflows_requests,
     sync_remote_project,
     sync_remote_project_views,
+    sync_views_requests,
 )
 from devops_cli.github.rate_limit_view import (
     format_rate_limit_rows,
@@ -407,6 +416,7 @@ def edit_milestone_cmd(
 
 
 @project_app.command("status")
+@dry_run_class("no-external-request")
 def status_project(
     template_file: Annotated[
         Path | None,
@@ -425,6 +435,7 @@ def status_project(
 
 
 @project_app.command("sync", help=HELP.gh.project_sync)
+@dry_run_class("request-plan")
 def sync_project(
     template_file: Annotated[
         Path | None,
@@ -456,15 +467,13 @@ def sync_project(
     )
     texts = MESSAGES.project
     if res.dry_run:
-        print_info(
-            texts.sync_dry_run.format(
-                title=res.project_title,
-                owner=owner,
-                repo=target_repo,
-                fields=", ".join(f.name for f in template.fields),
-                reconcile=texts.sync_dry_run_reconcile if reconcile_fields else "",
-            )
+        heading = "\n\n".join(
+            [
+                f"devops gh project sync for {target_repo}",
+                f"[DRY RUN] No request was made. {MESSAGES.roadmap.plan_dry_run}",
+            ]
         )
+        render_request_plan(heading, res.requests, texts.dry_run_notes, described=True)
         return
     print_success(
         texts.sync_done.format(
@@ -570,14 +579,23 @@ def reconcile_project_cmd(
 
 
 @project_app.command("link", help=HELP.gh.project_link)
+@dry_run_class("request-plan")
 def link_project(
     project_number: Annotated[int, typer.Argument(help="GitHub Projects v2 board number")],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Link a GitHub Projects v2 board to the repository."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
+    if dry_run or is_dry_run():
+        planned = link_project_requests(project_number, owner, repo_name)
+        render_request_plan(f"Plan for linking project #{project_number} to {target_repo}", planned)
+        return
     ok = link_project_to_repository(project_number, owner, repo_name)
     if ok:
         print_success(f"Linked project #{project_number} to {target_repo}.")
@@ -591,6 +609,7 @@ project_app.add_typer(workflows_app, name="workflows")
 
 
 @workflows_app.command("list", help=HELP.gh.project_workflows_list)
+@dry_run_class("request-plan")
 def list_project_workflows(
     project_number: Annotated[
         int | None,
@@ -602,10 +621,23 @@ def list_project_workflows(
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List built-in project workflows, enabled statuses, and configuration links."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    if dry_run or is_dry_run():
+        proj_num = project_number if project_number is not None else 1
+        planned = project_workflows_requests(proj_num, owner, repo=target_repo)
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
+            return
+        render_request_plan(f"Plan for listing workflows of project #{proj_num} ({owner})", planned)
+        return
     proj_num = _resolve_project_number(owner, target_repo, project_number)
 
     workflows = get_project_workflows(proj_num, owner, repo=target_repo)
@@ -658,13 +690,22 @@ def _report_workflow_gaps(workflows: list[dict[str, Any]], proj_num: int) -> Non
 
 
 @project_app.command("list", help=HELP.gh.project_list)
+@dry_run_class("request-plan")
 def list_projects(
     owner: Annotated[
         str | None, typer.Option("--owner", "-o", help="Target user or organization")
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List available GitHub Projects v2 boards."""
     resolved_owner = owner or _resolve_repo().split("/")[0]
+    if dry_run or is_dry_run():
+        planned = project_list_requests(resolved_owner)
+        render_request_plan(f"Plan for listing projects of {resolved_owner}", planned)
+        return
     projects = list_remote_projects(resolved_owner)
     if not projects:
         print_info(f"No GitHub Projects v2 boards found for owner '{resolved_owner}'.")
@@ -675,18 +716,27 @@ def list_projects(
 
 
 @project_app.command("audit", help=HELP.gh.project_audit)
+@dry_run_class("request-plan")
 def audit_project(
     template_file: Annotated[
         Path | None,
         typer.Option("--template", "-t", help=HELP.gh.project_template_file),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit project board health and alignment against standardized template."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
     template = load_project_template(template_file)
+    if dry_run or is_dry_run():
+        planned = audit_project_requests(owner, repo_name, template)
+        render_request_plan(f"Plan for auditing project drift ({owner}/{repo_name})", planned)
+        return
     res = audit_project_drift(owner, repo_name, template)
     if not res.get("project_found"):
         print_warning(f"No active project board found for repository '{target_repo}'.")
@@ -706,6 +756,7 @@ def audit_project(
 
 
 @project_app.command("template")
+@dry_run_class("no-external-request")
 def show_template(
     template_file: Annotated[
         Path | None,
@@ -724,6 +775,7 @@ def show_template(
 
 
 @views_app.command("list")
+@dry_run_class("no-external-request")
 def list_views(
     template_file: Annotated[
         Path | None,
@@ -747,6 +799,7 @@ def list_views(
 
 
 @views_app.command("spec")
+@dry_run_class("no-external-request")
 def spec_views(
     template_file: Annotated[
         Path | None,
@@ -787,18 +840,29 @@ def _display_issues_saved_views(target_repo: str) -> None:
 
 
 @views_app.command("sync", help=HELP.gh.views_sync)
+@dry_run_class("request-plan")
 def sync_views(
     template_file: Annotated[
         Path | None,
         typer.Option("--template", "-t", help=HELP.gh.project_template_file),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Synchronize standardized views with remote GitHub Projects v2 board."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
     template = load_project_template(template_file)
+
+    if dry_run or is_dry_run():
+        planned = sync_views_requests(owner, repo_name, template)
+        render_request_plan(f"Plan for syncing project views ({owner}/{repo_name})", planned)
+        _display_issues_saved_views(target_repo)
+        return
 
     try:
         res = sync_remote_project_views(owner, repo_name, template)
@@ -818,18 +882,27 @@ def sync_views(
 
 
 @views_app.command("audit", help=HELP.gh.views_audit)
+@dry_run_class("request-plan")
 def audit_views(
     template_file: Annotated[
         Path | None,
         typer.Option("--template", "-t", help=HELP.gh.project_template_file),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit remote project views against standardized view template specifications."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
     template = load_project_template(template_file)
+    if dry_run or is_dry_run():
+        planned = audit_views_requests(owner, repo_name, template)
+        render_request_plan(f"Plan for auditing project views ({owner}/{repo_name})", planned)
+        return
     res = audit_remote_project_views(owner, repo_name, template)
     if not res.get("project_number"):
         print_warning(f"No linked project board found for repository '{target_repo}'.")
@@ -853,11 +926,20 @@ def audit_views(
 
 
 @pages_app.command("status", help=HELP.gh.pages_status)
+@dry_run_class("request-plan")
 def pages_status_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        planned = pages_status_requests(target_repo)
+        render_request_plan(f"Plan for checking GitHub Pages status ({target_repo})", planned)
+        return
     info = get_pages_status(target_repo)
     if not info:
         print_warning(
@@ -877,12 +959,21 @@ def pages_status_cmd(
 
 
 @pages_app.command("builds", help=HELP.gh.pages_builds)
+@dry_run_class("request-plan")
 def pages_builds_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     limit: Annotated[int, typer.Option("--limit", "-l", help="Number of builds to retrieve")] = 5,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List recent GitHub Pages build history and durations."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        planned = pages_builds_requests(target_repo, limit=limit)
+        render_request_plan(f"Plan for retrieving Pages builds ({target_repo})", planned)
+        return
     builds = get_pages_builds(target_repo, limit=limit)
     if not builds:
         print_info(f"No recent GitHub Pages builds found for '{target_repo}'.")
@@ -902,11 +993,20 @@ def pages_builds_cmd(
 
 
 @pages_app.command("build", help=HELP.gh.pages_build)
+@dry_run_class("request-plan")
 def pages_build_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Trigger a new deployment build for GitHub Pages."""
     target_repo = repo or _resolve_repo()
+    if dry_run or is_dry_run():
+        planned = pages_build_requests(target_repo)
+        render_request_plan(f"Plan for requesting Pages build ({target_repo})", planned)
+        return
     ok = request_pages_build(target_repo)
     if ok:
         print_success(f"Successfully requested GitHub Pages build for '{target_repo}'.")
@@ -916,6 +1016,7 @@ def pages_build_cmd(
 
 
 @pages_app.command("verify", help=HELP.gh.pages_verify)
+@dry_run_class("no-external-request")
 def pages_verify_cmd(
     root_dir: Annotated[
         Path,

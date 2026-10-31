@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,9 +45,21 @@ class GitHubPagesBuildInfo(BaseModel):
     updated_at: str = ""
 
 
+def pages_status_args(repo: str) -> list[str]:
+    """Arguments for fetching GitHub Pages site configuration and status via gh api."""
+    return ["api", f"repos/{repo}/pages"]
+
+
+def pages_status_requests(repo: str) -> list[PlannedRequest]:
+    """Planned requests for fetching GitHub Pages site configuration."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    return [planned_gh(pages_status_args(repo), f"repos/{repo}/pages")]
+
+
 def get_pages_status(repo: str) -> GitHubPagesInfo | None:
     """Fetch GitHub Pages site configuration and status via gh api."""
-    cmd = [CONST_GH_CLI, "api", f"repos/{repo}/pages"]
+    cmd = [CONST_GH_CLI, *pages_status_args(repo)]
     res = run_gh(cmd, check=False, quiet=True)
     if res.returncode != 0 or not res.stdout.strip():
         return None
@@ -81,9 +96,21 @@ def _parse_single_build(item: dict[str, Any]) -> GitHubPagesBuildInfo:
     )
 
 
+def pages_builds_args(repo: str, limit: int = 5) -> list[str]:
+    """Arguments for retrieving historical Pages build records."""
+    return ["api", f"repos/{repo}/pages/builds?per_page={limit}"]
+
+
+def pages_builds_requests(repo: str, limit: int = 5) -> list[PlannedRequest]:
+    """Planned requests for retrieving historical Pages build records."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    return [planned_gh(pages_builds_args(repo, limit=limit), f"repos/{repo}/pages/builds")]
+
+
 def get_pages_builds(repo: str, limit: int = 5) -> list[GitHubPagesBuildInfo]:
     """Retrieve historical Pages build records for the repository."""
-    cmd = [CONST_GH_CLI, "api", f"repos/{repo}/pages/builds?per_page={limit}"]
+    cmd = [CONST_GH_CLI, *pages_builds_args(repo, limit=limit)]
     res = run_gh(cmd, check=False, quiet=True)
     if res.returncode != 0 or not res.stdout.strip():
         return []
@@ -98,9 +125,21 @@ def get_pages_builds(repo: str, limit: int = 5) -> list[GitHubPagesBuildInfo]:
         return []
 
 
+def pages_build_args(repo: str) -> list[str]:
+    """Arguments for requesting a new deployment build for GitHub Pages."""
+    return ["api", "-X", "POST", f"repos/{repo}/pages/builds"]
+
+
+def pages_build_requests(repo: str) -> list[PlannedRequest]:
+    """Planned requests for requesting a new deployment build for GitHub Pages."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    return [planned_gh(pages_build_args(repo), f"repos/{repo}/pages/builds")]
+
+
 def request_pages_build(repo: str) -> bool:
     """Request a new deployment build for GitHub Pages."""
-    cmd = [CONST_GH_CLI, "api", "-X", "POST", f"repos/{repo}/pages/builds"]
+    cmd = [CONST_GH_CLI, *pages_build_args(repo)]
     res = run_gh(cmd, check=False, quiet=True)
     return res.returncode == 0
 

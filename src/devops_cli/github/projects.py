@@ -525,6 +525,37 @@ def create_remote_project(owner: str, title: str) -> dict[str, Any]:
     return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {"title": title}
 
 
+def link_project_args(project_number: int, owner: str, repo: str) -> list[str]:
+    """Arguments for linking a project to a repository."""
+    return [
+        "project",
+        "link",
+        str(project_number),
+        "--owner",
+        owner,
+        "--repo",
+        repo,
+    ]
+
+
+def link_project_requests(project_number: int, owner: str, repo: str) -> list[PlannedRequest]:
+    """Planned requests for linking a project to a repository."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    requests: list[PlannedRequest] = []
+    clean_owner = owner.strip()
+    if clean_owner == "@me":
+        requests.append(
+            planned_gh(list(_USER_LOGIN_ARGS), MESSAGES.project.request_targets["login"])
+        )
+        clean_owner = MESSAGES.project.request_placeholders["login"]
+    clean_repo_name = repo.split("/")[-1] if "/" in repo else repo
+    full_repo = f"{clean_owner}/{clean_repo_name}"
+    cmd = link_project_args(project_number, clean_owner, full_repo)
+    requests.append(planned_gh(cmd, f"link project #{project_number} to {full_repo}"))
+    return requests
+
+
 def link_project_to_repository(project_number: int, owner: str, repo: str) -> bool:
     """Link a GitHub Projects v2 board to a target repository."""
     clean_owner = owner.strip()
@@ -536,13 +567,7 @@ def link_project_to_repository(project_number: int, owner: str, repo: str) -> bo
     proc = run_gh(
         [
             CONST_GH_CLI,
-            "project",
-            "link",
-            str(project_number),
-            "--owner",
-            clean_owner,
-            "--repo",
-            full_repo,
+            *link_project_args(project_number, clean_owner, full_repo),
         ],
         check=False,
         quiet=True,
@@ -566,8 +591,8 @@ def link_project_to_repository(project_number: int, owner: str, repo: str) -> bo
     return True
 
 
-def _fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
-    """Query raw ProjectV2 workflow nodes via GraphQL."""
+def project_workflows_args(project_id: str) -> list[str]:
+    """Arguments for querying raw ProjectV2 workflow nodes via GraphQL."""
     query = (
         "query($id: ID!) { "
         "node(id: $id) { "
@@ -575,19 +600,60 @@ def _fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
         "workflows(first: 20) { "
         "nodes { id name number enabled } } } } }"
     )
-    proc = run_gh(
+    return [
+        "api",
+        "graphql",
+        "-f",
+        f"query={query}",
+        "-F",
+        f"id={project_id}",
+    ]
+
+
+def project_workflows_requests(
+    project_number: int, owner: str, repo: str | None = None
+) -> list[PlannedRequest]:
+    """Planned requests for retrieving built-in project workflows."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    requests: list[PlannedRequest] = []
+    clean_owner = owner.strip()
+    if clean_owner == "@me":
+        requests.append(
+            planned_gh(list(_USER_LOGIN_ARGS), MESSAGES.project.request_targets["login"])
+        )
+        clean_owner = MESSAGES.project.request_placeholders["login"]
+    if repo:
+        clean_repo_name = repo.split("/")[-1] if "/" in repo else repo
+        requests.append(
+            planned_gh(
+                _repository_boards_args(clean_owner, clean_repo_name),
+                f"boards linked to {clean_owner}/{clean_repo_name}",
+            )
+        )
+    requests.extend(
         [
-            CONST_GH_CLI,
-            "api",
-            "graphql",
-            "-f",
-            f"query={query}",
-            "-F",
-            f"id={proj_id}",
-        ],
-        check=False,
-        quiet=True,
+            planned_gh(
+                _owner_boards_args(endpoint, clean_owner),
+                f"{clean_owner}'s boards",
+            )
+            for endpoint in _OWNER_BOARD_ENDPOINTS
+        ]
     )
+    proj_id = f"<project_{project_number}_id>"
+    requests.append(
+        planned_gh(
+            project_workflows_args(proj_id),
+            f"workflows of project #{project_number}",
+        )
+    )
+    return requests
+
+
+def _fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
+    """Query raw ProjectV2 workflow nodes via GraphQL."""
+    cmd = [CONST_GH_CLI, *project_workflows_args(proj_id)]
+    proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         return []
     data = extract_json_payload(proc.stdout)
@@ -628,11 +694,9 @@ def get_project_workflows(
     ]
 
 
-def _provision_single_field(owner: str, project_number: int, field: ProjectField) -> bool:
-    """Provision a single custom field in a GitHub Projects v2 board."""
-    owner_arg = _resolve_project_owner_arg(owner)
+def field_create_args(owner_arg: str, project_number: int | str, field: ProjectField) -> list[str]:
+    """Arguments for creating a custom field in a GitHub Projects v2 board."""
     cmd = [
-        CONST_GH_CLI,
         "project",
         "field-create",
         str(project_number),
@@ -646,6 +710,13 @@ def _provision_single_field(owner: str, project_number: int, field: ProjectField
         cmd.extend(["--data-type", "SINGLE_SELECT", "--single-select-options", opts])
     else:
         cmd.extend(["--data-type", "TEXT"])
+    return cmd
+
+
+def _provision_single_field(owner: str, project_number: int, field: ProjectField) -> bool:
+    """Provision a single custom field in a GitHub Projects v2 board."""
+    owner_arg = _resolve_project_owner_arg(owner)
+    cmd = field_create_args(owner_arg, project_number, field)
     proc = _run_project_cli(cmd, owner_arg=owner_arg)
     if proc.returncode != 0:
         refused = classify_gh_failure(
@@ -1284,6 +1355,82 @@ class ProjectSyncResult(BaseModel):
     dry_run: bool = False
     linked: bool = False
     reconcile: ReconcileResult | None = None
+    requests: tuple[PlannedRequest, ...] = ()
+
+
+def project_sync_requests(
+    owner: str,
+    repo: str,
+    template: ProjectTemplate,
+    reconcile_fields: bool = True,
+) -> list[PlannedRequest]:
+    """Planned requests for synchronizing a remote project with template."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    texts = MESSAGES.project
+    targets = texts.request_targets
+    requests: list[PlannedRequest] = [
+        planned_gh(
+            [CONST_GH_CLI, "project", "list", "--owner", "@me", "--format", "json"],
+            "verify project scope",
+        ),
+    ]
+    requests.extend(_find_board_requests(owner, repo, _template_names(template)))
+    clean_owner = owner.strip()
+    owner_arg = texts.request_placeholders["owner_arg"].format(owner=owner)
+    requests.append(
+        planned_gh(
+            [
+                CONST_GH_CLI,
+                "project",
+                "create",
+                "--owner",
+                owner_arg,
+                "--title",
+                template.name,
+                "--format",
+                "json",
+            ],
+            f"create board '{template.name}'",
+            condition=f"no board named '{template.name}' exists",
+        )
+    )
+    clean_repo_name = repo.split("/")[-1] if "/" in repo else repo
+    full_repo = f"{clean_owner}/{clean_repo_name}"
+    requests.append(
+        planned_gh(
+            [
+                CONST_GH_CLI,
+                "project",
+                "link",
+                texts.request_placeholders["board"],
+                "--owner",
+                owner_arg,
+                "--repo",
+                full_repo,
+            ],
+            f"link board to {full_repo}",
+        )
+    )
+    requests.append(
+        planned_gh(
+            field_list_args(clean_owner, texts.request_placeholders["board"]),
+            targets["fields"].format(board=texts.request_placeholders["board"]),
+        )
+    )
+    for field in template.fields:
+        cmd = field_create_args(owner_arg, texts.request_placeholders["board"], field)
+        requests.append(
+            planned_gh(
+                cmd,
+                f"create field '{field.name}'",
+                condition=f"field '{field.name}' is missing",
+            )
+        )
+    if reconcile_fields:
+        reconcile_plan = reconcile_dry_run(owner, repo, None, template=template)
+        requests.extend(reconcile_plan.requests)
+    return requests
 
 
 def _find_or_create_board(owner: str, repo: str, template: ProjectTemplate) -> int:
@@ -1311,9 +1458,15 @@ def sync_remote_project(
     """Find or create the template's board, link it, create the template fields it lacks, and
     reconcile Status and Priority on the cards already on it. Sync adds no card. A dry run
     makes no request."""
-    result = ProjectSyncResult(project_title=template.name, owner=owner, repo=repo, dry_run=dry_run)
     if dry_run:
-        return result
+        reqs = project_sync_requests(owner, repo, template, reconcile_fields=reconcile_fields)
+        return ProjectSyncResult(
+            project_title=template.name,
+            owner=owner,
+            repo=repo,
+            dry_run=True,
+            requests=tuple(reqs),
+        )
 
     verify_project_auth_scopes()
     number = _find_or_create_board(owner, repo, template)
@@ -1324,13 +1477,14 @@ def sync_remote_project(
         if reconcile_fields
         else None
     )
-    return result.model_copy(
-        update={
-            "project_number": number,
-            "fields_provisioned": provisioned,
-            "linked": linked,
-            "reconcile": reconciled,
-        }
+    return ProjectSyncResult(
+        project_title=template.name,
+        owner=owner,
+        repo=repo,
+        project_number=number,
+        fields_provisioned=provisioned,
+        linked=linked,
+        reconcile=reconciled,
     )
 
 
@@ -1344,16 +1498,80 @@ def _map_view_layout(layout: str) -> str:
     return "TABLE_LAYOUT"
 
 
-def get_remote_project_views(
-    owner: str, repo: str
-) -> tuple[str | None, int | None, list[dict[str, str]]]:
-    """Fetch remote ProjectV2 ID, number, and views for the given repository."""
+def remote_project_views_args(owner: str, repo: str) -> list[str]:
+    """Arguments for querying remote ProjectV2 views via GraphQL."""
     repo_clean = repo.split("/")[-1]
     query = (
         f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(repo_clean)}) {{ "
         f"projectsV2(first: 5) {{ nodes {{ id number title views(first: 20) {{ nodes {{ id name layout }} }} }} }} }} }}"
     )
-    cmd = [CONST_GH_CLI, "api", "graphql", "-f", f"query={query}"]
+    return ["api", "graphql", "-f", f"query={query}"]
+
+
+def audit_project_requests(
+    owner: str, repo: str, template: ProjectTemplate
+) -> list[PlannedRequest]:
+    """Planned requests for auditing project board drift."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    cmd = remote_project_views_args(owner, repo)
+    return [planned_gh(cmd, f"projects and views linked to {owner}/{repo}")]
+
+
+def audit_views_requests(owner: str, repo: str, template: ProjectTemplate) -> list[PlannedRequest]:
+    """Planned requests for auditing remote project views."""
+    return audit_project_requests(owner, repo, template)
+
+
+def create_project_view_args(project_id: str, name: str, layout: str) -> list[str]:
+    """Arguments for creating a project view via GraphQL mutation."""
+    layout_enum = _map_view_layout(layout)
+    mutation = (
+        f"mutation {{ createProjectV2View(input: {{ projectId: {json.dumps(project_id)}, "
+        f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
+    )
+    return ["api", "graphql", "-f", f"query={mutation}"]
+
+
+def rename_default_view_args(view_id: str, name: str, layout: str) -> list[str]:
+    """Arguments for renaming default View 1 via GraphQL mutation."""
+    layout_enum = _map_view_layout(layout)
+    mutation = (
+        f"mutation {{ updateProjectV2View(input: {{ viewId: {json.dumps(view_id)}, "
+        f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
+    )
+    return ["api", "graphql", "-f", f"query={mutation}"]
+
+
+def sync_views_requests(owner: str, repo: str, template: ProjectTemplate) -> list[PlannedRequest]:
+    """Planned requests for synchronizing standardized views with remote project."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    requests: list[PlannedRequest] = [
+        planned_gh(
+            ["project", "list", "--owner", "@me", "--format", "json"],
+            "verify project scope",
+        ),
+        planned_gh(
+            remote_project_views_args(owner, repo),
+            f"projects and views linked to {owner}/{repo}",
+        ),
+    ]
+    for view in template.views:
+        requests.append(
+            planned_gh(
+                create_project_view_args("<project_id>", view.name, view.layout),
+                f"create view '{view.name}'",
+            )
+        )
+    return requests
+
+
+def get_remote_project_views(
+    owner: str, repo: str
+) -> tuple[str | None, int | None, list[dict[str, str]]]:
+    """Fetch remote ProjectV2 ID, number, and views for the given repository."""
+    cmd = remote_project_views_args(owner, repo)
     proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout:
         return None, None, []
@@ -1370,13 +1588,9 @@ def get_remote_project_views(
 
 def _create_project_view(project_id: str, name: str, layout: str) -> bool:
     """Create a project view via GraphQL mutation."""
-    layout_enum = _map_view_layout(layout)
-    mutation = (
-        f"mutation {{ createProjectV2View(input: {{ projectId: {json.dumps(project_id)}, "
-        f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
-    )
+    cmd = create_project_view_args(project_id, name, layout)
     proc = run_gh(
-        [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
+        cmd,
         check=False,
         quiet=True,
     )
@@ -1385,13 +1599,9 @@ def _create_project_view(project_id: str, name: str, layout: str) -> bool:
 
 def _rename_default_view(view_id: str, name: str, layout: str) -> bool:
     """Rename default View 1 via GraphQL mutation."""
-    layout_enum = _map_view_layout(layout)
-    mutation = (
-        f"mutation {{ updateProjectV2View(input: {{ viewId: {json.dumps(view_id)}, "
-        f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
-    )
+    cmd = rename_default_view_args(view_id, name, layout)
     proc = run_gh(
-        [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
+        cmd,
         check=False,
         quiet=True,
     )
@@ -1511,6 +1721,35 @@ def _list_projects_via_cli(owner: str) -> list[dict[str, Any]]:
             details={"owner": owner},
         )
     return [_format_project_list_entry(p) for p in raw if isinstance(p, dict)]
+
+
+def project_list_requests(owner: str) -> list[PlannedRequest]:
+    """Planned requests for listing remote projects."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    texts = MESSAGES.project
+    targets = texts.request_targets
+    owner_arg = texts.request_placeholders["owner_arg"].format(owner=owner)
+    requests: list[PlannedRequest] = []
+    if owner.strip() == "@me":
+        requests.append(planned_gh(list(_USER_LOGIN_ARGS), targets["login"]))
+    requests.extend(
+        [
+            planned_gh(
+                _owner_boards_args(endpoint, owner),
+                targets["owner_boards"].format(owner=owner, found=""),
+            )
+            for endpoint in _OWNER_BOARD_ENDPOINTS
+        ]
+    )
+    requests.append(
+        planned_gh(
+            _project_list_args(owner_arg),
+            targets["project_list"].format(owner=owner, found=""),
+            repeat=texts.request_repeat_owner_fallback,
+        )
+    )
+    return requests
 
 
 def list_remote_projects(owner: str) -> list[dict[str, Any]]:
