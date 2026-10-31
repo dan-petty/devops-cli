@@ -2319,3 +2319,34 @@ def test_a_consumer_whose_refusal_is_empty_text_still_refuses_the_payload() -> N
         [],
         {("github", "issues", "ignored"): 1.0},
     )
+
+
+def test_validate_service_mode_accepts_valid_configuration() -> None:
+    """Validate that valid service settings return the parsed webhook secrets."""
+    from devops_cli.server.service import validate_service_mode
+
+    settings = _make_settings(repos=[REPO_A])
+    secrets = validate_service_mode(
+        settings,
+        raw_webhook_secrets=json.dumps({REPO_A: "sec-123"}),
+        has_private_key=True,
+    )
+    assert secrets == {REPO_A: "sec-123"}
+
+
+def test_validate_service_mode_rejects_reload_flag() -> None:
+    """Validate that reload mode raises an error in service mode."""
+    from devops_cli.server.service import validate_service_mode
+
+    settings = _make_settings(repos=[REPO_A])
+    with pytest.raises(ValueError, match="does not support auto-reload"):
+        validate_service_mode(settings, reload=True)
+
+
+def test_validate_service_mode_rejects_multiple_workers() -> None:
+    """Validate that multiple workers raise an error in service mode."""
+    from devops_cli.server.service import validate_service_mode
+
+    settings = _make_settings(repos=[REPO_A])
+    with pytest.raises(ValueError, match="does not support multiple worker processes"):
+        validate_service_mode(settings, workers=2)

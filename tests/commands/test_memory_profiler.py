@@ -25,7 +25,10 @@ from devops_cli.telemetry.memory_profiler import (
     run_memory_profiler,
 )
 
-runner = CliRunner()
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
 
 
 def test_memory_allocation_item_model() -> None:
@@ -230,7 +233,7 @@ def test_run_memory_profiler_invalid_target() -> None:
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_http_pool(mock_run: MagicMock) -> None:
+def test_cli_profile_memory_http_pool(mock_run: MagicMock, runner: CliRunner) -> None:
     mock_run.return_value = MemoryProfileReport(
         target="http-pool",
         duration_seconds=0.45,
@@ -262,7 +265,7 @@ def test_cli_profile_memory_http_pool(mock_run: MagicMock) -> None:
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_json(mock_run: MagicMock) -> None:
+def test_cli_profile_memory_json(mock_run: MagicMock, runner: CliRunner) -> None:
     mock_run.return_value = MemoryProfileReport(
         target="http-pool",
         duration_seconds=0.12,
@@ -286,7 +289,9 @@ def test_cli_profile_memory_json(mock_run: MagicMock) -> None:
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_output_file(mock_run: MagicMock, tmp_path: Path) -> None:
+def test_cli_profile_memory_output_file(
+    mock_run: MagicMock, tmp_path: Path, runner: CliRunner
+) -> None:
     out_file = tmp_path / "memory_report.json"
     mock_run.return_value = MemoryProfileReport(
         target="fastmcp",
@@ -310,7 +315,7 @@ def test_cli_profile_memory_output_file(mock_run: MagicMock, tmp_path: Path) -> 
     assert content["target"] == "fastmcp"
 
 
-def test_cli_profile_memory_dry_run() -> None:
+def test_cli_profile_memory_dry_run(runner: CliRunner) -> None:
     res = runner.invoke(app, ["profile-memory", "http-pool", "--dry-run"])
     assert res.exit_code == 0
     assert "dry_run" in res.stdout
@@ -318,7 +323,7 @@ def test_cli_profile_memory_dry_run() -> None:
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_leak_failure(mock_run: MagicMock) -> None:
+def test_cli_profile_memory_leak_failure(mock_run: MagicMock, runner: CliRunner) -> None:
     mock_run.return_value = MemoryProfileReport(
         target="http-pool",
         duration_seconds=0.5,
@@ -340,7 +345,9 @@ def test_cli_profile_memory_leak_failure(mock_run: MagicMock) -> None:
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_json_and_output(mock_run: MagicMock, tmp_path: Path) -> None:
+def test_cli_profile_memory_json_and_output(
+    mock_run: MagicMock, tmp_path: Path, runner: CliRunner
+) -> None:
     out_file = tmp_path / "out.json"
     mock_run.return_value = MemoryProfileReport(
         target="http-pool",
@@ -364,7 +371,9 @@ def test_cli_profile_memory_json_and_output(mock_run: MagicMock, tmp_path: Path)
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_peak_failure_with_ignore_leak(mock_run: MagicMock) -> None:
+def test_cli_profile_memory_peak_failure_with_ignore_leak(
+    mock_run: MagicMock, runner: CliRunner
+) -> None:
     mock_run.return_value = MemoryProfileReport(
         target="http-pool",
         duration_seconds=0.1,
@@ -384,7 +393,7 @@ def test_cli_profile_memory_peak_failure_with_ignore_leak(mock_run: MagicMock) -
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_leak_ignored(mock_run: MagicMock) -> None:
+def test_cli_profile_memory_leak_ignored(mock_run: MagicMock, runner: CliRunner) -> None:
     mock_run.return_value = MemoryProfileReport(
         target="http-pool",
         duration_seconds=0.1,

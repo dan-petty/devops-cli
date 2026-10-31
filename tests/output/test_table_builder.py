@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
+
+from rich.console import Console
 from rich.table import Table
+from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.output.table_builder import build_structured_table
 
 
-def test_build_structured_table_rich_output() -> None:
+def test_build_structured_table_rich_output(snapshot: SnapshotAssertion) -> None:
     """build_structured_table creates a properly configured Rich Table object."""
     cols = ["Name", "Status", "Age"]
     rows = [["app-1", "Running", "2d"], ["app-2", "Pending", "5m"]]
@@ -16,6 +20,10 @@ def test_build_structured_table_rich_output() -> None:
     assert isinstance(table, Table)
     assert table.title == "Applications"
     assert len(table.columns) == 3
+
+    buf = io.StringIO()
+    Console(file=buf, color_system=None, width=100).print(table)
+    assert buf.getvalue() == snapshot
 
 
 def test_build_structured_table_json_serialization() -> None:

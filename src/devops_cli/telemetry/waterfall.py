@@ -10,6 +10,10 @@ from typing import Any
 
 import httpx2
 
+from devops_cli.config.defaults import (
+    DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
+    DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
+)
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
@@ -190,10 +194,67 @@ def resolve_trace_spans(
     return trace_id or "unknown", []
 
 
+def poll_trace_spans(
+    trace_id: str,
+    tempo_url: str,
+    *,
+    timeout: float = DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
+    interval: float = DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
+    query_fn: Any = None,
+) -> list[dict[str, Any]]:
+    """Poll Tempo until the trace stops growing, within a fixed bound."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    spans: list[dict[str, Any]] = []
+    fn = query_fn or query_tempo_trace
+    while True:
+        fetched = fn(trace_id, tempo_url=tempo_url)
+        if fetched and len(fetched) == len(spans):
+            return fetched
+        spans = fetched or spans
+        if time.monotonic() >= deadline:
+            return spans
+        time.sleep(interval)
+
+
+def run_profiled_command(
+    command: str,
+    argv: list[str],
+    tracer: Any,
+) -> str:
+    """Run a devops-cli command inside a profile span and return the trace it ran under."""
+    import shlex
+    import time
+
+    from devops_cli.core.command_resolver import resolve_command_path
+    from devops_cli.core.process import run_subprocess
+    from devops_cli.output import print_info
+    from devops_cli.telemetry.tracer import trace_span
+
+    command_path, args_count = resolve_command_path(shlex.split(command)[1:])
+    attributes = {"cli.command_path": command_path, "cli.args_count": args_count}
+    with trace_span("telemetry.profile", attributes=attributes) as span_h:
+        trace_id = tracer.current_trace_id or ""
+        print_info(f"Profiling command: [bold]{command}[/bold] (Trace: {trace_id})", prefix=False)
+        start_time = time.perf_counter()
+        proc = run_subprocess(argv, capture_output=False, quiet=True, isolate_env=False)
+        span_h.set_attribute("cli.exit_code", proc.returncode)
+        span_h.set_attribute("cli.elapsed_ms", (time.perf_counter() - start_time) * 1000)
+    tracer.flush()
+    return trace_id
+
+
+read_trace_from_tempo = poll_trace_spans
+
+
 __all__ = [
     "flatten_waterfall_tree",
     "normalize_tempo_spans",
+    "poll_trace_spans",
     "query_tempo_trace",
+    "read_trace_from_tempo",
     "render_waterfall_bar",
     "resolve_trace_spans",
+    "run_profiled_command",
 ]

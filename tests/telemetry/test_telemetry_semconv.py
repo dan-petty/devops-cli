@@ -45,7 +45,11 @@ RESOLVED_FIXTURE_REDUCED = {
 PINNED_COMMIT = "b31e9e8ea26ac1c086d3313d474e31d7c3f391ae"
 FAKE_WEAVER = "/opt/weaver/weaver"
 
-runner = CliRunner()
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
+
 
 WeaverStub = Callable[..., subprocess.CompletedProcess[str]]
 
@@ -210,6 +214,7 @@ def test_reducer_drops_deprecated_names_and_is_byte_stable(
     ],
 )
 def test_refresh_refuses_and_leaves_the_snapshot_unchanged(
+    runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
     snapshot_copy: Path,
     weaver_path: str | None,
@@ -231,7 +236,7 @@ def test_refresh_refuses_and_leaves_the_snapshot_unchanged(
 
 
 def test_refresh_rewrites_the_snapshot_from_weavers_package(
-    monkeypatch: pytest.MonkeyPatch, snapshot_copy: Path
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, snapshot_copy: Path
 ) -> None:
     """weaver runs from a throwaway home, and the reduced registry becomes the snapshot."""
     calls: list[tuple[list[str], dict[str, Any]]] = []
@@ -275,7 +280,9 @@ def test_refresh_rewrites_the_snapshot_from_weavers_package(
     )
 
 
-def test_refresh_dry_run_runs_nothing(monkeypatch: pytest.MonkeyPatch, snapshot_copy: Path) -> None:
+def test_refresh_dry_run_runs_nothing(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, snapshot_copy: Path
+) -> None:
     """--dry-run shows the weaver call and starts nothing."""
     before = snapshot_copy.read_bytes()
     monkeypatch.setattr(semconv, "run_subprocess", _refuse_subprocess)

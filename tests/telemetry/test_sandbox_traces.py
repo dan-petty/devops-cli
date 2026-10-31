@@ -36,7 +36,10 @@ from devops_cli.telemetry.waterfall import (
 )
 from tests.support.paths import FIXTURES
 
-runner = CliRunner()
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
 
 
 def test_w3c_traceparent_generation_and_injection() -> None:
@@ -240,7 +243,7 @@ def test_query_tempo_trace_security_validation() -> None:
     assert query_tempo_trace(valid_id, tempo_url="http://172.16.0.1:3200") == []
 
 
-def test_sandbox_traces_help() -> None:
+def test_sandbox_traces_help(runner: CliRunner) -> None:
     """Verify devops sandbox traces --help output."""
     res = runner.invoke(app, ["traces", "--help"])
     assert res.exit_code == 0
@@ -250,7 +253,7 @@ def test_sandbox_traces_help() -> None:
     assert "--probe" in res.output
 
 
-def test_sandbox_traces_dry_run() -> None:
+def test_sandbox_traces_dry_run(runner: CliRunner) -> None:
     """Verify dry-run mode for devops sandbox traces."""
     res = runner.invoke(app, ["traces", "test-sandbox", "--dry-run"])
     assert res.exit_code == 0
@@ -258,7 +261,7 @@ def test_sandbox_traces_dry_run() -> None:
     assert "test-sandbox" in res.output
 
 
-def test_sandbox_traces_with_buffered_spans() -> None:
+def test_sandbox_traces_with_buffered_spans(runner: CliRunner) -> None:
     """Verify rendering trace waterfall when spans exist in the completed buffer."""
     clear_span_buffer()
     tid = "trace_buffered_999"
@@ -295,7 +298,7 @@ def test_sandbox_traces_with_buffered_spans() -> None:
     assert "Trace Waterfall" in res.output
 
 
-def test_sandbox_traces_json_output() -> None:
+def test_sandbox_traces_json_output(runner: CliRunner) -> None:
     """Verify JSON formatting of sandbox trace waterfall."""
     clear_span_buffer()
     tid = "trace_json_888"
@@ -320,7 +323,7 @@ def test_sandbox_traces_json_output() -> None:
     assert data["waterfall"][0]["name"] == "sandbox.probe.http"
 
 
-def test_sandbox_traces_missing() -> None:
+def test_sandbox_traces_missing(runner: CliRunner) -> None:
     """Verify behavior when no trace spans are found."""
     clear_span_buffer()
     res = runner.invoke(app, ["traces", "--trace-id", "nonexistent_trace_999"])
@@ -328,7 +331,7 @@ def test_sandbox_traces_missing() -> None:
     assert "No telemetry spans recorded" in res.output
 
 
-def test_sandbox_traces_last() -> None:
+def test_sandbox_traces_last(runner: CliRunner) -> None:
     """Verify --last fetches latest trace in buffer."""
     clear_span_buffer()
     tid = "trace_latest_777"
@@ -349,7 +352,7 @@ def test_sandbox_traces_last() -> None:
     assert "probe.last" in res.output
 
 
-def test_sandbox_traces_probe_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sandbox_traces_probe_flag(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify devops sandbox traces <target> --probe executes probe and visualizes waterfall."""
     clear_span_buffer()
     mock_report = SandboxProbeReport(

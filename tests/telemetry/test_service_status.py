@@ -28,7 +28,11 @@ from devops_cli.telemetry.service_status import (
     render_statuspage_summary,
 )
 
-runner = CliRunner()
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
+
 
 _MOCK_PAYLOAD_OPERATIONAL = {
     "page": {
@@ -252,7 +256,7 @@ def test_render_statuspage_summary(capsys: pytest.CaptureFixture[str]) -> None:
     assert ("GitHub Operational Status" in captured, "Git Operations" in captured) == (True, True)
 
 
-def test_devops_gh_status_cmd() -> None:
+def test_devops_gh_status_cmd(runner: CliRunner) -> None:
     """Validate devops gh status command output and options."""
     summary = StatuspageSummary.model_validate(_MOCK_PAYLOAD_OPERATIONAL)
     with patch("devops_cli.telemetry.service_status.fetch_github_status", return_value=summary):
@@ -279,7 +283,7 @@ def test_devops_gh_status_cmd() -> None:
     )
 
 
-def test_devops_cloudflare_service_status_cmd() -> None:
+def test_devops_cloudflare_service_status_cmd(runner: CliRunner) -> None:
     """Validate devops cloudflare service-status command output and options."""
     summary = StatuspageSummary.model_validate(_MOCK_PAYLOAD_OPERATIONAL)
     with patch("devops_cli.telemetry.service_status.fetch_cloudflare_status", return_value=summary):
@@ -306,7 +310,7 @@ def test_devops_cloudflare_service_status_cmd() -> None:
     )
 
 
-def test_devops_status_cmd() -> None:
+def test_devops_status_cmd(runner: CliRunner) -> None:
     """Validate devops status unified command output and service filters."""
     summary = StatuspageSummary.model_validate(_MOCK_PAYLOAD_OPERATIONAL)
     with (
