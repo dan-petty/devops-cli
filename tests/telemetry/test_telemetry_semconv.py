@@ -292,7 +292,7 @@ def test_refresh_dry_run_runs_nothing(
     finally:
         set_dry_run(False)
 
-    assert (result.exit_code, "refresh_semconv_snapshot" in result.output) == (0, True)
+    assert (result.exit_code, "weaver" in result.output) == (0, True)
     assert snapshot_copy.read_bytes() == before
 
 

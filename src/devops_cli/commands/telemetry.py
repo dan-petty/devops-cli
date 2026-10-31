@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -24,7 +23,8 @@ from devops_cli.config.defaults import (
 from devops_cli.config.env import env_var_for_option
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_code_span,
@@ -35,10 +35,16 @@ from devops_cli.output import (
     print_info,
     print_success,
     print_table,
-    render_dry_run_result,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.telemetry.instruments import TELEMETRY_TESTS_TOTAL, emit
+from devops_cli.telemetry.telemetry_plans import (
+    plan_telemetry_connect,
+    plan_telemetry_profile,
+    plan_telemetry_semconv_refresh,
+    plan_telemetry_status,
+    plan_telemetry_test,
+)
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
@@ -66,6 +72,7 @@ app.add_typer(semconv_app, name="semconv", help=HELP.telemetry.semconv)
 
 
 @app.command("status")
+@dry_run_class("request-plan")
 def telemetry_status_cmd(
     dry_run: Annotated[
         bool,
@@ -75,6 +82,11 @@ def telemetry_status_cmd(
     """Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status."""
     tracer = get_tracer()
     endpoint = tracer.endpoint
+
+    if dry_run or is_dry_run():
+        render_request_plan("devops telemetry status", plan_telemetry_status(endpoint))
+        return
+
     settings = load_settings()
     telemetry_cfg = getattr(settings, "telemetry", None)
     enabled = (
@@ -85,20 +97,6 @@ def telemetry_status_cmd(
 
     tempo_cfg = getattr(settings, "tempo", None)
     tempo_url = tempo_cfg.url if tempo_cfg and hasattr(tempo_cfg, "url") else None
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops telemetry status",
-            action="check_telemetry_status",
-            target=endpoint,
-            details={
-                "enabled": enabled,
-                "endpoint": endpoint,
-                "tempo_url": tempo_url,
-                "service_name": tracer.service_name,
-            },
-        )
-        return
 
     # Probe OTel collector
     is_reachable, health_msg, latency_ms = tracer.test_connection(timeout=1.5)
@@ -154,6 +152,7 @@ def telemetry_status_cmd(
 
 
 @app.command("connect")
+@dry_run_class("request-plan")
 def telemetry_connect_cmd(
     context: Annotated[
         str | None, typer.Option("--context", help=HELP.telemetry.connect_context)
@@ -167,8 +166,16 @@ def telemetry_connect_cmd(
     save: Annotated[
         bool, typer.Option("--save/--no-save", help=HELP.telemetry.connect_save)
     ] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops telemetry connect",
+            plan_telemetry_connect(context, namespace, service, save),
+        )
+        return
+
     from devops_cli.config.settings import load_settings, save_settings
     from devops_cli.k8s.node_port import ServiceNotReachableError
     from devops_cli.telemetry.collector import collector_endpoint
@@ -195,6 +202,7 @@ def telemetry_connect_cmd(
 
 
 @app.command("logfire")
+@dry_run_class("no-external-request")
 def telemetry_logfire_cmd(
     output_format: Annotated[
         str,
@@ -250,6 +258,7 @@ def telemetry_logfire_cmd(
 
 
 @app.command("test")
+@dry_run_class("request-plan")
 def telemetry_test_cmd(
     name: Annotated[
         str,
@@ -268,11 +277,9 @@ def telemetry_test_cmd(
     tracer = get_tracer()
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops telemetry test",
-            action="emit_test_telemetry",
-            target=tracer.endpoint,
-            details={"span_name": name, "endpoint": tracer.endpoint, "logfire": logfire},
+        render_request_plan(
+            "devops telemetry test",
+            plan_telemetry_test(name, tracer.endpoint, logfire=logfire),
         )
         return
 
@@ -364,6 +371,7 @@ def _read_trace_from_tempo(trace_id: str, tempo_url: str) -> list[dict[str, Any]
 
 
 @app.command("profile")
+@dry_run_class("request-plan")
 def telemetry_profile_cmd(
     command: Annotated[
         str | None,
@@ -387,19 +395,14 @@ def telemetry_profile_cmd(
     ] = False,
 ) -> None:
     """Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it."""
-    argv = _devops_entry_argv(command) if command else None
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops telemetry profile",
-            action="profile_trace_waterfall",
-            details={
-                "command": command,
-                "trace_id": trace_id,
-                "profile_mode": "dry_run",
-                "status": "PROFILED_DRY_RUN",
-            },
+        render_request_plan(
+            "devops telemetry profile",
+            plan_telemetry_profile(command, trace_id, _tempo_url()),
         )
         return
+
+    argv = _devops_entry_argv(command) if command else None
 
     from devops_cli.telemetry.tracer import build_span_waterfall_tree
 
@@ -491,6 +494,7 @@ def telemetry_profile_cmd(
 
 
 @app.command("open-ui")
+@dry_run_class("no-external-request")
 def telemetry_open_ui_cmd() -> None:
     """Print and show the Tempo HTTP API endpoint for inspecting traces."""
     url = _tempo_url()
@@ -508,6 +512,7 @@ def telemetry_open_ui_cmd() -> None:
 
 
 @semconv_app.command("refresh")
+@dry_run_class("request-plan")
 def telemetry_semconv_refresh_cmd(
     commit: Annotated[str, typer.Option("--commit", help=HELP.telemetry.semconv_commit)],
     dry_run: Annotated[
@@ -516,20 +521,18 @@ def telemetry_semconv_refresh_cmd(
     ] = False,
 ) -> None:
     """Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops telemetry semconv refresh",
+            plan_telemetry_semconv_refresh(commit),
+        )
+        return
+
     from devops_cli.telemetry.semconv import (
         GENAI_SNAPSHOT_PATH,
         refresh_genai_snapshot,
-        weaver_package_argv,
     )
 
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops telemetry semconv refresh",
-            action="refresh_semconv_snapshot",
-            target=str(GENAI_SNAPSHOT_PATH),
-            details={"argv": weaver_package_argv("weaver", commit, Path("<tmp>/package"))},
-        )
-        return
     snapshot = refresh_genai_snapshot(commit, snapshot_path=GENAI_SNAPSHOT_PATH)
     print_success(
         MESSAGES.telemetry.semconv_refreshed.format(

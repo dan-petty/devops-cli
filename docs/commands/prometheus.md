@@ -48,6 +48,7 @@ devops prometheus query-range [OPTIONS] <expr>
 | `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
 | `--end`, `-e` | `string` | - | Query range end timestamp or relative duration. |
 | `--step` | `string` | `60s` | Query resolution step interval. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -83,8 +84,14 @@ devops prometheus analyze [OPTIONS] <expr>
 **List Prometheus recording and alerting rules.**
 
 ```bash
-devops prometheus rules
+devops prometheus rules [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -93,7 +100,13 @@ devops prometheus rules
 **List active Prometheus scrape targets.**
 
 ```bash
-devops prometheus targets
+devops prometheus targets [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

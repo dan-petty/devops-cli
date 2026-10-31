@@ -1847,22 +1847,35 @@ devops grafana search [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--query`, `-q` | `string` | `` | Search query. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana datasources`
 
 **List configured datasources.**
 
 ```bash
-devops grafana datasources
+devops grafana datasources [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana alerts`
 
 **List alert rules (Grafana 9+ unified alerting).**
 
 ```bash
-devops grafana alerts
+devops grafana alerts [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana dashboards`
 
@@ -1903,6 +1916,7 @@ devops grafana dashboards export [OPTIONS] <uid>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops grafana dashboards import`
 
@@ -1971,7 +1985,6 @@ devops grafana dashboards lint [OPTIONS] <path>
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -2021,6 +2034,7 @@ devops prometheus query-range [OPTIONS] <expr>
 | `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
 | `--end`, `-e` | `string` | - | Query range end timestamp or relative duration. |
 | `--step` | `string` | `60s` | Query resolution step interval. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops prometheus analyze`
 
@@ -2052,16 +2066,28 @@ devops prometheus analyze [OPTIONS] <expr>
 **List Prometheus recording and alerting rules.**
 
 ```bash
-devops prometheus rules
+devops prometheus rules [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops prometheus targets`
 
 **List active Prometheus scrape targets.**
 
 ```bash
-devops prometheus targets
+devops prometheus targets [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -8803,6 +8829,7 @@ devops telemetry connect [OPTIONS]
 | `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
 | `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
 | `--save` / `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry logfire`
 

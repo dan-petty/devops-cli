@@ -13,6 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DASHBOARD_SUMMARY_POD_ROWS,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import ERRORS, HELP
 from devops_cli.output import (
@@ -227,7 +228,14 @@ def _run_dashboard_or_summary(
 ) -> None:
     resolved_tab = _resolve_initial_tab(tab)
 
-    if summary or dry_run or not sys.stdout.isatty():
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.telemetry.telemetry_plans import plan_dashboard
+
+        render_request_plan("devops dashboard", plan_dashboard())
+        return
+
+    if summary or not sys.stdout.isatty():
         _render_summary()
         return
 
@@ -238,6 +246,7 @@ def _run_dashboard_or_summary(
 
 
 @app.callback(invoke_without_command=True)
+@dry_run_class("request-plan")
 def main_dashboard(
     ctx: typer.Context,
     summary: bool = typer.Option(

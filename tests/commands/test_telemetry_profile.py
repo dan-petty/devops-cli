@@ -82,7 +82,7 @@ def test_telemetry_profile_dry_run() -> None:
     """Verify dry-run execution of telemetry profile command."""
     result = runner.invoke(app, ["profile", "--dry-run"])
     assert result.exit_code == 0
-    assert "PROFILED_DRY_RUN" in result.output or "profile_trace_waterfall" in result.output
+    assert "api/traces" in result.output or "Planned" in result.output
 
 
 _TRACE = "0af7651916cd43dd8448eb211c80319c"

@@ -13,25 +13,25 @@ runner = CliRunner()
 
 
 def test_telemetry_status_dry_run() -> None:
-    """devops telemetry status --dry-run returns structured dry-run JSON."""
+    """devops telemetry status --dry-run returns planned requests."""
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["status"])
         assert result.exit_code == 0
         assert "devops telemetry status" in result.output
-        assert "check_telemetry_status" in result.output
+        assert "v1/traces" in result.output
     finally:
         set_dry_run(False)
 
 
 def test_telemetry_test_dry_run() -> None:
-    """devops telemetry test --dry-run returns structured dry-run JSON."""
+    """devops telemetry test --dry-run returns planned requests."""
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["test", "--name", "unit_test_span"])
         assert result.exit_code == 0
         assert "devops telemetry test" in result.output
-        assert "emit_test_telemetry" in result.output
+        assert "v1/traces" in result.output
     finally:
         set_dry_run(False)
 

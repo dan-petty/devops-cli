@@ -343,7 +343,7 @@ def test_cli_analyze_supports_dry_run() -> None:
     """Analysis can be previewed without contacting the server."""
     result = runner.invoke(prometheus_app, ["analyze", "up"], env={"DEVOPS_CLI_DRY_RUN": "true"})
     assert result.exit_code == 0
-    assert "analyze_metric_series" in result.output
+    assert "query_range" in result.output
 
 
 # ─────────────────────────────────────────────────────────────────────────────
