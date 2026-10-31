@@ -46,7 +46,7 @@ model_list:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
       model_info:
-        max_input_tokens: 128000
+        max_input_tokens: 262144
   - model_name: devops-chat
     litellm_params:
       model: ollama_chat/qwen3.8:27b

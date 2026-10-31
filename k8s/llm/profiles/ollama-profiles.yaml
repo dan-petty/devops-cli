@@ -12,6 +12,13 @@
 # gemini has 15.3 GiB of memory, and its 160000 context length can exhaust host memory without
 # a prompt cache bound (#2382).
 #
+# Context lengths were measured on the tiers (#2822). ollama-48gib runs 262144, the native limit
+# of qwen3-coder:30b and qwen3.8:27b: with q8_0 KV cache, qwen3-coder:30b takes 37 GB of the
+# 48 GiB at that length, 100% on the GPUs, and read a 142000-token prompt in 84 s. ollama-16gib
+# runs 131072, the native limit of gpt-oss:20b, which takes 13 GB with q4_0 KV cache. The 70B
+# models of ollama-64gib stay at 160000: their KV cache already fills that tier. ollama-48gib-slow
+# stays at 128000: Pascal GPUs read a long prompt too slowly to gain from more.
+#
 # Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault
 # seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; /tmp is
 # an emptyDir. HOME is /home/ollama, so the key and models/ stay in the hostPath /var/lib/ollama,
@@ -110,7 +117,7 @@ spec:
             - name: OLLAMA_MODELS
               value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "48000"
+              value: "131072"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "2"
             - name: OLLAMA_NUM_PARALLEL
@@ -542,7 +549,7 @@ spec:
             - name: OLLAMA_MODELS
               value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "128000"
+              value: "262144"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "2"
             - name: OLLAMA_NUM_PARALLEL
