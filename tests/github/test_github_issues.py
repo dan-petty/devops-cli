@@ -5,13 +5,10 @@ from __future__ import annotations
 import json
 import time
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.gh import app
 from devops_cli.exceptions.git import (
     GitHubNotFoundError,
     GitHubOperationError,
@@ -20,21 +17,19 @@ from devops_cli.exceptions.git import (
 from devops_cli.github.issues import (
     GitHubIssue,
     IssueTriageAudit,
-    _fetch_issues_rest,
-    _parse_single_issue,
     audit_issues_triage,
     create_repository_issue,
+    fetch_issues_rest,
     get_issues_summary,
     get_repository_issue,
     get_repository_issues,
+    parse_issue,
     render_issue,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, ItemField
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-
-runner = CliRunner()
 
 
 def _rate_limit_payload() -> str:
@@ -86,7 +81,7 @@ def test_issue_triage_audit_model() -> None:
     assert audit.compliance_rate == 80.0
 
 
-def test_get_repository_issues_success() -> None:
+def test_get_repository_issues_parses_json_payload(process_fake: ProcessFake) -> None:
     """get_repository_issues parses JSON from gh CLI."""
     payload = [
         {
@@ -99,16 +94,22 @@ def test_get_repository_issues_success() -> None:
             "url": "https://github.com/dan-petty/devops-cli/issues/77",
         }
     ]
-    with patch("devops_cli.github.issues.run_gh") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
-        issues = get_repository_issues("dan-petty/devops-cli")
-        assert len(issues) == 1
-        assert issues[0].number == 77
-        assert issues[0].milestone == "2026-11"
-        assert "type/feature" in issues[0].labels
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=0, stdout=_rate_limit_payload()),
+    )
+    process_fake.answer(
+        ["gh", "issue", "list"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
+    )
+    issues = get_repository_issues("dan-petty/devops-cli")
+    assert len(issues) == 1
+    assert issues[0].number == 77
+    assert issues[0].milestone == "2026-11"
+    assert "type/feature" in issues[0].labels
 
 
-def test_create_repository_issue_success() -> None:
+def test_create_repository_issue_returns_created_record(process_fake: ProcessFake) -> None:
     """create_repository_issue creates issue with proper command arguments."""
     payload = {
         "number": 84,
@@ -119,17 +120,23 @@ def test_create_repository_issue_success() -> None:
         "assignees": [],
         "url": "https://github.com/dan-petty/devops-cli/issues/84",
     }
-    with patch("devops_cli.github.issues.run_gh") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
-        issue = create_repository_issue(
-            repo="dan-petty/devops-cli",
-            title="fix(ci): improve timeout",
-            body="Description",
-            milestone="2026-11",
-            labels=["type/bug", "scope/ci"],
-        )
-        assert issue.number == 84
-        assert issue.title == "fix(ci): improve timeout"
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=0, stdout=_rate_limit_payload()),
+    )
+    process_fake.answer(
+        ["gh", "issue", "create"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
+    )
+    issue = create_repository_issue(
+        repo="dan-petty/devops-cli",
+        title="fix(ci): improve timeout",
+        body="Description",
+        milestone="2026-11",
+        labels=["type/bug", "scope/ci"],
+    )
+    assert issue.number == 84
+    assert issue.title == "fix(ci): improve timeout"
 
 
 def test_create_repository_issue_reports_no_milestone_when_the_patch_fails(
@@ -172,7 +179,7 @@ def test_create_repository_issue_reports_no_milestone_when_the_patch_fails(
 
 
 def test_gh_issues_create_says_the_milestone_was_not_set_when_the_patch_fails(
-    process_fake: ProcessFake,
+    process_fake: ProcessFake, cli: Any
 ) -> None:
     """A failed milestone PATCH leaves the issue with no milestone, and the command says so (#2158)."""
     process_fake.answer(
@@ -202,20 +209,18 @@ def test_gh_issues_create_says_the_milestone_was_not_set_when_the_patch_fails(
         ],
         ProcessAnswer(returncode=1, stderr="could not add to milestone"),
     )
-    result = runner.invoke(
-        app,
-        [
-            "issues",
-            "create",
-            "--repo",
-            "octo/repo",
-            "--title",
-            "Bug",
-            "--body",
-            "See #123",
-            "--milestone",
-            "5",
-        ],
+    result = cli(
+        "gh",
+        "issues",
+        "create",
+        "--repo",
+        "octo/repo",
+        "--title",
+        "Bug",
+        "--body",
+        "See #123",
+        "--milestone",
+        "5",
     )
     assert result.exit_code == 0
     assert "Created issue #123" in result.output
@@ -344,32 +349,44 @@ def test_get_issues_summary() -> None:
     }
 
 
-def test_create_repository_issue_failure_bounds_title_in_error_details() -> None:
+def test_create_repository_issue_failure_bounds_title_in_error_details(
+    process_fake: ProcessFake,
+) -> None:
     """Verify that GitHubOperationError details truncates unbounded title to max 256 chars."""
     huge_title = "fix(security): " + ("A" * 1500)
-    with patch("devops_cli.github.issues.run_gh") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=1, stderr="GraphQL mutation error", stdout="")
-        with pytest.raises(GitHubOperationError) as exc_info:
-            create_repository_issue(
-                repo="dan-petty/devops-cli",
-                title=huge_title,
-                body="Issue description",
-            )
-        err = exc_info.value
-        assert err.details is not None
-        assert "title" in err.details
-        assert len(err.details["title"]) <= 256
-        assert err.details["title"] == huge_title[:256]
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=0, stdout=_rate_limit_payload()),
+    )
+    process_fake.answer(
+        ["gh", "issue", "create"],
+        ProcessAnswer(returncode=1, stderr="GraphQL mutation error", stdout=""),
+    )
+    with pytest.raises(GitHubOperationError) as exc_info:
+        create_repository_issue(
+            repo="dan-petty/devops-cli",
+            title=huge_title,
+            body="Issue description",
+        )
+    err = exc_info.value
+    assert err.details is not None
+    assert "title" in err.details
+    assert len(err.details["title"]) <= 256
+    assert err.details["title"] == huge_title[:256]
 
 
 def test_get_repository_issues_graphql_rate_limit_fallback_to_rest(
-    github_api: GitHubApiFake,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
 ) -> None:
     """Verify get_repository_issues falls back to REST API when gh issue list hits GraphQL rate limit."""
-    mock_gh_cli_err = MagicMock(
-        returncode=1,
-        stderr="GraphQL: API rate limit already exceeded for user ID 7726889.",
-        stdout="",
+    github_api, process_fake = github_api_and_gh
+    process_fake.answer(
+        ["gh", "issue", "list"],
+        ProcessAnswer(
+            returncode=1,
+            stderr="GraphQL: API rate limit already exceeded for user ID 7726889.",
+            stdout="",
+        ),
     )
     rest_issues_payload = [
         {
@@ -396,13 +413,12 @@ def test_get_repository_issues_graphql_rate_limit_fallback_to_rest(
         github_json(rest_issues_payload),
     )
 
-    with patch("devops_cli.github.issues.run_gh", side_effect=[mock_gh_cli_err]):
-        issues = get_repository_issues("dan-petty/devops-cli", milestone="2026-12")
-        assert len(issues) == 1
-        assert issues[0].number == 180
-        assert issues[0].title == "fix(github): add REST API fallback"
-        assert issues[0].milestone == "2026-12"
-        assert "type/bug" in issues[0].labels
+    issues = get_repository_issues("dan-petty/devops-cli", milestone="2026-12")
+    assert len(issues) == 1
+    assert issues[0].number == 180
+    assert issues[0].title == "fix(github): add REST API fallback"
+    assert issues[0].milestone == "2026-12"
+    assert "type/bug" in issues[0].labels
 
 
 def test_issue_triage_audit_empty_total_open() -> None:
@@ -413,33 +429,29 @@ def test_issue_triage_audit_empty_total_open() -> None:
 
 def test_issue_parsing_helpers_edge_cases() -> None:
     """Helper functions handle invalid types, string assignees/labels, and string milestones."""
-    from devops_cli.github.issues import (
-        _parse_issue_assignees,
-        _parse_issue_labels,
-        _parse_single_issue,
-    )
-
-    assert _parse_issue_labels(None) == []
-    assert _parse_issue_labels(["plain_string_label", {"name": "dict_label"}]) == [
-        "plain_string_label",
-        "dict_label",
-    ]
-
-    assert _parse_issue_assignees(None) == []
-    assert _parse_issue_assignees(["plain_user", {"login": "dict_user"}]) == [
-        "plain_user",
-        "dict_user",
-    ]
-
-    issue = _parse_single_issue(
+    issue = parse_issue(
         {
             "number": 99,
             "title": "Title",
             "milestone": "2026-12",
-            "labels": ["type/bug"],
+            "labels": ["plain_string_label", {"name": "dict_label"}],
+            "assignees": ["plain_user", {"login": "dict_user"}],
         }
     )
+    assert issue.labels == ["plain_string_label", "dict_label"]
+    assert issue.assignees == ["plain_user", "dict_user"]
     assert issue.milestone == "2026-12"
+
+    bare_issue = parse_issue(
+        {
+            "number": 100,
+            "title": "Bare",
+            "labels": None,
+            "assignees": None,
+        }
+    )
+    assert bare_issue.labels == []
+    assert bare_issue.assignees == []
 
 
 _REST_ISSUES = "/repos/octo/repo/issues?state=open&per_page=100"
@@ -461,7 +473,7 @@ def test_fetch_issues_rest_reads_every_page_and_filters(github_api: GitHubApiFak
         github_json([_issue(1, "2026-12"), _issue(2, "2027-01"), pull], headers=next_page(second)),
     )
     github_api.route("GET", second, github_json([_issue(3, "2026-12")]))
-    issues = _fetch_issues_rest("octo/repo", milestone="2026-12", labels=["type/bug"], limit=None)
+    issues = fetch_issues_rest("octo/repo", milestone="2026-12", labels=["type/bug"], limit=None)
     assert ([issue.number for issue in issues], len(github_api.sent)) == ([1, 3], 2)
 
 
@@ -472,7 +484,7 @@ def test_fetch_issues_rest_stops_reading_at_its_limit(github_api: GitHubApiFake)
         "GET", _REST_ISSUES, github_json([_issue(1, "2026-12")], headers=next_page(second))
     )
     github_api.route("GET", second, github_json([_issue(2, "2026-12")]))
-    issues = _fetch_issues_rest("octo/repo", limit=1)
+    issues = fetch_issues_rest("octo/repo", limit=1)
     assert ([issue.number for issue in issues], len(github_api.sent)) == ([1], 1)
 
 
@@ -500,7 +512,7 @@ def test_fetch_issues_rest_fails_closed(
     repository with no issues."""
     github_api.route("GET", _REST_ISSUES, answer)
     with pytest.raises(GitHubOperationError) as raised:
-        _fetch_issues_rest("octo/repo")
+        fetch_issues_rest("octo/repo")
     assert type(raised.value) is error
 
 
@@ -540,8 +552,8 @@ def test_get_repository_issue_reads_one_issue_with_one_request(github_api: GitHu
 def test_a_rest_issue_has_its_web_address_not_its_api_address() -> None:
     """GitHub's REST answer holds the API address in `url` and the web address in `html_url`;
     `gh issue list --json` holds the web address in `url`. The issue gets the web address."""
-    rest = _parse_single_issue(_full_issue())
-    gh_json = _parse_single_issue({"number": 1, "url": "https://github.com/octo/repo/issues/1"})
+    rest = parse_issue(_full_issue())
+    gh_json = parse_issue({"number": 1, "url": "https://github.com/octo/repo/issues/1"})
     assert (rest.url, gh_json.url) == (
         "https://github.com/octo/repo/issues/9999",
         "https://github.com/octo/repo/issues/1",

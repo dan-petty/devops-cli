@@ -1406,13 +1406,13 @@ def edit_issue_cmd(  # noqa: C901
     if clear_milestone:
         payload["milestone"] = None
     elif milestone is not None:
-        from devops_cli.github.issues import _resolve_milestone_number
+        from devops_cli.github.issues import resolve_milestone_number
 
-        payload["milestone"] = _resolve_milestone_number(target_repo, milestone)
+        payload["milestone"] = resolve_milestone_number(target_repo, milestone)
     if add_label or remove_label:
-        from devops_cli.github.issues import _resolve_updated_labels
+        from devops_cli.github.issues import resolve_updated_labels
 
-        new_labels = _resolve_updated_labels(target_repo, number, None, add_label, remove_label)
+        new_labels = resolve_updated_labels(target_repo, number, None, add_label, remove_label)
         if new_labels is not None:
             payload["labels"] = new_labels
 

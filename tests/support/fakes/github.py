@@ -53,8 +53,11 @@ import httpx2
 import pytest
 
 from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE
+from devops_cli.github.rate_limiter import GitHubRateLimiter
 from devops_cli.http.egress import EgressLevel
 from tests.web_fakes import egress_level_of, install_async_client_fake, vetted_handler
+
+_ORIGINAL_REFRESH_FROM_GITHUB = GitHubRateLimiter._refresh_from_github
 
 if TYPE_CHECKING:
     from tests.support.fakes.process import ProcessFake
@@ -409,7 +412,9 @@ def serve_github_api(monkeypatch: pytest.MonkeyPatch, api: GitHubApiDouble) -> N
     `api` records them in `paced` and `waits`, and only the rate limiter's clock and gidgethub's
     wait are replaced, so no other sleep changes.
     """
+    from devops_cli.core.process import get_process_runner
     from devops_cli.github import rate_limiter, session_transport
+    from tests.support.fakes.process import ProcessFake
 
     def refuse_quota_refresh(_limiter: object) -> NoReturn:
         raise AssertionError(
@@ -417,7 +422,10 @@ def serve_github_api(monkeypatch: pytest.MonkeyPatch, api: GitHubApiDouble) -> N
             "quota whose reset is still ahead, built when the test runs."
         )
 
-    def refuse_gh(argv: list[str], *_args: object, **_kwargs: object) -> NoReturn:
+    def refuse_gh(argv: list[str], *args: object, **kwargs: object) -> Any:
+        runner = get_process_runner()
+        if isinstance(runner, ProcessFake):
+            return runner.run(argv, *args, **kwargs)
         raise AssertionError(f"A test over the fake GitHub API ran gh: {argv[:4]}")
 
     install_async_client_fake(monkeypatch, api.client_class())
@@ -466,6 +474,12 @@ def github_api_and_gh(
     from devops_cli.github import rate_limiter
 
     monkeypatch.setattr(rate_limiter, "run_subprocess", process.run_subprocess)
+
+    monkeypatch.setattr(
+        rate_limiter.GitHubRateLimiter,
+        "_refresh_from_github",
+        _ORIGINAL_REFRESH_FROM_GITHUB,
+    )
     rate_limiter.get_github_rate_limiter().update_quota(
         "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
     )

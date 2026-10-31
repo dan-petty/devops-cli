@@ -17,12 +17,13 @@ from collections.abc import Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 
 from devops_cli.core import process
+from devops_cli.core.process import get_process_runner, reset_process_runner, set_process_runner
 from devops_cli.exceptions.git import (
     GitHubOperationError,
     GitHubRateLimitError,
@@ -38,6 +39,12 @@ from devops_cli.github.rate_limiter import (
     run_gh,
 )
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+
+@pytest.fixture(autouse=True)
+def _rate_limiter_process_fake(process_fake: ProcessFake) -> ProcessFake:
+    return process_fake
 
 
 @pytest.fixture(autouse=True)
@@ -144,22 +151,19 @@ def test_graphql_mandatory_pacing_default_no_bypass() -> None:
     assert (round(delay_5000, 2), round(delay_2000, 2)) == (0.72, 1.2)
 
 
-def test_rate_limiter_no_initial_quotas() -> None:
+def test_rate_limiter_no_initial_quotas(process_fake: ProcessFake) -> None:
     """Verify rate limiter has no hardcoded initial quotas, and that a failed refresh leaves the
     quota unread."""
     limiter = GitHubRateLimiter()
     state = limiter.get_quota("core")
     assert (state.remaining, state.limit, state.reset_epoch) == (None, None, None)
 
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "rate_limit"],
-            returncode=1,
-            stdout="",
-            stderr="API unavailable",
-        )
-        with pytest.raises(GitHubUnreadError):
-            limiter.calculate_delay("core")
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=1, stderr="API unavailable"),
+    )
+    with pytest.raises(GitHubUnreadError):
+        limiter.calculate_delay("core")
 
 
 def test_rate_limiter_mandatory_pause_enforcement(clock: ClockFake) -> None:
@@ -268,35 +272,33 @@ def test_rate_limiter_ephemeral_cache(clock: ClockFake) -> None:
 
 def test_should_cache_predicates() -> None:
     """Verify _should_cache correctly differentiates read from mutation commands."""
-    from devops_cli.github.rate_limiter import _should_cache
+    from devops_cli.github.rate_limiter import should_cache
 
-    assert _should_cache(["api", "rate_limit"], use_cache=True) is True
-    assert _should_cache(["api", "rate_limit"], use_cache=False) is False
-    assert _should_cache(["api", "-X", "POST", "issues"], use_cache=True) is False
-    assert _should_cache(["pr", "create"], use_cache=True) is False
-    assert _should_cache(["issue", "close", "123"], use_cache=True) is False
-    assert _should_cache(["pr", "ready", "42"], use_cache=True) is False
-    assert _should_cache(["api", "repos/o/r", "-f", "title=bug"], use_cache=True) is False
-    assert _should_cache(["api", "graphql"], use_cache=True, input="mutation { ... }") is False
-    assert _should_cache([], use_cache=True) is False
+    assert should_cache(["api", "rate_limit"], use_cache=True) is True
+    assert should_cache(["api", "rate_limit"], use_cache=False) is False
+    assert should_cache(["api", "-X", "POST", "issues"], use_cache=True) is False
+    assert should_cache(["pr", "create"], use_cache=True) is False
+    assert should_cache(["issue", "close", "123"], use_cache=True) is False
+    assert should_cache(["pr", "ready", "42"], use_cache=True) is False
+    assert should_cache(["api", "repos/o/r", "-f", "title=bug"], use_cache=True) is False
+    assert should_cache(["api", "graphql"], use_cache=True, input="mutation { ... }") is False
+    assert should_cache([], use_cache=True) is False
 
 
 def test_detect_resource_helper() -> None:
     """Verify _detect_resource accurately identifies graphql vs core endpoints."""
-    from devops_cli.github.rate_limiter import _detect_resource
+    from devops_cli.github.rate_limiter import detect_resource
 
-    assert _detect_resource(["api", "graphql", "-f", "query=..."]) == "graphql"
-    assert _detect_resource(["project", "list", "--owner", "@me"]) == "graphql"
+    assert detect_resource(["api", "graphql", "-f", "query=..."]) == "graphql"
+    assert detect_resource(["project", "list", "--owner", "@me"]) == "graphql"
+    assert detect_resource(["project", "item-add", "1", "--url", "http://example.com"]) == "graphql"
+    assert detect_resource(["api", "user", "-i"]) == "core"
+    assert detect_resource(["issue", "list"]) == "graphql"
+    assert detect_resource(["pr", "checks", "123"]) == "graphql"
+    assert detect_resource(["search", "code", "foo"]) == "code_search"
+    assert detect_resource(["search", "issues", "bar"]) == "search"
     assert (
-        _detect_resource(["project", "item-add", "1", "--url", "http://example.com"]) == "graphql"
-    )
-    assert _detect_resource(["api", "user", "-i"]) == "core"
-    assert _detect_resource(["issue", "list"]) == "graphql"
-    assert _detect_resource(["pr", "checks", "123"]) == "graphql"
-    assert _detect_resource(["search", "code", "foo"]) == "code_search"
-    assert _detect_resource(["search", "issues", "bar"]) == "search"
-    assert (
-        _detect_resource(["api", "repos/owner/repo/code-scanning/alerts/1/autofix"])
+        detect_resource(["api", "repos/owner/repo/code-scanning/alerts/1/autofix"])
         == "code_scanning_autofix"
     )
 
@@ -363,68 +365,60 @@ def test_planned_gh_labels_graphql_porcelain_commands() -> None:
     assert planned_gh(["release", "list"], "target").method == "GraphQL read"
 
 
-def test_run_gh_normalizes_leading_gh_arg() -> None:
+def test_run_gh_normalizes_leading_gh_arg(process_fake: ProcessFake) -> None:
     """Verify run_gh strips leading gh executable if passed redundantly in args."""
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "user"],
-            returncode=0,
-            stdout='{"login": "testuser"}',
-            stderr="",
-        )
-        res = run_gh(["gh", "api", "user"])
-        assert res.returncode == 0
-        call_args = mock_sub.call_args[0][0]
-        assert call_args == ["gh", "api", "user"]
+    process_fake.answer(
+        ["gh", "api", "user"],
+        ProcessAnswer(stdout='{"login": "testuser"}'),
+    )
+    res = run_gh(["gh", "api", "user"])
+    assert res.returncode == 0
+    assert process_fake.calls[0].argv == ("gh", "api", "user")
 
 
-def test_run_gh_cached_read() -> None:
+def test_run_gh_cached_read(process_fake: ProcessFake) -> None:
     """Verify run_gh avoids subprocess execution when cached result is present."""
     limiter = get_github_rate_limiter()
     limiter.clear_cache()
 
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "rate_limit"],
-            returncode=0,
-            stdout='{"resources": {"core": {"remaining": 5000}}}',
-            stderr="",
-        )
-        res1 = run_gh(["api", "rate_limit"], use_cache=True, cache_ttl=5.0)
-        assert res1.returncode == 0
-        assert mock_sub.call_count == 1
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout='{"resources": {"core": {"remaining": 5000}}}'),
+    )
+    res1 = run_gh(["api", "rate_limit"], use_cache=True, cache_ttl=5.0)
+    assert res1.returncode == 0
+    assert len(process_fake.calls) == 1
 
-        # Second call should hit the cache without calling run_subprocess
-        res2 = run_gh(["api", "rate_limit"], use_cache=True, cache_ttl=5.0)
-        assert res2.returncode == 0
-        assert res2.stdout == res1.stdout
-        assert mock_sub.call_count == 1
+    # Second call should hit the cache without calling run_subprocess
+    res2 = run_gh(["api", "rate_limit"], use_cache=True, cache_ttl=5.0)
+    assert res2.returncode == 0
+    assert res2.stdout == res1.stdout
+    assert len(process_fake.calls) == 1
 
     limiter.clear_cache()
 
 
-def test_run_gh_passively_updates_graphql_quota() -> None:
+def test_run_gh_passively_updates_graphql_quota(process_fake: ProcessFake) -> None:
     """Verify run_gh passively extracts rateLimit field and updates limiter quota."""
     limiter = get_github_rate_limiter()
 
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "graphql"],
-            returncode=0,
-            stdout='{"data": {"rateLimit": {"remaining": 3200, "limit": 5000, "resetAt": "2026-09-15T06:00:00Z"}}}',
-            stderr="",
-        )
-        res = run_gh(["api", "graphql", "-f", "query={ viewer { login } }"])
-        quota = limiter.get_quota("graphql")
-        assert (
-            res.returncode,
-            quota.remaining,
-            quota.limit,
-            quota.reset_epoch is not None and quota.reset_epoch > 0,
-        ) == (0, 3200, 5000, True)
+    process_fake.answer(
+        ["gh", "api", "graphql"],
+        ProcessAnswer(
+            stdout='{"data": {"rateLimit": {"remaining": 3200, "limit": 5000, "resetAt": "2026-09-15T06:00:00Z"}}}'
+        ),
+    )
+    res = run_gh(["api", "graphql", "-f", "query={ viewer { login } }"])
+    quota = limiter.get_quota("graphql")
+    assert (
+        res.returncode,
+        quota.remaining,
+        quota.limit,
+        quota.reset_epoch is not None and quota.reset_epoch > 0,
+    ) == (0, 3200, 5000, True)
 
 
-def test_run_gh_passively_updates_header_quota() -> None:
+def test_run_gh_passively_updates_header_quota(process_fake: ProcessFake) -> None:
     """Verify run_gh parses x-ratelimit-* headers from output."""
     limiter = get_github_rate_limiter()
 
@@ -436,48 +430,44 @@ def test_run_gh_passively_updates_header_quota() -> None:
         "\r\n"
         '{"id": 123}'
     )
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "users/octocat"],
-            returncode=0,
-            stdout=raw_output,
-            stderr="",
-        )
-        res = run_gh(["api", "users/octocat", "-i"])
-        assert res.returncode == 0
-        quota = limiter.get_quota("core")
-        assert quota.remaining == 4800
-        assert quota.limit == 5000
-        assert quota.reset_epoch == 1773550000.0
+    process_fake.answer(
+        ["gh", "api", "users/octocat"],
+        ProcessAnswer(stdout=raw_output),
+    )
+    res = run_gh(["api", "users/octocat", "-i"])
+    assert res.returncode == 0
+    quota = limiter.get_quota("core")
+    assert quota.remaining == 4800
+    assert quota.limit == 5000
+    assert quota.reset_epoch == 1773550000.0
 
 
-def test_run_gh_rate_limit_retry(monkeypatch: pytest.MonkeyPatch, clock: ClockFake) -> None:
+def test_run_gh_rate_limit_retry(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake, process_fake: ProcessFake
+) -> None:
     """Verify run_gh retries with backoff on secondary rate limits."""
     limiter = get_github_rate_limiter()
     limiter.clear_cache()
     monkeypatch.setattr(limiter, "min_interval", 0.01)
 
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.side_effect = [
-            subprocess.CompletedProcess(
-                args=["gh", "api", "issues"],
+    answers = iter(
+        [
+            ProcessAnswer(
                 returncode=1,
-                stdout="",
                 stderr="GraphQL: API rate limit already exceeded for user ID 7726889.",
             ),
-            subprocess.CompletedProcess(
-                args=["gh", "api", "issues"],
-                returncode=0,
-                stdout='[{"id": 1}]',
-                stderr="",
-            ),
+            ProcessAnswer(returncode=0, stdout='[{"id": 1}]'),
         ]
-        res = run_gh(["api", "issues"], max_retries=2)
+    )
+    process_fake.answer(
+        ["gh", "api", "issues"], ProcessAnswer(side_effect=lambda call: next(answers))
+    )
+    res = run_gh(["api", "issues"], max_retries=2)
     # Pacing also sleeps on every attempt; the backoff is the wait of at least the secondary floor.
     assert (
         res.returncode,
         res.stdout,
-        mock_sub.call_count,
+        len(process_fake.calls),
         max(clock.waits) >= limiter.secondary_rate_wait,
     ) == (
         0,
@@ -487,34 +477,27 @@ def test_run_gh_rate_limit_retry(monkeypatch: pytest.MonkeyPatch, clock: ClockFa
     )
 
 
-def test_run_gh_check_raises_called_process_error() -> None:
+def test_run_gh_check_raises_called_process_error(process_fake: ProcessFake) -> None:
     """Verify run_gh raises CalledProcessError when check=True on non-zero exit."""
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "unknown"],
-            returncode=4,
-            stdout="",
-            stderr="Not Found",
-        )
-        with pytest.raises(subprocess.CalledProcessError) as exc_info:
-            run_gh(["api", "unknown"], check=True, max_retries=0)
-        assert exc_info.value.returncode == 4
+    process_fake.answer(
+        ["gh", "api", "unknown"],
+        ProcessAnswer(returncode=4, stderr="Not Found"),
+    )
+    with pytest.raises(subprocess.CalledProcessError) as exc_info:
+        run_gh(["api", "unknown"], check=True, max_retries=0)
+    assert exc_info.value.returncode == 4
 
 
-def test_run_gh_input_passed_to_subprocess() -> None:
+def test_run_gh_input_passed_to_subprocess(process_fake: ProcessFake) -> None:
     """Verify run_gh passes stdin input to run_subprocess."""
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "graphql"],
-            returncode=0,
-            stdout='{"data": {}}',
-            stderr="",
-        )
-        res = run_gh(["api", "graphql"], input='{"query": "viewer"}')
-        assert res.returncode == 0
-        mock_sub.assert_called_once()
-        call_kwargs = mock_sub.call_args[1]
-        assert call_kwargs["input"] == '{"query": "viewer"}'
+    process_fake.answer(
+        ["gh", "api", "graphql"],
+        ProcessAnswer(stdout='{"data": {}}'),
+    )
+    res = run_gh(["api", "graphql"], input='{"query": "viewer"}')
+    assert res.returncode == 0
+    assert len(process_fake.calls) == 1
+    assert process_fake.calls[0].stdin == '{"query": "viewer"}'
 
 
 @pytest.mark.parametrize(
@@ -529,14 +512,16 @@ def test_run_gh_input_passed_to_subprocess() -> None:
     ],
 )
 def test_a_failed_rate_limit_read_returns_its_exit_status_without_reading_its_body(
-    stdout: str, stderr: str
+    stdout: str, stderr: str, process_fake: ProcessFake
 ) -> None:
     """gh writes GitHub's error body to stdout when `gh api rate_limit` fails: `run_gh` returns
     the failed process for its caller to read, and parses no quota from the body (#983)."""
-    failed = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, stdout, stderr)
     before = get_github_rate_limiter().get_quota("core")
-    with patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed):
-        res = run_gh(["api", "rate_limit"])
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=1, stdout=stdout, stderr=stderr),
+    )
+    res = run_gh(["api", "rate_limit"])
     assert (res.returncode, res.stderr, get_github_rate_limiter().get_quota("core")) == (
         1,
         stderr,
@@ -544,7 +529,9 @@ def test_a_failed_rate_limit_read_returns_its_exit_status_without_reading_its_bo
     )
 
 
-def test_run_gh_rate_limit_endpoint_extracts_all_resources(clock: ClockFake) -> None:
+def test_run_gh_rate_limit_endpoint_extracts_all_resources(
+    clock: ClockFake, process_fake: ProcessFake
+) -> None:
     """Verify /rate_limit endpoint response updates all resources directly without acquire sleep."""
     limiter = get_github_rate_limiter()
     output = (
@@ -555,25 +542,22 @@ def test_run_gh_rate_limit_endpoint_extracts_all_resources(clock: ClockFake) -> 
         "}}"
     )
 
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "rate_limit"],
-            returncode=0,
-            stdout=output,
-            stderr="",
-        )
-        res = run_gh(["api", "rate_limit"])
-        assert res.returncode == 0
-        # rate_limit inspection must not trigger pacing sleep
-        assert clock.waits == []
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(stdout=output),
+    )
+    res = run_gh(["api", "rate_limit"])
+    assert res.returncode == 0
+    # rate_limit inspection must not trigger pacing sleep
+    assert clock.waits == []
 
-        assert limiter.get_quota("core").remaining == 4999
-        assert limiter.get_quota("graphql").remaining == 4500
-        assert limiter.get_quota("search").remaining == 28
+    assert limiter.get_quota("core").remaining == 4999
+    assert limiter.get_quota("graphql").remaining == 4500
+    assert limiter.get_quota("search").remaining == 28
 
 
 def test_rate_limit_check_for_another_host_leaves_github_com_quotas_unchanged(
-    clock: ClockFake,
+    clock: ClockFake, process_fake: ProcessFake
 ) -> None:
     """A rate-limit check that names another host with `--hostname` answers for that host, not
     for github.com, so the github.com quotas stay unchanged (#1968)."""
@@ -586,33 +570,29 @@ def test_rate_limit_check_for_another_host_leaves_github_com_quotas_unchanged(
     )
     before_core = limiter.get_quota("core")
     before_graphql = limiter.get_quota("graphql")
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "rate_limit", "--hostname", "ghe.example.com"],
-            returncode=0,
-            stdout=other_host_output,
-            stderr="",
-        )
-        res = run_gh(["api", "rate_limit", "--hostname", "ghe.example.com"])
+    process_fake.answer(
+        ["gh", "api", "rate_limit", "--hostname", "ghe.example.com"],
+        ProcessAnswer(stdout=other_host_output),
+    )
+    res = run_gh(["api", "rate_limit", "--hostname", "ghe.example.com"])
     assert res.returncode == 0
     assert limiter.get_quota("core") == before_core
     assert limiter.get_quota("graphql") == before_graphql
 
 
-def test_rate_limit_check_for_github_com_updates_quotas(clock: ClockFake) -> None:
+def test_rate_limit_check_for_github_com_updates_quotas(
+    clock: ClockFake, process_fake: ProcessFake
+) -> None:
     """A rate-limit check that explicitly names github.com with `--hostname` updates quotas."""
     limiter = get_github_rate_limiter()
     github_output = (
         '{"resources": {"core": {"limit": 5000, "remaining": 4800, "reset": 1773551000}}}'
     )
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "rate_limit", "--hostname", "github.com"],
-            returncode=0,
-            stdout=github_output,
-            stderr="",
-        )
-        res = run_gh(["api", "rate_limit", "--hostname", "github.com"])
+    process_fake.answer(
+        ["gh", "api", "rate_limit", "--hostname", "github.com"],
+        ProcessAnswer(stdout=github_output),
+    )
+    res = run_gh(["api", "rate_limit", "--hostname", "github.com"])
     assert res.returncode == 0
     assert limiter.get_quota("core").remaining == 4800
 
@@ -642,15 +622,15 @@ def test_quota_state_validate_direct() -> None:
 
 def test_disk_quota_corrupt_or_unwritable(tmp_path: Path) -> None:
     """Verify disk quota loader handles corrupt JSON and saver handles unwritable directories."""
-    from devops_cli.github.rate_limiter import _load_disk_quota, _save_disk_quota
+    from devops_cli.github.rate_limiter import load_disk_quota, save_disk_quota
 
     corrupt_file = tmp_path / "corrupt.json"
     corrupt_file.write_text("not json content", encoding="utf-8")
-    assert _load_disk_quota(corrupt_file) == {}
+    assert load_disk_quota(corrupt_file) == {}
 
     # Unwritable path handling
     unwritable = Path("/forbidden_sys_dir_test/quota.json")
-    _save_disk_quota({"core": QuotaState(remaining=10)}, unwritable)
+    save_disk_quota({"core": QuotaState(remaining=10)}, unwritable)
 
 
 def test_extract_json_payload_edge_cases() -> None:
@@ -665,16 +645,16 @@ def test_extract_json_payload_edge_cases() -> None:
 
 def test_detect_resource_and_reset_epoch() -> None:
     """Verify _detect_resource and _parse_reset_epoch handle boundary values."""
-    from devops_cli.github.rate_limiter import _detect_resource, _parse_reset_epoch
+    from devops_cli.github.rate_limiter import detect_resource, parse_reset_epoch
 
-    assert _detect_resource([]) == "core"
-    assert _detect_resource(["gh"]) == "core"
-    assert _detect_resource(["api", "repos/owner/repo/dependency-graph/sbom"]) == "dependency_sbom"
+    assert detect_resource([]) == "core"
+    assert detect_resource(["gh"]) == "core"
+    assert detect_resource(["api", "repos/owner/repo/dependency-graph/sbom"]) == "dependency_sbom"
 
-    assert (_parse_reset_epoch(None), _parse_reset_epoch("")) == (None, None)
+    assert (parse_reset_epoch(None), parse_reset_epoch("")) == (None, None)
     with pytest.raises(ValueError, match="Failed to parse resetAt timestamp"):
-        _parse_reset_epoch("invalid-date-string")
-    assert _parse_reset_epoch("2026-09-15T12:00:00Z") is not None
+        parse_reset_epoch("invalid-date-string")
+    assert parse_reset_epoch("2026-09-15T12:00:00Z") is not None
 
 
 def test_parse_safe_helpers() -> None:
@@ -696,21 +676,21 @@ def test_parse_safe_helpers() -> None:
     _extract_graphql_ratelimit_json('{"data": {"rateLimit": null}}', limiter)
 
 
-def test_calculate_delay_remaining_none_or_negative() -> None:
+def test_calculate_delay_remaining_none_or_negative(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify calculate_delay raises error when remaining is None or negative."""
     limiter = GitHubRateLimiter()
     now = time.time()
     state_none = QuotaState(limit=100, reset_epoch=now + 10.0)
     state_none.__dict__["remaining"] = None
-    with patch.object(limiter, "_resolve_quota_state", return_value=state_none):
-        with pytest.raises(GitHubRateLimitError, match="remaining requests is unknown"):
-            limiter.calculate_delay("core")
+    monkeypatch.setattr(limiter, "_resolve_quota_state", lambda _sub: state_none)
+    with pytest.raises(GitHubRateLimitError, match="remaining requests is unknown"):
+        limiter.calculate_delay("core")
 
     state_neg = QuotaState(limit=100, reset_epoch=now + 10.0)
     state_neg.__dict__["remaining"] = -5
-    with patch.object(limiter, "_resolve_quota_state", return_value=state_neg):
-        with pytest.raises(ValueError, match="remaining requests must be non-negative"):
-            limiter.calculate_delay("core")
+    monkeypatch.setattr(limiter, "_resolve_quota_state", lambda _sub: state_neg)
+    with pytest.raises(ValueError, match="remaining requests must be non-negative"):
+        limiter.calculate_delay("core")
 
 
 def test_update_quota_negative_validations() -> None:
@@ -728,39 +708,38 @@ def test_update_quota_negative_validations() -> None:
 
 def test_validate_gh_cwd(tmp_path: Path) -> None:
     """Verify _validate_gh_cwd accepts valid directories and rejects non-existent or prohibited system paths."""
-    from devops_cli.github.rate_limiter import _validate_gh_cwd
+    from devops_cli.github.rate_limiter import validate_gh_cwd
 
-    assert _validate_gh_cwd(None) is None
-    assert _validate_gh_cwd(tmp_path) == tmp_path.resolve()
+    assert validate_gh_cwd(None) is None
+    assert validate_gh_cwd(tmp_path) == tmp_path.resolve()
 
     with pytest.raises(ValueError, match="Invalid cwd directory"):
-        _validate_gh_cwd(tmp_path / "nonexistent_dir_12345")
+        validate_gh_cwd(tmp_path / "nonexistent_dir_12345")
 
     with pytest.raises(ValueError, match="Prohibited system path for cwd"):
-        _validate_gh_cwd(Path("/etc"))
+        validate_gh_cwd(Path("/etc"))
 
 
-def test_run_gh_with_cwd_and_called_process_error(tmp_path: Path) -> None:
+def test_run_gh_with_cwd_and_called_process_error(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """Verify run_gh passes cwd and raises CalledProcessError when check=True on failure."""
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "pr", "list"], returncode=0, stdout="pr list output", stderr=""
-        )
-        res = run_gh(["pr", "list"], cwd=tmp_path)
-        assert res.returncode == 0
-        mock_sub.assert_called_once()
-        assert mock_sub.call_args[1]["cwd"] == tmp_path.resolve()
+    process_fake.answer(
+        ["gh", "pr", "list"],
+        ProcessAnswer(stdout="pr list output"),
+    )
+    res = run_gh(["pr", "list"], cwd=tmp_path)
+    assert res.returncode == 0
+    assert len(process_fake.calls) == 1
+    assert process_fake.calls[0].cwd == tmp_path.resolve()
 
     # Paginated with check=True and non-zero returncode raises CalledProcessError
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "repos/owner/repo/pulls", "--paginate"],
-            returncode=1,
-            stdout="",
-            stderr="Failed to paginate",
-        )
-        with pytest.raises(subprocess.CalledProcessError):
-            run_gh(["api", "repos/owner/repo/pulls", "--paginate"], check=True)
+    process_fake.answer(
+        ["gh", "api", "repos/owner/repo/pulls", "--paginate"],
+        ProcessAnswer(returncode=1, stderr="Failed to paginate"),
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        run_gh(["api", "repos/owner/repo/pulls", "--paginate"], check=True)
 
 
 def test_quota_state_malformed_types_discarded(tmp_path: Path) -> None:
@@ -783,9 +762,9 @@ def test_quota_state_malformed_types_discarded(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    from devops_cli.github.rate_limiter import _load_disk_quota
+    from devops_cli.github.rate_limiter import load_disk_quota
 
-    loaded = _load_disk_quota(cache_file)
+    loaded = load_disk_quota(cache_file)
     assert loaded == {}
 
 
@@ -827,12 +806,12 @@ def test_get_quota_live_disk_sync(tmp_path: Path) -> None:
 
 def test_merge_single_quota_preserves_freshest_consumption() -> None:
     """Verify _merge_single_quota never overwrites lower remaining with stale higher count."""
-    from devops_cli.github.rate_limiter import _merge_single_quota
+    from devops_cli.github.rate_limiter import merge_single_quota
 
     disk_state = QuotaState(limit=5000, remaining=3000, used=2000, reset_epoch=1000.0)
     mem_state = QuotaState(limit=5000, remaining=4000, used=1000, reset_epoch=1000.0)
 
-    merged = _merge_single_quota(disk_state, mem_state)
+    merged = merge_single_quota(disk_state, mem_state)
     assert (merged.remaining, merged.used) == (3000, 2000)
 
 
@@ -874,15 +853,15 @@ def test_quota_from_dict_preserves_none_and_rejects_malformed() -> None:
 
 def test_is_cacheable_api_call_rejects_all_mutations() -> None:
     """Verify _is_cacheable_api_call rejects all HTTP mutation verbs and field arguments."""
-    from devops_cli.github.rate_limiter import _is_cacheable_api_call
+    from devops_cli.github.rate_limiter import is_cacheable_api_call
 
-    assert _is_cacheable_api_call(["api", "repos/owner/repo/pulls"]) is True
-    assert not _is_cacheable_api_call(["api", "-X", "POST", "repos/owner/repo/pulls"])
-    assert not _is_cacheable_api_call(["api", "-X", "PUT", "repos/owner/repo/pulls"])
-    assert not _is_cacheable_api_call(["api", "-X", "PATCH", "repos/owner/repo/pulls"])
-    assert not _is_cacheable_api_call(["api", "-X", "DELETE", "repos/owner/repo/pulls"])
-    assert not _is_cacheable_api_call(["api", "--method=DELETE", "repos/owner/repo/pulls"])
-    assert not _is_cacheable_api_call(["api", "repos/owner/repo/pulls", "-f", "title=foo"])
+    assert is_cacheable_api_call(["api", "repos/owner/repo/pulls"]) is True
+    assert not is_cacheable_api_call(["api", "-X", "POST", "repos/owner/repo/pulls"])
+    assert not is_cacheable_api_call(["api", "-X", "PUT", "repos/owner/repo/pulls"])
+    assert not is_cacheable_api_call(["api", "-X", "PATCH", "repos/owner/repo/pulls"])
+    assert not is_cacheable_api_call(["api", "-X", "DELETE", "repos/owner/repo/pulls"])
+    assert not is_cacheable_api_call(["api", "--method=DELETE", "repos/owner/repo/pulls"])
+    assert not is_cacheable_api_call(["api", "repos/owner/repo/pulls", "-f", "title=foo"])
 
 
 def test_backoff_and_quota_max_age_enforcement() -> None:
@@ -905,46 +884,45 @@ def test_backoff_and_quota_max_age_enforcement() -> None:
 
 def test_disk_quota_lock_exception_propagation_and_cleanup(tmp_path: Path) -> None:
     """Verify _disk_quota_lock unlocks and propagates inner exceptions without throw error."""
-    from devops_cli.github.rate_limiter import _DISK_LOCK_STATE, _disk_quota_lock
+    from devops_cli.github.rate_limiter import DISK_LOCK_STATE, disk_quota_lock
 
     lock_target = tmp_path / "quota.json"
     lock_file = lock_target.with_suffix(".lock")
 
     with pytest.raises(ZeroDivisionError, match="division by zero"):
-        with _disk_quota_lock(lock_target):
-            assert _DISK_LOCK_STATE.depth.get(lock_file) == 1
+        with disk_quota_lock(lock_target):
+            assert DISK_LOCK_STATE.depth.get(lock_file) == 1
             _ = 1 / 0
 
-    assert _DISK_LOCK_STATE.depth.get(lock_file) == 0
+    assert DISK_LOCK_STATE.depth.get(lock_file) == 0
 
 
 def test_disk_quota_lock_oserror_fallback_and_propagation(tmp_path: Path) -> None:
     """Verify _disk_quota_lock yields and propagates exceptions when advisory locking fails."""
-    from devops_cli.github.rate_limiter import _disk_quota_lock
+    from devops_cli.github.rate_limiter import disk_quota_lock
 
     lock_target = tmp_path / "quota.json"
 
     with patch("fcntl.flock", side_effect=OSError("Flock failed")):
         with pytest.raises(KeyError):
-            with _disk_quota_lock(lock_target):
+            with disk_quota_lock(lock_target):
                 raise KeyError("expected_key_error")
 
 
 def test_rate_limiter_acquire_propagates_unresolvable_quota_error(
-    tmp_path: Path, clock: ClockFake
+    tmp_path: Path, clock: ClockFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify acquire propagates GitHubRateLimitError when quota state cannot be resolved."""
     cache_file = tmp_path / "gh_quota.json"
     limiter = GitHubRateLimiter(persist_path=cache_file, min_interval=0.05)
 
-    with patch.object(
-        limiter,
-        "_resolve_quota_state",
-        side_effect=GitHubRateLimitError("offline"),
-    ):
-        with pytest.raises(GitHubRateLimitError, match="offline"):
-            limiter.acquire("core")
-        assert clock.waits == []
+    def raise_offline(_sub: str) -> QuotaState:
+        raise GitHubRateLimitError("offline")
+
+    monkeypatch.setattr(limiter, "_resolve_quota_state", raise_offline)
+    with pytest.raises(GitHubRateLimitError, match="offline"):
+        limiter.acquire("core")
+    assert clock.waits == []
 
 
 def test_extract_rate_limit_endpoint_response_valid() -> None:
@@ -1154,21 +1132,29 @@ def test_the_rate_limit_check_reads_every_rate_limit_row_of_the_gh_output_table(
 
 
 def test_run_gh_backs_off_on_a_rate_limit_only_a_secondary_row_names(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake, process_fake: ProcessFake
 ) -> None:
     """gh's first answer names a secondary rate limit in words only the secondary rows hold:
     `run_gh` waits at least the secondary floor and sends the command again (#983)."""
     limiter = get_github_rate_limiter()
     monkeypatch.setattr(limiter, "min_interval", 0.01)
-    refused = subprocess.CompletedProcess(
-        ["gh", "api", "issues"], 1, "", "gh: Please retry your request again later. (HTTP 403)"
+    answers = iter(
+        [
+            ProcessAnswer(
+                returncode=1, stderr="gh: Please retry your request again later. (HTTP 403)"
+            ),
+            ProcessAnswer(returncode=0, stdout="[]"),
+        ]
     )
-    answered = subprocess.CompletedProcess(["gh", "api", "issues"], 0, "[]", "")
-    with patch(
-        "devops_cli.github.rate_limiter.run_subprocess", side_effect=[refused, answered]
-    ) as run:
-        res = run_gh(["api", "issues"], max_retries=2)
-    assert (res.returncode, run.call_count, max(clock.waits) >= limiter.secondary_rate_wait) == (
+    process_fake.answer(
+        ["gh", "api", "issues"], ProcessAnswer(side_effect=lambda call: next(answers))
+    )
+    res = run_gh(["api", "issues"], max_retries=2)
+    assert (
+        res.returncode,
+        len(process_fake.calls),
+        max(clock.waits) >= limiter.secondary_rate_wait,
+    ) == (
         0,
         2,
         True,
@@ -1189,24 +1175,25 @@ _PARTIAL_GRAPHQL_ANSWER = (
     ],
 )
 def test_run_gh_backs_off_on_gh_s_stderr_never_on_github_s_answer_on_stdout(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake, title: str
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake, title: str, process_fake: ProcessFake
 ) -> None:
     """A failed `gh api graphql` copies GitHub's partial answer, issue titles included, to
     stdout and writes only `gh: <message>` to stderr. A title that reads like a rate limit is
     GitHub's data, not gh's failure: the command is sent once, with no backoff (#983)."""
     limiter = get_github_rate_limiter()
     monkeypatch.setattr(limiter, "min_interval", 0.01)
-    failed = subprocess.CompletedProcess(
+    process_fake.answer(
         ["gh", "api", "graphql"],
-        1,
-        _PARTIAL_GRAPHQL_ANSWER.format(title=title),
-        "gh: Resource not accessible by integration",
+        ProcessAnswer(
+            returncode=1,
+            stdout=_PARTIAL_GRAPHQL_ANSWER.format(title=title),
+            stderr="gh: Resource not accessible by integration",
+        ),
     )
-    with patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed) as run:
-        res = run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"], max_retries=2)
+    res = run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"], max_retries=2)
     assert (
         res.returncode,
-        run.call_count,
+        len(process_fake.calls),
         max(clock.waits, default=0.0) < limiter.secondary_rate_wait,
     ) == (
         1,
@@ -1227,29 +1214,37 @@ def test_each_identity_keeps_its_own_quota_and_response_cache(
     caplog.set_level(logging.DEBUG, logger="devops_cli.github.rate_limiter")
     limiters: list[GitHubRateLimiter] = []
     answer = subprocess.CompletedProcess([], 0, stdout='[{"number": 1}]', stderr="")
-    with patch("subprocess.run", return_value=answer) as run:
-        for token in tokens:
-            monkeypatch.setattr(process, "_github_token", token)
-            limiter = get_github_rate_limiter()
-            limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0)
-            run_gh(["api", "repos/octo/repo/issues"], use_cache=True)
-            run_gh(["api", "repos/octo/repo/issues"], use_cache=True)
-            limiters.append(limiter)
-    identity_dirs = [limiter.persist_path.parent for limiter in limiters if limiter.persist_path]
-    written = [str(path) for path in isolate_data_dir.rglob("*")]
-    assert (
-        [call.kwargs["env"]["GH_TOKEN"] for call in run.call_args_list],
-        [directory.name for directory in identity_dirs],
-        [len(list((directory / "responses").glob("*.json"))) for directory in identity_dirs],
-        [(directory / "gh_quota.json").is_file() for directory in identity_dirs],
-        [token for token in tokens if token in "\n".join(written) or token in caplog.text],
-    ) == (
-        list(tokens),
-        [hashlib.sha256(token.encode()).hexdigest()[:16] for token in tokens],
-        [1, 1],
-        [True, True],
-        [],
-    )
+    reset_process_runner()
+    try:
+        with patch("subprocess.run", return_value=answer) as run:
+            for token in tokens:
+                monkeypatch.setattr(process, "_github_token", token)
+                limiter = get_github_rate_limiter()
+                limiter.update_quota(
+                    "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+                )
+                run_gh(["api", "repos/octo/repo/issues"], use_cache=True)
+                run_gh(["api", "repos/octo/repo/issues"], use_cache=True)
+                limiters.append(limiter)
+        identity_dirs = [
+            limiter.persist_path.parent for limiter in limiters if limiter.persist_path
+        ]
+        written = [str(path) for path in isolate_data_dir.rglob("*")]
+        assert (
+            [call.kwargs["env"]["GH_TOKEN"] for call in run.call_args_list],
+            [directory.name for directory in identity_dirs],
+            [len(list((directory / "responses").glob("*.json"))) for directory in identity_dirs],
+            [(directory / "gh_quota.json").is_file() for directory in identity_dirs],
+            [token for token in tokens if token in "\n".join(written) or token in caplog.text],
+        ) == (
+            list(tokens),
+            [hashlib.sha256(token.encode()).hexdigest()[:16] for token in tokens],
+            [1, 1],
+            [True, True],
+            [],
+        )
+    finally:
+        set_process_runner(ProcessFake())
 
 
 # ── Write pacing decided from the request gh sends (#1125) ────────────────────
@@ -1270,17 +1265,23 @@ _AFTER_A_FRAGMENT = (
 
 def _paced_as_write(args: list[str], *, input: str | None = None, cwd: Path | None = None) -> bool:
     """Run `args` through `run_gh` with gh stubbed; the `is_mutation` its one acquire got."""
+    fake = cast(ProcessFake, get_process_runner())
+    fake.answer(lambda _: True, ProcessAnswer(stdout="{}"))
+    limiter = get_github_rate_limiter()
+    original_acquire = limiter.acquire
+    recorded_is_mutation: list[bool] = []
 
-    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(cmd, 0, "{}", "")
+    def spy_acquire(resource: str = "core", is_mutation: bool = False, **kwargs: Any) -> float:
+        recorded_is_mutation.append(is_mutation)
+        return 0.0
 
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
-        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
-    ):
+    setattr(limiter, "acquire", spy_acquire)
+    try:
         run_gh(args, input=input, cwd=cwd)
-    (call,) = acquire.call_args_list
-    return bool(call.kwargs["is_mutation"])
+    finally:
+        setattr(limiter, "acquire", original_acquire)
+    (is_mutation,) = recorded_is_mutation
+    return bool(is_mutation)
 
 
 _API_REQUESTS: list[tuple[str, list[str], str | None, dict[str, str], bool]] = [
@@ -1546,36 +1547,54 @@ def test_a_high_level_gh_command_is_classified_by_the_verb_in_the_verb_position(
     assert _paced_as_write(args) is write
 
 
-def test_a_paginated_write_is_sent_once_as_given_and_paced_as_a_write() -> None:
+def test_a_paginated_write_is_sent_once_as_given_and_paced_as_a_write(
+    process_fake: ProcessFake,
+) -> None:
     """`run_gh` hands gh a `--paginate` request as given, so a write with `--paginate` goes to
     gh once, unchanged, after one write acquire."""
     args = ["api", "repos/o/r/issues", "--paginate", "-f", "title=t"]
-    sent: list[list[str]] = []
+    process_fake.answer(["gh", *args], ProcessAnswer(stdout="{}"))
+    limiter = get_github_rate_limiter()
+    original_acquire = limiter.acquire
+    recorded_is_mutation: list[bool] = []
 
-    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-        sent.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "{}", "")
+    def spy_acquire(resource: str = "core", is_mutation: bool = False, **kwargs: Any) -> float:
+        recorded_is_mutation.append(is_mutation)
+        return 0.0
 
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
-        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
-    ):
+    setattr(limiter, "acquire", spy_acquire)
+    try:
         run_gh(args)
-    assert (sent, [call.kwargs.get("is_mutation") for call in acquire.call_args_list]) == (
+    finally:
+        setattr(limiter, "acquire", original_acquire)
+
+    assert (
+        [list(call.argv) for call in process_fake.calls],
+        recorded_is_mutation,
+    ) == (
         [["gh", *args]],
         [True],
     )
 
 
-def test_gh_auth_is_not_paced() -> None:
+def test_gh_auth_is_not_paced(process_fake: ProcessFake) -> None:
     """`gh auth` runs outside the ledger, so it acquires nothing."""
-    answer = subprocess.CompletedProcess(["gh"], 0, "", "")
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer),
-        patch.object(GitHubRateLimiter, "acquire", autospec=True) as acquire,
-    ):
+    process_fake.answer(["gh", "auth", "status"], ProcessAnswer())
+    limiter = get_github_rate_limiter()
+    original_acquire = limiter.acquire
+    acquire_calls: list[Any] = []
+
+    def spy_acquire(*args: Any, **kwargs: Any) -> float:
+        acquire_calls.append((args, kwargs))
+        return 0.0
+
+    setattr(limiter, "acquire", spy_acquire)
+    try:
         run_gh(["auth", "status"])
-    assert acquire.call_count == 0
+    finally:
+        setattr(limiter, "acquire", original_acquire)
+
+    assert len(acquire_calls) == 0
 
 
 def test_the_classifier_takes_a_request_description() -> None:
@@ -1724,9 +1743,9 @@ def test_a_cli_read_is_cached_only_by_the_verb_in_the_verb_position(
 ) -> None:
     """A read verb anywhere in argv made a write cacheable (`pr create --title list`); the
     verb-position parser decides instead (#1125)."""
-    from devops_cli.github.rate_limiter import _should_cache
+    from devops_cli.github.rate_limiter import should_cache
 
-    assert _should_cache(args, use_cache=True) is cached
+    assert should_cache(args, use_cache=True) is cached
 
 
 def _graphql_answer(cost: int, remaining: int) -> str:
@@ -1740,22 +1759,29 @@ def _graphql_answer(cost: int, remaining: int) -> str:
     return json.dumps({"data": {"rateLimit": rate_limit, "viewer": {"login": "x"}}})
 
 
-def test_run_gh_charges_graphql_by_the_points_the_response_reports() -> None:
+def test_run_gh_charges_graphql_by_the_points_the_response_reports(
+    process_fake: ProcessFake,
+) -> None:
     """A GraphQL response that reports `rateLimit.cost` charges the limiter that many points
     and sets the points left; one that reports nothing charges no points, its estimate (2)
     taken from the points left instead (#1125)."""
-    answers = iter([_graphql_answer(7, 4000), _graphql_answer(12, 3988), json.dumps({"data": {}})])
-
-    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(cmd, 0, next(answers), "")
+    answers = iter(
+        [
+            ProcessAnswer(stdout=_graphql_answer(7, 4000)),
+            ProcessAnswer(stdout=_graphql_answer(12, 3988)),
+            ProcessAnswer(stdout=json.dumps({"data": {}})),
+        ]
+    )
+    process_fake.answer(
+        ["gh", "api", "graphql"], ProcessAnswer(side_effect=lambda call: next(answers))
+    )
 
     query = ["api", "graphql", "-f", "query=query { viewer { login } }"]
     limiter = get_github_rate_limiter()
-    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh):
-        charged = []
-        for _ in range(3):
-            run_gh(query)
-            charged.append(limiter.points_charged("graphql"))
+    charged = []
+    for _ in range(3):
+        run_gh(query)
+        charged.append(limiter.points_charged("graphql"))
     assert (charged, limiter.get_quota("graphql").remaining) == ([7, 19, 19], 3986)
 
 
@@ -1771,9 +1797,7 @@ _REAL_RUN = subprocess.run
 class _GhAtTheReset:
     """gh faked at the process edge: `gh api rate_limit` answers `resources`, exits with the
     status and stderr of `refusal`, or with `times_out` runs past its timeout, and any other gh
-    command answers `[]`. Every gh argv is recorded, from any thread. A command that is not gh,
-    such as the `uname -p` the tracer runs on first use, runs for real, so no test depends on
-    which test warmed that cache."""
+    command answers `[]`. Every gh argv is recorded, from any thread."""
 
     def __init__(
         self,
@@ -1782,30 +1806,41 @@ class _GhAtTheReset:
         refusal: tuple[int, str] | None = None,
         times_out: bool = False,
     ) -> None:
+        self.process_fake = cast(ProcessFake, get_process_runner())
         self.resources = resources
         self.refusal = refusal
         self.times_out = times_out
-        self.argvs: list[list[str]] = []
-        self._lock = threading.Lock()
 
-    def __call__(self, cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if cmd[0] != "gh":
-            return _REAL_RUN(cmd, **kwargs)
-        with self._lock:
-            self.argvs.append(list(cmd[1:]))
-        if cmd[1:] != _RATE_LIMIT:
-            return subprocess.CompletedProcess(cmd, 0, "[]", "")
-        if self.times_out:
-            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
-        if self.refusal is not None:
-            return subprocess.CompletedProcess(cmd, self.refusal[0], "", self.refusal[1])
-        return subprocess.CompletedProcess(cmd, 0, json.dumps({"resources": self.resources}), "")
+        def rate_limit_effect(call: ProcessCall) -> ProcessAnswer:
+            if self.times_out:
+                raise subprocess.TimeoutExpired(list(call.argv), call.timeout)
+            if self.refusal is not None:
+                return ProcessAnswer(returncode=self.refusal[0], stderr=self.refusal[1])
+            return ProcessAnswer(stdout=json.dumps({"resources": self.resources}))
+
+        self.process_fake.answer(
+            ["gh", "api", "rate_limit"], ProcessAnswer(side_effect=rate_limit_effect)
+        )
+        self.process_fake.answer(
+            lambda call: call.argv[0] == "gh" and list(call.argv[1:3]) != ["api", "rate_limit"],
+            ProcessAnswer(stdout="[]"),
+        )
+
+    @property
+    def argvs(self) -> list[list[str]]:
+        return [list(call.argv[1:]) for call in self.process_fake.calls if call.argv[0] == "gh"]
 
     def refreshes(self) -> int:
-        return self.argvs.count(_RATE_LIMIT)
+        return sum(
+            1 for call in self.process_fake.calls if list(call.argv[1:3]) == ["api", "rate_limit"]
+        )
 
     def commands(self) -> list[list[str]]:
-        return [argv for argv in self.argvs if argv != _RATE_LIMIT]
+        return [
+            list(call.argv[1:])
+            for call in self.process_fake.calls
+            if list(call.argv[1:3]) != ["api", "rate_limit"]
+        ]
 
 
 def _window(remaining: int, reset: float, limit: int = 5000) -> dict[str, int]:
@@ -1820,11 +1855,10 @@ def _clock_at(
     `stored_core_reset`, and yield the recorder of every wait."""
     clock.move_to(now)
     clock.waits.clear()
-    with patch("subprocess.run", side_effect=gh):
-        get_github_rate_limiter().update_quota(
-            "core", remaining=7, limit=5000, used=4993, reset_epoch=stored_core_reset
-        )
-        yield clock
+    get_github_rate_limiter().update_quota(
+        "core", remaining=7, limit=5000, used=4993, reset_epoch=stored_core_reset
+    )
+    yield clock
 
 
 def test_a_call_just_past_a_reset_waits_out_the_reset_second(
@@ -1916,7 +1950,7 @@ def test_a_clock_past_the_bound_fails_closed_naming_both_clocks(clock: ClockFake
     )
 
 
-def test_a_failed_refresh_fails_closed_naming_the_gh_failure(clock: ClockFake) -> None:
+def test_a_failed_refresh_fails_closed_naming_the_gh_error(clock: ClockFake) -> None:
     """`gh api rate_limit` exits 1 with a 502: the unread error names gh's failure and the
     command never runs."""
     gh = _GhAtTheReset({}, refusal=(1, "HTTP 502: Bad Gateway"))
@@ -2115,14 +2149,14 @@ def _quotas() -> dict[str, tuple[int | None, float | None]]:
     ],
 )
 def test_a_rate_limit_check_whose_output_a_flag_changes_returns_it_and_reads_no_quota(
-    flags: list[str], printed: str
+    flags: list[str], printed: str, process_fake: ProcessFake
 ) -> None:
     """With an output flag, gh prints something other than the /rate_limit answer: `run_gh`
     returns what gh printed, runs gh once, and keeps the stored quotas."""
-    argvs: list[list[str]] = []
     before = _quotas()
-    with patch("subprocess.run", side_effect=_gh_printing(printed, argvs)):
-        proc = run_gh(["api", "rate_limit", *flags])
+    process_fake.answer(["gh"], ProcessAnswer(stdout=printed))
+    proc = run_gh(["api", "rate_limit", *flags])
+    argvs = [list(call.argv[1:]) for call in process_fake.calls]
     assert (proc.returncode, proc.stdout, argvs, _quotas()) == (
         0,
         printed,
@@ -2142,13 +2176,13 @@ def test_a_rate_limit_check_whose_output_a_flag_changes_returns_it_and_reads_no_
     ],
 )
 def test_a_rate_limit_check_that_prints_the_answer_reads_the_quota_from_it(
-    flags: list[str], printed: str
+    flags: list[str], printed: str, process_fake: ProcessFake
 ) -> None:
     """gh prints the /rate_limit answer whole, after the status line and headers `--include`
     adds: `run_gh` stores the quota of each resource it reports."""
-    argvs: list[list[str]] = []
-    with patch("subprocess.run", side_effect=_gh_printing(printed, argvs)):
-        proc = run_gh(["api", "rate_limit", *flags])
+    process_fake.answer(["gh"], ProcessAnswer(stdout=printed))
+    proc = run_gh(["api", "rate_limit", *flags])
+    argvs = [list(call.argv[1:]) for call in process_fake.calls]
     assert (proc.returncode, argvs, _quotas()) == (
         0,
         [["api", "rate_limit", *flags]],
@@ -2160,7 +2194,7 @@ def test_a_rate_limit_check_that_prints_the_answer_reads_the_quota_from_it(
 
 
 def test_sixty_one_reads_do_not_stall_behind_a_fixed_burst_window(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Verify 61 consecutive gh reads do not stall behind a fixed burst ceiling.
 
@@ -2170,13 +2204,7 @@ def test_sixty_one_reads_do_not_stall_behind_a_fixed_burst_window(
     limiter = get_github_rate_limiter()
     limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0)
 
-    runner_calls: list[list[str]] = []
-    answer = subprocess.CompletedProcess(["gh", "api", "repos/o/r"], 0, "{}", "")
-
-    def fake_runner(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-        runner_calls.append(cmd)
-        return answer
-
+    process_fake.answer(["gh", "api", "repos/o/r"], ProcessAnswer(stdout="{}"))
     recorded_sleeps: list[float] = []
 
     def fake_sleep(seconds: float) -> None:
@@ -2185,20 +2213,21 @@ def test_sixty_one_reads_do_not_stall_behind_a_fixed_burst_window(
         recorded_sleeps.append(seconds)
 
     monkeypatch.setattr(time, "sleep", fake_sleep)
-    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=fake_runner):
-        for _ in range(61):
-            run_gh(["api", "repos/o/r"])
+    for _ in range(61):
+        run_gh(["api", "repos/o/r"])
 
-    assert len(runner_calls) == 61
+    assert len(process_fake.calls) == 61
     assert len(recorded_sleeps) == 61
 
 
-def test_parallel_callers_stay_spaced_across_threads() -> None:
+def test_parallel_callers_stay_spaced_across_threads(
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Two threads calling run_gh stay spaced by quota spacing across threads."""
     barrier = threading.Barrier(2)
     recorded_sleeps: list[float] = []
     sleep_lock = threading.Lock()
-    answer = subprocess.CompletedProcess(["gh", "pr", "list"], 0, "[]", "")
+    process_fake.answer(["gh", "pr", "list"], ProcessAnswer(stdout="[]"))
 
     def recording_sleep(seconds: float) -> None:
         with sleep_lock:
@@ -2208,16 +2237,13 @@ def test_parallel_callers_stay_spaced_across_threads() -> None:
         barrier.wait()
         run_gh(["pr", "list"])
 
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer),
-        patch("time.sleep", side_effect=recording_sleep),
-    ):
-        t1 = threading.Thread(target=worker)
-        t2 = threading.Thread(target=worker)
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
+    monkeypatch.setattr(time, "sleep", recording_sleep)
+    t1 = threading.Thread(target=worker)
+    t2 = threading.Thread(target=worker)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
 
     assert len(recorded_sleeps) == 2
     larger = max(recorded_sleeps)
@@ -2225,15 +2251,23 @@ def test_parallel_callers_stay_spaced_across_threads() -> None:
     assert larger - smaller >= 0.5
 
 
-def test_paginate_without_endpoint_calls_acquire() -> None:
+def test_paginate_without_endpoint_calls_acquire(process_fake: ProcessFake) -> None:
     """Non-exempt gh command without an endpoint still calls acquire before starting gh."""
-    answer = subprocess.CompletedProcess(["gh", "api", "--paginate"], 0, "[]", "")
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as runner,
-        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as mock_acquire,
-    ):
+    process_fake.answer(["gh", "api", "--paginate"], ProcessAnswer(stdout="[]"))
+    limiter = get_github_rate_limiter()
+    original_acquire = limiter.acquire
+    acquire_calls: list[Any] = []
+
+    def spy_acquire(*args: Any, **kwargs: Any) -> float:
+        acquire_calls.append((args, kwargs))
+        return 0.0
+
+    setattr(limiter, "acquire", spy_acquire)
+    try:
         proc = run_gh(["api", "--paginate"])
+    finally:
+        setattr(limiter, "acquire", original_acquire)
 
     assert proc.returncode == 0
-    assert mock_acquire.call_count == 1
-    assert runner.call_count == 1
+    assert len(acquire_calls) == 1
+    assert len(process_fake.calls) == 1
