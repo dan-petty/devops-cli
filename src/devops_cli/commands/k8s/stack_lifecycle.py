@@ -37,7 +37,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
 )
-from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.exceptions.k8s import (
     ClusterSecretPushError,
@@ -1215,6 +1215,7 @@ def _apply_stack_config_writes(selected_stacks: Sequence[str]) -> None:
     save_settings(active_settings)
 
 
+@dry_run_class("request-plan")
 def deploy_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,

@@ -28,6 +28,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run import dry_run_class
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
@@ -1784,6 +1785,7 @@ def _update_all_prs(
 
 
 @app.command("update")
+@dry_run_class("request-plan")
 def update_pr(
     number: Annotated[
         int | None,

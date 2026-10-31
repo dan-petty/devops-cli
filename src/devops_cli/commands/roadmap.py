@@ -32,7 +32,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
@@ -121,6 +121,7 @@ def _intake_dry_run(
 
 
 @app.command("intake", help=HELP.roadmap.intake)
+@dry_run_class("request-plan")
 def intake_cmd(
     repo: RepoOption = None,
     ref: RefOption = None,
@@ -241,6 +242,7 @@ def intake_eval_cmd(
 
 
 @app.command("refine", help=HELP.roadmap.refine)
+@dry_run_class("request-plan")
 def refine_cmd(
     repo: RepoOption = None,
     source: Annotated[Path, typer.Option("--source", help=HELP.roadmap.refine_source)] = Path("."),
@@ -604,6 +606,7 @@ def _resolve_comment(comment: str, comment_file: Path | None) -> str:
 
 
 @app.command("return", help=HELP.roadmap.return_item)
+@dry_run_class("request-plan")
 def return_cmd(
     item: Annotated[int, typer.Argument(help=HELP.roadmap.return_item_arg)],
     comment: Annotated[str, typer.Option("--comment", "-c", help=HELP.roadmap.return_comment)] = "",
