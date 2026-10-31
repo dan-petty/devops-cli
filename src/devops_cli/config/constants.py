@@ -1462,6 +1462,7 @@ class WebhookProviderName(StrEnum):
     (#1386). A sender gets a member once a consumer or a responder acts on its events."""
 
     GITHUB = "github"
+    MATTERMOST = "mattermost"
 
 
 class WebhookExposure(StrEnum):
@@ -1505,6 +1506,8 @@ CONST_SERVICE_METRIC_BUDGET_HOLDS: Final[str] = "devops_cli_service_budget_holds
 # 1 while a job of a repository failed its limit of rounds in a row and waits for new input, else
 # 0, by `repo` and `row` (#2475). The label is `row`, not `job`, which is the scrape's label.
 CONST_SERVICE_METRIC_JOB_SUSPENDED: Final[str] = "devops_cli_service_job_suspended"
+# Counts chat commands handled through the webhook router by `command` and `result` (#1395).
+CONST_SERVICE_METRIC_CHAT_COMMANDS: Final[str] = "devops_cli_service_chat_commands_total"
 # The Service's window for its GitHub request budget (#2161).
 CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 # What the Service keeps on its volume so that a restart does not clear it (#2474), each a file in

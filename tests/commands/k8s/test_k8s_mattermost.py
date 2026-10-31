@@ -224,6 +224,7 @@ def test_mattermost_custom_resource() -> None:
         "MM_TEAMSETTINGS_ENABLEOPENSERVER": "false",
         "MM_LOGSETTINGS_ENABLEFILE": "false",
         "MM_SERVICESETTINGS_ENABLELOCALMODE": "true",
+        "MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS": "roadmap-service.devops.svc.cluster.local",
         "MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS": "false",
         "MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE": "false",
     }
@@ -247,11 +248,11 @@ def test_podmonitor_manifest() -> None:
 
 
 def test_networkpolicy_manifests() -> None:
-    """Verify networkpolicy.yaml defines default perimeter and db api egress policies."""
+    """Verify networkpolicy.yaml defines default perimeter, db api, and roadmap service egress policies."""
     docs = _documents(MATTERMOST_DIR / "networkpolicy.yaml")
-    assert len(docs) == 2
+    assert len(docs) == 3
 
-    perimeter, db_api = docs
+    perimeter, db_api, roadmap_egress = docs
 
     # 1. Perimeter policy
     assert (
@@ -288,5 +289,25 @@ def test_networkpolicy_manifests() -> None:
         "mattermost-db-api",
         "mattermost",
         "mattermost-db",
+        ["Egress"],
+    )
+
+    # 3. Roadmap service egress policy (#1395)
+    assert (
+        roadmap_egress.get("apiVersion"),
+        roadmap_egress.get("kind"),
+        roadmap_egress.get("metadata", {}).get("name"),
+        roadmap_egress.get("metadata", {}).get("namespace"),
+        roadmap_egress.get("spec", {})
+        .get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/name"),
+        roadmap_egress.get("spec", {}).get("policyTypes"),
+    ) == (
+        "networking.k8s.io/v1",
+        "NetworkPolicy",
+        "mattermost-roadmap-service",
+        "mattermost",
+        "mattermost",
         ["Egress"],
     )

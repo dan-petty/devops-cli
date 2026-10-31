@@ -529,6 +529,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_FIRECRAWL_API_KEY` | keyring `firecrawl_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_VALKEY_PASSWORD` | keyring `valkey_devops_password` | yes | adopt from `llm/valkey-devops-auth password`; else generate 64 hex | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` | keyring `mattermost_command_token` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 | `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
@@ -550,6 +551,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` is the private key of GitHub App `devops-cli-service`, which the roadmap Service and the cluster Jobs act as ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Store it with `devops config set service.github_app.private_key --from-file <key.pem>`. A pod whose environment holds the key acts as the App: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as GH_TOKEN. A workstation keeps the key only in the keyring, so a workstation run keeps the gh login of its person.
 - `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as, and the webhook URL for Mattermost deploys. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`, and `service.webhook.mattermost` refers to `$mattermost-deploys-url`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>`, `devops config set argocd.github_app_private_key --from-file <key.pem>`, and `devops config set mattermost.deploys_hook`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
 - `monitoring/alertmanager-mattermost` holds the incoming webhook URL that Alertmanager uses to post critical and warning alerts to Mattermost. Store the webhook token with `devops config set mattermost.alerts_hook`, then push with `devops k8s push-secrets --only monitoring/alertmanager-mattermost`. The `homelab` project ignores the Secret as an orphan.
+- `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` holds the authentication token that verifies `/roadmap` slash command requests from Mattermost to the Service's webhook router. Store the token with `devops config set mattermost.command_token`, then push with `devops k8s push-secrets --only devops/devops-cli`.
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
 - `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
 - `chat` rows are pushed by `push-secrets` with no `--stack` or with `--stack chat`, and by `deploy-stack --stack chat` or `all`. The database password is generated or adopted, and `DB_CONNECTION_STRING` is derived from it. The `homelab` project ignores the Secret as an orphan.
@@ -638,6 +640,29 @@ The route refuses a delivery before it reads the body when:
 - the `Content-Length` is more than 25 MiB: 413.
 
 Then the route reads the body. It refuses a body of more than 25 MiB (413), a signature that no secret in `service.webhook_secrets` made (401 `invalid signature`), a payload that does not validate (400), and a repository that is not in `service.repos` or that did not sign the body (401). Each refusal counts under the outcome `rejected` of `devops_cli_service_webhook_deliveries_total`. `RoadmapServiceWebhooksRejected` fires when the route rejects more than 20 deliveries in 15 minutes (Alerts).
+
+#### Mattermost slash command
+
+The `/roadmap` slash command in Mattermost inspects each repository's roadmap service state, answered in-cluster through the service's webhook router (#1395).
+
+1. In Mattermost, add a custom slash command (System Console > Integrations > Slash Commands):
+   - Command Trigger Word: `roadmap`
+   - Request URL: `http://roadmap-service.devops.svc.cluster.local:8000/webhooks/mattermost`
+   - Request Method: `POST`
+2. Save the command and copy the generated token.
+3. Save the token in the workstation keyring:
+   ```bash
+   uv run devops config set mattermost.command_token
+   ```
+4. Push the secret to the cluster:
+   ```bash
+   uv run devops k8s push-secrets --stack devops
+   ```
+   Or update only the devops secret:
+   ```bash
+   uv run devops k8s push-secrets --only devops/devops-cli
+   ```
+5. In Mattermost, run `/roadmap` or `/roadmap status` to show the state of all repositories and lanes, or `/roadmap status <repo>` for one repository. The Service answers with an ephemeral reply.
 
 #### Alerts
 
