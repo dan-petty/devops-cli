@@ -13,8 +13,8 @@
 - [x] 2.4 Regenerate the documentation with `uv run devops docs generate --sync-readme`
 
 ## 3. Verification and archive
-- [ ] 3.1 Run `uv run devops ci fail-to-pass --base origin/main` and `uv run devops ci`
-- [ ] 3.2 Archive the change with `uv run devops openspec archive 2909-roadmap-workflow-document` and run `uv run devops openspec check`
+- [x] 3.1 Run `uv run devops ci fail-to-pass --base origin/main` and `uv run devops ci`
+- [x] 3.2 Archive the change with `uv run devops openspec archive 2909-roadmap-workflow-document` and run `uv run devops openspec check`
 
 ## Workflow follow-up
 - Pending a person: review the diff in tuicr (`tuicr -r origin/main..HEAD`).
