@@ -220,10 +220,10 @@ def test_analogies_cli_dry_run() -> None:
     )
     assert (
         result.exit_code,
-        '"dry_run": true' in result.output,
-        '"action": "retrieve_analogies"' in result.output,
-        '"query": "retry"' in result.output,
-        '"domain": "kubernetes"' in result.output,
+        "Plan for AI research analogies" in result.output,
+        '"input": "retry"' in result.output,
+        '"domain"' in result.output,
+        '"kubernetes"' in result.output,
     ) == (0, True, True, True, True)
 
 

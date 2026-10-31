@@ -5,8 +5,10 @@ A dry run makes zero external requests and returns the ordered PlannedRequest it
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_SERVICE,
@@ -14,6 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_LLM_NAMESPACE,
+    DEFAULT_QDRANT_URL,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
@@ -342,5 +345,298 @@ def plan_ai_test(
             method="POST",
             target=target,
             stdin=f'{{"prompt": "{prompt}"}}',
+        )
+    ]
+
+
+def _get_llm_chat_target() -> str:
+    settings = load_settings()
+    provider = settings.ai.provider
+    if provider == "ollama":
+        endpoint = (settings.ai.get_ollama_urls or ["http://localhost:11434"])[0]
+        return f"{endpoint.rstrip('/')}/api/chat"
+    base = settings.ai.api_base_url or "https://api.openai.com/v1"
+    return f"{base.rstrip('/')}/chat/completions"
+
+
+def _get_llm_embedding_target() -> str:
+    settings = load_settings()
+    provider = settings.ai.provider
+    if provider == "ollama":
+        endpoint = (settings.ai.get_ollama_urls or ["http://localhost:11434"])[0]
+        return f"{endpoint.rstrip('/')}/api/embeddings"
+    base = settings.ai.api_base_url or "https://api.openai.com/v1"
+    return f"{base.rstrip('/')}/embeddings"
+
+
+def _get_qdrant_target(path: str) -> str:
+    settings = load_settings()
+    base = settings.qdrant.url or DEFAULT_QDRANT_URL
+    return f"{base.rstrip('/')}{path}"
+
+
+def plan_ai_analyze_path(target: Path | str = ".") -> list[PlannedRequest]:
+    """Plan codebase path analysis requests."""
+    target_str = str(target)
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_embedding_target(),
+            stdin=f'{{"input": "<file-content-batch>", "path": "{target_str}"}}',
+        )
+    ]
+
+
+def plan_ai_analyze_branch(branch: str | None = None) -> list[PlannedRequest]:
+    """Plan git branch change analysis requests."""
+    ref = branch or "<current-branch>"
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_embedding_target(),
+            stdin=f'{{"input": "<diff-content-batch>", "branch": "{ref}"}}',
+        )
+    ]
+
+
+def plan_ai_analyze_pr(pr_number: int | str = 0) -> list[PlannedRequest]:
+    """Plan pull request change analysis requests."""
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_embedding_target(),
+            stdin=f'{{"input": "<pr-diff-content-batch>", "pr": "{pr_number}"}}',
+        )
+    ]
+
+
+def plan_ai_ingest_docs(source: str, max_pages: int = 10) -> list[PlannedRequest]:
+    """Plan documentation crawling and chunking requests."""
+    return [
+        PlannedRequest(
+            method="GET",
+            target=source,
+            repeat=f"up to {max_pages} pages",
+        )
+    ]
+
+
+def plan_ai_ingest_index_libraries(contracts_dir: Path | str | None = None) -> list[PlannedRequest]:
+    """Plan library API contracts indexing requests into Qdrant and Valkey."""
+    return [
+        PlannedRequest(
+            method="valkey",
+            target="SET devops:ai:library:<package>:<version>",
+            repeat="for each contract",
+        ),
+        PlannedRequest(
+            method="PUT",
+            target=_get_qdrant_target("/collections/devops-libraries/points"),
+            stdin='{"points": [{"id": "<uuid>", "vector": "<embeddings>", "payload": "<contract>"}]}',
+            repeat="for each contract",
+        ),
+    ]
+
+
+def plan_ai_ingest_query_library(query: str, package: str | None = None) -> list[PlannedRequest]:
+    """Plan library semantic or exact signature query requests."""
+    pkg_filter = f" for package '{package}'" if package else ""
+    return [
+        PlannedRequest(
+            method="valkey",
+            target=f"GET devops:ai:library:symbol:{query}",
+        ),
+        PlannedRequest(
+            method="POST",
+            target=_get_qdrant_target("/collections/devops-libraries/points/search"),
+            stdin=f'{{"vector": "<query-embedding>", "filter": "{pkg_filter.strip()}"}}',
+        ),
+    ]
+
+
+def plan_ai_rag_clear(
+    collection: str | None = None,
+    force: bool = False,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan Qdrant vector collection deletion requests."""
+    target_col = collection or "devops-code, devops-docs"
+    return [
+        PlannedRequest(
+            method="DELETE",
+            target=_get_qdrant_target(f"/collections/{col.strip()}"),
+        )
+        for col in target_col.split(",")
+    ]
+
+
+def plan_ai_rag_drift(
+    path: Path | str = ".",
+    auto_sync: bool = False,
+    fail_on_drift: bool = False,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan RAG drift detection requests comparing Qdrant vectors with local files."""
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_qdrant_target("/collections/devops-code/points/scroll"),
+            stdin='{"limit": 100, "with_payload": true}',
+        )
+    ]
+
+
+def plan_ai_rag_index(
+    path: Path | str = ".",
+    project: str | None = None,
+    force: bool = False,
+    include_kb: bool = True,
+    collection: str | None = None,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan workspace codebase scanning and Qdrant indexing requests."""
+    col = collection or "devops-code"
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_embedding_target(),
+            stdin='{"input": "<workspace-chunks-batch>"}',
+        ),
+        PlannedRequest(
+            method="PUT",
+            target=_get_qdrant_target(f"/collections/{col}/points"),
+            stdin='{"points": "<vector-points-batch>"}',
+        ),
+    ]
+
+
+def plan_ai_rag_index_kb(
+    force: bool = False,
+    collection: str | None = None,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan knowledge base indexing requests into Qdrant."""
+    col = collection or "devops-docs"
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_embedding_target(),
+            stdin='{"input": "<knowledge-base-chunks>"}',
+        ),
+        PlannedRequest(
+            method="PUT",
+            target=_get_qdrant_target(f"/collections/{col}/points"),
+            stdin='{"points": "<vector-points-batch>"}',
+        ),
+    ]
+
+
+def plan_ai_rag_query(
+    query: str,
+    project: str | None = None,
+    language: str | None = None,
+    category: str | None = None,
+    top_k: int | None = None,
+    min_score: float | None = None,
+    collection: str | None = None,
+    file_filter: str | None = None,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan semantic search requests over Qdrant collections."""
+    col = collection or "devops-code"
+    search_payload: dict[str, Any] = {
+        "vector": "<query-vector>",
+        "limit": 10 if top_k is None else top_k,
+    }
+    if min_score is not None:
+        search_payload["score_threshold"] = min_score
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_embedding_target(),
+            stdin=json.dumps({"input": query}),
+        ),
+        PlannedRequest(
+            method="POST",
+            target=_get_qdrant_target(f"/collections/{col}/points/search"),
+            stdin=json.dumps(search_payload),
+        ),
+    ]
+
+
+def plan_ai_rag_status(**kwargs: Any) -> list[PlannedRequest]:
+    """Plan RAG vector store and collection status queries."""
+    return [
+        PlannedRequest(
+            method="GET",
+            target=_get_qdrant_target("/collections"),
+        )
+    ]
+
+
+def plan_ai_research_analogies(
+    query: str | None = None,
+    domain: str | None = None,
+    target_domain: str | None = None,
+    min_score: float | None = None,
+    limit: int | None = None,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan cross-domain analogies topological retrieval requests."""
+    payload: dict[str, Any] = {
+        "query": query,
+        "domain": domain,
+        "target_domain": target_domain,
+        "min_score": min_score,
+        "limit": limit,
+    }
+    return [
+        PlannedRequest(
+            method="GET",
+            target="https://kubernetes.default.svc/api/v1/namespaces/default",
+            condition="when retrieving cluster topology patterns",
+        ),
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_embedding_target(),
+            stdin=json.dumps({"input": query or "<analogy-query>"}),
+        ),
+        PlannedRequest(
+            method="POST",
+            target=_get_qdrant_target("/collections/knowledge_base/points/scroll"),
+            stdin=json.dumps({k: v for k, v in payload.items() if v is not None}),
+        ),
+    ]
+
+
+def plan_ai_research_model(
+    topic: str,
+    observations: str | None = None,
+    file: Path | None = None,
+    show: bool = False,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan epistemic mental model synthesis requests."""
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_chat_target(),
+            stdin=f'{{"prompt": "Synthesize epistemic mental model for {topic}"}}',
+        )
+    ]
+
+
+def plan_ai_research_socratic(
+    task: str | None = None,
+    context: str | None = None,
+    max_probes: int | None = None,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan Socratic inquiry probing requests."""
+    return [
+        PlannedRequest(
+            method="POST",
+            target=_get_llm_chat_target(),
+            stdin=f'{{"prompt": "Generate Socratic inquiry probes for task: {task or "<task>"}"}}',
         )
     ]

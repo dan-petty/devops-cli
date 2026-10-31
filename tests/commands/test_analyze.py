@@ -961,7 +961,7 @@ def test_analyze_pr_dry_run_previews_and_contacts_no_service(
         env_result = runner.invoke(analyze_app, ["pr", "42"])
 
     assert result.exit_code == 0, result.output
-    assert "devops ai analyze pr" in result.output
+    assert "Plan for AI analyze PR #42" in result.output
     assert "42" in result.output
     assert env_result.exit_code == 0, env_result.output
     assert not (tmp_path / ".data" / "analysis").exists()

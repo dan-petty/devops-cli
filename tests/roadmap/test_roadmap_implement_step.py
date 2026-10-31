@@ -1363,6 +1363,91 @@ def test_a_model_that_asks_for_a_path_outside_the_root_counts_other_retries_not_
     assert outcome.reason.endswith("\nRefused commands: 0. Other retries: 6.")
 
 
+MISSING_TEXT = "old_text not found in src/other.py. No changes were written."
+
+
+def _edit_missing(path: str = "src/other.py") -> ModelResponse:
+    return tool_call("edit_file", path=path, old_text="SENTINEL-OLD-TEXT", new_text="x")
+
+
+def test_a_tool_that_ends_the_run_on_retries_names_its_last_reasons(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The reasons are the messages of the `ModelRetry` of the harness tool (#2866). The reason of
+    the run keeps the last three of them, and not the old text that the model looked for."""
+    script = ModelScript(
+        *(_edit_missing(f"src/other{number}.py") for number in range(5)), _edit_missing()
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.endswith(
+        "\nRefused commands: 0. Other retries: 6.\nLast retries of edit_file: "
+        "File not found: <path> | File not found: <path> | "
+        f"{MISSING_TEXT}"
+    )
+    assert "SENTINEL-OLD-TEXT" not in outcome.reason
+
+
+def test_the_last_reasons_of_a_run_hold_no_secret(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(_edit_missing(f"src/{TOKEN}.py"))
+
+    outcome = _step(store, checkout, script)
+
+    assert "Last retries of edit_file: File not found: <path>" in outcome.reason
+    assert TOKEN[:12] not in outcome.reason
+    assert TOKEN[-12:] not in outcome.reason
+
+
+def test_the_last_reasons_of_a_run_hold_no_plain_secret_that_the_model_chose_as_a_path(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A password has no form that the mask of secrets finds. The stop comment is public, so the
+    reason shows a path only when it names a file of the checkout."""
+    secret = "hunter2-Sup3rS3cretPassw0rd"
+    script = ModelScript(*(_edit_missing(secret) for _ in range(6)))
+
+    outcome = _step(store, checkout, script)
+
+    assert secret not in outcome.reason
+    assert "Last retries of edit_file: File not found: <path> | " in outcome.reason
+
+
+def test_the_last_reasons_of_a_run_are_cut_to_the_constant_length(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    limit = constants.CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
+    long_name = "d" * (limit - 10)
+    path = f"src/{long_name}.py"
+    script = ModelScript(tool_calls(write_call(path, "X = 1\n")), _edit_missing(path))
+
+    outcome = _step(store, checkout, script)
+
+    reasons = outcome.reason.rsplit("Last retries of edit_file: ", 1)[1].split(" | ")
+    assert [len(reason) for reason in reasons] == [limit + len(" ...")] * 3
+
+
+def test_a_run_that_ends_on_a_limit_after_retries_names_no_reasons(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(_edit_missing(), tool_call("read_file", path="docs/SAMPLE.md"))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason.startswith("UsageLimitExceeded")
+    assert "Last retries" not in outcome.reason
+
+
+def test_a_model_that_sends_invalid_arguments_stops_with_no_reasons(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    outcome = _step(store, checkout, ModelScript(tool_call("read_file")))
+
+    assert "Last retries" not in outcome.reason
+
+
 def test_a_run_that_reaches_the_request_limit_stops_with_the_message_and_no_count(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
