@@ -3731,7 +3731,6 @@ devops ai spec [OPTIONS] <spec_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--target`, `-t` | `path` | - | Target source directory to verify or analyze. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -3753,7 +3752,6 @@ devops ai repomap [OPTIONS]
 | `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai audit-library-usage`
 
@@ -3773,7 +3771,6 @@ devops ai audit-library-usage [OPTIONS]
 | `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai pack-context`
 
@@ -3799,7 +3796,6 @@ devops ai pack-context [OPTIONS] <target_path>
 | `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai read`
 
@@ -3826,7 +3822,6 @@ devops ai read [OPTIONS] <target_path>
 | `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |
 | `--repo`, `-r` | `path` | - | Repository or workspace root directory. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai diagram`
 
@@ -3849,7 +3844,6 @@ devops ai diagram [OPTIONS] <diagram_type>
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai prompt-eval`
 
@@ -3896,7 +3890,6 @@ devops ai test-gen [OPTIONS] <target_file>
 | `--function`, `-f` | `string` | - | Specific function to generate a test scaffold for. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai chaos-model`
 
@@ -4861,7 +4854,6 @@ devops ai harness offload [OPTIONS]
 | `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
 | `--pattern`, `-p` | `string` | - | File glob pattern to scout. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai harness run`
 
@@ -4884,7 +4876,6 @@ devops ai harness run [OPTIONS] <task>
 | `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
 | `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai ingest`
 
@@ -5009,7 +5000,6 @@ devops ai ast parse [OPTIONS] <file_path>
 | `--query`, `-q` | `string` | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai ast graph`
 
@@ -5027,7 +5017,6 @@ devops ai ast graph [OPTIONS]
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--output`, `-o` | `path` | - | Destination file path for output report or artifacts. |
 | `--format`, `-f` | `string` | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai gateway`
 

@@ -13,7 +13,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_constellation`](#ai-constellation) | `true` | Show the constellation flag: state, reason and recorded fallback route. |
 | [`ai_cost_report`](#ai-cost-report) | `true` | Generate detailed spend and token report across backend services and servers. |
 | [`ai_diagram`](#ai-diagram) | `true` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
-| [`ai_failover`](#ai-failover) | `false` | Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic. |
+| [`ai_failover`](#ai-failover) | `true` | Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic. |
 | [`ai_gateway_failover`](#ai-gateway-failover) | `true` | Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset. |
 | [`ai_gateway_probe_backend`](#ai-gateway-probe-backend) | `true` | Directly probe health and latency of an inference backend. |
 | [`ai_gateway_routes`](#ai-gateway-routes) | `true` | List registered virtual models and target backend inference instances. |
@@ -24,13 +24,13 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_ingest_query_library`](#ai-ingest-query-library) | `true` | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_pack_context`](#ai-pack-context) | `true` | Pack and prune source code context to fit token budget while preserving signatures. |
 | [`ai_prewarm`](#ai-prewarm) | `false` | Prewarm local models into GPU VRAM or evict idle models across cluster nodes. |
-| [`ai_quiesce`](#ai-quiesce) | `false` | Set the constellation quiesce flag with a reason; it stops nothing. |
+| [`ai_quiesce`](#ai-quiesce) | `true` | Set the constellation quiesce flag with a reason; it stops nothing. |
 | [`ai_rag_drift`](#ai-rag-drift) | `false` | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`ai_rag_index`](#ai-rag-index) | `false` | Scan and index workspace code and documentation into Qdrant vector database. |
 | [`ai_rag_query`](#ai-rag-query) | `true` | Perform semantic search across indexed workspace code and documentation. |
 | [`ai_read`](#ai-read) | `true` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 | [`ai_repomap`](#ai-repomap) | `true` | Generate compact whole-repository AST symbol and relationship map. |
-| [`ai_resume`](#ai-resume) | `false` | Clear the constellation quiesce or failover flag. |
+| [`ai_resume`](#ai-resume) | `true` | Clear the constellation quiesce or failover flag. |
 | [`ai_test_gen`](#ai-test-gen) | `true` | Generate failing pytest unit test scaffolds for functions or source files. |
 | [`argo_cd_apps_list`](#argo-cd-apps-list) | `true` | List all ArgoCD applications. |
 | [`argo_cd_apps_status`](#argo-cd-apps-status) | `true` | Show the sync and health of an Argo CD application, and check each image it pins.  An image the application pins as `<image>:<tag>@<digest>` in its kustomize images is checked against the digest its tag names in the registry now. Without --watch, the command exits 1 when the status cannot be read, a tag names another digest, or a registry gives no digest. |
@@ -170,7 +170,6 @@ Synthesize whole-repository symbol dependency and reference graph.
 | `max_files` | `integer` | No | `100` | Maximum source files to include. |
 | `output_path` | `string` | No | - | Destination file path for output report or artifacts. |
 | `fmt` | `string` | No | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_ast_parse`
 
@@ -185,7 +184,6 @@ Parse source file concrete syntax tree and extract structural symbols.
 | `file_path` | `string` | Yes | - | Parse source file concrete syntax tree and extract structural symbols. |
 | `query` | `string` | No | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_benchmark`
 
@@ -267,13 +265,12 @@ Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams
 | `target_dir` | `string` | No | - | Target source directory to verify or analyze. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_failover`
 
 Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic.
 
-**Annotations:** `readOnlyHint: false`
+**Annotations:** `readOnlyHint: true`
 
 **Parameters:**
 
@@ -350,7 +347,6 @@ Offload AST exploration, symbol cataloging, or file scouting to local sub-agent 
 | `symbol` | `string` | No | - | Symbol name (class or function) to inspect or search. |
 | `pattern` | `string` | No | - | File glob pattern to scout. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_harness_status`
 
@@ -411,7 +407,6 @@ Pack and prune source code context to fit token budget while preserving signatur
 | `strip_private` | `boolean` | No | `True` | Strip unreferenced private functions, methods, and attributes. |
 | `skeletonize` | `boolean` | No | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_prewarm`
 
@@ -434,7 +429,7 @@ Prewarm local models into GPU VRAM or evict idle models across cluster nodes.
 
 Set the constellation quiesce flag with a reason; it stops nothing.
 
-**Annotations:** `readOnlyHint: false`
+**Annotations:** `readOnlyHint: true`
 
 **Parameters:**
 
@@ -517,7 +512,6 @@ Inspect and read source code across 3 multi-scale focal zoom levels (Topology, S
 | `format` | `string` | No | `markdown` | Output format: 'text', 'markdown', or 'json'. |
 | `repo` | `string` | No | - | Repository or workspace root directory. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_repomap`
 
@@ -535,13 +529,12 @@ Generate compact whole-repository AST symbol and relationship map.
 | `multilingual` | `boolean` | No | `False` | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_resume`
 
 Clear the constellation quiesce or failover flag.
 
-**Annotations:** `readOnlyHint: false`
+**Annotations:** `readOnlyHint: true`
 
 **Parameters:**
 
@@ -564,7 +557,6 @@ Generate failing pytest unit test scaffolds for functions or source files.
 | `function_name` | `string` | No | - | Specific function to generate a test scaffold for. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `argo_cd_apps_list`
 

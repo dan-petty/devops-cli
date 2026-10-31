@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from devops_cli.ai.mcp.server import ai_test_gen
 from devops_cli.ai.test_gen import synthesize_unit_tests
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.main import app as root_app
 
 pytest_plugins = ["pytester"]
 
@@ -79,7 +80,7 @@ def test_test_gen_emits_failing_scaffolds_without_presence_assertions(
     suite_bad = synthesize_unit_tests(bad_sample)
 
     res_cli = runner.invoke(ai_app, ["test-gen", str(sample)])
-    res_dry = runner.invoke(ai_app, ["test-gen", str(sample), "--dry-run"])
+    res_dry = runner.invoke(root_app, ["--dry-run", "ai", "test-gen", str(sample)])
     mcp_doc = ai_test_gen.__doc__ or ""
 
     assert (
