@@ -83,6 +83,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
+    CONST_ROADMAP_IMPLEMENT_REASON_TESTS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
@@ -101,6 +102,7 @@ from devops_cli.roadmap.agent_run import (
     record_run_spend,
 )
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
+from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -912,14 +914,32 @@ def _python_files(changed: Sequence[str]) -> list[str]:
     return [path for path in changed if path.endswith(".py")]
 
 
-def _paths_text(names: Sequence[str]) -> str:
-    """`names` as one line, cut to `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, with the count of
-    the rest."""
-    shown = names[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS]
-    paths = ", ".join(shown)
+def _paths_text(
+    names: Sequence[str], limit: int = CONST_ROADMAP_IMPLEMENT_REASON_PATHS, separator: str = ", "
+) -> str:
+    """`names` as one line, cut to `limit` names, with the count of the rest."""
+    shown = names[:limit]
+    paths = separator.join(shown)
     if len(names) > len(shown):
         paths += MESSAGES.roadmap.implement_paths_more.format(count=len(names) - len(shown))
     return paths
+
+
+def _tests_failure(source: Path, start: str) -> str | None:
+    """Why the step stops when a test file lost a test that it had at `start`, else None. The reason
+    names each file with up to `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests. A file that does
+    not parse is skipped: `_static_failure` reports its error."""
+    lost = lost_since(lambda *args: _git_output(source, *args), start)
+    if not lost:
+        return None
+    texts = MESSAGES.roadmap
+    files = [
+        texts.implement_tests_lost_file.format(
+            path=path, tests=_paths_text(tests, CONST_ROADMAP_IMPLEMENT_REASON_TESTS)
+        )
+        for path, tests in lost.items()
+    ]
+    return texts.implement_stop_tests_lost.format(files=_paths_text(files, separator="\n"))
 
 
 def _link_failure(source: Path, files: Sequence[str]) -> str | None:
@@ -1001,6 +1021,9 @@ def _exit_failure(source: Path, inputs: StepInputs, start: str) -> _Failure | No
     changed = _stage(source)
     if not changed:
         return _Failure(MESSAGES.roadmap.implement_stop_no_change)
+    lost = _tests_failure(source, start)
+    if lost:
+        return _Failure(lost)
     early = _format_failure(source, changed) or _verification_failure(source, inputs.group)
     if early:
         return _Failure(early)
