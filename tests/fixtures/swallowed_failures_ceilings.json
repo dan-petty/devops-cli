@@ -70,7 +70,6 @@
   "src/devops_cli/commands/rag.py": 1,
   "src/devops_cli/commands/repos.py": 4,
   "src/devops_cli/config/metadata.py": 1,
-  "src/devops_cli/config/settings.py": 2,
   "src/devops_cli/core/cleanup.py": 1,
   "src/devops_cli/core/gitignore.py": 2,
   "src/devops_cli/core/repo.py": 4,
