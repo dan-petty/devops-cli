@@ -21,6 +21,14 @@ class WebhookSender(BaseModel):
     login: str
 
 
+class WebhookIssue(BaseModel):
+    """The issue an issue event is about."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    number: int | None = None
+
+
 class GitHubWebhookPayload(BaseModel):
     """What every GitHub event carries that the Service reads. The rest of a payload differs by
     event and is ignored. An event has no `action` when GitHub gives it none (a `ping`, a `push`),
@@ -31,3 +39,4 @@ class GitHubWebhookPayload(BaseModel):
     action: str | None = None
     repository: WebhookRepository
     sender: WebhookSender | None = None
+    issue: WebhookIssue | None = None

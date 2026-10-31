@@ -399,6 +399,7 @@ class RepoWorker:
         self._stop_event = threading.Event()
         self._is_active = False
         self._pending_counts: dict[tuple[str, str, str], int] = {}
+        self._pending_scoped: deque[Callable[[], None]] = deque()
         self._first_at: datetime | None = None
         self._last_at: datetime | None = None
         self._thread: threading.Thread | None = None
@@ -427,6 +428,13 @@ class RepoWorker:
                 self._first_at = now
             self._last_at = now
             self._pending_counts[key] = self._pending_counts.get(key, 0) + 1
+            GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0, labels=self._labels)
+            self._cond.notify()
+
+    def enqueue_scoped(self, scoped_func: Callable[[], None]) -> None:
+        """Enqueue a scoped update task, running sequentially with the lane's rounds."""
+        with self._cond:
+            self._pending_scoped.append(scoped_func)
             GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0, labels=self._labels)
             self._cond.notify()
 
@@ -464,19 +472,27 @@ class RepoWorker:
             return not self._is_active and not self._has_runnable_batch()
 
     def _has_runnable_batch(self) -> bool:
-        """Whether events are pending and the pause lets a round start; the caller holds the
-        condition."""
-        return bool(self._pending_counts) and not self.pause.holds()
+        """Whether events or scoped tasks are pending and the pause lets a round start; the caller
+        holds the condition."""
+        return (bool(self._pending_scoped) or bool(self._pending_counts)) and not self.pause.holds()
 
     def _wait_for_next_batch(
         self,
-    ) -> tuple[dict[tuple[str, str, str], int], datetime, datetime] | None:
-        """Wait for pending events the pause lets run and pop them into a batch tuple."""
+    ) -> tuple[dict[tuple[str, str, str], int], datetime, datetime] | Callable[[], None] | None:
+        """Wait for pending events or scoped tasks the pause lets run and pop them."""
         with self._cond:
             while not self._has_runnable_batch() and not self._stop_event.is_set():
                 self._cond.wait(timeout=0.2)
             if not self._has_runnable_batch():
                 return None
+            if self._pending_scoped:
+                scoped = self._pending_scoped.popleft()
+                self._is_active = True
+                remaining = len(self._pending_scoped) + len(self._pending_counts)
+                GLOBAL_METRICS.set_gauge(
+                    CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0 if remaining else 0.0, labels=self._labels
+                )
+                return scoped
             counts = dict(self._pending_counts)
             first_at = self._first_at or self.clock()
             last_at = self._last_at or self.clock()
@@ -484,8 +500,64 @@ class RepoWorker:
             self._first_at = None
             self._last_at = None
             self._is_active = True
-            GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_QUEUE_DEPTH, 0.0, labels=self._labels)
+            remaining = len(self._pending_scoped)
+            GLOBAL_METRICS.set_gauge(
+                CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0 if remaining else 0.0, labels=self._labels
+            )
             return counts, first_at, last_at
+
+    def _execute_scoped(self, scoped_func: Callable[[], None]) -> None:
+        """Execute a scoped update task and record Prometheus metrics and execution duration."""
+        start_time = time.perf_counter()
+        start_epoch = time.time()
+        GLOBAL_METRICS.set_gauge(
+            CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels=self._labels
+        )
+        result = "success"
+        tracer = get_tracer()
+        with tracer.span(
+            f"service.scoped {self.repo}",
+            kind="internal",
+            attributes={
+                "service.repo": self.repo,
+                "service.lane": self.lane,
+            },
+        ) as span:
+            try:
+                with request_scope(repo=self.repo):
+                    scoped_func()
+            except Exception as exc:
+                result = "error"
+                span.set_status("ERROR", str(exc)[:256])
+                span.set_attribute("error", True)
+                span.set_attribute("error.message", str(exc)[:256])
+                is_config_only = isinstance(exc, ConfigurationError) or (
+                    isinstance(exc, RoadmapRunError) and exc.is_configuration_only
+                )
+                logger.error(
+                    "Service scoped update failed for %s: %s",
+                    self.repo,
+                    exc,
+                    extra={**self._labels, "result": "error"},
+                    exc_info=True if not is_config_only else None,
+                )
+                self.pause.after(exc, self.repo)
+            finally:
+                span.set_attribute("service.result", result)
+                duration = time.perf_counter() - start_time
+                GLOBAL_METRICS.increment_counter(
+                    CONST_SERVICE_METRIC_JOBS, labels={**self._labels, "result": result}
+                )
+                GLOBAL_METRICS.increment_counter(
+                    CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
+                )
+                self.pause.round_ended()
+                try:
+                    tracer.flush()
+                finally:
+                    with self._cond:
+                        self._is_active = False
+                        self._cond.notify_all()
 
     def _execute_batch(self, batch: TriggerBatch) -> None:
         """Execute the job function and record Prometheus metrics and execution duration."""
@@ -549,12 +621,15 @@ class RepoWorker:
         """Main loop of daemon worker thread."""
         try:
             while True:
-                batch_data = self._wait_for_next_batch()
-                if batch_data is None:
+                work = self._wait_for_next_batch()
+                if work is None:
                     if self._stop_event.is_set():
                         break
                     continue
-                counts, first_at, last_at = batch_data
+                if callable(work):
+                    self._execute_scoped(work)
+                    continue
+                counts, first_at, last_at = work
                 batch = TriggerBatch(
                     repo=self.repo,
                     counts=counts,
@@ -597,6 +672,7 @@ class ServiceManager:
         self.clock = clock
         self.sleep_func = sleep_func
         self.managed_repos: set[str] = set(config.repos)
+        self.state_dir: Path | None = state_dir
         self.bot_login: str | None = config.github_app.bot_login
         self.delivery_cache = DeliveryLRUCache()
         self.budget = RequestBudget(
@@ -662,6 +738,17 @@ class ServiceManager:
             return False
         for lane in self.jobs:
             self.workers[(repo, lane)].enqueue(source=source, event=event, action=action)
+        return True
+
+    def enqueue_scoped(self, repo: str, lane: str, scoped_func: Callable[[], None]) -> bool:
+        """Enqueue a scoped update task on the specified lane worker of the repository; False for
+        an unmanaged repository or unknown lane."""
+        if repo not in self.managed_repos:
+            return False
+        worker = self.workers.get((repo, lane))
+        if worker is None:
+            return False
+        worker.enqueue_scoped(scoped_func)
         return True
 
     def is_ready(self) -> bool:

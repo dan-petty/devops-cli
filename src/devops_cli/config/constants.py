@@ -3005,6 +3005,9 @@ CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMEN
 # The most paths that a reason of a stop names, and the most characters of a reason in the stop
 # comment (#2721). A reason may be as long as the tail of a command or a list of files.
 CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
+# The most tests of one file that the reason of a stop for a lost test names (#2804). The reason
+# gives the count of the rest.
+CONST_ROADMAP_IMPLEMENT_REASON_TESTS: Final[int] = 10
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
 # The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
 # of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a

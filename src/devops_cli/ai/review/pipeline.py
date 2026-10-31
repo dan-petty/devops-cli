@@ -432,6 +432,10 @@ def _sanitize_admitted_candidate(
     sf.location = format_location(admitted.path, admitted.line, admitted.end_line)
     sf.fingerprint = getattr(admitted, "fingerprint_v2", "") or getattr(admitted, "fingerprint", "")
     sf.producer = getattr(admitted, "tool", "")
+    if hasattr(admitted, "state"):
+        sf.state = admitted.state
+    if hasattr(admitted, "confirmed_by"):
+        sf.confirmed_by = admitted.confirmed_by
     desc, title = sf.description, sf.title
     if raw_path and raw_path != admitted.path:
         desc = desc.replace(raw_path, admitted.path)
