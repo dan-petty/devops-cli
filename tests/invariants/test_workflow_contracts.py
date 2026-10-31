@@ -1337,7 +1337,7 @@ FULL_SUITE_WHEN = "steps.changes.outputs.outside_plan != 'false'"
 PLAN_SUITE_WHEN = "steps.changes.outputs.outside_plan == 'false'"
 COVERAGE_WHEN = f"github.event_name == 'pull_request' && {FULL_SUITE_WHEN}"
 FULL_GATE = "uv run devops ci --check --no-cache --only test"
-PLAN_GATE = "uv run pytest tests/invariants"
+PLAN_GATE = "uv run devops ci test tests/invariants"
 
 
 def _plan_only_problems(jobs: dict[str, Any]) -> list[str]:

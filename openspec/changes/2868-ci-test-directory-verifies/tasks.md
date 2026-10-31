@@ -12,9 +12,9 @@ Reads: `src/devops_cli/commands/ci.py`, `tests/commands/test_test_selection.py`.
 
 Reads: `.github/workflows/ci.yml`, `tests/invariants/test_workflow_contracts.py`. Changes: `.github/workflows/ci.yml`, `tests/invariants/test_workflow_contracts.py`, `docs/TESTING.md`, `docs/SDLC.md`.
 
-- [ ] 2.1 Change `PLAN_GATE` in `tests/invariants/test_workflow_contracts.py` to `uv run devops ci test tests/invariants`, and verify that `uv run devops ci test tests/invariants/test_workflow_contracts.py` fails on the old workflow
-- [ ] 2.2 Change the step `Plan-Only Invariant Tests` of `.github/workflows/ci.yml` to run `uv run devops ci test tests/invariants`, drop the comment that cites #2868, and verify that `uv run devops ci test tests/invariants/test_workflow_contracts.py` passes
-- [ ] 2.3 Write the directory rule in `docs/TESTING.md` and name the new command in `docs/SDLC.md`, and verify that `uv run devops ci docs` passes
+- [x] 2.1 Change `PLAN_GATE` in `tests/invariants/test_workflow_contracts.py` to `uv run devops ci test tests/invariants`, and verify that `uv run devops ci test tests/invariants/test_workflow_contracts.py` fails on the old workflow
+- [x] 2.2 Change the step `Plan-Only Invariant Tests` of `.github/workflows/ci.yml` to run `uv run devops ci test tests/invariants`, drop the comment that cites #2868, and verify that `uv run devops ci test tests/invariants/test_workflow_contracts.py` passes
+- [x] 2.3 Write the directory rule in `docs/TESTING.md` and name the new command in `docs/SDLC.md`, and verify that `uv run devops ci docs` passes
 
 ## Workflow follow-up
 
