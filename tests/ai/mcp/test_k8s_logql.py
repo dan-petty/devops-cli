@@ -227,8 +227,9 @@ def test_execute_logql_query_propagates_bad_query_error(stub_web: StubWeb) -> No
 
     stub_web.serve(lambda req: httpx2.Response(400, text="unsupported operation"))
     query = parse_logql_query('{app="bad"}')
-    with pytest.raises(KubernetesLoggingError):
+    with pytest.raises(KubernetesLoggingError) as raised:
         execute_logql_query(query, loki_url="http://localhost:3100")
+    assert raised.value.error_code == "K8S_LOGGING_ERROR"
 
 
 def test_parse_logql_query_invalid_regex_raises_domain_error() -> None:
@@ -237,8 +238,9 @@ def test_parse_logql_query_invalid_regex_raises_domain_error() -> None:
 
     from devops_cli.exceptions.k8s import KubernetesLoggingError
 
-    with pytest.raises(KubernetesLoggingError):
+    with pytest.raises(KubernetesLoggingError) as raised:
         parse_logql_query(r'{app="web"} |~ "[unclosed-bracket"')
+    assert raised.value.error_code == "K8S_LOGGING_ERROR"
 
 
 def test_execute_kubectl_logql_no_matching_pods_preserves_empty(process_fake: ProcessFake) -> None:
@@ -259,8 +261,9 @@ def test_mcp_k8s_logs_flag_injection_rejected() -> None:
     from devops_cli.ai.mcp.server import k8s_logs
     from devops_cli.exceptions import ValidationError
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         k8s_logs(query="--injected-flag")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_execute_kubectl_logql_since_parameter(process_fake: ProcessFake) -> None:

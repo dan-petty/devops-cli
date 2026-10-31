@@ -453,8 +453,9 @@ def test_init_logfire_if_enabled_error_handling() -> None:
         mock_bridge.return_value.configure.side_effect = LogfireConfigurationError(
             "Explicit config failure"
         )
-        with pytest.raises(LogfireConfigurationError):
+        with pytest.raises(LogfireConfigurationError) as raised:
             _init_logfire_if_enabled(True, settings)
+        assert raised.value.error_code == "LOGFIRE_CONFIG_ERROR"
 
     # Ambient logfire=None but settings.telemetry.logfire=True: exception must be suppressed
     settings.telemetry.logfire = True

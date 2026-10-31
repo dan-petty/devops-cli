@@ -61,8 +61,9 @@ def test_cloudflare_client_auth_error() -> None:
     mock_resp.is_success = False
 
     with patch("httpx2.Client.request", return_value=mock_resp):
-        with pytest.raises(CloudflareAuthError):
+        with pytest.raises(CloudflareAuthError) as raised:
             client.verify_token()
+        assert raised.value.error_code == "CLOUDFLARE_AUTH_ERROR"
 
 
 def test_cloudflare_client_get_zone() -> None:
@@ -845,10 +846,12 @@ def test_normalize_ip_cidr_variants() -> None:
         "2001:db8::1/128",
         "2001:db8::1/128",
     )
-    with pytest.raises(CloudflareAPIError):
+    with pytest.raises(CloudflareAPIError) as raised:
         _normalize_ip_cidr("not-an-ip")
-    with pytest.raises(CloudflareAPIError):
+    assert raised.value.error_code == "CLOUDFLARE_API_ERROR"
+    with pytest.raises(CloudflareAPIError) as raised:
         _normalize_ip_cidr("fe80::1%eth0/128")
+    assert raised.value.error_code == "CLOUDFLARE_API_ERROR"
 
 
 def test_cloudflare_client_sync_access_with_bypass_ips() -> None:
@@ -1187,8 +1190,9 @@ def test_cloudflare_client_request_does_not_retry_403() -> None:
     }
 
     with patch("httpx2.Client.request", return_value=resp_403) as mock_req:
-        with pytest.raises(CloudflareAuthError):
+        with pytest.raises(CloudflareAuthError) as raised:
             client.verify_token()
+        assert raised.value.error_code == "CLOUDFLARE_AUTH_ERROR"
         assert mock_req.call_count == 1
         assert len(sleep_calls) == 0
 

@@ -656,15 +656,19 @@ def test_model_proposal_schema_forbids_extra_and_requires_fields() -> None:
     assert ModelProposal.model_config.get("extra") == "forbid"
 
     # Extra fields are rejected
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         ModelProposal.model_validate(
             {"priority": "P1", "value": "High", "effort": "Low", "unrecognized_extra": "bad"}
         )
+    assert len(raised.value.errors()) > 0
 
     # Missing required fields (priority, value, effort) are rejected
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         ModelProposal.model_validate({"value": "High", "effort": "Low"})
-    with pytest.raises(ValidationError):
+    assert len(raised.value.errors()) > 0
+    with pytest.raises(ValidationError) as raised:
         ModelProposal.model_validate({"priority": "P1", "effort": "Low"})
-    with pytest.raises(ValidationError):
+    assert len(raised.value.errors()) > 0
+    with pytest.raises(ValidationError) as raised:
         ModelProposal.model_validate({"priority": "P1", "value": "High"})
+    assert len(raised.value.errors()) > 0

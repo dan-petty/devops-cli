@@ -176,8 +176,9 @@ def test_the_sandbox_blocks_attribute_escapes() -> None:
     from jinja2.exceptions import SecurityError
 
     template = template_environment().from_string("{{ ''.__class__.__mro__ }}")
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         template.render()
+    assert "unsafe" in str(raised.value).lower()
 
 
 # =============================================================================

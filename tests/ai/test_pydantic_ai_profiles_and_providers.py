@@ -232,8 +232,9 @@ def test_remote_model_on_a_metadata_address_is_refused_at_the_connect(
         model, settings=_remote_settings("openai", **ai_fields)
     )
 
-    with pytest.raises(SSRFBlockedError):
+    with pytest.raises(SSRFBlockedError) as raised:
         asyncio.run(resolved.client.with_options(max_retries=0).models.list())
+    assert raised.value.error_code == "SSRF_BLOCKED"
     assert [host for host, _ in recorder.dialled if host == "169.254.169.254"] == []
 
 

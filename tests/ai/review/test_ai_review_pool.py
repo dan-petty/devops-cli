@@ -147,8 +147,9 @@ async def test_worker_pool_error_propagation() -> None:
             raise ValueError("Task failed")
         return val
 
-    with pytest.raises((ValueError, ExceptionGroup, ReviewPoolError)):
+    with pytest.raises((ValueError, ExceptionGroup, ReviewPoolError)) as raised:
         await pool.submit_all(_failing_worker, [1, 2, 3])
+    assert "failed" in str(raised.value).lower()
 
 
 @pytest.mark.asyncio

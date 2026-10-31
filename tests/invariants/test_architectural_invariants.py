@@ -151,6 +151,7 @@ CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
 CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "test-elapsed-upper-bound",
     "test-function-has-assertion",
+    "test-pytest-raises-checks-error",
 )
 # The review and scanner packages, which take the working directory from the command layer (#2098).
 CONST_REVIEW_CWD_READ_FILES: Final[tuple[str, ...]] = (

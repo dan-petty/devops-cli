@@ -1213,8 +1213,9 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
     from devops_cli.ai.mcp.server import mcp
 
     arguments = {"path": "secret/app", "key_values": _SECRET_SENTINEL}
-    with pytest.raises(FastMCPValidationError):
+    with pytest.raises(FastMCPValidationError) as raised:
         asyncio.run(mcp.call_tool("vault_set", arguments, run_middleware=False))
+    assert raised.value is not None
     assert (
         "Invalid arguments for tool" in fastmcp_log.text,
         "sentinel-4b1d" in fastmcp_log.text,

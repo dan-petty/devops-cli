@@ -154,5 +154,6 @@ def test_qdrant_unreachable_server_raises_qdrant_client_error(refusing_port: int
     client = QdrantClient(
         f"http://127.0.0.1:{refusing_port}", client=native, timeout=0.01, allow_private_network=True
     )
-    with pytest.raises(QdrantClientError):
+    with pytest.raises(QdrantClientError) as raised:
         client.list_collections()
+    assert raised.value.error_code == "DEVOPS_CLI_ERROR"

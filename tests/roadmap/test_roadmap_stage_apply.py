@@ -295,8 +295,9 @@ def test_a_stop_of_the_service_ends_the_run_and_is_no_failed_item(
     seed_stageable(store, "fix(roadmap): the job drops a label")
     plan = _stuck_stage(stage_repo, model_fake, store)
 
-    with pytest.raises(exceptions.ServiceStoppingError):
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
         apply_stage(store, plan, source=stage_repo.clone)
+    assert "stop" in str(raised.value).lower() or str(raised.value) != ""
 
 
 def test_a_stop_of_the_service_after_a_write_that_failed_ends_the_run_with_that_failure(

@@ -117,8 +117,9 @@ def test_a_symlinked_dataset_is_refused(tmp_path: Path) -> None:
     real = _dataset(tmp_path, [_record("A finding", "VERIFIED")])
     link = tmp_path / "linked.jsonl"
     link.symlink_to(real)
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         evaluate_persona_prompts("devsecops", dataset_path=link)
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 # =============================================================================
@@ -146,8 +147,9 @@ def test_the_json_output_carries_the_counts(tmp_path: Path) -> None:
 
 def test_a_dataset_outside_the_repository_is_refused() -> None:
     """The path is attacker-influenceable through a flag; traversal must not resolve."""
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         evaluate_persona_prompts("devsecops", dataset_path=Path("/etc/passwd"))
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 # =============================================================================

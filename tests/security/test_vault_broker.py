@@ -454,10 +454,12 @@ def test_writes_and_syncs_without_a_token_make_no_request(stub_web: StubWeb) -> 
     """With no usable token, set and sync raise before any request."""
     broker = VaultSecretBroker()
 
-    with pytest.raises(VaultAuthenticationError):
+    with pytest.raises(VaultAuthenticationError) as raised:
         broker.set_secret("secret/data/app", {"k": "v"})
-    with pytest.raises(VaultAuthenticationError):
+    assert raised.value.error_code == "VAULT_AUTH_ERROR"
+    with pytest.raises(VaultAuthenticationError) as raised:
         broker.sync_to_keyring("secret/data/app")
+    assert raised.value.error_code == "VAULT_AUTH_ERROR"
 
     assert stub_web.sent == []
 

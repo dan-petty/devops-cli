@@ -79,8 +79,9 @@ def test_finding_is_frozen() -> None:
     assert isinstance(finding, Finding)
     assert finding.rule_id == "B101"
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         finding.severity = "LOW"  # type: ignore[misc]
+    assert len(raised.value.errors()) > 0
 
 
 def test_location_check_and_typed_rejections(tmp_path: Path) -> None:

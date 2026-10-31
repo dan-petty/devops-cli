@@ -287,8 +287,9 @@ def test_a_persons_change_stays_caught_after_the_job_wrote_another_field(world: 
     item = read(world, number)
     world.person_adds(number, "priority/p1-high")
     world.store.set_field(item, ItemField.EFFORT, "Low")
-    with pytest.raises(RoadmapItemChangedError):
+    with pytest.raises(RoadmapItemChangedError) as raised:
         world.store.set_field(item, ItemField.PRIORITY, "P3-Low")
+    assert raised.value.error_code == "ROADMAP_ITEM_CHANGED"
     kept = read(world, number)
     assert (kept.effort, kept.priority) == ("Low", "P1-High")
 

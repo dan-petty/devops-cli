@@ -472,8 +472,9 @@ def test_issues_that_cannot_be_read_stop_the_collection(
         return subprocess.CompletedProcess(args, 1, "", "HTTP 503: Service Unavailable")
 
     store = GitHubRoadmapStore(REPO, runner=unavailable, session=RunnerSession(unavailable))
-    with pytest.raises(DevOpsCLIError):
+    with pytest.raises(DevOpsCLIError) as raised:
         collect_project_metrics_report(root=tmp_path / "repo", repo=REPO, store=store)
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def _tagged_repository(git: Callable[..., None], repo: Path, tags: Sequence[str]) -> None:

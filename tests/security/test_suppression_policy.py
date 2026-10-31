@@ -189,19 +189,19 @@ def test_a_parent_is_resolved_relative_to_the_file_that_names_it(
 
 def test_a_missing_policy_file_is_an_error(tmp_path: Path) -> None:
     """Scanning without a policy the operator asked for reports accepted findings."""
-    with pytest.raises(SuppressionPolicyError):
+    with pytest.raises(SuppressionPolicyError, match="Cannot read suppression policy"):
         load_policy(tmp_path / "absent.yml")
 
 
 def test_a_policy_that_is_not_a_mapping_is_rejected(tmp_path: Path) -> None:
     """A list at the top level is a common mistake and must not be read as empty."""
-    with pytest.raises(SuppressionPolicyError):
+    with pytest.raises(SuppressionPolicyError, match="policy must be a mapping"):
         load_policy(write_policy(tmp_path / "p.yml", "- rule: B602\n"))
 
 
 def test_a_suppressions_key_that_is_not_a_list_is_rejected(tmp_path: Path) -> None:
     """Silently ignoring it would suppress nothing while appearing configured."""
-    with pytest.raises(SuppressionPolicyError):
+    with pytest.raises(SuppressionPolicyError, match="'suppressions' must be a list"):
         load_policy(write_policy(tmp_path / "p.yml", "suppressions: B602\n"))
 
 

@@ -766,8 +766,9 @@ def test_a_refused_key_raises_after_the_checkout_is_reset(
         ModelHTTPError(401, "gateway", {"error": "bad key"}),
     )
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         _step(store, checkout, script)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     assert is_clean_at(checkout, head)
 
@@ -1776,8 +1777,9 @@ def test_a_refused_key_in_the_extra_turn_raises_after_the_checkout_is_reset(
         tool_calls(*WORK), say(FORGOT), ModelHTTPError(status, "example-model", {"error": "no"})
     )
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         _step(store, checkout, script)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     assert is_clean_at(checkout, head)
 

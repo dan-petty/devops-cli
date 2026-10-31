@@ -111,7 +111,8 @@ def test_run_subprocess_starts_no_child_for_a_refused_file_write_key(tmp_path: P
     ran = tmp_path / "ran"
     program = [sys.executable, "-c", f"open({str(ran)!r}, 'w').close()"]
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         run_subprocess(program, env={"SSLKEYLOGFILE": str(tmp_path / "keys.log")})
+    assert raised.value.error_code == "SECURITY_ERROR"
 
     assert not ran.exists()

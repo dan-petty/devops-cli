@@ -145,8 +145,9 @@ def test_a_revision_or_repository_from_the_cluster_is_never_read_as_a_git_option
     option = f"--upload-pack=touch {marker}; git-upload-pack"
     fields = {"repo_url": ".", "revision": "main", "path": "k8s/app", field: option}
     hostile = ApplicationSource(**fields)
-    with pytest.raises(KubernetesContextError):
+    with pytest.raises(KubernetesContextError) as raised:
         render_at_revision(hostile, repo / "work", _run)
+    assert raised.value.error_code == "K8S_CONTEXT_ERROR"
     assert not marker.exists()
 
 

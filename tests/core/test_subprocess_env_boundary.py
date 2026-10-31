@@ -553,8 +553,9 @@ def test_run_subprocess_starts_no_child_for_a_refused_library_key(tmp_path: Path
     ran = tmp_path / "ran"
     program = [sys.executable, "-c", f"open({str(ran)!r}, 'w').close()"]
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         run_subprocess(program, env={"OPENSSL_CONF": str(tmp_path / "o.cnf")})
+    assert raised.value.error_code == "SECURITY_ERROR"
 
     assert not ran.exists()
 
@@ -734,8 +735,9 @@ def test_a_failed_lookup_is_not_kept(unresolved_identity: None) -> None:
     """After `gh auth login` fixes a failed lookup, the next gh call acts as the new login."""
     answers = [_gh_answers(returncode=1), _gh_answers("A\n"), _gh_answers()]
     with patch("subprocess.run", side_effect=answers) as run:
-        with pytest.raises(GitHubUnauthenticatedError):
+        with pytest.raises(GitHubUnauthenticatedError) as raised:
             run_subprocess([CONST_GH_CLI, "issue", "list"])
+        assert raised.value.error_code == "GITHUB_UNAUTHENTICATED"
         run_subprocess([CONST_GH_CLI, "issue", "list"])
     assert _child_envs(run)[1:] == [
         ([CONST_GH_CLI, "auth", "token"], None, None),

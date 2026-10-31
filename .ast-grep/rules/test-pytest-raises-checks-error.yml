@@ -1,0 +1,27 @@
+id: test-pytest-raises-checks-error
+language: python
+severity: error
+files:
+  - "tests/**"
+message: pytest.raises must pass match= or bind the exception with as.
+note: |
+  A test of an error path checks the error code, the exit code, or the error message (docs/TESTING.md, "Names and assertions").
+rule:
+  kind: with_item
+  all:
+    - has:
+        kind: call
+        all:
+          - has:
+              field: function
+              regex: "^pytest\\.raises$"
+          - not:
+              has:
+                stopBy: end
+                kind: keyword_argument
+                has:
+                  field: name
+                  regex: "^match$"
+    - not:
+        has:
+          kind: as_pattern

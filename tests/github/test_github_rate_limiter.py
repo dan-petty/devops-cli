@@ -162,8 +162,9 @@ def test_rate_limiter_no_initial_quotas(process_fake: ProcessFake) -> None:
         ["gh", "api", "rate_limit"],
         ProcessAnswer(returncode=1, stderr="API unavailable"),
     )
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         limiter.calculate_delay("core")
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_rate_limiter_mandatory_pause_enforcement(clock: ClockFake) -> None:
@@ -738,8 +739,9 @@ def test_run_gh_with_cwd_and_called_process_error(
         ["gh", "api", "repos/owner/repo/pulls", "--paginate"],
         ProcessAnswer(returncode=1, stderr="Failed to paginate"),
     )
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(subprocess.CalledProcessError) as raised:
         run_gh(["api", "repos/owner/repo/pulls", "--paginate"], check=True)
+    assert raised.value is not None
 
 
 def test_quota_state_malformed_types_discarded(tmp_path: Path) -> None:
@@ -1652,8 +1654,9 @@ def test_graphql_core_is_imported_only_to_classify_a_graphql_request(
         is_write_gh_command(["api", "-X", "POST", "repos/o/r/issues"]),
         is_write_gh_command(["issue", "list"]),
     ]
-    with pytest.raises(ImportError):
+    with pytest.raises(ImportError) as raised:
         is_write_gh_command(["api", "graphql", "-f", f"query={_QUERY}"])
+    assert raised.value is not None
     assert ([name for name in loaded if name.split(".")[0] == "graphql"], answers) == (
         [],
         [False, True, False],
