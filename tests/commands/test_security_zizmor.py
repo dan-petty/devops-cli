@@ -143,7 +143,7 @@ def test_scan_workflows_json_marks_which_findings_block(
 def test_a_dry_run_names_the_audit_and_runs_nothing(
     process_fake: ProcessFake, cli: Callable[..., Any]
 ) -> None:
-    result = cli(["scan", "workflows", "--dry-run"])
+    result = cli(["--dry-run", "scan", "workflows"])
     assert (result.exit_code, process_fake.calls) == (0, [])
 
 

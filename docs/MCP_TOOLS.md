@@ -1999,7 +1999,6 @@ Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates
 | `target` | `string` | No | `.` | Target directory or model repository to analyze for AI models and AIBOM. |
 | `format_type` | `string` | No | `cyclonedx` | AIBOM format output (cyclonedx, json). |
 | `output_file` | `string` | No | - | Destination file path for generated AIBOM manifest. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `scan_complexity`
 
@@ -2013,7 +2012,6 @@ Run AST-based cyclomatic complexity analysis.
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory or Python file to analyze for complexity. |
 | `max_complexity` | `integer` | No | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
@@ -2033,6 +2031,7 @@ Remediate vulnerable dependencies via lockfile upgrades and optional git branch 
 | `apply` | `boolean` | No | `False` | Apply lockfile upgrades directly |
 | `create_branch` | `boolean` | No | `False` | Create a git topic branch for the remediation |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `scan_injection`
 
@@ -2052,7 +2051,6 @@ Scan target files for prompt-injection smuggling vectors and canary tokens.
 | `fail_on` | `string` | No | - | Exit non-zero when a finding at or above this severity survives suppression. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `scan_sast`
 
@@ -2083,7 +2081,6 @@ Generate Software Bill of Materials (SBOM) using Trivy (#1439).
 | `target` | `string` | No | `.` | Target directory, file, or repository to scan. |
 | `format_type` | `string` | No | `cyclonedx` | SBOM format output (cyclonedx, spdx, json). |
 | `output_file` | `string` | No | - | Destination file path for generated SBOM document. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `scan_secrets`
 
@@ -2096,7 +2093,6 @@ Run Gitleaks secret pre-filter scan across workspace or targets.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory or file to scan for secrets. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 

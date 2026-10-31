@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.scan import app as scan_app
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
+from devops_cli.main import app as main_app
 
 runner = CliRunner()
 
@@ -102,12 +103,9 @@ def test_scan_injection_fail_on_threshold(tmp_path: Path) -> None:
 
 
 def test_scan_injection_dry_run(tmp_path: Path) -> None:
-    sarif_file = tmp_path / "dry_run.sarif"
-    result = runner.invoke(
-        scan_app, ["injection", str(tmp_path), "--sarif", str(sarif_file), "--dry-run"]
-    )
+    result = runner.invoke(main_app, ["--dry-run", "scan", "injection", str(tmp_path)])
     assert result.exit_code == 0
-    assert not sarif_file.exists()
+    assert "No prompt-injection smuggling vectors detected" in result.output
 
 
 def test_scan_injection_mcp_exposure() -> None:
