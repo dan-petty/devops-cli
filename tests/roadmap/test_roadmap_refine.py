@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import subprocess
 import time
 import traceback
 from collections import Counter
@@ -103,12 +102,15 @@ from devops_cli.roadmap.store import (
 )
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL
 from tests.llm_stream_fakes import route_llm_clients
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.process import ProcessAnswer
 from tests.support.service_stop import stop_error
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/roadmap"
+REFINE_HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
 # One acceptance criterion in the shape of an OpenSpec requirement, and the existing-tool answer
 # that every proposal carries (#1849).
@@ -128,26 +130,66 @@ FIRST, SECOND, THIRD = "2026-10-29", "2026-11-05", "2026-11-12"
 PLACED = {ItemField.PRIORITY: "P2-Medium"}
 
 
-def _git_run(cwd: Path, *args: str) -> str:
-    res = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return res.stdout.strip()
+def _clean_path_str(target: str) -> str:
+    return target.split(":", 1)[1] if ":" in target else target
+
+
+def _answer_show(repo: Path, target: str) -> ProcessAnswer:
+    path_str = _clean_path_str(target)
+    p = repo / path_str
+    if p.is_file():
+        return ProcessAnswer(returncode=0, stdout=p.read_text(encoding="utf-8"))
+    return ProcessAnswer(returncode=1, stderr=f"fatal: path '{path_str}' does not exist")
+
+
+def _answer_ls_tree(repo: Path, target_dir: Path) -> ProcessAnswer:
+    if not target_dir.is_dir():
+        return ProcessAnswer(returncode=0, stdout="")
+    paths = [str(f.relative_to(repo)) for f in sorted(target_dir.rglob("*")) if f.is_file()]
+    out = "\0".join(paths) + ("\0" if paths else "")
+    return ProcessAnswer(returncode=0, stdout=out)
+
+
+def _file_grep_matches(f: Path, repo: Path, ident: str) -> list[str]:
+    lines = f.read_text(encoding="utf-8").splitlines()
+    rel = str(f.relative_to(repo))
+    return [f"{rel}:{idx}:{line}" for idx, line in enumerate(lines, 1) if ident in line]
+
+
+def _answer_grep(repo: Path, ident: str) -> ProcessAnswer:
+    matches: list[str] = []
+    for f in sorted(repo.rglob("*.py")):
+        if f.is_file():
+            matches.extend(_file_grep_matches(f, repo, ident))
+    if matches:
+        return ProcessAnswer(returncode=0, stdout="\n".join(matches) + "\n")
+    return ProcessAnswer(returncode=1)
+
+
+def _answer_refine_git(repo: Path, argv: list[str]) -> ProcessAnswer:
+    if argv[1:] == ["remote", "get-url", "origin"]:
+        return ProcessAnswer(stdout=f"https://example.com/{REPO}.git\n")
+    if "rev-parse" in argv and "HEAD" in argv:
+        return ProcessAnswer(stdout=f"{REFINE_HEAD_SHA}\n")
+    if "cat-file" in argv and "-e" in argv:
+        p = repo / _clean_path_str(argv[-1])
+        return ProcessAnswer(returncode=0 if p.is_file() else 1)
+    if "show" in argv:
+        return _answer_show(repo, argv[-1])
+    if "ls-tree" in argv:
+        target_dir = repo / argv[-1] if len(argv) > 6 else repo
+        return _answer_ls_tree(repo, target_dir)
+    if "grep" in argv:
+        ident_idx = argv.index("-e") + 1
+        return _answer_grep(repo, argv[ident_idx])
+    return ProcessAnswer()
 
 
 @pytest.fixture
-def git_repo(tmp_path: Path) -> Path:
+def git_repo(tmp_path: Path, git_fake: GitFake) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    _git_run(repo, "init", "-q", "-b", "main")
-    _git_run(repo, "config", "user.email", "ci@example.com")
-    _git_run(repo, "config", "user.name", "CI")
-    _git_run(repo, "config", "commit.gpgsign", "false")
-    _git_run(repo, "remote", "add", "origin", f"https://example.com/{REPO}.git")
+    (repo / ".git").mkdir()
 
     (repo / "CONTEXT.md").write_text("# Project Context\nArchitecture notes.\n", encoding="utf-8")
     (repo / "docs" / "adr").mkdir(parents=True)
@@ -159,8 +201,10 @@ def git_repo(tmp_path: Path) -> Path:
         "def hello_world():\n    return 'hello'\n", encoding="utf-8"
     )
 
-    _git_run(repo, "add", "-A")
-    _git_run(repo, "commit", "-q", "-m", "init")
+    git_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "git"),
+        lambda call: _answer_refine_git(repo, list(call.argv)),
+    )
     return repo
 
 
@@ -256,8 +300,6 @@ def test_collect_context_handles_spaces_and_non_ascii_adrs(git_repo: Path) -> No
     """collect_context reads ADR files whose names have spaces or non-ASCII characters without C-quoting failure."""
     adr_file = git_repo / "docs" / "adr" / "0002-café decision with space.md"
     adr_file.write_text("# ADR 2\nSpecial ADR content.\n", encoding="utf-8")
-    _git_run(git_repo, "add", "-A")
-    _git_run(git_repo, "commit", "-q", "-m", "add special adr")
     new_sha = inspect_checkout(git_repo, REPO)
 
     ctx = collect_context(git_repo, new_sha, "body", max_tokens=1000)
