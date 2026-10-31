@@ -16,6 +16,7 @@ devops valkey ping [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ---
@@ -33,6 +34,7 @@ devops valkey info [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--section`, `-s` | `string` | - | Specific INFO section (server, memory, clients, stats) |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ---
@@ -49,6 +51,7 @@ devops valkey stats [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ---
@@ -71,6 +74,7 @@ devops valkey keys [OPTIONS] <pattern>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ---
@@ -93,6 +97,7 @@ devops valkey get [OPTIONS] <key>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ---
@@ -175,6 +180,7 @@ devops valkey cli [OPTIONS] <command_args>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ---
