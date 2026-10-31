@@ -249,10 +249,18 @@ def test_ai_collect_project_context_and_agents_llm(
     assert (res_agents.exit_code, (tmp_path / "AGENTS.md").exists()) == (0, True)
 
 
-def test_ai_chat_helpers_print_thought_and_tool() -> None:
+def test_ai_chat_helpers_print_thought_and_tool(capsys: pytest.CaptureFixture[str]) -> None:
     """Verify chat helper functions format thoughts and tool outputs cleanly."""
     print_chat_thought("Checking dependencies")
     print_chat_tool("search", {"query": "test"}, "Found 3 results")
+
+    captured = capsys.readouterr()
+    shown = captured.out + captured.err
+    assert ("Checking dependencies" in shown, "search" in shown, "Found 3 results" in shown) == (
+        True,
+        True,
+        True,
+    )
 
 
 def test_ai_chat_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
