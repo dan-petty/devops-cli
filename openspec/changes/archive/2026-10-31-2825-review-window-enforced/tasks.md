@@ -11,5 +11,5 @@
 
 ## 2. The close
 
-- [ ] Run the fail-to-pass check and the full `uv run devops ci`
+- [x] Run the fail-to-pass check and the full `uv run devops ci`
   - Verification: `uv run devops ci fail-to-pass --base origin/main` and `uv run devops ci`
