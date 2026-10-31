@@ -125,6 +125,10 @@ CREDENTIALS: tuple[Credential, ...] = (
         "mattermost.alerts_hook",
         "Mattermost incoming webhook token for the alerts channel (stored in OS keyring)",
     ),
+    Credential(
+        "mattermost.deploys_hook",
+        "Mattermost incoming webhook token for the deploys channel (stored in OS keyring)",
+    ),
 )
 
 _CREDENTIALS_BY_KEY: dict[str, Credential] = {c.key: c for c in CREDENTIALS}

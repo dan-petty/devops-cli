@@ -15,7 +15,7 @@ import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jsonschema
 import pytest
@@ -54,9 +54,13 @@ from devops_cli.security.tool_executor import (
     ToolRun,
 )
 from devops_cli.security.trivy import run_trivy_scan
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
 from tests.support.paths import FIXTURES
 from tests.support.registry_cache import REPLACED_RULESET
+
+if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
 
 # The report of a scan; no group analysis, so no model sees the admitted findings.
 _NO_GROUP_ANALYSIS = ReviewStageFlags(group_analysis=False)
@@ -90,8 +94,37 @@ def trivy_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return cache
 
 
+@pytest.fixture(autouse=True)
+def _answer_tool_runs_git(git_fake: GitFake) -> None:
+    def _handle_git(call: ProcessCall) -> ProcessAnswer:
+        argv = call.argv
+        if "rev-parse" in argv:
+            if "--show-toplevel" in argv:
+                cwd = call.cwd or Path.cwd()
+                return ProcessAnswer(stdout=str(Path(cwd).resolve()) + "\n")
+            return ProcessAnswer(stdout="1" * 40 + "\n")
+        if "ls-files" in argv:
+            cwd = Path(argv[argv.index("-C") + 1]) if "-C" in argv else (call.cwd or Path.cwd())
+            files = [
+                p.relative_to(cwd).as_posix()
+                for p in sorted(cwd.rglob("*"))
+                if p.is_file() and not p.is_relative_to(cwd / ".git")
+            ]
+            delim = "\0" if "-z" in argv else "\n"
+            return ProcessAnswer(stdout=delim.join(files) + delim)
+        if "diff" in argv:
+            return ProcessAnswer(stdout="")
+        if "status" in argv:
+            return ProcessAnswer(stdout="")
+        if "log" in argv:
+            return ProcessAnswer(stdout="2026-01-01T00:00:00+00:00\n")
+        return ProcessAnswer()
+
+    git_fake.answer(lambda _: True, _handle_git)
+
+
 @pytest.fixture
-def tree(tmp_path: Path, git: Callable[..., None], trivy_cache: Path) -> Path:
+def tree(tmp_path: Path, trivy_cache: Path) -> Path:
     """A committed git tree holding one file for each review tool to read, the config files that
     Ruff and osv-scanner find on their own, and the Python version that mypy needs."""
     root = (tmp_path / "tree").resolve()
@@ -110,9 +143,7 @@ def tree(tmp_path: Path, git: Callable[..., None], trivy_cache: Path) -> Path:
         encoding="utf-8",
     )
     (root / "rules.yaml").write_text(_RULES, encoding="utf-8")
-    git(root, "init", "--quiet")
-    git(root, "add", ".")
-    git(root, "commit", "--quiet", "-m", "first")
+    (root / ".git").mkdir(parents=True, exist_ok=True)
     return root
 
 

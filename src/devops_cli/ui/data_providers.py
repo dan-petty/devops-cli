@@ -29,7 +29,6 @@ from devops_cli.models.k8s import PodEventInfo, PodInfo, node_is_ready
 from devops_cli.review.session import ReviewSessionStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from devops_cli.valkey.client import ValkeyClient
 
 logger = logging.getLogger(__name__)
 
@@ -139,26 +138,11 @@ class ValkeySummary(BaseModel):
 
 
 def _get_k8s_client() -> Any:
-    """Retrieve an initialized Kubernetes CoreV1Api client for the configured context.
-
-    The dashboard must show the cluster the workstation is configured for. Loading the
-    kubeconfig without a context silently follows `kubectl config current-context`, so the
-    panel would report on a different cluster than every other command.
-
-    A pod's service account is used only inside a pod and only when no kubeconfig context
-    can be named. Falling back whenever the kubeconfig failed replaced its error, such as a
-    context missing from the file, with the fallback's own, and inside a pod connected to
-    a cluster other than the one the banner named.
-    """
-    from kubernetes import client, config  # type: ignore[import-untyped]
-
+    """Retrieve an initialized Kubernetes CoreV1Api client via KubernetesService."""
     from devops_cli.k8s.context import resolve_context
+    from devops_cli.k8s.service import KubernetesService
 
-    if _in_a_pod() and not _kubeconfig_context():
-        config.load_incluster_config()
-    else:
-        config.load_kube_config(context=resolve_context())
-    return client.CoreV1Api()
+    return KubernetesService.get_instance().core_api(context=resolve_context())
 
 
 def _in_a_pod() -> bool:
@@ -171,27 +155,22 @@ def _kubeconfig_context() -> str:
 
     Empty when neither exists, as for a pod with no kubeconfig.
     """
-    from kubernetes import config
-
     from devops_cli.k8s.context import resolve_context
+    from devops_cli.k8s.service import KubernetesService
 
     configured = resolve_context()
     if configured:
         return configured
     try:
-        _contexts, current = config.list_kube_config_contexts()
+        _contexts, current = KubernetesService.get_instance().list_contexts()
     except Exception as exc:
         logger.debug("No current kubeconfig context to name: %s", exc)
         return ""
-    return str(current.get("name") or "")
+    return str(current.get("name") or "") if current else ""
 
 
 def _k8s_context_name() -> str:
-    """Name the context `_get_k8s_client` connects with, or the pod's service account.
-
-    Read from the kubeconfig rather than from the client, so a cluster that cannot be
-    reached is still named in the banner that says so.
-    """
+    """Name the context connected with, or the pod's service account."""
     context = _kubeconfig_context()
     return context or (CONST_K8S_IN_CLUSTER_CONTEXT if _in_a_pod() else "")
 
@@ -645,8 +624,10 @@ def fetch_valkey_status() -> ValkeySummary:
     """Retrieve Valkey server info, memory stats, and hit ratios."""
     endpoint = "unknown"
     try:
+        from devops_cli.valkey.client import resolve_valkey_client
+
         settings = load_settings()
-        client = ValkeyClient(
+        client = resolve_valkey_client(
             settings.valkey.endpoint,
             password=get_valkey_password(settings),
             timeout=DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,

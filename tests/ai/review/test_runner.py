@@ -31,6 +31,8 @@ from devops_cli.review.anchors import ToolAnchor
 from devops_cli.review.finding import Finding as AdmittedFinding
 from devops_cli.review.session import ReviewSessionStore
 from devops_cli.review.state import FindingState
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 _RUNNER = """import textwrap
 
@@ -103,8 +105,67 @@ def test_a_path_review_lists_no_suppressions(
     assert capsys.readouterr().out == ""
 
 
+_RUNNER_DIFF_TEXT = (
+    "diff --git a/deleted.yaml b/deleted.yaml\n"
+    "deleted file mode 100644\n"
+    "--- a/deleted.yaml\n"
+    "+++ /dev/null\n"
+    "@@ -1,2 +0,0 @@\n"
+    "-apiVersion: v1\n"
+    "-kind: Secret\n"
+    "diff --git a/keep.yaml b/keep.yaml\n"
+    "--- a/keep.yaml\n"
+    "+++ b/keep.yaml\n"
+    "@@ -1,2 +1,4 @@\n"
+    " apiVersion: v1\n"
+    " kind: ConfigMap\n"
+    "+data:\n"
+    "+  key: val\n"
+)
+
+
+def _runner_rev_parse(argv: tuple[str, ...], cwd: Path | None) -> ProcessAnswer:
+    if "--abbrev-ref" in argv:
+        return ProcessAnswer(returncode=0, stdout="main\n")
+    if "--show-toplevel" in argv:
+        return ProcessAnswer(returncode=0, stdout=f"{cwd or ''}\n")
+    return ProcessAnswer(returncode=0, stdout="1111111111111111111111111111111111111111\n")
+
+
+def _runner_diff(argv: tuple[str, ...]) -> ProcessAnswer:
+    if "--name-status" in argv:
+        if "-z" in argv:
+            return ProcessAnswer(returncode=0, stdout="D\0deleted.yaml\0M\0keep.yaml\0")
+        return ProcessAnswer(returncode=0, stdout="D\tdeleted.yaml\nM\tkeep.yaml\n")
+    return ProcessAnswer(returncode=0, stdout=_RUNNER_DIFF_TEXT)
+
+
+def _runner_git_answer(call: ProcessCall) -> ProcessAnswer:
+    argv = call.argv or []
+    if "rev-parse" in argv:
+        return _runner_rev_parse(argv, call.cwd)
+    if "merge-base" in argv:
+        return ProcessAnswer(returncode=0, stdout="1111111111111111111111111111111111111111\n")
+    if "diff" in argv:
+        return _runner_diff(argv)
+    if "log" in argv:
+        out = (
+            "2026-10-01T12:00:00Z\n"
+            if "%cI" in str(argv)
+            else "2222222222222222222222222222222222222222\n"
+        )
+        return ProcessAnswer(returncode=0, stdout=out)
+    return ProcessAnswer(returncode=0, stdout="")
+
+
+@pytest.fixture(autouse=True)
+def _answer_git_fake(git_fake: GitFake) -> None:
+    git_fake.answer(lambda _: True, _runner_git_answer)
+
+
 def _checkout(root: Path, files: dict[str, str]) -> Path:
     root.mkdir(parents=True, exist_ok=True)
+    (root / ".git").mkdir(parents=True, exist_ok=True)
     (root / "pyproject.toml").write_text("[project]\nname = 'target'\n", encoding="utf-8")
     for name, text in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -508,45 +569,14 @@ def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
 
 def test_branch_review_excludes_deleted_files_from_pages_and_targets(tmp_path: Path) -> None:
     """A branch review leaves the files it deletes out of persona pages and scanners (#1140)."""
-    import subprocess
-
     from devops_cli.ai.review.runner import _prepare_branch_content
     from devops_cli.review.diff import diff_file_names
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.name", "Test Runner"],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "runner@example.com"],
-        check=True,
-        capture_output=True,
-    )
-
-    (repo / "keep.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
-    (repo / "deleted.yaml").write_text("apiVersion: v1\nkind: Secret\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True
-    )
-
-    subprocess.run(
-        ["git", "-C", str(repo), "checkout", "-b", "feat/delete-manifest"],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(["git", "-C", str(repo), "rm", "deleted.yaml"], check=True, capture_output=True)
+    (repo / ".git").mkdir()
     (repo / "keep.yaml").write_text(
         "apiVersion: v1\nkind: ConfigMap\ndata:\n  key: val\n", encoding="utf-8"
-    )
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-am", "delete manifest"],
-        check=True,
-        capture_output=True,
     )
 
     pages, _title, _target_branch, _base_rev = _prepare_branch_content(

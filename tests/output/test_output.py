@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
+from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.dry_run.models import CommandDryRunResult
@@ -565,22 +566,35 @@ def test_dry_run_printers() -> None:
     assert "tf apply" in output
 
 
-def test_output_formatter_extended_coverage() -> None:
-    """Test extended formatter branches for Table formatting, KeyValuePayloads, and fallbacks."""
+def test_render_table_key_value_payload() -> None:
+    """KeyValuePayload formats as a two-column Key/Value table."""
     kv = KeyValuePayload(title="Metrics", items={"QPS": 100})
     t1 = render_table(kv)
     assert t1.title == "Metrics"
+    assert len(t1.columns) == 2
 
+
+def test_render_table_column_tuple_specs() -> None:
+    """render_table supports column tuples specifying width and justify."""
     t2 = render_table("Table", [("Col1", 20), ("Col2", "center"), ("Col3",)], [["A", "B", "C"]])
     assert t2 is not None
+    assert t2.title == "Table"
+    assert len(t2.columns) == 3
 
+
+def test_format_output_payload_table_dispatch() -> None:
+    """format_output dispatches TablePayload and KeyValuePayload to table rendering."""
     table_p = TablePayload(title="Payload", columns=["C1"], rows=[["V1"]])
     t3 = format_output(table_p, "table")
     assert t3.title == "Payload"
 
+    kv = KeyValuePayload(title="Metrics", items={"QPS": 100})
     t4 = format_output(kv, "table")
     assert t4.title == "Metrics"
 
+
+def test_format_output_unknown_format_fallback() -> None:
+    """format_output with unknown format string falls back to string representation."""
     raw_fallback = format_output("fallback string", "unknown_fmt")
     assert "fallback string" in raw_fallback
 
@@ -930,7 +944,7 @@ def test_format_link_and_badges_escape_markup() -> None:
     assert r"\[bold]Status: OK\[/bold]" in badge
 
 
-def test_the_kube_linter_table_names_each_check() -> None:
+def test_the_kube_linter_table_names_each_check(snapshot: SnapshotAssertion) -> None:
     """A kube-linter title is `[<check>] <message>`; the table prints the check, not a tag."""
     finding = Finding(
         severity="MEDIUM",
@@ -945,6 +959,7 @@ def test_the_kube_linter_table_names_each_check() -> None:
     )
 
     assert "[no-anti-affinity] object has 2 replicas" in buf.getvalue()
+    assert buf.getvalue() == snapshot
 
 
 def test_table_payload_render_honors_header_options() -> None:

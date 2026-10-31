@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from typer.testing import CliRunner
 
@@ -107,3 +109,53 @@ def test_all_registered_subcommands_have_help() -> None:
             break
 
     assert all_have_help is True
+
+
+def test_all_command_specs_registered(cli: Any) -> None:
+    """Verify that all CLI commands appear in devops --help."""
+    result = cli(["--help"])
+    assert result.exit_code == 0
+    expected_commands = {
+        "repos",
+        "ssh",
+        "branches",
+        "devcontainer",
+        "workspace",
+        "install-tools",
+        "openspec",
+        "k8s",
+        "kustomize",
+        "docker",
+        "grafana",
+        "prometheus",
+        "argo",
+        "config",
+        "ci",
+        "uv",
+        "scan",
+        "ai",
+        "review",
+        "mcp",
+        "docs",
+        "roadmap",
+        "pr",
+        "gh",
+        "tf",
+        "tls",
+        "telemetry",
+        "cloudflare",
+        "serve",
+        "test",
+        "pipeline",
+        "vault",
+        "valkey",
+        "sandbox",
+        "dashboard",
+        "tui",
+        "format",
+        "lint",
+        "status",
+        "survey",
+    }
+    for cmd in expected_commands:
+        assert cmd in result.output

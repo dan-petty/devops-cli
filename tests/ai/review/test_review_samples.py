@@ -7,8 +7,8 @@ Fetches here come from local repositories, so no test touches the network.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -24,34 +24,79 @@ from devops_cli.ai.review.samples import (
     samples_dir,
 )
 from devops_cli.commands import review as review_commands
+from devops_cli.config.commands import BIN_GIT
+from devops_cli.core.process import run_subprocess
 from devops_cli.main import app
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
+
+if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
+PINNED_COMMIT = "1" * 40
+LATER_COMMIT = "2" * 40
+
 
 def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    proc = run_subprocess([BIN_GIT, "-C", str(repo), *args], quiet=True)
+    return (proc.stdout or "").strip()
+
+
+def _populate_sample_files(checkout: Path, head: str) -> None:
+    (checkout / "src").mkdir(parents=True, exist_ok=True)
+    (checkout / "LICENSE").write_text("MIT License\n", encoding="utf-8")
+    content = "x = 1\n" if head == PINNED_COMMIT else "x = 2\n"
+    (checkout / "src" / "app.py").write_text(content, encoding="utf-8")
+
+
+def _handle_samples_git(
+    call: ProcessCall,
+    checkout_heads: dict[Path, str],
+) -> ProcessAnswer:
+    argv = call.argv
+    checkout = Path(argv[argv.index("-C") + 1]) if "-C" in argv else Path.cwd()
+
+    if "init" in argv:
+        (checkout / ".git").mkdir(parents=True, exist_ok=True)
+        return ProcessAnswer()
+
+    if "fetch" in argv:
+        target_commit = argv[-1]
+        if target_commit == "0" * 40:
+            return ProcessAnswer(returncode=128, stderr="fatal: couldn't find remote ref")
+        checkout_heads[checkout] = target_commit
+        return ProcessAnswer()
+
+    if "checkout" in argv:
+        head = checkout_heads.get(checkout, PINNED_COMMIT)
+        _populate_sample_files(checkout, head)
+        return ProcessAnswer()
+
+    if "rev-parse" in argv:
+        head = checkout_heads.get(checkout, PINNED_COMMIT)
+        return ProcessAnswer(stdout=head + "\n")
+
+    if "rev-list" in argv:
+        return ProcessAnswer(stdout="1\n")
+
+    return ProcessAnswer()
 
 
 @pytest.fixture
-def upstream(tmp_path: Path) -> tuple[Path, str, str]:
+def upstream(tmp_path: Path, git_fake: GitFake) -> tuple[Path, str, str]:
     """A local repository with two commits: the pinned one, and a later one."""
     repo = tmp_path / "upstream"
     (repo / "src").mkdir(parents=True)
-    _git(repo, "init", "--quiet")
+    (repo / ".git").mkdir(parents=True)
     (repo / "LICENSE").write_text("MIT License\n", encoding="utf-8")
-    (repo / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "--quiet", "-m", "pinned")
-    pinned = _git(repo, "rev-parse", "HEAD")
     (repo / "src" / "app.py").write_text("x = 2\n", encoding="utf-8")
-    _git(repo, "commit", "--quiet", "-am", "later")
-    return repo, pinned, _git(repo, "rev-parse", "HEAD")
+    checkout_heads: dict[Path, str] = {repo: LATER_COMMIT}
+    git_fake.answer(
+        lambda _: True,
+        lambda call: _handle_samples_git(call, checkout_heads),
+    )
+    return repo, PINNED_COMMIT, LATER_COMMIT
 
 
 def _sample(repo: Path, commit: str, **changes: object) -> SampleRepository:

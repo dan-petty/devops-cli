@@ -344,53 +344,23 @@ def _devops_entry_argv(command: str) -> list[str]:
 
 
 def _run_profiled_command(command: str, argv: list[str], tracer: OTelTelemetryClient) -> str:
-    """Run a devops-cli command inside a profile span and return the trace it ran under.
+    """Run a devops-cli command inside a profile span and return the trace it ran under."""
+    from devops_cli.telemetry.waterfall import run_profiled_command
 
-    The profile span holds the command path of the command and the number of its other words,
-    and no argument value: the command line can hold a credential (#2058). The child runs
-    through `run_subprocess`, so its subprocess span under the profile span records the
-    arguments only when `telemetry.capture_command_args` turns them on, as for every program
-    that devops-cli runs.
-
-    `run_subprocess` hands the child that trace through TRACEPARENT. The child keeps the
-    caller's full environment, as if run directly, so its own telemetry settings and the
-    credentials it would read reach it. That is safe only because `argv` always comes from
-    `_devops_entry_argv`: the environment goes to devops-cli itself, imported from where this
-    interpreter installed it and not from the working directory, and to no other program.
-    """
-    import shlex
-
-    from devops_cli.core.command_resolver import resolve_command_path
-    from devops_cli.core.process import run_subprocess
-
-    command_path, args_count = resolve_command_path(shlex.split(command)[1:])
-    attributes = {"cli.command_path": command_path, "cli.args_count": args_count}
-    with trace_span("telemetry.profile", attributes=attributes) as span_h:
-        trace_id = tracer.current_trace_id or ""
-        print_info(f"Profiling command: [bold]{command}[/bold] (Trace: {trace_id})", prefix=False)
-        start_time = time.perf_counter()
-        proc = run_subprocess(argv, capture_output=False, quiet=True, isolate_env=False)
-        span_h.set_attribute("cli.exit_code", proc.returncode)
-        span_h.set_attribute("cli.elapsed_ms", (time.perf_counter() - start_time) * 1000)
-    tracer.flush()
-    return trace_id
+    return run_profiled_command(command, argv, tracer)
 
 
 def _read_trace_from_tempo(trace_id: str, tempo_url: str) -> list[dict[str, Any]]:
-    """Poll Tempo until the trace stops growing, within a fixed bound.
+    """Poll Tempo until the trace stops growing, within a fixed bound."""
+    from devops_cli.telemetry.waterfall import poll_trace_spans
 
-    Spans reach the collector asynchronously, so one read can catch a trace half-exported.
-    """
-    deadline = time.monotonic() + DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS
-    spans: list[dict[str, Any]] = []
-    while True:
-        fetched = query_tempo_trace(trace_id, tempo_url=tempo_url)
-        if fetched and len(fetched) == len(spans):
-            return fetched
-        spans = fetched or spans
-        if time.monotonic() >= deadline:
-            return spans
-        time.sleep(DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS)
+    return poll_trace_spans(
+        trace_id,
+        tempo_url,
+        timeout=DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
+        interval=DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
+        query_fn=query_tempo_trace,
+    )
 
 
 @app.command("profile")

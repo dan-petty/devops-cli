@@ -1,0 +1,10 @@
+# serializer version: 1
+# name: test_build_structured_table_rich_output
+  '''
+      Applications     
+   Name   Status   Age 
+   app-1  Running  2d  
+   app-2  Pending  5m  
+  
+  '''
+# ---

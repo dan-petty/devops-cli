@@ -32,7 +32,10 @@ from devops_cli.telemetry.tracer import (
 )
 from tests.support.fakes.keyring import FakeKeyring
 
-runner = CliRunner()
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
 
 
 def test_logfire_status_model() -> None:
@@ -199,14 +202,14 @@ def test_logfire_terminal_formatters() -> None:
     assert getattr(panel.renderable, "title", None) == table.title
 
 
-def test_logfire_cli_status_command() -> None:
+def test_logfire_cli_status_command(runner: CliRunner) -> None:
     """Verify devops telemetry status displays Logfire status."""
     result = runner.invoke(app, ["telemetry", "status"])
     assert result.exit_code == 0
     assert "Logfire" in result.output or "Telemetry" in result.output
 
 
-def test_logfire_cli_subcommand_table_and_json() -> None:
+def test_logfire_cli_subcommand_table_and_json(runner: CliRunner) -> None:
     """Verify devops telemetry logfire command outputs table and json formats."""
     table_result = runner.invoke(app, ["telemetry", "logfire"])
     assert table_result.exit_code == 0
@@ -220,7 +223,7 @@ def test_logfire_cli_subcommand_table_and_json() -> None:
     assert "token_metrics" in data
 
 
-def test_logfire_cli_test_command_flag() -> None:
+def test_logfire_cli_test_command_flag(runner: CliRunner) -> None:
     """Verify devops telemetry test --logfire emits test span via Logfire bridge."""
     with patch("logfire.span") as mock_logfire_span:
         result = runner.invoke(app, ["telemetry", "test", "--logfire", "--name", "test-unit-span"])
@@ -229,7 +232,7 @@ def test_logfire_cli_test_command_flag() -> None:
         assert mock_logfire_span.called
 
 
-def test_review_commands_support_logfire_flag() -> None:
+def test_review_commands_support_logfire_flag(runner: CliRunner) -> None:
     """Verify devops review path/branch/pr commands expose --logfire and --no-logfire."""
     for cmd in ["path", "branch", "pr"]:
         result = runner.invoke(app, ["review", cmd, "--help"])

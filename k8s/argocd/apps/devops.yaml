@@ -8,6 +8,7 @@ metadata:
   # spec.source.kustomize that deploy-stack and Image Updater set (#1817, k8s/README.md, GitOps).
   annotations:
     argocd.argoproj.io/sync-options: ServerSideApply=true
+    notifications.argoproj.io/subscribe.on-deployed.mattermost: ""
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:

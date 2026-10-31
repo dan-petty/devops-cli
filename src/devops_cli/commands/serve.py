@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -24,89 +23,12 @@ from devops_cli.output import (
 )
 
 if TYPE_CHECKING:
-    from devops_cli.config.settings import Settings
+    pass
 
 app = new_typer(
     help=HELP.serve.app,
     rich_markup_mode="rich",
 )
-
-
-def _require_github_app(settings: Settings) -> None:
-    """Exit 1 unless the Service can act as its GitHub App: the App's settings are set and the
-    environment holds the App's private key (ADR 0015)."""
-    from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
-    from devops_cli.core.process import acts_as_github_app
-
-    app_config = settings.service.github_app
-    missing = [
-        option
-        for option, value in (
-            ("service.github_app.app_id", app_config.app_id),
-            ("service.github_app.installation_id", app_config.installation_id),
-            ("service.github_app.slug", app_config.slug),
-        )
-        if not value
-    ]
-    if missing:
-        print_error(
-            MESSAGES.serve.github_app_unset.format(settings=", ".join(missing)), prefix=False
-        )
-        raise typer.Exit(code=1)
-    if not acts_as_github_app():
-        print_error(
-            MESSAGES.serve.github_app_key_missing.format(
-                login=app_config.bot_login, key_env=CONST_GITHUB_APP_PRIVATE_KEY_ENV
-            ),
-            prefix=False,
-            safe=True,
-        )
-        raise typer.Exit(code=1)
-
-
-def _validate_service_mode(
-    reload: bool,
-    workers: int,
-    settings: Settings,
-) -> dict[str, str]:
-    """Validate options and managed credentials for continuous service mode."""
-    if reload:
-        print_error("Service mode does not support auto-reload (--reload).", prefix=False)
-        raise typer.Exit(code=2)
-    if workers > 1:
-        print_error(
-            "Service mode does not support multiple worker processes (--workers > 1).", prefix=False
-        )
-        raise typer.Exit(code=2)
-
-    if not settings.service.repos:
-        print_error(
-            "Configuration error: service.repos must configure at least one target repository.",
-            prefix=False,
-        )
-        raise typer.Exit(code=1)
-    _require_github_app(settings)
-
-    from devops_cli.config.settings import get_service_webhook_secrets
-
-    raw_secrets = get_service_webhook_secrets(settings)
-    if not raw_secrets:
-        print_error(
-            "Configuration error: managed credential 'service.webhook_secrets' is missing or empty.",
-            prefix=False,
-        )
-        raise typer.Exit(code=1)
-    try:
-        parsed = json.loads(raw_secrets)
-        if not isinstance(parsed, dict):
-            raise ValueError("Must be a JSON object")
-        return {str(k): str(v) for k, v in parsed.items()}
-    except Exception:
-        print_error(
-            "Configuration error: managed credential 'service.webhook_secrets' must be a valid JSON object.",
-            prefix=False,
-        )
-        raise typer.Exit(code=1) from None
 
 
 # =============================================================================
@@ -172,7 +94,15 @@ def serve(
         from devops_cli.server.service import create_service_app
 
         settings = load_settings()
-        parsed_secrets = _validate_service_mode(reload=reload, workers=workers, settings=settings)
+        from devops_cli.server.service import validate_service_mode
+
+        try:
+            parsed_secrets = validate_service_mode(settings, reload=reload, workers=workers)
+        except ValueError as exc:
+            msg = str(exc)
+            print_error(msg, prefix=False, safe=True)
+            code = 2 if ("auto-reload" in msg or "worker processes" in msg) else 1
+            raise typer.Exit(code=code) from None
         # The halt, the budget window and the ledger of failed rounds stay beside the schedules,
         # on the Service's volume, so a restart keeps them (#2474).
         state_dir = service_state_dir()

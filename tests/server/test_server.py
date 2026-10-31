@@ -19,7 +19,10 @@ from devops_cli.server.json_logs import service_log_config
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-runner = CliRunner()
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
 
 
 @pytest.fixture
@@ -238,7 +241,7 @@ def test_openapi_docs_endpoint(client: TestClient) -> None:
     assert "swagger-ui" in docs_res.text.lower()
 
 
-def test_serve_cli_help() -> None:
+def test_serve_cli_help(runner: CliRunner) -> None:
     """Test devops serve --help CLI output."""
     result = runner.invoke(serve_app, ["--help"])
     assert result.exit_code == 0
@@ -248,7 +251,7 @@ def test_serve_cli_help() -> None:
     assert "--reload" in result.output
 
 
-def test_serve_cli_invocation_mocked() -> None:
+def test_serve_cli_invocation_mocked(runner: CliRunner) -> None:
     """Test devops serve starts uvicorn server."""
     with patch("uvicorn.run") as mock_uvicorn:
         result = runner.invoke(serve_app, ["--host", "::1", "--port", "9000"])
@@ -260,7 +263,7 @@ def test_serve_cli_invocation_mocked() -> None:
         )
 
 
-def test_serve_service_mode_flags_rejected() -> None:
+def test_serve_service_mode_flags_rejected(runner: CliRunner) -> None:
     """Test --service rejects --workers > 1 and --reload with exit code 2."""
     res_workers = runner.invoke(serve_app, ["--service", "--workers", "2"])
     res_reload = runner.invoke(serve_app, ["--service", "--reload"])
@@ -285,7 +288,9 @@ def _set_github_app(monkeypatch: pytest.MonkeyPatch, *, key: bool = True) -> Non
         monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
 
 
-def test_serve_service_mode_config_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_serve_service_mode_config_validation(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """--service needs repos, the GitHub App's settings and key, and valid JSON webhook secrets."""
     # 1. Missing repos
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", "[]")
@@ -324,7 +329,7 @@ def test_serve_service_mode_config_validation(monkeypatch: pytest.MonkeyPatch) -
     ) == (1, True, 1, True, 1, True, True, 1, True, 1, True)
 
 
-def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_serve_service_mode_success(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test valid --service invocation starts uvicorn without banner."""
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
     _set_github_app(monkeypatch)
@@ -342,7 +347,7 @@ def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_serve_service_mode_leaves_logging_to_the_server(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """`devops serve --service` hands its JSON logging to uvicorn, which applies it as it starts.
 
@@ -363,7 +368,7 @@ def test_serve_service_mode_leaves_logging_to_the_server(
 
 
 def test_serve_service_mode_builds_the_app_after_the_server_applies_its_logging(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """uvicorn builds the service app from a factory after it applies the JSON `log_config`.
 

@@ -54,6 +54,17 @@ spec:
       ports:
         - protocol: TCP
           port: 8065
+    # 6. Argo CD notifications controller webhooks
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-notifications-controller
+      ports:
+        - protocol: TCP
+          port: 8065
   egress:
     # 1. CoreDNS egress
     - to:

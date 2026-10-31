@@ -18,6 +18,8 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.review.diff import diff_blocks
 from devops_cli.review.session import ReviewSessionStore
 from tests.llm_stream_fakes import route_client
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 
 runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -72,11 +74,18 @@ def test_review_client_uses_long_read_timeout_for_chat_requests(
     ]
 
 
-def test_review_path_append_cache_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_path_append_cache_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake
+) -> None:
     """Verify that --append-cache flag is parsed and passed to review clients."""
     from typer.testing import CliRunner
 
     from devops_cli.commands.review import app as review_app
+
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        ProcessAnswer(returncode=0, stdout=str(tmp_path) + "\n"),
+    )
 
     runner = CliRunner()
     test_f = tmp_path / "test.py"

@@ -535,6 +535,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-installationID` | setting argocd.github_app_installation_id | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-privateKey` | keyring `argocd_github_app_private_key` | no | adopt the live value; else skip with a warning | infra | none |
+| `argocd/argocd-notifications-secret` | `mattermost-deploys-url` | derived from keyring mattermost_deploys_hook | no | skip with a warning | infra | none |
 | `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |
 | `gitea/gitea-admin` | `password` | keyring `gitea_admin_password` | yes | adopt the live value; else fail | gitea | `deployment/gitea` |
 | `mattermost/mattermost-db` | `username` | literal | yes | fail | chat | none |
@@ -547,7 +548,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - A derived entry is built from other values of the same push, such as a connection string from a user and a password. The push resolves every other entry first, then fills each field of the entry's template with the value of its input, quoted with `urllib.parse.quote(..., safe="")`. It never adopts, generates or stores a derived value, and a live value that differs needs `--rotate`. `--plan` names the source as `derived from` and its inputs, and `--dry-run` shows a placeholder.
 - A row may name its Secret type, such as `kubernetes.io/basic-auth`. The default is `Opaque`. Kubernetes cannot change the type of an existing Secret, so a row names its type before its first push.
 - `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` is the private key of GitHub App `devops-cli-service`, which the roadmap Service and the cluster Jobs act as ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Store it with `devops config set service.github_app.private_key --from-file <key.pem>`. A pod whose environment holds the key acts as the App: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as GH_TOKEN. A workstation keeps the key only in the keyring, so a workstation run keeps the gh login of its person.
-- `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>` and `devops config set argocd.github_app_private_key --from-file <key.pem>`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
+- `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as, and the webhook URL for Mattermost deploys. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`, and `service.webhook.mattermost` refers to `$mattermost-deploys-url`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>`, `devops config set argocd.github_app_private_key --from-file <key.pem>`, and `devops config set mattermost.deploys_hook`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
 - `monitoring/alertmanager-mattermost` holds the incoming webhook URL that Alertmanager uses to post critical and warning alerts to Mattermost. Store the webhook token with `devops config set mattermost.alerts_hook`, then push with `devops k8s push-secrets --only monitoring/alertmanager-mattermost`. The `homelab` project ignores the Secret as an orphan.
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
 - `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
@@ -1065,6 +1066,31 @@ Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git,
 - Pause an Application in git: set `enabled: false` in its manifest and merge the change. While it is paused, the `ArgoCdAutoSyncDisabled` alert fires after 15 minutes.
 - Do not pause an Application in the Argo CD UI or API. Its parent shows it OutOfSync and turns automated sync on again at its next self-heal.
 - For an emergency stop that cannot wait for a merge, or for a volume move (Local-Path Volume Placement), pause from the top down: `bootstrap`, then `cluster`, then the Application. A paused `bootstrap` does not revert itself. Then commit the pause, or turn `bootstrap` on again: it restores `cluster`, and `cluster` restores the others from git.
+
+### Notifications
+
+Argo CD delivers notifications to Mattermost when the `devops` application deploys successfully and when any application sync fails.
+
+1. **Create an Incoming Webhook in Mattermost**:
+   - In Mattermost, open Main Menu > Integrations > Incoming Webhooks > Add Incoming Webhook.
+   - Enter a title (such as `Argo CD Deploys`), select channel `deploys`, and enable "Lock to this channel".
+   - Copy the generated webhook token (the string after `/hooks/`).
+
+2. **Store the Credential in Keyring**:
+   ```bash
+   devops config set mattermost.deploys_hook
+   ```
+
+3. **Push the Cluster Secret**:
+   ```bash
+   devops k8s push-secrets --only argocd/argocd-notifications-secret
+   ```
+
+The notifications controller reads the derived URL from `argocd/argocd-notifications-secret` and delivers events to Mattermost on TCP port 8065:
+- **Application deploys**: When the `devops` application finishes a sync and reaches Healthy status (`on-deployed`), a notification posts to the deploys channel. Other applications do not trigger deploy posts to prevent notification clutter.
+- **Application sync failures**: When any application sync fails (`on-sync-failed`), a failure notification posts to the deploys channel with the error message.
+- **Persistent OutOfSync or Degraded states**: Not handled by this webhook; issue #551 monitors lasting conditions through Prometheus metrics and Alertmanager alerts.
+- **GitHub deployment status tracking**: Owned separately by issue #1387.
 
 ### Replaced Hand Steps
 

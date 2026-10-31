@@ -1,0 +1,9 @@
+# serializer version: 1
+# name: test_the_kube_linter_table_names_each_check
+  '''
+                                                                Kube-Linter Manifest Security Checks: deployment.yaml                                                               
+   Severity  Resource Location                                                   Title                                                                                  Remediation 
+   MEDIUM    k8s/cloudflared/deployment.yaml:Deployment/cloudflared/cloudflared  [no-anti-affinity] object has 2 replicas but does not specify inter pod anti-affinity  -           
+  
+  '''
+# ---

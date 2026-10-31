@@ -15,6 +15,7 @@ import typer
 from click.testing import CliRunner
 
 from devops_cli.commands.k8s.cluster_secret_push import push_secrets, run_push
+from devops_cli.config.constants import CONST_K8S_MATTERMOST_URL
 from devops_cli.config.env import (
     keyring_names,
     option_env_vars,
@@ -303,6 +304,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             (),
         ),
         ("argocd/argocd-notifications-secret", "github-privateKey", "infra", False, None, None, ()),
+        (
+            "argocd/argocd-notifications-secret",
+            "mattermost-deploys-url",
+            "infra",
+            False,
+            None,
+            None,
+            (),
+        ),
         ("gitea/gitea-admin", "username", "gitea", True, None, None, ("deployment/gitea",)),
         ("gitea/gitea-admin", "password", "gitea", True, None, None, ("deployment/gitea",)),
         ("mattermost/mattermost-db", "username", "chat", True, None, None, ()),
@@ -418,6 +428,15 @@ def test_the_notifier_values_are_two_settings_and_a_managed_credential() -> None
             (
                 "github-privateKey",
                 KeyringSource(NOTIFIER_KEYRING, "argocd.github_app_private_key"),
+                False,
+                None,
+            ),
+            (
+                "mattermost-deploys-url",
+                DerivedSource(
+                    f"{CONST_K8S_MATTERMOST_URL}/hooks/{{hook}}",
+                    {"hook": KeyringSource("mattermost_deploys_hook", "mattermost.deploys_hook")},
+                ),
                 False,
                 None,
             ),
