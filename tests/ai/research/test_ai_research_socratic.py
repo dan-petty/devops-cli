@@ -315,9 +315,11 @@ def test_cli_socratic_dry_run() -> None:
         app,
         ["ai", "research", "socratic", "Add rate limiter", "--dry-run"],
     )
-    assert result.exit_code == 0
-    data = json.loads(result.output.split("Command response:\n")[1])
-    assert (data["status"], data["details"]["task"]) == ("DRY_RUN", "Add rate limiter")
+    assert (
+        result.exit_code,
+        "Plan for AI research socratic inquiry" in result.output,
+        "Add rate limiter" in result.output,
+    ) == (0, True, True)
 
 
 def test_cli_socratic_happy_path_text(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -261,9 +261,11 @@ def test_cli_model_dry_run() -> None:
         app,
         ["ai", "research", "model", "cache_invalidation", "-o", "TTL expires", "--dry-run"],
     )
-    assert result.exit_code == 0
-    data = json.loads(result.output.split("Command response:\n")[1])
-    assert (data["status"], data["details"]["topic"]) == ("DRY_RUN", "cache_invalidation")
+    assert (
+        result.exit_code,
+        "Plan for AI research mental model" in result.output,
+        "cache_invalidation" in result.output,
+    ) == (0, True, True)
 
 
 def test_cli_model_missing_observations_and_no_existing_model_exits_1(

@@ -3,7 +3,6 @@ default by name before, and so ignored it (#2447)."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -47,8 +46,11 @@ def test_rag_search_takes_its_top_k_and_min_score_from_the_settings(
 
     result = CliRunner().invoke(main_app, ["--dry-run", "ai", "rag", "query", "deploy pods"])
 
-    details = json.loads(result.output[result.output.index("{") :])["details"]
-    assert (result.exit_code, details["top_k"], details["min_score"]) == (0, 9, 0.6)
+    assert (
+        result.exit_code,
+        '"limit": 9' in result.output,
+        '"score_threshold": 0.6' in result.output,
+    ) == (0, True, True)
 
 
 def test_a_retriever_with_no_defaults_takes_them_from_the_settings(
