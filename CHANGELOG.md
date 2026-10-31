@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.28.0](https://github.com/dan-petty/devops-cli/compare/v0.27.0...v0.28.0) (2026-10-31)
+
+
+### Features
+
+* **ai:** preview requests in dry run for rag ingest analyze ([#2873](https://github.com/dan-petty/devops-cli/issues/2873)) ([c53bcec](https://github.com/dan-petty/devops-cli/commit/c53bcec9838d42c07ca4fe5902d2c37e2af2575f)), closes [#2244](https://github.com/dan-petty/devops-cli/issues/2244)
+* **ai:** preview requests in dry run for runs cost cache ([#2884](https://github.com/dan-petty/devops-cli/issues/2884)) ([0df9777](https://github.com/dan-petty/devops-cli/commit/0df9777dbb66bd159f5443f6f4494e9b31def730))
+* **roadmap:** the Service marks green stage drafts ready ([#2882](https://github.com/dan-petty/devops-cli/issues/2882)) ([63fae06](https://github.com/dan-petty/devops-cli/commit/63fae06b5e4f07630b4519fdde0be9d28944a5cc)), closes [#2865](https://github.com/dan-petty/devops-cli/issues/2865)
+* **roadmap:** tool log names the reason of a retried call ([#2875](https://github.com/dan-petty/devops-cli/issues/2875)) ([03d3dc5](https://github.com/dan-petty/devops-cli/commit/03d3dc550e00374518f683c7275dedc091681c3d)), closes [#2866](https://github.com/dan-petty/devops-cli/issues/2866)
+
+
+### Bug Fixes
+
+* **ci:** devops ci test expands or refuses a path argument ([#2879](https://github.com/dan-petty/devops-cli/issues/2879)) ([884a80b](https://github.com/dan-petty/devops-cli/commit/884a80b5066672cfd87f55eb2cf8410dff298d27)), closes [#2868](https://github.com/dan-petty/devops-cli/issues/2868)
+* **roadmap:** cap output and deadline of a step model call ([#2881](https://github.com/dan-petty/devops-cli/issues/2881)) ([0c4bd3a](https://github.com/dan-petty/devops-cli/commit/0c4bd3ae8a1314a3e356e32d2e73c8fdf79bbb85)), closes [#2869](https://github.com/dan-petty/devops-cli/issues/2869)
+
 ## [0.27.0](https://github.com/dan-petty/devops-cli/compare/v0.26.1...v0.27.0) (2026-10-31)
 
 
