@@ -171,12 +171,15 @@ def service_claim(store: RoadmapStore, number: int, marks: Mapping[Any, str | No
 
 
 def service_release(store: RoadmapStore, number: int, marks: Mapping[Any, str | None]) -> None:
-    """Clear `owner/service` and set `marks`, in one write when the Service holds the Item. The
-    claim of an agent or a person stays; only `marks` are written then."""
+    """Clear `owner/service` and set `marks`, in one write. The claim of an agent or a person
+    stays: only `marks` are written then, and a label `owner/service` that a person's label stands
+    beside goes. A person's claim between the read and the write ends the release: `marks` are
+    written and the owner is left as the person set it."""
     item = _item(store, number)
     try:
-        if item.owner == CONST_ROADMAP_OWNER_SERVICE:
-            store.set_field(item, ItemField.OWNER, None, marks=marks)
+        if item.owner is not None:
+            kept = None if item.owner == CONST_ROADMAP_OWNER_SERVICE else item.owner
+            store.set_field(item, ItemField.OWNER, kept, marks=marks)
             return
     except RoadmapItemChangedError:
         item = _item(store, number)

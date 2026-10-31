@@ -702,3 +702,113 @@ def test_an_item_whose_worktree_cannot_be_made_is_reported_and_left_alone(
 
 def test_a_run_with_no_failure_raises_nothing() -> None:
     assert raise_for_failed(()) is None
+
+
+# ── A claim of an agent or a person ends the run at a group boundary (#2910) ──────────────
+
+
+def _claim(world: JobWorld, label: str) -> Callable[[], None]:
+    """What a person does on GitHub: label the item."""
+    return lambda: world.store.as_actor("alice").add_label(1, label)
+
+
+def _owner(world: JobWorld) -> list[str]:
+    held = world.store.item(1)
+    assert held is not None
+    return [label for label in held.labels if label.startswith("owner/")]
+
+
+def _docs_ran(world: JobWorld) -> bool:
+    return any(
+        command_text(call).startswith("uv run devops docs generate")
+        for call in world.programs.calls
+    )
+
+
+def test_a_person_who_claims_while_group_one_runs_ends_the_job_before_group_two(
+    job_world: JobWorld,
+) -> None:
+    script = two_groups()
+    script.effects[2] = _claim(job_world, "owner/human")
+
+    applied = job_world.run(script)
+
+    (comment,) = job_world.issue_comments()
+    status, record = _item(job_world)
+    assert (applied.yielded, applied.ready, applied.stopped, applied.failed) == ((1,), (), (), ())
+    assert (len(script.seen), job_world.origin_log(), _docs_ran(job_world)) == (
+        2,
+        ["fix(roadmap): plan"],
+        False,
+    )
+    assert (job_world.sent("PATCH", f"pulls/{PULL}"), job_world.pull.ready_calls) == ([], [])
+    assert (status, record.get("implement.stopped"), record["implement.group"]) == (
+        "In Progress",
+        None,
+        "1",
+    )
+    assert (_owner(job_world), comment.startswith(MARKER)) == (["owner/human"], True)
+    assert "human claimed the item" in comment
+    assert "start of group 2" in comment
+    assert "opened no pull request" in comment
+
+
+def test_a_claim_made_before_the_first_group_ends_the_job_before_any_step(
+    job_world: JobWorld,
+) -> None:
+    plan = job_world.plan()
+    _claim(job_world, "owner/agent")()
+    script = two_groups()
+
+    applied = apply_implement(
+        job_world.store, plan, source=job_world.repo.clone, model=script.model(), window=WINDOW
+    )
+
+    (comment,) = job_world.issue_comments()
+    assert (applied.yielded, applied.ready, script.seen, job_world.origin_log()) == (
+        (1,),
+        (),
+        [],
+        ["fix(roadmap): plan"],
+    )
+    assert ("agent claimed the item" in comment, "start of group 1" in comment) == (True, True)
+    assert (_item(job_world)[0], _owner(job_world)) == ("In Progress", ["owner/agent"])
+
+
+def test_a_claim_made_while_the_last_group_runs_stops_the_job_before_the_docs_and_the_push(
+    job_world: JobWorld,
+) -> None:
+    script = two_groups()
+    script.effects[4] = _claim(job_world, "owner/human")
+
+    applied = job_world.run(script)
+
+    (comment,) = job_world.issue_comments()
+    assert (applied.yielded, applied.ready, len(script.seen)) == ((1,), (), 4)
+    assert (job_world.origin_log(), _docs_ran(job_world), job_world.pull.ready_calls) == (
+        ["fix(roadmap): plan"],
+        False,
+        [],
+    )
+    assert "end of the last group" in comment
+
+
+def test_a_planned_item_that_a_person_claims_gets_no_branch_and_no_pull_request(
+    planned_world: JobWorld,
+) -> None:
+    script = two_groups()
+    script.effects[2] = _claim(planned_world, "owner/human")
+
+    applied = planned_world.run(script)
+
+    assert (applied.yielded, applied.ready) == ((1,), ())
+    assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
+    assert not any(request.method == "POST" for request in planned_world.api.sent)
+
+
+def test_the_claim_of_the_service_does_not_end_the_job(job_world: JobWorld) -> None:
+    job_world.store.as_actor("alice").add_label(1, "owner/service")
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.ready, applied.yielded) == ((1,), ())

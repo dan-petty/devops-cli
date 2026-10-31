@@ -2199,6 +2199,14 @@ class RoadmapMessages:
         "sandbox, with a narrow token and no other credential. This process ran no step."
     )
     implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
+    implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
+    implement_boundary_group: str = "the start of group {group}"
+    implement_boundary_end: str = "the end of the last group"
+    implement_comment_claimed: str = (
+        "{marker}\nThe job ended at {boundary}: {owner} claimed the item. It pushed nothing and "
+        "opened no pull request. The groups that passed stay out of the branch. Release the "
+        "item to give it back to the Service."
+    )
     implement_job_failed_item: str = "#{number} ({error}{reason})"
     implement_job_failed: str = "{count} item(s) failed: {items}"
     implement_step_group: str = "group {group}"

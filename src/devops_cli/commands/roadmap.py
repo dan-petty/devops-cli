@@ -588,6 +588,11 @@ def _implement_job(
             ready=len(applied.ready), stopped=len(applied.stopped)
         )
     )
+    if applied.yielded:
+        print_info(
+            MESSAGES.roadmap.implement_job_yielded.format(yielded=len(applied.yielded)),
+            prefix=False,
+        )
     with _exit_on_failure("The job is incomplete"):
         raise_for_failed(applied.failed)
 

@@ -23,9 +23,9 @@
 
 ## 4. The Service claims and a person's claim ends the Job
 
-- [ ] 4.1 Write failing tests in `tests/roadmap/test_roadmap_implement_submit.py` and `tests/roadmap/test_roadmap_implement_job.py` for the scenarios of "The Service claims an Item for the Job it creates" and "A claim of a person or an agent ends the Job at the next group boundary": the claim at creation, the release at the report, a failed creation, a race with a person's claim, a person's claim kept at the report, the end at the boundary after group 1, before group 1 and after the last group, a run held by the Service, and a report that does not stop a claimed item
+- [x] 4.1 Write failing tests in `tests/roadmap/test_roadmap_implement_submit.py` and `tests/roadmap/test_roadmap_implement_job.py` for the scenarios of "The Service claims an Item for the Job it creates" and "A claim of a person or an agent ends the Job at the next group boundary": the claim at creation, the release at the report, a failed creation, a race with a person's claim, a person's claim kept at the report, the end at the boundary after group 1, before group 1 and after the last group, a run held by the Service, and a report that does not stop a claimed item
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_implement_job.py`
-- [ ] 4.2 Claim and release in `src/devops_cli/roadmap/implement_submit.py`; read the owner at the group boundary in `src/devops_cli/roadmap/implement_run.py` and end the item without a push or a pull request
+- [x] 4.2 Claim and release in `src/devops_cli/roadmap/implement_submit.py`; read the owner at the group boundary in `src/devops_cli/roadmap/implement_run.py` and end the item without a push or a pull request
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_implement_job.py`
 
 ## 5. The worktree claims the issue
