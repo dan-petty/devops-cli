@@ -235,6 +235,10 @@ class StoreRequests:
         args = gh.create_issue_args(self.repo, _p("title"), _p("body"), labels)
         return [self.gh(args, "create_issue", subject=subject)]
 
+    def add_sub_issue(self, parent: str, subject: str) -> Requests:
+        args = gh.add_sub_issue_args(self.repo, _number(parent), _p("sub_issue_id"))
+        return [self.gh(args, "add_sub_issue", subject=subject, parent=parent)]
+
     def write_issue_body(self, subject: str) -> Requests:
         """The issue now, for the job record it holds, then its new body with that record."""
         edit = self._edit(subject, "body", gh.issue_edit(body=_p("body")))

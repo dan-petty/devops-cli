@@ -111,7 +111,14 @@ class _Steps:
                 )
         return planned
 
-    def writes(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:
+    def writes(
+        self,
+        subjects: Sequence[str],
+        *,
+        new: bool,
+        repeat: str,
+        parent: int | None = None,
+    ) -> list[PlannedRequest]:
         """The writes `--confirm` makes for each candidate it places."""
         texts = MESSAGES.roadmap
         planned: list[PlannedRequest] = []
@@ -119,6 +126,17 @@ class _Steps:
             if new:
                 filing = self.store.create_issue(subject, (texts.plan_placeholders["label"],))
                 planned += self.step("file", filing, subject=subject, repeat=repeat)
+                if parent is not None:
+                    sub_issue = self.store.add_sub_issue(
+                        f"#{parent}", texts.intake_placeholder_filed
+                    )
+                    planned += self.step(
+                        "sub_issue",
+                        sub_issue,
+                        parent=f"#{parent}",
+                        subject=texts.intake_placeholder_filed,
+                        repeat=repeat,
+                    )
             planned += self._placement(texts.intake_placeholder_filed if new else subject, repeat)
         return planned
 
@@ -154,6 +172,7 @@ def planned_requests(
     new: bool,
     each: bool = False,
     limit: int | None = None,
+    parent: int | None = None,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """The requests a run over `subjects` makes, as reads and model calls, then the writes
     `--confirm` adds after them; `new` when the one subject is a candidate that is not an issue
@@ -164,7 +183,7 @@ def planned_requests(
     limited = texts.intake_repeat_limited.format(limit=limit) if limit is not None else ""
     repeat = (limited or texts.intake_repeat_candidate) if each else ""
     reads = steps.reads() + steps.decisions(subjects, new=new, repeat=repeat)
-    return tuple(reads), tuple(steps.writes(subjects, new=new, repeat=repeat))
+    return tuple(reads), tuple(steps.writes(subjects, new=new, repeat=repeat, parent=parent))
 
 
 # ── What a run spends ─────────────────────────────────────────────────────────

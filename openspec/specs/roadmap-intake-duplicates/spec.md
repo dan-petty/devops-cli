@@ -98,3 +98,10 @@ When a case's model call fails, `devops roadmap intake-eval` SHALL show that cas
 #### Scenario: The dry run of the set
 - **WHEN** `devops roadmap intake-eval --dry-run` runs
 - **THEN** it lists the 16 cases and 16 `analysis` calls, and the model gets no call
+
+### Requirement: Intake links a candidate filed from --source as a sub-issue
+When intake files a candidate whose `--source` links an issue of the same repository, intake SHALL add the filed issue as a sub-issue of that issue.
+
+#### Scenario: Candidate filed with --source linking an issue in the same repository
+- **WHEN** intake files a candidate whose `--source` links an issue in the same repository
+- **THEN** intake adds the filed issue as a sub-issue of that issue, and lists the write in the dry-run plan

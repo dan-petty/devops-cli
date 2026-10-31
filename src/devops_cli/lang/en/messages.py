@@ -2482,6 +2482,7 @@ class RoadmapMessages:
             "title": "<title>",
             "body": "<body>",
             "label": "<label>",
+            "sub_issue_id": "<the child's REST id>",
             "node_id": "<node id>",
             "original_id": "<original node id>",
             "evidence": "<evidence>",
@@ -2526,6 +2527,7 @@ class RoadmapMessages:
             "body": "the body of {subject}, its job record kept",
             "comment": "comment on {subject}",
             "label": "label {subject}",
+            "add_sub_issue": "add {subject} as a sub-issue of {parent}",
             "create_issue": "open an issue for {subject}",
             "close": "close {subject} with the reason {reason}",
         }
@@ -2592,6 +2594,7 @@ class RoadmapMessages:
     intake_writes: str = "  - writes: {writes}"
     intake_note: str = "  - note: {note}"
     intake_write_file: str = "file the issue with {labels}"
+    intake_write_sub_issue: str = "sub-issue of #{parent}"
     intake_no_labels: str = "no labels"
     intake_write_label: str = "label {label}"
     intake_write_field: str = "{field} {value}"
@@ -2727,6 +2730,7 @@ class RoadmapMessages:
             "evidence": "the evidence the model cites for {subject}",
             "comments": "the comments on {subject}, for intake's marker",
             "file": "file {subject}, with source/agent when an agent files it",
+            "sub_issue": "link {subject} as a sub-issue of {parent}",
             "label": "label {subject} with its type/* label when it has none",
             "field": (
                 "set {field} on {subject}: read the issue, then write its labels and its job "
@@ -2746,6 +2750,7 @@ class RoadmapMessages:
             "evidence": "the model cites any",
             "comments": "{subject} is placed",
             "file": "no open issue with no Priority holds its title and body",
+            "sub_issue": "the candidate's source is an issue of the repository",
             "placed": "intake places {subject}",
             "field": "it has none",
             "comment": "intake's is not there",
