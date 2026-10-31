@@ -31,6 +31,7 @@ import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -60,8 +61,12 @@ from devops_cli.security.tool_executor import (
     ToolRun,
 )
 from devops_cli.tools_lock import load_tools_lock
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer, ToolExecutorFake
 from tests.support.waits import wait_until
+
+if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
 
 # A tool that `tools.lock` pins, so the run records the locked version; the stand-in is not it.
 _TOOL = "helm"
@@ -159,18 +164,117 @@ class Scenario:
         )
 
 
+def _git_toplevel(call: ProcessCall) -> str:
+    argv = call.argv
+    if "-C" in argv:
+        target_arg = argv[argv.index("-C") + 1]
+        target_path = Path(target_arg).resolve()
+        toplevel = target_path if target_path.is_dir() else target_path.parent
+        if toplevel.name == "src":
+            toplevel = toplevel.parent
+        return f"{toplevel}\n"
+    cwd = call.cwd or Path.cwd()
+    return f"{Path(cwd).resolve()}\n"
+
+
+def _handle_git_rev_parse(call: ProcessCall) -> ProcessAnswer:
+    argv = call.argv
+    if "--show-toplevel" in argv:
+        return ProcessAnswer(stdout=_git_toplevel(call))
+    if "broken" in str(call.cwd) or any("broken" in arg for arg in argv):
+        return ProcessAnswer(returncode=128, stderr="fatal: not a git repository\n")
+    if any("no-such-branch" in arg for arg in argv):
+        return ProcessAnswer(returncode=128, stderr="fatal: Needed a single revision\n")
+    if "fresh" in str(call.cwd) or any("fresh" in arg for arg in argv):
+        return ProcessAnswer(returncode=1, stderr="fatal: Needed a single revision\n")
+    return ProcessAnswer(stdout="1" * 40 + "\n")
+
+
+def _target_dirty_lines(root: Path, target_name: str) -> list[str]:
+    target_path = root / target_name
+    lines: list[str] = []
+    if target_path.is_file():
+        if (
+            target_name == "src/app.py"
+            and target_path.read_text(encoding="utf-8") != "print('hello')\n"
+        ):
+            lines.append(f" M {target_name}\n")
+    elif target_path.is_dir():
+        app = target_path / "app.py"
+        if app.exists() and app.read_text(encoding="utf-8") != "print('hello')\n":
+            lines.append(f" M {target_name}/app.py\n")
+        for p in target_path.iterdir():
+            if p.name != "app.py":
+                lines.append(f"?? {target_name}/{p.name}\n")
+    return lines
+
+
+def _handle_git_status(call: ProcessCall) -> ProcessAnswer:
+    argv = call.argv
+    if "-C" in argv:
+        root = Path(argv[argv.index("-C") + 1]).resolve()
+    else:
+        root = Path(call.cwd or Path.cwd()).resolve()
+
+    target_names = argv[argv.index("--") + 1 :] if "--" in argv else []
+    dirty_lines: list[str] = []
+    for name in target_names:
+        dirty_lines.extend(_target_dirty_lines(root, name))
+    return ProcessAnswer(stdout="".join(dirty_lines))
+
+
+def _handle_tool_executor_git(call: ProcessCall) -> ProcessAnswer:
+    argv = call.argv
+    if "--version" in argv:
+        return ProcessAnswer(stdout="git version 2.43.0\n")
+    if "rev-parse" in argv:
+        return _handle_git_rev_parse(call)
+    if "hash-object" in argv:
+        return ProcessAnswer(stdout="e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n")
+    if "var" in argv and "GIT_AUTHOR_IDENT" in argv:
+        env = call.env or {}
+        name = env.get("GIT_AUTHOR_NAME", "Review Tool")
+        email = env.get("GIT_AUTHOR_EMAIL", "tool@example.com")
+        return ProcessAnswer(stdout=f"{name} <{email}> 1234567890 +0000\n")
+    if "status" in argv:
+        return _handle_git_status(call)
+    return ProcessAnswer()
+
+
+def _handle_tool_executor_other(call: ProcessCall) -> ProcessAnswer:
+    res = subprocess.run(
+        call.argv,
+        input=call.stdin if isinstance(call.stdin, str) else None,
+        cwd=call.cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=call.timeout,
+    )
+    return ProcessAnswer(returncode=res.returncode, stdout=res.stdout, stderr=res.stderr)
+
+
+@pytest.fixture(autouse=True)
+def _answer_tool_executor_git(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and Path(call.argv[0]).name == "git"),
+        _handle_tool_executor_git,
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and Path(call.argv[0]).name != "git"),
+        _handle_tool_executor_other,
+    )
+
+
 @pytest.fixture
-def scenario(tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch) -> Scenario:
+def scenario(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scenario:
     """A one-commit git tree with a stand-in for the tool first on PATH."""
     tree = tmp_path / "tree"
     (tree / "src").mkdir(parents=True)
     (tree / "src" / "app.py").write_text("print('hello')\n", encoding="utf-8")
-    git(tree, "init", "--quiet")
-    git(tree, "add", ".")
-    git(tree, "commit", "--quiet", "-m", "first")
-    commit = subprocess.run(
-        ["git", "-C", str(tree), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-    ).stdout.strip()
+    (tree / ".git").mkdir(parents=True, exist_ok=True)
+    (tree / ".git" / "index").write_bytes(b"dummy_index_bytes\n")
+    commit = "1" * 40
 
     tools_dir = tmp_path / "tools"
     tools_dir.mkdir()
@@ -534,12 +638,12 @@ def test_reading_the_commit_does_not_write_to_the_tree(
 
 
 def test_a_checkout_without_a_commit_records_no_commit(
-    executor: ToolExecutor, scenario: Scenario, git: Callable[..., None], tmp_path: Path
+    executor: ToolExecutor, scenario: Scenario, tmp_path: Path
 ) -> None:
     """A fresh checkout holds no commit yet, so the record holds none."""
     fresh = tmp_path / "fresh"
     (fresh / "src").mkdir(parents=True)
-    git(fresh, "init", "--quiet")
+    (fresh / ".git").mkdir(parents=True, exist_ok=True)
     request = scenario.request().model_copy(update={"workdir": fresh, "targets": (fresh / "src",)})
 
     assert executor.run(request).run.commit is None
@@ -678,13 +782,13 @@ def _git_request(scenario: Scenario, *arguments: str, **fields: object) -> ToolR
 
 
 def test_the_direct_executor_starts_the_tool_with_the_arguments_in_the_directory_of_the_request(
-    scenario: Scenario, tmp_path: Path, git: Callable[..., None]
+    scenario: Scenario, tmp_path: Path
 ) -> None:
     """The tool gets the request's arguments, `{targets}` replaced by the paths of the targets. It
     starts in the directory the request names, and in the tree when there is none."""
     elsewhere = (tmp_path / "elsewhere").resolve()
     elsewhere.mkdir()
-    git(elsewhere, "init", "--quiet")
+    (elsewhere / ".git").mkdir(parents=True, exist_ok=True)
     show_toplevel = ("rev-parse", "--show-toplevel")
     direct = DirectToolExecutor()
 
@@ -1092,14 +1196,26 @@ def _running(marker: str) -> bool:
     return False
 
 
-def test_the_process_scan_sees_a_running_process(tmp_path: Path, git: Callable[..., None]) -> None:
+@pytest.mark.bwrap
+def test_the_process_scan_sees_a_running_process(tmp_path: Path) -> None:
     """The control for the next test: the scan finds a process while it runs and not after."""
     repo = tmp_path / "scan-marker"
     repo.mkdir()
-    git(repo, "init", "--quiet")
+    (repo / ".git").mkdir(parents=True, exist_ok=True)
     process = subprocess.Popen(
-        ["git", "-C", str(repo), "cat-file", "--batch"],
-        stdin=subprocess.PIPE,
+        [
+            "bwrap",
+            "--die-with-parent",
+            "--ro-bind",
+            "/",
+            "/",
+            "--bind",
+            str(repo),
+            str(repo),
+            "sleep",
+            "30",
+        ],
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

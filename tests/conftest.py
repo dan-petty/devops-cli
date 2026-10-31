@@ -898,14 +898,29 @@ def _missing_live_binary(item: pytest.Item) -> str | None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip live bubblewrap and `@pytest.mark.live(...)` tests where the binary is not installed (#832, #1310, #1337)."""
+    """Opt-in live bubblewrap tests and skip live tests where the binary is not installed (#832, #1310, #2143, #2149)."""
     from devops_cli.sandbox.host import HostSandbox
 
-    bwrap_available = HostSandbox().is_available()
-    skip_bwrap = pytest.mark.skip(reason="bubblewrap is not installed")
+    markexpr = config.getoption("-m", "")
+    if "bwrap" not in markexpr:
+        selected: list[pytest.Item] = []
+        deselected: list[pytest.Item] = []
+        for item in items:
+            if "bwrap" in item.keywords:
+                deselected.append(item)
+            else:
+                selected.append(item)
+        if deselected:
+            config.hook.pytest_deselected(items=deselected)
+            items[:] = selected
+    else:
+        bwrap_available = HostSandbox().is_available()
+        skip_bwrap = pytest.mark.skip(reason="bubblewrap is not installed")
+        for item in items:
+            if not bwrap_available and "bwrap" in item.keywords:
+                item.add_marker(skip_bwrap)
+
     for item in items:
-        if not bwrap_available and "bwrap" in item.keywords:
-            item.add_marker(skip_bwrap)
         missing = _missing_live_binary(item)
         if missing is not None:
             item.add_marker(pytest.mark.skip(reason=f"{missing} is not installed"))
