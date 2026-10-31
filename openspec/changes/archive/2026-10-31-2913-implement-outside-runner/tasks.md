@@ -18,7 +18,7 @@
 
 - [x] 3.1 Name the path in `k8s/README.md` and `docs/ROUTINE_TASKS.md`, and regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
-- [ ] 3.2 Archive the change
+- [x] 3.2 Archive the change
   - Verification: `uv run devops openspec archive 2913-implement-outside-runner`
 
 ## Workflow follow-up
