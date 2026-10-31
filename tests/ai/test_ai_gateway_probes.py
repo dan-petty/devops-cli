@@ -138,3 +138,8 @@ def test_probe_gateway_liveliness_and_models(stub_web: StubWeb) -> None:
     stub_web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 503, "Unavailable")
     with pytest.raises(ValidationError, match="not live"):
         probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)
+
+    stub_web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 200, {"status": "ok"})
+    stub_web.respond("GET", "http://192.0.2.10:4000/model/info", 403, "Forbidden")
+    with pytest.raises(ValidationError, match="rejected model info query"):
+        probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)

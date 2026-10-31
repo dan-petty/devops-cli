@@ -269,6 +269,14 @@ def test_baseline_management(run_env: Path, fake_index: FakeValkey) -> None:
         [b2.run_id, b1.run_id],
     )
 
+    assert find_baseline_run("nonexistent-subject-key") is None
+    from devops_cli.ai.run_store import announce_runs
+
+    announce_runs([])
+
+    ambig_res = cli.invoke(ai_runs.app, ["baseline", "show", rec1.run_id[:4]])
+    assert ambig_res.exit_code == 1
+
 
 def test_check_regression_verdicts() -> None:
     """Verify check_regression flags recall drops and resource increases exceeding tolerances."""

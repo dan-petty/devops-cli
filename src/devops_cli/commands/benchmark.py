@@ -106,12 +106,6 @@ def _execute_tasks_benchmark(*args: Any, **kwargs: Any) -> None:
     execute_tasks_benchmark(*args, **kwargs)
 
 
-def _record_benchmark(*args: Any, **kwargs: Any) -> None:
-    from devops_cli.ai.benchmark.execution import record_benchmark
-
-    record_benchmark(*args, **kwargs)
-
-
 @dry_run_class("request-plan")
 @app.callback(invoke_without_command=True)
 def run_benchmark(
