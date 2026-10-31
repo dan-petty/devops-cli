@@ -208,11 +208,11 @@ def test_tf_cost_diff_command_compare_to(tmp_path: Path) -> None:
 
 
 def test_tf_cost_command_dry_run(tmp_path: Path) -> None:
-    """Verify devops tf cost respects global dry run."""
+    """Verify devops tf cost respects global dry run and plans request."""
     with patch("devops_cli.commands.tf.is_dry_run", return_value=True):
         result = runner.invoke(app, ["cost", "breakdown", str(tmp_path)])
         assert result.exit_code == 0
-        assert "devops tf cost" in result.output
+        assert "infracost breakdown" in result.output
 
 
 def test_tf_cost_breakdown_mcp_tool(tmp_path: Path) -> None:

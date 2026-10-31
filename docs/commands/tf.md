@@ -146,7 +146,6 @@ devops tf validate [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--no-color` | `boolean` | - | Disable color codes. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -170,7 +169,6 @@ devops tf fmt [OPTIONS] <directory>
 |---|---|---|---|
 | `--check`, `-c` | `boolean` | - | Check formatting without writing files. |
 | `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -211,7 +209,6 @@ devops tf graph [OPTIONS] <directory>
 | `--resource`, `-r` | `string` | - | Resource address to compute blast radius for, e.g. aws_vpc.main. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -235,7 +232,6 @@ devops tf drift [OPTIONS] <directory>
 |---|---|---|---|
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -297,7 +293,6 @@ devops tf notify-plan [OPTIONS]
 |---|---|---|---|
 | `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file. |
 | `--pr` | `integer` | - | Pull Request number to post plan comment to. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 

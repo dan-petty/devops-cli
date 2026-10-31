@@ -159,7 +159,9 @@ def run_infracost_breakdown(
             install_hint="Install Infracost CLI or run with --mock for deterministic offline estimates.",
         )
 
-    cmd = ["infracost", "breakdown", "--path", str(target_dir), "--format", "json"]
+    from devops_cli.tf.tf_plans import build_infracost_breakdown_cmd
+
+    cmd = build_infracost_breakdown_cmd(target_dir)
     proc = run_subprocess(
         cmd,
         cwd=target_dir,
@@ -210,9 +212,9 @@ def run_infracost_diff(
             install_hint="Install Infracost CLI or run with --mock for deterministic offline estimates.",
         )
 
-    cmd = ["infracost", "diff", "--path", str(target_dir), "--format", "json"]
-    if compare_to:
-        cmd.extend(["--compare-to", str(compare_to)])
+    from devops_cli.tf.tf_plans import build_infracost_diff_cmd
+
+    cmd = build_infracost_diff_cmd(target_dir, compare_to=compare_to)
 
     proc = run_subprocess(
         cmd,

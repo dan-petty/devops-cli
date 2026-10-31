@@ -26,8 +26,15 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, main_worktree_root
 from devops_cli.core.validation import validate_dir
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.lang import HELP, MESSAGES
+from devops_cli.models.tf import (
+    TFCostBreakdownResult,
+    TFLintResult,
+    TFOutputResult,
+)
 from devops_cli.output import (
     format_tf_status_table,
     format_tflint_table,
@@ -40,6 +47,23 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
+from devops_cli.tf.tf_plans import (
+    build_tf_apply_cmd,
+    build_tf_deploy_cloud_cmds,
+    build_tf_destroy_cmd,
+    build_tf_init_cmd,
+    build_tf_output_cmd,
+    build_tf_plan_cmd,
+    plan_tf_apply,
+    plan_tf_cost_breakdown,
+    plan_tf_cost_diff,
+    plan_tf_deploy_cloud,
+    plan_tf_destroy,
+    plan_tf_init,
+    plan_tf_lint,
+    plan_tf_output,
+    plan_tf_plan,
+)
 
 app = new_typer(
     help=HELP.tf.app,
@@ -95,6 +119,7 @@ def _get_default_var_file(cloud_provider: str, repo_root: Path) -> Path | None:
 
 
 @app.command("init")
+@dry_run_class("request-plan")
 def tf_init(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     upgrade: Annotated[bool, typer.Option("--upgrade", "-u", help=HELP.tf.upgrade_modules)] = False,
@@ -104,22 +129,16 @@ def tf_init(
     """Initialize an OpenTofu working directory."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    cmd = build_tf_init_cmd(binary=binary, upgrade=upgrade, reconfigure=reconfigure)
 
-    cmd = [binary, "init"]
-    if upgrade:
-        cmd.append("-upgrade")
-    if reconfigure:
-        cmd.append("-reconfigure")
-
-    print_info(MESSAGES.tf.init_header.format(path=str(target)), prefix=False)
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(cmd),
-            action="init",
-            target=str(target),
+        render_request_plan(
+            f"Plan for initializing OpenTofu in {target}",
+            plan_tf_init(target, upgrade=upgrade, reconfigure=reconfigure, binary=binary),
         )
         return
 
+    print_info(MESSAGES.tf.init_header.format(path=str(target)), prefix=False)
     result = run_subprocess(
         cmd,
         cwd=target,
@@ -136,6 +155,7 @@ def tf_init(
 
 
 @app.command("plan")
+@dry_run_class("request-plan")
 def tf_plan(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     var_file: Annotated[
@@ -148,24 +168,16 @@ def tf_plan(
     """Generate and show an OpenTofu execution plan."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    cmd = build_tf_plan_cmd(binary=binary, var_file=var_file, out=out, destroy=destroy)
 
-    cmd = [binary, "plan"]
-    if var_file:
-        cmd.extend(["-var-file", str(var_file.resolve())])
-    if out:
-        cmd.extend(["-out", str(out.resolve())])
-    if destroy:
-        cmd.append("-destroy")
-
-    print_info(MESSAGES.tf.plan_header.format(path=str(target)), prefix=False)
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(cmd),
-            action="plan",
-            target=str(target),
+        render_request_plan(
+            f"Plan for OpenTofu execution plan in {target}",
+            plan_tf_plan(target, var_file=var_file, out=out, destroy=destroy, binary=binary),
         )
         return
 
+    print_info(MESSAGES.tf.plan_header.format(path=str(target)), prefix=False)
     result = run_subprocess(
         cmd,
         cwd=target,
@@ -182,6 +194,7 @@ def tf_plan(
 
 
 @app.command("apply")
+@dry_run_class("request-plan")
 def tf_apply(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     var_file: Annotated[
@@ -198,25 +211,27 @@ def tf_apply(
     """Create or update OpenTofu infrastructure."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    cmd = build_tf_apply_cmd(
+        binary=binary,
+        var_file=var_file,
+        plan_file=plan_file,
+        auto_approve=auto_approve,
+    )
 
-    cmd = [binary, "apply"]
-    if plan_file:
-        cmd.append(str(plan_file.resolve()))
-    else:
-        if var_file:
-            cmd.extend(["-var-file", str(var_file.resolve())])
-        if auto_approve:
-            cmd.append("-auto-approve")
-
-    print_info(MESSAGES.tf.apply_header.format(path=str(target)), prefix=False)
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(cmd),
-            action="apply",
-            target=str(target),
+        render_request_plan(
+            f"Plan for applying OpenTofu infrastructure in {target}",
+            plan_tf_apply(
+                target,
+                var_file=var_file,
+                plan_file=plan_file,
+                auto_approve=auto_approve,
+                binary=binary,
+            ),
         )
         return
 
+    print_info(MESSAGES.tf.apply_header.format(path=str(target)), prefix=False)
     result = run_subprocess(
         cmd,
         cwd=target,
@@ -233,6 +248,7 @@ def tf_apply(
 
 
 @app.command("destroy")
+@dry_run_class("request-plan")
 def tf_destroy(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     var_file: Annotated[
@@ -246,22 +262,16 @@ def tf_destroy(
     """Destroy OpenTofu-managed infrastructure."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    cmd = build_tf_destroy_cmd(binary=binary, var_file=var_file, auto_approve=auto_approve)
 
-    cmd = [binary, "destroy"]
-    if var_file:
-        cmd.extend(["-var-file", str(var_file.resolve())])
-    if auto_approve:
-        cmd.append("-auto-approve")
-
-    print_info(MESSAGES.tf.destroy_header.format(path=str(target)), prefix=False)
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(cmd),
-            action="destroy",
-            target=str(target),
+        render_request_plan(
+            f"Plan for destroying OpenTofu infrastructure in {target}",
+            plan_tf_destroy(target, var_file=var_file, auto_approve=auto_approve, binary=binary),
         )
         return
 
+    print_info(MESSAGES.tf.destroy_header.format(path=str(target)), prefix=False)
     result = run_subprocess(
         cmd,
         cwd=target,
@@ -278,6 +288,7 @@ def tf_destroy(
 
 
 @app.command("output")
+@dry_run_class("request-plan")
 def tf_output(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     json_output: Annotated[
@@ -294,19 +305,22 @@ def tf_output(
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
     resolved_format = resolve_format(output_format, json_output=json_output)
-
-    cmd = [binary, "output"]
-    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
-        cmd.append("-json")
-    elif raw:
-        cmd.append("-raw")
+    is_json = resolved_format != CONST_OUTPUT_FORMAT_TABLE
+    cmd = build_tf_output_cmd(binary=binary, json_mode=is_json, raw=raw)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(cmd),
-            action="output",
-            target=str(target),
-        )
+        requests = plan_tf_output(target, json_mode=is_json, raw=raw, binary=binary)
+        if is_json:
+            res = TFOutputResult(
+                directory=str(target),
+                outputs={},
+                success=True,
+                dry_run=True,
+                requests=[r.__dict__ for r in requests],
+            )
+            emit_serialized(res.model_dump(), resolved_format)
+            return
+        render_request_plan(f"Plan for OpenTofu output in {target}", requests)
         return
 
     result = run_subprocess(
@@ -333,28 +347,20 @@ def tf_output(
 
 
 @app.command("validate")
+@dry_run_class("no-external-request")
 def tf_validate(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     no_color: Annotated[bool, typer.Option("--no-color", help=HELP.tf.no_color)] = False,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Validate the OpenTofu configuration files in a directory."""
     target = validate_dir(directory)
-    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    binary = _resolve_tf_binary()
 
     cmd = [binary, "validate"]
     if no_color:
         cmd.append("-no-color")
 
     print_info(MESSAGES.tf.validate_header.format(path=str(target)), prefix=False)
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(cmd),
-            action="validate",
-            target=str(target),
-        )
-        return
-
     result = run_subprocess(
         cmd,
         cwd=target,
@@ -371,17 +377,17 @@ def tf_validate(
 
 
 @app.command("fmt")
+@dry_run_class("no-external-request")
 def tf_fmt(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     check: Annotated[bool, typer.Option("--check", "-c", help=HELP.tf.check_fmt)] = False,
     recursive: Annotated[
         bool, typer.Option("--recursive", "-r", help=HELP.tf.recursive_fmt)
     ] = True,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Rewrites OpenTofu configuration files to canonical format."""
     target = validate_dir(directory)
-    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    binary = _resolve_tf_binary()
 
     cmd = [binary, "fmt"]
     if check:
@@ -390,14 +396,6 @@ def tf_fmt(
         cmd.append("-recursive")
 
     print_info(MESSAGES.tf.fmt_header.format(path=str(target)), prefix=False)
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(cmd),
-            action="fmt",
-            target=str(target),
-        )
-        return
-
     result = run_subprocess(
         cmd,
         cwd=target,
@@ -414,6 +412,7 @@ def tf_fmt(
 
 
 @app.command(name="status")
+@dry_run_class("no-external-request")
 def status_command(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
 ) -> None:
@@ -463,6 +462,7 @@ def _report_parse_failures(config: Any) -> None:
 
 
 @app.command("graph")
+@dry_run_class("no-external-request")
 def tf_graph(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     resource: Annotated[
@@ -473,7 +473,6 @@ def tf_graph(
         str,
         typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
     ] = DEFAULT_TABLE_FORMAT,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Inspect the in-memory resource dependency graph and blast radius."""
     from devops_cli.tf.analysis import (
@@ -484,15 +483,6 @@ def tf_graph(
 
     resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops tf graph {directory}",
-            action="analyze_iac_dependency_graph",
-            target=str(target),
-            details={"resource": resource},
-        )
-        return
-
     config = parse_hcl_directory(target)
     graph = build_dependency_graph(config)
 
@@ -581,6 +571,7 @@ def _emit_state_unavailable(config: Any, resolved_format: str) -> None:
 
 
 @app.command("drift")
+@dry_run_class("no-external-request")
 def tf_drift(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
@@ -588,7 +579,6 @@ def tf_drift(
         str,
         typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
     ] = DEFAULT_TABLE_FORMAT,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Compare declared configuration against recorded state."""
     from devops_cli.tf.analysis import (
@@ -601,14 +591,6 @@ def tf_drift(
 
     resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops tf drift {directory}",
-            action="detect_iac_configuration_drift",
-            target=str(target),
-        )
-        return
-
     config = parse_hcl_directory(target)
 
     if not is_directory_initialized(target):
@@ -694,6 +676,7 @@ def _confirm_deploy_without_checkout_state(
 
 
 @app.command(name="deploy-cloud")
+@dry_run_class("request-plan")
 def deploy_cloud(
     provider: Annotated[str, typer.Option("--provider", "-p", help=HELP.options.provider)],
     auto_approve: Annotated[
@@ -718,37 +701,34 @@ def deploy_cloud(
         prefix=False,
     )
 
-    # Step 1: Init
-    init_cmd = [binary, "init"]
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(init_cmd),
-            action="init",
-            target=str(cloud_dir),
+        requests = plan_tf_deploy_cloud(
+            cloud_dir=cloud_dir,
+            resolved_var_file=resolved_var_file,
+            auto_approve=auto_approve,
+            binary=binary,
         )
-    else:
-        run_subprocess(
-            init_cmd,
-            cwd=cloud_dir,
-            check=True,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-
-    # Step 2: Apply
-    apply_cmd = [binary, "apply"]
-    if resolved_var_file and resolved_var_file.exists():
-        apply_cmd.extend(["-var-file", str(resolved_var_file.resolve())])
-    if auto_approve:
-        apply_cmd.append("-auto-approve")
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=" ".join(apply_cmd),
-            action="apply",
-            target=str(cloud_dir),
+        render_request_plan(
+            f"Plan for deploying cloud infrastructure ({provider.upper()}) in {cloud_dir}",
+            requests,
         )
         return
 
+    init_cmd, apply_cmd = build_tf_deploy_cloud_cmds(
+        binary=binary,
+        resolved_var_file=resolved_var_file,
+        auto_approve=auto_approve,
+    )
+
+    # Step 1: Init
+    run_subprocess(
+        init_cmd,
+        cwd=cloud_dir,
+        check=True,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+    # Step 2: Apply
     run_subprocess(
         apply_cmd,
         cwd=cloud_dir,
@@ -760,6 +740,7 @@ def deploy_cloud(
 
 
 @app.command("lint")
+@dry_run_class("request-plan")
 def tf_lint(
     directory: Annotated[
         Path,
@@ -788,12 +769,20 @@ def tf_lint(
 
     resolved_format = resolve_format(output_format, json_output=json_output)
     target_dir = directory.resolve()
-    if dry_run:
-        render_dry_run_result(
-            command=f"devops tf lint {directory}",
-            action="tflint",
-            target=str(target_dir),
-        )
+    if dry_run or is_dry_run():
+        requests = plan_tf_lint(target_dir, config=config)
+        if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+            res = TFLintResult(
+                directory=str(target_dir),
+                passed=True,
+                issues_count=0,
+                issues=[],
+                dry_run=True,
+                requests=[r.__dict__ for r in requests],
+            )
+            emit_serialized(res.model_dump(), resolved_format)
+            return
+        render_request_plan(f"Plan for TFLint scan on {target_dir}", requests)
         return
 
     if resolved_format == CONST_OUTPUT_FORMAT_TABLE:
@@ -824,6 +813,7 @@ def tf_lint(
 
 
 @app.command("notify-plan")
+@dry_run_class("no-external-request")
 def tf_notify_plan(
     plan_file: Annotated[
         Path | None,
@@ -833,10 +823,6 @@ def tf_notify_plan(
         int | None,
         typer.Option("--pr", help=HELP.tf.pr),
     ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -847,8 +833,6 @@ def tf_notify_plan(
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
     """Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments."""
-    from devops_cli.dry_run import is_dry_run
-
     resolved_format = resolve_format(output_format, json_output=json_output)
     raw_text = ""
     if plan_file and plan_file.exists():
@@ -871,14 +855,6 @@ def tf_notify_plan(
 
 </details>
 """
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops tf notify-plan",
-            action="post_tf_pr_comment",
-            target=str(pr_number) if pr_number else "stdout",
-        )
-        return
-
     if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
         payload = {
             "pr": pr_number,
@@ -908,6 +884,7 @@ app.add_typer(cost_app, name="cost")
 
 
 @cost_app.command("breakdown")
+@dry_run_class("request-plan")
 def tf_cost_breakdown(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     mock: Annotated[
@@ -932,11 +909,21 @@ def tf_cost_breakdown(
     resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops tf cost breakdown {target}",
-            action="cost_breakdown",
-            target=str(target),
-        )
+        requests = plan_tf_cost_breakdown(target)
+        if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+            res = TFCostBreakdownResult(
+                directory=str(target),
+                currency="USD",
+                total_hourly_cost=0.0,
+                total_monthly_cost=0.0,
+                resources=[],
+                source="dry-run",
+                dry_run=True,
+                requests=[r.__dict__ for r in requests],
+            )
+            emit_serialized(res.model_dump(), resolved_format)
+            return
+        render_request_plan(f"Plan for Infracost breakdown in {target}", requests)
         return
 
     result = run_infracost_breakdown(target, offline_mock=mock)
@@ -955,6 +942,7 @@ def tf_cost_breakdown(
 
 
 @cost_app.command("diff")
+@dry_run_class("request-plan")
 def tf_cost_diff(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     compare_to: Annotated[
@@ -985,11 +973,23 @@ def tf_cost_diff(
     resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops tf cost diff {target}",
-            action="cost_diff",
-            target=str(target),
-        )
+        requests = plan_tf_cost_diff(target, compare_to=compare_to)
+        if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+            res = TFCostBreakdownResult(
+                directory=str(target),
+                currency="USD",
+                total_hourly_cost=0.0,
+                total_monthly_cost=0.0,
+                past_monthly_cost=0.0,
+                diff_monthly_cost=0.0,
+                resources=[],
+                source="dry-run",
+                dry_run=True,
+                requests=[r.__dict__ for r in requests],
+            )
+            emit_serialized(res.model_dump(), resolved_format)
+            return
+        render_request_plan(f"Plan for Infracost diff in {target}", requests)
         return
 
     result = run_infracost_diff(target, compare_to=compare_to, offline_mock=mock)
