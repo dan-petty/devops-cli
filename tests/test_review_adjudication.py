@@ -23,9 +23,11 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
 from devops_cli.ai.review.history import load_review_history, review_subject
+from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.commands import review as review_cli
 from devops_cli.commands.review import app
+from devops_cli.review.state import FindingState
 
 runner = CliRunner()
 
@@ -573,3 +575,61 @@ def test_a_stored_agent_verdict_leaves_history_ranking_alone(
     counted = load_review_history(reviews).counted
 
     assert tuple(s.path.name for s in counted) == ("20261001-100000",)
+
+
+def test_apply_verdict_sets_confirmed_state_for_human_verdict() -> None:
+    """VERIFIED and MITIGATED verdicts from a person set CONFIRMED state on findings with fingerprint v2."""
+    fp_v2 = "a" * 64
+    f = _finding("Hardcoded Secret", 10).model_copy(update={"fingerprint": fp_v2})
+    assert f.state == FindingState.OPEN
+    assert f.confirmed_by is None
+
+    # VERIFIED by human confirms
+    apply_verdict(f, "VERIFIED", by="human")
+    assert f.state == FindingState.CONFIRMED
+    assert f.confirmed_by == "human"
+
+    # INVALIDATED by human moves back to OPEN and clears confirmed_by
+    apply_verdict(f, "INVALIDATED", by="human", reason="False positive")
+    assert f.state == FindingState.OPEN
+    assert f.confirmed_by is None
+
+    # MITIGATED by human also confirms
+    apply_verdict(f, "MITIGATED", by="human", reason="Protected by firewall")
+    assert f.state == FindingState.CONFIRMED
+    assert f.confirmed_by == "human"
+
+    # UNVERIFIED clears to OPEN
+    apply_verdict(f, "UNVERIFIED", by=None)
+    assert f.state == FindingState.OPEN
+    assert f.confirmed_by is None
+
+
+def test_verify_command_persists_confirmed_state_in_session_files(
+    isolate_data_dir: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """devops review verify sets CONFIRMED and confirmed_by='human' in findings.json and candidates.json."""
+    reviews = isolate_data_dir / "reviews"
+    fp_v2 = "b" * 64
+    candidate = _finding("Open token leak", 4).model_copy(update={"fingerprint": fp_v2})
+    session = write_review_session(
+        reviews / "20261001-090000",
+        generated_at=_OLDER,
+        subject=_SUBJECT,
+        findings=[candidate],
+        candidates=[candidate],
+    )
+
+    res = runner.invoke(
+        app,
+        ["verify", session.name, "--index", "1", "--status", "VERIFIED", "--reason", "Real leak"],
+    )
+    assert res.exit_code == 0
+
+    findings = _saved(session / "findings.json")
+    candidates = _saved(session / "candidates.json")
+
+    assert findings[0].state == FindingState.CONFIRMED
+    assert findings[0].confirmed_by == "human"
+    assert candidates[0].state == FindingState.CONFIRMED
+    assert candidates[0].confirmed_by == "human"
