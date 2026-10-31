@@ -2354,6 +2354,7 @@ class RoadmapMessages:
     )
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
+    stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
     stage_plain_note: str = (
         "Stage without a mode flag runs as --plan: it reads GitHub and calls the model, and "
         "writes nothing. --dry-run makes no request."

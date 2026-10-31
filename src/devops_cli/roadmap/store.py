@@ -174,7 +174,9 @@ class StageRecordKey(StrEnum):
     """What the stage job records in an Item's job record (#2654): the staged branch, the number
     of its draft pull request, the commit it ends on, the task groups with their measures in
     tokens, the task group over the budget that stopped the item, which a person decides, and the
-    file cap in tokens of the measure that made the stop: a stop under another cap is stale."""
+    file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
+    Service records `stage.ready`, the number of the draft pull request that it has seen leave the
+    draft state (#2865)."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -182,6 +184,7 @@ class StageRecordKey(StrEnum):
     GROUPS = "stage.groups"
     NEEDS_SPLIT = "stage.needs_split"
     FILE_CAP = "stage.file_cap"
+    READY = "stage.ready"
 
 
 class ImplementRecordKey(StrEnum):

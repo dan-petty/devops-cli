@@ -9,9 +9,9 @@
 
 ## 2. The decision and the round
 
-- [ ] 2.1 Write failing tests in `tests/roadmap/test_roadmap_stage_ready.py` for the scenarios of the requirement "The Service marks a green stage pull request ready": a green draft is marked once, a failed, a running and an absent check keep the draft, a draft of a person is never read, a second round sends no request, a pull request that left the draft state is only recorded, no recorded draft sends no request, an item with `implement.job` is left alone, one failed item does not stop the other, and no request goes to the commit status endpoint
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_stage_ready.py` for the scenarios of the requirement "The Service marks a green stage pull request ready": a green draft is marked once, a failed, a running and an absent check keep the draft, a draft of a person is never read, a second round sends no request, a pull request that left the draft state is only recorded, no recorded draft sends no request, an item with `implement.job` is left alone, one failed item does not stop the other, and no request goes to the commit status endpoint
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_ready.py`
-- [ ] 2.2 Add `StageRecordKey.READY`, make `write_each` of `stage.py` public, and write `src/devops_cli/roadmap/stage_ready.py` with `ready_to_mark` and `mark_stage_ready`
+- [x] 2.2 Add `StageRecordKey.READY`, make `write_each` of `stage.py` public, and write `src/devops_cli/roadmap/stage_ready.py` with `ready_to_mark` and `mark_stage_ready`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_ready.py tests/roadmap/test_roadmap_stage_apply.py`
 
 ## 3. The row
