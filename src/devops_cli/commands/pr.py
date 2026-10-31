@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import time
@@ -57,6 +58,33 @@ from devops_cli.github.pr_monitor import (
     PRMonitorResult,
     fetch_pr_details,
     sort_prs_oldest_first,
+)
+from devops_cli.github.pr_plans import (
+    merged_prs_payload_args,
+    plan_pr_check_readiness,
+    plan_pr_checks,
+    plan_pr_close,
+    plan_pr_create,
+    plan_pr_diff,
+    plan_pr_edit,
+    plan_pr_hardening_report,
+    plan_pr_list,
+    plan_pr_monitor,
+    plan_pr_ready,
+    plan_pr_threads_list,
+    plan_pr_threads_reply,
+    plan_pr_threads_resolve,
+    plan_pr_threads_resolve_all,
+    plan_pr_threads_unresolve,
+    plan_pr_view,
+    pr_close_args,
+    pr_create_args,
+    pr_diff_args,
+    pr_edit_args,
+    pr_list_args,
+    pr_ready_args,
+    pr_view_args,
+    pr_view_payload_args,
 )
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import HELP, MESSAGES
@@ -197,6 +225,7 @@ def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) ->
 
 
 @app.command("list")
+@dry_run_class("request-plan")
 def list_prs(
     state: Annotated[
         str,
@@ -210,22 +239,18 @@ def list_prs(
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List pull requests with base targeting and review status."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_list(state, limit, repo)
+        render_request_plan("Planned requests for devops pr list:", plan)
+        return
     _require_gh_cli()
-    cmd = [
-        CONST_GH_CLI,
-        "pr",
-        "list",
-        "--state",
-        state,
-        "--limit",
-        str(limit),
-        "--json",
-        "number,title,state,headRefName,baseRefName,author,updatedAt,url",
-    ]
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = pr_list_args(state, limit, repo)
 
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
@@ -370,20 +395,27 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
 
 
 @app.command("view")
+@dry_run_class("request-plan")
 def view_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """View details of a pull request."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_view(number, repo)
+        render_request_plan("Planned requests for devops pr view:", plan)
+        return
     _require_gh_cli()
     from devops_cli.security.sanitizer import mask_secrets
 
-    cmd = [CONST_GH_CLI, "pr", "view", str(number)]
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = pr_view_args(number, repo)
     res = run_gh(cmd, check=False)
     if res.stdout:
         typer.echo(mask_secrets(res.stdout.rstrip()))
@@ -399,14 +431,23 @@ def view_pr(
 
 
 @app.command("checks")
+@dry_run_class("request-plan")
 def pr_checks(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_checks(number, repo)
+        render_request_plan("Planned requests for devops pr checks:", plan)
+        return
     _require_gh_cli()
     from devops_cli.github.check_verdict import fetch_pr_check_verdicts
 
@@ -588,8 +629,41 @@ def _emit_structured_monitor_result(output_format: str, result: Any, pr_number: 
         raise typer.Exit(result.exit_code)
 
 
+def _handle_monitor_dry_run(
+    number: int | None,
+    interval: int,
+    timeout: int,
+    require_reviews: bool,
+    repo: str | None,
+    output_format: str,
+) -> None:
+    """Emit dry-run plan or structured JSON for pr monitor and wait."""
+    target_repo = _target_repo(repo)
+    plan = plan_pr_monitor(
+        number,
+        interval=interval,
+        timeout=timeout,
+        require_reviews=require_reviews,
+        repo=target_repo,
+    )
+    if output_format.lower() == "json":
+        from devops_cli.output import print as print_out
+
+        payload = {
+            "dry_run": True,
+            "success": True,
+            "exit_code": 0,
+            "message": "Dry-run monitor requests",
+            "requests": [dataclasses.asdict(req) for req in plan],
+        }
+        print_out(json.dumps(payload, indent=2))
+        return
+    render_request_plan("Planned requests for devops pr monitor:", plan)
+
+
 @app.command("monitor")
 @app.command("wait")
+@dry_run_class("request-plan")
 def monitor_pr_command(
     number: Annotated[
         int | None,
@@ -619,6 +693,10 @@ def monitor_pr_command(
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Wait until the checks of a PR settle, then name every blocker of its merge.
 
@@ -627,6 +705,9 @@ def monitor_pr_command(
     approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
     be read; 2: another blocker; 3: the timeout passed first.
     """
+    if dry_run or is_dry_run():
+        _handle_monitor_dry_run(number, interval, timeout, require_reviews, repo, output_format)
+        return
     _require_gh_cli()
     from devops_cli.github.pr_monitor import monitor_pr
 
@@ -729,6 +810,7 @@ def _fallback_patch_pr(
 
 
 @app.command("edit")
+@dry_run_class("request-plan")
 def edit_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     base: Annotated[
@@ -751,25 +833,29 @@ def edit_pr(
         str | None,
         typer.Option("--milestone", "-m", help=HELP.pr.edit_milestone),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Edit pull request base branch, title, body, or milestone."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_edit(
+            number,
+            base=base,
+            title=title,
+            body=body,
+            repo=repo,
+            milestone=milestone,
+        )
+        render_request_plan("Planned requests for devops pr edit:", plan)
+        return
     _require_gh_cli()
     if not any([title, body, base, milestone]):
         print_warning("No changes specified. Use --title, --body, --base, or --milestone.")
         return
 
-    cmd = [CONST_GH_CLI, "pr", "edit", str(number)]
-    if base:
-        cmd.extend(["--base", base])
-    if title:
-        cmd.extend(["--title", title])
-    if body:
-        cmd.extend(["--body", body])
-    if repo:
-        cmd.extend(["--repo", repo])
-    if milestone:
-        cmd.extend(["--milestone", milestone])
-
+    cmd = pr_edit_args(number, base, title, body, repo, milestone)
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
         if _fallback_patch_pr(number, base, title, body, repo, milestone=milestone):
@@ -1005,6 +1091,7 @@ def _finish_created_pr(repo: str | None, number: int, title: str, base: str | No
 
 
 @app.command("create")
+@dry_run_class("request-plan")
 def create_pr(
     title: Annotated[str, typer.Option("--title", "-t", help=HELP.options.title)],
     body: Annotated[str, typer.Option("--body", "-b", help=HELP.options.body)] = "",
@@ -1016,6 +1103,10 @@ def create_pr(
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Open a draft pull request, into the default branch unless --base names another.
 
@@ -1024,12 +1115,17 @@ def create_pr(
     adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
     and scope/ai. A scope that .github/labels.yml does not declare gets no label and a warning.
     """
+    if dry_run or is_dry_run():
+        target = _target_repo(repo)
+        plan = plan_pr_create(title=title, body=body, base=base, repo=target)
+        render_request_plan(
+            MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base),
+            plan,
+            (MESSAGES.dry_run.placeholders_note,),
+        )
+        return
     _require_gh_cli()
-    cmd = [CONST_GH_CLI, "pr", "create", "--draft", "--title", title, "--body", body]
-    if base:
-        cmd.extend(["--base", base])
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = pr_create_args(title, body, base, repo)
 
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
@@ -1121,6 +1217,7 @@ def _read_pr_to_ready(number: int, owner: str, repo_name: str, force: bool) -> d
 
 
 @app.command("ready")
+@dry_run_class("request-plan")
 def ready_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     repo: Annotated[
@@ -1137,6 +1234,10 @@ def ready_pr(
             "--force", "-f", help="Bypass failing check verification and force ready status"
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Mark a draft pull request as ready for review once its checks pass.
 
@@ -1144,6 +1245,10 @@ def ready_pr(
     blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
     sets the Status of the roadmap item the pull request closes to In Review.
     """
+    if dry_run or is_dry_run():
+        plan = plan_pr_ready(number, repo=repo)
+        render_request_plan("Planned requests for devops pr ready:", plan)
+        return
     _require_gh_cli()
     owner, repo_name = _split_target_repo(repo)
     if not owner:
@@ -1159,9 +1264,7 @@ def ready_pr(
     if not force:
         _validate_pr_ready(number, owner, repo_name, pr_data)
 
-    cmd = [CONST_GH_CLI, "pr", "ready", str(number)]
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = pr_ready_args(number, repo)
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
         _handle_pr_ready_failure(res.stderr, number)
@@ -1180,6 +1283,7 @@ def ready_pr(
 
 
 @app.command("diff")
+@dry_run_class("request-plan")
 def diff_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     repo: Annotated[
@@ -1190,12 +1294,18 @@ def diff_pr(
         str,
         typer.Option("--color", help="Whether to colorize diff (always, never, auto)."),
     ] = "auto",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """View diff of a pull request."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_diff(number, color=color, repo=repo)
+        render_request_plan("Planned requests for devops pr diff:", plan)
+        return
     _require_gh_cli()
-    cmd = [CONST_GH_CLI, "pr", "diff", str(number), "--color", color]
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = pr_diff_args(number, color, repo)
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
@@ -1216,6 +1326,7 @@ def diff_pr(
 
 
 @app.command("close")
+@dry_run_class("request-plan")
 def close_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     comment: Annotated[
@@ -1230,16 +1341,18 @@ def close_pr(
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Close a pull request."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_close(number, comment=comment, delete_branch=delete_branch, repo=repo)
+        render_request_plan("Planned requests for devops pr close:", plan)
+        return
     _require_gh_cli()
-    cmd = [CONST_GH_CLI, "pr", "close", str(number)]
-    if comment:
-        cmd.extend(["--comment", comment])
-    if delete_branch:
-        cmd.append("--delete-branch")
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = pr_close_args(number, comment, delete_branch, repo)
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
@@ -1344,6 +1457,7 @@ def _emit_readiness_status(blockers: list[str], pr_num: int) -> None:
 
 
 @app.command("check-readiness")
+@dry_run_class("request-plan")
 def check_readiness(
     number: Annotated[
         int | None,
@@ -1382,6 +1496,10 @@ def check_readiness(
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
@@ -1392,6 +1510,11 @@ def check_readiness(
     writes for that issue's change. Only that archive writes openspec/specs/ and
     openspec/changes/archive/.
     """
+    if dry_run or is_dry_run():
+        target_repo = _target_repo(repo)
+        plan = plan_pr_check_readiness(number, auto_resolve=auto_resolve, repo=target_repo)
+        render_request_plan("Planned requests for devops pr check-readiness:", plan)
+        return
     owner, repo_name, pr_num = _resolve_readiness_target(repo, number)
     pr_data = fetch_pr_details(owner, repo_name, pr_num, runner=run_gh)
 
@@ -1710,10 +1833,7 @@ def update_pr(
 
 def _fetch_pr_view_payload(number: int, repo: str | None = None) -> dict[str, Any] | None:
     """Fetch PR metadata and files via gh pr view."""
-    cmd = [CONST_GH_CLI, "pr", "view", str(number)]
-    if repo:
-        cmd.extend(["--repo", repo])
-    cmd.extend(["--json", "number,title,labels,files,state,mergedAt"])
+    cmd = pr_view_payload_args(number, repo)
     res = run_gh(cmd, check=False)
     if res.returncode != 0 or not res.stdout.strip():
         return None
@@ -1726,19 +1846,7 @@ def _fetch_pr_view_payload(number: int, repo: str | None = None) -> dict[str, An
 
 def _fetch_merged_prs_payload(limit: int, repo: str | None = None) -> list[dict[str, Any]]:
     """Fetch recent merged pull requests including file data."""
-    cmd = [
-        CONST_GH_CLI,
-        "pr",
-        "list",
-        "--state",
-        "merged",
-        "--limit",
-        str(limit),
-        "--json",
-        "number,title,labels,files",
-    ]
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = merged_prs_payload_args(limit, repo)
     res = run_gh(cmd, check=False)
     if res.returncode != 0 or not res.stdout.strip():
         return []
@@ -1901,6 +2009,7 @@ def _audit_all_defect_prs(
 
 
 @app.command("hardening-report", help=HELP.pr.hardening_report)
+@dry_run_class("request-plan")
 def hardening_report_cmd(
     pr: Annotated[int | None, typer.Option("--pr", help=HELP.pr.hardening_report_pr)] = None,
     fail_on_missing: Annotated[
@@ -1913,8 +2022,26 @@ def hardening_report_cmd(
     output_format: Annotated[
         str, typer.Option("--format", "-f", help="Output format (table, json)")
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit merged defect pull requests for guardrail additions to declared hardening surfaces."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_hardening_report(pr=pr, limit=limit, repo=repo)
+        if output_format.lower() == "json":
+            from devops_cli.output import print as print_out
+
+            payload = {
+                "dry_run": True,
+                "audits": [],
+                "requests": [dataclasses.asdict(req) for req in plan],
+            }
+            print_out(json.dumps(payload, indent=2))
+            return
+        render_request_plan("Planned requests for devops pr hardening-report:", plan)
+        return
     if pr is not None:
         _audit_single_pr(
             pr, repo=repo, output_format=output_format, fail_on_missing=fail_on_missing
@@ -1937,6 +2064,7 @@ app.add_typer(threads_app, name="threads")
 
 
 @threads_app.command("list")
+@dry_run_class("request-plan")
 def list_threads(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
@@ -1948,8 +2076,27 @@ def list_threads(
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List PR review discussion threads, file locations, and comments."""
+    if dry_run or is_dry_run():
+        target_repo = _target_repo(repo)
+        plan = plan_pr_threads_list(number, unresolved_only=unresolved_only, repo=target_repo)
+        if output_format.lower() == "json":
+            from devops_cli.output import print as print_out
+
+            payload = {
+                "dry_run": True,
+                "threads": [],
+                "requests": [dataclasses.asdict(req) for req in plan],
+            }
+            print_out(json.dumps(payload, indent=2))
+            return
+        render_request_plan("Planned requests for devops pr threads list:", plan)
+        return
     from devops_cli.github.pr_threads import list_pr_review_threads
 
     target_repo = _target_repo(repo)
@@ -1984,11 +2131,20 @@ def list_threads(
 
 
 @threads_app.command("reply")
+@dry_run_class("request-plan")
 def reply_thread(
     thread_id: Annotated[str, typer.Argument(help=HELP.pr.thread_id)],
     body: Annotated[str, typer.Argument(help=HELP.pr.reply_body)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Post an in-thread reply to a PR review discussion thread."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_threads_reply(thread_id, body)
+        render_request_plan("Planned requests for devops pr threads reply:", plan)
+        return
     from devops_cli.github.pr_threads import reply_pr_review_thread
 
     comment = reply_pr_review_thread(thread_id, body)
@@ -2015,6 +2171,7 @@ def _validate_thread_reply_before_resolution(thread_id: str) -> None:
 
 
 @threads_app.command("resolve")
+@dry_run_class("request-plan")
 def resolve_threads(
     thread_ids: Annotated[list[str], typer.Argument(help=HELP.pr.thread_ids)],
     without_reply: Annotated[
@@ -2025,8 +2182,16 @@ def resolve_threads(
             help=HELP.pr.threads_without_reply,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Programmatically mark one or more PR review discussion threads as resolved."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_threads_resolve(thread_ids, without_reply=without_reply)
+        render_request_plan("Planned requests for devops pr threads resolve:", plan)
+        return
     from devops_cli.github.pr_threads import resolve_pr_review_thread
 
     if not without_reply:
@@ -2044,10 +2209,19 @@ def resolve_threads(
 
 
 @threads_app.command("unresolve")
+@dry_run_class("request-plan")
 def unresolve_thread(
     thread_id: Annotated[str, typer.Argument(help=HELP.pr.thread_id)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Reopen a previously resolved PR review discussion thread."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_threads_unresolve(thread_id)
+        render_request_plan("Planned requests for devops pr threads unresolve:", plan)
+        return
     from devops_cli.github.pr_threads import unresolve_pr_review_thread
 
     res = unresolve_pr_review_thread(thread_id)
@@ -2056,6 +2230,7 @@ def unresolve_thread(
 
 
 @threads_app.command("resolve-all")
+@dry_run_class("request-plan")
 def resolve_all_threads_cmd(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     only_replied: Annotated[
@@ -2063,8 +2238,17 @@ def resolve_all_threads_cmd(
         typer.Option("--only-replied/--all", help=HELP.pr.threads_only_replied),
     ] = True,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Resolve all or replied review discussion threads for a pull request."""
+    if dry_run or is_dry_run():
+        target_repo = _target_repo(repo)
+        plan = plan_pr_threads_resolve_all(number, only_replied=only_replied, repo=target_repo)
+        render_request_plan("Planned requests for devops pr threads resolve-all:", plan)
+        return
     from devops_cli.github.pr_threads import resolve_all_pr_review_threads
 
     target_repo = _target_repo(repo)

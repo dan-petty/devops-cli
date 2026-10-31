@@ -1468,6 +1468,7 @@ openspec/changes/archive/.
 | `auto_resolve` | `boolean` | No | `False` | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
 | `allow_replied_threads` | `boolean` | No | `False` | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_checks`
 
@@ -1481,6 +1482,7 @@ Check remote CI quality gate status on a pull request.
 |---|---|---|---|---|
 | `number` | `integer` | Yes | - | Pull request number. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_close`
 
@@ -1496,6 +1498,7 @@ Close a pull request.
 | `comment` | `string` | No | - | Comment text to include when closing the pull request. |
 | `delete_branch` | `boolean` | No | `False` | Delete remote topic branch upon closing. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_diff`
 
@@ -1510,6 +1513,7 @@ View diff of a pull request.
 | `number` | `integer` | Yes | - | Pull request number. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `color` | `string` | No | `auto` | Whether to colorize diff (always, never, auto). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_edit`
 
@@ -1527,6 +1531,7 @@ Edit pull request base branch, title, body, or milestone.
 | `body` | `string` | No | - | Set the new body. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `milestone` | `string` | No | - | Set the milestone for this pull request. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_list`
 
@@ -1541,6 +1546,7 @@ List pull requests with base targeting and review status.
 | `state` | `string` | No | `open` | Filter by state (open, closed, merged, all). |
 | `limit` | `integer` | No | `30` | Maximum number of items to return or display. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_monitor`
 
@@ -1564,6 +1570,7 @@ be read; 2: another blocker; 3: the timeout passed first.
 | `require_reviews` | `boolean` | No | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_ready`
 
@@ -1583,6 +1590,7 @@ sets the Status of the roadmap item the pull request closes to In Review.
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `monitor` | `boolean` | No | `False` | Automatically transition to monitoring checks and reviews after marking ready. |
 | `force` | `boolean` | No | `False` | Bypass failing check verification and force ready status |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_threads_list`
 
@@ -1598,6 +1606,7 @@ List PR review discussion threads, file locations, and comments.
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `unresolved_only` | `boolean` | No | `False` | Filter to display only unresolved review discussion threads. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_threads_reply`
 
@@ -1611,6 +1620,7 @@ Post an in-thread reply to a PR review discussion thread.
 |---|---|---|---|---|
 | `thread_id` | `string` | Yes | - | Review thread GraphQL ID (e.g. PRRT_...). |
 | `body` | `string` | Yes | - | Reply message text to append directly to the review thread. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_threads_resolve`
 
@@ -1624,6 +1634,7 @@ Programmatically mark one or more PR review discussion threads as resolved.
 |---|---|---|---|---|
 | `thread_ids` | `array[string]` | Yes | - | One or more review thread GraphQL IDs to resolve. |
 | `without_reply` | `boolean` | No | `False` | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `pr_update`
 

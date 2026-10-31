@@ -824,6 +824,7 @@ devops gh pr list [OPTIONS]
 | `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all). |
 | `--limit`, `-n` | `integer` | `30` | Maximum number of items to return or display. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr view`
 
@@ -844,6 +845,7 @@ devops gh pr view [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr checks`
 
@@ -864,6 +866,7 @@ devops gh pr checks [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr wait`
 
@@ -896,6 +899,7 @@ devops gh pr wait [OPTIONS] <number>
 | `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr monitor`
 
@@ -928,6 +932,7 @@ devops gh pr monitor [OPTIONS] <number>
 | `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr edit`
 
@@ -952,6 +957,7 @@ devops gh pr edit [OPTIONS] <number>
 | `--body`, `-b` | `string` | - | Set the new body. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr create`
 
@@ -976,6 +982,7 @@ devops gh pr create [OPTIONS]
 | `--body`, `-b` | `string` | `` | Body or description text. |
 | `--base`, `-B` | `string` | - | Base branch of the pull request; the repository's default branch when omitted. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr ready`
 
@@ -1004,6 +1011,7 @@ devops gh pr ready [OPTIONS] <number>
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
 | `--force`, `-f` | `boolean` | - | Bypass failing check verification and force ready status |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr diff`
 
@@ -1025,6 +1033,7 @@ devops gh pr diff [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--color` | `string` | `auto` | Whether to colorize diff (always, never, auto). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr close`
 
@@ -1047,6 +1056,7 @@ devops gh pr close [OPTIONS] <number>
 | `--comment`, `-c` | `string` | - | Comment text to include when closing the pull request. |
 | `--delete-branch`, `-d` | `boolean` | - | Delete remote topic branch upon closing. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr check-readiness`
 
@@ -1081,6 +1091,7 @@ devops gh pr check-readiness [OPTIONS] <number>
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
 | `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr update`
 
@@ -1124,6 +1135,7 @@ devops gh pr hardening-report [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
 | `--format`, `-f` | `string` | `table` | Output format (table, json) |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr threads`
 
@@ -1152,13 +1164,14 @@ devops gh pr threads list [OPTIONS] <number>
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--unresolved-only`, `-u` | `boolean` | - | Filter to display only unresolved review discussion threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops gh pr threads reply`
 
 **Post an in-thread reply to a PR review discussion thread.**
 
 ```bash
-devops gh pr threads reply <thread_id> <body>
+devops gh pr threads reply [OPTIONS] <thread_id> <body>
 ```
 
 **Arguments:**
@@ -1167,6 +1180,12 @@ devops gh pr threads reply <thread_id> <body>
 |---|---|---|---|
 | `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
 | `<body>` | `string` | Yes | Reply message text to append directly to the review thread. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops gh pr threads resolve`
 
@@ -1187,13 +1206,14 @@ devops gh pr threads resolve [OPTIONS] <thread_ids>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--without-reply`, `-w` | `boolean` | - | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops gh pr threads unresolve`
 
 **Reopen a previously resolved PR review discussion thread.**
 
 ```bash
-devops gh pr threads unresolve <thread_id>
+devops gh pr threads unresolve [OPTIONS] <thread_id>
 ```
 
 **Arguments:**
@@ -1201,6 +1221,12 @@ devops gh pr threads unresolve <thread_id>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops gh pr threads resolve-all`
 
@@ -1222,5 +1248,6 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 |---|---|---|---|
 | `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

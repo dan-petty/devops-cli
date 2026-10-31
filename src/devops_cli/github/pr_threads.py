@@ -254,6 +254,11 @@ def resolve_thread_args(thread_id: str) -> list[str]:
     return graphql_args(_MUTATION_RESOLVE_THREAD, {"threadId": thread_id})
 
 
+def unresolve_thread_args(thread_id: str) -> list[str]:
+    """The arguments that unresolve review thread `thread_id`."""
+    return graphql_args(_MUTATION_UNRESOLVE_THREAD, {"threadId": thread_id})
+
+
 def _author_login(raw: dict[str, Any]) -> str:
     """A comment's author login: GitHub's `ghost` for a deleted account, whose `author` is
     null; empty when the author was not read."""
@@ -393,10 +398,7 @@ def resolve_pr_review_thread(thread_id: str) -> ThreadResolutionResult:
 
 def unresolve_pr_review_thread(thread_id: str) -> ThreadResolutionResult:
     """Reopen a previously resolved PR review discussion thread."""
-    data = _run_graphql_query(
-        _MUTATION_UNRESOLVE_THREAD,
-        variables={"threadId": thread_id},
-    )
+    data = _run_graphql(unresolve_thread_args(thread_id))
     thread_data = data.get("data", {}).get("unresolveReviewThread", {}).get("thread", {})
     is_resolved = bool(thread_data.get("isResolved", False))
     return ThreadResolutionResult(thread_id=thread_id, is_resolved=is_resolved, success=True)
