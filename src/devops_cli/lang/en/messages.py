@@ -2314,7 +2314,7 @@ class RoadmapMessages:
     )
     implement_step_needs_item: str = "A step needs --item with --group."
     implement_step_job_options: str = (
-        "--filter, --plan and --confirm are options of the job. With --group, the command runs "
+        "--filter, --plan, --confirm and --why are options of the job. With --group, the command runs "
         "one step and takes only --item, --source, --format and --dry-run."
     )
     implement_job_plain_note: str = (

@@ -358,6 +358,7 @@ def stage_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.stage_dry_run)] = False,
     plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.stage_plan)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.stage_confirm)] = False,
+    why: Annotated[bool, typer.Option("--why", help=HELP.roadmap.stage_why)] = False,
 ) -> None:
     """Make Ready items Staged: a branch, an OpenSpec change in budgeted task groups, and a draft."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
@@ -393,6 +394,7 @@ def stage_cmd(
             item_number=item,
             limit=limit,
             step_tokens=step_tokens,
+            why=why,
         )
     write_stdout(render_stage_plan(plan) + "\n")
     failures = list(plan.failed)
@@ -536,6 +538,7 @@ def _implement_job(
     dry_run: bool,
     plan_only: bool,
     confirm: bool,
+    why: bool,
 ) -> None:
     """Take the Staged and Planned items that the filter names to a ready pull request."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
@@ -565,7 +568,13 @@ def _implement_job(
         _, store = _open_store(target)
         clone = source or model_clone(target)
         plan = plan_implement(
-            store, repo=target, source=clone, filters=parsed, item_number=item, limit=limit
+            store,
+            repo=target,
+            source=clone,
+            filters=parsed,
+            item_number=item,
+            limit=limit,
+            why=why,
         )
     write_stdout(render_implement_plan(plan) + "\n")
     if not confirm:
@@ -624,6 +633,7 @@ def implement_cmd(
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.implement_confirm)
     ] = False,
+    why: Annotated[bool, typer.Option("--why", help=HELP.roadmap.implement_why)] = False,
 ) -> None:
     """Run one task group of a Staged item's change (--group), or the job that implements items."""
     if group is None:
@@ -636,9 +646,10 @@ def implement_cmd(
             dry_run=dry_run,
             plan_only=plan_only,
             confirm=confirm,
+            why=why,
         )
         return
-    if filters or plan_only or confirm:
+    if filters or plan_only or confirm or why:
         _refuse(MESSAGES.roadmap.implement_step_job_options)
     from devops_cli.output.serialization import resolve_format
 

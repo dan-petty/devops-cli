@@ -1379,6 +1379,10 @@ class RoadmapCommandHelp:
         "Plan as --plan does, then run the items. It refuses unless roadmap.implement.in_runner "
         "is true."
     )
+    implement_why: str = (
+        "Also list the open items that the filter does not name, each with the family it "
+        "misses, under 'Matched no filter'. Without it, the plan does not list them."
+    )
     stage: str = (
         "Make Ready items Staged: for each item that a label filter names, make the branch "
         "<type>/<issue>-<slug> at the fetched default branch, write the OpenSpec change of the "
@@ -1430,6 +1434,10 @@ class RoadmapCommandHelp:
         "writes. This is the mode when no flag is given."
     )
     stage_confirm: str = "Plan as --plan does, then make the writes in git and on GitHub."
+    stage_why: str = (
+        "Also list the open items that the filter does not name, each with the family it "
+        "misses, under 'Matched no filter'. Without it, the plan does not list them."
+    )
     return_item: str = (
         "Return an item to New with an evidence comment, handing it back to refinement when it "
         "cannot be built as specified or needs a refactor beyond its scope. The item gets the "

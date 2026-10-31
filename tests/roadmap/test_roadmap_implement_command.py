@@ -243,6 +243,28 @@ def test_the_plan_names_an_item_that_the_job_leaves_out_with_its_reason(
     assert "A step stopped it at group 2." in " ".join(result.output.split())
 
 
+def test_why_lists_the_items_that_matched_no_filter_with_the_family_they_miss(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    result = _job(cli, job_world, "--plan", "--filter", "effort=high", "--why")
+
+    assert result.exit_code == 0, result.output
+    assert "## Matched no filter" in result.output
+    assert f"- #1 {TITLE}: The filter takes effort high. The item has effort low." in " ".join(
+        result.output.split()
+    )
+    assert "No item to implement." in result.output
+
+
+def test_without_why_the_plan_has_no_section_for_the_items_that_matched_no_filter(
+    cli: Callable[..., Any], job_world: JobWorld
+) -> None:
+    result = _job(cli, job_world, "--plan", "--filter", "effort=high")
+
+    assert result.exit_code == 0, result.output
+    assert "Matched no filter" not in result.output
+
+
 def test_confirm_outside_a_runner_exits_1_and_runs_nothing(
     cli: Callable[..., Any], job_world: JobWorld, config: Callable[..., Path]
 ) -> None:

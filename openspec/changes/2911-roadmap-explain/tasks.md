@@ -9,9 +9,9 @@
 
 ## 2. The plans list the items that matched no filter
 
-- [ ] 2.1 Write failing tests in `tests/roadmap/test_roadmap_stage_command.py` and `tests/roadmap/test_roadmap_implement_command.py` for the scenarios of "The plan lists the items that matched no filter when asked": with `--why`, without it, and the metric of skipped items
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_stage_command.py` and `tests/roadmap/test_roadmap_implement_command.py` for the scenarios of "The plan lists the items that matched no filter when asked": with `--why`, without it, and the metric of skipped items
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_command.py tests/roadmap/test_roadmap_implement_command.py`
-- [ ] 2.2 Add `unmatched` to `StagePlan` and `ImplementPlan`, `why` to `plan_stage` and `plan_implement`, the section "Matched no filter" to both renderers, and `--why` to both commands
+- [x] 2.2 Add `unmatched` to `StagePlan` and `ImplementPlan`, `why` to `plan_stage` and `plan_implement`, the section "Matched no filter" to both renderers, and `--why` to both commands
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_command.py tests/roadmap/test_roadmap_implement_command.py tests/roadmap/test_roadmap_stage_plan.py`
 
 ## 3. The command explain
