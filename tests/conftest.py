@@ -92,9 +92,10 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.mcp.generator": ("reset_click_command_cache",),
     "devops_cli.ai.mcp.server": ("reset_hydrated_domains",),
     "devops_cli.ai.personas": ("reset_persona_caches",),
-    "devops_cli.ai.rag.embeddings": ("reset_model_dimension_cache",),
+    "devops_cli.ai.rag.embeddings": ("reset_model_dimension_cache", "reset_embedder"),
     "devops_cli.ai.rag.investigator": ("clear_investigation_cache",),
     "devops_cli.ai.rag.kb_sync": ("reset_kb_sync_state",),
+    "devops_cli.ai.rag.qdrant": ("reset_qdrant_client",),
     "devops_cli.ai.rag.retriever": ("reset_search_verified_models",),
     "devops_cli.ai.response_cache": ("reset_llm_response_cache",),
     "devops_cli.ai.spend.ledger": ("reset_spend_ledger",),
@@ -137,6 +138,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.telemetry.tracer": ("clear_span_buffer", "remove_exporter", "reset_tracer"),
     "devops_cli.tools_lock": ("reset_tools_lock_cache",),
     "devops_cli.valkey.cache": ("reset_shared_cache_tier",),
+    "devops_cli.valkey.client": ("reset_valkey_client",),
 }
 
 
@@ -1455,6 +1457,49 @@ def docker_endpoint_env(
     yield write_context
     DockerEngineService.reset_instance()
     reset_settings_cache()
+
+
+@pytest.fixture
+def valkey(valkey_server: Any) -> Iterator[Any]:
+    """Install an in-memory Valkey client as the Valkey seam override, and return it."""
+    from devops_cli.valkey.client import install_valkey_client, reset_valkey_client
+    from tests.support.fakes.valkey import valkey_client_on
+
+    client = valkey_client_on(valkey_server)
+    install_valkey_client(client)
+    try:
+        yield client
+    finally:
+        reset_valkey_client()
+        client.close()
+
+
+@pytest.fixture
+def qdrant() -> Iterator[Any]:
+    """Install an in-memory FakeQdrantClient as the Qdrant seam override, and return it."""
+    from devops_cli.ai.rag.qdrant import install_qdrant_client, reset_qdrant_client
+    from tests.support.fakes.qdrant import FakeQdrantClient
+
+    fake = FakeQdrantClient()
+    install_qdrant_client(fake)
+    try:
+        yield fake
+    finally:
+        reset_qdrant_client()
+
+
+@pytest.fixture
+def embedder() -> Iterator[Any]:
+    """Install an in-memory FakeEmbedder as the embedder seam override, and return it."""
+    from devops_cli.ai.rag.embeddings import install_embedder, reset_embedder
+    from tests.support.fakes.embeddings import FakeEmbedder
+
+    fake = FakeEmbedder()
+    install_embedder(fake)
+    try:
+        yield fake
+    finally:
+        reset_embedder()
 
 
 # The garbage collector runs a young collection after each 2,000 net allocations, and the heap of

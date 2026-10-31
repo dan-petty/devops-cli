@@ -85,12 +85,13 @@ def _store(url: str) -> Any:
 
 def test_a_cluster_address_builds_a_proxied_client() -> None:
     """The defect this fixes: a cluster address was passed through as a plain URL."""
-    store = _store(CLUSTER_URL)
+    from devops_cli.ai.rag.qdrant import create_native_qdrant_client
+
     with (
         patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()),
         patch("devops_cli.ai.rag.qdrant.NativeQdrantClient") as native,
     ):
-        store._build_client()
+        create_native_qdrant_client(CLUSTER_URL)
 
     kwargs = native.call_args.kwargs
     assert (kwargs["url"], kwargs["prefix"]) == (
@@ -101,9 +102,10 @@ def test_a_cluster_address_builds_a_proxied_client() -> None:
 
 def test_a_direct_address_is_unchanged() -> None:
     """Direct addressing keeps working for a Qdrant that is not in a cluster."""
-    store = _store(DIRECT_URL)
+    from devops_cli.ai.rag.qdrant import create_native_qdrant_client
+
     with patch("devops_cli.ai.rag.qdrant.NativeQdrantClient") as native:
-        store._build_client()
+        create_native_qdrant_client(DIRECT_URL)
 
     kwargs = native.call_args.kwargs
     assert (kwargs["url"], "prefix" in kwargs) == (DIRECT_URL, False)
@@ -141,7 +143,7 @@ def test_the_liveness_check_uses_the_same_client_builder() -> None:
     A store that could list its collections still reported itself unreachable.
     """
     store = _store(CLUSTER_URL)
-    with patch.object(store, "_build_client") as builder:
+    with patch("devops_cli.ai.rag.qdrant.create_native_qdrant_client") as builder:
         builder.return_value.get_collections.return_value = MagicMock(collections=[])
         assert store.is_alive(force_check=True) is True
     builder.assert_called_once()
@@ -150,7 +152,9 @@ def test_the_liveness_check_uses_the_same_client_builder() -> None:
 def test_an_unreachable_store_reports_not_alive() -> None:
     """Liveness must still be able to say no."""
     store = _store(CLUSTER_URL)
-    with patch.object(store, "_build_client", side_effect=RuntimeError("refused")):
+    with patch(
+        "devops_cli.ai.rag.qdrant.create_native_qdrant_client", side_effect=RuntimeError("refused")
+    ):
         assert store.is_alive(force_check=True) is False
 
 

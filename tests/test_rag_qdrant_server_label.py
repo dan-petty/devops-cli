@@ -65,11 +65,9 @@ def test_the_label_names_the_server_by_host_and_port(url: str, label: str) -> No
 def test_the_client_log_line_of_list_collections_names_the_server_by_host_and_port(
     caplog: pytest.LogCaptureFixture, url: str
 ) -> None:
-    client = QdrantClient(url, allow_private_network=True, timeout=5.0)
     native = MagicMock()
     native.get_collections.side_effect = ConnectionError("Connection refused")
-    client._client = native
-    client._build_client = lambda: native
+    client = QdrantClient(url, client=native, allow_private_network=True, timeout=5.0)
 
     with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
         with pytest.raises(QdrantClientError, match="Connection refused"):

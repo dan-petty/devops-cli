@@ -1,0 +1,41 @@
+"""Deterministic embeddings fake for tests (#1317).
+
+Provides fixed-dimension deterministic vectors for given texts, records call history,
+and supports simulated provider errors.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import math
+
+from devops_cli.ai.rag.embeddings import EmbedderProtocol, EmbeddingsError
+
+
+def _deterministic_vector(text: str, dimension: int) -> list[float]:
+    """Generate a deterministic unit vector for a text."""
+    if dimension <= 0:
+        return []
+    # Seed with SHA-256 digest of text
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    raw = [float(digest[i % len(digest)] + 1) for i in range(dimension)]
+    norm = math.sqrt(sum(x * x for x in raw))
+    return [x / norm for x in raw] if norm > 0.0 else [1.0] + [0.0] * (dimension - 1)
+
+
+class FakeEmbedder(EmbedderProtocol):
+    """Deterministic in-memory embedder fake satisfying EmbedderProtocol."""
+
+    def __init__(self, dimension: int = 4, *, failing: bool = False) -> None:
+        self.dimension = dimension
+        self.failing = failing
+        self.calls: list[tuple[list[str], bool]] = []
+        self.recorded_texts: list[tuple[str, bool]] = []
+
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        if self.failing:
+            raise EmbeddingsError("Embedding provider error", is_transient=False)
+        self.calls.append((list(texts), is_query))
+        for t in texts:
+            self.recorded_texts.append((t, is_query))
+        return [_deterministic_vector(t, self.dimension) for t in texts]
