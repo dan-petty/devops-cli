@@ -30,6 +30,7 @@ from devops_cli.docker.engine import (
     project_container_stats,
 )
 from devops_cli.exceptions.docker import DockerDaemonUnavailableError, DockerEngineError
+from devops_cli.http.egress import EgressLevel
 from devops_cli.models.docker import EngineSecurityInfo
 from tests.support.fakes.docker_engine import UNREACHABLE_MESSAGE, DockerEngineFake, EngineCall
 
@@ -95,7 +96,7 @@ def test_resolve_host_validates_network_endpoints(docker_endpoint_env: Any) -> N
     engine = DockerEngineService()
     with (
         patch.dict(os.environ, {"DOCKER_HOST": "tcp://example.com:2375"}),
-        patch("devops_cli.core.validation.validate_service_url") as mock_validate,
+        patch("devops_cli.http.egress.vet_addresses") as mock_validate,
     ):
         endpoint = engine.resolve_host()
 
@@ -103,12 +104,12 @@ def test_resolve_host_validates_network_endpoints(docker_endpoint_env: Any) -> N
         endpoint.source,
         endpoint.raw,
         endpoint.base_url,
-        mock_validate.call_args[0][0],
+        mock_validate.call_args[0],
     ) == (
         "DOCKER_HOST",
         "tcp://example.com:2375",
         "http://example.com:2375",
-        "http://example.com:2375",
+        ("example.com", 2375, EgressLevel.PUBLIC),
     )
 
 
@@ -117,7 +118,7 @@ def test_resolve_host_leaves_unix_socket_unvalidated(docker_endpoint_env: Any) -
     engine = DockerEngineService()
     with (
         patch.dict(os.environ, {"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}),
-        patch("devops_cli.core.validation.validate_service_url") as mock_validate,
+        patch("devops_cli.http.egress.vet_addresses") as mock_validate,
     ):
         endpoint = engine.resolve_host()
 

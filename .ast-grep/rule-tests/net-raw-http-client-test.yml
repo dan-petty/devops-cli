@@ -1,0 +1,11 @@
+id: net-raw-http-client
+valid:
+  - 'client = new_http_client(level=EgressLevel.PUBLIC)'
+  - 'client = new_async_http_client(level=EgressLevel.CONFIGURED)'
+  - 'client = get_shared_client()'
+  - 'res = httpx2.Response(200)'
+invalid:
+  - 'client = httpx2.Client()'
+  - 'client = httpx2.AsyncClient(timeout=10)'
+  - 'res = httpx2.get("https://example.com")'
+  - 'res = httpx2.post("https://example.com", json=data)'

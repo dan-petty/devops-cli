@@ -37,9 +37,6 @@ def test_ai_subcommands_execution(
     unserved_side_channel_port: int,
 ) -> None:
     """Verify execution of devops ai config, test, models, and agents subcommands."""
-    monkeypatch.setattr(
-        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
-    )
     model_fake.answer("OK")
     model_fake.set_available_models(["gemma4:26b"])
 

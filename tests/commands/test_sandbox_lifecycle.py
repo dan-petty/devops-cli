@@ -50,6 +50,7 @@ from devops_cli.telemetry import (
     get_recent_spans,
     reset_tracer,
 )
+from tests.web_fakes import scripted_resolver
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Models & Port Allocation Tests
@@ -529,11 +530,11 @@ def test_sandbox_deploy_dry_run_looks_up_no_engine_host(
 
     monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    resolver = scripted_resolver(monkeypatch, {"example.com": [["93.184.216.34"]]})
 
-    with patch("devops_cli.core.validation._resolve_host_ips") as lookup:
-        res = CliRunner().invoke(sandbox_app, ["deploy", "--workspace", str(tmp_path), "--dry-run"])
+    res = CliRunner().invoke(sandbox_app, ["deploy", "--workspace", str(tmp_path), "--dry-run"])
 
-    assert (res.exit_code, lookup.called) == (0, False)
+    assert (res.exit_code, resolver.lookups.get("example.com", 0)) == (0, 0)
 
 
 @pytest.mark.parametrize("runner_name", sorted(_SANDBOX_DRY_RUNNERS))
@@ -584,15 +585,13 @@ def test_docker_and_test_sandbox_dry_runs_make_no_request(
     args = ["sandbox", "--dry-run", "--workspace", str(tmp_path), "true"]
     monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    resolver = scripted_resolver(monkeypatch, {"example.com": [["93.184.216.34"]]})
     client = MagicMock()
 
-    with (
-        docker_engine(client),
-        patch("devops_cli.core.validation._resolve_host_ips") as lookup,
-    ):
+    with docker_engine(client):
         res = CliRunner().invoke(app, args, catch_exceptions=False)
 
-    assert (res.exit_code, lookup.called, client.mock_calls) == (0, False, [])
+    assert (res.exit_code, resolver.lookups.get("example.com", 0), client.mock_calls) == (0, 0, [])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

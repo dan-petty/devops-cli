@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from functools import partial
-
 import httpx2
 import pytest
 
 from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
 from devops_cli.config.defaults import DEFAULT_HTTP_MAX_REDIRECTS
-from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.http.broker import HttpClientBroker, get_broker
-from devops_cli.http.egress import EgressLevel
+from devops_cli.http.egress import EgressLevel, vet_addresses
 from tests.web_fakes import StubWeb
 
 
@@ -84,7 +81,8 @@ def test_http_broker_holds_every_hop_to_the_request_egress_policy(stub_web: Stub
 
     def public_only(url: str) -> None:
         vetted.append(url)
-        validate_url_egress(url, purpose="test", allow_private=False)
+        parsed = httpx2.URL(url)
+        vet_addresses(parsed.host, parsed.origin.port, EgressLevel.PUBLIC)
 
     with HttpClientBroker() as broker:
         client = broker.get_client(EgressLevel.PRIVATE)
@@ -120,7 +118,12 @@ def test_http_broker_keeps_its_own_veto_under_a_request_egress_policy(
 async def test_http_broker_async_client_vetoes_each_redirect_hop(stub_web: StubWeb) -> None:
     """The async client vetoes a redirect hop under the request's egress policy before sending it."""
     _serve_chain(stub_web, _LOOPBACK)
-    policy = {CONST_HTTP_EGRESS_POLICY_EXTENSION: partial(validate_url_egress, allow_private=False)}
+
+    def public_only(url: str) -> None:
+        parsed = httpx2.URL(url)
+        vet_addresses(parsed.host, parsed.origin.port, EgressLevel.PUBLIC)
+
+    policy = {CONST_HTTP_EGRESS_POLICY_EXTENSION: public_only}
 
     async with HttpClientBroker() as broker:
         with pytest.raises(SSRFBlockedError):

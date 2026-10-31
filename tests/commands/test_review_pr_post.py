@@ -214,9 +214,6 @@ def test_devops_review_pr_post_publishes_comment(
     pin_github_session: str,
 ) -> None:
     """Verify devops review pr --post creates one issue comment on the PR, through the session."""
-    monkeypatch.setattr(
-        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
-    )
     _route_the_pull_request(
         github_api,
         files=[pull_request_file_payload("src/app.py")],
@@ -265,9 +262,6 @@ def test_devops_review_pr_post_dry_run_skips_comment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
 ) -> None:
     """Verify devops review pr --post --dry-run posts no comment to GitHub."""
-    monkeypatch.setattr(
-        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
-    )
     _route_the_pull_request(
         github_api,
         files=[pull_request_file_payload("src/app.py")],
@@ -307,9 +301,6 @@ def test_devops_review_pr_post_empty_diff_makes_zero_model_calls(
     monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
 ) -> None:
     """Verify a PR diff of routed files only, with --post, makes zero model calls and exits 0 (#995)."""
-    monkeypatch.setattr(
-        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
-    )
     _route_the_pull_request(
         github_api,
         files=[pull_request_file_payload("openspec/changes/1-x/tasks.md", "added")],

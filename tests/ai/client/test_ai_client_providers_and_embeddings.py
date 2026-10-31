@@ -51,13 +51,6 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-@pytest.fixture(autouse=True)
-def _bypass_dns_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
-    )
-
-
 def _quiet_stream_spend(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep a stream's spend estimate off the tokenizer and the ledger, neither under test."""
     monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))

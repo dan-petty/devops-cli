@@ -14,13 +14,6 @@ from devops_cli.config.settings import AIConfig
 from tests.llm_stream_fakes import route_llm_clients
 
 
-@pytest.fixture(autouse=True)
-def _bypass_dns_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
-    )
-
-
 def _make_resp(status_code: int = 200, json_data: dict[str, Any] | None = None) -> httpx2.Response:
     req = httpx2.Request("POST", "http://localhost")
     return httpx2.Response(status_code, request=req, json=json_data)

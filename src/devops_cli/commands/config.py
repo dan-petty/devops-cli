@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Annotated, Any, BinaryIO
 
+import httpx2
 import typer
 from pydantic import TypeAdapter
 
@@ -54,7 +55,7 @@ from devops_cli.config.settings import (
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.http.validation import validate_service_url
+from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -336,6 +337,32 @@ def unset_value(
 # =============================================================================
 
 
+def _validate_wizard_service_url(url: str, purpose: str, *, allow_private: bool) -> None:
+    """Validate a typed service URL in the config init wizard.
+
+    Time-of-check gap: this check runs against a typed URL and dials nothing.
+    vet_addresses verifies the host at check time; later real connections verify at connect.
+    """
+    clean_url = str(url).strip()
+    try:
+        parsed = httpx2.URL(clean_url)
+    except Exception as exc:
+        raise ValueError(f"Invalid {purpose} URL: {exc}") from exc
+
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid {purpose} URL scheme '{parsed.scheme}': must be http or https")
+    if not parsed.host:
+        raise ValueError(f"{purpose} URL missing valid hostname")
+
+    port = parsed.origin.port
+    assert port is not None
+    level = EgressLevel.PRIVATE if allow_private else EgressLevel.LOOPBACK
+    try:
+        vet_addresses(parsed.host, port, level)
+    except Exception as exc:
+        raise ValueError(f"{purpose} URL egress check failed: {exc}") from exc
+
+
 @app.command()
 def init() -> None:  # noqa: C901
     """Interactive first-time setup wizard."""
@@ -380,7 +407,9 @@ def init() -> None:  # noqa: C901
     grafana_url = typer.prompt("Grafana URL (leave blank to skip)", default="")
     if grafana_url:
         try:
-            validate_service_url(grafana_url, "Grafana", allow=settings.ai.allow_private_network)
+            _validate_wizard_service_url(
+                grafana_url, "Grafana", allow_private=settings.ai.allow_private_network
+            )
             settings.grafana.url = grafana_url
         except ValueError as exc:
             print_error(f"{exc}", prefix=False)
@@ -396,7 +425,9 @@ def init() -> None:  # noqa: C901
     prom_url = typer.prompt("Prometheus URL (leave blank to skip)", default="")
     if prom_url:
         try:
-            validate_service_url(prom_url, "Prometheus", allow=settings.ai.allow_private_network)
+            _validate_wizard_service_url(
+                prom_url, "Prometheus", allow_private=settings.ai.allow_private_network
+            )
             settings.prometheus.url = prom_url
         except ValueError as exc:
             print_error(f"{exc}", prefix=False)
@@ -406,7 +437,9 @@ def init() -> None:  # noqa: C901
     argocd_url = typer.prompt("ArgoCD URL (leave blank to skip)", default="")
     if argocd_url:
         try:
-            validate_service_url(argocd_url, "ArgoCD", allow=settings.ai.allow_private_network)
+            _validate_wizard_service_url(
+                argocd_url, "ArgoCD", allow_private=settings.ai.allow_private_network
+            )
             settings.argocd.url = argocd_url
         except ValueError as exc:
             print_error(f"{exc}", prefix=False)

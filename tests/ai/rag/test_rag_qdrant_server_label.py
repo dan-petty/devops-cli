@@ -18,8 +18,15 @@ from devops_cli.ai.rag.investigator import _get_or_create_retriever, clear_inves
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import InvalidURLError
+from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+
+@pytest.fixture(autouse=True)
+def _mock_example_com_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+
 
 _HTTP_URL = "http://user:secret@example.com:6333/prefix/path"
 _K8S_URL = "k8s+https://user:secret@devops/qdrant:6333/prefix/path?q=secret"

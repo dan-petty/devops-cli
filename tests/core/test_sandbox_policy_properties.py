@@ -23,7 +23,6 @@ from devops_cli.core.validation import (
     is_cloud_metadata_host,
     is_loopback_or_private_host,
     is_non_public_ip,
-    validate_url,
 )
 from devops_cli.exceptions import (
     SecurityError,
@@ -211,7 +210,7 @@ def test_property_resolve_hosts_emit_correct_prefix_lengths(
             blocks_direct = _resolve_public_host(ip_str, 443)
             blocks_dns = _resolve_public_host("example.com", 443)
             assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])
-        elif ip.is_private and not is_cloud_metadata_host(ip, resolve_dns=False):
+        elif ip.is_private and not is_cloud_metadata_host(ip):
             blocks_direct = _resolve_local_host(ip_str, 443)
             blocks_dns = _resolve_local_host("service.internal", 443)
             assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])
@@ -336,18 +335,12 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
     )
 
     # 1. Canonical is_cloud_metadata_host predicate
-    pred_meta = is_cloud_metadata_host(target, resolve_dns=False)
+    pred_meta = is_cloud_metadata_host(target)
 
     # 2. core/validation.py: is_loopback_or_private_host
-    pred_priv = is_loopback_or_private_host(target, resolve_dns=False)
+    pred_priv = is_loopback_or_private_host(target)
 
-    # 3. core/validation.py: validate_url
-    url_str = f"http://{url_target}/latest/meta-data/"
-    val_url_blocked = _check_raises(
-        validate_url, url_str, allow_private=True, expected_exc=SSRFBlockedError
-    )
-
-    # 4. http/egress.py: the connect-time policy, at the loopback level
+    # 3. http/egress.py: the connect-time policy, at the loopback level
     connect_blocked = _check_raises(
         vet_addresses,
         clean_host,
@@ -356,7 +349,7 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
         expected_exc=SSRFBlockedError,
     )
 
-    # 5. sandbox/models.py: local whitelist and local host
+    # 4. sandbox/models.py: local whitelist and local host
     whitelist_blocked = _check_raises(
         _validate_local_whitelist_item,
         f"http://{url_target}:80",
@@ -367,8 +360,7 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
     assert (
         pred_meta,
         pred_priv,
-        val_url_blocked,
         connect_blocked,
         whitelist_blocked,
         models_host_blocked,
-    ) == (True, True, True, True, True, True)
+    ) == (True, True, True, True, True)

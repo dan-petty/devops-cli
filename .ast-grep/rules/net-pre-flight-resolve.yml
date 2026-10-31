@@ -1,0 +1,10 @@
+id: net-pre-flight-resolve
+language: python
+severity: error
+files:
+  - "src/**"
+message: Pre-flight resolve path. Do not resolve addresses before the connect. Check addresses at the connect with devops_cli.http.client, or call vet_addresses.
+rule:
+  any:
+    - kind: identifier
+      regex: '^(_resolve_host_ips|_enforce_non_private_ssrf)$'

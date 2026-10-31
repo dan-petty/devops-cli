@@ -10,6 +10,8 @@ import uuid
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
+import httpx2
+
 from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
@@ -20,8 +22,9 @@ from devops_cli.config.defaults import (
     DEFAULT_QDRANT_URL,
 )
 from devops_cli.core import clock as clock_seam
-from devops_cli.core.validation import validate_configured_service_url
+from devops_cli.core.validation import _validate_dns_name_syntax
 from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
+from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import QDRANT_RETRIES_TOTAL, emit
 
@@ -201,6 +204,34 @@ def qdrant_server_label(url: str) -> str:
     return f"{label}:{service.port}" if service.port.isdecimal() else label
 
 
+def _validate_qdrant_url(url: str, *, allow_private: bool) -> None:
+    """Validate Qdrant URL before initializing the native client.
+
+    Time-of-check gap: qdrant-client dials through httpx and grpcio. vet_addresses
+    verifies the host at check time; a later lookup by qdrant-client could yield
+    a different address.
+    """
+    clean_url = str(url).strip()
+    try:
+        parsed = httpx2.URL(clean_url)
+    except Exception as exc:
+        raise InvalidURLError(clean_url, reason=f"Invalid Qdrant URL: {exc}") from exc
+
+    if parsed.scheme not in ("http", "https"):
+        raise InvalidURLError(
+            clean_url,
+            reason=f"Invalid Qdrant URL scheme '{parsed.scheme}': must be http or https",
+        )
+    if not parsed.host:
+        raise InvalidURLError(clean_url, reason="Qdrant URL missing valid hostname")
+
+    _validate_dns_name_syntax(parsed.host, clean_url, "Qdrant", InvalidURLError)
+
+    port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 6333)
+    level = EgressLevel.PRIVATE if allow_private else EgressLevel.LOOPBACK
+    vet_addresses(parsed.host, port, level)
+
+
 @runtime_checkable
 class QdrantProtocol(Protocol):
     """Protocol for Qdrant vector store operations."""
@@ -366,9 +397,7 @@ class QdrantClient:
         from devops_cli.k8s.service_proxy import is_service_url
 
         if not is_service_url(self.base_url):
-            validate_configured_service_url(
-                self.base_url, "Qdrant", allow_private=self.allow_private_network
-            )
+            _validate_qdrant_url(self.base_url, allow_private=self.allow_private_network)
 
         self._client: NativeQdrantClient | None = client
         self._injected_client: bool = client is not None

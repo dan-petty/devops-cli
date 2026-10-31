@@ -1,0 +1,13 @@
+id: net-raw-http-client
+language: python
+severity: error
+files:
+  - "src/**"
+ignores:
+  - "src/devops_cli/http/client.py"
+message: Raw HTTP client or request call. Build HTTP clients with devops_cli.http.client factory functions to check egress at the connect.
+rule:
+  pattern: httpx2.$METHOD($$$ARGS)
+constraints:
+  METHOD:
+    regex: '^(Client|AsyncClient|get|post|put|patch|delete|head|request|stream)$'
