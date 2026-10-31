@@ -1,11 +1,12 @@
 """`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
 refine readies items, stage makes a Ready item Staged, implement takes a Staged or Planned item
-to a ready pull request, and return sends an item back to New.
+to a ready pull request, return sends an item back to New, and claim and release say who works
+on an item.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
-`.github/labels.yml` at `--ref`. `intake`, `refine`, `stage`, `implement` and `return` write
-GitHub state only with `--confirm`; `stage` and `implement` also write git, only to the staged
+`.github/labels.yml` at `--ref`. `intake`, `refine`, `stage`, `implement`, `return`, `claim` and
+`release` write GitHub state only with `--confirm`; `stage` and `implement` also write git, only to the staged
 branch of an item and never to the default branch. `implement --confirm` runs only in a runner
 pod. A person plans the milestones; no command sets one.
 
@@ -37,6 +38,13 @@ from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.roadmap import store as roadmap_store
+from devops_cli.roadmap.claim import (
+    Claimant,
+    apply_claim,
+    dry_run_claim,
+    plan_claim,
+    render_claim_plan,
+)
 from devops_cli.roadmap.intake import (
     Filer,
     NewCandidate,
@@ -684,3 +692,59 @@ def return_cmd(
             return
         apply_return(store, plan)
         print_success(f"Returned item #{item} to New and posted evidence comment.")
+
+
+def _claim_or_release(
+    item: int, claimant: Claimant | None, repo: str | None, *, dry_run: bool, confirm: bool
+) -> None:
+    """Plan a claim of `item` as `claimant`, or its release when `claimant` is None, and write it
+    only with `--confirm`."""
+    _one_mode(dry_run=dry_run, confirm=confirm)
+    target = _target(repo)
+    if dry_run or is_dry_run():
+        reads, writes = dry_run_claim(target, item)
+        render_dry_run("release" if claimant is None else "claim", target, reads, writes)
+        return
+    texts = MESSAGES.roadmap
+    with _exit_on_failure("Could not claim roadmap item"):
+        _, store = _open_store(target)
+        plan = plan_claim(store, item, claimant, target)
+        if not confirm:
+            write_stdout(f"{render_claim_plan(plan)}\n\n{texts.claim_plan_only}\n")
+            return
+        wrote = apply_claim(store, plan)
+    if plan.target is None:
+        print_success(
+            (texts.claim_released if wrote else texts.claim_release_unchanged).format(number=item)
+        )
+    else:
+        print_success(
+            (texts.claim_done if wrote else texts.claim_unchanged).format(
+                number=item, owner=plan.target
+            )
+        )
+
+
+@app.command("claim", help=HELP.roadmap.claim)
+@dry_run_class("request-plan")
+def claim_cmd(
+    item: Annotated[int, typer.Argument(help=HELP.roadmap.claim_arg)],
+    claimant: Annotated[Claimant, typer.Option("--as", help=HELP.roadmap.claim_as)],
+    repo: RepoOption = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.claim_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.claim_confirm)] = False,
+) -> None:
+    """Claim an item for an agent or a person with an `owner/*` label."""
+    _claim_or_release(item, claimant, repo, dry_run=dry_run, confirm=confirm)
+
+
+@app.command("release", help=HELP.roadmap.release)
+@dry_run_class("request-plan")
+def release_cmd(
+    item: Annotated[int, typer.Argument(help=HELP.roadmap.release_arg)],
+    repo: RepoOption = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.claim_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.release_confirm)] = False,
+) -> None:
+    """Release an item: remove its `owner/*` label."""
+    _claim_or_release(item, None, repo, dry_run=dry_run, confirm=confirm)

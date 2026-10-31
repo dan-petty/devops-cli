@@ -9,9 +9,9 @@
 
 ## 2. The commands
 
-- [ ] 2.1 Write failing tests in `tests/roadmap/test_roadmap_claim.py` for the scenarios of "The claim commands write only with confirm": the plan without `--confirm`, the write with it, the dry run with no write, a refusal exits 1
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_claim.py` for the scenarios of "The claim commands write only with confirm": the plan without `--confirm`, the write with it, the dry run with no write, a refusal exits 1
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py`
-- [ ] 2.2 Add `devops roadmap claim` and `devops roadmap release` to `src/devops_cli/commands/roadmap.py`, with the help text, the messages and the dry run requests
+- [x] 2.2 Add `devops roadmap claim` and `devops roadmap release` to `src/devops_cli/commands/roadmap.py`, with the help text, the messages and the dry run requests
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_dry_runs.py`
 
 ## 3. The jobs leave out a claimed item
