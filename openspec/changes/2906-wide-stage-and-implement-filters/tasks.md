@@ -9,9 +9,9 @@
 
 ## 2. The implement default
 
-- [ ] Write failing tests in `tests/roadmap/test_roadmap_implement_selection.py`: `DEFAULT_IMPLEMENT_FILTERS` is `("status=ready", "effort=low")`. A staged low-effort feature and a staged low-effort P3 chore are selected. A medium-effort and a high-effort item are not named. A P0 item goes before a P3 item. A Planned `feat(...)` item gets a `feat/` branch.
+- [x] Write failing tests in `tests/roadmap/test_roadmap_implement_selection.py`: `DEFAULT_IMPLEMENT_FILTERS` is `("status=ready", "effort=low")`. A staged low-effort feature and a staged low-effort P3 chore are selected. A medium-effort and a high-effort item are not named. A P0 item goes before a P3 item. A Planned `feat(...)` item gets a `feat/` branch.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_implement_planned.py`
-- [ ] Set `DEFAULT_IMPLEMENT_FILTERS` in `src/devops_cli/roadmap/implement.py` and update its comment and module text. Update the `implement` help text in `src/devops_cli/lang/en/help.py`.
+- [x] Set `DEFAULT_IMPLEMENT_FILTERS` in `src/devops_cli/roadmap/implement.py` and update its comment and module text. Update the `implement` help text in `src/devops_cli/lang/en/help.py`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_implement_planned.py tests/roadmap/test_roadmap_implement_job.py`
 
 ## 3. The documentation

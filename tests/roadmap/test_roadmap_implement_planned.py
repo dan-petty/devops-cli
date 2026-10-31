@@ -87,6 +87,55 @@ def test_an_item_with_its_plan_on_main_and_its_branch_gone_is_planned_with_a_new
     assert github_api.requested == []
 
 
+def test_the_default_filter_takes_ready_items_of_low_effort_of_any_type_and_priority(
+    store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    slow = seed_staged(
+        store, record=False, title="feat(cli): add a flag", labels=("type/feature", "effort/high")
+    )
+    chore = seed_staged(
+        store,
+        record=False,
+        title="chore(deps): bump a tool",
+        labels=("type/chore", "effort/low"),
+        priority="P3-Low",
+    )
+    docs = seed_staged(
+        store,
+        record=False,
+        title="docs(k8s): fix a path",
+        labels=("type/docs", "effort/low"),
+        priority="P0-Critical",
+    )
+    feature = seed_staged(
+        store,
+        record=False,
+        title="feat(cli): add a switch",
+        labels=("type/feature", "effort/low"),
+        priority="P2-Medium",
+    )
+    medium = seed_staged(
+        store, record=False, title="test(cli): hold a flag", labels=("type/test", "effort/medium")
+    )
+    for number, slug in (
+        (slow, "add-a-flag"),
+        (chore, "bump-a-tool"),
+        (docs, "fix-a-path"),
+        (feature, "add-a-switch"),
+        (medium, "hold-a-flag"),
+    ):
+        merge_plan(repo, number, slug=slug)
+
+    plan = _plan(store, repo, limit=5)
+
+    assert _targets(plan) == [
+        (docs, f"docs/{docs}-fix-a-path", None),
+        (feature, f"feat/{feature}-add-a-switch", None),
+        (chore, f"chore/{chore}-bump-a-tool", None),
+    ]
+    assert plan.left_out == ()
+
+
 def test_a_planned_item_with_a_stray_local_branch_with_a_commit_of_its_own_is_left_out(
     store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
 ) -> None:

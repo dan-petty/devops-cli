@@ -54,8 +54,14 @@ def _staged_item(
 
 
 def _plan(store: InMemoryRoadmapStore, repo: StageRepo) -> StagePlan:
+    """The plan of a round whose filter names no item to stage: the item has no `type/bug` label,
+    so only the reconcile of the staged branches runs."""
     return plan_stage(
-        store, repo=STAGE_REPO, source=repo.clone, filters=parse_filters(()), item_number=None
+        store,
+        repo=STAGE_REPO,
+        source=repo.clone,
+        filters=parse_filters(("status=ready", "type=bug")),
+        item_number=None,
     )
 
 
