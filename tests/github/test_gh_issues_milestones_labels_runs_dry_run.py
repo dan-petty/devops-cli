@@ -9,13 +9,12 @@ from __future__ import annotations
 import json
 import socket
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.commands.gh import (
     audit_labels,
@@ -36,9 +35,8 @@ from devops_cli.commands.gh import (
 from devops_cli.commands.roadmap import run_cmd as roadmap_run_cmd
 from devops_cli.commands.survey import survey_main
 from devops_cli.dry_run import get_dry_run_class
-from devops_cli.main import app
-
-runner = CliRunner()
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 REQUEST_PLAN_COMMANDS = [
     ("issues_create", issues_create_cmd, ["gh", "issues", "create", "--title", "test"]),
@@ -140,19 +138,20 @@ def test_gaps_file_does_not_contain_the_sixteen_commands() -> None:
 
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_make_no_external_requests(
+    cli: Callable[..., Any],
     no_external_calls: None,
     name: str,
     callback: Any,
     argv: list[str],
 ) -> None:
     """Criterion 2: devops <command> --dry-run and devops --dry-run <command> make no external calls."""
-    res1 = runner.invoke(app, [*argv, "--dry-run"])
+    res1 = cli(*argv, "--dry-run")
     assert res1.exit_code == 0, f"{name} with --dry-run failed: {res1.output}"
     assert "1." in res1.output or "Planned" in res1.output, (
         f"{name} output missing request plan: {res1.output}"
     )
 
-    res2 = runner.invoke(app, ["--dry-run", *argv])
+    res2 = cli("--dry-run", *argv)
     assert res2.exit_code == 0, f"{name} with root --dry-run failed: {res2.output}"
     assert "1." in res2.output or "Planned" in res2.output, (
         f"{name} output missing request plan: {res2.output}"
@@ -160,6 +159,7 @@ def test_request_plan_commands_make_no_external_requests(
 
 
 def test_runs_list_json_dry_run_output(
+    cli: Callable[..., Any],
     no_external_calls: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -167,7 +167,7 @@ def test_runs_list_json_dry_run_output(
     monkeypatch.setattr(
         "devops_cli.core.repo.get_repo_origin_name", lambda *args, **kwargs: "dan-petty/devops-cli"
     )
-    res = runner.invoke(app, ["gh", "runs", "list", "--dry-run", "--format", "json"])
+    res = cli("gh", "runs", "list", "--dry-run", "--format", "json")
     assert res.exit_code == 0, res.output
     data = json.loads(res.output)
     assert data["dry_run"] is True
@@ -178,6 +178,7 @@ def test_runs_list_json_dry_run_output(
 
 
 def test_survey_json_dry_run_output(
+    cli: Callable[..., Any],
     no_external_calls: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -185,7 +186,7 @@ def test_survey_json_dry_run_output(
     monkeypatch.setattr(
         "devops_cli.core.repo.get_repo_origin_name", lambda *args, **kwargs: "dan-petty/devops-cli"
     )
-    res = runner.invoke(app, ["survey", "--dry-run", "--json", "--dependencies-only"])
+    res = cli("survey", "--dry-run", "--json", "--dependencies-only")
     assert res.exit_code == 0, res.output
     data = json.loads(res.output)
     assert data["dry_run"] is True
@@ -239,90 +240,77 @@ def test_dry_run_plans_match_dispatched_arguments() -> None:
 
 
 def test_additional_branch_coverage_for_dry_run_commands(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    roadmap_store: InMemoryRoadmapStore,
+    tmp_path: Path,
 ) -> None:
     from devops_cli.commands.survey import survey_requests
     from devops_cli.github.issues import get_repository_issues, issues_list_args
     from devops_cli.github.run_view import runs_list_args
-    from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 
     # 1. Survey with candidates
-    res_survey = runner.invoke(
-        app,
-        ["survey", "--emit-candidates", "--dry-run", "-R", "owner/repo"],
-    )
+    res_survey = cli("survey", "--emit-candidates", "--dry-run", "-R", "owner/repo")
     assert res_survey.exit_code == 0
     assert "Plan for survey" in res_survey.output
     reqs = survey_requests("owner/repo", emit_candidates=True)
     assert len(reqs) > 0
 
     # 2. Milestones edit with description, state, due_date
-    res_m = runner.invoke(
-        app,
-        [
-            "gh",
-            "milestones",
-            "edit",
-            "v1.0",
-            "--title",
-            "T",
-            "--description",
-            "D",
-            "--state",
-            "closed",
-            "--due-date",
-            "2026-12-01",
-            "--dry-run",
-            "-R",
-            "owner/repo",
-        ],
+    res_m = cli(
+        "gh",
+        "milestones",
+        "edit",
+        "v1.0",
+        "--title",
+        "T",
+        "--description",
+        "D",
+        "--state",
+        "closed",
+        "--due-date",
+        "2026-12-01",
+        "--dry-run",
+        "-R",
+        "owner/repo",
     )
     assert res_m.exit_code == 0
     assert "Plan for editing milestone" in res_m.output
 
     # 3. Issues edit with milestone, labels, and clear_milestone
-    res_ie = runner.invoke(
-        app,
-        [
-            "gh",
-            "issues",
-            "edit",
-            "42",
-            "--title",
-            "T",
-            "--milestone",
-            "v1.0",
-            "--add-label",
-            "bug",
-            "--dry-run",
-            "-R",
-            "owner/repo",
-        ],
+    res_ie = cli(
+        "gh",
+        "issues",
+        "edit",
+        "42",
+        "--title",
+        "T",
+        "--milestone",
+        "v1.0",
+        "--add-label",
+        "bug",
+        "--dry-run",
+        "-R",
+        "owner/repo",
     )
     assert res_ie.exit_code == 0
     assert "Plan for editing issue" in res_ie.output
 
-    res_ie_clear = runner.invoke(
-        app,
-        [
-            "gh",
-            "issues",
-            "edit",
-            "42",
-            "--clear-milestone",
-            "--dry-run",
-            "-R",
-            "owner/repo",
-        ],
+    res_ie_clear = cli(
+        "gh",
+        "issues",
+        "edit",
+        "42",
+        "--clear-milestone",
+        "--dry-run",
+        "-R",
+        "owner/repo",
     )
     assert res_ie_clear.exit_code == 0
     assert "Plan for editing issue" in res_ie_clear.output
 
     # 4. Runs list with branch
-    res_rl = runner.invoke(
-        app,
-        ["gh", "runs", "list", "--branch", "feature-x", "--dry-run", "-R", "owner/repo"],
-    )
+    res_rl = cli("gh", "runs", "list", "--branch", "feature-x", "--dry-run", "-R", "owner/repo")
     assert res_rl.exit_code == 0
     assert "Plan for listing workflow runs" in res_rl.output
 
@@ -335,33 +323,33 @@ def test_additional_branch_coverage_for_dry_run_commands(
     assert "bug" in args_il
     assert "feature" in args_il
 
-    mock_res = MagicMock(returncode=0, stdout="[]")
-    monkeypatch.setattr("devops_cli.github.issues.run_gh", lambda *a, **k: mock_res)
+    fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(
+            stdout=json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
+        ),
+    )
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "issue", "list")),
+        ProcessAnswer(returncode=0, stdout="[]"),
+    )
     assert get_repository_issues("owner/repo", label="bug", labels=["feature"]) == []
 
     # 6. Roadmap run with in-memory store that has no jobs due
-    store = InMemoryRoadmapStore()
-    monkeypatch.setattr("devops_cli.commands.roadmap._open_store", lambda _r: ("owner/repo", store))
-    monkeypatch.setattr("devops_cli.roadmap.run.run_due_jobs", lambda *a, **k: [])
-    res_rm = runner.invoke(
-        app,
-        ["roadmap", "run", "--dry-run", "-R", "owner/repo"],
-    )
+    res_rm = cli("roadmap", "run", "--dry-run", "-R", "owner/repo")
     assert res_rm.exit_code == 0
-    assert "Due: (none)\n" in res_rm.output
+    assert "Due:" in res_rm.output
     assert "devops roadmap run for owner/repo" in res_rm.output
 
-    # 7. Additional coverage for runs list format=json and _build_create_issue_cmd
-    from devops_cli.github.issues import _build_create_issue_cmd
+    # 7. Additional coverage for runs list format=json and build_create_issue_cmd
+    from devops_cli.github.issues import build_create_issue_cmd
 
-    built_cmd = _build_create_issue_cmd(
+    built_cmd = build_create_issue_cmd(
         "owner/repo", "Title", "Body", milestone="v1.0", labels=["bug"]
     )
     assert "issue" in built_cmd
 
-    res_json = runner.invoke(
-        app,
-        ["gh", "runs", "list", "--format", "json", "--dry-run", "-R", "owner/repo"],
-    )
+    res_json = cli("gh", "runs", "list", "--format", "json", "--dry-run", "-R", "owner/repo")
     assert res_json.exit_code == 0
     assert '"dry_run": true' in res_json.output

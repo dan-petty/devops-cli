@@ -5,8 +5,9 @@ The reply is one `StageProposal`. `check_proposal` finds what the rules of `open
 ask and a schema cannot say: a Purpose on a new capability, a MODIFIED requirement only on a
 capability that exists, and a spec delta only when the change is observable. `render_change`
 turns the reply into the files of `openspec/changes/<issue>-<slug>/`. `measure_groups` counts the
-inputs of one implementation step for each group with tiktoken, packing the group's files with
-the context packer.
+inputs of one implementation step for each group with tiktoken. It counts the files that the tasks
+of the group name, each packed as the step packs it (`step_files`), so a group costs what its step
+reads.
 """
 
 from __future__ import annotations
@@ -30,7 +31,6 @@ from pydantic import (
 )
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.ai.context_packer import ContextPacker, PackingConfig
 from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
 from devops_cli.core.paths import safe_resolve_subpath
 from devops_cli.exceptions import SecurityError
@@ -38,6 +38,7 @@ from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.refine import sanitize_text
+from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 
 # The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming): the part
 # after `<type>(<scope>): `, which the check `Semantic PR title` measures.
@@ -439,12 +440,15 @@ def _file_at(root: Path, path: str) -> Path | None:
     return found if found.is_file() else None
 
 
-def _packed_tokens(root: Path, paths: Sequence[str], limit: int) -> int:
-    """The tokens of the files at `paths` under `root`, packed. A path that holds no file is a
-    file the step creates, and costs nothing to read. A file is packed to at most `limit`."""
-    packer = ContextPacker(PackingConfig(max_tokens=limit))
-    files = (_file_at(root, path) for path in dict.fromkeys(paths))
-    return sum(packer.pack_file(found).packed_tokens for found in files if found is not None)
+def _read_tokens(root: Path, text: str) -> int:
+    """The tokens of the files that the step of the group `text` reads under `root`: the files
+    that its tasks name, each packed as the step packs it (`step_files`). The step ignores a file
+    that only the `Reads:` line lists, and a name that holds no file is a file the step creates."""
+    return sum(
+        count_tokens(packed_file(path))
+        for group in parse_task_groups(text)
+        for path in named_files(root, group)
+    )
 
 
 def missing_paths(root: Path, groups: Sequence[StageGroup]) -> tuple[str, ...]:
@@ -460,19 +464,14 @@ def measure_groups(
     groups: Sequence[StageGroup],
     *,
     shared: Sequence[str],
-    limit: int,
 ) -> list[MeasuredGroup]:
     """The measure of each group: the tokens of `shared` (the item and the files of the change
-    folder), of the group's own text, and of its read and changed files under `root`, packed."""
+    folder), of the group's own text, and of the files that its step reads under `root`."""
     shared_tokens = sum(count_tokens(text) for text in shared)
+    texts = [group_text(index, group) for index, group in enumerate(groups, start=1)]
     return [
-        MeasuredGroup(
-            group,
-            shared_tokens
-            + count_tokens(group_text(index, group))
-            + _packed_tokens(root, [*group.reads, *group.changes], limit),
-        )
-        for index, group in enumerate(groups, start=1)
+        MeasuredGroup(group, shared_tokens + count_tokens(text) + _read_tokens(root, text))
+        for group, text in zip(groups, texts, strict=True)
     ]
 
 

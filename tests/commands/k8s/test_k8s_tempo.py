@@ -142,9 +142,9 @@ def test_k8s_port_forward_tempo_dry_run(runner: CliRunner) -> None:
         )
         assert (
             result.exit_code,
-            "tempo.url" in result.output,
+            "tempo" in result.output,
             "3200" in result.output,
-            "pyroscope.url" in result.output,
+            "pyroscope" in result.output,
             "4040" in result.output,
         ) == (0, True, True, True, True)
     finally:

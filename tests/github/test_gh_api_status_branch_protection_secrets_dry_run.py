@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.commands.gh import (
     api_cmd,
@@ -28,10 +27,7 @@ from devops_cli.commands.gh import (
 )
 from devops_cli.commands.status_cmd import status_main
 from devops_cli.dry_run import get_dry_run_class
-from devops_cli.main import app
 from tests.support.paths import FIXTURES
-
-runner = CliRunner()
 
 REQUEST_PLAN_COMMANDS = [
     ("api", api_cmd, ["gh", "api", "repos/owner/repo/issues"]),
@@ -94,6 +90,7 @@ def test_commands_removed_from_gaps_fixture() -> None:
 
 @pytest.mark.parametrize("name,_callback,argv", REQUEST_PLAN_COMMANDS)
 def test_commands_execute_zero_external_requests_under_dry_run(
+    cli: Callable[..., Any],
     name: str,
     _callback: Callable[..., Any],
     argv: list[str],
@@ -108,8 +105,6 @@ def test_commands_execute_zero_external_requests_under_dry_run(
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
     monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("devops_cli.github.rate_limiter.run_gh", refuse)
-    monkeypatch.setattr("devops_cli.github.client.run_gh", refuse)
     monkeypatch.setattr("httpx2.HTTPTransport.handle_request", refuse)
 
     # 1. devops <command> --dry-run
@@ -120,21 +115,23 @@ def test_commands_execute_zero_external_requests_under_dry_run(
             policy_file.write_text("- branch: main\n", encoding="utf-8")
         cmd_args.extend(["-f", str(policy_file)])
 
-    res1 = runner.invoke(app, [*cmd_args, "--dry-run"])
+    res1 = cli(*cmd_args, "--dry-run")
     assert res1.exit_code == 0, f"Command {name} --dry-run failed: {res1.output}"
     assert (
         "Plan for" in res1.output or "Planned Requests" in res1.output or "Dry run" in res1.output
     )
 
     # 2. devops --dry-run <command>
-    res2 = runner.invoke(app, ["--dry-run", *cmd_args])
+    res2 = cli("--dry-run", *cmd_args)
     assert res2.exit_code == 0, f"devops --dry-run {name} failed: {res2.output}"
     assert (
         "Plan for" in res2.output or "Planned Requests" in res2.output or "Dry run" in res2.output
     )
 
 
-def test_commands_dry_run_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_commands_dry_run_json_output(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Commands supporting json return structured output with dry_run: true."""
 
     def refuse(*_args: Any, **_kwargs: Any) -> Any:
@@ -143,25 +140,23 @@ def test_commands_dry_run_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
     monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("devops_cli.github.rate_limiter.run_gh", refuse)
-    monkeypatch.setattr("devops_cli.github.client.run_gh", refuse)
     monkeypatch.setattr("httpx2.HTTPTransport.handle_request", refuse)
 
     # 1. gh rate-limit --format json --dry-run
-    res_rl = runner.invoke(app, ["gh", "rate-limit", "--format", "json", "--dry-run"])
+    res_rl = cli("gh", "rate-limit", "--format", "json", "--dry-run")
     assert res_rl.exit_code == 0
     data_rl = json.loads(res_rl.output)
     assert data_rl.get("dry_run") is True
     assert "requests" in data_rl
 
     # 2. gh status --json --dry-run
-    res_st = runner.invoke(app, ["gh", "status", "--json", "--dry-run"])
+    res_st = cli("gh", "status", "--json", "--dry-run")
     assert res_st.exit_code == 0
     data_st = json.loads(res_st.output)
     assert data_st.get("dry_run") is True
 
     # 3. status --json --dry-run
-    res_s = runner.invoke(app, ["status", "--json", "--dry-run"])
+    res_s = cli("status", "--json", "--dry-run")
     assert res_s.exit_code == 0
     data_s = json.loads(res_s.output)
     assert data_s.get("dry_run") is True
@@ -169,26 +164,23 @@ def test_commands_dry_run_json_output(monkeypatch: pytest.MonkeyPatch, tmp_path:
     # 4. gh branch-protection audit --json --dry-run
     policy_file = tmp_path / "branch-protection.yml"
     policy_file.write_text("- branch: main\n", encoding="utf-8")
-    res_bpa = runner.invoke(
-        app,
-        [
-            "gh",
-            "branch-protection",
-            "audit",
-            "--json",
-            "--dry-run",
-            "-R",
-            "owner/repo",
-            "-f",
-            str(policy_file),
-        ],
+    res_bpa = cli(
+        "gh",
+        "branch-protection",
+        "audit",
+        "--json",
+        "--dry-run",
+        "-R",
+        "owner/repo",
+        "-f",
+        str(policy_file),
     )
     assert res_bpa.exit_code == 0
     data_bpa = json.loads(res_bpa.output)
     assert data_bpa.get("dry_run") is True
 
     # 5. gh metrics --json --dry-run
-    res_m = runner.invoke(app, ["gh", "metrics", "--json", "--dry-run", "-R", "owner/repo"])
+    res_m = cli("gh", "metrics", "--json", "--dry-run", "-R", "owner/repo")
     assert res_m.exit_code == 0
     data_m = json.loads(res_m.output)
     assert data_m.get("dry_run") is True
@@ -246,7 +238,7 @@ def test_dry_run_plans_match_dispatched_arguments() -> None:
 
 
 def test_branch_coverage_for_dry_run_options(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Exercise option variations under dry-run to ensure thorough branch coverage."""
 
@@ -256,26 +248,21 @@ def test_branch_coverage_for_dry_run_options(
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
     monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("devops_cli.github.rate_limiter.run_gh", refuse)
-    monkeypatch.setattr("devops_cli.github.client.run_gh", refuse)
     monkeypatch.setattr("httpx2.HTTPTransport.handle_request", refuse)
 
     # gh api with method, paginate, jq, template
-    res_api = runner.invoke(
-        app,
-        [
-            "gh",
-            "api",
-            "repos/owner/repo/pulls",
-            "-X",
-            "POST",
-            "--paginate",
-            "-q",
-            ".id",
-            "-t",
-            "{{.id}}",
-            "--dry-run",
-        ],
+    res_api = cli(
+        "gh",
+        "api",
+        "repos/owner/repo/pulls",
+        "-X",
+        "POST",
+        "--paginate",
+        "-q",
+        ".id",
+        "-t",
+        "{{.id}}",
+        "--dry-run",
     )
     assert res_api.exit_code == 0
     assert "Plan for api" in res_api.output
@@ -283,35 +270,26 @@ def test_branch_coverage_for_dry_run_options(
     # gh branch-protection audit with specific branch
     policy_file = tmp_path / "branch-protection.yml"
     policy_file.write_text("- branch: develop\n", encoding="utf-8")
-    res_bpa = runner.invoke(
-        app,
-        [
-            "gh",
-            "branch-protection",
-            "audit",
-            "--branch",
-            "develop",
-            "--dry-run",
-            "-R",
-            "owner/repo",
-            "-f",
-            str(policy_file),
-        ],
+    res_bpa = cli(
+        "gh",
+        "branch-protection",
+        "audit",
+        "--branch",
+        "develop",
+        "--dry-run",
+        "-R",
+        "owner/repo",
+        "-f",
+        str(policy_file),
     )
     assert res_bpa.exit_code == 0
     assert "Plan for auditing branch protection" in res_bpa.output
 
     # status with cloudflare only
-    res_cf = runner.invoke(
-        app,
-        ["status", "--service", "cloudflare", "--dry-run"],
-    )
+    res_cf = cli("status", "--service", "cloudflare", "--dry-run")
     assert res_cf.exit_code == 0
     assert "Plan for status" in res_cf.output
 
     # secrets sync with empty secret names
-    res_empty = runner.invoke(
-        app,
-        ["gh", "secrets", "sync", "-n", "   ", "--dry-run", "-R", "owner/repo"],
-    )
+    res_empty = cli("gh", "secrets", "sync", "-n", "   ", "--dry-run", "-R", "owner/repo")
     assert res_empty.exit_code == 0

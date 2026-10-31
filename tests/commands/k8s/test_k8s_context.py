@@ -24,7 +24,7 @@ def test_k8s_contexts_dry_run() -> None:
 def test_k8s_switch_context_dry_run() -> None:
     result = runner.invoke(app, ["switch-context", "minikube"], env={"DEVOPS_CLI_DRY_RUN": "true"})
     assert result.exit_code == 0
-    assert "switch_kube_config_context" in result.output
+    assert "use-context" in result.output
     assert "minikube" in result.output
 
 

@@ -20,9 +20,9 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    heavy_group,
     seed_stageable,
     validate_args,
-    write_big_file,
 )
 
 if TYPE_CHECKING:
@@ -126,8 +126,7 @@ def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(
     seed_stageable(store, "fix(roadmap): the job drops a label")
     seed_stageable(store, "fix(roadmap): the job drops a tag")
     seed_stageable(store, "wip: no type")
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     stuck = make_stage_proposal(groups=[heavy])
     model_fake.answer(
         make_stage_proposal(),

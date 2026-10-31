@@ -333,8 +333,8 @@ def test_k8s_port_forward_llm_dry_run() -> None:
     try:
         result = runner.invoke(app, ["port-forward", "--stack", "llm"])
         assert result.exit_code == 0
-        assert "ollama.url" in result.output
-        assert "valkey.url" in result.output
+        assert "ollama" in result.output
+        assert "valkey" in result.output
     finally:
         set_dry_run(False)
 

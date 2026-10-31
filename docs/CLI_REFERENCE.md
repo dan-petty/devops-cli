@@ -1044,6 +1044,7 @@ devops k8s service-url [OPTIONS] <service>
 | `--context`, `-c` | `string` | - | Target context name to switch to. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s port-forward`
 
@@ -1094,6 +1095,7 @@ devops k8s port-forward-stop [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--service`, `-s` | `string` | - | Specific service to stop |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s teardown-stack`
 
