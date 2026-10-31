@@ -2043,6 +2043,11 @@ class RoadmapMessages:
     implement_model_call_model: str = "model {model}"
     implement_model_call_status: str = "HTTP {status}, {model}"
     implement_model_call_body: str = "{detail}, body: {body}"
+    implement_model_call_generation: str = (
+        "The provider failed inside the stream. A known cause is that tool call parsing failed: "
+        "Ollama refuses a tool call of the model when the XML of the call is not whole "
+        "(ollama/ollama issue 18563)."
+    )
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
     implement_model_call_deadline: str = "{detail}, no complete reply in {seconds:g} seconds"
     implement_stop_capped: str = (

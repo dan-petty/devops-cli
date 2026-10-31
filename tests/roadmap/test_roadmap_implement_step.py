@@ -1688,6 +1688,36 @@ def test_the_error_text_of_the_body_holds_no_echo_of_the_model_output(
         assert secret not in outcome.reason
 
 
+GATEWAY_ERROR = (
+    "litellm.BadRequestError: Ollama_chatException - KeyError: 'message', "
+    "Got unexpected response from Ollama: {'error': 'XML syntax error on line 70: unexpected EOF'}"
+)
+
+
+def test_the_error_text_of_the_body_keeps_its_quoted_words(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The gateway quotes the key and the text of the Ollama error. The stop comment of #2747
+    showed `{<text>: <text>}`, and the cause was not in it (#2922)."""
+    script = ModelScript(ModelHTTPError(400, "example-model", {"message": GATEWAY_ERROR}))
+
+    outcome = _step(store, checkout, script)
+
+    assert outcome.reason == f"ModelHTTPError: HTTP 400, model example-model, body: {GATEWAY_ERROR}"
+
+
+def test_a_token_in_a_quoted_word_of_the_error_text_is_masked(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    body = f"Got unexpected response from Ollama: {{'error': 'bad call {TOKEN}'}}"
+    script = ModelScript(ModelHTTPError(400, "example-model", {"message": body}))
+
+    outcome = _step(store, checkout, script)
+
+    assert TOKEN not in outcome.reason
+    assert "Got unexpected response from Ollama: {'error': 'bad call " in outcome.reason
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -1835,11 +1865,13 @@ def test_a_400_inside_a_stream_on_every_send_stops_the_step_with_the_body(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+    first, named = outcome.reason.splitlines()
+    assert (outcome.status, first, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         f"ModelHTTPError: HTTP 400, model example-model, body: {XML_ERROR}",
         True,
     )
+    assert "tool call parsing failed" in named
     assert len(script.seen) == 1 + 1 + constants.CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
     assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
 
@@ -1874,6 +1906,7 @@ def test_other_failed_model_calls_are_not_sent_again(
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 2)
+    assert "tool call parsing failed" not in outcome.reason
 
 
 def test_a_400_inside_a_stream_in_the_extra_turn_is_sent_again(
@@ -1917,7 +1950,7 @@ def test_a_failure_after_a_good_reply_stops_when_its_own_resend_fails(
     outcome = _step(store, checkout, script)
 
     assert outcome.status == StepStatus.STOPPED
-    assert outcome.reason.endswith(f"body: {XML_ERROR}")
+    assert f"body: {XML_ERROR}" in outcome.reason
     assert len(script.seen) == 4
 
 

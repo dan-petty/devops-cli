@@ -500,7 +500,8 @@ def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
 def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
     """The reason of a run that a failed model call ended (#2731): the class of the error, the HTTP
     status when the reply has one, and the name of the model, then the error text of the body of
-    the reply (#2794), then the counts of `_stop_reason`. The message of the error stays out, and
+    the reply (#2794), then the line that names a failure of the generation inside a stream
+    (#2922), then the counts of `_stop_reason`. The message of the error stays out, and
     so does every value of the body but its error text: the masker finds a secret by its form in
     a sentence, not by its key in the repr of a dict."""
     texts = MESSAGES.roadmap
@@ -512,6 +513,8 @@ def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
     if isinstance(failed, ModelRequestTimeout):
         detail = texts.implement_model_call_deadline.format(detail=detail, seconds=failed.timeout)
     reason = texts.run_stop_reason.format(error=type(failed).__name__, message=detail)
+    if _generation_failed(failed):
+        reason = f"{reason}\n{texts.implement_model_call_generation}"
     return _with_counts(reason, log)
 
 
