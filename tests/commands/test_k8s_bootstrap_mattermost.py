@@ -75,7 +75,7 @@ def test_bootstrap_mattermost_full_flow() -> None:
     """Verify full onboarding execution: team, channels, webhooks, command, keyring, push."""
     with (
         patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run,
-        patch("devops_cli.config.settings.store_keyring_secret") as mock_keyring,
+        patch("devops_cli.config.os_keyring.store_keyring_secret") as mock_keyring,
         patch("devops_cli.commands.k8s.cluster_secret_push.push_secrets") as mock_push,
     ):
 

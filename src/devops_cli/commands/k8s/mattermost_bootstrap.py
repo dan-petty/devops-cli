@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import typer
 
@@ -13,7 +13,7 @@ from devops_cli.lang import HELP
 from devops_cli.output.console import print_error, print_info, print_success
 
 
-def _extract_json_payload(output: str) -> dict | list | None:
+def _extract_json_payload(output: str) -> dict[str, Any] | list[Any] | None:
     """Extract JSON payload from mmctl output which may include non-JSON logs."""
     output = output.strip()
     if not output:
@@ -31,7 +31,7 @@ def _extract_json_payload(output: str) -> dict | list | None:
     if start_idx != -1:
         output = output[start_idx:]
     try:
-        return json.loads(output)
+        return cast(dict[str, Any] | list[Any], json.loads(output))
     except json.JSONDecodeError:
         return None
 
@@ -68,25 +68,27 @@ def _resolve_mattermost_pod(effective_context: str | None) -> str:
     print_info(
         f"Checking Mattermost deployment in namespace 'mattermost' (context: {effective_context or 'default'})..."
     )
-    pod_cmd = [
-        "kubectl",
-        "get",
-        "pods",
-        "-n",
-        "mattermost",
-        "-l",
-        "app.kubernetes.io/name=mattermost",
-        "-o",
-        "jsonpath={.items[0].metadata.name}",
-    ]
-    if effective_context:
-        pod_cmd.extend(["--context", effective_context])
-    res_pod = runtime._run_cmd(pod_cmd, check=False, capture=True)
-    pod_name = (res_pod.stdout or "").strip()
-    if not pod_name:
-        print_error("No Mattermost pod found in namespace 'mattermost'.", prefix=False)
-        raise typer.Exit(1)
-    return pod_name
+    for selector in ("app.kubernetes.io/name=mattermost", "app=mattermost"):
+        pod_cmd = [
+            "kubectl",
+            "get",
+            "pods",
+            "-n",
+            "mattermost",
+            "-l",
+            selector,
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ]
+        if effective_context:
+            pod_cmd.extend(["--context", effective_context])
+        res_pod = runtime._run_cmd(pod_cmd, check=False, capture=True)
+        pod_name = (res_pod.stdout or "").strip()
+        if pod_name:
+            return pod_name
+
+    print_error("No Mattermost pod found in namespace 'mattermost'.", prefix=False)
+    raise typer.Exit(1)
 
 
 def _exec_mmctl(pod_name: str, effective_context: str | None, args: list[str]) -> tuple[int, str]:
@@ -318,7 +320,8 @@ def _save_tokens_to_keyring(
     deploys_token: str | None,
     command_token: str | None,
 ) -> None:
-    from devops_cli.config.settings import _KEYRING_KEYS, store_keyring_secret
+    from devops_cli.config.os_keyring import store_keyring_secret
+    from devops_cli.config.settings import _KEYRING_KEYS
 
     if alerts_token:
         store_keyring_secret(_KEYRING_KEYS["mattermost.alerts_hook"], alerts_token)
