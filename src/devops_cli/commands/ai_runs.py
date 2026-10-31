@@ -22,6 +22,7 @@ from devops_cli.ai.run_store import (
     SavedRun,
     check_regression,
     compare_runs,
+    find_baseline_run,
     get_baseline,
     get_run,
     list_baselines,
@@ -645,24 +646,6 @@ def baseline_list_cmd(
     _render_baselines_table(baselines)
 
 
-def _find_baseline_run(subject_or_run: str, mechanism: Mechanism | None) -> RunRecord | None:
-    """Find a baseline record by subject key or run ID, with or without mechanism."""
-    try:
-        run = get_run(subject_or_run)
-    except AmbiguousRunIdError as err:
-        print_error(str(err))
-        raise typer.Exit(code=1) from err
-    mech = mechanism or (run.mechanism if run else None)
-    subj_key = run.subject_key if run else subject_or_run
-    if mech:
-        return get_baseline(mech, subj_key)
-    for m in Mechanism:
-        found = get_baseline(m, subj_key)
-        if found is not None:
-            return found
-    return None
-
-
 @baseline_app.command("show")
 @dry_run_class("request-plan")
 @trace_span("ai.runs.baseline.show")
@@ -704,7 +687,11 @@ def baseline_show_cmd(
         render_request_plan(f"Plan for AI runs baseline show '{subject_or_run}'", plan)
         return
 
-    baseline_run = _find_baseline_run(subject_or_run, mechanism)
+    try:
+        baseline_run = find_baseline_run(subject_or_run, mechanism)
+    except AmbiguousRunIdError as err:
+        print_error(str(err))
+        raise typer.Exit(code=1) from err
     if baseline_run is None:
         print_error(f"No baseline found for {escape_text(subject_or_run)}.")
         raise typer.Exit(code=1)

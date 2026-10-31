@@ -769,3 +769,26 @@ def _fetch_backend_models(client: httpx2.Client, probe_base: str, backend_type: 
     except httpx2.HTTPError, OSError, ValueError:
         return []
     return []
+
+
+def probe_gateway_liveliness_and_models(
+    base_url: str,
+    headers: dict[str, str],
+    timeout: float,
+) -> None:
+    """Probe gateway liveliness and model info endpoints before configuring connection.
+
+    The address is a node address from the Kubernetes API, so the probe dials at the private
+    level, and the connect checks the address.
+    """
+    with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
+        live_resp = client.get(f"{base_url}/health/liveliness")
+        if live_resp.status_code >= 400:
+            raise ValidationError(
+                f"The LLM gateway at {base_url} is not live: HTTP {live_resp.status_code}"
+            )
+        model_resp = client.get(f"{base_url}/model/info", headers=headers)
+        if model_resp.status_code >= 400:
+            raise ValidationError(
+                f"The LLM gateway at {base_url} rejected model info query: HTTP {model_resp.status_code}"
+            )

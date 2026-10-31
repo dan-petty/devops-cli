@@ -9,7 +9,7 @@ import httpx2
 import typer
 
 from devops_cli.ai.client.models import AICredentialsError
-from devops_cli.ai.gateway import GatewayRoute, GatewayRouter
+from devops_cli.ai.gateway import GatewayRoute, GatewayRouter, probe_gateway_liveliness_and_models
 from devops_cli.ai.gateway_tune import (
     GatewayTuneError,
     GpuInfo,
@@ -44,9 +44,8 @@ from devops_cli.config.settings import get_ai_api_key, load_settings, save_setti
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
-from devops_cli.exceptions import DevOpsCLIError, SSRFBlockedError
-from devops_cli.http.client import new_http_client
-from devops_cli.http.egress import EgressLevel, configured_level
+from devops_cli.exceptions import DevOpsCLIError, SSRFBlockedError, ValidationError
+from devops_cli.http.egress import configured_level
 from devops_cli.k8s.context import resolve_context
 from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError, node_port_address
 from devops_cli.lang import HELP, MESSAGES
@@ -203,35 +202,6 @@ def routes_cmd(
     _render_routes_table(routes)
 
 
-def _probe_gateway_liveliness_and_models(
-    base_url: str,
-    headers: dict[str, str],
-    timeout: float,
-) -> None:
-    """Probe gateway liveliness and model info endpoints before configuring connection.
-
-    The address is a node address from the Kubernetes API, so the probe dials at the private
-    level, and the connect checks the address.
-    """
-    try:
-        with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
-            live_resp = client.get(f"{base_url}/health/liveliness")
-            if live_resp.status_code >= 400:
-                print_error(
-                    f"The LLM gateway at {base_url} is not live: HTTP {live_resp.status_code}"
-                )
-                raise typer.Exit(code=1)
-            model_resp = client.get(f"{base_url}/model/info", headers=headers)
-            if model_resp.status_code >= 400:
-                print_error(
-                    f"The LLM gateway at {base_url} rejected model info query: HTTP {model_resp.status_code}"
-                )
-                raise typer.Exit(code=1)
-    except (httpx2.HTTPError, OSError, SSRFBlockedError) as exc:
-        print_error(f"The LLM gateway at {base_url} does not answer: {str(exc)[:256]}")
-        raise typer.Exit(code=1) from exc
-
-
 @dry_run_class("request-plan")
 @app.command("connect")
 def connect_cmd(
@@ -284,7 +254,14 @@ def connect_cmd(
     api_key = get_ai_api_key(settings)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
-    _probe_gateway_liveliness_and_models(base_url, headers, timeout)
+    try:
+        probe_gateway_liveliness_and_models(base_url, headers, timeout)
+    except ValidationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(code=1) from exc
+    except (httpx2.HTTPError, OSError, SSRFBlockedError) as exc:
+        print_error(f"The LLM gateway at {base_url} does not answer: {str(exc)[:256]}")
+        raise typer.Exit(code=1) from exc
 
     settings.ai.gateway_url = node_port_url
     settings.ai.allow_private_network = True

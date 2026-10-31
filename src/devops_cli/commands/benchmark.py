@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
-from pydantic import BaseModel
 
+from devops_cli.ai.benchmark.execution import (
+    execute_embedding_benchmark,
+    execute_tasks_benchmark,
+)
 from devops_cli.ai.benchmark.model_spec import parse_model_list
 from devops_cli.config.constants import CONST_BENCHMARK_TYPES
 from devops_cli.config.defaults import (
@@ -20,7 +23,7 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import ERRORS, HELP
-from devops_cli.output import print_error, print_success, write_stdout, write_text_file
+from devops_cli.output import print_error
 
 app = new_typer(
     help=HELP.ai.benchmark,
@@ -93,254 +96,6 @@ def _parse_server_list(servers: str | None) -> list[str] | None:
                 field="servers",
             ) from exc
     return server_list or None
-
-
-def _record_benchmark(
-    kind: str,
-    report: BaseModel,
-    *,
-    setup: dict[str, Any],
-    subject: dict[str, Any],
-    format_type: str,
-) -> None:
-    """Keep a benchmark run in the run store, announcing on stderr beside JSON or Markdown."""
-    from devops_cli.ai.run_store import Mechanism, record_run
-    from devops_cli.commands.ai_runs import announce_run
-
-    saved = record_run(
-        Mechanism.AI_BENCHMARK,
-        setup=setup,
-        subject={"kind": kind} | subject,
-        results=report.model_dump(mode="json"),
-    )
-    announce_run(saved, to_stderr=format_type.lower() in ("json", "markdown"))
-
-
-def _benchmark_setup(
-    model_list: list[str],
-    settings: Any,
-    provider: str | None,
-    safe_concurrency: int,
-    server_list: list[str] | None,
-) -> dict[str, Any]:
-    """What a benchmark's results depend on besides its subject.
-
-    A server and the endpoint of a model are named by their `host[:port]`, never by their URL,
-    which can hold userinfo.
-    """
-    from devops_cli.ai.benchmark.labels import model_label, server_label
-
-    return {
-        "models": sorted(model_label(entry) for entry in model_list),
-        "provider": provider or settings.ai.provider,
-        "servers": sorted(server_label(url) for url in server_list or []),
-        "concurrency": safe_concurrency,
-    }
-
-
-def _execute_embedding_benchmark(
-    model_list: list[str],
-    settings: Any,
-    provider: str | None,
-    dry_run: bool,
-    safe_concurrency: int,
-    server_list: list[str] | None,
-    document: Path | None,
-    code: Path | None,
-    samples: int,
-    output: Path | None,
-    format_type: str,
-) -> None:
-    """Execute embedding model benchmark run."""
-    from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
-
-    embed_runner = EmbeddingBenchmarkRunner(
-        models=model_list,
-        settings=settings,
-        provider=provider,
-        is_dry_run=dry_run,
-        concurrency=safe_concurrency,
-        servers=server_list,
-        document_path=document,
-        code_path=code,
-        sample_count=samples,
-    )
-    embed_report = embed_runner.run()
-
-    failed_cnt = (
-        embed_report.failed_count
-        if embed_report.failed_count is not None
-        else sum(1 for m in embed_report.models if getattr(m, "failed", False))
-    )
-    total_cnt = (
-        embed_report.total_count
-        if embed_report.total_count is not None
-        else len(embed_report.models)
-    )
-    if total_cnt > 0 and failed_cnt >= total_cnt:
-        if output:
-            resolved_output = output.resolve()
-            write_text_file(resolved_output, embed_report.model_dump_json(indent=2))
-        embed_runner.print_report(embed_report, format_type=format_type)
-        print_error("All embedding benchmark requests failed.", prefix=False)
-        raise typer.Exit(1)
-
-    if not dry_run:
-        from devops_cli.ai.benchmark.code_chunk_corpus import code_tree_digest
-        from devops_cli.ai.run_store import file_digest
-
-        _record_benchmark(
-            "embedding",
-            embed_report,
-            setup=_benchmark_setup(model_list, settings, provider, safe_concurrency, server_list),
-            subject={
-                "document": file_digest(document) if document else None,
-                "samples": samples,
-                **({"code": code_tree_digest(code)} if code else {}),
-            },
-            format_type=format_type,
-        )
-
-    if output:
-        resolved_output = output.resolve()
-        write_text_file(resolved_output, embed_report.model_dump_json(indent=2))
-        print_success(f"Exported custom report to {resolved_output}")
-
-    if dry_run or is_dry_run():
-        from devops_cli.ai.ai_plans import plan_ai_benchmark
-        from devops_cli.dry_run.requests import render_request_plan
-
-        planned = plan_ai_benchmark(
-            models=model_list,
-            servers=server_list,
-            benchmark_type="embedding",
-        )
-        if format_type.lower() != "json":
-            render_request_plan("Plan for AI benchmark", planned)
-
-    embed_runner.print_report(embed_report, format_type=format_type)
-
-
-def _render_tasks_dry_run(
-    report: Any,
-    runner: Any,
-    planned: list[Any],
-    format_type: str,
-) -> None:
-    import json
-
-    from devops_cli.dry_run.requests import render_request_plan
-
-    if format_type.lower() == "json":
-        data = report.model_dump(mode="json")
-        data["requests"] = [r.__dict__ for r in planned]
-        write_stdout(json.dumps(data, indent=2) + "\n")
-    elif format_type.lower() == "markdown":
-        write_stdout(runner.to_markdown(report) + "\n")
-    else:
-        render_request_plan("Plan for AI benchmark", planned)
-        runner.render_results(report)
-
-
-def _execute_tasks_benchmark(
-    model_list: list[str],
-    tasks_filter: str | None,
-    settings: Any,
-    provider: str | None,
-    dry_run: bool,
-    safe_concurrency: int,
-    server_list: list[str] | None,
-    output: Path | None,
-    format_type: str,
-) -> None:
-    """Execute peer-grading task benchmark run."""
-    import json
-
-    from devops_cli.ai.benchmark.runner import BenchmarkRunner
-    from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
-
-    cat_filters = [c.strip() for c in tasks_filter.split(",")] if tasks_filter else None
-    task_list = get_benchmark_tasks(cat_filters)
-
-    if not task_list:
-        err = ERRORS.ai.unsupported_provider.format(provider="No matching tasks found")
-        print_error(err)
-        raise typer.Exit(1)
-
-    effective_dry_run = dry_run or is_dry_run()
-    if effective_dry_run and format_type.lower() == "json":
-        from devops_cli.ai.ai_plans import plan_ai_benchmark
-        from devops_cli.models.benchmark import BenchmarkReport
-
-        planned = plan_ai_benchmark(
-            models=model_list,
-            servers=server_list,
-            benchmark_type="tasks",
-        )
-        rep = BenchmarkReport(
-            session_id="dry-run",
-            models_evaluated=model_list,
-            tasks_run=task_list,
-            responses=[],
-            peer_grades=[],
-            leaderboard=[],
-            server_benchmarks=[],
-            is_dry_run=True,
-        )
-        data = rep.model_dump(mode="json")
-        data["requests"] = [r.__dict__ for r in planned]
-        if output:
-            resolved_output = output.resolve()
-            write_text_file(resolved_output, json.dumps(data, indent=2))
-            print_success(f"Exported custom report to {resolved_output}")
-        write_stdout(json.dumps(data, indent=2) + "\n")
-        return
-
-    runner = BenchmarkRunner(
-        models=model_list,
-        tasks=task_list,
-        settings=settings,
-        provider=provider,
-        is_dry_run=effective_dry_run,
-        concurrency=safe_concurrency,
-        servers=server_list,
-    )
-
-    report = runner.execute()
-    if not effective_dry_run:
-        _record_benchmark(
-            "tasks",
-            report,
-            setup=_benchmark_setup(model_list, settings, provider, safe_concurrency, server_list),
-            subject={"tasks": sorted(task.id for task in task_list)},
-            format_type=format_type,
-        )
-
-    if effective_dry_run:
-        from devops_cli.ai.ai_plans import plan_ai_benchmark
-
-        planned = plan_ai_benchmark(
-            models=model_list,
-            servers=server_list,
-            benchmark_type="tasks",
-        )
-        report.is_dry_run = True
-
-    if output:
-        resolved_output = output.resolve()
-        write_text_file(resolved_output, report.model_dump_json(indent=2))
-        print_success(f"Exported custom report to {resolved_output}")
-
-    if effective_dry_run:
-        _render_tasks_dry_run(report, runner, planned, format_type)
-        return
-
-    if format_type.lower() == "json":
-        write_stdout(report.model_dump_json(indent=2) + "\n")
-    elif format_type.lower() == "markdown":
-        write_stdout(runner.to_markdown(report) + "\n")
-    else:
-        runner.render_results(report)
 
 
 @dry_run_class("request-plan")
@@ -485,7 +240,7 @@ def run_benchmark(
             else:
                 emb_model = getattr(getattr(settings.ai.tasks, "embedding", None), "model", None)
                 model_list = [emb_model] if emb_model else [settings.ai.model]
-        _execute_embedding_benchmark(
+        execute_embedding_benchmark(
             model_list=model_list,
             settings=settings,
             provider=provider,
@@ -500,7 +255,7 @@ def run_benchmark(
         )
         return
 
-    _execute_tasks_benchmark(
+    execute_tasks_benchmark(
         model_list=model_list,
         tasks_filter=tasks_filter,
         settings=settings,

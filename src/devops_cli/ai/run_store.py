@@ -518,6 +518,24 @@ def get_baseline(
     return None
 
 
+def find_baseline_run(
+    subject_or_run: str,
+    mechanism: Mechanism | None = None,
+    root: Path | None = None,
+) -> RunRecord | None:
+    """Find a baseline record by subject key or run ID, with or without mechanism."""
+    run = get_run(subject_or_run, root=root)
+    mech = mechanism or (run.mechanism if run else None)
+    subj_key = run.subject_key if run else subject_or_run
+    if mech:
+        return get_baseline(mech, subj_key, root=root)
+    for m in Mechanism:
+        found = get_baseline(m, subj_key, root=root)
+        if found is not None:
+            return found
+    return None
+
+
 def list_baselines(root: Path | None = None) -> list[BaselineRecord]:
     """List all configured baselines, newest first."""
     base = baselines_dir(root)
@@ -941,6 +959,7 @@ __all__ = [
     "digest",
     "extract_metrics",
     "file_digest",
+    "find_baseline_run",
     "gateway_pool",
     "get_baseline",
     "get_run",

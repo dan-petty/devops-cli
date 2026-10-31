@@ -15,6 +15,10 @@ if TYPE_CHECKING:
         EmbeddingEvalPair,
         get_embedding_eval_dataset,
     )
+    from devops_cli.ai.benchmark.execution import (
+        execute_embedding_benchmark,
+        execute_tasks_benchmark,
+    )
     from devops_cli.ai.benchmark.runner import (
         BenchmarkRunner,
     )
@@ -30,6 +34,8 @@ __all__ = [
     "BenchmarkRunner",
     "EmbeddingBenchmarkRunner",
     "EmbeddingEvalPair",
+    "execute_embedding_benchmark",
+    "execute_tasks_benchmark",
     "get_benchmark_tasks",
     "get_embedding_eval_dataset",
 ]
@@ -42,6 +48,14 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "EMBEDDING_DISTRACTORS": ("devops_cli.ai.benchmark.embedding_tasks", "EMBEDDING_DISTRACTORS"),
     "EMBEDDING_EVAL_PAIRS": ("devops_cli.ai.benchmark.embedding_tasks", "EMBEDDING_EVAL_PAIRS"),
     "EmbeddingEvalPair": ("devops_cli.ai.benchmark.embedding_tasks", "EmbeddingEvalPair"),
+    "execute_embedding_benchmark": (
+        "devops_cli.ai.benchmark.execution",
+        "execute_embedding_benchmark",
+    ),
+    "execute_tasks_benchmark": (
+        "devops_cli.ai.benchmark.execution",
+        "execute_tasks_benchmark",
+    ),
     "get_embedding_eval_dataset": (
         "devops_cli.ai.benchmark.embedding_tasks",
         "get_embedding_eval_dataset",

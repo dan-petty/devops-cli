@@ -897,3 +897,11 @@ def test_openai_sdk_client_uses_factory_transport() -> None:
     )
     sdk_client = client._openai_client()
     assert sdk_client._client is client._shared_client()
+
+
+def test_backend_type_resolves_without_mock_fallback() -> None:
+    """Verify backend_type never returns 'mock' when provider is not a string."""
+    cfg = AIConfig(model="test-model")
+    object.__setattr__(cfg, "provider", None)
+    client = LLMClient(cfg)
+    assert client.backend_type == "ollama"

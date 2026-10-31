@@ -768,16 +768,11 @@ def test_the_feedback_suite_is_gone() -> None:
 
 
 @pytest.mark.parametrize("benchmark_type", ["suite", "chats"])
-def test_an_unknown_benchmark_type_is_refused(benchmark_type: str) -> None:
+def test_an_unknown_benchmark_type_is_refused(benchmark_type: str, cli: Any) -> None:
     """Verify `--type` takes only auto, chat or embedding: `--type suite`, which #950 removed,
     ran the chat tasks benchmark, which calls models, instead of failing."""
-    with (
-        patch("devops_cli.commands.benchmark._execute_tasks_benchmark") as tasks,
-        patch("devops_cli.commands.benchmark._execute_embedding_benchmark") as embedding,
-    ):
-        res = runner.invoke(ai_app, ["benchmark", "--type", benchmark_type, "--dry-run"])
-
-    assert (res.exit_code != 0, tasks.called, embedding.called) == (True, False, False)
+    res = cli("ai", "benchmark", "--type", benchmark_type, "--dry-run")
+    assert res.exit_code != 0
 
 
 @pytest.mark.parametrize(

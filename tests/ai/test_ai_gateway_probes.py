@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from devops_cli.ai.gateway import probe_gateway_liveliness_and_models
 from devops_cli.ai.gateway_probes import (
     DeepRecallEvaluator,
     ExplicitProhibitionEvaluator,
@@ -12,6 +15,8 @@ from devops_cli.ai.gateway_probes import (
     build_capability_probes,
     score_deployment_probes,
 )
+from devops_cli.exceptions import ValidationError
+from tests.web_fakes import StubWeb
 
 
 def test_json_adherence_evaluator() -> None:
@@ -121,3 +126,15 @@ def test_build_capability_probes() -> None:
         assert p["rounds"] == 3
         assert "prompt" in p
         assert len(p["prompt"]) > 0
+
+
+def test_probe_gateway_liveliness_and_models(stub_web: StubWeb) -> None:
+    """Verify probe_gateway_liveliness_and_models verifies healthy liveliness and model info."""
+    stub_web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 200, {"status": "ok"})
+    stub_web.respond("GET", "http://192.0.2.10:4000/model/info", 200, {"models": []})
+
+    probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)
+
+    stub_web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 503, "Unavailable")
+    with pytest.raises(ValidationError, match="not live"):
+        probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)

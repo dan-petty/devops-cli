@@ -15,8 +15,10 @@ from typer.testing import CliRunner
 
 from devops_cli.ai import gateway_bench as bench
 from devops_cli.ai.gateway_tune import (
+    DeploymentTune,
     GatewayTuneError,
     GpuInfo,
+    TuneReport,
     backend_pods,
     bench_script,
     calculate_hardware_concurrency,
@@ -28,7 +30,7 @@ from devops_cli.ai.gateway_tune import (
     recommend_weights,
     tune_pool,
 )
-from devops_cli.ai.run_store import Mechanism, new_run
+from devops_cli.ai.run_store import Mechanism, load_runs, new_run
 from devops_cli.ai.spend.models import BackendSpendSummary
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.defaults import DEFAULT_GATEWAY_TUNE_IMAGE
@@ -1398,3 +1400,52 @@ def test_tune_command_renders_capabilities_json(
     assert caps["probed"] is True
     assert caps["all_passed"] is True
     assert caps["passed_probes_count"] == 4
+
+
+def test_a_gateway_tune_is_kept_with_its_pool(
+    monkeypatch: pytest.MonkeyPatch, keyring_store: Any
+) -> None:
+    """Verify a tune's record names each deployment's backend, weight and GPUs as its setup."""
+    from devops_cli.commands import ai_gateway
+
+    report = TuneReport(
+        model_group="devops-review",
+        prompt_tokens=4096,
+        max_tokens=64,
+        deployments=[
+            DeploymentTune(
+                deployment_id="d1",
+                backend="ollama",
+                model="ollama/qwen",
+                api_base="http://ollama.example:11434/v1",
+                current_weight=5,
+                engine="ollama",
+                gpus=[GpuInfo(name="RTX 3090", memory_mib=24576)],
+            )
+        ],
+    )
+    monkeypatch.setattr(ai_gateway, "tune_pool", lambda **_: report)
+    monkeypatch.setattr(ai_gateway, "resolve_context", lambda context: None)
+
+    result = runner.invoke(gateway_cli_app, ["tune", "--format", "json"])
+    (kept,) = load_runs(Mechanism.GATEWAY_TUNE)
+
+    assert (
+        result.exit_code,
+        json.loads(result.stdout)["model_group"],
+        kept.subject,
+        kept.setup["pool"],
+    ) == (
+        0,
+        "devops-review",
+        {"model_group": "devops-review"},
+        [
+            {
+                "backend": "ollama",
+                "model": "ollama/qwen",
+                "weight": 5,
+                "engine": "ollama",
+                "gpus": ["RTX 3090"],
+            }
+        ],
+    )
