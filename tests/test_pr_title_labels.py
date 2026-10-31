@@ -288,3 +288,37 @@ def test_a_dry_run_lists_the_label_requests_of_the_title(
         ),
         any("placeholder" in line for line in lines),
     ] == [True, True, True, True]
+
+
+def test_labels_file_declares_scope_git() -> None:
+    """The repository's .github/labels.yml declares scope/git (#2800)."""
+    import yaml
+
+    from tests.support.paths import REPO_ROOT
+
+    text = (REPO_ROOT / ".github" / "labels.yml").read_text(encoding="utf-8")
+    labels = yaml.safe_load(text)
+    git_labels = [
+        label for label in labels if isinstance(label, dict) and label.get("name") == "scope/git"
+    ]
+    assert len(git_labels) == 1
+    assert git_labels[0]["color"] == "24292E"
+    assert git_labels[0]["description"] != ""
+
+
+@pytest.mark.usefixtures("status")
+def test_a_title_with_git_scope_gets_the_scope_git_label(
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, status: MagicMock
+) -> None:
+    """A PR whose title scope is git receives scope/git when declared (#2800)."""
+    from tests.support.paths import REPO_ROOT
+
+    text = (REPO_ROOT / ".github" / "labels.yml").read_text(encoding="utf-8")
+    roadmap_store.seed_file(LABELS_PATH, text)
+    pull = roadmap_store.seed_issue("test(git): example", pull_request=True)
+    result, _ = _create(runner, "test(git): example")
+    assert (
+        result.exit_code,
+        "does not declare scope/git" in result.output,
+        _labeled(roadmap_store),
+    ) == (0, False, {(pull, "type/test"), (pull, "scope/git")})
