@@ -173,6 +173,68 @@ def plan_k8s_bootstrap_openwebui(
     ]
 
 
+def plan_k8s_bootstrap_mattermost(
+    team: str = "homelab",
+    context: str | None = None,
+    push_secrets: bool = True,
+) -> list[PlannedRequest]:
+    """Plan Mattermost team, channels, webhooks, and slash command bootstrapping via pod discovery and exec."""
+    ctx_args = ["--context", context] if context else []
+    pod_cmd = [
+        BIN_KUBECTL,
+        "get",
+        "pods",
+        "-n",
+        "mattermost",
+        "-l",
+        "app.kubernetes.io/name=mattermost",
+        "-o",
+        "jsonpath={.items[0].metadata.name}",
+        *ctx_args,
+    ]
+    exec_cmd = [
+        BIN_KUBECTL,
+        "exec",
+        "-n",
+        "mattermost",
+        "<mattermost-pod>",
+        *ctx_args,
+        "--",
+        "mmctl",
+        "--local",
+        "<bootstrap-subcommand>",
+    ]
+    requests = [
+        PlannedRequest(
+            method="kubectl",
+            target="pods",
+            argv=tuple(pod_cmd),
+        ),
+        PlannedRequest(
+            method="kubectl",
+            target="exec",
+            argv=tuple(exec_cmd),
+        ),
+    ]
+    if push_secrets:
+        push_cmd = [
+            "devops",
+            "k8s",
+            "push-secrets",
+            "--only",
+            "monitoring/alertmanager-mattermost,argocd/argocd-notifications-secret,devops/devops-cli",
+            *ctx_args,
+        ]
+        requests.append(
+            PlannedRequest(
+                method="devops",
+                target="secrets",
+                argv=tuple(push_cmd),
+            )
+        )
+    return requests
+
+
 def plan_k8s_chaos(
     experiment: str = "pod-kill",
     deployment: str = "sample-app",

@@ -50,6 +50,7 @@ from devops_cli.commands.k8s.diagnostics import (
 )
 from devops_cli.commands.k8s.gpu_matrix import gpu_matrix_cmd
 from devops_cli.commands.k8s.image_pins import k8s_image_pins
+from devops_cli.commands.k8s.mattermost_bootstrap import bootstrap_mattermost
 from devops_cli.commands.k8s.networking import (
     VALID_STACKS,
     _detect_service_url,
@@ -108,6 +109,7 @@ app.command()(render)
 app.command()(logs)
 app.command("bootstrap", help=HELP.k8s.bootstrap)(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
+app.command("bootstrap-mattermost")(bootstrap_mattermost)
 app.command("deploy-stack", help=HELP.k8s.deploy_stack)(deploy_stack)
 app.command("sync-secrets")(sync_secrets)
 app.command("push-secrets", help=HELP.k8s.push_secrets)(push_secrets)
@@ -165,6 +167,7 @@ __all__ = [
     "app",
     "apply",
     "bootstrap",
+    "bootstrap_mattermost",
     "bootstrap_openwebui",
     "chaos_cmd",
     "configure_urls",

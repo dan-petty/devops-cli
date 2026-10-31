@@ -206,6 +206,7 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 |  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress. |
 |  | `devops k8s bootstrap-openwebui [OPTIONS]` | Bootstrap or activate a local administrator account for Open-WebUI. |
+|  | `devops k8s bootstrap-mattermost [OPTIONS]` | Bootstrap Mattermost teams, channels, webhooks, and slash commands in Kubernetes. |
 |  | `devops k8s deploy-stack [OPTIONS]` | Deploy one stack (infra, llm, logging, devops, gitea, chat) or all of them to Kubernetes with Helm and Kustomize. |
 |  | `devops k8s sync-secrets [OPTIONS]` | Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring. |
 |  | `devops k8s push-secrets [OPTIONS]` | Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones nobody types, and never replaces a live value without --rotate. |

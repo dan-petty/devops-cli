@@ -25,6 +25,9 @@ from devops_cli.commands.k8s.diagnostics import (
     chaos_cmd,
     diff_helm_cmd,
 )
+from devops_cli.commands.k8s.mattermost_bootstrap import (
+    bootstrap_mattermost,
+)
 from devops_cli.commands.k8s.networking import (
     configure_urls,
 )
@@ -60,6 +63,11 @@ runner = CliRunner()
 REQUEST_PLAN_COMMANDS = [
     ("k8s apply", k8s_apply, ["k8s", "apply", "k8s/base", "--dry-run"]),
     ("k8s bootstrap", bootstrap, ["k8s", "bootstrap", "--dry-run"]),
+    (
+        "k8s bootstrap-mattermost",
+        bootstrap_mattermost,
+        ["k8s", "bootstrap-mattermost", "--dry-run"],
+    ),
     ("k8s bootstrap-openwebui", bootstrap_openwebui, ["k8s", "bootstrap-openwebui", "--dry-run"]),
     ("k8s chaos", chaos_cmd, ["k8s", "chaos", "--dry-run"]),
     ("k8s check-deprecated", k8s_check_deprecated, ["k8s", "check-deprecated", ".", "--dry-run"]),
