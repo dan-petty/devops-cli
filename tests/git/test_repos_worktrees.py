@@ -58,7 +58,11 @@ class WorktreeRepoState:
 
     def add_worktree(self, branch: str | None, path: Path, *, commit: bool = False) -> str:
         resolved = path.resolve()
-        sha = hashlib.sha1(f"{branch}-{path}".encode()).hexdigest() if commit else self.main_sha
+        sha = (
+            hashlib.sha1(f"{branch}-{path}".encode(), usedforsecurity=False).hexdigest()
+            if commit
+            else self.main_sha
+        )
         self.worktrees[resolved] = {
             "branch": f"refs/heads/{branch}" if branch else None,
             "head": sha,
@@ -211,7 +215,7 @@ class WorktreeRepoState:
         if wt_info:
             wt_info["ahead"] += 1
             seed = f"{wt_info['branch']}-{wt_info['ahead']}".encode()
-            wt_info["head"] = hashlib.sha1(seed).hexdigest()
+            wt_info["head"] = hashlib.sha1(seed, usedforsecurity=False).hexdigest()
         return ProcessAnswer(returncode=0)
 
     def _handle_call(self, call: ProcessCall) -> ProcessAnswer:
