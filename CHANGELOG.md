@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.34.0](https://github.com/dan-petty/devops-cli/compare/v0.33.1...v0.34.0) (2026-10-31)
+
+
+### Features
+
+* **cloudflare:** preview requests in dry run for cloudflare commands ([#2928](https://github.com/dan-petty/devops-cli/issues/2928)) ([3113ecf](https://github.com/dan-petty/devops-cli/commit/3113ecfce631ec27d7c88f3abd76ed4388ec9f3f)), closes [#2252](https://github.com/dan-petty/devops-cli/issues/2252)
+* **roadmap:** the Service sets the status label and adds Planned ([#2931](https://github.com/dan-petty/devops-cli/issues/2931)) ([8605473](https://github.com/dan-petty/devops-cli/commit/8605473af217cf73007b2a8d514d6eb855025059)), closes [#2920](https://github.com/dan-petty/devops-cli/issues/2920)
+
 ## [0.33.1](https://github.com/dan-petty/devops-cli/compare/v0.33.0...v0.33.1) (2026-10-31)
 
 
