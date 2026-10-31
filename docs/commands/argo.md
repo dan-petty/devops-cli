@@ -30,6 +30,7 @@ devops argo sync [OPTIONS] <name>
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -181,6 +182,7 @@ devops argo cd apps sync [OPTIONS] <name>
 |---|---|---|---|
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops argo cd apps status`
 
@@ -268,6 +270,7 @@ devops argo workflows list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo workflows submit`
 
@@ -289,6 +292,7 @@ devops argo workflows submit [OPTIONS] <file>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--wait`, `-w` | `boolean` | - | Wait for sync operation to finish. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo workflows logs`
 
@@ -311,6 +315,7 @@ devops argo workflows logs [OPTIONS] <name>
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--container`, `-c` | `string` | `main` | Container to read logs from. |
 | `--follow`, `-f` | `boolean` | - | Stream workflow execution logs. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -333,6 +338,7 @@ devops argo rollouts list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo rollouts status`
 
@@ -354,6 +360,7 @@ devops argo rollouts status [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo rollouts promote`
 

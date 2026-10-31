@@ -311,8 +311,8 @@ def test_cli_gitops_watch_dry_run_once(tmp_path: Path) -> None:
         ],
     )
     assert result.exit_code == 0
-    assert "DRY_RUN" in result.output
-    assert "watch_gitops_drift" in result.output
+    assert "Plan for GitOps watch on 'root-app'" in result.output
+    assert "api/v1/session" in result.output
 
 
 def test_cli_gitops_watch_once_execution(tmp_path: Path) -> None:

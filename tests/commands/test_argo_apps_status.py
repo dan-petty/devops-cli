@@ -113,5 +113,5 @@ def test_status_dry_run_sends_no_request(cli: Callable[..., Any], stub_web: Stub
     result = cli("argo", "cd", "apps", "status", "devops", "--dry-run")
 
     assert result.exit_code == 0
-    assert "show_argocd_app_status" in result.output
+    assert "Plan for Argo CD application 'devops' status" in result.output
     assert stub_web.sent == []
