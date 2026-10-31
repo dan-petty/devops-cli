@@ -24,7 +24,16 @@ K8S_DIR = REPO_ROOT / "k8s"
 # or leaves its file; the guard below fails until then.
 UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {}
 
-TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops", "argo-workflows", "gitea")
+TARGET_NAMESPACES = (
+    "monitoring",
+    "argocd",
+    "llm",
+    "otel",
+    "devops",
+    "argo-workflows",
+    "gitea",
+    "mattermost",
+)
 METADATA_SSRF_IP = "169.254.169.254/32"
 TRAEFIK_PEER = {
     "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
@@ -143,7 +152,12 @@ def test_networkpolicy_schema_and_perimeter_rules(namespace: str) -> None:
     if not policy_path.is_file():
         pytest.fail(f"NetworkPolicy file does not exist: {policy_path}")
 
-    doc = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+    docs = [
+        d
+        for d in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
+        if isinstance(d, dict) and d.get("kind") == "NetworkPolicy"
+    ]
+    doc = docs[0]
     assert doc.get("apiVersion") == "networking.k8s.io/v1"
     assert doc.get("kind") == "NetworkPolicy"
 
@@ -166,15 +180,16 @@ def test_networkpolicy_schema_and_perimeter_rules(namespace: str) -> None:
     assert has_dns, f"NetworkPolicy for {namespace} must permit CoreDNS egress on port 53"
 
     # Any rule defining an ipBlock must explicitly block cloud metadata SSRF
-    for rule in egress_rules:
-        to_blocks = rule.get("to", [])
-        for to in to_blocks:
-            ip_block = to.get("ipBlock", {})
-            if ip_block:
-                except_list = ip_block.get("except", [])
-                assert METADATA_SSRF_IP in except_list, (
-                    f"NetworkPolicy for {namespace} with ipBlock must block cloud metadata ({METADATA_SSRF_IP})"
-                )
+    for d in docs:
+        for rule in d.get("spec", {}).get("egress", []):
+            to_blocks = rule.get("to", [])
+            for to in to_blocks:
+                ip_block = to.get("ipBlock", {})
+                if ip_block:
+                    except_list = ip_block.get("except", [])
+                    assert METADATA_SSRF_IP in except_list, (
+                        f"NetworkPolicy for {namespace} with ipBlock must block cloud metadata ({METADATA_SSRF_IP})"
+                    )
 
     # Namespaces that access external internet/registries must have an SSRF-blocking egress rule
     if namespace in ("monitoring", "argocd", "llm"):
@@ -534,3 +549,27 @@ def test_every_network_policy_namespace_selector_names_a_declared_or_builtin_nam
                     violations.append((str(path.relative_to(K8S_DIR)), namespace))
 
     assert violations == []
+
+
+def test_mattermost_pod_has_no_ipblock_egress_peer() -> None:
+    """No policy with an ipBlock egress peer selects a pod labelled app: mattermost (#1391)."""
+    mattermost_dir = K8S_DIR / "mattermost"
+    policy_path = mattermost_dir / "networkpolicy.yaml"
+    assert policy_path.is_file(), f"Missing NetworkPolicy in {mattermost_dir}"
+
+    docs = [
+        doc
+        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
+    ]
+    for doc in docs:
+        spec = doc.get("spec", {})
+        egress_rules = spec.get("egress", [])
+        has_ipblock = any(
+            to_block.get("ipBlock") for rule in egress_rules for to_block in rule.get("to", [])
+        )
+        if has_ipblock:
+            pod_selector = spec.get("podSelector", {})
+            match_labels = pod_selector.get("matchLabels", {})
+            assert match_labels.get("app") != "mattermost"
+            assert pod_selector != {}

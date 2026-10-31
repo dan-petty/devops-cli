@@ -39,6 +39,12 @@ spec:
     namespace: argocd
     jsonPointers:
     - /spec/source/kustomize
+  - group: argoproj.io
+    kind: Application
+    name: mattermost
+    namespace: argocd
+    jsonPointers:
+    - /spec/source/kustomize
   # Argo CD dynamically adds pre-delete and post-delete finalizers when rendered child application
   # manifests contain PreDelete or PostDelete hooks (such as k8s-monitoring's pre-delete cleanup Job).
   # Ignoring these finalizers prevents the cluster app-of-apps from stripping and re-adding them on every sync (#1674).

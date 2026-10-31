@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mattermost-operator
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab-system
+  sources:
+  - repoURL: https://helm.mattermost.com
+    chart: mattermost-operator
+    targetRevision: 1.0.5
+    helm:
+      valueFiles:
+      - $values/k8s/mattermost/mattermost-operator-values.yaml
+  - repoURL: https://github.com/dan-petty/devops-cli
+    targetRevision: main
+    ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mattermost-operator
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+    - ServerSideApply=true

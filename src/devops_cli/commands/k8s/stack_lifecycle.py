@@ -90,6 +90,10 @@ HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "gitea": {
         "gitea-charts": "https://dl.gitea.com/charts/",
     },
+    "chat": {
+        "cloudnative-pg": "https://cloudnative-pg.github.io/charts",
+        "mattermost": "https://helm.mattermost.com",
+    },
 }
 _HELM_REPOS_BY_STACK = HELM_REPOS_BY_STACK
 
@@ -98,6 +102,7 @@ _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["llm"],
     **_HELM_REPOS_BY_STACK["logging"],
     **_HELM_REPOS_BY_STACK["gitea"],
+    **_HELM_REPOS_BY_STACK["chat"],
 }
 
 
@@ -222,6 +227,22 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "version": "12.7.0",
         },
     ],
+    "chat": [
+        {
+            "name": "cloudnative-pg",
+            "chart": "cloudnative-pg/cloudnative-pg",
+            "namespace": "cnpg-system",
+            "values": str(DEFAULT_K8S_DIR / "mattermost" / "cloudnative-pg-values.yaml"),
+            "version": "0.29.1",
+        },
+        {
+            "name": "mattermost-operator",
+            "chart": "mattermost/mattermost-operator",
+            "namespace": "mattermost-operator",
+            "values": str(DEFAULT_K8S_DIR / "mattermost" / "mattermost-operator-values.yaml"),
+            "version": "1.0.5",
+        },
+    ],
 }
 
 _HELM_RELEASES_BY_STACK = HELM_RELEASES_BY_STACK
@@ -290,6 +311,7 @@ _KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
 _POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
     "llm": (Path("llm", "gateway", "servicemonitor.yaml"),),
+    "chat": (Path("mattermost"),),
 }
 
 

@@ -43,6 +43,8 @@ spec:
       namespace: gitea
     - server: https://kubernetes.default.svc
       namespace: registry
+    - server: https://kubernetes.default.svc
+      namespace: mattermost
   orphanedResources:
     warn: true
     ignore:
@@ -79,6 +81,9 @@ spec:
       - group: ''
         kind: Secret
         name: gitea-admin
+      - group: ''
+        kind: Secret
+        name: mattermost-db
       - group: ''
         kind: Secret
         name: argocd-initial-admin-secret
@@ -121,6 +126,8 @@ spec:
     - https://open-webui.github.io/helm-charts
     - https://qdrant.github.io/qdrant-helm
     - https://traefik.github.io/charts
+    - https://cloudnative-pg.github.io/charts
+    - https://helm.mattermost.com
   destinations:
     - server: https://kubernetes.default.svc
       namespace: kube-system
@@ -144,3 +151,7 @@ spec:
       namespace: gitea
     - server: https://kubernetes.default.svc
       namespace: registry
+    - server: https://kubernetes.default.svc
+      namespace: cnpg-system
+    - server: https://kubernetes.default.svc
+      namespace: mattermost-operator

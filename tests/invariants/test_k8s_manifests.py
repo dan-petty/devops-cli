@@ -25,6 +25,7 @@ from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
     LLM_GATEWAY_MASTER_KEY,
+    MATTERMOST_DB_AUTH_KEY,
     KeyringSource,
     keyring_only_keys,
     keyring_sources,
@@ -328,6 +329,9 @@ _CHART_TOKENS: dict[
     ("argocd-image-updater", "1.3.1"): (
         TokenSite("controller", _when(), "ClusterRole argocd-image-updater"),
     ),
+    ("cloudnative-pg", "0.29.1"): (
+        TokenSite("cloudnative-pg", _when(), "ClusterRole cnpg-cloudnative-pg"),
+    ),
     # Chart 4.8.4 mounts the token only for pod labels, pod UIDs or DRA, which the values leave off.
     ("dcgm-exporter", "4.8.4"): (
         TokenSite("dcgm-exporter", _token("serviceAccount.automountServiceAccountToken", False)),
@@ -370,6 +374,9 @@ _CHART_TOKENS: dict[
             "gateway",
             _token("gateway.automountServiceAccountToken", False, ("gateway.enabled", True)),
         ),
+    ),
+    ("mattermost-operator", "1.0.5"): (
+        TokenSite("mattermost-operator", _when(), "ClusterRole mattermost-operator"),
     ),
     ("open-webui", "16.6.0"): (
         TokenSite("open-webui", _token("serviceAccount.automountServiceAccountToken", False)),
@@ -878,7 +885,7 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
         True,
         True,
         frozenset(),
-        frozenset({LLM_GATEWAY_MASTER_KEY, DEVOPS_CACHE_VALKEY_AUTH_KEY}),
+        frozenset({LLM_GATEWAY_MASTER_KEY, DEVOPS_CACHE_VALKEY_AUTH_KEY, MATTERMOST_DB_AUTH_KEY}),
     )
 
 
@@ -963,6 +970,10 @@ def _hosts(rendered: str) -> list[str]:
             hosts += [rule["host"] for rule in doc["spec"]["rules"] if "host" in rule]
         if doc and doc.get("kind") == "IngressRoute":
             hosts += [route["match"] for route in doc["spec"]["routes"]]
+        if doc and doc.get("kind") == "Mattermost":
+            ingress = doc.get("spec", {}).get("ingress", {})
+            if host := ingress.get("host"):
+                hosts.append(host)
     return hosts
 
 

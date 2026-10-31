@@ -304,6 +304,17 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
         ("argocd/argocd-notifications-secret", "github-privateKey", "infra", False, None, None, ()),
         ("gitea/gitea-admin", "username", "gitea", True, None, None, ("deployment/gitea",)),
         ("gitea/gitea-admin", "password", "gitea", True, None, None, ("deployment/gitea",)),
+        ("mattermost/mattermost-db", "username", "chat", True, None, None, ()),
+        (
+            "mattermost/mattermost-db",
+            "password",
+            "chat",
+            True,
+            SecretGenerator("urlsafe", 32),
+            "mattermost/mattermost-db password",
+            (),
+        ),
+        ("mattermost/mattermost-db", "DB_CONNECTION_STRING", "chat", True, None, None, ()),
     ]
 
 
@@ -703,3 +714,50 @@ def test_the_dry_run_lists_the_derived_reads_where_the_push_makes_them(
 def test_keyring_only_keys_count_the_keyring_inputs_of_a_derived_entry() -> None:
     rows = [_db_row(), _hook_row(KeyringSource("example_hook"))]
     assert keyring_only_keys(rows) == frozenset({DB_KEY, "example_hook"})
+
+
+def test_mattermost_db_secret_plan_and_dsn_shape() -> None:
+    """The database Secret row has basic-auth type and DSN parses to valid connection URL (#1391)."""
+    import urllib.parse
+
+    from devops_cli.k8s.cluster_secrets import (
+        MATTERMOST_DB_AUTH_KEY,
+        DerivedSource,
+        keyring_only_keys,
+    )
+
+    (secret,) = [s for s in CLUSTER_SECRETS if s.ref == "mattermost/mattermost-db"]
+    assert (secret.secret_type, secret.stack, secret.restarts) == (
+        "kubernetes.io/basic-auth",
+        "chat",
+        (),
+    )
+    assert MATTERMOST_DB_AUTH_KEY in keyring_only_keys(CLUSTER_SECRETS)
+
+    entries = {e.key: e for e in secret.entries}
+    dsn_source = entries["DB_CONNECTION_STRING"].source
+    assert isinstance(dsn_source, DerivedSource)
+
+    test_user = "mattermost"
+    test_pw = "pass/word@123"
+    resolved_inputs = {
+        "username": urllib.parse.quote(test_user, safe=""),
+        "password": urllib.parse.quote(test_pw, safe=""),
+    }
+    dsn = dsn_source.template.format(**resolved_inputs)
+    split = urllib.parse.urlsplit(dsn)
+    assert (
+        split.scheme,
+        urllib.parse.unquote(split.username or ""),
+        urllib.parse.unquote(split.password or ""),
+        split.hostname,
+        split.port,
+        split.path,
+    ) == (
+        "postgres",
+        test_user,
+        test_pw,
+        "mattermost-db-rw.mattermost.svc.cluster.local",
+        5432,
+        "/mattermost",
+    )

@@ -110,7 +110,7 @@ def render_at_revision(source: ApplicationSource, workdir: Path, run: Run) -> st
 
 
 def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:
-    """The JSON pointer and value of every host an Ingress or IngressRoute routes."""
+    """The JSON pointer and value of every host an Ingress, IngressRoute, or Mattermost routes."""
     spec = doc.get("spec") or {}
     if doc.get("kind") == "Ingress":
         rules = [
@@ -131,6 +131,10 @@ def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:
             for i, route in enumerate(spec.get("routes") or [])
             if isinstance(route, dict) and "match" in route
         ]
+    if doc.get("kind") == "Mattermost":
+        ingress = spec.get("ingress") or {}
+        if isinstance(ingress, dict) and isinstance(ingress.get("host"), str):
+            return [("/spec/ingress/host", ingress["host"])]
     return []
 
 

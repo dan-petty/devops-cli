@@ -104,6 +104,22 @@ def test_gitea_values_disables_the_update_checker() -> None:
     assert data["gitea"]["config"]["cron.update_checker"] == {"ENABLED": False}
 
 
+def test_mattermost_disables_telemetry_diagnostics_push_and_marketplace() -> None:
+    """Mattermost diagnostics, update check, push notifications, and marketplace are disabled (#1391)."""
+    manifest_path = K8S_DIR / "mattermost" / "mattermost.yaml"
+    assert manifest_path.is_file(), f"Missing {manifest_path}"
+
+    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    env_map = {item["name"]: item.get("value") for item in data["spec"].get("mattermostEnv", [])}
+
+    assert (
+        env_map.get("MM_LOGSETTINGS_ENABLEDIAGNOSTICS"),
+        env_map.get("MM_SERVICESETTINGS_ENABLESECURITYFIXALERT"),
+        env_map.get("MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS"),
+        env_map.get("MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE"),
+    ) == ("false", "false", "false", "false")
+
+
 def test_open_webui_values_disables_telemetry_and_version_check() -> None:
     """Verify Open-WebUI Helm values disables version update check and analytics."""
     values_path = K8S_DIR / "llm" / "values-open-webui.yaml"

@@ -855,3 +855,21 @@ serverFiles:
             annotations:
               summary: 'Firecrawl refused web searches of the roadmap Service with HTTP {{ $labels.result }} in the last hour'
               description: "Firecrawl refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."
+      - name: mattermost
+        rules:
+          - alert: MattermostUnavailable
+            expr: kube_deployment_status_replicas_available{namespace="mattermost", deployment="mattermost"} < 1
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Mattermost deployment has no available replicas"
+              description: "Mattermost deployment in namespace mattermost has zero available replicas for 10 minutes."
+          - alert: MattermostDatabaseDown
+            expr: max(cnpg_collector_up{namespace="mattermost"}) < 1 or absent(cnpg_collector_up{namespace="mattermost"})
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Mattermost CloudNativePG database is down"
+              description: "Mattermost PostgreSQL database in namespace mattermost is unreachable or has no healthy instances for 5 minutes."

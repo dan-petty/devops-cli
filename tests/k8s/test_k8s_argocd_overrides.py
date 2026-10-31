@@ -319,3 +319,21 @@ def test_overrides_fail_the_build_when_git_moved_a_host_rather_than_route_it_els
     overlay.mkdir()
     result = kustomize(_overlay(overlay, source, patches), check=False)
     assert (result.returncode != 0, "test" in result.stderr.lower()) == (True, True)
+
+
+def test_host_patches_over_k8s_mattermost() -> None:
+    """host_patches over kustomize k8s/mattermost gives one patch for the Mattermost object (#1391)."""
+    rendered = kustomize(K8S_DIR / "mattermost").stdout
+    patches = host_patches(rendered, DOMAIN)
+    assert len(patches) == 1
+    target = patches[0]["target"]
+    assert (target["kind"], target["name"], target["namespace"]) == (
+        "Mattermost",
+        "mattermost",
+        "mattermost",
+    )
+    ops = json.loads(patches[0]["patch"])
+    assert ops == [
+        {"op": "test", "path": "/spec/ingress/host", "value": "mattermost.example.com"},
+        {"op": "replace", "path": "/spec/ingress/host", "value": f"mattermost.{DOMAIN}"},
+    ]

@@ -151,6 +151,20 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: mattermost
+      ports:
+        - protocol: TCP
+          port: 9187
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 8080
     # 5. Allow egress to cloudflared namespace for Cloudflare Tunnel metrics scraping
     - to:
         - namespaceSelector:

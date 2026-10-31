@@ -1,0 +1,28 @@
+# CloudNativePG Helm Chart Values
+# Chart: cloudnative-pg/cloudnative-pg (0.29.1)
+# Repo:  https://cloudnative-pg.github.io/charts
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+monitoring:
+  podMonitorEnabled: true
+  grafanaDashboard:
+    create: true

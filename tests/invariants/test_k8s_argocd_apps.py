@@ -62,7 +62,13 @@ def _all_applications() -> dict[str, dict[str, Any]]:
 
 def test_application_projects_and_destinations() -> None:
     apps = _all_applications()
-    system_apps = {"ingress", "gpu-feature-discovery", "traefik"}
+    system_apps = {
+        "ingress",
+        "gpu-feature-discovery",
+        "traefik",
+        "cloudnative-pg",
+        "mattermost-operator",
+    }
 
     for name, app in apps.items():
         project = app["spec"]["project"]
@@ -466,7 +472,7 @@ def test_namespace_and_pvc_data_safety() -> None:
             if not doc:
                 continue
             kind = doc.get("kind", "")
-            if kind in ("Namespace", "PersistentVolumeClaim"):
+            if kind in ("Namespace", "PersistentVolumeClaim", "Cluster", "Mattermost"):
                 annos = doc.get("metadata", {}).get("annotations", {})
                 sync_opts = annos.get("argocd.argoproj.io/sync-options", "")
                 assert "Prune=false" in sync_opts, (
@@ -893,3 +899,35 @@ def test_the_push_is_the_one_owner_of_the_notifications_secret() -> None:
         {"group": "", "kind": "Secret", "name": "argocd-notifications-secret"}
         in homelab["spec"]["orphanedResources"]["ignore"],
     ) == (False, True)
+
+
+def test_mattermost_operator_limitrange() -> None:
+    """Namespace mattermost-operator has a LimitRange setting default requests and limits."""
+    kust = _load_yaml(K8S_DIR / "kustomization.yaml")
+    assert "mattermost-operator-limitrange.yaml" in kust.get("resources", [])
+    doc = _load_yaml(K8S_DIR / "mattermost-operator-limitrange.yaml")
+    assert doc.get("kind") == "LimitRange"
+    assert doc["metadata"]["namespace"] == "mattermost-operator"
+    container_limit = next(
+        item for item in doc["spec"]["limits"] if item.get("type") == "Container"
+    )
+    assert container_limit["defaultRequest"] == {"cpu": "50m", "memory": "64Mi"}
+    assert container_limit["default"] == {"cpu": "500m", "memory": "256Mi"}
+
+
+def test_mattermost_namespaces_in_namespaces_yaml() -> None:
+    """k8s/namespaces.yaml declares mattermost, cnpg-system, and mattermost-operator with restricted Pod Security."""
+    docs = [
+        d
+        for d in yaml.safe_load_all((K8S_DIR / "namespaces.yaml").read_text(encoding="utf-8"))
+        if d
+    ]
+    by_name = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Namespace"}
+    for ns_name in ("mattermost", "cnpg-system", "mattermost-operator"):
+        assert ns_name in by_name, f"Missing namespace {ns_name} in k8s/namespaces.yaml"
+        labels = by_name[ns_name]["metadata"].get("labels", {})
+        assert labels.get("pod-security.kubernetes.io/enforce") == "restricted"
+        assert labels.get("pod-security.kubernetes.io/warn") == "restricted"
+        assert labels.get("pod-security.kubernetes.io/audit") == "restricted"
+        annos = by_name[ns_name]["metadata"].get("annotations", {})
+        assert annos.get("argocd.argoproj.io/sync-options") == "Prune=false,Delete=false"
