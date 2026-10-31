@@ -146,6 +146,7 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY",  # #2667
         "DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR",  # #2755
         "DEVOPS_CLI_MATTERMOST_ALERTS_HOOK",  # #1392
+        "DEVOPS_CLI_MATTERMOST_DEPLOYS_HOOK",  # #1393
     }
 )
 
@@ -172,6 +173,7 @@ _KEYRING_BEFORE = {
 _KEYRING_OF_LATER_CREDENTIALS = {
     "argocd.github_app_private_key": "argocd_github_app_private_key",  # #2000
     "mattermost.alerts_hook": "mattermost_alerts_hook",  # #1392
+    "mattermost.deploys_hook": "mattermost_deploys_hook",  # #1393
 }
 
 

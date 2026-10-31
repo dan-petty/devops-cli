@@ -115,12 +115,56 @@ dex:
   enabled: false
 
 notifications:
-  enabled: false
+  enabled: true
+  argocdUrl: ""
   secret:
     # `devops k8s push-secrets` writes argocd-notifications-secret from the keyring and the
-    # settings (#2000), so the chart creates no Secret of that name, also once notifications
-    # are turned on.
+    # settings (#2000), so the chart creates no Secret of that name.
     create: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  notifiers:
+    service.webhook.mattermost:
+      url: $mattermost-deploys-url
+      headers:
+        - name: Content-Type
+          value: application/json
+      retryMax: 1
+  subscriptions:
+    - recipients:
+        - mattermost
+      triggers:
+        - on-sync-failed
+  triggers:
+    trigger.on-deployed: |
+      - description: Application has been deployed successfully.
+        send:
+          - app-deployed
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        oncePer: app.status.sync.revision
+    trigger.on-sync-failed: |
+      - description: Application syncing has failed
+        send:
+          - app-sync-failed
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+  templates:
+    template.app-deployed: |
+      webhook:
+        mattermost:
+          method: POST
+          body: |
+            {"text": {{ printf "Application %s deployed revision %s" .app.metadata.name (dig "status" "sync" "revision" "" .app | trunc 7) | toJson }}}
+    template.app-sync-failed: |
+      webhook:
+        mattermost:
+          method: POST
+          body: |
+            {"text": {{ printf "Application %s sync failed: %s" .app.metadata.name (dig "status" "operationState" "message" "" .app) | toJson }}}
 
 applicationSet:
   # The upstream argo-cd chart has no enable switch for this controller; replicas: 0 disables

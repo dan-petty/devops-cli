@@ -623,3 +623,53 @@ def test_mattermost_ingress_admits_alertmanager_port_8065() -> None:
         == "alertmanager"
     ]
     assert len(matches) == 1
+
+
+def test_argocd_egress_allows_mattermost_port_8065() -> None:
+    """The argocd perimeter allows egress to mattermost on TCP port 8065 (#1393)."""
+    policy_path = K8S_DIR / "argocd" / "networkpolicy.yaml"
+    docs = [
+        doc
+        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
+    ]
+    ports: list[int] = []
+    for doc in docs:
+        for rule in doc.get("spec", {}).get("egress", []):
+            targets = [
+                peer.get("namespaceSelector", {})
+                .get("matchLabels", {})
+                .get("kubernetes.io/metadata.name")
+                for peer in rule.get("to", [])
+            ]
+            if "mattermost" in targets:
+                ports.extend(p.get("port") for p in rule.get("ports", []) if "port" in p)
+    assert 8065 in ports
+
+
+def test_mattermost_ingress_admits_argocd_notifications_controller_port_8065() -> None:
+    """The mattermost perimeter admits TCP 8065 from argocd-notifications-controller (#1393)."""
+    policy_path = K8S_DIR / "mattermost" / "networkpolicy.yaml"
+    docs = [
+        doc
+        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
+    ]
+    peers = [
+        peer
+        for doc in docs
+        for rule in doc.get("spec", {}).get("ingress", [])
+        if 8065 in [p.get("port") for p in rule.get("ports", [])]
+        for peer in rule.get("from", [])
+    ]
+    matches = [
+        peer
+        for peer in peers
+        if peer.get("namespaceSelector", {})
+        .get("matchLabels", {})
+        .get("kubernetes.io/metadata.name")
+        == "argocd"
+        and peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
+        == "argocd-notifications-controller"
+    ]
+    assert len(matches) == 1
