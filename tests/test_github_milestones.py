@@ -107,9 +107,9 @@ def test_cli_labels_sync(tmp_path: Path) -> None:
         res = runner.invoke(
             app, ["labels", "sync", "--file", str(labels_file), "--dry-run", "-R", "o/r"]
         )
-    assert (res.exit_code, "DRY RUN" in res.output, "1 to create" in res.output) == (0, True, True)
-    # A dry run lists the labels and creates none.
-    assert [call.args[0][:3] for call in run_gh.call_args_list] == [["gh", "label", "list"]]
+    assert (res.exit_code, "Plan for synchronizing labels in o/r" in res.output) == (0, True)
+    # A dry run makes no external request.
+    assert run_gh.call_count == 0
 
 
 def test_cli_labels_audit() -> None:
