@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING
 
+import pytest
 import yaml
 
 from devops_cli.github.pages import (
@@ -16,7 +18,29 @@ from devops_cli.github.pages import (
     request_pages_build,
     verify_pages_configuration,
 )
+from tests.support.fakes.process import ProcessAnswer
 from tests.support.paths import REPO_ROOT
+
+if TYPE_CHECKING:
+    from tests.support.fakes.process import ProcessFake
+
+
+@pytest.fixture(autouse=True)
+def _answer_rate_limit(process_fake: ProcessFake) -> None:
+    payload = json.dumps(
+        {
+            "resources": {
+                name: {
+                    "limit": 5000,
+                    "used": 10,
+                    "remaining": 4990,
+                    "reset": int(time.time()) + 600,
+                }
+                for name in ("core", "graphql", "search")
+            }
+        }
+    )
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=payload))
 
 
 def test_github_pages_info_model() -> None:
@@ -51,7 +75,7 @@ def test_github_pages_build_info_model() -> None:
     assert build.error_message is None
 
 
-def test_get_pages_status_success() -> None:
+def test_get_pages_status_parses_status_payload(process_fake: ProcessFake) -> None:
     """get_pages_status parses API output successfully."""
     payload = {
         "status": "built",
@@ -62,24 +86,28 @@ def test_get_pages_status_success() -> None:
         "cname": None,
         "custom_404": False,
     }
-    with patch("devops_cli.github.pages.run_gh") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
-        res = get_pages_status("dan-petty/devops-cli")
-        assert res is not None
-        assert res.status == "built"
-        assert res.branch == "main"
-        assert res.https_enforced is True
+    process_fake.answer(
+        ["gh", "api", "repos/dan-petty/devops-cli/pages"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
+    )
+    res = get_pages_status("dan-petty/devops-cli")
+    assert res is not None
+    assert res.status == "built"
+    assert res.branch == "main"
+    assert res.https_enforced is True
 
 
-def test_get_pages_status_failure() -> None:
+def test_get_pages_status_returns_none_when_disabled(process_fake: ProcessFake) -> None:
     """get_pages_status returns None when repository does not have Pages enabled."""
-    with patch("devops_cli.github.pages.run_gh") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=1, stdout="Not Found")
-        res = get_pages_status("dan-petty/no-pages")
-        assert res is None
+    process_fake.answer(
+        ["gh", "api", "repos/dan-petty/no-pages/pages"],
+        ProcessAnswer(returncode=1, stdout="Not Found"),
+    )
+    res = get_pages_status("dan-petty/no-pages")
+    assert res is None
 
 
-def test_get_pages_builds_success() -> None:
+def test_get_pages_builds_returns_history_records(process_fake: ProcessFake) -> None:
     """get_pages_builds parses build history records."""
     builds_payload = [
         {
@@ -91,20 +119,24 @@ def test_get_pages_builds_success() -> None:
             "updated_at": "2026-09-09T14:26:43Z",
         }
     ]
-    with patch("devops_cli.github.pages.run_gh") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(builds_payload))
-        builds = get_pages_builds("dan-petty/devops-cli")
-        assert len(builds) == 1
-        assert builds[0].status == "built"
-        assert builds[0].duration_ms == 45802
+    process_fake.answer(
+        ["gh", "api", "repos/dan-petty/devops-cli/pages/builds?per_page=5"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(builds_payload)),
+    )
+    builds = get_pages_builds("dan-petty/devops-cli")
+    assert len(builds) == 1
+    assert builds[0].status == "built"
+    assert builds[0].duration_ms == 45802
 
 
-def test_request_pages_build() -> None:
+def test_request_pages_build_triggers_deployment(process_fake: ProcessFake) -> None:
     """request_pages_build calls GitHub API to request a build."""
-    with patch("devops_cli.github.pages.run_gh") as mock_proc:
-        mock_proc.return_value = MagicMock(returncode=0, stdout="{}")
-        ok = request_pages_build("dan-petty/devops-cli")
-        assert ok is True
+    process_fake.answer(
+        ["gh", "api", "-X", "POST", "repos/dan-petty/devops-cli/pages/builds"],
+        ProcessAnswer(returncode=0, stdout="{}"),
+    )
+    ok = request_pages_build("dan-petty/devops-cli")
+    assert ok is True
 
 
 def test_verify_pages_configuration_valid(tmp_path: Path) -> None:

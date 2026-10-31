@@ -8,7 +8,6 @@ import json
 import subprocess
 import time
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
 from urllib.parse import urlencode
 
 import httpx2
@@ -36,11 +35,11 @@ from tests.support.fakes.github import (
     github_text,
     quota_headers,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
-    from tests.web_fakes import StubWeb
 
 _RECORDED = json.loads(
     (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
@@ -488,7 +487,21 @@ def test_an_answer_that_is_no_diff_raises_the_unread_error(
     assert raised.value.details["path"] == "/repos/octo/repo/pulls/42"
 
 
-def _scripted_gh(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+@pytest.fixture
+def gh_process(process_fake: ProcessFake) -> ProcessFake:
+    """A process fake answering rate limit checks with fresh quota."""
+    fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}}),
+        ),
+    )
+    return process_fake
+
+
+def _scripted_gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """Answer `gh auth token` with token A, `gh api rate_limit` with a fresh quota, the rest empty."""
     fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
     answers = {
@@ -497,22 +510,32 @@ def _scripted_gh(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
             {"resources": {"core": fresh_quota, "graphql": fresh_quota}}
         ),
     }
-    return subprocess.CompletedProcess(
-        argv, 0, stdout=answers.get(tuple(argv[1:3]), "[]"), stderr=""
-    )
+    return subprocess.CompletedProcess(cmd, 0, stdout=answers.get(tuple(cmd[1:3]), "[]"), stderr="")
 
 
 def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
-    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb
+    monkeypatch: pytest.MonkeyPatch,
+    public_dns: str,
+    pin_github_session: str,
 ) -> None:
     """The PR diff, two run_gh calls and the quota refresh all act as token A from `gh auth token`."""
-    from devops_cli.core import process
+    from unittest.mock import patch
+
+    from devops_cli.core.process import reset_github_token
     from devops_cli.github.rate_limiter import run_gh
     from devops_cli.github.session import get_github_session
+    from tests.support.fakes.github import GitHubApiFake
+    from tests.web_fakes import install_async_client_fake
 
-    monkeypatch.setattr(process, "_github_token", None)
+    api = GitHubApiFake()
+    install_async_client_fake(monkeypatch, api.client_class())
+    reset_github_token()
     monkeypatch.setenv("GITHUB_TOKEN", "C")
-    stub_web.page("https://api.github.com/repos/octo/repo/pulls/42", "diff --git a/f b/f")
+    api.route(
+        "GET",
+        "https://api.github.com/repos/octo/repo/pulls/42",
+        github_text("diff --git a/f b/f", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
+    )
     with patch("subprocess.run", side_effect=_scripted_gh) as run:
         diff = get_github_session().client.get_pr_diff("octo/repo", 42)
         run_gh(["issue", "list"])
@@ -526,7 +549,7 @@ def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
         for call in run.call_args_list
         if call.args[0][0] == CONST_GH_CLI
     ]
-    github_requests = [request for request in stub_web.sent if request.url.host == "api.github.com"]
+    github_requests = [request for request in api.sent if request.url.host == "api.github.com"]
     assert (diff, [request.headers["authorization"] for request in github_requests], children) == (
         "diff --git a/f b/f",
         ["token A"],
@@ -539,35 +562,34 @@ def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
     )
 
 
-def test_gh_cli_client_labels() -> None:
+def test_gh_cli_client_labels(gh_process: ProcessFake) -> None:
     """Verify GhCliClient label listing, creation, and editing commands."""
     client = GhCliClient(default_repo="owner/my-repo")
-
-    mock_list_proc = MagicMock(
-        returncode=0,
-        stdout='[{"name": "bug", "color": "d73a4a", "description": "Bug fix"}]',
+    gh_process.answer(
+        ["gh", "label", "list"],
+        ProcessAnswer(stdout='[{"name": "bug", "color": "d73a4a", "description": "Bug fix"}]'),
     )
-    mock_run = MagicMock(return_value=mock_list_proc)
+    gh_process.answer(["gh", "label", "create"], ProcessAnswer(stdout=""))
+    gh_process.answer(["gh", "label", "edit"], ProcessAnswer(stdout=""))
 
-    with patch("devops_cli.github.client.run_gh", mock_run):
-        labels = client.get_labels("owner/my-repo")
-        assert len(labels) == 1
-        assert labels[0]["name"] == "bug"
-        assert mock_run.call_args[0][0][:4] == ["gh", "label", "list", "--json"]
+    labels = client.get_labels("owner/my-repo")
+    assert len(labels) == 1
+    assert labels[0]["name"] == "bug"
+    assert gh_process.calls[-1].argv[:4] == ("gh", "label", "list", "--json")
 
-        client.create_label("owner/my-repo", "feature", "#0e8a16", "New feature")
-        create_cmd = mock_run.call_args[0][0]
-        assert create_cmd[:4] == ["gh", "label", "create", "feature"]
-        assert "--color" in create_cmd
-        assert "0e8a16" in create_cmd
+    client.create_label("owner/my-repo", "feature", "#0e8a16", "New feature")
+    create_cmd = gh_process.calls[-1].argv
+    assert create_cmd[:4] == ("gh", "label", "create", "feature")
+    assert "--color" in create_cmd
+    assert "0e8a16" in create_cmd
 
-        client.edit_label("owner/my-repo", "feature", "0075ca", "Updated desc")
-        edit_cmd = mock_run.call_args[0][0]
-        assert edit_cmd[:4] == ["gh", "label", "edit", "feature"]
-        assert "0075ca" in edit_cmd
+    client.edit_label("owner/my-repo", "feature", "0075ca", "Updated desc")
+    edit_cmd = gh_process.calls[-1].argv
+    assert edit_cmd[:4] == ("gh", "label", "edit", "feature")
+    assert "0075ca" in edit_cmd
 
 
-def test_gh_cli_client_label_failures_raise() -> None:
+def test_gh_cli_client_label_failures_raise(gh_process: ProcessFake) -> None:
     """A failed `gh label` call raises instead of reading as no labels or as done (#961).
 
     `get_labels` returned [] on any failure, so `labels sync` set out to create every label,
@@ -576,27 +598,27 @@ def test_gh_cli_client_label_failures_raise() -> None:
     from devops_cli.exceptions.git import GitHubOperationError
 
     client = GhCliClient(default_repo="o/r")
-    failed = MagicMock(returncode=1, stdout="", stderr="not logged in")
+    gh_process.answer(
+        ["gh", "label"], ProcessAnswer(returncode=1, stdout="", stderr="not logged in")
+    )
     calls = [
         lambda: client.get_labels("o/r"),
         lambda: client.create_label("o/r", "x", "000000"),
         lambda: client.edit_label("o/r", "x", "000000"),
     ]
     raised: list[str] = []
-    with patch("devops_cli.github.client.run_gh", return_value=failed):
-        for call in calls:
-            with pytest.raises(GitHubOperationError) as error:
-                call()
-            raised.append(str(error.value))
+    for call in calls:
+        with pytest.raises(GitHubOperationError) as error:
+            call()
+        raised.append(str(error.value))
     assert all("not logged in" in message for message in raised)
 
 
-def test_gh_cli_client_lists_every_label() -> None:
+def test_gh_cli_client_lists_every_label(gh_process: ProcessFake) -> None:
     """`gh label list` stops at 30 labels unless told otherwise; .github/labels.yml has 31."""
-    listed = MagicMock(returncode=0, stdout="[]", stderr="")
-    with patch("devops_cli.github.client.run_gh", return_value=listed) as run_gh:
-        GhCliClient(default_repo="o/r").get_labels("o/r")
-    argv = run_gh.call_args.args[0]
+    gh_process.answer(["gh", "label", "list"], ProcessAnswer(returncode=0, stdout="[]"))
+    GhCliClient(default_repo="o/r").get_labels("o/r")
+    argv = gh_process.calls[-1].argv
     # Without --limit, gh lists 30.
     assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
 
@@ -614,20 +636,19 @@ def test_parse_paginated_json() -> None:
     assert parse_paginated_json(concatenated) == [{"id": 1}, {"id": 2}, {"id": 3}]
 
 
-def test_gh_cli_client_api_paginate() -> None:
+def test_gh_cli_client_api_paginate(gh_process: ProcessFake) -> None:
     """GhCliClient.api adds --paginate and sets paginate timeout when requested."""
     from devops_cli.config.defaults import DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS
 
-    mock_proc = MagicMock(returncode=0, stdout='[{"id": 1}]', stderr="")
-    with patch("devops_cli.github.client.run_gh", return_value=mock_proc) as run_gh:
-        res = GhCliClient().api("repos/owner/repo/issues", paginate=True)
-        assert res == '[{"id": 1}]'
-        run_gh.assert_called_once_with(
-            [CONST_GH_CLI, "api", "--paginate", "repos/owner/repo/issues"],
-            check=False,
-            quiet=True,
-            timeout=DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS,
-        )
+    gh_process.answer(
+        ["gh", "api", "--paginate", "repos/owner/repo/issues"],
+        ProcessAnswer(returncode=0, stdout='[{"id": 1}]'),
+    )
+    res = GhCliClient().api("repos/owner/repo/issues", paginate=True)
+    assert res == '[{"id": 1}]'
+    call = gh_process.calls[-1]
+    assert call.argv == ("gh", "api", "--paginate", "repos/owner/repo/issues")
+    assert call.timeout == DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS
 
 
 _SEARCHED_REPO = "octo/repo"

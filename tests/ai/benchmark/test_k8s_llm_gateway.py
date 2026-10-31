@@ -20,6 +20,7 @@ from docker.utils import parse_repository_tag
 
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, GatewayRoute, GatewayRouter
+from devops_cli.ai.gateway_render import load_service_context_lengths, load_tier_context_lengths
 from devops_cli.ai.harness.slots import ModelSlot, SubAgentSlot
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
 from devops_cli.config.constants import (
@@ -429,23 +430,60 @@ class TestK8sLLMGatewayManifests:
             "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
         )
 
-    def test_gateway_escalates_to_larger_models(self) -> None:
-        """Verify long prompts escalate by context window and fallback chain is configured."""
-        cfg = _gateway_config()
-        router = cfg["router_settings"]
+    def test_gateway_checks_windows_and_has_no_useless_window_fallback(self) -> None:
+        """Verify the router checks each prompt against the window of each deployment, and that no
+        rule escalates a long prompt to a group that has no larger window (#2825).
+
+        `ollama-48gib-fast` holds the largest window, 262144. `devops-coder` and
+        `devops-reasoning` run on it, so a prompt that no `devops-chat` deployment holds does not
+        fit them either."""
+        router = _gateway_config()["router_settings"]
 
         assert (
             router["enable_pre_call_checks"],
-            router["context_window_fallbacks"],
+            "context_window_fallbacks" in router,
             next(f for f in router["fallbacks"] if "devops-coder" in f),
         ) == (
             True,
-            [
-                {"devops-chat": ["devops-coder", "devops-reasoning"]},
-                {"devops-coder": ["devops-reasoning"]},
-            ],
+            False,
             {"devops-coder": ["devops-reasoning", "devops-chat"]},
         )
+
+    def test_each_chat_deployment_declares_the_window_of_its_tier(self) -> None:
+        """Verify each `ollama_chat` deployment sets `max_input_tokens` in its top-level
+        `model_info`, equal to the context length of its tier, and none hides a `model_info`
+        inside `litellm_params` (#2825).
+
+        LiteLLM v1.103.0 resolves the window of a deployment from its top-level `model_info`
+        and ignores a key under `litellm_params`, so the pre-call check never ran. A deployment
+        that sets no window reads the cost-map entry of its backend model, which the last
+        deployment registered wrote: `devops-background` read 160000 for a 128000 tier."""
+        tiers = load_tier_context_lengths(OLLAMA_PROFILES_MANIFEST)
+        services = load_service_context_lengths(SERVICES_MANIFEST, tiers)
+        chat = [
+            m
+            for m in _gateway_config()["model_list"]
+            if m["litellm_params"]["model"].startswith("ollama_chat/")
+        ]
+        windows = {
+            (m["model_name"], m["litellm_params"]["api_base"]): (m.get("model_info") or {}).get(
+                "max_input_tokens"
+            )
+            for m in chat
+        }
+        tier_windows = {
+            (m["model_name"], m["litellm_params"]["api_base"]): services[
+                urlsplit(m["litellm_params"]["api_base"]).hostname.split(".")[0]
+            ]
+            for m in chat
+        }
+        misplaced = [
+            (m["model_name"], m["litellm_params"]["api_base"])
+            for m in _gateway_config()["model_list"]
+            if "model_info" in m["litellm_params"]
+        ]
+
+        assert (windows, misplaced) == (tier_windows, [])
 
     def test_gateway_review_pool_spans_ollama_backends(self) -> None:
         """Verify devops-review shares requests across Ollama backends with zero retries and no weights."""
@@ -469,14 +507,9 @@ class TestK8sLLMGatewayManifests:
     @pytest.mark.parametrize("group", ["qwen3-coder:30b", "gpt-oss:20b"])
     def test_a_review_model_has_a_group_of_its_review_deployments_alone(self, group: str) -> None:
         """Verify each model devops-review serves can be pinned: its own group copies that model's
-        devops-review deployments (model and backend, in order) with no window that would
-        route it differently from the pool, and no fallback reaches or leaves it (#475).
-
-        No other group gives that backend model a window either. LiteLLM v1.103.0 writes a
-        deployment's top-level model_info into the cost-map entry that every deployment of the
-        same backend model reads, so the window would become the pinned group's too (#1064)."""
+        devops-review deployments (model, backend and window, in order), so the pre-call check
+        routes a pinned review as the pool routes it, and no fallback reaches or leaves it (#475)."""
         backend = f"ollama_chat/{group}"
-        model_list = _gateway_config()["model_list"]
         review = [
             m for m in _deployments("devops-review") if m["litellm_params"]["model"] == backend
         ]
@@ -484,29 +517,24 @@ class TestK8sLLMGatewayManifests:
         router = _gateway_config()["router_settings"]
         fallback_groups = {
             name
-            for rule in [*router["fallbacks"], *router["context_window_fallbacks"]]
+            for rule in router["fallbacks"]
             for source, targets in rule.items()
             for name in (source, *targets)
         }
-        groups_windowing_the_backend = [
-            m["model_name"]
-            for m in model_list
-            if m["litellm_params"]["model"] == backend
-            and "max_input_tokens" in (m.get("model_info") or {})
-        ]
 
         assert (
             bool(review),
             _routes(pinned),
             [(sorted(m), sorted(m["litellm_params"])) for m in pinned],
+            [(m.get("model_info") or {}).get("max_input_tokens") for m in pinned],
             group in fallback_groups,
-            groups_windowing_the_backend,
         ) == (
             True,
             _routes(review),
-            [(sorted(m), ["api_base", "model", "num_retries"]) for m in review],
+            [(["litellm_params", "model_info", "model_name"], ["api_base", "model", "num_retries"])]
+            * len(review),
+            [(m.get("model_info") or {}).get("max_input_tokens") for m in review],
             False,
-            [],
         )
 
     def test_gateway_routes_to_provider_vram_services(self) -> None:

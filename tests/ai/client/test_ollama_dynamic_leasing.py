@@ -18,7 +18,6 @@ from devops_cli.ai.client.network import (
     reset_ollama_slots,
 )
 from devops_cli.telemetry.instruments import AI_OLLAMA_SLOT_WAIT
-from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
@@ -67,27 +66,19 @@ def test_acquire_ollama_slot_timeout_when_all_full() -> None:
                 pass
 
 
-def test_concurrent_slot_leasing_across_threads(clock: ClockFake) -> None:
+def test_concurrent_slot_leasing_across_threads() -> None:
     """Verify multi-threaded slot leasing properly synchronizes and shares capacity."""
     candidates = [
         "http://example.com:11434",
         "http://example.com:11435",
         "http://example.com:11436",
     ]
-    counter_lock = threading.Lock()
-    limit = len(candidates)
-    barrier = threading.Barrier(limit)
-    entered = 0
+    barrier = threading.Barrier(3)
 
     def _worker(worker_id: int) -> str:
-        nonlocal entered
         with acquire_ollama_slot(candidates, max_parallel=1, timeout=3.0) as leased_url:
-            with counter_lock:
-                entered += 1
-                wait_at_barrier = entered <= limit
-            if wait_at_barrier:
-                barrier.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-            clock.sleep(0.05)
+            if worker_id < 3:
+                barrier.wait(timeout=3.0)
             return str(leased_url)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:

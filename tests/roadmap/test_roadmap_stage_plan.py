@@ -13,6 +13,7 @@ import time_machine
 from pydantic import ValidationError
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
@@ -30,14 +31,15 @@ from devops_cli.roadmap.stage_change import (
 from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import (
+    NO_FILES,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    heavy_group,
     run_git,
     seed_stageable,
     validate_args,
     validation_report,
-    write_big_file,
 )
 
 if TYPE_CHECKING:
@@ -214,15 +216,30 @@ def test_a_group_is_measured_with_the_packed_files_it_names(
 
 
 @pytest.mark.usefixtures("openspec")
+def test_a_large_file_counts_at_most_the_file_cap_of_the_step(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    heavy = heavy_group(stage_repo, files=1)
+    big = stage_repo.clone / heavy.reads[0]
+    assert count_tokens(big.read_text(encoding="utf-8")) > 6000
+    model_fake.answer(make_stage_proposal(groups=[heavy]))
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    assert (plan.over_budget, model_fake.call_count) == ((), 1)
+    (group,) = plan.ready[0].groups
+    assert group.tokens <= 6000
+
+
+@pytest.mark.usefixtures("openspec")
 def test_a_group_over_the_budget_is_split_once(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    write_big_file(stage_repo)
     big = make_stage_proposal()
-    heavy = big.groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     light = [
-        heavy.model_copy(update={"title": "First half", "reads": []}),
-        heavy.model_copy(update={"title": "Second half", "reads": []}),
+        heavy.model_copy(update={"title": "First half", **NO_FILES}),
+        heavy.model_copy(update={"title": "Second half", **NO_FILES}),
     ]
     model_fake.answer(big.model_copy(update={"groups": [heavy]}), StageSplit(groups=light))
 
@@ -241,8 +258,7 @@ def test_a_group_over_the_budget_is_split_once(
 def test_a_group_still_over_the_budget_after_the_split_stops_the_item(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    heavy = heavy_group(stage_repo)
     model_fake.answer(
         make_stage_proposal().model_copy(update={"groups": [heavy]}),
         StageSplit(groups=[heavy]),
@@ -268,9 +284,8 @@ def test_a_corrected_reply_over_the_budget_does_not_ask_for_a_second_split(
     model_fake: ModelFake,
     openspec: OpenSpecFake,
 ) -> None:
-    write_big_file(stage_repo)
-    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
-    light = heavy.model_copy(update={"title": "Light", "reads": []})
+    heavy = heavy_group(stage_repo)
+    light = heavy.model_copy(update={"title": "Light", **NO_FILES})
     openspec.script_sequence(VALIDATE, (1, "ERROR: a requirement has no scenario\n"), VALID)
     model_fake.answer(
         make_stage_proposal(groups=[heavy]),

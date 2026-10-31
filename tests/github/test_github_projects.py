@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner, Result
+from typer.testing import Result
 
 import devops_cli.github.projects as projects_mod
 from devops_cli.exceptions.git import (
@@ -19,13 +21,69 @@ from devops_cli.exceptions.git import (
     GitHubUnreadError,
 )
 from devops_cli.github.projects import (
+    ProjectField,
+    ProjectFieldOption,
     ProjectTemplate,
+    ProjectView,
+    audit_project_drift,
+    audit_remote_project_views,
+    create_project_view,
+    create_remote_project,
+    fetch_existing_fields_by_name,
+    find_project_via_cli,
+    find_project_via_repo,
+    find_project_via_rest,
+    find_remote_project,
+    get_remote_project_views,
+    gh_read,
+    link_project_to_repository,
+    list_projects_via_cli,
+    list_remote_projects,
     load_project_template,
+    map_view_layout,
+    provision_remote_project_fields,
+    provision_single_field,
+    read_board,
+    read_failure,
+    read_field_options,
+    rename_default_view,
+    resolve_project_owner_arg,
+    sync_remote_project,
+    sync_remote_project_views,
+    verify_project_auth_scopes,
 )
-from tests.project_board_fake import budget_reply
-from tests.project_reconcile_fake import BOARD_TITLE, REPO, ProjectGitHub, card, issue, pull
+from devops_cli.github.rate_limiter import get_github_rate_limiter
+from tests.project_board_fake import BoardServer, budget_reply
+from tests.project_reconcile_fake import (
+    BOARD_TITLE,
+    REPO,
+    ProjectGitHub,
+    card,
+    issue,
+    pull,
+)
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json, next_page
-from tests.support.paths import REPO_ROOT
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+
+@pytest.fixture(autouse=True)
+def _use_process_fake(process_fake: ProcessFake, clock: ClockFake) -> ProcessFake:
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:2] == ("gh", "api")),
+        ProcessAnswer(returncode=1, stderr="HTTP 404: Not Found"),
+    )
+
+    def _rate_limit_answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 3600}
+        out = json.dumps({"resources": {"core": quota, "graphql": quota}})
+        return subprocess.CompletedProcess(list(call.argv), 0, out, "")
+
+    process_fake.answer(
+        lambda call: bool(call.argv and list(call.argv[:3]) == ["gh", "api", "rate_limit"]),
+        ProcessAnswer(side_effect=_rate_limit_answer),
+    )
+    return process_fake
 
 
 def test_load_project_template() -> None:
@@ -84,33 +142,31 @@ _PROJECT_SCOPE_MISSING = (
     ],
 )
 def test_verify_project_auth_scopes_raises_the_class_gh_s_failure_names(
-    exit_code: int, said: str, error: type[GitHubOperationError]
+    exit_code: int,
+    said: str,
+    error: type[GitHubOperationError],
+    process_fake: ProcessFake,
 ) -> None:
     """The scope check raises what `classify_gh_failure` makes of `gh project list`'s failure
     (#983): a missing scope, a rate limit, a refused token or gh's exit 4, each with gh's text."""
-    from devops_cli.github.projects import verify_project_auth_scopes
-
-    failed = subprocess.CompletedProcess(["gh", "project", "list"], exit_code, "", said)
-    with (
-        patch("devops_cli.github.projects.run_gh", return_value=failed),
-        pytest.raises(GitHubOperationError) as raised,
-    ):
+    process_fake.answer(["gh", "project", "list"], ProcessAnswer(returncode=exit_code, stderr=said))
+    with pytest.raises(GitHubOperationError) as raised:
         verify_project_auth_scopes()
     first_line = " ".join(said.splitlines()[0].split())
     assert (type(raised.value), first_line in raised.value.message) == (error, True)
 
 
-def test_verify_project_auth_scopes_asks_for_the_project_scope_board_sync_needs() -> None:
+def test_verify_project_auth_scopes_asks_for_the_project_scope_board_sync_needs(
+    process_fake: ProcessFake,
+) -> None:
     """gh names only the read scope `gh project list` was refused, but board sync creates
     boards, links, fields and views, so the advice is the `project` scope, which includes
     read:project; gh's own words stay in the details (#983)."""
-    from devops_cli.github.projects import verify_project_auth_scopes
-
-    failed = subprocess.CompletedProcess(["gh", "project", "list"], 1, "", _PROJECT_SCOPE_MISSING)
-    with (
-        patch("devops_cli.github.projects.run_gh", return_value=failed),
-        pytest.raises(GitHubOperationError) as raised,
-    ):
+    process_fake.answer(
+        ["gh", "project", "list"],
+        ProcessAnswer(returncode=1, stderr=_PROJECT_SCOPE_MISSING),
+    )
+    with pytest.raises(GitHubOperationError) as raised:
         verify_project_auth_scopes()
     assert (
         type(raised.value),
@@ -119,34 +175,23 @@ def test_verify_project_auth_scopes_asks_for_the_project_scope_board_sync_needs(
     ) == (GitHubScopeError, True, True)
 
 
-def test_verify_project_auth_scopes_unrelated_error_ignored() -> None:
+def test_verify_project_auth_scopes_unrelated_error_ignored(
+    process_fake: ProcessFake,
+) -> None:
     """verify_project_auth_scopes does not misclassify unrelated errors containing 'project'."""
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import verify_project_auth_scopes
-
-    # A non-zero exit with "project not found" names no class, so nothing is raised.
-    mock_proc = MagicMock(
-        return_value=MagicMock(
-            returncode=1,
-            stderr="error: project not found",
-            stdout="",
-        )
+    process_fake.answer(
+        ["gh", "project", "list"],
+        ProcessAnswer(returncode=1, stderr="error: project not found"),
     )
-    with patch("devops_cli.github.projects.run_gh", mock_proc):
-        # Should complete without raising GitHubOperationError about scopes
-        verify_project_auth_scopes()
+    verify_project_auth_scopes()
 
 
-def test_sync_dry_run_makes_no_request_and_reports_no_board() -> None:
+def test_sync_dry_run_makes_no_request_and_reports_no_board(
+    process_fake: ProcessFake,
+) -> None:
     """A dry run calls no `run_gh` and reports no board number or count it did not read."""
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import sync_remote_project
-
     template = load_project_template(Path(".github/project-template.json"))
-    with patch("devops_cli.github.projects.run_gh", side_effect=AssertionError("ran gh")):
-        res = sync_remote_project("dan-petty", "dan-petty/devops-cli", template, dry_run=True)
+    res = sync_remote_project("dan-petty", "dan-petty/devops-cli", template, dry_run=True)
     assert (
         res.dry_run,
         res.project_number,
@@ -154,134 +199,202 @@ def test_sync_dry_run_makes_no_request_and_reports_no_board() -> None:
         res.reconcile,
         res.project_title,
     ) == (True, None, [], None, template.name)
+    assert len(process_fake.calls) == 0
 
 
-def test_cli_project_link_command() -> None:
+def test_cli_links_project(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
     """CLI devops gh project link invokes link_project_to_repository."""
-    from unittest.mock import patch
-
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import app
-
-    runner = CliRunner()
-    with patch("devops_cli.commands.gh.link_project_to_repository", return_value=True):
-        res = runner.invoke(app, ["project", "link", "1", "--repo", "dan-petty/devops-cli"])
-        assert res.exit_code == 0
-        assert "Linked project #1 to dan-petty/devops-cli" in res.output
-
-
-def test_map_view_layout() -> None:
-    """_map_view_layout maps layout names to GraphQL enum strings."""
-    from devops_cli.github.projects import _map_view_layout
-
-    assert _map_view_layout("board") == "BOARD_LAYOUT"
-    assert _map_view_layout("roadmap") == "ROADMAP_LAYOUT"
-    assert _map_view_layout("table") == "TABLE_LAYOUT"
-    assert _map_view_layout("unknown") == "TABLE_LAYOUT"
-
-
-def test_sync_remote_project_views() -> None:
-    """sync_remote_project_views identifies existing views and provisions missing ones."""
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import (
-        ProjectView,
-        sync_remote_project_views,
+    process_fake.answer(
+        [
+            "gh",
+            "project",
+            "link",
+            "1",
+            "--owner",
+            "dan-petty",
+            "--repo",
+            "dan-petty/devops-cli",
+        ],
+        ProcessAnswer(returncode=0, stdout="Linked"),
     )
-
-    fake_template = MagicMock()
-    fake_template.views = [
-        ProjectView(name="Existing View", layout="table"),
-        ProjectView(name="New Board View", layout="board"),
-    ]
-
-    with (
-        patch("devops_cli.github.projects.verify_project_auth_scopes"),
-        patch(
-            "devops_cli.github.projects.get_remote_project_views",
-            return_value=(
-                "PVT_123",
-                2,
-                [{"id": "v1", "name": "Existing View", "layout": "TABLE_LAYOUT"}],
-            ),
-        ),
-        patch("devops_cli.github.projects._create_project_view", return_value=True) as mock_create,
-    ):
-        res = sync_remote_project_views("dan-petty", "devops-cli", fake_template)
-        assert res["project_number"] == 2
-        assert "Existing View" in res["existing"]
-        assert "New Board View" in res["created"]
-        mock_create.assert_called_once_with("PVT_123", "New Board View", "board")
+    res = cli("gh", "project", "link", "1", "--repo", "dan-petty/devops-cli")
+    assert res.exit_code == 0
+    assert "Linked project #1 to dan-petty/devops-cli" in res.output
 
 
-def test_cli_views_sync_command() -> None:
+def testmap_view_layout() -> None:
+    """map_view_layout maps layout names to GraphQL enum strings."""
+    assert map_view_layout("board") == "BOARD_LAYOUT"
+    assert map_view_layout("roadmap") == "ROADMAP_LAYOUT"
+    assert map_view_layout("table") == "TABLE_LAYOUT"
+    assert map_view_layout("unknown") == "TABLE_LAYOUT"
+
+
+def test_sync_remote_project_views(process_fake: ProcessFake) -> None:
+    """sync_remote_project_views identifies existing views and provisions missing ones."""
+    fake_template = ProjectTemplate(
+        name="Test",
+        views=[
+            ProjectView(name="Existing View", layout="table"),
+            ProjectView(name="New Board View", layout="board"),
+        ],
+    )
+    process_fake.answer(["gh", "project", "list"], ProcessAnswer(returncode=0, stdout="[]"))
+    views_payload = {
+        "data": {
+            "repository": {
+                "projectsV2": {
+                    "nodes": [
+                        {
+                            "id": "PVT_123",
+                            "number": 2,
+                            "views": {
+                                "nodes": [
+                                    {
+                                        "id": "v1",
+                                        "name": "Existing View",
+                                        "layout": "TABLE_LAYOUT",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(views_payload)),
+    )
+    res = sync_remote_project_views("dan-petty", "devops-cli", fake_template)
+    assert res["project_number"] == 2
+    assert "Existing View" in res["existing"]
+    assert "New Board View" in res["created"]
+
+
+def test_cli_syncs_views(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
     """CLI devops gh views sync invokes sync_remote_project_views."""
-    from unittest.mock import patch
+    process_fake.answer(["gh", "project", "list"], ProcessAnswer(returncode=0, stdout="[]"))
+    views_payload = {
+        "data": {
+            "repository": {
+                "projectsV2": {
+                    "nodes": [
+                        {
+                            "id": "PVT_123",
+                            "number": 2,
+                            "views": {
+                                "nodes": [
+                                    {
+                                        "id": "v1",
+                                        "name": "Sprint Kanban",
+                                        "layout": "BOARD_LAYOUT",
+                                    },
+                                    {
+                                        "id": "v2",
+                                        "name": "Roadmap Timeline",
+                                        "layout": "ROADMAP_LAYOUT",
+                                    },
+                                    {
+                                        "id": "v3",
+                                        "name": "Triage & Quality Table",
+                                        "layout": "TABLE_LAYOUT",
+                                    },
+                                    {
+                                        "id": "v4",
+                                        "name": "Value vs Effort Priority Matrix",
+                                        "layout": "TABLE_LAYOUT",
+                                    },
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(views_payload)),
+    )
+    res = cli("gh", "views", "sync", "--repo", "dan-petty/devops-cli")
+    assert res.exit_code == 0
+    assert "Project #2 views synchronized" in res.output
+    assert "Repository Issues Views" in res.output
 
-    from typer.testing import CliRunner
 
-    from devops_cli.commands.gh import views_app
-
-    runner = CliRunner()
-    with patch(
-        "devops_cli.commands.gh.sync_remote_project_views",
-        return_value={
-            "project_number": 2,
-            "existing": ["Sprint Kanban"],
-            "created": ["Roadmap Timeline"],
-            "views": ["Sprint Kanban", "Roadmap Timeline"],
-        },
-    ):
-        res = runner.invoke(views_app, ["sync", "--repo", "dan-petty/devops-cli"])
-        assert res.exit_code == 0
-        assert "Project #2 views synchronized" in res.output
-        assert "Repository Issues Views" in res.output
-
-
-def test_cli_project_status_and_template_commands() -> None:
+def test_cli_project_status_and_template_commands(cli: Callable[..., Any]) -> None:
     """CLI devops gh project status and template display declarative configuration."""
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import project_app
-
-    runner = CliRunner()
-    res_status = runner.invoke(project_app, ["status"])
+    res_status = cli("gh", "project", "status")
     assert res_status.exit_code == 0
     assert "GitHub Projects v2 Configuration" in res_status.output
     assert "Custom Fields" in res_status.output
 
-    res_tpl = runner.invoke(project_app, ["template"])
+    res_tpl = cli("gh", "project", "template")
     assert res_tpl.exit_code == 0
     assert "DevOps CLI" in res_tpl.output
 
 
-def test_cli_project_sync_dry_run_names_no_board_number() -> None:
+def test_cli_project_sync_dry_run_names_no_board_number(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
     """`project sync --dry-run` reads nothing, so it prints no board number and says it adds no
     card."""
-    from unittest.mock import patch
-
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import project_app
-
-    with patch("devops_cli.github.projects.run_gh", side_effect=AssertionError("ran gh")):
-        res = CliRunner().invoke(project_app, ["sync", "--dry-run", "--repo", "o/r"])
+    res = cli("gh", "project", "sync", "--dry-run", "--repo", "o/r")
     assert (res.exit_code, "No request was made" in res.output, "#" in res.output) == (
         0,
         True,
         False,
     )
+    assert len(process_fake.calls) == 0
 
 
-def _sync_cli(fake: ProjectGitHub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Result:
-    """`devops gh project sync --repo o/r` against `fake`, which stands in for `run_gh` only,
-    with a template naming the fake's board and the fields it already has."""
-    import json
-    from unittest.mock import patch
+def _wire(
+    fake: ProjectGitHub,
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
+    state: str = "open",
+    preset_quota: bool = True,
+) -> None:
+    limiter = get_github_rate_limiter()
+    if preset_quota:
+        limiter.update_quota(
+            "graphql",
+            remaining=fake.server.remaining,
+            limit=5000,
+            reset_epoch=4_102_444_800.0,
+        )
+    limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=4_102_444_800.0)
 
-    from devops_cli.commands.gh import project_app
+    def gh_side_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if "rate_limit" in call.argv:
+            fresh_quota = {"limit": 5000, "remaining": 5000, "reset": 4_102_444_800.0}
+            payload = json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
+            return subprocess.CompletedProcess(list(call.argv), 0, stdout=payload, stderr="")
+        return fake(list(call.argv))
 
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh"),
+        ProcessAnswer(side_effect=gh_side_effect),
+    )
+
+    for s in ("open", "closed", "all"):
+        issues = [item for item in fake.issues if s == "all" or item["state"] == s]
+        pulls = [item for item in fake.pulls if s == "all" or item["state"] == s]
+        github_api.route("GET", f"/repos/{REPO}/issues?state={s}&per_page=100", github_json(issues))
+        github_api.route("GET", f"/repos/{REPO}/pulls?state={s}&per_page=100", github_json(pulls))
+
+
+def _sync_cli(
+    fake: ProjectGitHub,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
+) -> Result:
+    """`devops gh project sync --repo o/r` against `fake` wired to process_fake and github_api."""
     template = tmp_path / "project-template.json"
     fields = [
         {"name": name, "type": "single_select", "options": [{"name": option}]}
@@ -290,13 +403,8 @@ def _sync_cli(fake: ProjectGitHub, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     template.write_text(json.dumps({"name": BOARD_TITLE, "fields": fields}))
     monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
     monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
-    with (
-        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
-        patch("devops_cli.github.projects.get_github_session", return_value=fake),
-    ):
-        return CliRunner().invoke(
-            project_app, ["sync", "--repo", REPO, "--template", str(template)]
-        )
+    _wire(fake, process_fake, github_api)
+    return cli("gh", "project", "sync", "--repo", REPO, "--template", str(template))
 
 
 def _board_with_five_changes(
@@ -310,13 +418,17 @@ def _board_with_five_changes(
 
 
 def test_sync_adds_no_card_and_exits_0_when_reconcile_completes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
 ) -> None:
     """A live sync against a board missing an open issue and an open pull request links the
     board, creates no field, makes every planned change and no `item-add`: a person adds
     cards, and a pull request gets no card."""
     fake = _board_with_five_changes()
-    result = _sync_cli(fake, tmp_path, monkeypatch)
+    result = _sync_cli(fake, tmp_path, monkeypatch, cli, process_fake, github_api)
     text = " ".join(result.output.split())
     assert (
         result.exit_code,
@@ -330,12 +442,16 @@ def test_sync_adds_no_card_and_exits_0_when_reconcile_completes(
 
 
 def test_sync_reports_reconciles_stop_and_exits_1(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
 ) -> None:
     """A live sync whose reconcile stops at a failed write prints reconcile's stop line and
     exits 1."""
     fake = _board_with_five_changes(fail_edits=(2,))
-    result = _sync_cli(fake, tmp_path, monkeypatch)
+    result = _sync_cli(fake, tmp_path, monkeypatch, cli, process_fake, github_api)
     assert (
         result.exit_code,
         "Stopped early (the write of Status on #2 failed: GraphQL: the write failed): "
@@ -345,12 +461,16 @@ def test_sync_reports_reconciles_stop_and_exits_1(
 
 
 def test_sync_whose_reconcile_does_not_start_exits_1_with_reconciles_line(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
 ) -> None:
     """Reconcile's refusal, here a low GraphQL budget, is sync's error too: one line, exit 1,
     no write and no warning that hides it."""
     fake = _board_with_five_changes(remaining=101)
-    result = _sync_cli(fake, tmp_path, monkeypatch)
+    result = _sync_cli(fake, tmp_path, monkeypatch, cli, process_fake, github_api)
     assert (
         result.exit_code,
         "100 points left until 00:00 UTC" in " ".join(result.output.split()),
@@ -359,121 +479,115 @@ def test_sync_whose_reconcile_does_not_start_exits_1_with_reconciles_line(
     ) == (1, True, False, [])
 
 
-def test_cli_project_link_failure() -> None:
+def test_cli_project_link_reports_error(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
     """CLI devops gh project link exits with code 1 when linkage fails."""
-    from unittest.mock import patch
+    process_fake.answer(
+        [
+            "gh",
+            "project",
+            "link",
+            "99",
+            "--owner",
+            "dan-petty",
+            "--repo",
+            "dan-petty/devops-cli",
+        ],
+        ProcessAnswer(returncode=1, stderr="Failed to link project"),
+    )
+    res = cli("gh", "project", "link", "99", "--repo", "dan-petty/devops-cli")
+    assert res.exit_code == 1
+    assert "Failed to link project #99" in res.output
 
-    from typer.testing import CliRunner
 
-    from devops_cli.commands.gh import project_app
-
-    runner = CliRunner()
-    with patch("devops_cli.commands.gh.link_project_to_repository", return_value=False):
-        res = runner.invoke(project_app, ["link", "99", "--repo", "dan-petty/devops-cli"])
-        assert res.exit_code == 1
-        assert "Failed to link project #99" in res.output
-
-
-def test_cli_views_list_and_spec_commands() -> None:
+def test_cli_views_list_and_spec_commands(cli: Callable[..., Any]) -> None:
     """CLI devops gh views list and spec output formatted views and JSON schemas."""
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import views_app
-
-    runner = CliRunner()
-    res_list = runner.invoke(views_app, ["list"])
+    res_list = cli("gh", "views", "list")
     assert res_list.exit_code == 0
     assert "Sprint Kanban" in res_list.output
     assert "Roadmap Timeline" in res_list.output
 
-    res_spec = runner.invoke(views_app, ["spec"])
+    res_spec = cli("gh", "views", "spec")
     assert res_spec.exit_code == 0
     assert "Sprint Kanban" in res_spec.output
     assert '"layout":' in res_spec.output
 
 
-def test_cli_views_sync_no_project_found() -> None:
+def test_cli_views_sync_no_project_found(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
     """CLI devops gh views sync handles unlinked projects gracefully."""
-    from unittest.mock import patch
-
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import views_app
-
-    runner = CliRunner()
-    with patch(
-        "devops_cli.commands.gh.sync_remote_project_views",
-        return_value={"project_number": None, "status": "No linked project found"},
-    ):
-        res = runner.invoke(views_app, ["sync", "--repo", "dan-petty/devops-cli"])
-        assert res.exit_code == 0
-        assert "No linked project found" in res.output
-        assert "milestone%3Acurrent" in res.output
-        assert "sort%3Apriority-desc" in res.output
+    process_fake.answer(["gh", "project", "list"], ProcessAnswer(returncode=0, stdout="[]"))
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"data": {"repository": {"projectsV2": {"nodes": []}}}}),
+        ),
+    )
+    res = cli("gh", "views", "sync", "--repo", "dan-petty/devops-cli")
+    assert res.exit_code == 0
+    assert "No linked project found" in res.output
+    assert "milestone%3Acurrent" in res.output
+    assert "sort%3Apriority-desc" in res.output
 
 
-def test_find_and_create_remote_project() -> None:
+def test_find_and_create_remote_project(process_fake: ProcessFake) -> None:
     """find_remote_project and create_remote_project interact correctly with gh CLI."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    import pytest
-
-    from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.projects import create_remote_project, find_remote_project
-
-    # Subprocess error
-    mock_fail = MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="error"))
-    with patch("devops_cli.github.projects.run_gh", mock_fail):
-        with pytest.raises(GitHubOperationError):
-            find_remote_project("dan-petty", "My Project")
-        with pytest.raises(GitHubOperationError):
-            create_remote_project("dan-petty", "My Project")
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh" and "rate_limit" not in call.argv),
+        ProcessAnswer(returncode=1, stderr="error"),
+    )
+    with pytest.raises(GitHubOperationError):
+        find_remote_project("dan-petty", "My Project")
+    with pytest.raises(GitHubOperationError):
+        create_remote_project("dan-petty", "My Project")
 
     # Match found
-    mock_success = MagicMock(
-        return_value=MagicMock(
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "list")),
+        ProcessAnswer(
             returncode=0,
             stdout=json.dumps({"projects": [{"title": "My Project", "number": 3}]}),
-            stderr="",
-        )
+        ),
     )
-    with patch("devops_cli.github.projects.run_gh", mock_success):
-        matched = find_remote_project("dan-petty", "my project")
-        assert matched is not None
-        assert matched["number"] == 3
+    process_fake.answer(
+        lambda call: bool(
+            call.argv and call.argv[:2] == ("gh", "api") and "rate_limit" not in call.argv
+        ),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps([{"title": "My Project", "number": 3}]),
+        ),
+    )
+    matched = find_remote_project("dan-petty", "my project")
+    assert matched is not None
+    assert matched["number"] == 3
 
-        # Create remote project success
-        mock_create = MagicMock(
-            return_value=MagicMock(
-                returncode=0,
-                stdout=json.dumps({"title": "New Board", "number": 4}),
-                stderr="",
-            )
-        )
-        with patch("devops_cli.github.projects.run_gh", mock_create):
-            created = create_remote_project("dan-petty", "New Board")
-            assert created["number"] == 4
+    # Create remote project success
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "create")),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"title": "New Board", "number": 4}),
+        ),
+    )
+    created = create_remote_project("dan-petty", "New Board")
+    assert created["number"] == 4
 
 
-def test_provision_remote_project_fields() -> None:
+def test_provision_remote_project_fields(
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """provision_remote_project_fields provisions missing text and single-select fields."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import (
-        ProjectField,
-        ProjectFieldOption,
-        provision_remote_project_fields,
-    )
-
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", "owner")
     existing = {"fields": [{"name": "Status"}, {"name": "Assignees"}], "totalCount": 2}
-    mock_proc = MagicMock(
-        side_effect=[
-            MagicMock(returncode=0, stdout=json.dumps(existing), stderr=""),  # list
-            MagicMock(returncode=0, stdout="{}", stderr=""),  # create Priority
-            MagicMock(returncode=0, stdout="{}", stderr=""),  # create Job record
-        ]
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "field-list")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(existing)),
+    )
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "field-create")),
+        ProcessAnswer(returncode=0, stdout="{}"),
     )
     fields = [
         ProjectField(name="Status", type="single_select"),
@@ -484,28 +598,21 @@ def test_provision_remote_project_fields() -> None:
         ),
         ProjectField(name="Job record", type="text"),
     ]
-    with (
-        patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
-        patch("devops_cli.github.projects.run_gh", mock_proc),
-    ):
-        provisioned = provision_remote_project_fields(2, "owner", fields)
-        assert provisioned == ["Priority", "Job record"]
+    provisioned = provision_remote_project_fields(2, "owner", fields)
+    assert provisioned == ["Priority", "Job record"]
 
 
-def test_get_remote_project_views() -> None:
+def test_get_remote_project_views(process_fake: ProcessFake) -> None:
     """get_remote_project_views parses GraphQL repository response."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import get_remote_project_views
-
     # Failure path
-    mock_fail = MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="graphql err"))
-    with patch("devops_cli.github.projects.run_gh", mock_fail):
-        pid, pnum, views = get_remote_project_views("dan-petty", "devops-cli")
-        assert pid is None
-        assert pnum is None
-        assert views == []
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(returncode=1, stderr="graphql err"),
+    )
+    pid, pnum, views = get_remote_project_views("dan-petty", "devops-cli")
+    assert pid is None
+    assert pnum is None
+    assert views == []
 
     # Success path
     payload = {
@@ -517,7 +624,13 @@ def test_get_remote_project_views() -> None:
                             "id": "PVT_99",
                             "number": 5,
                             "views": {
-                                "nodes": [{"id": "v_1", "name": "View 1", "layout": "TABLE_LAYOUT"}]
+                                "nodes": [
+                                    {
+                                        "id": "v_1",
+                                        "name": "View 1",
+                                        "layout": "TABLE_LAYOUT",
+                                    }
+                                ]
                             },
                         }
                     ]
@@ -525,59 +638,46 @@ def test_get_remote_project_views() -> None:
             }
         }
     }
-    mock_ok = MagicMock(return_value=MagicMock(returncode=0, stdout=json.dumps(payload), stderr=""))
-    with patch("devops_cli.github.projects.run_gh", mock_ok):
-        pid, pnum, views = get_remote_project_views("dan-petty", "devops-cli")
-        assert pid == "PVT_99"
-        assert pnum == 5
-        assert len(views) == 1
-        assert views[0]["name"] == "View 1"
-
-
-def test_graphql_query_and_mutation_escaping() -> None:
-    """Verify get_remote_project_views, _create_project_view, and _rename_default_view safely escape quotes."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import (
-        _create_project_view,
-        _rename_default_view,
-        get_remote_project_views,
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
     )
+    pid, pnum, views = get_remote_project_views("dan-petty", "devops-cli")
+    assert pid == "PVT_99"
+    assert pnum == 5
+    assert len(views) == 1
+    assert views[0]["name"] == "View 1"
 
-    mock_proc = MagicMock(
-        return_value=MagicMock(
-            returncode=0, stdout=json.dumps({"data": {"repository": {"projectsV2": {"nodes": []}}}})
-        )
+
+def test_graphql_query_and_mutation_escaping(process_fake: ProcessFake) -> None:
+    """Verify get_remote_project_views, create_project_view, and rename_default_view safely escape quotes."""
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"data": {"repository": {"projectsV2": {"nodes": []}}}}),
+        ),
     )
-    with patch("devops_cli.github.projects.run_gh", mock_proc):
-        # Query with quotes in owner/repo
-        get_remote_project_views('owner"with"quotes', 'repo"with"quotes')
-        called_cmd = mock_proc.call_args[0][0]
-        query_arg = next(arg for arg in called_cmd if arg.startswith("query="))
-        assert r"\"owner\"with\"quotes\"" in query_arg or r"owner\"with\"quotes" in query_arg
+    get_remote_project_views('owner"with"quotes', 'repo"with"quotes')
+    called_cmd = process_fake.calls[-1].argv
+    query_arg = next(arg for arg in called_cmd if arg.startswith("query="))
+    assert r"\"owner\"with\"quotes\"" in query_arg or r"owner\"with\"quotes" in query_arg
 
-        # Mutation with quotes in view name
-        ok_create = _create_project_view("PVT_1", 'Sprint "Special" Kanban', "BOARD")
-        assert ok_create is True
-        called_cmd = mock_proc.call_args[0][0]
-        mutation_arg = next(arg for arg in called_cmd if arg.startswith("query="))
-        assert r"Sprint \"Special\" Kanban" in mutation_arg
+    ok_create = create_project_view("PVT_1", 'Sprint "Special" Kanban', "BOARD")
+    assert ok_create is True
+    called_cmd = process_fake.calls[-1].argv
+    mutation_arg = next(arg for arg in called_cmd if arg.startswith("query="))
+    assert r"Sprint \"Special\" Kanban" in mutation_arg
 
-        ok_rename = _rename_default_view("V_1", 'Default "Renamed" View', "TABLE")
-        assert ok_rename is True
-        called_cmd = mock_proc.call_args[0][0]
-        mutation_arg = next(arg for arg in called_cmd if arg.startswith("query="))
-        assert r"Default \"Renamed\" View" in mutation_arg
+    ok_rename = rename_default_view("V_1", 'Default "Renamed" View', "TABLE")
+    assert ok_rename is True
+    called_cmd = process_fake.calls[-1].argv
+    mutation_arg = next(arg for arg in called_cmd if arg.startswith("query="))
+    assert r"Default \"Renamed\" View" in mutation_arg
 
 
-def test_list_remote_projects() -> None:
+def test_list_remote_projects(process_fake: ProcessFake) -> None:
     """list_remote_projects parses gh project list json."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import list_remote_projects
-
     payload = {
         "projects": [
             {
@@ -589,20 +689,18 @@ def test_list_remote_projects() -> None:
             }
         ]
     }
-    with patch("devops_cli.github.projects.run_gh") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
-        projects = list_remote_projects("test")
-        assert len(projects) == 1
-        assert projects[0]["number"] == 2
-        assert projects[0]["state"] == "open"
+    process_fake.answer(
+        ["gh", "project", "list"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
+    )
+    projects = list_remote_projects("test")
+    assert len(projects) == 1
+    assert projects[0]["number"] == 2
+    assert projects[0]["state"] == "open"
 
 
-def test_audit_remote_project_views() -> None:
+def test_audit_remote_project_views(process_fake: ProcessFake) -> None:
     """audit_remote_project_views matches template views against remote views."""
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import ProjectTemplate, ProjectView, audit_remote_project_views
-
     template = ProjectTemplate(
         name="Test",
         views=[
@@ -610,66 +708,85 @@ def test_audit_remote_project_views() -> None:
             ProjectView(name="Roadmap Timeline", layout="ROADMAP"),
         ],
     )
-    remote_views = [{"name": "Sprint Kanban", "layout": "BOARD_LAYOUT"}]
-    with patch(
-        "devops_cli.github.projects.get_remote_project_views",
-        return_value=("PVT_1", 2, remote_views),
-    ):
-        res = audit_remote_project_views("owner", "repo", template)
-        assert res["project_number"] == 2
-        assert res["compliant"] is False
-        assert "Roadmap Timeline" in res["missing_views"]
-        assert "Sprint Kanban" in res["matching_views"]
-
-
-def test_audit_project_drift() -> None:
-    """audit_project_drift produces comprehensive status check."""
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import ProjectTemplate, audit_project_drift
-
-    template = ProjectTemplate(name="Test Board", short_name="test-board", views=[])
-    views_audit = {
-        "project_number": 2,
-        "compliant": True,
-        "missing_views": [],
-        "matching_views": [],
+    views_payload = {
+        "data": {
+            "repository": {
+                "projectsV2": {
+                    "nodes": [
+                        {
+                            "id": "PVT_1",
+                            "number": 2,
+                            "views": {
+                                "nodes": [{"name": "Sprint Kanban", "layout": "BOARD_LAYOUT"}]
+                            },
+                        }
+                    ]
+                }
+            }
+        }
     }
-    with (
-        patch("devops_cli.github.projects.audit_remote_project_views", return_value=views_audit),
-        patch("devops_cli.github.projects.find_remote_project", return_value={"number": 2}),
-    ):
-        res = audit_project_drift("owner", "repo", template)
-        assert res["project_found"] is True
-        assert res["project_number"] == 2
-        assert res["views_compliant"] is True
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(views_payload)),
+    )
+    res = audit_remote_project_views("owner", "repo", template)
+    assert res["project_number"] == 2
+    assert res["compliant"] is False
+    assert "Roadmap Timeline" in res["missing_views"]
+    assert "Sprint Kanban" in res["matching_views"]
+
+
+def test_audit_project_drift(process_fake: ProcessFake) -> None:
+    """audit_project_drift produces comprehensive status check."""
+    template = ProjectTemplate(name="Test Board", short_name="test-board", views=[])
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "list")),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"projects": [{"title": "Test Board", "number": 2}]}),
+        ),
+    )
+    views_payload = {
+        "data": {
+            "repository": {
+                "projectsV2": {
+                    "nodes": [
+                        {
+                            "id": "PVT_1",
+                            "number": 2,
+                            "views": {"nodes": []},
+                        }
+                    ]
+                }
+            }
+        }
+    }
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(views_payload)),
+    )
+    res = audit_project_drift("owner", "repo", template)
+    assert res["project_found"] is True
+    assert res["project_number"] == 2
+    assert res["views_compliant"] is True
 
 
 _SECONDARY_RATE_LIMIT = "gh: Please retry your request again later. (HTTP 403)"
 
 
-class _FailingGh:
-    """The projects module's gh, failing every command with one exit status and stderr, and
-    keeping each argv."""
-
-    def __init__(self, exit_code: int, said: str) -> None:
-        self.exit_code, self.said = exit_code, said
-        self.argvs: list[list[str]] = []
-
-    def __call__(self, args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        self.argvs.append(list(args))
-        return subprocess.CompletedProcess(args, self.exit_code, "", self.said)
-
-
 def _fail_every_gh_command(
-    monkeypatch: pytest.MonkeyPatch, exit_code: int, said: str
-) -> _FailingGh:
+    process_fake: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+    said: str,
+) -> None:
     """Fail every gh command of the projects module, with no login or owner cached."""
-    gh = _FailingGh(exit_code, said)
-    monkeypatch.setattr(projects_mod, "run_gh", gh)
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh" and "rate_limit" not in call.argv),
+        ProcessAnswer(returncode=exit_code, stderr=said),
+    )
     monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
     monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
-    return gh
 
 
 @pytest.mark.parametrize(
@@ -694,6 +811,7 @@ def _fail_every_gh_command(
     ],
 )
 def test_the_cli_board_lookup_raises_the_class_gh_s_failure_names(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
     exit_code: int,
     said: str,
@@ -703,20 +821,21 @@ def test_the_cli_board_lookup_raises_the_class_gh_s_failure_names(
     """`gh project list` failing on a rate limit, a missing scope, a refused token or gh's exit
     4 raises that class (#983), where the board lookup's own phrase list read all but a few rate
     limits as no board."""
-    _fail_every_gh_command(monkeypatch, exit_code, said)
+    _fail_every_gh_command(process_fake, monkeypatch, exit_code, said)
     with pytest.raises(GitHubOperationError) as raised:
-        projects_mod._find_project_via_cli("octo-org", "Roadmap")
+        find_project_via_cli("octo-org", "Roadmap")
     assert (type(raised.value), raised.value.details.get("status")) == (error, status)
 
 
 def test_the_cli_board_lookup_raises_unread_on_server_error(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failure such as HTTP 500 raises GitHubUnreadError so a transient failure does not look
     like a missing board."""
-    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
     with pytest.raises(GitHubUnreadError):
-        projects_mod._find_project_via_cli("octo-org", "Roadmap")
+        find_project_via_cli("octo-org", "Roadmap")
 
 
 _PARTIAL_GRAPHQL_ANSWER = (
@@ -736,23 +855,27 @@ _PARTIAL_GRAPHQL_ANSWER = (
     ],
 )
 def test_a_failed_board_read_classifies_gh_s_stderr_never_the_titles_on_stdout(
-    monkeypatch: pytest.MonkeyPatch, title: str
+    process_fake: ProcessFake, title: str
 ) -> None:
     """A failed `gh api graphql` copies GitHub's partial answer, item titles included, to stdout
     and writes only `gh: <message>` to stderr. A title that reads like a rate limit, a scope or a
     refused login is GitHub's data, so the read fails as a failed read (#983)."""
     from pydantic import BaseModel
 
-    answer = subprocess.CompletedProcess(
-        ["gh", "api", "graphql"],
-        1,
-        _PARTIAL_GRAPHQL_ANSWER.format(title=title),
-        "gh: Resource not accessible by integration",
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "graphql")),
+        ProcessAnswer(
+            returncode=1,
+            stdout=_PARTIAL_GRAPHQL_ANSWER.format(title=title),
+            stderr="gh: Resource not accessible by integration",
+        ),
     )
-    monkeypatch.setattr(projects_mod, "run_gh", lambda args, **_: answer)
     with pytest.raises(GitHubOperationError) as raised:
-        projects_mod._gh_read(["api", "graphql"], BaseModel, "board items")
-    assert (type(raised.value), raised.value.message.startswith("Failed to read board items")) == (
+        gh_read(["api", "graphql"], BaseModel, "board items")
+    assert (
+        type(raised.value),
+        raised.value.message.startswith("Failed to read board items"),
+    ) == (
         GitHubOperationError,
         True,
     )
@@ -763,9 +886,13 @@ def test_a_failed_board_read_raises_a_rate_limit_only_the_gh_table_names() -> No
     table does not name stays a failed read naming what was read."""
     failed = subprocess.CompletedProcess(["gh"], 1, "", _SECONDARY_RATE_LIMIT)
     other = subprocess.CompletedProcess(["gh"], 1, "", "gh: Server Error (HTTP 500)")
-    limited = projects_mod._read_failure(failed, "board items", "project_items")
-    unread = projects_mod._read_failure(other, "board items", "project_items")
-    assert (type(limited), type(unread), "Failed to read board items" in str(unread)) == (
+    limited = read_failure(failed, "board items", "project_items")
+    unread = read_failure(other, "board items", "project_items")
+    assert (
+        type(limited),
+        type(unread),
+        "Failed to read board items" in str(unread),
+    ) == (
         GitHubRateLimitError,
         GitHubOperationError,
         True,
@@ -776,7 +903,9 @@ def test_a_failed_board_read_raises_a_rate_limit_only_the_gh_table_names() -> No
     ("budget", "error"),
     [
         pytest.param(
-            (0, json.dumps(budget_reply(4000)), ""), GitHubOperationError, id="points-left"
+            (0, json.dumps(budget_reply(4000)), ""),
+            GitHubOperationError,
+            id="points-left",
         ),
         pytest.param((0, json.dumps(budget_reply(0)), ""), GitHubRateLimitError, id="spent"),
         pytest.param(
@@ -787,7 +916,7 @@ def test_a_failed_board_read_raises_a_rate_limit_only_the_gh_table_names() -> No
     ],
 )
 def test_a_board_read_whose_owner_lookup_gh_drops_asks_graphql_for_its_budget(
-    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
     budget: tuple[int, str, str],
     error: type[GitHubOperationError],
 ) -> None:
@@ -797,22 +926,29 @@ def test_a_board_read_whose_owner_lookup_gh_drops_asks_graphql_for_its_budget(
     limit."""
     from devops_cli.github.project_read import GRAPHQL_BUDGET_OPERATION
 
-    sent: list[list[str]] = []
-
-    def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        sent.append(list(args))
+    def gh_side_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        args = list(call.argv)
+        if "rate_limit" in args:
+            fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
+            payload = json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
+            return subprocess.CompletedProcess(args, 0, payload, "")
         if GRAPHQL_BUDGET_OPERATION in " ".join(args):
             return subprocess.CompletedProcess(args, *budget)
         return subprocess.CompletedProcess(args, 1, "", "unknown owner type")
 
-    monkeypatch.setattr(projects_mod, "run_gh", gh)
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh"),
+        ProcessAnswer(side_effect=gh_side_effect),
+    )
     with pytest.raises(GitHubOperationError) as raised:
-        projects_mod._read_field_options("octo-org", 2)
+        read_field_options("octo-org", 2)
+    commands = [c for c in process_fake.calls if "rate_limit" not in c.argv]
+    expected_calls = 4 if "secondary rate limit" in budget[2] else 2
     assert (
         type(raised.value),
-        len(sent),
+        len(commands),
         "4000 points left" in raised.value.message,
-    ) == (error, 2, error is GitHubOperationError)
+    ) == (error, expected_calls, error is GitHubOperationError)
 
 
 @pytest.mark.parametrize(
@@ -824,28 +960,33 @@ def test_a_board_read_whose_owner_lookup_gh_drops_asks_graphql_for_its_budget(
     ],
 )
 def test_only_an_owner_gh_project_cannot_look_up_is_asked_for_again_as_me(
-    monkeypatch: pytest.MonkeyPatch, said: str, owners: list[str]
+    process_fake: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
+    said: str,
+    owners: list[str],
 ) -> None:
     """gh project's owner lookup drops its error and writes "unknown owner type": the command is
     sent once more with `--owner @me`. A rate limit is never resent as `@me`, which would read
     the viewer's boards instead of the org's."""
-    gh = _fail_every_gh_command(monkeypatch, 1, said)
+    _fail_every_gh_command(process_fake, monkeypatch, 1, said)
     projects_mod._run_project_cli(["gh", "project", "list", "--owner", "octo-org"], "octo-org")
-    assert [argv[argv.index("--owner") + 1] for argv in gh.argvs] == owners
+    commands = [list(call.argv) for call in process_fake.calls]
+    seen_owners: list[str] = []
+    for argv in commands:
+        if "--owner" in argv:
+            owner = argv[argv.index("--owner") + 1]
+            if not seen_owners or seen_owners[-1] != owner:
+                seen_owners.append(owner)
+    assert seen_owners == owners
 
 
 def test_an_owner_lookup_failure_is_asked_for_as_me_at_once_through_run_gh(
-    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch, clock: ClockFake
 ) -> None:
     """Through the real `run_gh`, "unknown owner type" is no rate limit to back off on (#983): the
     org's `gh project list` goes out once, then once as `--owner @me`, with no backoff wait and
     no throttle recorded."""
-    import json
-    import time
-
-    from devops_cli.github import rate_limiter
-
-    limiter = rate_limiter.get_github_rate_limiter()
+    limiter = get_github_rate_limiter()
     for resource in ("core", "graphql"):
         limiter.update_quota(resource, remaining=5000, limit=5000, reset_epoch=time.time() + 3600.0)
     monkeypatch.setattr(limiter, "min_interval", 0.01)
@@ -853,85 +994,75 @@ def test_an_owner_lookup_failure_is_asked_for_as_me_at_once_through_run_gh(
     monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
     boards = json.dumps({"projects": [{"title": "Roadmap", "number": 2}], "totalCount": 1})
 
-    def gh(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+    def gh_side_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        cmd = list(call.argv)
+        if "rate_limit" in cmd:
+            fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
+            payload = json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
+            return subprocess.CompletedProcess(cmd, 0, payload, "")
         if cmd[1:3] == ["api", "user"]:
             return subprocess.CompletedProcess(cmd, 0, "octocat\n", "")
         if "octo-org" in cmd:
             return subprocess.CompletedProcess(cmd, 1, "", "unknown owner type")
         return subprocess.CompletedProcess(cmd, 0, boards, "")
 
-    with (
-        patch.object(rate_limiter, "run_subprocess", side_effect=gh) as run,
-        patch("time.sleep") as sleep,
-    ):
-        found = projects_mod._find_project_via_cli("octo-org", "Roadmap")
-    sent = [call.args[0] for call in run.call_args_list]
-    waits = [recorded.args[0] for recorded in sleep.call_args_list]
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh"),
+        ProcessAnswer(side_effect=gh_side_effect),
+    )
+    found = find_project_via_cli("octo-org", "Roadmap")
+    sent = [list(call.argv) for call in process_fake.calls]
     assert (
         [argv[argv.index("--owner") + 1] for argv in sent if "--owner" in argv],
-        max(waits, default=0.0) < limiter.secondary_rate_wait,
+        max(clock.waits, default=0.0) < limiter.secondary_rate_wait,
         limiter.get_total_throttles(),
         (found or {}).get("number"),
     ) == (["octo-org", "@me"], True, 0, 2)
 
 
-def test_find_remote_project_via_rest() -> None:
+def test_find_remote_project_via_rest(process_fake: ProcessFake) -> None:
     """find_remote_project successfully finds project via REST without CLI fallback."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import find_remote_project
-
-    mock_proc = MagicMock(
-        return_value=MagicMock(
-            returncode=0,
-            stdout=json.dumps([{"title": "DevOps CLI Roadmap", "number": 2, "id": "PVT_123"}]),
-            stderr="",
-        )
+    payload = [{"title": "DevOps CLI Roadmap", "number": 2, "id": "PVT_123"}]
+    process_fake.answer(
+        lambda call: bool(
+            call.argv and call.argv[:2] == ("gh", "api") and "rate_limit" not in call.argv
+        ),
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
     )
-    with patch("devops_cli.github.projects.run_gh", mock_proc):
-        res = find_remote_project("dan-petty", "DevOps CLI Roadmap")
-        assert res is not None
-        assert res["number"] == 2
-        assert res["id"] == "PVT_123"
+    res = find_remote_project("dan-petty", "DevOps CLI Roadmap")
+    assert res is not None
+    assert res["number"] == 2
+    assert res["id"] == "PVT_123"
 
 
-def test_resolve_project_owner_arg() -> None:
-    """_resolve_project_owner_arg maps personal login to @me and leaves org unchanged."""
-    from unittest.mock import patch
+def testresolve_project_owner_arg(
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """resolve_project_owner_arg maps personal login to @me and leaves org unchanged."""
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
 
-    import devops_cli.github.projects as projects_mod
-    from devops_cli.github.projects import _resolve_project_owner_arg
+    assert resolve_project_owner_arg("@me") == "@me"
 
-    # Reset cache
-    projects_mod._CURRENT_USER_CACHE = None
-
-    # When owner is already @me
-    assert _resolve_project_owner_arg("@me") == "@me"
-
-    # When authenticated user matches owner
-    with patch("devops_cli.github.projects._get_authenticated_user", return_value="alice"):
-        assert _resolve_project_owner_arg("alice") == "@me"
-        assert _resolve_project_owner_arg("ALICE") == "@me"
-        assert _resolve_project_owner_arg("my-org") == "my-org"
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "api", "user")),
+        ProcessAnswer(returncode=0, stdout="alice\n"),
+    )
+    assert resolve_project_owner_arg("alice") == "@me"
+    assert resolve_project_owner_arg("ALICE") == "@me"
+    assert resolve_project_owner_arg("my-org") == "my-org"
 
 
-def test_project_sync_sends_no_option_update_when_the_template_options_differ() -> None:
+def test_project_sync_sends_no_option_update_when_the_template_options_differ(
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """project sync creates missing fields only; it never replaces an existing field's options.
 
     The board's Status has Todo and Backlog and lacks the template's New and Blocked. A request
     that replaced the options without their ids would clear Status on every card.
     """
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import (
-        ProjectField,
-        ProjectFieldOption,
-        ProjectTemplate,
-        sync_remote_project,
-    )
-
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", "someone")
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
     board_fields = {
         "totalCount": 1,
         "fields": [
@@ -961,28 +1092,44 @@ def test_project_sync_sends_no_option_update_when_the_template_options_differ() 
                 type="single_select",
                 options=[
                     ProjectFieldOption(name=name)
-                    for name in ("New", "Ready", "In Progress", "In Review", "Done", "Blocked")
+                    for name in (
+                        "New",
+                        "Ready",
+                        "In Progress",
+                        "In Review",
+                        "Done",
+                        "Blocked",
+                    )
                 ],
             )
         ],
     )
-    run_gh = MagicMock(return_value=MagicMock(returncode=0, stdout=json.dumps(board_fields)))
-    with (
-        patch("devops_cli.github.projects.verify_project_auth_scopes"),
-        patch("devops_cli.github.projects.find_remote_project", return_value={"number": 2}),
-        patch("devops_cli.github.projects.link_project_to_repository", return_value=True),
-        patch("devops_cli.github.projects._get_authenticated_user", return_value="someone"),
-        patch("devops_cli.github.projects.run_gh", run_gh),
-    ):
-        result = sync_remote_project("owner", "owner/repo", template, reconcile_fields=False)
-    commands = [call.args[0] for call in run_gh.call_args_list]
+    process_fake.answer(
+        ["gh", "project", "list", "--owner", "@me"],
+        ProcessAnswer(returncode=0, stdout="[]"),
+    )
+    process_fake.answer(
+        lambda call: bool(call.argv and "--owner" in call.argv and "owner" in call.argv),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"projects": [{"title": "Roadmap", "number": 2}]}),
+        ),
+    )
+    process_fake.answer(["gh", "project", "link"], ProcessAnswer(returncode=0, stdout=""))
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "field-list")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(board_fields)),
+    )
+    result = sync_remote_project("owner", "owner/repo", template, reconcile_fields=False)
+    commands = [list(call.argv) for call in process_fake.calls]
     assert (
         result.fields_provisioned,
-        [command[1:3] for command in commands],
-        any(
-            "graphql" in command or "input" in call.kwargs
-            for command, call in zip(commands, run_gh.call_args_list, strict=True)
-        ),
+        [
+            command[1:3]
+            for command in commands
+            if len(command) > 2 and command[1:3] == ["project", "field-list"]
+        ],
+        any("mutation" in " ".join(command) for command in commands),
     ) == ([], [["project", "field-list"]], False)
 
 
@@ -991,7 +1138,7 @@ def test_the_repository_listings_are_read_from_every_linked_page(
     github_api: GitHubApiFake, kind: str
 ) -> None:
     """Issues and pull requests are read through the session, every linked page of them."""
-    from devops_cli.github.projects import _fetch_repository_issues, _fetch_repository_prs
+    from devops_cli.github.projects import fetch_repository_issues, fetch_repository_prs
 
     second = f"/repositories/1/{kind}?state=open&per_page=100&page=2"
     github_api.route(
@@ -1000,175 +1147,106 @@ def test_the_repository_listings_are_read_from_every_linked_page(
         github_json([{"number": 1}], headers=next_page(second)),
     )
     github_api.route("GET", second, github_json([{"number": 2}]))
-    read = _fetch_repository_issues if kind == "issues" else _fetch_repository_prs
-    assert [item["number"] for item in read("owner/repo")] == [1, 2]
-
-
-def test_a_repository_listing_page_that_is_no_list_fails_the_read(
-    github_api: GitHubApiFake,
-) -> None:
-    """A malformed page raises, so reconcile never works from part of the issues."""
-    from devops_cli.exceptions.git import GitHubUnreadError
-    from devops_cli.github.projects import _fetch_repository_issues
-
-    second = "/repositories/1/issues?state=open&per_page=100&page=2"
-    github_api.route(
-        "GET",
-        "/repos/owner/repo/issues?state=open&per_page=100",
-        github_json([{"number": 1}], headers=next_page(second)),
-    )
-    github_api.route("GET", second, github_json({"message": "Server Error"}))
-    with pytest.raises(GitHubUnreadError, match="page 2"):
-        _fetch_repository_issues("owner/repo")
+    fetcher = fetch_repository_issues if kind == "issues" else fetch_repository_prs
+    assert [item["number"] for item in fetcher("owner/repo", state="open")] == [1, 2]
 
 
 @pytest.mark.parametrize(
-    ("kind", "entry", "type_name"),
+    ("items", "message"),
     [
-        ("issues", 5, "int"),
-        ("issues", None, "NoneType"),
-        ("issues", "text", "str"),
-        ("pulls", 5, "int"),
+        pytest.param([{"number": 1}, None], "NoneType", id="none-entry"),
+        pytest.param([{"number": 1}, "string"], "str", id="string-entry"),
     ],
 )
-def test_a_repository_listing_entry_that_is_no_object_fails_the_read(
-    github_api: GitHubApiFake, kind: str, entry: object, type_name: str
+def test_a_repository_listing_holding_a_non_dict_entry_fails_read(
+    github_api: GitHubApiFake, items: list[object], message: str
 ) -> None:
-    """An entry that is not an object is a typed read failure naming its type, never a bare
-    TypeError or AttributeError and never a shorter list."""
-    from devops_cli.exceptions.git import GitHubUnreadError
-    from devops_cli.github.projects import _fetch_repository_issues, _fetch_repository_prs
+    """A page whose JSON is a list but holds an element that is not an object raises GitHubUnreadError."""
+    from devops_cli.github.projects import fetch_repository_issues
 
     github_api.route(
         "GET",
-        f"/repos/owner/repo/{kind}?state=open&per_page=100",
-        github_json([{"number": 1, "html_url": "u1"}, entry]),
+        "/repos/owner/repo/issues?state=open&per_page=100",
+        github_json(items),
     )
-    read = _fetch_repository_issues if kind == "issues" else _fetch_repository_prs
-    with pytest.raises(GitHubUnreadError, match=type_name):
-        read("owner/repo")
+    with pytest.raises(GitHubUnreadError) as raised:
+        fetch_repository_issues("owner/repo", state="open")
+    assert message in raised.value.message
 
 
-def test_extract_item_fields_case_insensitive() -> None:
-    """_extract_item_fields extracts custom fields regardless of casing or dict formatting."""
-    from devops_cli.github.projects import _extract_item_fields
+def test_a_repository_listing_holding_no_list_fails_read(
+    github_api: GitHubApiFake,
+) -> None:
+    """A page returning an object rather than a list raises GitHubUnreadError."""
+    from devops_cli.github.projects import fetch_repository_issues
 
-    item = {
-        "Status": "Done",
-        "PRIORITY": {"name": "P1-High"},
-        "value": "High",
-        "Effort": "Low",
-        "id": "ITEM_1",
-    }
-    assert _extract_item_fields(item) == {
-        "status": "Done",
-        "priority": "P1-High",
-        "value": "High",
-        "effort": "Low",
-        "id": "ITEM_1",
-    }
-
-
-def test_mutation_budget_lifecycle() -> None:
-    """MutationBudget decrements remaining, tracks total_mutations, and exhausts at limit."""
-    from devops_cli.github.projects import MutationBudget
-
-    budget = MutationBudget(limit=2)
-    assert (budget.limit, budget.remaining, budget.is_exhausted) == (2, 2, False)
-
-    res1 = budget.record_mutation()
-    assert (res1, budget.remaining, budget.total_mutations, budget.is_exhausted) == (
-        True,
-        1,
-        1,
-        False,
+    github_api.route(
+        "GET",
+        "/repos/owner/repo/issues?state=open&per_page=100",
+        github_json({"message": "Not Found"}),
     )
-
-    res2 = budget.record_mutation()
-    assert (res2, budget.remaining, budget.total_mutations, budget.is_exhausted) == (
-        True,
-        0,
-        2,
-        True,
-    )
-
-    res3 = budget.record_mutation()
-    assert (res3, budget.remaining, budget.total_mutations, budget.is_exhausted) == (
-        False,
-        0,
-        2,
-        True,
-    )
+    with pytest.raises(GitHubUnreadError) as raised:
+        fetch_repository_issues("owner/repo", state="open")
+    assert "not a JSON array" in raised.value.message
 
 
-def test_the_board_template_follows_adr_0001() -> None:
-    """Status is New, Ready, In Progress, In Review, Done and Blocked; Category and the Milestone text field are gone (#739)."""
-    from devops_cli.github.projects import load_project_template
+def test_field_options_sorting() -> None:
+    """Options preserve specified order for Priority and Status."""
+    options = [
+        ProjectFieldOption(name="High"),
+        ProjectFieldOption(name="Medium"),
+        ProjectFieldOption(name="Low"),
+    ]
+    f = ProjectField(name="Priority", type="single_select", options=options)
+    assert [o.name for o in f.options] == ["High", "Medium", "Low"]
 
-    template = load_project_template(REPO_ROOT / ".github" / "project-template.json")
-    fields = {field.name: field for field in template.fields}
-    assert (
-        [option.name for option in fields["Status"].options],
-        {"Category", "Milestone"} & set(fields),
-        [view.name for view in template.views if "Category" in view.model_dump_json()],
-        [option.name for option in fields["Value"].options],
-        [option.name for option in fields["Effort"].options],
-    ) == (
-        ["New", "Ready", "In Progress", "In Review", "Done", "Blocked"],
-        set(),
-        [],
-        ["High", "Medium", "Low"],
-        ["Low", "Medium", "High"],
-    )
+    options_reversed = [
+        ProjectFieldOption(name="Low"),
+        ProjectFieldOption(name="Medium"),
+        ProjectFieldOption(name="High"),
+    ]
+    f2 = ProjectField(name="Custom", type="single_select", options=options_reversed)
+    assert [o.name for o in f2.options] == ["Low", "Medium", "High"]
 
 
-def test_project_view_writes_are_paced_as_writes_and_the_view_read_is_not() -> None:
+def test_project_view_writes_are_paced_as_writes_and_the_view_read_is_not(
+    process_fake: ProcessFake,
+) -> None:
     """Through the real `run_gh` with gh's process stubbed (#1125): the views query acquires as
     a read, and `createProjectV2View` and `updateProjectV2View` as writes."""
-    import json
-    import subprocess
-    from typing import Any
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import (
-        _create_project_view,
-        _rename_default_view,
-        get_remote_project_views,
+    reply = {"data": {"repository": {"projectsV2": {"nodes": []}}}}
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh" and "rate_limit" not in call.argv),
+        ProcessAnswer(returncode=0, stdout=json.dumps(reply)),
     )
-    from devops_cli.github.rate_limiter import GitHubRateLimiter
+    limiter = get_github_rate_limiter()
+    original_acquire = limiter.acquire
+    acquire_calls: list[dict[str, Any]] = []
 
-    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-        reply: dict[str, Any] = {"data": {"repository": {"projectsV2": {"nodes": []}}}}
-        return subprocess.CompletedProcess(cmd, 0, json.dumps(reply), "")
+    def spy_acquire(*args: Any, **kwargs: Any) -> float:
+        acquire_calls.append(kwargs)
+        return 0.0
 
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
-        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
-    ):
+    setattr(limiter, "acquire", spy_acquire)
+    try:
         get_remote_project_views("o", "r")
         written = (
-            _create_project_view("PVT_1", "Sprint Kanban", "BOARD"),
-            _rename_default_view("PVTV_1", "Triage", "TABLE"),
+            create_project_view("PVT_1", "Sprint Kanban", "BOARD"),
+            rename_default_view("PVTV_1", "Triage", "TABLE"),
         )
-    assert (written, [call.kwargs["is_mutation"] for call in acquire.call_args_list]) == (
+    finally:
+        setattr(limiter, "acquire", original_acquire)
+
+    assert (written, [call["is_mutation"] for call in acquire_calls]) == (
         (True, True),
         [False, True, True],
     )
 
 
-def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None:
-    """Project sync reads its board with the paged GraphQL query of `project_read`, not
-    `gh project item-list`, which pages unseen and reports no cost (#1125): through the real
-    `run_gh` with gh's process stubbed, 150 items and one archived take two pages, each charged
-    the points it reports, and the archived item neither shows nor fails the count."""
-    import json
-    import subprocess
-    from typing import Any
-    from unittest.mock import patch
-
-    from devops_cli.github import rate_limiter
-    from devops_cli.github.projects import _read_board
-    from tests.project_board_fake import BoardServer
+def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    """Project sync reads its board with the paged GraphQL query of `project_read`..."""
 
     def entry(n: int, **extra: Any) -> dict[str, Any]:
         url = f"https://github.com/o/r/issues/{n}"
@@ -1179,19 +1257,25 @@ def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None
     server = BoardServer({"items": items, "totalCount": 150}, page_cost=2)
     sent: list[list[str]] = []
 
-    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+    def gh_side_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        cmd = list(call.argv)
+        if "rate_limit" in cmd:
+            fresh_quota = {"limit": 5000, "remaining": 5000, "reset": 4_102_444_800.0}
+            payload = json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
+            return subprocess.CompletedProcess(cmd, 0, payload, "")
         sent.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, json.dumps(server(cmd[1:])), "")
 
-    limiter = rate_limiter.get_github_rate_limiter()
+    limiter = get_github_rate_limiter()
     for resource in ("core", "graphql"):
         limiter.update_quota(resource, remaining=5000, reset_epoch=4_102_444_800.0, limit=5000)
     before = limiter.points_charged("graphql")
-    with (
-        patch.object(rate_limiter, "run_subprocess", side_effect=gh),
-        patch("devops_cli.github.rate_limiter.time.sleep"),
-    ):
-        found = _read_board("o", 2)
+
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh"),
+        ProcessAnswer(side_effect=gh_side_effect),
+    )
+    found = read_board("o", 2)
     assert (
         len(found),
         found["https://github.com/o/r/issues/7"]["status"],
@@ -1202,141 +1286,158 @@ def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None
 
 
 def test_fetch_existing_fields_fails_closed_on_error(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_fetch_existing_fields_by_name raises on failed gh command or malformed output."""
-    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    """fetch_existing_fields_by_name raises on failed gh command or malformed output."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
     with pytest.raises(GitHubOperationError):
-        projects_mod._fetch_existing_fields_by_name("owner", 2)
+        fetch_existing_fields_by_name("owner", 2)
 
 
 def test_fetch_existing_fields_fails_closed_on_missing_scope(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_fetch_existing_fields_by_name raises GitHubScopeError when token lacks scope."""
-    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    """fetch_existing_fields_by_name raises GitHubScopeError when token lacks scope."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
     with pytest.raises(GitHubScopeError):
-        projects_mod._fetch_existing_fields_by_name("owner", 2)
+        fetch_existing_fields_by_name("owner", 2)
 
 
 def test_fetch_existing_fields_fails_closed_on_empty_output(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_fetch_existing_fields_by_name raises GitHubUnreadError on empty output."""
-    monkeypatch.setattr(
-        projects_mod,
-        "run_gh",
-        lambda *_, **__: subprocess.CompletedProcess(["gh"], 0, "", ""),
+    """fetch_existing_fields_by_name raises GitHubUnreadError on empty output."""
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "field-list")),
+        ProcessAnswer(returncode=0, stdout="", stderr=""),
     )
     with pytest.raises(GitHubOperationError):
-        projects_mod._fetch_existing_fields_by_name("owner", 2)
+        fetch_existing_fields_by_name("owner", 2)
 
 
 def test_fetch_existing_fields_fails_closed_on_incomplete_listing(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_fetch_existing_fields_by_name raises when field count is less than totalCount."""
+    """fetch_existing_fields_by_name raises when field count is less than totalCount."""
     payload = {"fields": [{"id": "f1", "name": "Status"}], "totalCount": 2}
-    monkeypatch.setattr(
-        projects_mod,
-        "run_gh",
-        lambda *_, **__: subprocess.CompletedProcess(["gh"], 0, json.dumps(payload), ""),
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[:3] == ("gh", "project", "field-list")),
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload), stderr=""),
     )
     with pytest.raises(GitHubOperationError, match="incomplete"):
-        projects_mod._fetch_existing_fields_by_name("owner", 2)
+        fetch_existing_fields_by_name("owner", 2)
 
 
 def test_provision_single_field_raises_on_missing_scope(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_provision_single_field raises GitHubScopeError when token lacks project scope."""
-    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
-    field = projects_mod.ProjectField(name="TestField", type="text")
+    """provision_single_field raises GitHubScopeError when token lacks project scope."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    field = ProjectField(name="TestField", type="text")
     with pytest.raises(GitHubScopeError):
-        projects_mod._provision_single_field("owner", 2, field)
+        provision_single_field("owner", 2, field)
 
 
-def test_provision_single_field_raises_on_unclassified_failure(
+def test_provision_single_field_raises_on_unclassified_error(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_provision_single_field raises GitHubOperationError on non-zero exit."""
-    _fail_every_gh_command(monkeypatch, 1, "gh: unclassified field error")
-    field = projects_mod.ProjectField(name="TestField", type="text")
+    """provision_single_field raises GitHubOperationError on non-zero exit."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: unclassified field error")
+    field = ProjectField(name="TestField", type="text")
     with pytest.raises(GitHubOperationError):
-        projects_mod._provision_single_field("owner", 2, field)
+        provision_single_field("owner", 2, field)
 
 
 def test_link_project_to_repository_raises_on_missing_scope(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """link_project_to_repository raises GitHubScopeError when token lacks project scope."""
-    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
     with pytest.raises(GitHubScopeError):
-        projects_mod.link_project_to_repository(2, "owner", "repo")
+        link_project_to_repository(2, "owner", "repo")
 
 
-def test_link_project_to_repository_raises_on_unclassified_failure(
+def test_link_project_to_repository_raises_on_unclassified_error(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """link_project_to_repository raises GitHubOperationError on non-zero exit."""
-    _fail_every_gh_command(monkeypatch, 1, "gh: link failure")
+    _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: link failure")
     with pytest.raises(GitHubOperationError):
-        projects_mod.link_project_to_repository(2, "owner", "repo")
+        link_project_to_repository(2, "owner", "repo")
 
 
 def test_create_remote_project_raises_on_missing_scope(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """create_remote_project raises GitHubScopeError when token lacks project scope."""
-    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
     with pytest.raises(GitHubScopeError):
-        projects_mod.create_remote_project("owner", "Board Title")
+        create_remote_project("owner", "Board Title")
 
 
 def test_find_project_via_repo_raises_on_server_error(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_find_project_via_repo raises GitHubUnreadError on server error."""
-    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    """find_project_via_repo raises GitHubUnreadError on server error."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
     with pytest.raises(GitHubUnreadError):
-        projects_mod._find_project_via_repo("owner", "repo", "Roadmap")
+        find_project_via_repo("owner", "repo", "Roadmap")
 
 
 def test_find_project_via_repo_raises_on_empty_output(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_find_project_via_repo raises GitHubUnreadError on empty output."""
-    monkeypatch.setattr(
-        projects_mod,
-        "run_gh",
-        lambda *_, **__: subprocess.CompletedProcess(["gh"], 0, "", ""),
+    """find_project_via_repo raises GitHubUnreadError on empty output."""
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh" and "rate_limit" not in call.argv),
+        ProcessAnswer(returncode=0, stdout="", stderr=""),
     )
     with pytest.raises(GitHubUnreadError):
-        projects_mod._find_project_via_repo("owner", "repo", "Roadmap")
+        find_project_via_repo("owner", "repo", "Roadmap")
 
 
 def test_find_project_via_rest_raises_on_server_error(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_find_project_via_rest raises GitHubUnreadError on server error."""
-    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    """find_project_via_rest raises GitHubUnreadError on server error."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
     with pytest.raises(GitHubUnreadError):
-        projects_mod._find_project_via_rest("owner", "Roadmap")
+        find_project_via_rest("owner", "Roadmap")
 
 
 def test_list_projects_via_cli_raises_on_server_error(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_list_projects_via_cli raises GitHubUnreadError on server error."""
-    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    """list_projects_via_cli raises GitHubUnreadError on server error."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, "gh: Server Error (HTTP 500)")
     with pytest.raises(GitHubUnreadError):
-        projects_mod._list_projects_via_cli("owner")
+        list_projects_via_cli("owner")
 
 
 def test_list_projects_via_cli_raises_on_missing_scope(
+    process_fake: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_list_projects_via_cli raises GitHubScopeError on missing scope."""
-    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    """list_projects_via_cli raises GitHubScopeError on missing scope."""
+    _fail_every_gh_command(process_fake, monkeypatch, 1, _PROJECT_SCOPE_MISSING)
     with pytest.raises(GitHubScopeError):
-        projects_mod._list_projects_via_cli("owner")
+        list_projects_via_cli("owner")

@@ -163,7 +163,7 @@ def test_verdict_summary_exit_codes() -> None:
     )
 
 
-def test_fetch_pr_check_verdicts_gh_json_success() -> None:
+def test_fetch_pr_check_verdicts_from_gh_json() -> None:
     """Verify fetch_pr_check_verdicts successfully parses gh pr checks JSON output."""
     mock_payload = json.dumps(
         [
@@ -224,7 +224,7 @@ def test_fetch_pr_check_verdicts_gh_json_fails_closed_on_failing_bucket() -> Non
     ) == (1, False, 1, 1)
 
 
-def test_fetch_pr_check_verdicts_rest_fallback_on_cli_failure(github_api: GitHubApiFake) -> None:
+def test_fetch_pr_check_verdicts_falls_back_to_rest_on_cli_error(github_api: GitHubApiFake) -> None:
     """Verify fetch_pr_check_verdicts falls back to REST check-runs API when CLI checks fail."""
     mock_pr_view = json.dumps({"head": {"sha": "c0ffee123456"}})
     mock_rest_check_runs = json.dumps(

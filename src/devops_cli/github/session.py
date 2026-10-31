@@ -107,7 +107,13 @@ class GitHubSession:
         """
         return self._rest_transport().send(method, path, accept=accept, body=body)
 
-    def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[Any]:
+    def paginate(
+        self,
+        path: str,
+        *,
+        iterable_key: str | None = None,
+        max_pages: int | None = None,
+    ) -> Iterator[Any]:
         """Every item of the REST listing at `path`, one page read at a time as they are asked for.
 
         A page is a JSON array, or an object holding the array under `iterable_key` (such as
@@ -123,12 +129,12 @@ class GitHubSession:
         and next link; a page that links no next one is read in full and not kept, since its 304
         could not show a page added after it.
         """
-        max_pages = DEFAULT_GH_MAX_PAGINATED_PAGES
+        cap = DEFAULT_GH_MAX_PAGINATED_PAGES if max_pages is None else max_pages
         url: str | None = path
         number = 1
         while url is not None:
-            if number > max_pages:
-                raise listing_past_page_cap(path=path, max_pages=max_pages)
+            if number > cap:
+                raise listing_past_page_cap(path=path, max_pages=cap)
             items, url = self._rest_transport().page(
                 path, url, number=number, iterable_key=iterable_key
             )

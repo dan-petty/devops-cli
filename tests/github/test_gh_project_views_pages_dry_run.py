@@ -7,14 +7,13 @@ returns the requests that the real run would make.
 from __future__ import annotations
 
 import json
-import socket
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.commands.gh import (
     audit_project,
@@ -34,9 +33,7 @@ from devops_cli.commands.gh import (
     sync_views,
 )
 from devops_cli.dry_run import get_dry_run_class
-from devops_cli.main import app
-
-runner = CliRunner()
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 REQUEST_PLAN_COMMANDS = [
     ("pages_build", pages_build_cmd, ["gh", "pages", "build"]),
@@ -60,42 +57,13 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 ]
 
 
-def _fail(what: str) -> Callable[..., Any]:
-    def fail(*args: object, **_: object) -> Any:
-        raise AssertionError(f"the dry run {what}: {str(args[:1])[:120]}")
-
-    return fail
-
-
 @pytest.fixture
-def no_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+def no_external_calls(process_fake: ProcessFake) -> None:
     """Fail the test immediately if any external subprocess, gh, or socket is touched."""
-    from devops_cli.github import rate_limiter
-
-    monkeypatch.setattr(
-        "devops_cli.core.repo.get_repo_origin_name", lambda *args, **kwargs: "dan-petty/devops-cli"
+    process_fake.answer(
+        ["git", "remote", "get-url", "origin"],
+        ProcessAnswer(returncode=0, stdout="git@github.com:dan-petty/devops-cli.git\n"),
     )
-    monkeypatch.setattr(rate_limiter, "run_gh", _fail("ran gh"))
-
-    orig_run_subprocess = rate_limiter.run_subprocess
-
-    def safe_run_subprocess(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
-        if cmd and cmd[0] == "gh":
-            raise AssertionError(f"the dry run started gh via run_subprocess: {cmd}")
-        return orig_run_subprocess(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(rate_limiter, "run_subprocess", safe_run_subprocess)
-
-    orig_popen = subprocess.Popen
-
-    def safe_popen(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "gh":
-            raise AssertionError(f"the dry run started gh Popen: {cmd}")
-        return orig_popen(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(subprocess, "Popen", safe_popen)
-    monkeypatch.setattr(socket.socket, "connect", _fail("connected socket"))
-    monkeypatch.setattr(socket, "getaddrinfo", _fail("resolved DNS"))
 
 
 def test_command_dry_run_class_declarations() -> None:
@@ -140,43 +108,44 @@ def test_gaps_file_does_not_contain_the_fifteen_commands() -> None:
 
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_make_no_external_requests(
+    cli: Callable[..., Any],
     no_external_calls: None,
     name: str,
     callback: Any,
     argv: list[str],
 ) -> None:
     """Criterion 2: devops <command> --dry-run and devops --dry-run <command> make no external calls."""
-    res1 = runner.invoke(app, [*argv, "--dry-run"])
+    res1 = cli(*argv, "--dry-run")
     assert res1.exit_code == 0, f"{name} with --dry-run failed: {res1.output}"
     assert "1." in res1.output, f"{name} output missing numbered request plan: {res1.output}"
 
-    res2 = runner.invoke(app, ["--dry-run", *argv])
+    res2 = cli("--dry-run", *argv)
     assert res2.exit_code == 0, f"{name} with root --dry-run failed: {res2.output}"
     assert "1." in res2.output, f"{name} output missing numbered request plan: {res2.output}"
 
 
 @pytest.mark.parametrize("name,callback,argv", NO_EXTERNAL_REQUEST_COMMANDS)
 def test_no_external_request_commands_run_normally(
+    cli: Callable[..., Any],
     no_external_calls: None,
     name: str,
     callback: Any,
     argv: list[str],
 ) -> None:
     """Criterion 5: devops --dry-run <command> executes normally for mark-only commands."""
-    res = runner.invoke(app, ["--dry-run", *argv])
+    res = cli("--dry-run", *argv)
     assert res.exit_code == 0, f"{name} failed under devops --dry-run: {res.output}"
     assert "Would run delegated command" not in res.output
 
 
-def test_project_workflows_list_dry_run_json_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_project_workflows_list_dry_run_json_output(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Criterion 3: --format json or --json produces dry_run: true and requests."""
     monkeypatch.setattr(
         "devops_cli.core.repo.get_repo_origin_name", lambda *args, **kwargs: "dan-petty/devops-cli"
     )
-    res = runner.invoke(
-        app,
-        ["gh", "project", "workflows", "list", "--project-number", "5", "--dry-run", "--json"],
-    )
+    res = cli("gh", "project", "workflows", "list", "--project-number", "5", "--dry-run", "--json")
     assert res.exit_code == 0, res.output
     data = json.loads(res.output)
     assert data["dry_run"] is True
@@ -199,21 +168,34 @@ def _assert_args_match(actual: list[str], planned: tuple[str, ...], argv: list[s
     assert actual == list(planned), f"Mismatch for {argv}: actual {actual} != planned {planned}"
 
 
-def test_dry_run_plans_match_dispatched_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dry_run_plans_match_dispatched_calls(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
     """Criteria 4 & 6: planned requests match dispatched calls using a recording fake transport."""
-    from devops_cli.github import pages, projects, rate_limiter
+    from devops_cli.github import pages, projects
+    from devops_cli.github.projects import reset_project_caches
 
-    monkeypatch.setattr(
-        "devops_cli.core.repo.get_repo_origin_name", lambda *args, **kwargs: "dan-petty/devops-cli"
+    reset_project_caches()
+
+    process_fake.answer(
+        ["git", "remote", "get-url", "origin"],
+        ProcessAnswer(returncode=0, stdout="git@github.com:dan-petty/devops-cli.git\n"),
+    )
+    fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(
+            stdout=json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
+        ),
     )
 
-    recorded_calls: list[list[str]] = []
-
-    def fake_run_gh(args: list[str], *a: Any, **kw: Any) -> subprocess.CompletedProcess[str]:
-        recorded_calls.append(list(args))
-        if "pages/builds" in args:
+    def _side_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        args = list(call.argv)
+        if "rate_limit" in args:
+            out = json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
+        elif any("pages/builds" in a for a in args):
             out = "[]"
-        elif "pages" in args:
+        elif any("pages" in a for a in args):
             out = json.dumps(
                 {"status": "built", "html_url": "https://dan-petty.github.io/devops-cli"}
             )
@@ -221,12 +203,12 @@ def test_dry_run_plans_match_dispatched_calls(monkeypatch: pytest.MonkeyPatch) -
             out = "[]"
         else:
             out = "{}"
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout=out, stderr="")
+        return subprocess.CompletedProcess(args, 0, out, "")
 
-    monkeypatch.setattr(rate_limiter, "run_gh", fake_run_gh)
-    monkeypatch.setattr(pages, "run_gh", fake_run_gh)
-    monkeypatch.setattr(projects, "run_gh", fake_run_gh)
-    monkeypatch.setattr(projects, "_PROJECT_OWNER_ARG_CACHE", {"dan-petty": "dan-petty"})
+    process_fake.answer(
+        lambda call: bool(call.argv and call.argv[0] == "gh"),
+        ProcessAnswer(side_effect=_side_effect),
+    )
 
     cases = [
         (
@@ -252,11 +234,26 @@ def test_dry_run_plans_match_dispatched_calls(monkeypatch: pytest.MonkeyPatch) -
     ]
 
     for argv, planned in cases:
-        recorded_calls.clear()
-        res = runner.invoke(app, argv)
+        gh_calls_before = [
+            c
+            for c in process_fake.calls
+            if c.argv
+            and c.argv[0] == "gh"
+            and list(c.argv[1:3]) != ["api", "rate_limit"]
+            and list(c.argv[1:]) != ["api", "user", "--jq", ".login"]
+        ]
+        res = cli(*argv)
         assert res.exit_code == 0, f"Running {argv} failed: {res.output}"
-        assert len(recorded_calls) == len(planned), (
-            f"Expected {len(planned)} calls for {argv}, got {len(recorded_calls)}"
+        gh_calls = [
+            c
+            for c in process_fake.calls
+            if c.argv
+            and c.argv[0] == "gh"
+            and list(c.argv[1:3]) != ["api", "rate_limit"]
+            and list(c.argv[1:]) != ["api", "user", "--jq", ".login"]
+        ][len(gh_calls_before) :]
+        assert len(gh_calls) == len(planned), (
+            f"Expected {len(planned)} calls for {argv}, got {len(gh_calls)}"
         )
-        for actual_args, planned_req in zip(recorded_calls, planned, strict=False):
-            _assert_args_match(actual_args, planned_req.argv, argv)
+        for actual_call, planned_req in zip(gh_calls, planned, strict=False):
+            _assert_args_match(list(actual_call.argv), planned_req.argv, argv)

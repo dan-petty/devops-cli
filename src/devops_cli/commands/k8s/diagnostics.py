@@ -27,7 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SECURITY_STREAM_TAIL_LINES,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP
 from devops_cli.output import (
     TablePayload,
@@ -86,6 +86,7 @@ def _stream_pods_watch(namespace: str | None, label: str | None, all_namespaces:
 # =============================================================================
 
 
+@dry_run_class("request-plan")
 def pods_cmd(
     namespace: Annotated[
         str | None,
@@ -114,17 +115,11 @@ def pods_cmd(
 ) -> None:
     """List running pods with health status, restart counts, and age."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s pods",
-            action="list_k8s_pods",
-            details={
-                "namespace": namespace,
-                "label": label,
-                "all_namespaces": all_namespaces,
-                "watch": watch,
-                "interval": interval,
-            },
-        )
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_pods
+
+        requests = plan_k8s_pods(namespace=namespace, label=label, all_namespaces=all_namespaces)
+        render_request_plan("devops k8s pods", requests)
         return
 
     if watch:
@@ -135,6 +130,7 @@ def pods_cmd(
         print(_build_pods_table(namespace, label, all_namespaces))
 
 
+@dry_run_class("request-plan")
 def stream_logs_cmd(
     pod_query: Annotated[
         str,
@@ -162,6 +158,20 @@ def stream_logs_cmd(
     ] = False,
 ) -> None:
     """Stream logs across multiple pods in parallel using Stern or kubectl."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_stream_logs
+
+        requests = plan_k8s_stream_logs(
+            pod_query=pod_query,
+            namespace=namespace,
+            container=container,
+            tail=tail,
+            follow=follow,
+        )
+        render_request_plan("devops k8s stream-logs", requests)
+        return
+
     from devops_cli.k8s.logs import stream_multi_pod_logs
 
     rc = stream_multi_pod_logs(
@@ -170,9 +180,9 @@ def stream_logs_cmd(
         container=container,
         tail_lines=tail,
         follow=follow,
-        dry_run=dry_run,
+        dry_run=False,
     )
-    if rc != 0 and not (dry_run or is_dry_run()):
+    if rc != 0:
         raise typer.Exit(rc)
 
 
@@ -297,6 +307,7 @@ def _validate_severity_callback(value: str | None) -> str | None:
     return cleaned
 
 
+@dry_run_class("request-plan")
 def security_stream_cmd(
     namespace: Annotated[
         str,
@@ -361,23 +372,22 @@ def security_stream_cmd(
     ] = None,
 ) -> None:
     """Stream runtime security anomaly events from Kubernetes Falco eBPF probes."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_security_stream
+
+        requests = plan_k8s_security_stream(
+            namespace=namespace,
+            label=label,
+            tail=tail,
+            follow=follow,
+        )
+        render_request_plan("devops k8s security-stream", requests)
+        return
+
     from devops_cli.exceptions.k8s import KubernetesLoggingError
     from devops_cli.k8s.security_stream import render_security_alerts, stream_security_events
     from devops_cli.models.k8s import SecurityStreamRequest
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s security-stream",
-            action="stream_security_events",
-            details={
-                "namespace": namespace,
-                "label": label,
-                "severity": severity,
-                "duration": duration,
-                "simulate": simulate,
-            },
-        )
-        return
 
     req = SecurityStreamRequest(
         namespace=namespace,

@@ -13,7 +13,7 @@ import typer
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.paths import validate_no_path_traversal
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.exceptions.k8s import KubernetesContextError, KubernetesError
 from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.lang import HELP, MESSAGES
@@ -31,6 +31,7 @@ from devops_cli.output import (
 logger = logging.getLogger(__name__)
 
 
+@dry_run_class("request-plan")
 def contexts(
     dry_run: Annotated[
         bool,
@@ -39,11 +40,10 @@ def contexts(
 ) -> None:
     """List kubeconfig contexts and mark the active one."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s contexts",
-            action="list_kube_config_contexts",
-            details={"contexts": ["minikube"], "active": "minikube"},
-        )
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_contexts
+
+        render_request_plan("devops k8s contexts", plan_k8s_contexts())
         return
     k8s_config, _ = runtime._k8s_clients()
     try:
@@ -74,6 +74,7 @@ def _sync_configured_k8s_context(name: str) -> None:
         )
 
 
+@dry_run_class("request-plan")
 def switch_context(
     name: Annotated[str, typer.Argument(help=HELP.k8s.context_target)],
     dry_run: Annotated[
@@ -87,12 +88,11 @@ def switch_context(
     should_autostart = is_minikube and runtime.should_autostart_minikube(name)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s switch-context",
-            target=name,
-            action="switch_kube_config_context",
-            details={"target_context": name, "start_minikube": should_autostart},
-        )
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_switch_context
+
+        requests = plan_k8s_switch_context(name, should_autostart=should_autostart)
+        render_request_plan("devops k8s switch-context", requests)
         return
 
     if should_autostart and not runtime._minikube_running():
@@ -125,6 +125,7 @@ def switch_context(
     print_success(msg, prefix=False)
 
 
+@dry_run_class("request-plan")
 def status(
     dry_run: Annotated[
         bool,
@@ -133,11 +134,10 @@ def status(
 ) -> None:
     """Show node and pod summary for the current context."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s status",
-            action="query_k8s_status",
-            details={"nodes": 1, "status": "Ready"},
-        )
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_status
+
+        render_request_plan("devops k8s status", plan_k8s_status())
         return
     k8s_config, k8s_client = runtime._k8s_clients()
     try:
@@ -392,6 +392,7 @@ def _execute_legacy_kubectl_logs(
         runtime._run_cmd(cmd, check=True)
 
 
+@dry_run_class("request-plan")
 def logs(
     pod: Annotated[str, typer.Argument(help=HELP.k8s.pod_name)] = "",
     query_arg: Annotated[
@@ -418,6 +419,26 @@ def logs(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Stream pod logs or execute LogQL queries across cluster log streams."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_logs
+
+        resolved_query = (
+            _resolve_logql_query(pod, query, query_arg)
+            if _is_logql_request(pod, query, query_arg)
+            else None
+        )
+        requests = plan_k8s_logs(
+            pod=pod,
+            container=container,
+            namespace=namespace,
+            tail=tail,
+            follow=follow,
+            query=resolved_query,
+            loki_url=loki_url,
+        )
+        render_request_plan("devops k8s logs", requests)
+        return
     if _is_logql_request(pod, query, query_arg):
         if follow:
             from devops_cli.output import print_error

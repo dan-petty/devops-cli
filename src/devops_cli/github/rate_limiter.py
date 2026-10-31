@@ -226,7 +226,7 @@ class QuotaState:
             raise ValueError(f"Malformed quota state dictionary: {err}") from err
 
 
-_DISK_LOCK_STATE = threading.local()
+DISK_LOCK_STATE = threading.local()
 
 
 def _acquire_advisory_lock(lock_file: Path) -> tuple[Any, bool]:
@@ -237,7 +237,7 @@ def _acquire_advisory_lock(lock_file: Path) -> tuple[Any, bool]:
         # Caller holds the open file to maintain the advisory flock; a with-block would close and release it.
         fd = open(lock_file, "a+", encoding="utf-8")  # noqa: SIM115
         fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
-        _DISK_LOCK_STATE.depth[lock_file] = 1
+        DISK_LOCK_STATE.depth[lock_file] = 1
         return fd, True
     except (OSError, AttributeError) as err:
         logger.warning("Advisory file locking unavailable on %s: %s", lock_file, err)
@@ -252,7 +252,7 @@ def _acquire_advisory_lock(lock_file: Path) -> tuple[Any, bool]:
 def _release_advisory_lock(fd: Any, lock_file: Path, locked: bool) -> None:
     """Release advisory file lock and close descriptor."""
     if locked and fd is not None:
-        _DISK_LOCK_STATE.depth[lock_file] = 0
+        DISK_LOCK_STATE.depth[lock_file] = 0
         try:
             fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
         except OSError:
@@ -265,19 +265,19 @@ def _release_advisory_lock(fd: Any, lock_file: Path, locked: bool) -> None:
 
 
 @contextmanager
-def _disk_quota_lock(path: Path) -> Generator[None]:
+def disk_quota_lock(path: Path) -> Generator[None]:
     """Acquire an exclusive re-entrant cross-process advisory lock on the quota cache file."""
     lock_file = path.with_suffix(".lock")
-    if not hasattr(_DISK_LOCK_STATE, "depth"):
-        _DISK_LOCK_STATE.depth = {}
+    if not hasattr(DISK_LOCK_STATE, "depth"):
+        DISK_LOCK_STATE.depth = {}
 
-    current_depth = _DISK_LOCK_STATE.depth.get(lock_file, 0)
+    current_depth = DISK_LOCK_STATE.depth.get(lock_file, 0)
     if current_depth > 0:
-        _DISK_LOCK_STATE.depth[lock_file] = current_depth + 1
+        DISK_LOCK_STATE.depth[lock_file] = current_depth + 1
         try:
             yield
         finally:
-            _DISK_LOCK_STATE.depth[lock_file] -= 1
+            DISK_LOCK_STATE.depth[lock_file] -= 1
         return
 
     fd, locked = _acquire_advisory_lock(lock_file)
@@ -287,7 +287,7 @@ def _disk_quota_lock(path: Path) -> Generator[None]:
         _release_advisory_lock(fd, lock_file, locked)
 
 
-def _load_disk_quota(path: Path) -> dict[str, QuotaState]:
+def load_disk_quota(path: Path) -> dict[str, QuotaState]:
     """Load persistent rate limit quota state from disk, discarding expired or stale entries."""
     if not path.is_file():
         return {}
@@ -337,7 +337,7 @@ def _load_disk_global_meta(path: Path) -> tuple[int, float, int, float]:
     return 0, 0.0, 0, 0.0
 
 
-def _save_disk_quota(
+def save_disk_quota(
     quotas: dict[str, QuotaState],
     path: Path,
     total_requests: int = 0,
@@ -394,7 +394,7 @@ def _merge_same_epoch_quota(disk_state: QuotaState, mem_state: QuotaState) -> Qu
     )
 
 
-def _merge_single_quota(disk_state: QuotaState, mem_state: QuotaState) -> QuotaState:
+def merge_single_quota(disk_state: QuotaState, mem_state: QuotaState) -> QuotaState:
     """Merge disk quota state with in-memory quota state preserving freshest consumption."""
     if disk_state.reset_epoch is None:
         return mem_state
@@ -505,7 +505,7 @@ def _detect_api_resource(api_args: Sequence[str]) -> str:
     return "core"
 
 
-def _detect_resource(args: Sequence[str]) -> str:
+def detect_resource(args: Sequence[str]) -> str:
     """Determine the GitHub API rate limit resource / subcommand category."""
     if not args:
         return "core"
@@ -520,7 +520,7 @@ def _detect_resource(args: Sequence[str]) -> str:
 def gh_request_resource(args: Sequence[str]) -> str:
     """The rate-limit resource a `gh` command spends (`core`, `graphql`, `search`, ...), as
     `run_gh` paces it."""
-    return _detect_resource(_normalize_gh_args(list(args)))
+    return detect_resource(_normalize_gh_args(list(args)))
 
 
 def gh_request_is_paced(args: list[str]) -> bool:
@@ -529,7 +529,7 @@ def gh_request_is_paced(args: list[str]) -> bool:
     return not _is_rate_limit_exempt(_normalize_gh_args(args))
 
 
-def _parse_reset_epoch(reset_at: str | None) -> float | None:
+def parse_reset_epoch(reset_at: str | None) -> float | None:
     """Parse ISO resetAt string into epoch timestamp."""
     if not reset_at:
         return None
@@ -560,7 +560,7 @@ def _extract_graphql_ratelimit_json(output: str, limiter: GitHubRateLimiter) -> 
         used = rl.get("used")
         reset_at = rl.get("resetAt")
         if rem is not None:
-            epoch = _parse_reset_epoch(str(reset_at)) if reset_at else None
+            epoch = parse_reset_epoch(str(reset_at)) if reset_at else None
             limiter.update_quota(
                 "graphql",
                 remaining=int(rem),
@@ -867,7 +867,7 @@ class GitHubRateLimiter:
         """Synchronize in-memory quotas and global request counts with disk."""
         if not self.persist_path:
             return
-        disk_quotas = _load_disk_quota(self.persist_path)
+        disk_quotas = load_disk_quota(self.persist_path)
         disk_reqs, disk_last_req, disk_throttles, disk_wait_sec = _load_disk_global_meta(
             self.persist_path
         )
@@ -877,14 +877,14 @@ class GitHubRateLimiter:
         self._total_wait_seconds = max(self._total_wait_seconds, disk_wait_sec)
         for subcmd, d_state in disk_quotas.items():
             if subcmd in self._quotas:
-                self._quotas[subcmd] = _merge_single_quota(d_state, self._quotas[subcmd])
+                self._quotas[subcmd] = merge_single_quota(d_state, self._quotas[subcmd])
             else:
                 self._quotas[subcmd] = d_state
 
     def _persist_to_disk_locked(self) -> None:
         """Persist state to disk under lock."""
         if self.persist_path:
-            _save_disk_quota(
+            save_disk_quota(
                 self._quotas,
                 self.persist_path,
                 total_requests=self._total_requests,
@@ -913,7 +913,7 @@ class GitHubRateLimiter:
         """Return total tracked rate limit throttle events across processes."""
         with self._lock:
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     self._sync_from_disk_locked()
             return self._total_throttles
 
@@ -921,7 +921,7 @@ class GitHubRateLimiter:
         """Return total accumulated backoff wait seconds across processes."""
         with self._lock:
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     self._sync_from_disk_locked()
             return self._total_wait_seconds
 
@@ -929,7 +929,7 @@ class GitHubRateLimiter:
         """Return total tracked global requests across all processes."""
         with self._lock:
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     self._sync_from_disk_locked()
             return self._total_requests
 
@@ -937,7 +937,7 @@ class GitHubRateLimiter:
         """Return timestamp of the most recent global request."""
         with self._lock:
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     self._sync_from_disk_locked()
             return self._last_request_epoch
 
@@ -1008,7 +1008,7 @@ class GitHubRateLimiter:
         """
         with self._lock:
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     state = self._resolve_quota_state(subcommand)
             else:
                 state = self._resolve_quota_state(subcommand)
@@ -1080,7 +1080,7 @@ class GitHubRateLimiter:
         with self._lock:
             self._requests_paced[target] = self._requests_paced.get(target, 0) + 1
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     sleep_duration = self._acquire_locked(
                         target, is_mutation=is_mutation, cost=cost
                     )
@@ -1163,7 +1163,7 @@ class GitHubRateLimiter:
     ) -> None:
         """Apply quota update syncing and persisting to disk when configured."""
         if self.persist_path:
-            with _disk_quota_lock(self.persist_path):
+            with disk_quota_lock(self.persist_path):
                 self._sync_from_disk_locked()
                 self._apply_quota_update(subcommand, remaining, reset_epoch, limit, used, now)
                 self._persist_to_disk_locked()
@@ -1221,7 +1221,7 @@ class GitHubRateLimiter:
         """Increment used count and decrement remaining quota based on request utilization."""
         with self._lock:
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     self._sync_from_disk_locked()
                     self._record_utilization_locked(subcommand, cost)
                     self._persist_to_disk_locked()
@@ -1262,7 +1262,7 @@ class GitHubRateLimiter:
         """Retrieve a copy of current quota state for a subcommand synced with disk."""
         with self._lock:
             if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+                with disk_quota_lock(self.persist_path):
                     self._sync_from_disk_locked()
             state = self._quotas.get(subcommand)
             if state is None:
@@ -1503,7 +1503,7 @@ def _is_cacheable_cli_read(args: list[str]) -> bool:
     return group in _CACHEABLE_CLI_GROUPS and verb in CONST_GH_READ_VERBS
 
 
-def _is_cacheable_api_call(args: list[str]) -> bool:
+def is_cacheable_api_call(args: list[str]) -> bool:
     """Whether a `gh api` call is safe to cache: gh sends it as a GET with no fields or body."""
     api_args = parse_gh_api_args(args[1:])
     return (
@@ -1513,7 +1513,7 @@ def _is_cacheable_api_call(args: list[str]) -> bool:
     )
 
 
-def _should_cache(args: list[str], use_cache: bool, input: str | None = None) -> bool:
+def should_cache(args: list[str], use_cache: bool, input: str | None = None) -> bool:
     """Determine whether a command is eligible for response caching."""
     if not use_cache or input or not args:
         return False
@@ -1522,7 +1522,7 @@ def _should_cache(args: list[str], use_cache: bool, input: str | None = None) ->
     if _is_cacheable_cli_read(args):
         return True
     if args[0] == "api":
-        return _is_cacheable_api_call(args)
+        return is_cacheable_api_call(args)
     return False
 
 
@@ -1541,7 +1541,7 @@ def _normalize_gh_args(args: list[str]) -> list[str]:
     return list(args)
 
 
-def _validate_gh_cwd(cwd: Path | None) -> Path | None:
+def validate_gh_cwd(cwd: Path | None) -> Path | None:
     """Validate that cwd exists, is a directory, and does not target forbidden system paths."""
     if cwd is None:
         return None
@@ -1563,7 +1563,7 @@ def _check_cached_result(
     use_cache: bool,
 ) -> subprocess.CompletedProcess[str] | None:
     """Return cached CompletedProcess if command qualifies for read caching and is cached."""
-    if not _should_cache(args, use_cache, input):
+    if not should_cache(args, use_cache, input):
         return None
     cache_key = _build_cache_key(args, input)
     cached_val = limiter.get_cached(cache_key)
@@ -1838,7 +1838,7 @@ def _run_gh_retry_loop(
         )
         last_res = proc
         if proc.returncode == 0:
-            if _should_cache(clean_args, use_cache, input) and proc.stdout:
+            if should_cache(clean_args, use_cache, input) and proc.stdout:
                 limiter.set_cached(cache_key, proc.stdout, ttl=cache_ttl)
             return proc
         if not _handle_attempt_backoff(limiter, proc, attempt, max_retries, target_resource):
@@ -1880,7 +1880,7 @@ def run_gh(
         request delay = time in seconds until next quota reset for this subcommand / remaining requests
     and, at a reset that has passed, until `CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS` past it.
     """
-    valid_cwd = _validate_gh_cwd(cwd) if cwd is not None else None
+    valid_cwd = validate_gh_cwd(cwd) if cwd is not None else None
     clean_args = _normalize_gh_args(args)
     full_cmd = [CONST_GH_CLI, *clean_args]
     if is_local_gh_command(clean_args):
@@ -1896,7 +1896,7 @@ def run_gh(
         _raise_for_status(proc, full_cmd, check)
         return proc
     limiter = get_github_rate_limiter()
-    target_resource = resource or _detect_resource(clean_args)
+    target_resource = resource or detect_resource(clean_args)
     reads_quota = _prints_rate_limit_answer(clean_args)
     is_exempt = _is_rate_limit_exempt(clean_args)
     is_mutation = not is_exempt and is_write_gh_command(clean_args, input=input, cwd=valid_cwd)

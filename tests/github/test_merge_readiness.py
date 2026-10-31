@@ -617,9 +617,7 @@ def test_closing_issues_that_cannot_be_read_are_one_blocker(
         pytest.param({"filename": "a.py"}, id="no-status"),
     ],
 )
-def test_a_malformed_files_entry_is_a_read_failure(
-    github: _GitHub, tmp_path: Path, entry: object
-) -> None:
+def test_a_malformed_files_entry_fails_read(github: _GitHub, tmp_path: Path, entry: object) -> None:
     github.files(entry)
     blockers = _assess(tmp_path).blockers
     assert ["is no PullRequestFile: 1 invalid field(s)" in blocker for blocker in blockers] == [
@@ -640,7 +638,7 @@ def test_the_changed_files_are_read_from_every_linked_page(github: _GitHub) -> N
     )
 
 
-def test_a_changed_files_page_that_is_no_list_is_a_read_failure(github: _GitHub) -> None:
+def test_a_changed_files_page_that_is_no_list_fails_read(github: _GitHub) -> None:
     """A malformed second page is the read's failure, not a shorter file list."""
     github.api.route("GET", _FILES, github_json([_ARCHIVE_704], headers=next_page(_FILES_PAGE_2)))
     github.api.route(
