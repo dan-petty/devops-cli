@@ -453,19 +453,26 @@ class DockerEngineService:
 
     @staticmethod
     def _check_endpoint_egress(source: str, base_url: str) -> None:
-        """Validate network endpoints against SSRF policies."""
-        from devops_cli.config.settings import load_settings
-        from devops_cli.core.validation import validate_service_url
-        from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
+        """Validate network endpoints against SSRF policies.
 
-        scheme = urlsplit(base_url).scheme.lower()
+        Time-of-check gap: docker-py dials through requests/urllib3. vet_addresses
+        verifies the host at check time; a later lookup by docker-py could yield
+        a different address.
+        """
+        import httpx2
+
+        from devops_cli.config.settings import load_settings
+        from devops_cli.http.egress import EgressLevel, vet_addresses
+
+        parsed = httpx2.URL(base_url)
+        scheme = parsed.scheme.lower()
         if scheme in ("http", "https"):
             settings = load_settings()
+            level = EgressLevel.PRIVATE if settings.ai.allow_private_network else EgressLevel.PUBLIC
+            port = parsed.origin.port or 80
             try:
-                validate_service_url(
-                    base_url, "Docker Host", allow=settings.ai.allow_private_network
-                )
-            except (SSRFBlockedError, InvalidURLError) as exc:
+                vet_addresses(parsed.host, port, level)
+            except Exception as exc:
                 raise DockerDaemonUnavailableError(f"{source}: {exc}", host=source) from exc
 
     def resolve_host(self) -> DockerEndpoint:

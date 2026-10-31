@@ -248,3 +248,24 @@ def test_config_get_of_an_unknown_key_names_the_similar_keys(cli: Any) -> None:
         "Unknown config key: 'firecrawl.apikey'\n"
         "Known keys with a similar name: firecrawl.api_key, ai.api_key, qdrant.api_key\n",
     )
+
+
+def test_validate_wizard_service_url_validation_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devops_cli.commands.config import _validate_wizard_service_url
+    from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
+
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+
+    _validate_wizard_service_url("http://example.com:8080", "Grafana", allow_private=True)
+
+    with pytest.raises(ValueError, match="Invalid Grafana URL: Invalid port: 'notaport'"):
+        _validate_wizard_service_url("http://example.com:notaport", "Grafana", allow_private=True)
+
+    with pytest.raises(ValueError, match="Invalid Grafana URL scheme 'ftp': must be http or https"):
+        _validate_wizard_service_url("ftp://example.com:8080", "Grafana", allow_private=True)
+
+    with pytest.raises(ValueError, match="Grafana URL missing valid hostname"):
+        _validate_wizard_service_url("http://:8080", "Grafana", allow_private=True)
+
+    with pytest.raises(ValueError, match="Grafana URL egress check failed"):
+        _validate_wizard_service_url("http://192.168.1.1:8080", "Grafana", allow_private=False)

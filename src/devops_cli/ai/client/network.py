@@ -683,11 +683,10 @@ def validate_base_url(
     *,
     allow_private_network: bool = False,
 ) -> str:
-    """Validate a configured base URL against SSRF and network egress rules.
+    """Validate a configured base URL against scheme and host rules.
 
-    Every base URL the client sends to comes from the user's configuration, so it follows
-    `validate_configured_service_url`: loopback is allowed, and any other non-public host
-    needs ``allow_private_network``.
+    The pre-flight DNS check is removed; the factory client checks at the connect
+    (ai/client/base.py:64-66). Scheme and host checks stay for early syntax errors.
     """
     if not base_url or not base_url.strip():
         raise AIClientError(f"Missing {purpose} base URL.")
@@ -704,14 +703,5 @@ def validate_base_url(
 
     if not parsed.hostname:
         raise AIClientError(f"Missing hostname in {purpose} base URL: {base_url!r}")
-
-    from devops_cli.core.validation import validate_configured_service_url
-
-    try:
-        validate_configured_service_url(
-            base_url, purpose=purpose, allow_private=allow_private_network
-        )
-    except ValueError as exc:
-        raise AIClientError(str(exc)) from exc
 
     return base_url.rstrip("/")

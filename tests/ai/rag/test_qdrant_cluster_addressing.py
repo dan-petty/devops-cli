@@ -79,7 +79,7 @@ def _store(url: str) -> Any:
     """Build a store without contacting anything."""
     from devops_cli.ai.rag.qdrant import QdrantClient
 
-    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url"):
+    with patch("devops_cli.ai.rag.qdrant._validate_qdrant_url"):
         return QdrantClient(base_url=url, api_key=None)
 
 
@@ -118,7 +118,7 @@ def test_a_cluster_address_skips_host_based_egress_validation() -> None:
     """
     from devops_cli.ai.rag.qdrant import QdrantClient
 
-    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url") as validate:
+    with patch("devops_cli.ai.rag.qdrant._validate_qdrant_url") as validate:
         QdrantClient(base_url=CLUSTER_URL, api_key=None)
     validate.assert_not_called()
 
@@ -127,7 +127,7 @@ def test_a_direct_address_is_still_validated() -> None:
     """Skipping validation for cluster addresses must not skip it for everything."""
     from devops_cli.ai.rag.qdrant import QdrantClient
 
-    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url") as validate:
+    with patch("devops_cli.ai.rag.qdrant._validate_qdrant_url") as validate:
         QdrantClient(base_url=DIRECT_URL, api_key=None)
     validate.assert_called_once()
 
@@ -163,5 +163,5 @@ def test_a_store_accepts_either_address_form(url: str) -> None:
     """A configuration can move between the two without code changes."""
     from devops_cli.ai.rag.qdrant import QdrantClient
 
-    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url"):
+    with patch("devops_cli.ai.rag.qdrant._validate_qdrant_url"):
         assert QdrantClient(base_url=url, api_key=None).base_url == url.rstrip("/")

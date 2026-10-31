@@ -141,7 +141,7 @@ def _is_forbidden_local_ip(
     ),
 ) -> bool:
     """Return whether an IP address or network is link-local metadata forbidden in local whitelist."""
-    return is_cloud_metadata_host(ip_obj, resolve_dns=False)
+    return is_cloud_metadata_host(ip_obj)
 
 
 def _is_private_or_loopback(
@@ -163,7 +163,7 @@ def _validate_public_whitelist_item(item: str) -> None:
     that is not public.
     """
     host, _port = _parse_whitelist_entry(item)
-    if is_loopback_or_private_host(host, resolve_dns=False):
+    if is_loopback_or_private_host(host):
         raise ValueError(
             f"Public whitelist entry '{item}' (host '{host}') cannot be private, loopback, or metadata."
         )
@@ -194,11 +194,11 @@ def _validate_local_whitelist_item(item: str) -> None:
             f"({CONST_DOCKER_HOST_GATEWAY_HOSTNAME}) on the workstation, which a cluster pod "
             "cannot reach; give the IP address or CIDR the cluster reaches the host on."
         )
-    if is_cloud_metadata_host(host, resolve_dns=False):
+    if is_cloud_metadata_host(host):
         raise ValueError(
             f"Cloud metadata '{item}' is forbidden in local whitelist to mitigate SSRF."
         )
-    if not is_loopback_or_private_host(host, resolve_dns=False):
+    if not is_loopback_or_private_host(host):
         raise ValueError(
             f"Local whitelist entry '{item}' (host '{host}') must resolve to a private or loopback destination."
         )
@@ -277,7 +277,7 @@ def _resolve_public_host(host: str, port: int) -> list[str]:
         ip_net = ipaddress.ip_network(host, strict=False)
     except ValueError:
         return _resolve_public_dns(host, port)
-    if is_cloud_metadata_host(ip_net, resolve_dns=False):
+    if is_cloud_metadata_host(ip_net):
         raise SandboxValidationError(f"Public whitelist entry resolves to cloud metadata: {ip_net}")
     if is_non_public_ip(ip_net):
         raise SandboxValidationError(
@@ -331,7 +331,7 @@ def _resolve_local_host(host: str, port: int) -> list[str]:
     """
     if _is_loopback_entry(host):
         return []
-    if is_cloud_metadata_host(host, resolve_dns=False):
+    if is_cloud_metadata_host(host):
         raise SandboxValidationError(
             f"Link-local cloud metadata '{host}' is forbidden in local whitelist."
         )

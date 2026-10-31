@@ -256,7 +256,7 @@ def test_config_init_wizard_flow(tmp_path: Path) -> None:
                 "a_tok",
             ],
         ),
-        patch("devops_cli.commands.config.validate_service_url"),
+        patch("devops_cli.commands.config._validate_wizard_service_url"),
     ):
         result = runner.invoke(config_app, ["init"])
         assert result.exit_code == 0

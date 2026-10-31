@@ -1,0 +1,8 @@
+id: net-pre-flight-resolve
+valid:
+  - 'vet_addresses(host, port, EgressLevel.CONFIGURED)'
+  - 'validate_host(host)'
+invalid:
+  - 'ips = _resolve_host_ips(host)'
+  - '_enforce_non_private_ssrf(ips)'
+  - 'def _resolve_host_ips(host): pass'

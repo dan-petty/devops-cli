@@ -703,6 +703,18 @@ def _ai_shared_call(flag: bool) -> Callable[[], Any]:
     return lambda: LLMClient(config)._shared_client().get("https://example.com/v1/models")
 
 
+def _ai_client_base_url_call(flag: bool) -> Callable[[], Any]:
+    """A request of the AI client that validates its base URL."""
+    config = AIConfig(
+        provider="openai",
+        api_key="sk-test",
+        api_base_url="https://example.com/v1",
+        max_retries=0,
+        allow_private_network=flag,
+    )
+    return lambda: LLMClient(config)._create_http_client().get("https://example.com/v1/models")
+
+
 def _ai_config(flag: bool, **fields: Any) -> AIConfig:
     """An AI configuration with one attempt per request, so a stopped connect is not retried."""
     return AIConfig(allow_private_network=flag, max_retries=1, **fields)
@@ -924,6 +936,7 @@ def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
         "k8s direct": lambda: service_http.get_json("http://example.com:9090", "api/v1/query"),
         "k8s proxy": _k8s_proxy_call,
         "ai shared client": _ai_shared_call(flag),
+        "ai client base url": _ai_client_base_url_call(flag),
         "firecrawl": lambda: firecrawl_search("devops", api_key="fc-test"),
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
         **_ai_service_calls(flag, tmp_path),
@@ -985,6 +998,7 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "k8s direct": PRIVATE,
         "k8s proxy": PRIVATE,
         "ai shared client": PRIVATE if flag else LOOPBACK,
+        "ai client base url": PRIVATE if flag else LOOPBACK,
         "firecrawl": PUBLIC,
         "statuspage": PUBLIC,
         **_ai_service_levels(flag),
@@ -1166,3 +1180,62 @@ def test_the_memory_profiler_exercises_its_pool_without_a_lookup_or_a_dial(
         {"localhost": 0},
         [],
     )
+
+
+def _kept_pre_flight_calls(flag: bool) -> dict[str, Callable[[], Any]]:
+    """The four kept pre-flight callers that resolve through vet_addresses."""
+    from devops_cli.ai.rag.qdrant import QdrantClient
+    from devops_cli.commands.config import _validate_wizard_service_url
+    from devops_cli.commands.k8s.cluster_context import _validate_manifest_url
+    from devops_cli.docker.engine import DockerEngineService
+
+    return {
+        "qdrant": lambda: QdrantClient("http://example.com:6333", allow_private_network=flag),
+        "k8s manifest": lambda: _validate_manifest_url("http://example.com/manifest.yaml"),
+        "docker engine": lambda: DockerEngineService._check_endpoint_egress(
+            "DOCKER_HOST", "http://example.com:2375"
+        ),
+        "config wizard": lambda: _validate_wizard_service_url(
+            "http://example.com:3000", "Grafana", allow_private=flag
+        ),
+    }
+
+
+def _kept_pre_flight_levels(flag: bool) -> dict[str, EgressLevel]:
+    return {
+        "qdrant": EgressLevel.PRIVATE if flag else EgressLevel.LOOPBACK,
+        "k8s manifest": EgressLevel.PUBLIC,
+        "docker engine": EgressLevel.PRIVATE if flag else EgressLevel.PUBLIC,
+        "config wizard": EgressLevel.PRIVATE if flag else EgressLevel.LOOPBACK,
+    }
+
+
+@pytest.mark.usefixtures("keyring_store")
+@pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
+@pytest.mark.parametrize("caller", list(_kept_pre_flight_levels(False)))
+def test_kept_pre_flight_callers_resolve_at_their_level(
+    monkeypatch: pytest.MonkeyPatch, caller: str, flag: bool
+) -> None:
+    """Each kept pre-flight caller resolves through vet_addresses at its level."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
+    call = _kept_pre_flight_calls(flag)[caller]
+    admitted: list[bool] = []
+    for address in ("127.0.0.1", "192.0.2.10"):
+        scripted_resolver(monkeypatch, {"example.com": [[address]]})
+        try:
+            call()
+            admitted.append(True)
+        except Exception:
+            admitted.append(False)
+
+    expected = _kept_pre_flight_levels(flag)[caller]
+    assert _LEVEL_BY_DIALS.get((admitted[0], admitted[1])) == expected
+
+
+def test_config_wizard_admits_loopback_without_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The config wizard admits loopback at the configured level without the flag."""
+    from devops_cli.commands.config import _validate_wizard_service_url
+
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+    _validate_wizard_service_url("http://example.com:3000", "Grafana", allow_private=False)

@@ -74,7 +74,8 @@ class BaseLLMProviderMixin:
         if getattr(self, "_http_client", None) is not None:
             return cast("httpx2.Client", self._http_client)
         if getattr(self, "_transport", None) is not None:
-            return httpx2.Client(
+            return new_http_client(
+                level=self._egress_level(),
                 transport=cast("httpx2.BaseTransport", self._transport),
                 timeout=timeout or self._request_timeout(),
             )
@@ -99,7 +100,8 @@ class BaseLLMProviderMixin:
             return cast("httpx2.Client", self._http_client)
         if getattr(self, "_transport", None) is not None:
             if getattr(self, "_transport_client", None) is None:
-                self._transport_client = httpx2.Client(
+                self._transport_client = new_http_client(
+                    level=self._egress_level(),
                     transport=cast("httpx2.BaseTransport", self._transport),
                     timeout=self._request_timeout(),
                 )

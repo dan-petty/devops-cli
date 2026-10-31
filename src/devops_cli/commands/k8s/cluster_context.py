@@ -7,14 +7,15 @@ import logging
 from typing import Annotated, Any
 from urllib.parse import urlsplit
 
+import httpx2
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.paths import validate_no_path_traversal
-from devops_cli.core.validation import validate_url_egress
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.exceptions.k8s import KubernetesContextError, KubernetesError
+from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_k8s_contexts_table,
@@ -179,6 +180,32 @@ def _apply_template(
     runtime._run_cmd(cmd, input=rendered_yaml, check=True)
 
 
+def _validate_manifest_url(url: str) -> None:
+    """Validate a manifest URL before handing it to kubectl.
+
+    Time-of-check gap: kubectl dials the manifest URL. vet_addresses verifies
+    the host at check time; a later lookup by kubectl could yield a different address.
+    """
+    clean_url = str(url).strip()
+    try:
+        parsed = httpx2.URL(clean_url)
+    except Exception as exc:
+        raise KubernetesContextError(f"Invalid manifest URL: {exc}") from exc
+
+    if parsed.scheme not in ("http", "https"):
+        raise KubernetesContextError(
+            f"Invalid manifest URL scheme '{parsed.scheme}': must be http or https"
+        )
+    if not parsed.host:
+        raise KubernetesContextError(f"Invalid manifest URL: missing valid hostname in '{url}'")
+
+    port = parsed.origin.port or 80
+    try:
+        vet_addresses(parsed.host, port, EgressLevel.PUBLIC)
+    except Exception as exc:
+        raise KubernetesContextError(f"Manifest URL egress check failed: {exc}") from exc
+
+
 def apply(
     path: Annotated[str, typer.Argument(help=HELP.k8s.manifest_path)],
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
@@ -194,13 +221,7 @@ def apply(
 ) -> None:
     """Apply a Kubernetes manifest (delegates to kubectl)."""
     if bool(urlsplit(path).scheme):
-        validate_url_egress(
-            path,
-            purpose="manifest",
-            allow_private=False,
-            schemes=("http", "https"),
-            error_cls=KubernetesContextError,
-        )
+        _validate_manifest_url(path)
     else:
         validate_no_path_traversal(
             path,

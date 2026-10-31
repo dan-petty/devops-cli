@@ -53,7 +53,7 @@ In `devops-cli`:
    timeout = httpx2.Timeout(60.0, connect=10.0, read=45.0)
    ```
 4. **Transport Layer Security (TLS)**: Integrates with homelab root CAs for local Minikube mTLS communication.
-5. **Egress-Checked Clients**: In `devops-cli`, a new client comes from `devops_cli.http.client.new_http_client(level=EgressLevel.PUBLIC)` (or `new_async_http_client`) rather than `httpx2.Client(...)`; some older clients still build `httpx2.Client` directly, without the connect-time check. The factory replaces the transport's connection pool with an `httpcore2` pool whose network backend resolves each host once and dials only the addresses the egress level admits, redirect hops included; TLS still verifies the hostname. Factory clients ignore proxy environment variables, and retries are opt-in (`retries=`).
+5. **Egress-Checked Clients**: In `devops-cli`, every HTTP client comes from `devops_cli.http.client.new_http_client(level=EgressLevel.PUBLIC)` (or `new_async_http_client` or `get_shared_client`) rather than `httpx2.Client(...)`. The factory replaces the transport's connection pool with an `httpcore2` pool whose network backend resolves each host once and dials only the addresses the egress level admits, redirect hops included; TLS still verifies the hostname. Factory clients ignore proxy environment variables, and retries are opt-in (`retries=`). Kept pre-flight checks use `vet_addresses` directly.
 
 ---
 
@@ -87,6 +87,6 @@ async def stream_reasoning_tokens(client: httpx2.AsyncClient, url: str, prompt: 
 
 ## 6. Best Practices & Security Standards
 
-1. **Egress Safety & SSRF Mitigation**: Validate destination hosts with `tldextract` and `ipaddress` before dispatching requests to prevent Server-Side Request Forgery.
+1. **Egress Safety & SSRF Mitigation**: Every HTTP client is built through `devops_cli.http.client` factory functions to enforce connect-time egress checks. Kept pre-flight checks call `vet_addresses` directly.
 2. **Never Log Sensitive Authorization Headers**: Ensure `Authorization: Bearer <token>` headers are redacted before logging HTTP requests.
 3. **Always Use Connection Pools**: Reuse `AsyncClient` instances across tool calls rather than instantiating a new client per request.

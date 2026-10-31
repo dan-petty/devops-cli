@@ -8,6 +8,7 @@ import socket
 import pytest
 
 from devops_cli.commands.k8s.cluster_context import apply as k8s_apply
+from devops_cli.exceptions import KubernetesContextError
 from devops_cli.security.sanitizer import sanitize_telemetry_endpoint
 from devops_cli.security.vault_broker import VaultSecretBroker, parse_vault_uri
 from devops_cli.telemetry.logging_bridge import (
@@ -34,10 +35,23 @@ def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(
             ],
         )
         with pytest.raises(
-            ValueError,
-            match=r"(Manifest URL resolves to private or reserved IP|Access to link-local or cloud metadata services)",
+            (ValueError, KubernetesContextError),
+            match=r"(Manifest URL resolves to private or reserved IP|Access to link-local or cloud metadata services|Manifest URL egress check failed)",
         ):
             k8s_apply("http://example.com/manifest.yaml")
+
+
+def test_k8s_apply_manifest_url_validation_branches() -> None:
+    from devops_cli.commands.k8s.cluster_context import _validate_manifest_url
+
+    with pytest.raises(KubernetesContextError, match="Invalid manifest URL: Invalid port"):
+        _validate_manifest_url("http://example.com:notaport/manifest.yaml")
+
+    with pytest.raises(KubernetesContextError, match="Invalid manifest URL scheme 'ftp'"):
+        _validate_manifest_url("ftp://example.com/manifest.yaml")
+
+    with pytest.raises(KubernetesContextError, match="missing valid hostname"):
+        _validate_manifest_url("http://:8080/manifest.yaml")
 
 
 # ── Finding #12: Path Traversal in Vault URI Parsing ─────────────────────────

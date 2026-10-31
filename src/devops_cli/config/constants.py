@@ -2760,7 +2760,7 @@ CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
 )
 # The loopback host name (RFC 6761). With the loopback addresses, which `ipaddress` recognises,
 # it names the workstation itself, so a configured service URL may use it without
-# `ai.allow_private_network` (`validate_configured_service_url`).
+# `ai.allow_private_network` (`configured_level`).
 CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
 CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
     {"metadata", "metadata.google.internal", "metadata.goog"}

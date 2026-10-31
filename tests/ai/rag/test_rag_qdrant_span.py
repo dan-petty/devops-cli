@@ -10,8 +10,14 @@ import pytest
 
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
+from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+
+@pytest.fixture(autouse=True)
+def _mock_example_com_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
 
 
 @pytest.fixture

@@ -11,17 +11,13 @@ import typer
 
 from devops_cli.core.validation import (
     is_non_public_ip,
-    validate_configured_service_url,
     validate_dir,
     validate_file,
     validate_k8s_name,
     validate_path,
     validate_safe_key_path,
-    validate_service_url,
-    validate_url,
-    validate_url_egress,
 )
-from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
+from devops_cli.exceptions import SSRFBlockedError
 
 
 def test_is_non_public_ip() -> None:
@@ -98,63 +94,6 @@ def test_a_range_is_non_public_when_any_of_its_addresses_is(cidr: str, non_publi
     assert is_non_public_ip(ipaddress.ip_network(cidr)) is non_public
 
 
-def test_validate_url_valid() -> None:
-    assert validate_url("http://localhost:11434") == "http://localhost:11434"
-    assert validate_url("https://api.openai.com/v1") == "https://api.openai.com/v1"
-
-
-def test_validate_url_invalid() -> None:
-    with pytest.raises(ValueError, match="Invalid service URL scheme"):
-        validate_url("ftp://example.com")
-
-    with pytest.raises(ValueError, match="missing valid hostname"):
-        validate_url("http://")
-
-
-def test_validate_service_url_public_vs_private(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    # Loopback IP without allow
-    with pytest.raises(ValueError, match="Refusing non-public"):
-        validate_service_url("http://127.0.0.1:8080", "test-service", allow=False)
-
-    # Allowed private network
-    validate_service_url("http://127.0.0.1:8080", "test-service", allow=True)
-
-
-def _configured_url_verdict(url: str, *, allow_private: bool) -> str:
-    """What the configured-URL policy does with `url`: passes it, or the error it raises."""
-    try:
-        validate_configured_service_url(url, "Qdrant", allow_private=allow_private)
-    except (InvalidURLError, SSRFBlockedError) as exc:
-        return type(exc).__name__
-    return "passes"
-
-
-@pytest.mark.parametrize(
-    ("url", "allow_private", "verdict"),
-    [
-        ("http://localhost:6333", False, "passes"),
-        ("http://LocalHost.:6333", False, "passes"),
-        ("http://127.0.0.1:6333", False, "passes"),
-        ("http://127.8.9.10:6333", False, "passes"),
-        ("http://[::1]:11434", False, "passes"),
-        ("http://192.0.2.10:6333", False, "SSRFBlockedError"),
-        ("http://192.0.2.10:6333", True, "passes"),
-        ("http://169.254.169.254:6333", False, "SSRFBlockedError"),
-        ("http://169.254.169.254:6333", True, "SSRFBlockedError"),
-        ("ftp://localhost:6333", False, "InvalidURLError"),
-        ("localhost:6333", False, "InvalidURLError"),
-    ],
-)
-def test_validate_configured_service_url_exempts_only_loopback(
-    url: str, allow_private: bool, verdict: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify a configured URL may name loopback without allow_private, and nothing else."""
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-
-    assert _configured_url_verdict(url, allow_private=allow_private) == verdict
-
-
 def test_validate_path_and_dir_and_file(tmp_path: Path) -> None:
     d = tmp_path / "subdir"
     d.mkdir()
@@ -211,53 +150,13 @@ def test_validate_path_parameterized(tmp_path: Path) -> None:
         validate_path("../outside", allow_traversal=False)
 
 
-def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify SSRF egress checks with public IP and DNS resolution."""
-    from unittest.mock import patch
-
-    from devops_cli.core.validation import _enforce_non_private_ssrf
-    from devops_cli.exceptions import SSRFBlockedError
-
-    # Public IP succeeds
-    _enforce_non_private_ssrf("http://8.8.8.8:8080", "8.8.8.8", "http", 8080, "test")
-
-    # Hostname resolving to private IP raises SSRFBlockedError
-    mock_addrinfo = [(2, 1, 6, "", ("192.168.1.50", 8080))]
-    with patch("socket.getaddrinfo", return_value=mock_addrinfo):
-        with pytest.raises(SSRFBlockedError):
-            _enforce_non_private_ssrf(
-                "http://example.com:8080", "example.com", "http", 8080, "test"
-            )
-
-    # Hostname resolving to public IP succeeds
-    mock_pub_addrinfo = [(2, 1, 6, "", ("93.184.216.34", 80))]
-    with patch("socket.getaddrinfo", return_value=mock_pub_addrinfo):
-        _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "test")
-
-    # Default ports 443 and 80 derived from URL scheme via httpx2.URL(url).origin.port
-    resolved_ports: list[int | None] = []
-
-    def _mock_resolve(host: str, port: int | None = None, **_kwargs: object) -> list[Any]:
-        resolved_ports.append(port)
-        return [ipaddress.ip_address("93.184.216.34")]
-
-    with patch("devops_cli.core.validation._resolve_host_ips", side_effect=_mock_resolve):
-        _enforce_non_private_ssrf("https://example.com", "example.com", "https", None, "test")
-        _enforce_non_private_ssrf("http://example.com", "example.com", "http", None, "test")
-
-    assert resolved_ports == [443, 80]
-
-
 def test_validation_edge_cases() -> None:
     """Verify validate_safe_directory_path and validate_session_id."""
-    from unittest.mock import patch
-
     from devops_cli.core.validation import (
-        _enforce_non_private_ssrf,
         validate_safe_directory_path,
         validate_session_id,
     )
-    from devops_cli.exceptions import SSRFBlockedError, ValidationError
+    from devops_cli.exceptions import ValidationError
 
     # 1. validate_safe_directory_path
     assert validate_safe_directory_path("src/devops_cli") == Path("src/devops_cli")
@@ -286,27 +185,9 @@ def test_validation_edge_cases() -> None:
     with pytest.raises(typer.Exit):
         validate_k8s_context_name("invalid\ncontext")
 
-    # 3. _enforce_non_private_ssrf fails closed with unparseable IP or DNS failure
-    mock_invalid_ip_addrinfo = [(2, 1, 6, "", ("invalid_ip_format", 80))]
-    with patch("socket.getaddrinfo", return_value=mock_invalid_ip_addrinfo):
-        with pytest.raises(SSRFBlockedError):
-            _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "service")
-
-    import socket
-
-    with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
-        with pytest.raises(SSRFBlockedError):
-            _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "service")
-
-    with patch("socket.getaddrinfo", side_effect=TimeoutError("DNS query timed out")):
-        with pytest.raises(SSRFBlockedError):
-            _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "service")
-
 
 def test_is_loopback_or_private_host() -> None:
     """Verify loopback and private host classification."""
-    from unittest.mock import patch
-
     from devops_cli.core.validation import is_loopback_or_private_host
 
     assert is_loopback_or_private_host("127.0.0.1") is True
@@ -318,86 +199,8 @@ def test_is_loopback_or_private_host() -> None:
     assert is_loopback_or_private_host("169.254.169.254") is True
     assert is_loopback_or_private_host("8.8.8.8") is False
     assert is_loopback_or_private_host("1.1.1.1") is False
-
-    # DNS resolution mock
-    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("127.0.0.1", 80))]):
-        assert is_loopback_or_private_host("custom-internal-host.com") is True
-
-    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 80))]):
-        assert is_loopback_or_private_host("example.com") is False
-
-    import socket
-
-    with patch("socket.getaddrinfo", side_effect=socket.gaierror):
-        assert is_loopback_or_private_host("unresolvable.invalid") is True
-
-
-def test_validate_url_egress() -> None:
-    """Verify validate_url_egress helper with custom error classes and scheme enforcement."""
-    from unittest.mock import patch
-
-    from devops_cli.core.validation import validate_url_egress
-    from devops_cli.exceptions import SSRFBlockedError
-
-    class CustomContextError(Exception):
-        pass
-
-    # Valid public URL
-    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 80))]):
-        assert (
-            validate_url_egress("http://example.com/manifest.yaml")
-            == "http://example.com/manifest.yaml"
-        )
-
-    # Private IP blocked with default SSRFBlockedError
-    with pytest.raises(SSRFBlockedError):
-        validate_url_egress("http://127.0.0.1/manifest.yaml", allow_private=False)
-
-    # Private IP allowed
-    assert (
-        validate_url_egress("http://127.0.0.1/manifest.yaml", allow_private=True)
-        == "http://127.0.0.1/manifest.yaml"
-    )
-
-    # Cloud metadata service blocked even with allow_private=True
-    from devops_cli.core.validation import validate_url
-
-    with pytest.raises(SSRFBlockedError, match="prohibited"):
-        validate_url("http://169.254.169.254/latest/meta-data", allow_private=True)
-
-    # Custom error class on metadata
-    with pytest.raises(CustomContextError, match="prohibited"):
-        validate_url_egress(
-            "http://169.254.169.254/latest/meta-data",
-            allow_private=False,
-            error_cls=CustomContextError,
-        )
-
-    # Custom error class on private IP
-    with pytest.raises(CustomContextError, match="resolves to private or reserved IP"):
-        validate_url_egress(
-            "http://10.0.0.1/manifest.yaml",
-            allow_private=False,
-            error_cls=CustomContextError,
-        )
-
-    # Invalid scheme
-    with pytest.raises(CustomContextError, match="scheme"):
-        validate_url_egress(
-            "ftp://example.com/manifest.yaml",
-            schemes=("http", "https"),
-            error_cls=CustomContextError,
-        )
-
-    # Unresolvable hostname must fail closed
-    import socket
-
-    initial_timeout = socket.getdefaulttimeout()
-    with patch("socket.getaddrinfo", side_effect=socket.gaierror):
-        with pytest.raises(SSRFBlockedError, match="DNS resolution failed"):
-            validate_url_egress("http://example.com/manifest.yaml")
-    # Verify global socket timeout was not mutated
-    assert socket.getdefaulttimeout() == initial_timeout
+    assert is_loopback_or_private_host("example.com") is False
+    assert is_loopback_or_private_host("unresolvable.invalid") is True
 
 
 def test_network_guard_blocks_external_socket_calls(
@@ -554,7 +357,7 @@ def test_is_cloud_metadata_host_superset() -> None:
         is_cloud_metadata_host("metadata.goog"),
         is_cloud_metadata_host("metadata.goog."),
         is_cloud_metadata_host("fe80::1"),
-        is_cloud_metadata_host("example.com", resolve_dns=False),
+        is_cloud_metadata_host("example.com"),
         is_cloud_metadata_host("8.8.8.8"),
         is_cloud_metadata_host("127.0.0.1"),
         is_cloud_metadata_host(ipaddress.ip_address("169.254.169.254")),
@@ -604,24 +407,15 @@ def _is_target_blocked(func: Any, arg: str, err_cls: type[Exception], **kwargs: 
 
 def test_widened_metadata_denials_core_and_probe() -> None:
     """Verify core validation and sandbox probe deny unified metadata superset."""
-    from devops_cli.core.validation import is_loopback_or_private_host, validate_url
-    from devops_cli.exceptions import SSRFBlockedError
+    from devops_cli.core.validation import is_loopback_or_private_host
     from devops_cli.http.egress import EgressLevel, vet_addresses
 
     assert (
-        is_loopback_or_private_host("metadata", resolve_dns=False),
-        is_loopback_or_private_host("metadata.", resolve_dns=False),
-        is_loopback_or_private_host("fd00:ec2::254", resolve_dns=False),
-        is_loopback_or_private_host("[fd00:ec2::254]", resolve_dns=False),
+        is_loopback_or_private_host("metadata"),
+        is_loopback_or_private_host("metadata."),
+        is_loopback_or_private_host("fd00:ec2::254"),
+        is_loopback_or_private_host("[fd00:ec2::254]"),
     ) == (True, True, True, True)
-
-    targets = ("http://metadata/v1", "http://metadata./v1", "http://[fd00:ec2::254]/v1")
-    blocked_count = sum(
-        1
-        for t in targets
-        if _is_target_blocked(validate_url, t, SSRFBlockedError, allow_private=True)
-    )
-    assert blocked_count == len(targets)
 
     connect_blocked = sum(
         1
@@ -638,7 +432,6 @@ def test_widened_metadata_denials_models_and_the_connect() -> None:
 
     The telemetry waterfall and the pydantic-ai Ollama model dial through that policy.
     """
-    from devops_cli.exceptions import SSRFBlockedError
     from devops_cli.http.egress import EgressLevel, vet_addresses
     from devops_cli.sandbox.models import _resolve_local_host, _validate_local_whitelist_item
 
@@ -680,103 +473,6 @@ def test_pydantic_ai_ssrf_classifier_contract() -> None:
         is_private_ip(ipaddress.ip_address("64:ff9b::192.168.1.1")),
         is_private_ip(ipaddress.ip_address("8.8.8.8")),
     ) == (True, True, True, True, False, True, True, False)
-
-
-_ACTION_DISPATCH: dict[str, Any] = {
-    "validate_url_allow_private": lambda u: validate_url(u, allow_private=True),
-    "validate_configured_allow_private": lambda u: validate_configured_service_url(
-        u, allow_private=True
-    ),
-    "validate_configured_default": lambda u: validate_configured_service_url(u),
-    "validate_url_egress_allow_private": lambda u: validate_url_egress(u, allow_private=True),
-    "validate_url_egress_public_only": lambda u: validate_url_egress(
-        u, purpose="public fetch", allow_private=False
-    ),
-    "validate_url_egress_no_private": lambda u: validate_url_egress(u, allow_private=False),
-}
-
-
-@pytest.mark.parametrize(
-    ("url", "action", "expected_verdict"),
-    [
-        ("http://2852039166/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://0xa9fea9fe/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://0xa9.0xfe.0xa9.0xfe/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://169。254。169。254/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://[64:ff9b::a9fe:a9fe]/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://[64:ff9b:1::a9fe:a9fe]/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://[2002:a9fe:a9fe::1]/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://168.63.129.16/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://168.63.129.16/", "validate_configured_allow_private", "SSRFBlockedError"),
-        ("http://168.63.129.16/", "validate_configured_default", "SSRFBlockedError"),
-        ("http://[fd20:ce::254]/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://[fd20:ce::254]/", "validate_configured_allow_private", "SSRFBlockedError"),
-        ("http://[fd00:ec2::23]/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://[fd00:ec2::23]/", "validate_configured_allow_private", "SSRFBlockedError"),
-        ("http://metadata.goog./", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://metadata.goog./", "validate_configured_allow_private", "SSRFBlockedError"),
-        ("http://example.com\\@169.254.169.254/", "validate_url_allow_private", "SSRFBlockedError"),
-        ("http://a..b/", "validate_url_allow_private", "InvalidURLError"),
-        ("http://a..b/", "validate_url_egress_allow_private", "SSRFBlockedError"),
-        ("http://" + "x" * 64 + ".example.com/", "validate_url_allow_private", "InvalidURLError"),
-        (
-            "http://" + "x" * 64 + ".example.com/",
-            "validate_url_egress_allow_private",
-            "SSRFBlockedError",
-        ),
-        ("http://169.254.169.254/", "validate_url_egress_allow_private", "SSRFBlockedError"),
-        ("http://[fd00:ec2::254]/", "validate_url_egress_allow_private", "SSRFBlockedError"),
-        (
-            "http://metadata.google.internal/",
-            "validate_url_egress_allow_private",
-            "SSRFBlockedError",
-        ),
-        ("http://[64:ff9b::a9fe:a9fe]/", "validate_url_egress_public_only", "SSRFBlockedError"),
-        ("http://[64:ff9b::7f00:1]/", "validate_url_egress_public_only", "SSRFBlockedError"),
-        ("http://[::127.0.0.1]/", "validate_url_egress_public_only", "SSRFBlockedError"),
-        ("http://168.63.129.16/", "validate_url_egress_public_only", "SSRFBlockedError"),
-        ("http://[64:ff9b::808:808]/", "validate_url_egress_no_private", "allowed"),
-        ("http://8.8.8.8/", "validate_url_egress_no_private", "allowed"),
-    ],
-)
-def test_old_vs_new_egress_table(
-    url: str, action: str, expected_verdict: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify acceptance criteria table of old vs new security egress decisions."""
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    runner = _ACTION_DISPATCH.get(action)
-    if not runner:
-        pytest.fail(f"Unknown test action {action}")
-    try:
-        runner(url)
-        verdict = "allowed"
-    except (SSRFBlockedError, InvalidURLError) as exc:
-        verdict = type(exc).__name__
-
-    assert verdict == expected_verdict
-
-
-def test_dns_resolution_patched_to_metadata_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that host resolving to cloud metadata address is refused even when hostname is ordinary."""
-    import socket
-
-    from devops_cli.core.validation import validate_url_egress
-
-    orig_getaddrinfo = socket.getaddrinfo
-
-    def mock_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[Any]:
-        if host == "example.com":
-            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("168.63.129.16", port or 0))]
-        return orig_getaddrinfo(host, port, *args, **kwargs)
-
-    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-
-    with pytest.raises(SSRFBlockedError):
-        validate_url("http://example.com/", allow_private=False)
-
-    with pytest.raises(SSRFBlockedError):
-        validate_url_egress("http://example.com/", allow_private=False)
 
 
 def test_conftest_dns_guard_ai_numerichost(
@@ -835,28 +531,10 @@ def test_is_public_dns_name_table(host: str, expected: bool) -> None:
     ],
 )
 def test_is_loopback_or_private_host_no_dns_table(host: str, expected: bool) -> None:
-    """Verify is_loopback_or_private_host(h, resolve_dns=False) uses PSL and IP checks (#887)."""
+    """Verify is_loopback_or_private_host(h) uses PSL and IP checks (#887)."""
     from devops_cli.core.validation import is_loopback_or_private_host
 
-    assert is_loopback_or_private_host(host, resolve_dns=False) is expected
-
-
-@pytest.mark.parametrize(
-    "url",
-    ["http://grafana.corp/", "http://a..b.example.com/"],
-)
-def test_validate_url_egress_refuses_non_public_and_malformed_without_dns(
-    url: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Public-only validate_url_egress refuses non-public and malformed hosts without calling DNS (#887)."""
-    import socket
-
-    def fail_dns(*args: object, **kwargs: object) -> None:
-        raise AssertionError("socket.getaddrinfo must not be called")
-
-    monkeypatch.setattr(socket, "getaddrinfo", fail_dns)
-    with pytest.raises(SSRFBlockedError):
-        validate_url_egress(url, allow_private=False)
+    assert is_loopback_or_private_host(host) is expected
 
 
 _ONE_ANSWER_HOSTS: tuple[str, ...] = (
@@ -893,7 +571,7 @@ def test_one_answer_everywhere_local_vs_public(
     reset_settings_cache()
 
     not_public = not is_public_dns_name(host)
-    assert (_is_local_host(host), is_loopback_or_private_host(host, resolve_dns=False)) == (
+    assert (_is_local_host(host), is_loopback_or_private_host(host)) == (
         not_public,
         not_public,
     )

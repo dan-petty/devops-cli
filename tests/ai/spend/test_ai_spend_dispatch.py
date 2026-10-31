@@ -28,13 +28,6 @@ from tests.llm_stream_fakes import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _bypass_dns_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
-    )
-
-
 def test_llm_client_dispatch_records_spend(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify LLMClient chat dispatch triggers track_request_spend with prompt/completion tokens."""
     recorded: list[dict[str, Any]] = []

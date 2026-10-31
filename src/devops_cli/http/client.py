@@ -156,6 +156,7 @@ def new_http_client(
     http2: bool = False,
     limits: httpx2.Limits | None = None,
     retries: int | None = None,
+    transport: httpx2.BaseTransport | None = None,
     **options: Unpack[ClientOptions],
 ) -> httpx2.Client:
     """Create an httpx2.Client that dials only what `level` allows, with short-connect timeouts.
@@ -165,17 +166,23 @@ def new_http_client(
     and connect failures, so only a caller built for those semantics, as the AI clients are,
     passes it. A refusal (SSRFBlockedError) is not an httpx2 error and is never retried.
     """
-    transport: httpx2.BaseTransport = egress_transport(
-        level, verify=verify, http2=http2, limits=limits
+    effective_transport: httpx2.BaseTransport = (
+        transport
+        if transport is not None
+        else egress_transport(level, verify=verify, http2=http2, limits=limits)
     )
     if retries is not None:
         from devops_cli.ai.retries import create_retry_transport
         from devops_cli.ai.spend.transport import AttemptRecordingTransport
 
-        transport = AttemptRecordingTransport(transport)
-        transport = create_retry_transport(max_attempts=retries, wrapped=transport)
+        effective_transport = AttemptRecordingTransport(effective_transport)
+        effective_transport = create_retry_transport(
+            max_attempts=retries, wrapped=effective_transport
+        )
     return httpx2.Client(
-        timeout=_resolve_client_timeout(timeout, read_timeout), transport=transport, **options
+        timeout=_resolve_client_timeout(timeout, read_timeout),
+        transport=effective_transport,
+        **options,
     )
 
 
@@ -187,12 +194,19 @@ def new_async_http_client(
     verify: ssl.SSLContext | bool = True,
     http2: bool = True,
     limits: httpx2.Limits | None = None,
+    transport: httpx2.AsyncBaseTransport | None = None,
     **options: Unpack[ClientOptions],
 ) -> httpx2.AsyncClient:
     """Create an httpx2.AsyncClient that dials only what `level` allows, with HTTP/2."""
-    transport = async_egress_transport(level, verify=verify, http2=http2, limits=limits)
+    effective_transport: httpx2.AsyncBaseTransport = (
+        transport
+        if transport is not None
+        else async_egress_transport(level, verify=verify, http2=http2, limits=limits)
+    )
     return httpx2.AsyncClient(
-        timeout=_resolve_client_timeout(timeout, read_timeout), transport=transport, **options
+        timeout=_resolve_client_timeout(timeout, read_timeout),
+        transport=effective_transport,
+        **options,
     )
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
@@ -13,6 +15,13 @@ pytestmark = [
     pytest.mark.usefixtures("keyring_store"),
     pytest.mark.unreachable("example.com"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _mock_example_com_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
+
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
 
 
 class FixedVectorEngine(EmbeddingsEngine):
@@ -29,8 +38,16 @@ def test_retriever_faceted_filtering() -> None:
     captured_filters: list[dict | None] = []
 
     class DummyQdrant(QdrantClient):
+        def __init__(self, **kwargs: Any) -> None:
+            from unittest.mock import MagicMock
+
+            super().__init__(client=MagicMock(), **kwargs)
+
         def is_alive(self) -> bool:
             return True
+
+        def get_collection_info(self, collection_name: str) -> dict[str, Any]:
+            return {"points_count": 1}
 
         def search_points(
             self,

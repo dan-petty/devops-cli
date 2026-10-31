@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import functools
 import ipaddress
 import logging
 import re
-import socket
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -32,13 +30,10 @@ from devops_cli.config.constants import (
     CONST_PRIVATE_NETWORKS,
     CONST_TEREDO_PREFIX,
 )
-from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
 from devops_cli.exceptions import (
     InvalidURLError,
-    SSRFBlockedError,
     ValidationError,
 )
-from devops_cli.lang import MESSAGES
 
 logger = logging.getLogger(__name__)
 
@@ -340,8 +335,6 @@ def is_cloud_metadata_host(
         | ipaddress.IPv4Network
         | ipaddress.IPv6Network
     ),
-    *,
-    resolve_dns: bool = True,
 ) -> bool:
     """Return True if host, IP, or network matches cloud metadata or link-local endpoints."""
     if isinstance(host_or_ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
@@ -369,14 +362,7 @@ def is_cloud_metadata_host(
     except dns.exception.DNSException:
         return True
 
-    if is_cloud_metadata_name(clean):
-        return True
-
-    if not resolve_dns:
-        return False
-
-    resolved_ips = _resolve_host_ips(clean_nodot)
-    return any(_is_cloud_metadata_addr(ip) for ip in resolved_ips)
+    return is_cloud_metadata_name(clean)
 
 
 def is_non_public_ip(
@@ -408,40 +394,8 @@ def is_non_public_ip(
     return not addr.is_global or is_private_ip(str(addr))
 
 
-def _resolve_host_ips(
-    host: str,
-    port: int | None = None,
-    timeout: float = DEFAULT_DNS_TIMEOUT_SECONDS,
-) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-    """Resolve hostname to IP addresses with bounded timeout without mutating global socket state."""
-    effective_port = port or 0
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(
-                socket.getaddrinfo, host, effective_port, type=socket.SOCK_STREAM
-            )
-            addrinfos = future.result(timeout=timeout)
-    except (
-        socket.gaierror,
-        socket.herror,
-        TimeoutError,
-        OSError,
-        concurrent.futures.TimeoutError,
-    ) as exc:
-        logger.debug("DNS resolution failed for %s: %s", host, exc)
-        return []
-
-    resolved: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
-    for a in addrinfos:
-        try:
-            resolved.append(ipaddress.ip_address(a[4][0]))
-        except ValueError, IndexError:
-            continue
-    return resolved
-
-
-def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) -> bool:
-    """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
+def is_loopback_or_private_host(host_or_ip: str) -> bool:
+    """Return True if host or IP string is loopback, link-local, private, or non-global space."""
     from devops_cli.core.dns_names import is_public_dns_name
 
     clean = _normalize_host_or_ip(host_or_ip)
@@ -449,7 +403,7 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
         return True
     if is_loopback_host(clean):
         return True
-    if is_cloud_metadata_host(clean, resolve_dns=False):
+    if is_cloud_metadata_host(clean):
         return True
     try:
         addr = ipaddress.ip_address(clean)
@@ -459,16 +413,7 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
     if not is_public_dns_name(clean):
         return True
 
-    if not resolve_dns:
-        return False
-
-    resolved = _resolve_host_ips(clean)
-    return bool(
-        resolved
-        and any(
-            is_non_public_ip(ip) or is_cloud_metadata_host(ip, resolve_dns=False) for ip in resolved
-        )
-    )
+    return False
 
 
 def _is_numeric_host(host: str) -> bool:
@@ -515,212 +460,6 @@ def _parse_and_validate_scheme(
     if not host:
         raise error_cls(f"Invalid {purpose} URL: missing valid hostname in '{url}'")
     return clean_url, host
-
-
-def _enforce_ip_egress_safety(
-    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
-    host: str,
-    purpose: str,
-    allow_private: bool,
-    error_cls: type[Exception],
-) -> None:
-    """Enforce cloud metadata and private IP egress restrictions for an IP address."""
-    if is_cloud_metadata_host(ip, resolve_dns=False):
-        raise error_cls(f"Access to link-local or cloud metadata services ({host}) is prohibited.")
-    if not allow_private and is_non_public_ip(ip):
-        raise error_cls(f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}")
-
-
-def _validate_hostname_egress(
-    host: str,
-    purpose: str,
-    allow_private: bool,
-    error_cls: type[Exception],
-) -> None:
-    """Resolve and enforce egress safety for a non-IP hostname."""
-    from devops_cli.core.dns_names import is_public_dns_name
-
-    if is_loopback_host(host) or not is_public_dns_name(host):
-        if not allow_private:
-            raise error_cls(
-                f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
-            )
-        return
-
-    resolved_ips = _resolve_host_ips(host)
-    if not resolved_ips:
-        if not allow_private:
-            raise error_cls(f"DNS resolution failed or timed out for {purpose} URL: {host}")
-        return
-
-    for ip in resolved_ips:
-        _enforce_ip_egress_safety(ip, host, purpose, allow_private, error_cls)
-
-
-def validate_url_egress(
-    url: str,
-    purpose: str = "service",
-    *,
-    allow_private: bool = False,
-    schemes: tuple[str, ...] | set[str] = ("http", "https"),
-    error_cls: type[Exception] = SSRFBlockedError,
-) -> str:
-    """Validate URL egress safety against SSRF and non-permitted protocols.
-
-    Args:
-        url: Clean URL to validate.
-        purpose: Human-readable service label for error reporting.
-        allow_private: Whether private/loopback addresses are allowed.
-        schemes: Allowed protocol schemes.
-        error_cls: Custom exception class to raise on violation (defaults to SSRFBlockedError).
-
-    Returns:
-        The validated clean URL string.
-    """
-    clean_url, host = _parse_and_validate_scheme(url, purpose, schemes, error_cls)
-    _validate_dns_name_syntax(host, clean_url, purpose, error_cls)
-
-    if is_cloud_metadata_host(host, resolve_dns=False):
-        raise error_cls(f"Access to link-local or cloud metadata services ({host}) is prohibited.")
-
-    try:
-        addr = ipaddress.ip_address(host)
-    except ValueError:
-        addr = None
-
-    if addr is not None:
-        _enforce_ip_egress_safety(addr, host, purpose, allow_private, error_cls)
-    else:
-        _validate_hostname_egress(host, purpose, allow_private, error_cls)
-
-    return clean_url
-
-
-def _enforce_non_private_ssrf(
-    url: str,
-    host: str,
-    scheme: str,
-    port: int | None,
-    purpose: str,
-) -> None:
-    """Resolve hostname and raise SSRFBlockedError if destination targets non-public/private IPs."""
-    try:
-        literal_ip = ipaddress.ip_address(host)
-    except ValueError:
-        literal_ip = None
-
-    if literal_ip is not None:
-        if is_cloud_metadata_host(literal_ip, resolve_dns=False):
-            raise SSRFBlockedError(
-                url,
-                reason=f"Access to link-local or cloud metadata services ({host}) is prohibited.",
-            )
-        if is_non_public_ip(literal_ip):
-            raise SSRFBlockedError(
-                url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
-            )
-        return
-
-    effective_port = port or httpx2.URL(url).origin.port
-    resolved_ips = _resolve_host_ips(host, port=effective_port)
-    if not resolved_ips:
-        raise SSRFBlockedError(
-            url,
-            reason=f"DNS resolution failed or timed out for {purpose} URL",
-        )
-
-    for ip in resolved_ips:
-        if is_cloud_metadata_host(ip, resolve_dns=False):
-            raise SSRFBlockedError(
-                url,
-                reason=f"Access to link-local or cloud metadata services ({host}) is prohibited.",
-            )
-        if is_non_public_ip(ip):
-            raise SSRFBlockedError(
-                url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
-            )
-
-
-def validate_url(
-    url: str,
-    purpose: str = "service",
-    *,
-    allow_private: bool = True,
-    schemes: tuple[str, ...] | set[str] = ("http", "https"),
-    require_hostname: bool = True,
-) -> str:
-    """Validate that a URL has valid scheme, hostname, and SSRF egress security constraints.
-
-    Args:
-        url: Clean URL string to validate.
-        purpose: Descriptive label of the service or endpoint.
-        allow_private: Whether private-network / loopback endpoints are authorized.
-        schemes: Collection of allowed protocol schemes (default: http, https).
-        require_hostname: Whether a valid hostname is mandatory.
-
-    Returns:
-        The validated clean URL string.
-    """
-    clean_url = str(url).strip()
-    try:
-        parsed = httpx2.URL(clean_url)
-    except Exception as exc:
-        raise InvalidURLError(clean_url, reason=f"Invalid {purpose} URL: {exc}") from exc
-
-    if parsed.scheme not in schemes:
-        schemes_str = " or ".join(sorted(schemes))
-        raise InvalidURLError(
-            clean_url,
-            reason=f"Invalid {purpose} URL scheme '{parsed.scheme}': must be {schemes_str}",
-        )
-    if require_hostname and not parsed.host:
-        raise InvalidURLError(
-            clean_url, reason=f"{purpose.capitalize()} URL missing valid hostname"
-        )
-
-    if parsed.host:
-        host = parsed.host
-        _validate_dns_name_syntax(host, clean_url, purpose, InvalidURLError)
-
-        if is_cloud_metadata_host(host, resolve_dns=False):
-            raise SSRFBlockedError(
-                clean_url,
-                reason=f"Access to link-local or cloud metadata services ({host}) is prohibited.",
-            )
-        if not allow_private:
-            _enforce_non_private_ssrf(clean_url, host, parsed.scheme, parsed.port, purpose)
-
-    return clean_url
-
-
-def validate_service_url(url: str, purpose: str = "service", *, allow: bool = False) -> None:
-    """Raise ValidationError for non-http/https or unauthorized private-network URLs.
-
-    Private-network targets are permitted when `allow` is True. A caller whose URL comes from the
-    user's configuration passes `ai.allow_private_network`, which DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK
-    sets; nothing here reads the environment.
-    """
-    validate_url(url, purpose=purpose, allow_private=allow)
-
-
-def validate_configured_service_url(
-    url: str, purpose: str = "service", *, allow_private: bool = False
-) -> None:
-    """Validate a service URL taken from the user's own configuration.
-
-    Loopback (`localhost`, 127.0.0.0/8, ::1) is the workstation itself, so a configured local
-    service, such as the example config's Qdrant and Ollama, is reached without
-    `allow_private_network`. Every other non-public host, private ranges among them, is refused
-    as `validate_service_url` refuses it unless `allow_private` permits it, and cloud metadata
-    hosts always are. A client built by `devops_cli.http.client` makes the same decision at the
-    connect, for the address it dials, at `devops_cli.http.egress.configured_level`.
-    """
-    clean_url = str(url).strip()
-    try:
-        host = httpx2.URL(clean_url).host
-    except Exception:
-        host = ""
-    validate_url(url, purpose=purpose, allow_private=allow_private or is_loopback_host(host))
 
 
 def _fail_cli(message: str) -> None:
