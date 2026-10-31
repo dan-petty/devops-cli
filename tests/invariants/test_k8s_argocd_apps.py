@@ -915,6 +915,15 @@ def test_mattermost_operator_limitrange() -> None:
     assert container_limit["default"] == {"cpu": "500m", "memory": "256Mi"}
 
 
+def test_mattermost_operator_run_as_user() -> None:
+    """k8s/mattermost/mattermost-operator-values.yaml sets numeric runAsUser and runAsGroup (#2932)."""
+    values = _load_yaml(K8S_DIR / "mattermost" / "mattermost-operator-values.yaml")
+    pod_sec = values.get("podSecurityContext", {})
+    assert pod_sec.get("runAsNonRoot") is True
+    assert pod_sec.get("runAsUser") == 65532
+    assert pod_sec.get("runAsGroup") == 65532
+
+
 def test_homelab_project_destinations() -> None:
     """AppProject homelab permits destination namespaces needed by Application base and workloads (#2925)."""
     homelab = next(
