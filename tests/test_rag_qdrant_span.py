@@ -29,11 +29,9 @@ def sent_spans(
 
 def _upsert_span_attributes(url: str, payloads: list[dict[str, Any]]) -> dict[str, Any]:
     """Upsert one point through a client for `url` and return the attributes of the span."""
-    client = QdrantClient(url, allow_private_network=True, timeout=5.0)
     native = MagicMock()
     native.get_collection.return_value.config.params.vectors.size = 4
-    client._client = native
-    client._build_client = lambda: native
+    client = QdrantClient(url, client=native, allow_private_network=True, timeout=5.0)
 
     client.upsert_points("devops_code", [{"id": "1", "vector": [0.1] * 4, "payload": {}}])
 

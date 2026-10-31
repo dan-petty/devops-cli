@@ -668,6 +668,86 @@ def _split(
     return outcome.decision.outcome, outcome.decision.possible_duplicate, outcome.number, sent
 
 
+def test_a_candidate_filed_from_source_is_linked_as_a_sub_issue_of_that_issue(
+    roadmap: Roadmap, model_fake: ModelFake
+) -> None:
+    """When a new candidate's source is an issue of the same repository, intake links the filed
+    issue as a sub-issue of that source issue (#2035)."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY)
+    source = _link(parent)
+    outcome, _, filed, _ = _split(roadmap, model_fake, {}, source=source)
+    assert outcome is Outcome.PLACE
+    assert filed is not None
+    parent_record = next(i for i in roadmap.store.issues() if i.number == parent)
+    filed_record = next(i for i in roadmap.store.issues() if i.number == filed)
+    writes = [w.operation for w in roadmap.store.job_writes() if w.number == parent]
+    assert (parent_record.sub_issues, filed_record.parent, "add_sub_issue" in writes) == (
+        1,
+        parent,
+        True,
+    )
+
+
+def test_a_candidate_from_another_repository_source_is_not_linked_as_sub_issue(
+    roadmap: Roadmap, model_fake: ModelFake
+) -> None:
+    """When a candidate's source links an issue of another repository, intake links no sub-issue (#2035)."""
+    outcome, _, filed, _ = _split(
+        roadmap, model_fake, {}, source="https://github.com/other-org/other-repo/issues/99"
+    )
+    assert outcome is Outcome.PLACE
+    assert filed is not None
+    filed_record = next(i for i in roadmap.store.issues() if i.number == filed)
+    writes = [w.operation for w in roadmap.store.job_writes()]
+    assert (filed_record.parent, "add_sub_issue" in writes) == (None, False)
+
+
+def test_intake_plan_lists_sub_issue_write(roadmap: Roadmap) -> None:
+    """The plan of a candidate with source in the same repo lists the sub-issue write (#2035)."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY)
+    source = _link(parent)
+    model = FakeModel(proposals={STEP_B.title: REGRESSION})
+    candidate = replace(STEP_B, source=source)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
+    assert f"sub-issue of #{parent}" in plan.decisions[0].writes()
+    rendered = render_intake(plan, repo=REPO)
+    assert f"sub-issue of #{parent}" in rendered
+
+
+def test_a_dry_run_lists_the_sub_issue_write_when_source_is_an_issue(tmp_path: Path) -> None:
+    """A dry run with --source naming an issue of the repository lists the sub-issue write (#2035)."""
+    body_file = tmp_path / "body.md"
+    body_file.write_text("body text", encoding="utf-8")
+    output = _intake(
+        "--title",
+        "feat: split task",
+        "--body-file",
+        str(body_file),
+        "--source",
+        f"https://github.com/{REPO}/issues/42",
+        "--dry-run",
+    )
+    assert f"POST repos/{REPO}/issues/42/sub_issues" in output
+
+
+def test_intake_docstring_names_sub_issue_write_rule() -> None:
+    """The docstring of intake.py names the sub-issue write as an allowed extra write (#2035)."""
+    from devops_cli.roadmap import intake
+
+    doc = intake.__doc__ or ""
+    assert "Intake writes to no issue but the candidate" in doc
+    assert "sub-issue" in doc
+
+
+def test_source_parent_number_parses_hashes_and_numbers() -> None:
+    """source_parent_number parses hash numbers, bare numbers, and returns None for non-numbers (#2035)."""
+    from devops_cli.roadmap.intake import source_parent_number
+
+    assert source_parent_number(REPO, "#42") == 42
+    assert source_parent_number(REPO, "42") == 42
+    assert source_parent_number(REPO, "not-a-number") is None
+
+
 @pytest.mark.parametrize("anchor", ["", "#issuecomment-1"], ids=["issue", "comment-on-issue"])
 def test_a_part_is_never_a_duplicate_of_the_issue_its_source_names(
     roadmap: Roadmap, model_fake: ModelFake, anchor: str
@@ -1915,6 +1995,37 @@ def test_an_off_list_proposal_skips_its_candidate_after_one_model_call(roadmap: 
         "type 'type/perf' is not one of" in render_intake(plan, repo=REPO),
         roadmap.store.item(issue),
     ) == (Outcome.SKIP, 1, True, True, None)
+
+
+def test_intake_proposal_uses_triage_task_model_or_falls_back_to_ai_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Intake uses ai.tasks.triage model when set; when unset, it falls back to ai.model."""
+    from devops_cli.config.settings import AIConfig, AITaskOverride, AITasksConfig
+    from devops_cli.roadmap.intake_model import GatewayIntakeModel
+
+    captured_configs: list[tuple[str, str]] = []
+
+    def fake_get_llm_client(*, task: str, config: Any, api_key: Any = None) -> Any:
+        captured_configs.append((task, config.model))
+        return None
+
+    monkeypatch.setattr("devops_cli.ai.client.get_llm_client", fake_get_llm_client)
+
+    # 1. Unset triage task: falls back to ai.model
+    ai_unset = AIConfig(model="base-chat-model")
+    model_unset = GatewayIntakeModel(ai_unset, embedder=_Embedder())
+    _ = model_unset._client
+    assert captured_configs[-1] == ("triage", "base-chat-model")
+
+    # 2. Set triage task: uses triage.model
+    ai_set = AIConfig(
+        model="base-chat-model",
+        tasks=AITasksConfig(triage=AITaskOverride(model="devops-triage")),
+    )
+    model_set = GatewayIntakeModel(ai_set, embedder=_Embedder())
+    _ = model_set._client
+    assert captured_configs[-1] == ("triage", "devops-triage")
 
 
 def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(

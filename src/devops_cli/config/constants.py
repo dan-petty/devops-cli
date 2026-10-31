@@ -1512,6 +1512,7 @@ CONST_SERVICE_CAUSE_UNKNOWN: Final[str] = "unknown"
 # lane runs the jobs that call the model, so a status-lane round never waits for a model-lane
 # round. A service app given no jobs runs its logging job in the default lane.
 CONST_SERVICE_LANE_STATUS: Final[str] = "status"
+CONST_SERVICE_LANE_TRIAGE: Final[str] = "triage"
 CONST_SERVICE_LANE_MODEL: Final[str] = "model"
 CONST_SERVICE_LANE_DEFAULT: Final[str] = "default"
 CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
@@ -3004,6 +3005,9 @@ CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_IMPLEMEN
 # The most paths that a reason of a stop names, and the most characters of a reason in the stop
 # comment (#2721). A reason may be as long as the tail of a command or a list of files.
 CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
+# The most tests of one file that the reason of a stop for a lost test names (#2804). The reason
+# gives the count of the rest.
+CONST_ROADMAP_IMPLEMENT_REASON_TESTS: Final[int] = 10
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
 # The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
 # of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
@@ -3067,9 +3071,12 @@ CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
+# The triage lane's clone beside it, so the triage lane's checkout never touches another lane's clone (#1534).
+CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME: Final[str] = "triage-clone"
 # The model lane's own clone beside it, so the model lane's checkout never touches the status
 # lane's `clone` (#1532).
 CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME: Final[str] = "model-clone"
+CONST_ROADMAP_REFINE_DUE_STAMP: Final[str] = "refine_due"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),

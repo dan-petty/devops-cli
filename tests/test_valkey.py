@@ -70,6 +70,47 @@ class TestValkeyClientDestination:
             {"example.com": 0},
         )
 
+    def test_valkey_protocol_is_satisfied_by_valkey_client(
+        self, valkey_client: ValkeyClient, keyring_store: Any
+    ) -> None:
+        from devops_cli.valkey.client import (
+            ValkeyProtocol,
+            reset_valkey_client,
+            resolve_valkey_client,
+        )
+
+        assert isinstance(valkey_client, ValkeyProtocol)
+        valkey_client.set("proto_key", "proto_val")
+        assert valkey_client.get("proto_key") == "proto_val"
+        assert valkey_client.mget(["proto_key"]) == ["proto_val"]
+        assert valkey_client.mget() == []
+        assert valkey_client.delete("proto_key") == 1
+        assert valkey_client.delete() == 0
+        assert valkey_client.get("proto_key") is None
+        cursor, keys = valkey_client.scan(0)
+        assert isinstance(cursor, int)
+        assert isinstance(keys, list)
+        from devops_cli.exceptions.valkey import ValkeyCommandError
+
+        with pytest.raises(ValkeyCommandError):
+            valkey_client.eval("return 42", 0)
+
+        reset_valkey_client()
+        try:
+            client_url = resolve_valkey_client("valkey://127.0.0.1:6379/1")
+            assert client_url.db == 1
+            client_default = resolve_valkey_client()
+            assert isinstance(client_default.port, int)
+        finally:
+            reset_valkey_client()
+
+    def test_valkey_fixture(self, valkey: ValkeyClient, keyring_store: Any) -> None:
+        from devops_cli.commands.valkey import _resolve_client
+
+        client = _resolve_client()
+        assert client is valkey
+        assert client.ping() is True
+
     def test_one_dial_makes_one_lookup_and_dials_the_address_it_vetted(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

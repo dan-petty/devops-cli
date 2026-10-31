@@ -6,7 +6,7 @@ The update that a subscribed webhook event of the roadmap runs at once, scoped t
 ## Requirements
 
 ### Requirement: An issues delivery runs intake of its one issue
-`run_scoped_update` SHALL run intake of the one issue that a delivery of the `issues` event with the action `opened`, `edited` or `reopened` names, on the model lane, with intake's own decision code. It SHALL decide and write nothing for another issue.
+`run_scoped_update` SHALL run intake of the one issue that a delivery of the `issues` event with the action `opened`, `edited` or `reopened` names, on the triage lane, with intake's own decision code. It SHALL decide and write nothing for another issue.
 
 #### Scenario: A delivery about one of three candidates
 - **WHEN** a delivery of `issues` with the action `opened`, `edited` or `reopened` names candidate 2 of three candidates
@@ -43,3 +43,15 @@ Scoped intake SHALL add the issue that it decided to the intake record, SHALL ke
 #### Scenario: A scoped update after a capped round
 - **WHEN** a round decides five of seven candidates and leaves a fresh one, and a delivery of candidate 6 runs its scoped update
 - **THEN** the record holds the entries of candidates 1 to 6 and stays due, and the next poll decides candidate 7 alone
+
+### Requirement: The Service hands a subscribed event to its scoped update
+The roadmap consumer of the Service SHALL hand each subscribed webhook event that carries an issue number and has a row in `SCOPED_UPDATES` to its scoped update, on the lane that the table names. The delivery SHALL run the scoped update on the worker of that lane and SHALL queue no full round on any lane.
+
+#### Scenario: A subscribed issues delivery runs on the model lane
+- **WHEN** a signed delivery of `issues` `opened`, `edited` or `reopened` with an issue number arrives
+- **THEN** the Service runs the scoped update on the model lane worker
+- **AND** the Service queues no full round on the status lane or the model lane
+
+#### Scenario: An unscopeable event keeps a whole-round hint
+- **WHEN** a signed delivery of `issues` with an action that is not in `SCOPED_UPDATES`, or without an issue number, or of another subscribed event arrives
+- **THEN** the Service enqueues a trigger on each lane as a whole-round hint

@@ -394,6 +394,7 @@ class TestK8sLLMGatewayManifests:
                 "devops-reasoning",
                 "qwen3-embedding:0.6b",
                 "devops-background",
+                "devops-triage",
                 "devops-review",
                 "qwen3-coder:30b",
                 "gpt-oss:20b",
@@ -406,6 +407,8 @@ class TestK8sLLMGatewayManifests:
                 {"devops-reasoning": ["devops-coder"]},
                 {"devops-coder": ["devops-reasoning", "devops-chat"]},
                 {"devops-review": ["devops-background"]},
+                {"devops-triage": ["qwen3.8:27b"]},
+                {"devops-background": ["qwen3.8:27b"]},
             ],
         )
 
@@ -635,6 +638,14 @@ class TestK8sLLMGatewayManifests:
             ["devops-background"],
             [("ollama_chat/qwen3.8:27b", slow, None)],
         )
+
+    def test_devops_triage_serves_qwen_on_standard_tier(self) -> None:
+        """Verify devops-triage has exactly one deployment: ollama_chat/qwen3.8:27b on
+        ollama-64gib-standard."""
+        standard = "http://ollama-64gib-standard.llm.svc.cluster.local:11434"
+        assert _routes(_deployments("devops-triage")) == [
+            ("ollama_chat/qwen3.8:27b", standard, None)
+        ]
 
     @pytest.mark.parametrize("readme", GATEWAY_READMES, ids=str)
     def test_a_gateway_readme_names_exactly_the_embedding_groups_the_gateway_serves(

@@ -970,6 +970,11 @@ def _build_finding_panel_lines(f: Any) -> list[str]:
     lines = [
         f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]{persona_badge}",
     ]
+    state = getattr(f, "state", None)
+    if state:
+        confirmed_by = getattr(f, "confirmed_by", None)
+        state_str = f"{state} (by {confirmed_by})" if confirmed_by else str(state)
+        lines.append(f"[bold]State:[/bold] [yellow]{escape_text(state_str)}[/yellow]")
     if f.description:
         clean_desc = escape_text(format_clean_text_field(f.description).strip())
         lines.extend(["", "[bold]Description:[/bold]", clean_desc])

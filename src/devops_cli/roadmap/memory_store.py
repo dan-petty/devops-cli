@@ -182,6 +182,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         now = self._roadmap.clock()
         given = (*labels, *(field_label(f, value) for f, value in (fields or {}).items()))
         self._roadmap.issues[number] = IssueRecord(
+            id=number,
             number=number,
             title=title,
             url=f"https://github.com/{self._roadmap.repo}/{kind}/{number}",
@@ -327,6 +328,14 @@ class InMemoryRoadmapStore(RoadmapStore):
         number = self.seed_issue(title, body=body, labels=labels)
         self._log("create_issue", number, value=title)
         return self._read(self._roadmap.issues[number])
+
+    def add_sub_issue(self, parent: int, child: int) -> None:
+        """Add issue `child` as a sub-issue of issue `parent`."""
+        parent_issue = self._require_issue(parent, "roadmap.add_sub_issue")
+        child_issue = self._require_issue(child, "roadmap.add_sub_issue")
+        self._update_issue(parent_issue, sub_issues=parent_issue.sub_issues + 1)
+        self._update_issue(child_issue, parent=parent)
+        self._log("add_sub_issue", parent, value=str(child))
 
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number`, oldest first."""

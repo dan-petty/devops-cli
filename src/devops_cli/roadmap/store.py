@@ -295,6 +295,7 @@ class IssueRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    id: int = 0
     number: int
     title: str
     url: str
@@ -724,6 +725,9 @@ class RoadmapStore(Protocol):
 
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""
+
+    def add_sub_issue(self, parent: int, child: int) -> None:
+        """Add issue `child` as a sub-issue of issue `parent`."""
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, with no record block, raising if it is not an issue of

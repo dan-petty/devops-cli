@@ -9,7 +9,7 @@ import time
 import urllib.parse
 import uuid
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.config.defaults import (
@@ -195,6 +195,127 @@ def qdrant_server_label(url: str) -> str:
     return f"{label}:{service.port}" if service.port.isdecimal() else label
 
 
+@runtime_checkable
+class QdrantProtocol(Protocol):
+    """Protocol for Qdrant vector store operations."""
+
+    def is_alive(self, *, force_check: bool = False) -> bool: ...
+
+    def ensure_collection(
+        self,
+        name: str,
+        vector_size: int,
+        distance: str = ...,
+        enable_quantization: bool | None = None,
+    ) -> bool: ...
+
+    def upsert_points(
+        self,
+        name: str,
+        points: list[dict[str, Any]],
+        batch_size: int = ...,
+    ) -> int: ...
+
+    def search_points(
+        self,
+        name: str,
+        query_vector: list[float],
+        limit: int = 10,
+        filter_payload: dict[str, Any] | None = None,
+        score_threshold: float | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    def count_points(self, name: str, filter_payload: dict[str, Any] | None = None) -> int: ...
+
+    def scroll_points(
+        self,
+        name: str,
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        limit: int = 1,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> list[dict[str, Any]]: ...
+
+    def delete_points_by_files(
+        self,
+        name: str,
+        file_paths: list[str],
+        project_name: str | None = None,
+        batch_size: int = 500,
+    ) -> bool: ...
+
+    def delete_points_by_project(
+        self,
+        name: str,
+        project_name: str,
+        batch_size: int = 500,
+    ) -> bool: ...
+
+
+def create_native_qdrant_client(
+    base_url: str,
+    *,
+    api_key: str | None = None,
+    timeout: float = 30.0,
+) -> NativeQdrantClient:
+    """Construct the native Qdrant client for the configured address.
+
+    A `k8s://` address is reached through the Kubernetes API server rather than a
+    localhost port-forward, which is what lets the same configuration work on any
+    cluster with no background tunnel to keep alive. The client accepts a base URL and
+    a path prefix separately, which is exactly the shape of a proxy endpoint, so the
+    credentials and TLS material from the kubeconfig can be handed to a library this
+    project does not control.
+    """
+    from devops_cli.k8s.service_proxy import is_service_url
+
+    if not is_service_url(base_url):
+        port = urllib.parse.urlparse(base_url).port
+        return NativeQdrantClient(
+            url=base_url,
+            port=port,
+            api_key=api_key,
+            timeout=math.ceil(timeout),
+            check_compatibility=False,
+        )
+
+    from devops_cli.k8s.service_proxy import parse_service_url, resolve_proxy_connection
+
+    connection = resolve_proxy_connection(parse_service_url(base_url))
+    port = urllib.parse.urlparse(connection.base_url).port
+    return NativeQdrantClient(
+        url=connection.base_url,
+        port=port,
+        prefix=connection.prefix,
+        headers=connection.headers,
+        verify=connection.ssl_context,
+        api_key=api_key,
+        timeout=math.ceil(timeout),
+        check_compatibility=False,
+    )
+
+
+_QDRANT_CLIENT_OVERRIDE: QdrantProtocol | None = None
+
+
+def install_qdrant_client(override: QdrantProtocol | None) -> None:
+    """Install or remove a Qdrant client override for tests."""
+    global _QDRANT_CLIENT_OVERRIDE
+    _QDRANT_CLIENT_OVERRIDE = override
+
+
+def reset_qdrant_client() -> None:
+    """Reset the Qdrant client override."""
+    global _QDRANT_CLIENT_OVERRIDE
+    _QDRANT_CLIENT_OVERRIDE = None
+
+
+def get_qdrant_client_override() -> QdrantProtocol | None:
+    """Return the active Qdrant client override, if any."""
+    return _QDRANT_CLIENT_OVERRIDE
+
+
 class QdrantClient:
     """Client for Qdrant vector database using official Qdrant Python SDK."""
 
@@ -202,6 +323,7 @@ class QdrantClient:
         self,
         base_url: str = DEFAULT_QDRANT_URL,
         *,
+        client: NativeQdrantClient | None = None,
         api_key: str | None = None,
         allow_private_network: bool = True,
         timeout: float | None = None,
@@ -242,7 +364,8 @@ class QdrantClient:
                 self.base_url, "Qdrant", allow_private=self.allow_private_network
             )
 
-        self._client: NativeQdrantClient | None = None
+        self._client: NativeQdrantClient | None = client
+        self._injected_client: bool = client is not None
         # Retrieval searches its collections at once, so they would otherwise each build one.
         self._client_lock = threading.Lock()
         self._last_alive: tuple[float, bool] | None = None
@@ -277,46 +400,15 @@ class QdrantClient:
 
     def _get_client(self, force_refresh: bool = False) -> NativeQdrantClient:
         with self._client_lock:
+            if self._injected_client and self._client is not None:
+                return self._client
             if self._client is None or force_refresh:
-                self._client = self._build_client()
+                self._client = create_native_qdrant_client(
+                    self.base_url,
+                    api_key=self.api_key,
+                    timeout=self.timeout,
+                )
             return self._client
-
-    def _build_client(self) -> NativeQdrantClient:
-        """Construct the Qdrant client for the configured address.
-
-        A `k8s://` address is reached through the Kubernetes API server rather than a
-        localhost port-forward, which is what lets the same configuration work on any
-        cluster with no background tunnel to keep alive. The client accepts a base URL and
-        a path prefix separately, which is exactly the shape of a proxy endpoint, so the
-        credentials and TLS material from the kubeconfig can be handed to a library this
-        project does not control.
-        """
-        from devops_cli.k8s.service_proxy import is_service_url
-
-        if not is_service_url(self.base_url):
-            port = urllib.parse.urlparse(self.base_url).port
-            return NativeQdrantClient(
-                url=self.base_url,
-                port=port,
-                api_key=self.api_key,
-                timeout=math.ceil(self.timeout),
-                check_compatibility=False,
-            )
-
-        from devops_cli.k8s.service_proxy import parse_service_url, resolve_proxy_connection
-
-        connection = resolve_proxy_connection(parse_service_url(self.base_url))
-        port = urllib.parse.urlparse(connection.base_url).port
-        return NativeQdrantClient(
-            url=connection.base_url,
-            port=port,
-            prefix=connection.prefix,
-            headers=connection.headers,
-            verify=connection.ssl_context,
-            api_key=self.api_key,
-            timeout=math.ceil(self.timeout),
-            check_compatibility=False,
-        )
 
     def _execute_with_retry(
         self,
@@ -353,7 +445,7 @@ class QdrantClient:
             # directly from base_url here bypassed the handling for cluster-service
             # addresses, so a store that could list its collections still reported itself
             # as unreachable.
-            client = self._client or self._build_client()
+            client = self._get_client()
             client.get_collections()
             self._last_alive = (now, True)
             return True
@@ -596,7 +688,11 @@ class QdrantClient:
                 err_str = str(exc).lower()
                 if "not found" in err_str or "404" in err_str:
                     return []
-                if "vector dimension error" in err_str or "dimension error" in err_str:
+                if (
+                    "vector dimension error" in err_str
+                    or "dimension error" in err_str
+                    or "not aligned" in err_str
+                ):
                     clean_err = str(exc).split("Raw response content:")[0].strip()[:256]
                     raise EmbeddingsError(
                         f"Qdrant collection '{name}' vector dimension mismatch ({clean_err}). "

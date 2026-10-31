@@ -41,6 +41,7 @@ from devops_cli.models.vulnerability import (
     NetworkReputationRecord,
     VulnerabilityRecord,
 )
+from devops_cli.review.state import FindingState
 
 # Constants & Configuration
 _SEVERITY_RANK: dict[str, int] = {
@@ -970,9 +971,22 @@ class CitedCode(BaseModel):
 
 
 class SavedFinding(Finding):
+    state: FindingState = FindingState.OPEN
+    confirmed_by: str | None = None
     fingerprint: str = ""
     producer: str = Field(default="", validation_alias=AliasChoices("producer", "persona"))
     recommendation: str = "REQUEST CHANGES"
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _coerce_state(cls, v: Any) -> Any:
+        if v is None:
+            return FindingState.OPEN
+        if isinstance(v, str):
+            clean = v.upper().strip()
+            if clean in FindingState.__members__:
+                return FindingState(clean)
+        return v
 
     @property
     def persona(self) -> str:

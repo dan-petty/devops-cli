@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
@@ -448,6 +448,12 @@ def resolve_qdrant_client(
     Indexing's upserts and deletes go through this client, so each waits `qdrant.timeout` per
     attempt, as a RAG search does.
     """
+    from devops_cli.ai.rag.qdrant import get_qdrant_client_override
+
+    override = get_qdrant_client_override()
+    if override is not None:
+        return cast("QdrantClient", override)
+
     from devops_cli.config.settings import get_qdrant_api_key, load_settings
 
     settings = load_settings()

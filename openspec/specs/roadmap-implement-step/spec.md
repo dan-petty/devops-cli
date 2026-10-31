@@ -13,7 +13,7 @@ What `devops roadmap implement` reads, runs, checks, commits and reports when it
 - **THEN** the step reports done, the checkout holds one new commit titled `The first group (#7)`, that commit holds the three files, and the tasks of group 1 are ticked in the commit
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the agent made no commit, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A failed static check, and a task left unticked after the first three checks, first get the extra turn of their own requirements.
+The exit checks SHALL run in this order: the agent made no commit, no test that existed at the start is lost, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A failed static check, and a task left unticked after the first four checks, first get the extra turn of their own requirements.
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -54,6 +54,10 @@ The exit checks SHALL run in this order: the agent made no commit, each verifica
 #### Scenario: A verification command outside the allowlist
 - **WHEN** a Verification line of the group names `curl http://example.com`
 - **THEN** the step reports stopped, the reason names `curl` as not allowed, the command does not run, and the checkout is reset
+
+#### Scenario: A test that the agent removes
+- **WHEN** the model replaces a test file with a file that holds fewer of its tests, and ticks the tasks
+- **THEN** the step reports stopped with the reason that names the file and the missing tests, no verification command runs, and the checkout is reset
 
 ### Requirement: A step makes the only commit
 The first exit check SHALL be that `HEAD` is still the commit where the step started.
@@ -602,3 +606,38 @@ The shell of a step SHALL get `PYTEST_XDIST_AUTO_NUM_WORKERS` with the value of 
 #### Scenario: The process has no variable
 - **WHEN** the process does not set it
 - **THEN** the environment of the shell does not hold it
+
+### Requirement: A step keeps the tests that existed
+Every test that a `.py` file under `tests/` held at the commit where the step started SHALL be in the checkout after the run, by qualified name (`test_x` or `Class.test_x`). A test is a function named `test_*`. When a test is lost, the step SHALL stop with a reason that names the file and at most `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests, and SHALL give no extra turn. A file that does not parse is skipped.
+
+#### Scenario: A test file that the agent replaces
+- **WHEN** a test file holds `test_a` and `test_b` at the start, and the model writes a file that holds `test_c`
+- **THEN** the step reports stopped, the reason names the file, `test_a` and `test_b`, and the checkout is reset
+
+#### Scenario: A test that the agent adds
+- **WHEN** the model adds `test_c` to a test file that holds `test_a` and `test_b`
+- **THEN** the step reports done
+
+#### Scenario: A test that the agent renames
+- **WHEN** the model renames `test_a` to `test_z` in its file
+- **THEN** the step reports stopped, and the reason names `test_a`
+
+#### Scenario: A test file that the agent deletes
+- **WHEN** the model deletes a test file that holds `test_a`
+- **THEN** the step reports stopped, and the reason names the file and `test_a`
+
+#### Scenario: A test that the agent moves
+- **WHEN** the model moves `Check.test_a` from one test file to a new test file
+- **THEN** the step reports stopped, and the reason names the old file and `Check.test_a`
+
+#### Scenario: A test that loses its body
+- **WHEN** the model keeps the name of `test_a` and replaces its body with `pass`
+- **THEN** this check does not stop the step: it reads names only
+
+#### Scenario: A file that does not parse
+- **WHEN** a test file has a syntax error after the run, or at the start
+- **THEN** this check does not stop the step, and the static check judges the file
+
+#### Scenario: A long list of lost tests
+- **WHEN** the model drops more than `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` tests of a file
+- **THEN** the reason names that many tests in order and gives the count of the rest

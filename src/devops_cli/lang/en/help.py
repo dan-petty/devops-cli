@@ -918,7 +918,7 @@ class ServeCommandHelp:
     docs: str = "Enable or disable Swagger UI (/docs) and ReDoc (/redoc)."
     service: str = (
         "Run continuous background service with GitHub webhook verification and "
-        "per-repository status and model lanes."
+        "per-repository status, triage and model lanes."
     )
 
 
@@ -1317,7 +1317,8 @@ class RoadmapCommandHelp:
         "checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and "
         "mypy, with a scratch home. When the agent returns, the command runs the verification "
         "commands of the group and ruff and mypy on the changed Python files, and checks that "
-        "the agent made no commit and every task of the group is ticked. The command writes the "
+        "the agent made no commit, removed or renamed no test that existed at the start of the "
+        "step, and ticked every task of the group. The command writes the "
         "tasks file back to its text before the run and keeps only the ticks of the group, so no "
         "edit of that file stops the step. "
         "An agent that forgets a tick gets one more turn that asks only for the ticks, and that "

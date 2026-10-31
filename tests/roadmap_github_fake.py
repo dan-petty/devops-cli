@@ -92,6 +92,7 @@ class GitHubFake:
         gives in each issue's `parent_issue_url`. Its author has `author_association` with the
         repository."""
         self.issues[number] = {
+            "id": number,
             "number": number,
             "title": title or f"Issue {number}",
             "html_url": f"https://github.com/{self.repo}/issues/{number}",
@@ -338,6 +339,17 @@ class GitHubFake:
         if rest == ["comments"] and method == "POST":
             self.comments.setdefault(number, []).append(fields["body"])
             return {}
+        if rest == ["sub_issues"] and method == "POST":
+            sub_id = int(fields["sub_issue_id"])
+            child = next(
+                (i for i in self.issues.values() if i.get("id") == sub_id or i["number"] == sub_id),
+                None,
+            )
+            if child is None:
+                return (1, "gh: Not Found (HTTP 404)")
+            issue["sub_issues_summary"]["total"] += 1
+            child["parent_issue_url"] = f"https://api.github.com/repos/{self.repo}/issues/{number}"
+            return child
         if rest == ["comments"]:
             bodies = self.comments.get(number, []) if page == 1 else []
             return [{"body": body, "created_at": "2026-10-01T00:00:00Z"} for body in bodies]

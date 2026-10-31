@@ -57,16 +57,17 @@ or notifies.
 plans the milestones. A milestone the issue already has stands.
 
 **Writes**, in order, with Priority last, which makes the candidate an item: file the issue (a
-new candidate only), add a `type/*` label when it has none, set each of Status (New), Value and
-Effort that the issue holds no label for, leave one reason comment carrying
-`CONST_ROADMAP_INTAKE_REASON_MARKER` unless one is there, then set Priority. Each field write
-replaces the labels of its family and records the value in the issue's job record
-(`RoadmapStore.set_field`). A label a person set stays, and the job record never claims it (ADR
-0002); a person's change between the plan and the write stops that write.
+new candidate only), link it as a sub-issue when `--source` is an issue of the repository, add a
+`type/*` label when it has none, set each of Status (New), Value and Effort that the issue holds
+no label for, leave one reason comment carrying `CONST_ROADMAP_INTAKE_REASON_MARKER` unless one
+is there, then set Priority. Each field write replaces the labels of its family and records the
+value in the issue's job record (`RoadmapStore.set_field`). A label a person set stays, and the
+job record never claims it (ADR 0002); a person's change between the plan and the write stops
+that write.
 
 A run that stops part-way leaves an open issue with no Priority, a candidate, and the next run
 decides it again: it writes only the fields the issue holds no label for, and no second reason
-comment. Intake writes to no issue but the candidate, and closes none.
+comment. Intake writes to no issue but the candidate and its parent sub-issue link, and closes none.
 
 **Dry run, plan, confirm** (the dry-run rule of #412). `dry_run_intake` makes no request, to
 GitHub or a model: it returns an `IntakePlan` marked `dry_run`, with no decision, that holds
@@ -317,6 +318,7 @@ class IntakeDecision:
     shown: tuple[str, str, str, str] = ("", "", "", "")
     notes: tuple[str, ...] = ()
     reasons: tuple[tuple[str, str, str], ...] = ()
+    parent: int | None = None
 
     @property
     def has_writes(self) -> bool:
@@ -327,6 +329,8 @@ class IntakeDecision:
         texts = MESSAGES.roadmap
         filing = ", ".join(self.filing_labels) or texts.intake_no_labels
         planned = [texts.intake_write_file.format(labels=filing)]
+        if self.parent is not None:
+            planned.append(texts.intake_write_sub_issue.format(parent=self.parent))
         planned = planned if self.subject.number is None else []
         planned += [texts.intake_write_label.format(label=label) for label in self.labels]
         planned += [texts.intake_write_field.format(field=f.value, value=v) for f, v in self.fields]
@@ -685,15 +689,35 @@ def _comparison(run: _Run, *, agent_candidates: bool) -> list[_Entry]:
     ]
 
 
+def source_parent_number(repo: str, source: str | None) -> int | None:
+    """The issue number of `repo` that `source` names, or None when it names another
+    repository or is not an issue link."""
+    if not source:
+        return None
+    trimmed = source.strip()
+    if trimmed.lstrip("#").isdigit():
+        return int(trimmed.lstrip("#"))
+    parsed = urlsplit(trimmed)
+    if parsed.netloc and parsed.netloc != "github.com":
+        return None
+    path = parsed.path if parsed.path.startswith("/") else f"/{parsed.path}"
+    prefix = f"/{repo.strip('/')}/issues/"
+    if path.startswith(prefix):
+        tail = path.removeprefix(prefix)
+        if tail.isdigit():
+            return int(tail)
+    return None
+
+
 def _source_issue(run: _Run, subject: Subject) -> int | None:
     """The issue of the repository that a new candidate's source links, such as the issue it
     splits: the issue whose GitHub link is the source with no query or fragment, so a link to
     one of its comments names it too (#1985)."""
     source = subject.new.source if subject.new is not None else None
-    if not source:
+    parent = source_parent_number(run.repo, source)
+    if parent is None:
         return None
-    link = urlsplit(source.strip())._replace(query="", fragment="").geturl()
-    return next((issue.number for issue in run.issues if issue.url == link), None)
+    return next((issue.number for issue in run.issues if issue.number == parent), None)
 
 
 def _apart(run: _Run, subject: Subject) -> set[int]:
@@ -1119,6 +1143,7 @@ class _Planner:
             if _has_comment(self.run.store, subject, CONST_ROADMAP_INTAKE_REASON_MARKER)
             else _comment(placement, lines)
         )
+        parent = _source_issue(self.run, subject) if subject.number is None else None
         return IntakeDecision(
             subject,
             Outcome.PLACE,
@@ -1135,6 +1160,7 @@ class _Planner:
             duplicate_reason=judgement.reason if judgement.possible_duplicate is not None else "",
             related=judgement.related,
             related_reason=judgement.reason if judgement.related is not None else "",
+            parent=parent,
         )
 
 
@@ -1200,8 +1226,15 @@ def dry_run_intake(
         subjects = [f"#{number}" for number in sorted(set(issues))]
     else:
         subjects = [MESSAGES.roadmap.intake_placeholder_each]
+    source_parent = source_parent_number(repo, new.source) if new is not None else None
     reads, writes = planned_requests(
-        subjects, repo=repo, ref=ref, new=new is not None, each=each, limit=limit
+        subjects,
+        repo=repo,
+        ref=ref,
+        new=new is not None,
+        each=each,
+        limit=limit,
+        parent=source_parent,
     )
     return IntakePlan(decisions=(), limit=limit, dry_run=True, requests=reads, writes=writes)
 
@@ -1235,6 +1268,8 @@ def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int:
     if priority is None:
         raise _lacks(decision, "Priority")
     number, item = _placement_target(store, decision)
+    if decision.parent is not None:
+        store.add_sub_issue(decision.parent, number)
     for label in decision.labels:
         store.label_issue(number, label)
     for item_field, value in decision.fields:
