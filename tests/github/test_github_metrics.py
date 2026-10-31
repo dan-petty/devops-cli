@@ -7,7 +7,6 @@ import json
 import logging
 import subprocess
 import time
-from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -57,9 +56,10 @@ from devops_cli.telemetry.instruments import (
     PROJECT_TRAFFIC_VIEWS_UNIQUES,
 )
 from tests.roadmap_github_fake import GitHubFake
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.otlp import FakeCollector
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -363,23 +363,28 @@ def test_label_taxonomy_metrics_counts_all_pages_and_skips_pull_requests(
 
 
 def test_collect_project_metrics_report(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git: Callable[..., None]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """The report takes its releases from the repository's tags and its milestones and open
     issues' labels from GitHub, each read at its process edge. An Item counts under the release
     whose commits close it (#2702)."""
     root = tmp_path / "repo"
     root.mkdir()
-    git(root, "init", "--quiet", "--initial-branch=main")
-    for tag, day in (
-        ("v0.2.23", "2026-09-26"),
-        ("v0.2.24", "2026-09-28"),
-        ("v0.2.25", "2026-10-01"),
-    ):
-        monkeypatch.setenv("GIT_COMMITTER_DATE", f"{day}T12:00:00+00:00")
-        closes = "Closes #2" if tag == "v0.2.24" else "No issue"
-        git(root, "commit", "--quiet", "--allow-empty", "-m", f"release {tag}", "-m", closes)
-        git(root, "tag", tag)
+    tag_output = (
+        "v0.2.23|2026-09-26T12:00:00+00:00\n"
+        "v0.2.24|2026-09-28T12:00:00+00:00\n"
+        "v0.2.25|2026-10-01T12:00:00+00:00\n"
+    )
+    git_fake.answer(["git", "tag"], ProcessAnswer(stdout=tag_output))
+
+    def _handle_log(call: ProcessCall) -> ProcessAnswer:
+        argv = call.argv
+        if "v0.2.23..v0.2.24" in argv:
+            return ProcessAnswer(stdout="release v0.2.24\n\nCloses #2\n")
+        return ProcessAnswer(stdout="release\n\nNo issue\n")
+
+    git_fake.answer(["git", "log"], _handle_log)
+    git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
     milestone = {"title": "2026-10-01", "state": "closed", "open_issues": 1, "closed_issues": 3}
     github = GitHubFake("example/test-repo", milestones=[milestone])
     github.seed_issue(1, "feat: export", labels=("type/feature", "priority/p2-medium"))
@@ -439,32 +444,39 @@ def test_the_items_of_one_milestone_are_counted() -> None:
 
 
 def test_each_issue_is_released_by_the_first_tag_whose_commits_close_it(
-    tmp_path: Path, git: Callable[..., None]
+    tmp_path: Path, git_fake: GitFake
 ) -> None:
     """An issue that a commit closes with a closing keyword belongs to the first `v*` tag that
     holds the commit (#2702). A later commit that closes it again does not move it. A pull
     request reference and a commit after the last tag release no issue."""
     root = tmp_path / "repo"
     root.mkdir()
-    git(root, "init", "--quiet", "--initial-branch=main")
-    for message, tag in (
-        ("feat: export (#12)\n\nCloses #4", "v0.1.0"),
-        ("fix: export again\n\nfixes #4\nResolves: #9", "v0.2.0"),
-        ("fix: import\n\nCloses #7", None),
-    ):
-        git(root, "commit", "--quiet", "--allow-empty", "-m", message)
-        if tag:
-            git(root, "tag", tag)
+    tag_output = "v0.1.0|2026-10-01T00:00:00+00:00\nv0.2.0|2026-10-02T00:00:00+00:00\n"
+    git_fake.answer(["git", "tag"], ProcessAnswer(stdout=tag_output))
+
+    def _handle_log(call: ProcessCall) -> ProcessAnswer:
+        argv = call.argv
+        if "v0.1.0..v0.2.0" in argv:
+            return ProcessAnswer(stdout="fix: export again\n\nfixes #4\nResolves: #9\n")
+        if "v0.1.0" in argv:
+            return ProcessAnswer(stdout="feat: export (#12)\n\nCloses #4\n")
+        return ProcessAnswer(stdout="")
+
+    git_fake.answer(["git", "log"], _handle_log)
 
     assert get_item_releases(root) == {4: "v0.1.0", 9: "v0.2.0"}
 
 
 def test_issues_that_cannot_be_read_stop_the_collection(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git: Callable[..., None]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """A failed read of the issues raises. It is no empty roadmap: the 0 for each label set that
     left the last snapshot would otherwise erase every count."""
-    _tagged_repository(git, tmp_path / "repo", ("v0.2.25",))
+    root = tmp_path / "repo"
+    root.mkdir()
+    git_fake.answer(["git", "tag"], ProcessAnswer(stdout="v0.2.25|2026-10-01T00:00:00+00:00\n"))
+    git_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
+    git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
     github = GitHubFake(REPO)
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
 
@@ -473,32 +485,35 @@ def test_issues_that_cannot_be_read_stop_the_collection(
 
     store = GitHubRoadmapStore(REPO, runner=unavailable, session=RunnerSession(unavailable))
     with pytest.raises(DevOpsCLIError) as raised:
-        collect_project_metrics_report(root=tmp_path / "repo", repo=REPO, store=store)
+        collect_project_metrics_report(root=root, repo=REPO, store=store)
     assert raised.value.error_code == "GITHUB_UNREAD"
-
-
-def _tagged_repository(git: Callable[..., None], repo: Path, tags: Sequence[str]) -> None:
-    """A repository at `repo` with one commit for each of `tags`, each tagged by name."""
-    repo.mkdir(parents=True)
-    git(repo, "init", "--quiet", "--initial-branch=main")
-    for tag in tags:
-        git(repo, "commit", "--quiet", "--allow-empty", "-m", f"release {tag}")
-        git(repo, "tag", tag)
 
 
 def test_a_given_root_is_walked_as_it_is_even_inside_another_checkout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    git: Callable[..., None],
+    git_fake: GitFake,
 ) -> None:
     """A local `devops roadmap run` keeps each repository's clone under `.data/`, inside the
     workspace checkout (#1358). The report walks the tags of the clone it is given, not those of
     the checkout around it, and every read it makes succeeds."""
     workspace = tmp_path / "workspace"
     clone = workspace / ".data" / "roadmap" / "example" / "roadmap" / "clone"
-    _tagged_repository(git, workspace, ("v9.0.0", "v9.1.0"))
-    _tagged_repository(git, clone, ("v0.1.0", "v0.2.0"))
+    clone.mkdir(parents=True)
+
+    def _handle_tag(call: ProcessCall) -> ProcessAnswer:
+        if call.cwd == clone:
+            return ProcessAnswer(
+                stdout="v0.1.0|2026-10-01T00:00:00+00:00\nv0.2.0|2026-10-02T00:00:00+00:00\n"
+            )
+        return ProcessAnswer(
+            stdout="v9.0.0|2026-10-01T00:00:00+00:00\nv9.1.0|2026-10-02T00:00:00+00:00\n"
+        )
+
+    git_fake.answer(["git", "tag"], _handle_tag)
+    git_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
+    git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
     github = GitHubFake("example/roadmap")
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     with caplog.at_level(logging.WARNING):

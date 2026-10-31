@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import filecmp
 import re
-import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -26,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_DOCS_NAME_CHECKED_CLASSES,
     CONST_REVIEW_ROUTED_PATH_PATTERNS,
 )
+from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.paths import REPO_ROOT
 
@@ -183,12 +183,7 @@ def test_every_skill_was_generated_by_the_openspec_the_tools_lock_pins() -> None
 
 def _ignored(path: str) -> bool:
     """Whether git ignores `path`, whatever is tracked."""
-    run = subprocess.run(
-        ["git", "check-ignore", "--no-index", "--quiet", path],
-        cwd=REPO_ROOT,
-        check=False,
-    )
-    return run.returncode == 0
+    return is_ignored_by_git(REPO_ROOT, REPO_ROOT / path)
 
 
 def test_git_keeps_the_generated_skills_and_nothing_else_under_claude() -> None:
