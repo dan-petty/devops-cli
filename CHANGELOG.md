@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.31.0](https://github.com/dan-petty/devops-cli/compare/v0.30.0...v0.31.0) (2026-10-31)
+
+
+### Features
+
+* **terraform:** preview requests in dry run for tf commands ([#2895](https://github.com/dan-petty/devops-cli/issues/2895)) ([980a9be](https://github.com/dan-petty/devops-cli/commit/980a9be379b44fc27fdf9768238050b3769b3e71)), closes [#2249](https://github.com/dan-petty/devops-cli/issues/2249)
+
+
+### Bug Fixes
+
+* **security:** the subprocess environment guard accepts LESS, which... ([#2896](https://github.com/dan-petty/devops-cli/issues/2896)) ([1545b85](https://github.com/dan-petty/devops-cli/commit/1545b85ae7631a2238ad90991fc0927d21a67a02))
+
 ## [0.30.0](https://github.com/dan-petty/devops-cli/compare/v0.29.0...v0.30.0) (2026-10-31)
 
 
