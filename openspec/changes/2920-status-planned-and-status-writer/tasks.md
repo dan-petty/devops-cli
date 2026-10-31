@@ -9,9 +9,9 @@
 
 ## 2. The one function
 
-- [ ] 2.1 Write failing tests in `tests/roadmap/test_roadmap_status_sync.py` for the scenarios of the requirements "The Service sets the Status from the job record" and "The Service never reverts a person's Status": `derive_status` for each order of the facts, the Blocked fact, a drift that is repaired, a label of a person that stays, an item with no record, an item in another Status, a race with a person that raises, and one failed item that does not stop the others
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_status_sync.py` for the scenarios of the requirements "The Service sets the Status from the job record" and "The Service never reverts a person's Status": `derive_status` for each order of the facts, the Blocked fact, a drift that is repaired, a label of a person that stays, an item with no record, an item in another Status, a race with a person that raises, and one failed item that does not stop the others
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py`
-- [ ] 2.2 Write `src/devops_cli/roadmap/status_sync.py` with `StatusFacts`, `derive_status`, `facts_of`, `sync_status` and `sync_statuses`, and the message of a failed sweep
+- [x] 2.2 Write `src/devops_cli/roadmap/status_sync.py` with `StatusFacts`, `derive_status`, `facts_of`, `sync_status` and `sync_statuses`, and the message of a failed sweep
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py`
 
 ## 3. The rows use it
