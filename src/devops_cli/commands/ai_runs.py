@@ -37,6 +37,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_VALKEY_PORT
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions.valkey import ValkeyError
 from devops_cli.k8s.node_port import (
     NodePortSpec,
@@ -96,14 +97,27 @@ def announce_run(saved: SavedRun, *, to_stderr: bool = False) -> None:
 
 
 @app.command("reindex")
+@dry_run_class("request-plan")
 @trace_span("ai.runs.reindex")
 def reindex_cmd(
     mechanism: Annotated[
         Mechanism | None,
         typer.Option("--mechanism", "-m", help="Only index runs of this mechanism."),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Rebuild the shared run index in Valkey from the run records in the data directory."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_runs_reindex
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_runs_reindex(mechanism=mechanism)
+        render_request_plan("Plan for AI runs reindex", plan)
+        return
+
     records = load_runs(mechanism)
     if not records:
         print_info(f"No runs recorded in {escape_text(str(runs_dir()))}.")
@@ -131,6 +145,7 @@ RUNS_INDEX = NodePortSpec(
 
 
 @app.command("connect")
+@dry_run_class("request-plan")
 @trace_span("ai.runs.connect")
 def connect_cmd(
     context: Annotated[
@@ -146,8 +161,25 @@ def connect_cmd(
         str,
         typer.Option("--secret-name", help="Name of the Secret holding the Valkey password."),
     ] = CONST_RUNS_INDEX_AUTH_OBJECT,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Find the cluster's run index, check it answers, share runs through it, and index them."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_runs_connect
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_runs_connect(
+            context=context,
+            namespace=namespace,
+            service=service,
+            secret_name=secret_name,
+        )
+        render_request_plan("Plan for AI runs connect", plan)
+        return
+
     from devops_cli.config.settings import dotted_set, load_settings, save_settings
 
     try:
@@ -394,6 +426,7 @@ def _render_regression_report(report: RegressionReport) -> None:
 
 
 @app.command("list")
+@dry_run_class("no-external-request")
 @trace_span("ai.runs.list")
 def list_cmd(
     mechanism: Annotated[
@@ -456,6 +489,7 @@ def _fetch_run_or_exit(
 
 
 @app.command("show")
+@dry_run_class("request-plan")
 @trace_span("ai.runs.show")
 def show_cmd(
     run_id: Annotated[str, typer.Argument(help="Run ID or prefix to show.")],
@@ -463,8 +497,27 @@ def show_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Show details of a recorded run."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_runs_show
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_runs_show(run_id=run_id)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(
+                {"dry_run": True, "run_id": run_id, "requests": [r.__dict__ for r in plan]},
+                resolved,
+            )
+            return
+        render_request_plan(f"Plan for AI runs show '{run_id}'", plan)
+        return
+
     record = _fetch_run_or_exit(run_id)
 
     resolved = normalize_format(output_format)
@@ -476,6 +529,7 @@ def show_cmd(
 
 
 @app.command("compare")
+@dry_run_class("request-plan")
 @trace_span("ai.runs.compare")
 def compare_cmd(
     run_a: Annotated[
@@ -490,8 +544,32 @@ def compare_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Compare two runs or a run against its subject's baseline."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_runs_compare
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_runs_compare(run_a=run_a, run_b=run_b)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(
+                {
+                    "dry_run": True,
+                    "run_a": run_a,
+                    "run_b": run_b,
+                    "requests": [r.__dict__ for r in plan],
+                },
+                resolved,
+            )
+            return
+        render_request_plan(f"Plan for AI runs compare '{run_a}'", plan)
+        return
+
     rec_a = _fetch_run_or_exit(run_a)
     if run_b is not None:
         rec_b = _fetch_run_or_exit(run_b)
@@ -520,11 +598,24 @@ app.add_typer(baseline_app, name="baseline")
 
 
 @baseline_app.command("set")
+@dry_run_class("request-plan")
 @trace_span("ai.runs.baseline.set")
 def baseline_set_cmd(
     run_id: Annotated[str, typer.Argument(help="Run ID to designate as baseline.")],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Set a run as the baseline for its subject."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_runs_baseline_set
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_runs_baseline_set(run_id=run_id)
+        render_request_plan(f"Plan for AI runs baseline set '{run_id}'", plan)
+        return
+
     record = _fetch_run_or_exit(run_id)
     b_record = set_baseline(record)
     print_success(
@@ -534,6 +625,7 @@ def baseline_set_cmd(
 
 
 @baseline_app.command("list")
+@dry_run_class("no-external-request")
 @trace_span("ai.runs.baseline.list")
 def baseline_list_cmd(
     output_format: Annotated[
@@ -572,6 +664,7 @@ def _find_baseline_run(subject_or_run: str, mechanism: Mechanism | None) -> RunR
 
 
 @baseline_app.command("show")
+@dry_run_class("request-plan")
 @trace_span("ai.runs.baseline.show")
 def baseline_show_cmd(
     subject_or_run: Annotated[
@@ -586,8 +679,31 @@ def baseline_show_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Show the baseline for a subject or run."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_runs_baseline_show
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_runs_baseline_show(subject_or_run=subject_or_run, mechanism=mechanism)
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(
+                {
+                    "dry_run": True,
+                    "subject_or_run": subject_or_run,
+                    "requests": [r.__dict__ for r in plan],
+                },
+                resolved,
+            )
+            return
+        render_request_plan(f"Plan for AI runs baseline show '{subject_or_run}'", plan)
+        return
+
     baseline_run = _find_baseline_run(subject_or_run, mechanism)
     if baseline_run is None:
         print_error(f"No baseline found for {escape_text(subject_or_run)}.")
@@ -601,7 +717,28 @@ def baseline_show_cmd(
     _render_run_details(baseline_run)
 
 
+def _dry_run_check(run_id: str, baseline_id: str | None, output_format: str) -> None:
+    from devops_cli.ai.ai_plans import plan_ai_runs_check
+    from devops_cli.dry_run import render_request_plan
+
+    plan = plan_ai_runs_check(run_id=run_id, baseline_id=baseline_id)
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(
+            {
+                "dry_run": True,
+                "run_id": run_id,
+                "baseline_id": baseline_id,
+                "requests": [r.__dict__ for r in plan],
+            },
+            resolved,
+        )
+        return
+    render_request_plan(f"Plan for AI runs check '{run_id}'", plan)
+
+
 @app.command("check")
+@dry_run_class("request-plan")
 @trace_span("ai.runs.check")
 def check_cmd(
     run_id: Annotated[str, typer.Argument(help="Run ID to check against baseline.")],
@@ -662,8 +799,16 @@ def check_cmd(
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Check a run against baseline for regressions past tolerances."""
+    if dry_run or is_dry_run():
+        _dry_run_check(run_id, baseline_id, output_format)
+        return
+
     record = _fetch_run_or_exit(run_id)
 
     base_record: RunRecord | None

@@ -11,7 +11,8 @@ from devops_cli.ai.spend import get_pricing_registry, get_spend_ledger
 from devops_cli.ai.spend.models import HardwarePayoffSummary, LifetimeSpendReport
 from devops_cli.config.constants import CONST_AI_BACKEND_HOST_UNKNOWN
 from devops_cli.core.cli import new_typer
-from devops_cli.lang import MESSAGES
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
     format_yaml,
@@ -297,6 +298,7 @@ def _render_report_tables(report: LifetimeSpendReport, by: str) -> None:
 
 
 @app.callback(invoke_without_command=True)
+@dry_run_class("no-external-request")
 def cost_default(
     ctx: typer.Context,
     by: Annotated[
@@ -376,6 +378,7 @@ def cost_default(
 
 
 @app.command(name="report")
+@dry_run_class("no-external-request")
 def cost_report(
     by: Annotated[
         str,
@@ -451,6 +454,7 @@ def cost_report(
 
 
 @app.command(name="roi")
+@dry_run_class("no-external-request")
 def cost_roi(
     hardware_cost: Annotated[
         float | None,
@@ -522,6 +526,7 @@ def cost_roi(
 
 
 @app.command(name="payoff", hidden=True)
+@dry_run_class("no-external-request")
 def cost_payoff(
     hardware_cost: Annotated[
         float | None,
@@ -555,6 +560,7 @@ def cost_payoff(
 
 
 @app.command(name="payback", hidden=True)
+@dry_run_class("no-external-request")
 def cost_payback(
     hardware_cost: Annotated[
         float | None,
@@ -588,6 +594,7 @@ def cost_payback(
 
 
 @app.command(name="prometheus")
+@dry_run_class("no-external-request")
 def cost_prometheus() -> None:
     """Export the totals of the spend ledger as Prometheus gauges."""
     from devops_cli.ai.spend import export_ai_spend_prometheus
@@ -597,6 +604,7 @@ def cost_prometheus() -> None:
 
 
 @app.command(name="update-pricing")
+@dry_run_class("request-plan")
 def cost_update_pricing(
     source: Annotated[
         str | None,
@@ -621,10 +629,22 @@ def cost_update_pricing(
             help="Request timeout in seconds.",
         ),
     ] = 15.0,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Synchronize open-source industrial average pricing catalog from remote registry."""
     if reset and source:
         raise typer.BadParameter("Cannot combine --reset with --source.")
+
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_cost_update_pricing
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_cost_update_pricing(source=source, reset=reset, timeout=timeout)
+        render_request_plan("Plan for AI cost update-pricing", plan)
+        return
 
     registry = get_pricing_registry()
     if reset:
@@ -647,6 +667,7 @@ def cost_update_pricing(
 
 
 @app.command(name="list-pricing")
+@dry_run_class("no-external-request")
 def cost_list_pricing(
     search: Annotated[
         str | None,
@@ -720,6 +741,7 @@ def cost_list_pricing(
 
 
 @app.command(name="set-price")
+@dry_run_class("no-external-request")
 def cost_set_price(
     target: Annotated[
         str,
@@ -739,8 +761,19 @@ def cost_set_price(
             help="Completion token cost in USD per 1,000,000 tokens.",
         ),
     ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Set a custom token price for the hosted calls of a model or backend server."""
+    if dry_run or is_dry_run():
+        print_info(
+            f"Dry run: Would configure custom pricing for '{target}': "
+            f"${prompt_rate:.4f} prompt / ${completion_rate:.4f} completion per 1M tokens."
+        )
+        return
+
     registry = get_pricing_registry()
     p = registry.set_custom_pricing(target, prompt_rate, completion_rate)
     print_success(
@@ -750,6 +783,7 @@ def cost_set_price(
 
 
 @app.command(name="reset")
+@dry_run_class("no-external-request")
 def cost_reset(
     yes: Annotated[
         bool,
@@ -759,8 +793,16 @@ def cost_reset(
             help="Confirm deletion of lifetime spend ledger records.",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Reset the lifetime AI spend ledger records."""
+    if dry_run or is_dry_run():
+        print_info("Dry run: Would reset lifetime AI spend ledger records (0 records cleared).")
+        return
+
     if not yes:
         confirm = typer.confirm(
             "Are you sure you want to reset all lifetime AI spend and token usage records?"

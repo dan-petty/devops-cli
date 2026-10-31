@@ -1365,14 +1365,8 @@ devops ai cache status [OPTIONS]
 **Purge all in-memory and persistent disk cache entries.**
 
 ```bash
-devops ai cache clear [OPTIONS]
+devops ai cache clear
 ```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -1786,6 +1780,7 @@ devops ai runs reindex [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only index runs of this mechanism. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai runs connect`
 
@@ -1803,6 +1798,7 @@ devops ai runs connect [OPTIONS]
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
 | `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
 | `--secret-name` | `string` | `valkey-runs-auth` | Name of the Secret holding the Valkey password. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai runs list`
 
@@ -1840,6 +1836,7 @@ devops ai runs show [OPTIONS] <run_id>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai runs compare`
 
@@ -1861,6 +1858,7 @@ devops ai runs compare [OPTIONS] <run_a> <run_b>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai runs check`
 
@@ -1889,6 +1887,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--max-reference-coverage-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's reference coverage (e.g. 0.05 for 5%). |
 | `--max-calls-increase` | `float` | `0.2` | Maximum allowable relative increase in model calls, a review's cost (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai runs baseline`
 
@@ -1901,7 +1900,7 @@ devops ai runs baseline COMMAND [ARGS]...
 **Set a run as the baseline for its subject.**
 
 ```bash
-devops ai runs baseline set <run_id>
+devops ai runs baseline set [OPTIONS] <run_id>
 ```
 
 **Arguments:**
@@ -1909,6 +1908,12 @@ devops ai runs baseline set <run_id>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<run_id>` | `string` | Yes | Run ID to designate as baseline. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai runs baseline list`
 
@@ -1944,6 +1949,7 @@ devops ai runs baseline show [OPTIONS] <subject_or_run>
 |---|---|---|---|
 | `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Mechanism for subject lookup. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -2026,6 +2032,7 @@ devops ai cost update-pricing [OPTIONS]
 | `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
 | `--reset` | `boolean` | - | Reset custom pricing snapshot and restore bundled catalog. |
 | `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai cost list-pricing`
 
@@ -2052,7 +2059,7 @@ devops ai cost list-pricing [OPTIONS]
 **Set a custom token price for the hosted calls of a model or backend server.**
 
 ```bash
-devops ai cost set-price <target> <prompt_rate> <completion_rate>
+devops ai cost set-price [OPTIONS] <target> <prompt_rate> <completion_rate>
 ```
 
 **Arguments:**
@@ -2062,6 +2069,12 @@ devops ai cost set-price <target> <prompt_rate> <completion_rate>
 | `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). When a gateway reply names its deployment model, such as 'openai/gpt-4o', that model is the target, not the route name. A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai cost reset`
 
@@ -2076,6 +2089,7 @@ devops ai cost reset [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -2158,6 +2172,7 @@ devops ai spend update-pricing [OPTIONS]
 | `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
 | `--reset` | `boolean` | - | Reset custom pricing snapshot and restore bundled catalog. |
 | `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai spend list-pricing`
 
@@ -2184,7 +2199,7 @@ devops ai spend list-pricing [OPTIONS]
 **Set a custom token price for the hosted calls of a model or backend server.**
 
 ```bash
-devops ai spend set-price <target> <prompt_rate> <completion_rate>
+devops ai spend set-price [OPTIONS] <target> <prompt_rate> <completion_rate>
 ```
 
 **Arguments:**
@@ -2194,6 +2209,12 @@ devops ai spend set-price <target> <prompt_rate> <completion_rate>
 | `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). When a gateway reply names its deployment model, such as 'openai/gpt-4o', that model is the target, not the route name. A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai spend reset`
 
@@ -2208,6 +2229,7 @@ devops ai spend reset [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

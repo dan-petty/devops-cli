@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from devops_cli.config.constants import CONST_RUNS_INDEX_AUTH_OBJECT
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_SERVICE,
     DEFAULT_AI_GATEWAY_URL,
@@ -639,4 +640,183 @@ def plan_ai_research_socratic(
             target=_get_llm_chat_target(),
             stdin=f'{{"prompt": "Generate Socratic inquiry probes for task: {task or "<task>"}"}}',
         )
+    ]
+
+
+def plan_ai_cost_update_pricing(
+    source: str | None = None,
+    reset: bool = False,
+    timeout: float = 15.0,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan model pricing catalog synchronization requests."""
+    if reset:
+        return []
+    if source and Path(source).is_file():
+        return []
+    target_url = (
+        source
+        or "https://raw.githubusercontent.com/pydantic/genai-prices/refs/heads/main/prices/new_data/v2/data.json"
+    )
+    return [
+        PlannedRequest(
+            method="GET",
+            target=target_url,
+        )
+    ]
+
+
+def plan_ai_runs_reindex(mechanism: Any | None = None) -> list[PlannedRequest]:
+    """Plan rebuilding shared run index requests into Valkey."""
+    mech_label = f":{getattr(mechanism, 'value', mechanism)}" if mechanism else ":<mechanism>"
+    return [
+        PlannedRequest(
+            method="valkey",
+            target=f"SET devops-cli:runs:record{mech_label}:<run_id>",
+            repeat="for each run record",
+        ),
+        PlannedRequest(
+            method="valkey",
+            target=f"ZADD devops-cli:runs:mechanism{mech_label}",
+            repeat="for each run record",
+        ),
+        PlannedRequest(
+            method="valkey",
+            target=f"ZADD devops-cli:runs:subject{mech_label}:<subject_key>",
+            repeat="for each run record",
+        ),
+    ]
+
+
+def plan_ai_runs_connect(
+    context: str | None = None,
+    namespace: str = "devops-llm",
+    service: str = "valkey-runs",
+    secret_name: str | None = None,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan cluster discovery and run index connection requests."""
+    secret = secret_name if secret_name is not None else CONST_RUNS_INDEX_AUTH_OBJECT
+    ctx_args: tuple[str, ...] = ("--context", context) if context else ()
+    return [
+        PlannedRequest(
+            method="kubectl",
+            target=f"services/{namespace}/{service}",
+            argv=(
+                "get",
+                "service",
+                service,
+                "-n",
+                namespace,
+                *ctx_args,
+                "-o",
+                "jsonpath={.spec.ports[*].nodePort}",
+            ),
+        ),
+        PlannedRequest(
+            method="kubectl",
+            target=f"secrets/{namespace}/{secret}",
+            argv=(
+                "get",
+                "secret",
+                secret,
+                "-n",
+                namespace,
+                *ctx_args,
+                "-o",
+                "jsonpath={.data.password}",
+            ),
+        ),
+        PlannedRequest(
+            method="valkey",
+            target="SET devops-cli:runs:record:<mechanism>:<run_id>",
+            repeat="for each run record",
+        ),
+    ]
+
+
+def plan_ai_runs_show(run_id: str, **kwargs: Any) -> list[PlannedRequest]:
+    """Plan retrieving a run record from the shared index."""
+    return [
+        PlannedRequest(
+            method="valkey",
+            target=f"GET devops-cli:runs:record:<mechanism>:{run_id}",
+        )
+    ]
+
+
+def plan_ai_runs_compare(
+    run_a: str, run_b: str | None = None, **kwargs: Any
+) -> list[PlannedRequest]:
+    """Plan retrieving run comparison records from the shared index."""
+    if run_b is not None:
+        return [
+            PlannedRequest(
+                method="valkey",
+                target=f"GET devops-cli:runs:record:<mechanism>:{run_a}",
+            ),
+            PlannedRequest(
+                method="valkey",
+                target=f"GET devops-cli:runs:record:<mechanism>:{run_b}",
+            ),
+        ]
+    return [
+        PlannedRequest(
+            method="valkey",
+            target="GET devops-cli:runs:baseline:<mechanism>:<subject_key>",
+        ),
+        PlannedRequest(
+            method="valkey",
+            target=f"GET devops-cli:runs:record:<mechanism>:{run_a}",
+        ),
+    ]
+
+
+def plan_ai_runs_baseline_set(run_id: str, **kwargs: Any) -> list[PlannedRequest]:
+    """Plan designating a subject baseline in the shared index."""
+    return [
+        PlannedRequest(
+            method="valkey",
+            target=f"SET devops-cli:runs:baseline:<mechanism>:<subject_key> {run_id}",
+        )
+    ]
+
+
+def plan_ai_runs_baseline_show(
+    subject_or_run: str, mechanism: Any | None = None, **kwargs: Any
+) -> list[PlannedRequest]:
+    """Plan retrieving a baseline record from the shared index."""
+    mech_label = getattr(mechanism, "value", mechanism) or "<mechanism>"
+    return [
+        PlannedRequest(
+            method="valkey",
+            target=f"GET devops-cli:runs:baseline:{mech_label}:{subject_or_run}",
+        )
+    ]
+
+
+def plan_ai_runs_check(
+    run_id: str, baseline_id: str | None = None, **kwargs: Any
+) -> list[PlannedRequest]:
+    """Plan retrieving baseline and run records for regression checking."""
+    if baseline_id:
+        return [
+            PlannedRequest(
+                method="valkey",
+                target=f"GET devops-cli:runs:record:<mechanism>:{baseline_id}",
+            ),
+            PlannedRequest(
+                method="valkey",
+                target=f"GET devops-cli:runs:record:<mechanism>:{run_id}",
+            ),
+        ]
+    return [
+        PlannedRequest(
+            method="valkey",
+            target="GET devops-cli:runs:baseline:<mechanism>:<subject_key>",
+        ),
+        PlannedRequest(
+            method="valkey",
+            target=f"GET devops-cli:runs:record:<mechanism>:{run_id}",
+        ),
     ]
