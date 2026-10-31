@@ -396,6 +396,21 @@ The row `stage_ready` of the status lane SHALL mark a draft pull request ready f
 - **WHEN** a recorded draft is green
 - **THEN** the round sends no request to the commit status endpoint
 
+### Requirement: The row reads again before it marks and stops on a rate limit
+The row SHALL read the pull request again before it marks, and SHALL leave a draft whose head moved. A rate limit, rejected credentials and the stop of the Service SHALL stop the round. Any other error SHALL fail its item only.
+
+#### Scenario: A push after the read of the checks
+- **WHEN** the head of a recorded draft changes between the read of its checks and the mark
+- **THEN** the round marks no pull request ready and records nothing
+
+#### Scenario: GitHub cannot find the pull request
+- **WHEN** GitHub answers 404 for the read of a recorded pull request
+- **THEN** the round records nothing, reads the pull request again in the next round, and fails naming the item
+
+#### Scenario: A rate limit
+- **WHEN** GitHub refuses a read for the rate limit
+- **THEN** the round stops at once and sends no request for the pull requests that follow
+
 ### Requirement: One function decides, and one function marks
 `ready_to_mark` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
 

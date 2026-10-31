@@ -31,6 +31,11 @@
 - [x] 5.1 Archive the change
   - Verification: `uv run devops openspec archive 2865-service-marks-stage-pr-ready`
 
+## 6. Review follow-up
+
+- [x] 6.1 Write failing tests, then fix: a 404 on the read fails the item and records nothing, a rate limit stops the round, a head that moved after the checks stays a draft, and the docstring of `write_each` is wrapped
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_ready.py tests/roadmap/test_roadmap_stage_apply.py`
+
 ## Workflow follow-up
 
 - #2867 replaces the body of `ready_to_mark` with a judgement of whether the work is complete.
