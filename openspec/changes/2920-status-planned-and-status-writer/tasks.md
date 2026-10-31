@@ -2,9 +2,9 @@
 
 ## 1. The Planned label
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_status_labels.py`: the Status family has six values in order, `.github/labels.yml` declares the six labels, an issue with `status/planned` reads as Planned, `devops pr create` replaces Planned with In Progress, and refine holds a Planned item
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_status_labels.py`: the Status family has six values in order, `.github/labels.yml` declares the six labels, an issue with `status/planned` reads as Planned, `devops pr create` replaces Planned with In Progress, and refine holds a Planned item
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_labels.py`
-- [ ] 1.2 Add `CONST_ROADMAP_STATUS_PLANNED` to `src/devops_cli/config/constants.py` and to the Status values and the held Statuses of refine, add `status/planned` to `.github/labels.yml`, and let `src/devops_cli/roadmap/pull_status.py` replace Planned
+- [x] 1.2 Add `CONST_ROADMAP_STATUS_PLANNED` to `src/devops_cli/config/constants.py` and to the Status values and the held Statuses of refine, add `status/planned` to `.github/labels.yml`, and let `src/devops_cli/roadmap/pull_status.py` replace Planned
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_status_labels.py tests/roadmap/test_roadmap_refine.py`
 
 ## 2. The one function

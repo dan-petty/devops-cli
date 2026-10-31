@@ -3122,19 +3122,26 @@ CONST_ROADMAP_EPIC_LABEL: Final[str] = "type/epic"
 # A closed issue is done, so no label holds Done.
 CONST_ROADMAP_STATUS_NEW: Final[str] = "New"
 CONST_ROADMAP_STATUS_READY: Final[str] = "Ready"
+CONST_ROADMAP_STATUS_PLANNED: Final[str] = "Planned"
 CONST_ROADMAP_STATUS_IN_PROGRESS: Final[str] = "In Progress"
 CONST_ROADMAP_STATUS_IN_REVIEW: Final[str] = "In Review"
 CONST_ROADMAP_STATUS_BLOCKED: Final[str] = "Blocked"
 CONST_ROADMAP_STATUS_VALUES: Final[tuple[str, ...]] = (
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
+    CONST_ROADMAP_STATUS_PLANNED,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
     CONST_ROADMAP_STATUS_BLOCKED,
 )
-# The Status values of an open item refine never changes, even when `--item` names it (#1758).
+# The Status values of an open item refine never changes, even when `--item` names it (#1758). A
+# Planned item has its plan on the default branch (#2920).
 CONST_ROADMAP_REFINE_HELD_STATUSES: Final[frozenset[str]] = frozenset(
-    {CONST_ROADMAP_STATUS_IN_PROGRESS, CONST_ROADMAP_STATUS_BLOCKED}
+    {
+        CONST_ROADMAP_STATUS_PLANNED,
+        CONST_ROADMAP_STATUS_IN_PROGRESS,
+        CONST_ROADMAP_STATUS_BLOCKED,
+    }
 )
 # A critical fix is a P0 item that fixes a defect or a security advisory (CONTEXT.md): the
 # P0 Priority and one of these `type/*` labels.
