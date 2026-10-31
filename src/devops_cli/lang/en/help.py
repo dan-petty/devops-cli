@@ -385,7 +385,9 @@ class K8sCommandHelp:
     )
     run_job_repo: str = (
         "owner/name of the one repository the runner Job may use. The Job's GitHub token names "
-        "only that repository. Required with --template runner, and used with no other template."
+        "only that repository. Required with --template runner, and used with no other template. "
+        "The Job carries a label of the repository, and the command creates no Job while another "
+        "runner Job of the repository has not ended."
     )
     run_job_args: str = "The devops arguments the Job runs, after `--`."
     run_job_wait: str = (

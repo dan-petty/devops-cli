@@ -698,6 +698,11 @@ class K8sMessages:
         "--repo sets the repository of a runner Job. Use it with --template runner. No Job was "
         "created."
     )
+    job_runner_running: str = (
+        "A runner Job of {repo} has not ended: {names}. A second runner Job for the repository "
+        "could push to the same branch. Wait for the Job to end, or follow it with: "
+        "kubectl -n devops logs -f job/<name>. No Job was created."
+    )
     job_cronjob_missing: str = (
         "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"

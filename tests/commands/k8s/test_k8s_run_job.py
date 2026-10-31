@@ -17,11 +17,12 @@ from click.testing import CliRunner
 
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name, repository_label
 from tests.support.paths import REPO_ROOT
 
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
+LOCK_LABEL = "implement-repo"
 
 CRONJOB = yaml.safe_load(
     (REPO_ROOT / "k8s" / "devops" / "cronjob.yaml").read_text(encoding="utf-8")
@@ -53,6 +54,7 @@ class FakeJobs:
     runner_cronjob: dict[str, Any] | None = field(default_factory=_runner_cronjob)
     phases: list[str] = field(default_factory=lambda: ["Pending", "Running"])
     exit_code: str = "0"
+    listed: list[dict[str, Any]] = field(default_factory=list)
     calls: list[list[str]] = field(default_factory=list)
     created: list[dict[str, Any]] = field(default_factory=list)
 
@@ -68,6 +70,8 @@ class FakeJobs:
         if verb == ["get", "cronjob"]:
             held = self.runner_cronjob if argv[5] == "devops-cli-runner" else self.cronjob
             return json.dumps(held) if held else ""
+        if verb == ["get", "jobs"]:
+            return json.dumps({"items": self.listed})
         if argv[3:4] == ["create"]:
             self.created.append(json.loads(stdin or "{}"))
             return "job.batch/created\n"
@@ -383,3 +387,146 @@ def test_a_repository_that_is_not_owner_slash_name_is_refused(jobs: FakeJobs) ->
     result = _run("--template", "runner", "--repo", "no-slash", "--", "--version")
 
     assert (result.exit_code, jobs.created) == (2, [])
+
+
+# ── The label and the lock of a runner Job (#2913) ────────────────────────────────────────
+
+
+def _listed_job(name: str, *conditions: str) -> dict[str, Any]:
+    """A Job as `kubectl get jobs -o json` lists it, with the conditions that are True."""
+    status = {"conditions": [{"type": kind, "status": "True"} for kind in conditions]}
+    return {"metadata": {"name": name}, "status": status}
+
+
+def test_the_repository_label_is_a_digest_that_fits_a_label_value() -> None:
+    label = repository_label(REPO)
+
+    assert (len(label), label == repository_label(REPO), label == repository_label("a/b")) == (
+        16,
+        True,
+        False,
+    )
+    assert int(label, 16) >= 0
+
+
+def test_a_runner_job_and_its_pod_carry_the_label_of_the_repository(jobs: FakeJobs) -> None:
+    result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
+
+    (job,) = jobs.created
+    pod = job["spec"]["template"]["metadata"]["labels"]
+    assert (
+        result.exit_code,
+        job["metadata"]["labels"][LOCK_LABEL],
+        pod[LOCK_LABEL],
+    ) == (0, repository_label(REPO), repository_label(REPO))
+
+
+def test_a_job_of_the_default_template_carries_no_repository_label(jobs: FakeJobs) -> None:
+    result = _run("--", "--version")
+
+    (job,) = jobs.created
+    assert (result.exit_code, LOCK_LABEL in job["metadata"]["labels"]) == (0, False)
+    assert [call for call in jobs.calls if call[3:5] == ["get", "jobs"]] == []
+
+
+def test_a_runner_job_looks_for_the_jobs_of_the_repository_by_their_label(
+    jobs: FakeJobs,
+) -> None:
+    _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
+
+    lookups = [call for call in jobs.calls if call[3:5] == ["get", "jobs"]]
+    assert lookups == [
+        [
+            "kubectl",
+            "-n",
+            "devops",
+            "get",
+            "jobs",
+            "-l",
+            f"{LOCK_LABEL}={repository_label(REPO)}",
+            "-o",
+            "json",
+        ]
+    ]
+
+
+def test_a_running_job_of_the_repository_blocks_a_runner_job(jobs: FakeJobs) -> None:
+    jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd")]
+
+    result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
+
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "devops-cli-runner-20261031-010101-abcd" in output,
+        REPO in output,
+        jobs.created,
+    ) == (1, True, True, [])
+
+
+@pytest.mark.parametrize("condition", ["Complete", "Failed"])
+def test_a_job_that_ended_does_not_block_a_runner_job(jobs: FakeJobs, condition: str) -> None:
+    jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd", condition)]
+
+    result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
+
+    assert (result.exit_code, len(jobs.created)) == (0, 1)
+
+
+def test_a_running_job_blocks_a_runner_job_after_one_that_ended(jobs: FakeJobs) -> None:
+    jobs.listed = [
+        _listed_job("devops-cli-runner-old", "Complete"),
+        _listed_job("devops-cli-runner-new"),
+    ]
+
+    result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
+
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "devops-cli-runner-new" in output,
+        "devops-cli-runner-old" in output,
+    ) == (
+        1,
+        True,
+        False,
+    )
+
+
+def test_the_dry_run_of_the_runner_template_lists_the_lookup_and_the_label() -> None:
+    result = _run("--template", "runner", "--repo", REPO, "--dry-run", "--", "roadmap", "implement")
+
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        f"get jobs -l {LOCK_LABEL}={repository_label(REPO)} -o json" in output,
+        f'"{LOCK_LABEL}": "{repository_label(REPO)}"' in result.output,
+    ) == (0, True, True), result.output
+
+
+def test_the_dry_run_of_the_runner_template_lists_exactly_the_requests_a_run_then_makes(
+    jobs: FakeJobs,
+) -> None:
+    from devops_cli.commands.k8s.cluster_jobs import dry_run_job
+
+    jobs.phases = ["Running"]
+    args = ["roadmap", "implement"]
+    planned = dry_run_job(
+        args,
+        "test-ctx",
+        wait=True,
+        start_timeout=5.0,
+        template=RUNNER_TEMPLATE,
+        env={REPO_ENV: REPO},
+        repo=REPO,
+    ).requests
+    result = _run("--template", "runner", "--repo", REPO, "--", *args)
+    name = jobs.created[0]["metadata"]["name"]
+    expected = [
+        [a.replace("<devops-cli-runner-yyyymmdd-hhmmss-xxxx>", name) for a in r.argv]
+        for r in planned
+    ]
+    assert (result.exit_code, jobs.calls) == (
+        0,
+        [[a for a in argv if a not in ("--context", "test-ctx")] for argv in expected],
+    )

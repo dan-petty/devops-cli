@@ -2,9 +2,9 @@
 
 ## 1. run-job labels the runner Job and keeps one for each repository
 
-- [ ] 1.1 Write failing tests in `tests/commands/k8s/test_k8s_run_job.py` for the scenarios of "run-job creates a Job from the runner template": the label of the repository on the Job and its pod, a refusal while a Job with the label has not ended, an ended Job that does not block, and the dry run that lists the lookup
+- [x] 1.1 Write failing tests in `tests/commands/k8s/test_k8s_run_job.py` for the scenarios of "run-job creates a Job from the runner template": the label of the repository on the Job and its pod, a refusal while a Job with the label has not ended, an ended Job that does not block, and the dry run that lists the lookup
   - Verification: `uv run devops ci test tests/commands/k8s/test_k8s_run_job.py`
-- [ ] 1.2 Move `repository_label` to `src/devops_cli/k8s/cluster_job.py`; give `execute_job` and `dry_run_job` the labels; list the running Jobs of the label; move the body of `run_job` to `start_job`
+- [x] 1.2 Move `repository_label` to `src/devops_cli/k8s/cluster_job.py`; give `execute_job` and `dry_run_job` the labels; list the running Jobs of the label; move the body of `run_job` to `start_job`
   - Verification: `uv run devops ci test tests/commands/k8s/test_k8s_run_job.py tests/roadmap/test_roadmap_implement_submit.py`
 
 ## 2. The command starts the runner Job
