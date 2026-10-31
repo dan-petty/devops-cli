@@ -76,7 +76,12 @@ class ProcessFake:
 
     def __init__(self) -> None:
         self.calls: list[ProcessCall] = []
-        self._answers: list[tuple[Callable[[ProcessCall], bool], ProcessAnswer]] = []
+        self._answers: list[
+            tuple[
+                Callable[[ProcessCall], bool],
+                ProcessAnswer | Callable[[ProcessCall], ProcessAnswer],
+            ]
+        ] = []
 
     @property
     def call_count(self) -> int:
@@ -86,7 +91,7 @@ class ProcessFake:
     def answer(
         self,
         matcher: str | Sequence[str] | Callable[[ProcessCall], bool],
-        answer: ProcessAnswer,
+        answer: ProcessAnswer | Callable[[ProcessCall], ProcessAnswer],
     ) -> None:
         """Script an answer for commands matching `matcher`.
 
@@ -114,7 +119,7 @@ class ProcessFake:
     def _match_answer(self, call: ProcessCall) -> ProcessAnswer:
         for pred, ans in reversed(self._answers):
             if pred(call):
-                return ans
+                return ans(call) if callable(ans) else ans
         return ProcessAnswer()
 
     def prepare_cmd(self, cmd: Sequence[str] | list[str]) -> list[str]:

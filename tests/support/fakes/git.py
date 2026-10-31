@@ -39,6 +39,7 @@ from tests.support.git_scenarios import ROOT_MARK
 from tests.support.started_programs import started_program, started_words
 
 _PROGRAM = "git"
+_ORIGINAL_SUBPROCESS_RUN = subprocess.run
 # The arguments, the directory, the standard input, and the environment that the caller sets.
 _Key = tuple[tuple[str, ...], str | None, str | None, tuple[tuple[str, str], ...]]
 
@@ -79,11 +80,23 @@ class GitFake(ProcessFake):
         return tuple(self._marked(word) for word in call.argv), cwd, stdin, env
 
     def _match_answer(self, call: ProcessCall) -> ProcessAnswer:
-        if not call.argv or Path(call.argv[0]).name != _PROGRAM:
-            return super()._match_answer(call)
         for matches, scripted in reversed(self._answers):
             if matches(call):
-                return scripted
+                return scripted(call) if callable(scripted) else scripted
+        if not call.argv or Path(call.argv[0]).name != _PROGRAM:
+            if subprocess.run is not _ORIGINAL_SUBPROCESS_RUN:
+                res = subprocess.run(
+                    call.argv,
+                    input=call.stdin if isinstance(call.stdin, str) else None,
+                    cwd=call.cwd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                return ProcessAnswer(
+                    returncode=res.returncode, stdout=res.stdout, stderr=res.stderr
+                )
+            return super()._match_answer(call)
         key = self._key(call)
         records = self._records.get(key)
         if records is None:

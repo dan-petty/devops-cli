@@ -35,7 +35,6 @@ from devops_cli.ai.mcp.server import roadmap_run
 from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
-    CONST_GH_CLI,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_REFINE_DUE_STAMP,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
@@ -112,8 +111,10 @@ from devops_cli.telemetry.instruments import (
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
@@ -194,90 +195,296 @@ class StoreSpy:
         return attr
 
 
+class SimulatedGit:
+    def __init__(self, tmp_path: Path) -> None:
+        self.tmp_path = tmp_path
+        self.remotes: dict[str, dict[str, Any]] = {}
+        self.clones: dict[str, dict[str, Any]] = {}
+        self.argvs: list[list[str]] = []
+        self._commit_counter = 1
+
+    def new_commit(self) -> str:
+        sha = f"{self._commit_counter:040x}"
+        self._commit_counter += 1
+        return sha
+
+    def make_bare_remote(self, tmp_path: Path, *, other_branch: str | None = None) -> Path:
+        bare = tmp_path / "remote.git"
+        bare.mkdir(parents=True, exist_ok=True)
+        tip = self.new_commit()
+        self.remotes[str(bare)] = {
+            "branches": {"main": tip},
+            "default_branch": "main",
+            "tags": [],
+            "files": {"main": {}},
+        }
+        if other_branch is not None:
+            other_tip = self.new_commit()
+            self.remotes[str(bare)]["branches"][other_branch] = other_tip
+            self.remotes[str(bare)]["files"][other_branch] = {}
+        return bare
+
+    def advance_bare_remote(self, bare: Path, branch: str, *, onto: str = "main") -> str:
+        new_tip = self.new_commit()
+        remote = self.remotes[str(bare)]
+        remote["branches"][branch] = new_tip
+        remote["files"][branch] = dict(remote["files"].get(onto, {}))
+        return new_tip
+
+    def commit_file(
+        self, bare: Path, branch: str, content: str, *, parent: str | None = None
+    ) -> str:
+        new_tip = self.new_commit()
+        remote = self.remotes[str(bare)]
+        remote["branches"][branch] = new_tip
+        if branch not in remote["files"]:
+            remote["files"][branch] = {}
+        remote["files"][branch]["f.txt"] = content
+        return new_tip
+
+    def clone_head(self, clone_path: Path) -> tuple[str, str]:
+        info = self.clones.get(str(clone_path))
+        if info:
+            return info["head"], info["branch"]
+        return ("", "")
+
+    def git_query(self, cwd: Path, *args: str) -> str:
+        info = self.clones.get(str(cwd))
+        if args and args[0] == "config":
+            key = args[1]
+            return info["config"].get(key, "") if info else ""
+        if args and args[0] == "status":
+            return ""
+        if args and args[0] == "rev-parse":
+            ref = args[1] if len(args) > 1 else "HEAD"
+            remote = self.remotes.get(str(cwd))
+            if remote:
+                return remote["branches"].get(ref, "")
+            if info:
+                return info["head"]
+        if args and args[0] == "tag":
+            if len(args) >= 2:
+                tag = args[1]
+                remote = self.remotes.get(str(cwd))
+                if remote:
+                    remote["tags"].append(tag)
+            return ""
+        return ""
+
+    def _op_clone(self, subcmd: list[str]) -> ProcessAnswer:
+        url = subcmd[1]
+        clone_dir = Path(subcmd[2])
+        if not Path(url).exists() or url not in self.remotes:
+            return ProcessAnswer(
+                returncode=128,
+                stderr=f"fatal: repository '{url}' does not exist\n",
+            )
+        remote = self.remotes[url]
+        (clone_dir / ".git").mkdir(parents=True, exist_ok=True)
+        default_branch = remote["default_branch"] or "main"
+        head_tip = remote["branches"].get(default_branch, "")
+        self.clones[str(clone_dir)] = {
+            "remote_url": url,
+            "config": {},
+            "branch": default_branch,
+            "head": head_tip,
+        }
+        for fname, text in remote["files"].get(default_branch, {}).items():
+            (clone_dir / fname).write_text(text, encoding="utf-8")
+        return ProcessAnswer(returncode=0)
+
+    def _op_fetch(self, clone_info: dict[str, Any] | None) -> ProcessAnswer:
+        if not clone_info:
+            return ProcessAnswer(returncode=0)
+        remote_url = clone_info["remote_url"]
+        if not Path(remote_url).exists() or remote_url not in self.remotes:
+            return ProcessAnswer(
+                returncode=128,
+                stderr=f"fatal: '{remote_url}' does not appear to be a git repository\nfatal: Could not read from remote repository.\n",
+            )
+        return ProcessAnswer(returncode=0)
+
+    def _op_remote(self, subcmd: list[str], clone_info: dict[str, Any] | None) -> ProcessAnswer:
+        if subcmd[1:] == ["set-head", "origin", "--auto"]:
+            if not clone_info:
+                return ProcessAnswer(returncode=0)
+            remote = self.remotes.get(clone_info["remote_url"])
+            if not remote or remote.get("default_branch") is None:
+                return ProcessAnswer(
+                    returncode=1,
+                    stderr="fatal: Cannot determine remote HEAD\n",
+                )
+            return ProcessAnswer(returncode=0)
+        return ProcessAnswer(returncode=0)
+
+    def _op_symbolic_ref(self, clone_info: dict[str, Any] | None) -> ProcessAnswer:
+        if not clone_info:
+            return ProcessAnswer(stdout="refs/remotes/origin/main\n")
+        remote = self.remotes.get(clone_info["remote_url"])
+        default_branch = remote["default_branch"] if remote else "main"
+        return ProcessAnswer(stdout=f"refs/remotes/origin/{default_branch}\n")
+
+    def _op_checkout(
+        self, cwd: Path, subcmd: list[str], clone_info: dict[str, Any] | None
+    ) -> ProcessAnswer:
+        branch = subcmd[3] if len(subcmd) > 3 else "main"
+        if clone_info:
+            remote = self.remotes.get(clone_info["remote_url"])
+            if remote:
+                tip = remote["branches"].get(branch, "")
+                clone_info["branch"] = branch
+                clone_info["head"] = tip
+                for fname, text in remote["files"].get(branch, {}).items():
+                    (cwd / fname).write_text(text, encoding="utf-8")
+        return ProcessAnswer(returncode=0)
+
+    def _op_reset(
+        self, cwd: Path, subcmd: list[str], clone_info: dict[str, Any] | None
+    ) -> ProcessAnswer:
+        ref = subcmd[2] if len(subcmd) > 2 else ""
+        branch = ref.split("/")[-1] if "/" in ref else "main"
+        if clone_info:
+            remote = self.remotes.get(clone_info["remote_url"])
+            if remote:
+                for fname, text in remote["files"].get(branch, {}).items():
+                    (cwd / fname).write_text(text, encoding="utf-8")
+        return ProcessAnswer(returncode=0)
+
+    def _op_config(self, subcmd: list[str], clone_info: dict[str, Any] | None) -> ProcessAnswer:
+        if len(subcmd) >= 3:
+            key, val = subcmd[1], subcmd[2]
+            if clone_info:
+                clone_info["config"][key] = val
+            return ProcessAnswer(returncode=0)
+        if len(subcmd) == 2:
+            key = subcmd[1]
+            val = clone_info["config"].get(key, "") if clone_info else ""
+            return ProcessAnswer(returncode=0, stdout=f"{val}\n")
+        return ProcessAnswer(returncode=0)
+
+    def _op_tag(
+        self, cwd: Path, subcmd: list[str], clone_info: dict[str, Any] | None
+    ) -> ProcessAnswer:
+        if "-l" in subcmd:
+            remote = self.remotes.get(str(cwd)) or (
+                self.remotes.get(clone_info["remote_url"]) if clone_info else None
+            )
+            tags = remote["tags"] if remote else []
+            out_lines = [f"{tag}|2026-10-01 00:00:00 +0000" for tag in tags]
+            out = "\n".join(out_lines) + ("\n" if out_lines else "")
+            return ProcessAnswer(returncode=0, stdout=out)
+        if len(subcmd) >= 2:
+            tag = subcmd[1]
+            remote = self.remotes.get(str(cwd))
+            if remote:
+                remote["tags"].append(tag)
+            return ProcessAnswer(returncode=0)
+        return ProcessAnswer(returncode=0)
+
+    def _op_rev_parse(self, clone_info: dict[str, Any] | None) -> ProcessAnswer:
+        if clone_info:
+            return ProcessAnswer(
+                returncode=0, stdout=f"{clone_info['head']}\n{clone_info['branch']}\n"
+            )
+        return ProcessAnswer(returncode=0, stdout="1111111111111111111111111111111111111111\n")
+
+    def answer_call(self, call: ProcessCall) -> ProcessAnswer:
+        argv = list(call.argv)
+        self.argvs.append(argv)
+        if not argv or Path(argv[0]).name != "git":
+            return ProcessAnswer()
+
+        if len(argv) > 2 and argv[1] == "-C":
+            cwd = Path(argv[2])
+            subcmd = argv[3:]
+        else:
+            cwd = Path(call.cwd) if call.cwd else Path.cwd()
+            subcmd = argv[1:]
+
+        if not subcmd:
+            return ProcessAnswer()
+
+        clone_info = self.clones.get(str(cwd))
+        handlers: dict[str, Callable[[], ProcessAnswer]] = {
+            "clone": lambda: self._op_clone(subcmd),
+            "fetch": lambda: self._op_fetch(clone_info),
+            "remote": lambda: self._op_remote(subcmd, clone_info),
+            "symbolic-ref": lambda: self._op_symbolic_ref(clone_info),
+            "checkout": lambda: self._op_checkout(cwd, subcmd, clone_info),
+            "reset": lambda: self._op_reset(cwd, subcmd, clone_info),
+            "config": lambda: self._op_config(subcmd, clone_info),
+            "tag": lambda: self._op_tag(cwd, subcmd, clone_info),
+            "rev-parse": lambda: self._op_rev_parse(clone_info),
+            "log": lambda: ProcessAnswer(returncode=0, stdout=""),
+            "status": lambda: ProcessAnswer(returncode=0, stdout=""),
+        }
+        handler = handlers.get(subcmd[0])
+        return handler() if handler else ProcessAnswer(returncode=0)
+
+
+_CURRENT_SIM: list[SimulatedGit] = []
+
+
+@pytest.fixture
+def git_sim(tmp_path: Path, git_fake: GitFake) -> Iterator[SimulatedGit]:
+    sim = SimulatedGit(tmp_path)
+    _CURRENT_SIM.append(sim)
+    git_fake.answer(
+        lambda call: bool(call.argv and Path(call.argv[0]).name == "git"), sim.answer_call
+    )
+    try:
+        yield sim
+    finally:
+        _CURRENT_SIM.clear()
+
+
 def _git(cwd: Path, *args: str) -> str:
-    """Run git in `cwd` and return its output; an error fails the test."""
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    sim = _CURRENT_SIM[0] if _CURRENT_SIM else None
+    return sim.git_query(cwd, *args) if sim else ""
 
 
 def _advance_bare_remote(bare: Path, branch: str, *, onto: str = "main") -> str:
-    """Commit on top of `onto` in the bare remote, point `branch` at that commit, and return its
-    hash."""
-    commit = _git(
-        bare, *COMMIT_IDENTITY, "commit-tree", f"{onto}^{{tree}}", "-p", onto, "-m", branch
-    )
-    _git(bare, "update-ref", f"refs/heads/{branch}", commit)
-    return commit
+    return _CURRENT_SIM[0].advance_bare_remote(bare, branch, onto=onto)
 
 
 def _make_bare_remote(tmp_path: Path, *, other_branch: str | None = None) -> Path:
-    """A bare remote whose HEAD names `main`, with one commit on `main` and, when asked, a later
-    one on `other_branch`."""
-    bare = tmp_path / "remote.git"
-    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
-    empty_tree = subprocess.run(
-        ["git", "-C", str(bare), "mktree"], input="", capture_output=True, text=True, check=True
-    ).stdout.strip()
-    _git(
-        bare,
-        "update-ref",
-        "refs/heads/main",
-        _git(bare, *COMMIT_IDENTITY, "commit-tree", empty_tree, "-m", "init"),
-    )
-    if other_branch is not None:
-        _advance_bare_remote(bare, other_branch)
-    return bare
+    return _CURRENT_SIM[0].make_bare_remote(tmp_path, other_branch=other_branch)
+
+
+def _commit_file(bare: Path, branch: str, content: str, *, parent: str | None = None) -> str:
+    return _CURRENT_SIM[0].commit_file(bare, branch, content, parent=parent)
 
 
 def _clone_head(clone_path: Path) -> tuple[str, str]:
-    """The clone's HEAD commit and the branch name HEAD points at (`HEAD` when detached)."""
-    commit, branch = _git(clone_path, "rev-parse", "HEAD", "--abbrev-ref", "HEAD").splitlines()
-    return commit, branch
+    return _CURRENT_SIM[0].clone_head(clone_path)
 
 
 @pytest.fixture
-def main_remote(tmp_path: Path) -> Path:
+def main_remote(tmp_path: Path, git_sim: SimulatedGit) -> Path:
     """A bare remote holding only `main`."""
-    return _make_bare_remote(tmp_path)
+    return git_sim.make_bare_remote(tmp_path)
 
 
 @pytest.fixture
-def dangling_head_remote(tmp_path: Path) -> Path:
+def dangling_head_remote(tmp_path: Path, git_sim: SimulatedGit) -> Path:
     """A bare remote whose HEAD names `main`, which it lacks: it holds only a topic branch."""
-    bare = _make_bare_remote(tmp_path, other_branch="feat/topic")
-    _git(bare, "update-ref", "-d", "refs/heads/main")
+    bare = git_sim.make_bare_remote(tmp_path, other_branch="feat/topic")
+    del git_sim.remotes[str(bare)]["branches"]["main"]
+    git_sim.remotes[str(bare)]["default_branch"] = None
     return bare
 
 
 @pytest.fixture
 def child_argvs(
-    monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
-) -> Iterator[list[list[str]]]:
-    """Run git for real and answer the session's login lookup through the session fake.
-
-    Every child's argv is recorded. `GET /user` returns `test-bot`, `GET /users/test-bot` its
-    account ID, and any gh command fails the test instead of reaching GitHub.
-    """
+    monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake, git_sim: SimulatedGit
+) -> list[list[str]]:
+    """Answer the session's login lookup through the session fake and record git argvs."""
     github_api.route("GET", "/user", github_json({"login": "test-bot"}))
     github_api.route("GET", "/users/test-bot", github_json({"id": 4242, "login": "test-bot"}))
     get_github_rate_limiter().update_quota(
         "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
     )
-    real_run = subprocess.run
-    argvs: list[list[str]] = []
-
-    def run(argv: Sequence[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
-        argvs.append(list(argv))
-        if argv[0] != CONST_GH_CLI:
-            return real_run(argv, *args, **kwargs)
-        raise AssertionError(f"A clone test ran {argv}, which would reach GitHub")
-
-    monkeypatch.setattr(subprocess, "run", run)
-    yield argvs
+    return git_sim.argvs
 
 
 REPO_DIR = Path("roadmap") / "example" / "roadmap"
@@ -912,37 +1119,13 @@ def test_checkout_raises_when_the_fetch_fails_and_keeps_the_branch_it_had(
     ) == (True, True, before)
 
 
-def _commit_file(bare: Path, branch: str, content: str, *, parent: str | None = None) -> str:
-    """Point `branch` in the bare remote at a commit whose tree holds one file, `f.txt`, with
-    `content`, and return the commit's hash."""
-    blob = subprocess.run(
-        ["git", "-C", str(bare), "hash-object", "-w", "--stdin"],
-        input=content,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    tree = subprocess.run(
-        ["git", "-C", str(bare), "mktree"],
-        input=f"100644 blob {blob}\tf.txt\n",
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    parents = ("-p", parent) if parent else ()
-    commit = _git(bare, *COMMIT_IDENTITY, "commit-tree", tree, *parents, "-m", branch)
-    _git(bare, "update-ref", f"refs/heads/{branch}", commit)
-    return commit
-
-
 def test_checkout_discards_a_tracked_change_a_failed_job_left_in_the_clone(
     tmp_path: Path, child_argvs: list[list[str]]
 ) -> None:
     """A job that fails after writing a file leaves a tracked change in the clone. The next
     checkout still moves to origin's tip and drops the change, instead of failing every later
     round until a person cleans the clone (#1366)."""
-    bare = tmp_path / "remote.git"
-    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
+    bare = _make_bare_remote(tmp_path)
     first = _commit_file(bare, "main", "main\n")
     data_dir = tmp_path / "data"
     clone_path = ensure_checkout(REPO, data_dir, remote_url=str(bare))
@@ -994,13 +1177,7 @@ def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
 
     clone_dir = data_dir / "roadmap" / REPO / CONST_ROADMAP_RUN_CLONE_DIRNAME
     if (clone_dir / ".git").exists():
-        proc = subprocess.run(
-            ["git", "-C", str(clone_dir), "config", "user.name"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert proc.stdout.strip() != "devops-cli"
+        assert _git(clone_dir, "config", "user.name") != "devops-cli"
 
     table = build_stub_table({"refine": lambda **_: JobOutcome()}, needs_clone=True)
     with pytest.raises(RoadmapRunError) as exc_info:
@@ -1116,7 +1293,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     stub_web: StubWeb,
-    git: Callable[..., None],
+    git_sim: SimulatedGit,
     otlp: FakeCollector,
 ) -> None:
     """The default table's metrics row clones the repository and walks its version tags there,
@@ -1126,7 +1303,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     row = next(row for row in DEFAULT_DUE_TABLE if row.name == "metrics")
     remote = _make_bare_remote(tmp_path)
     for tag in ("v0.1.0", "v0.2.0"):
-        git(remote, "tag", tag, "main")
+        _git(remote, "tag", tag, "main")
     github = GitHubFake(REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}])
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
@@ -1172,13 +1349,13 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     stub_web: StubWeb,
-    git: Callable[..., None],
+    git_sim: SimulatedGit,
 ) -> None:
     """GitHub answers a milestone the report cannot count, and neither status page answers:
     each failure is a WARNING from the job, which still returns its outcome."""
     clone = tmp_path / "clone"
     clone.mkdir()
-    git(clone, "init", "--quiet")
+    (clone / ".git").mkdir()
     milestone = {"number": 26, "title": PLANNED, "state": "open", "open_issues": None}
     monkeypatch.setattr(
         subprocess, "run", GitHubFake(REPO, milestones=[milestone]).process(subprocess.run)
@@ -1208,7 +1385,7 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     stub_web: StubWeb,
-    git: Callable[..., None],
+    git_sim: SimulatedGit,
     otlp: FakeCollector,
 ) -> None:
     """The installation token of the Service has no Administration permission, so GitHub
@@ -1217,7 +1394,7 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     traffic series."""
     clone = tmp_path / "clone"
     clone.mkdir()
-    git(clone, "init", "--quiet")
+    (clone / ".git").mkdir()
     github = GitHubFake(
         REPO, traffic_answer=(1, "gh: Resource not accessible by integration (HTTP 403)")
     )
@@ -2101,8 +2278,7 @@ def test_each_lane_updates_only_its_own_clone(
     """The status lane's metrics works in `clone` and the model lane's refine in `model-clone`,
     each at origin's tip of the default branch. A model-lane round leaves a change in `clone`
     alone, where a checkout of that clone would discard it."""
-    bare = tmp_path / "remote.git"
-    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
+    bare = _make_bare_remote(tmp_path)
     main_tip = _commit_file(bare, "main", "main\n")
     data_dir = tmp_path / "data"
     seen: dict[str, tuple[Path, tuple[str, str]]] = {}
@@ -2186,7 +2362,10 @@ def test_roadmap_run_error_is_configuration_only() -> None:
 
 
 def test_failed_run_keeps_every_job_error_and_clone_error(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    git_sim: SimulatedGit,
 ) -> None:
     """A failed run keeps every job's error, names intake and metrics, refine with clone failure,
     carries ExceptionGroup cause with PEP 678 notes, is not config-only, and emits no ERROR log (#1365)."""
@@ -2270,16 +2449,17 @@ def test_failed_run_configuration_only(seeded_store: InMemoryRoadmapStore, tmp_p
 
 
 def test_clone_fails_with_missing_git_binary(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """When git binary is missing, clone rows fail with FileNotFoundError as group member (#1365)."""
     data_dir = tmp_path / "data"
-    empty_bin = tmp_path / "empty_bin"
-    empty_bin.mkdir()
-    monkeypatch.setenv("PATH", str(empty_bin))
-
     missing_remote = tmp_path / "missing_remote"
     ran: list[str] = []
+
+    git_fake.answer(
+        ["git", "clone"],
+        ProcessAnswer(side_effect=FileNotFoundError(2, "No such file or directory: 'git'")),
+    )
 
     def stub(name: str) -> Callable[..., JobOutcome]:
         return _recorded(ran, name)
