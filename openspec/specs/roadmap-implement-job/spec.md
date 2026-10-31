@@ -288,7 +288,7 @@ The job SHALL push the branch of a Planned item with `-u origin` when it first h
 - **THEN** the job removes the branch from `origin`, stops the item, and the record holds no pull request
 
 ### Requirement: The pull request that delivers the code has the type of the issue
-The job SHALL set the title of the pull request, for a Staged item and for a Planned item, to the type and the scope of the title of the issue and its summary, shortened so that the part after the colon has at most 60 characters. The job SHALL set it in the same call that sets the body `Closes #<issue>`.
+The job SHALL set the title of the pull request, for a Staged item and for a Planned item, to the type and the scope of the title of the issue and its summary, shortened so that the part after the colon has at most 60 characters. The job SHALL leave out the scope when `.github/labels.yml` on the default branch declares no label `scope/<scope>`. The job SHALL set the title in the same call that sets the body `Closes #<issue>`.
 
 #### Scenario: A Staged item
 - **WHEN** the staging pull request of a bug has the title `docs(openspec): plan #1 keep every comment` and the job finishes the change
@@ -297,6 +297,10 @@ The job SHALL set the title of the pull request, for a Staged item and for a Pla
 #### Scenario: A long summary
 - **WHEN** the summary of the title of the issue has 80 characters
 - **THEN** the title of the pull request keeps the type and the scope, and its summary has at most 60 characters
+
+#### Scenario: A scope that no label declares
+- **WHEN** the title of the issue is `fix(floor): the job drops a comment` and `.github/labels.yml` declares no `scope/floor`
+- **THEN** the title of the pull request is `fix: the job drops a comment`
 
 ### Requirement: The stop comment of a step holds the diff of the discarded work
 When a step stops the item, the comment of the job SHALL also hold the masked diff of the work that the step discarded, in one fenced block, with a note when the diff was cut. The fence SHALL be longer than the longest run of backticks in the diff, and at least three backticks. A stop that is not a step SHALL post no diff.
