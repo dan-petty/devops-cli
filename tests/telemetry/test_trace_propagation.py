@@ -538,14 +538,16 @@ def test_generate_traceparent_produces_a_value_the_parser_accepts() -> None:
 
 def test_generate_traceparent_rejects_flags_outside_the_supported_set() -> None:
     """A caller constructing a context with bad flags has made a programming error."""
-    with pytest.raises(TraceValidationError):
+    with pytest.raises(TraceValidationError) as raised:
         generate_traceparent(trace_flags="zz")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_generate_traceparent_rejects_a_malformed_trace_id() -> None:
     """Components are validated rather than concatenated blindly."""
-    with pytest.raises(TraceValidationError):
+    with pytest.raises(TraceValidationError) as raised:
         generate_traceparent(trace_id="short")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_generate_traceparent_accepts_the_unsampled_flag() -> None:

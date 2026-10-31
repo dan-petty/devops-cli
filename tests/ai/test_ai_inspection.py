@@ -702,8 +702,9 @@ def test_path_validation_and_errors(tmp_path: Path) -> None:
 
     # Path traversal outside repo root
     outside = Path("/etc/hosts")
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         generate_semantic_outline(outside, repo_root=tmp_path)
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
     # Oversized file
     big_file = tmp_path / "giant.py"

@@ -323,18 +323,22 @@ def test_proxy_boundaries_refuse_dot_segments_and_escapes() -> None:
         "%2E/x",
     )
     for bad_path in refused_paths:
-        with pytest.raises(ServiceAddressError):
+        with pytest.raises(ServiceAddressError) as raised:
             ServiceRef(namespace="monitoring", service="prometheus", port="9090", path=bad_path)
+        assert raised.value.error_code == "K8S_ERROR"
 
         valid_ref = ServiceRef(namespace="monitoring", service="prometheus", port="9090")
-        with pytest.raises(ServiceAddressError):
+        with pytest.raises(ServiceAddressError) as raised:
             valid_ref.proxy_path(bad_path)
+        assert raised.value.error_code == "K8S_ERROR"
 
-        with pytest.raises(ServiceAddressError):
+        with pytest.raises(ServiceAddressError) as raised:
             get_json("k8s://monitoring/prometheus:9090", path=bad_path)
+        assert raised.value.error_code == "K8S_ERROR"
 
-        with pytest.raises(ServiceAddressError):
+        with pytest.raises(ServiceAddressError) as raised:
             get_json("https://example.com", path=bad_path)
+        assert raised.value.error_code == "K8S_ERROR"
 
     # Invalid identifiers
     for bad_id, label in (
@@ -343,12 +347,13 @@ def test_proxy_boundaries_refuse_dot_segments_and_escapes() -> None:
         ("9090?", "port"),
         ("9090/../../secrets/foo?", "port"),
     ):
-        with pytest.raises(ServiceAddressError):
+        with pytest.raises(ServiceAddressError) as raised:
             ServiceRef(
                 namespace=bad_id if label == "namespace" else "monitoring",
                 service=bad_id if label == "service" else "prometheus",
                 port=bad_id if label == "port" else "9090",
             )
+        assert raised.value.error_code == "K8S_ERROR"
 
 
 def test_service_url_cli_command_refuses_invalid_identifier_with_exit_1() -> None:

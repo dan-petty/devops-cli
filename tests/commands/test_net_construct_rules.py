@@ -46,6 +46,7 @@ _ELAPSED_UPPER_BOUND = (
     "    assert elapsed < 1.0\n"
 )
 _TEST_FUNCTION_HAS_NO_ASSERTION = "def test_missing_assertion():\n    compute()\n"
+_TEST_PYTEST_RAISES_CHECKS_ONLY_TYPE = "import pytest\n\n\ndef test_bare_raises():\n    with pytest.raises(Exception):\n        pass\n    assert True\n"
 
 # One violation of each rule, and the tree that the rule holds.
 _VIOLATIONS = [
@@ -108,6 +109,12 @@ _VIOLATIONS = [
         "tests",
         _TEST_FUNCTION_HAS_NO_ASSERTION,
         id="test-function-has-assertion",
+    ),
+    pytest.param(
+        "test-pytest-raises-checks-error",
+        "tests",
+        _TEST_PYTEST_RAISES_CHECKS_ONLY_TYPE,
+        id="test-pytest-raises-checks-error",
     ),
     pytest.param(
         "review-cwd-read", "src/devops_cli/ai/review", _CWD_READ, id="review-cwd-read-ai-review"

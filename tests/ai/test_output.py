@@ -1117,8 +1117,9 @@ def test_an_unknown_format_is_refused_rather_than_falling_back() -> None:
     from devops_cli.exceptions.validation import ValidationError
     from devops_cli.output.serialization import normalize_format
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         normalize_format("toml")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_asking_for_both_formats_is_refused() -> None:
@@ -1128,8 +1129,9 @@ def test_asking_for_both_formats_is_refused() -> None:
     from devops_cli.exceptions.validation import ValidationError
     from devops_cli.output.serialization import resolve_format
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         resolve_format(json_output=True, yaml_output=True)
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
     with pytest.raises(ValidationError, match="Conflicting format options"):
         resolve_format("yaml", json_output=True)

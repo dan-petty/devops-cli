@@ -196,8 +196,9 @@ def test_disagreement_urls_refused(
 ) -> None:
     """URLs where Pydantic and httpx2 disagree are refused on load and config set."""
     _set_project_config(tmp_path, monkeypatch, f"ai:\n  gateway_url: {bad_url}\n")
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         load_settings()
+    assert len(raised.value.errors()) > 0
 
     settings = Settings()
     with pytest.raises(ValueError, match=r"ai\.gateway_url"):
@@ -338,15 +339,17 @@ def test_ai_gateway_weights_refuses_scalar_string_in_config_set(
 def test_telemetry_stays_fail_closed_on_invalid_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid telemetry variables fail load_settings but keep tracer export off without raising."""
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "bogus")
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(ConfigurationError) as raised:
         load_settings()
+    assert raised.value.error_code == "CONFIGURATION_ERROR"
     assert _resolve_telemetry_settings().enabled is False
     assert telemetry_from_environment().enabled is False
 
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "true")
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", "localhost:4318")
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(ConfigurationError) as raised:
         load_settings()
+    assert raised.value.error_code == "CONFIGURATION_ERROR"
     assert _resolve_telemetry_settings().enabled is False
     assert telemetry_from_environment().enabled is False
 

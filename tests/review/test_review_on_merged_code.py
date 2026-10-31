@@ -144,8 +144,9 @@ def test_a_head_that_the_repository_does_not_hold_is_refused(
 @pytest.mark.parametrize("head", ["--upload-pack=touch x", "HEAD", "abc123", "A" * 40])
 def test_a_recorded_head_must_be_a_full_commit_name(head: str) -> None:
     """Verify findings.json cannot hand git an option or a symbolic name as the session's commit."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         ReviewCheckout(head=head, clean=True)
+    assert len(raised.value.errors()) > 0
 
 
 def test_review_verify_keeps_the_session_checkout(

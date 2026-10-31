@@ -179,8 +179,9 @@ def test_prometheus_errors_and_edge_cases() -> None:
     assert _parse_duration("1d") == 86400.0
     assert _parse_duration("") == 0.0
     assert _parse_duration("invalid") == 0.0
-    with pytest.raises(typer.BadParameter):
+    with pytest.raises(typer.BadParameter) as raised:
         _parse_duration("400d")
+    assert raised.value is not None
 
 
 def test_a_k8s_address_in_the_prometheus_url_stops_the_query_before_a_lookup(

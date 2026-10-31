@@ -83,8 +83,9 @@ def test_a_marker_round_trips_its_fingerprints() -> None:
 @pytest.mark.parametrize("value", ["", "A" * 64, "a" * 63, "g" * 64, f"{_A} -->"])
 def test_a_marker_refuses_a_value_that_is_no_fingerprint(value: str) -> None:
     """A marker the parser cannot read would let the same finding be filed again."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         finding_marker(value)
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_the_review_leaves_out_the_findings_an_issue_settles(github_api: GitHubApiFake) -> None:

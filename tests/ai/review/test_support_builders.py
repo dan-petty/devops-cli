@@ -129,8 +129,9 @@ def test_an_override_the_model_rejects_raises_its_validation_error(
 ) -> None:
     """A builder validates through the model, so a value the model refuses raises pydantic's
     `ValidationError`, never an object holding it."""
-    with pytest.raises(pydantic.ValidationError):
+    with pytest.raises(pydantic.ValidationError) as raised:
         build()
+    assert len(raised.value.errors()) > 0
 
 
 @pytest.mark.parametrize(

@@ -76,8 +76,9 @@ def test_parse_host_contract() -> None:
         "localhost:2375",
         "ssh://u@192.0.2.1:22/run/user/1000/podman/podman.sock",
     ]:
-        with pytest.raises(DockerException):
+        with pytest.raises(DockerException) as raised:
             docker.utils.parse_host(bad, docker.constants.IS_WINDOWS_PLATFORM)
+        assert raised.value is not None
 
 
 def test_resolve_host_defaults_to_unix_socket(docker_endpoint_env: Any) -> None:

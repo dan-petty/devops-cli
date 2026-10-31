@@ -157,8 +157,9 @@ def test_the_variable_of_the_job_sets_the_repository_of_the_token(
 
 @pytest.mark.parametrize("value", ["app", "a/b/c", "/app", "example-org/", "has space/app"])
 def test_a_token_repository_that_is_not_owner_slash_name_is_refused(value: str) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         GitHubAppConfig(token_repository=value)
+    assert len(raised.value.errors()) > 0
 
 
 def test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_names(

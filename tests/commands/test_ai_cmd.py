@@ -253,8 +253,16 @@ def test_ai_chat_helpers_print_thought_and_tool(capsys: pytest.CaptureFixture[st
     """Verify chat helper functions format thoughts and tool outputs cleanly."""
     print_chat_thought("Checking dependencies")
     print_chat_tool("search", {"query": "test"}, "Found 3 results")
-    shown = capsys.readouterr().out
-    assert ("Checking dependencies" in shown, "Found 3 results" in shown) == (True, True)
+    captured = capsys.readouterr().out
+    assert (
+        "Checking dependencies" in captured,
+        "Tool: search" in captured,
+        "Found 3 results" in captured,
+    ) == (
+        True,
+        True,
+        True,
+    )
 
 
 def test_ai_chat_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
@@ -322,8 +330,9 @@ def test_ai_multi_server_test_exits_when_endpoint_fails(
 
     st = load_settings()
     model_fake.answer(AIClientError("down"))
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         run_ollama_server_tests(["http://example.com"], "sys", "user", st)
+    assert raised.value.exit_code == 1
 
 
 def test_ai_agents_guards_against_path_traversal(tmp_path: Path, cli: Callable[..., Any]) -> None:

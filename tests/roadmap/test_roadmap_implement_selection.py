@@ -309,8 +309,9 @@ def test_the_job_leaves_every_item_out_when_no_app_slug_is_set(
 def test_a_filter_that_names_an_unknown_family_is_refused() -> None:
     from devops_cli.exceptions import ValidationError
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         parse_implement_filters(("color=red",))
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_a_dry_run_lists_the_requests_of_a_run_and_makes_none(

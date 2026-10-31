@@ -514,9 +514,10 @@ def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
 
     with (
         patch("devops_cli.ai.mcp.server._run_mcp_cmd") as run_command,
-        pytest.raises(SandboxValidationError),
+        pytest.raises(SandboxValidationError) as raised,
     ):
         tool(command=["true"], workspace=str(workspace))
+    assert raised.value.error_code == "SANDBOX_VALIDATION_ERROR"
 
     assert run_command.called is False
 
@@ -726,8 +727,9 @@ def test_engine_stop(tmp_path: Path, docker_engine: Any) -> None:
         mock_client.api.remove_container.assert_called_once_with("cid-stop-1", force=True)
 
     # Stop non-existent instance raises SandboxNotFoundError
-    with pytest.raises(SandboxNotFoundError):
+    with pytest.raises(SandboxNotFoundError) as raised:
         engine.stop("non-existent-instance")
+    assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
 def test_engine_exec(tmp_path: Path, docker_engine: Any) -> None:
@@ -1065,8 +1067,9 @@ def test_engine_status_not_found_and_client_error(tmp_path: Path, docker_engine:
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
 
-    with pytest.raises(SandboxNotFoundError):
+    with pytest.raises(SandboxNotFoundError) as raised:
         engine.status("non-existent-instance")
+    assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
     inst = SandboxInstance(
         instance_id="sb-stat-err",
@@ -1297,13 +1300,15 @@ def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
         {"/tmp": "size=64m,noexec"},  # nosec B108  # the in-container mount, under test
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         # Frozen models cannot be mutated
         policy.pids_limit = 512  # type: ignore[misc]
+    assert len(raised.value.errors()) > 0
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         # Undefined parameters are forbidden
         SandboxPolicy(extra_param=123)  # type: ignore[call-arg]
+    assert len(raised.value.errors()) > 0
 
     sec_kwargs = policy.to_docker_security_kwargs()
     assert (

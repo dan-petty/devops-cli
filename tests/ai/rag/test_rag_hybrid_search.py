@@ -112,8 +112,9 @@ def test_bm25_ranking_is_deterministic_for_tied_scores() -> None:
 def test_lexical_match_is_immutable() -> None:
     """A scored match cannot be mutated after ranking."""
     match = LexicalMatch(index=0, score=1.0)
-    with pytest.raises(FrozenInstanceError):
+    with pytest.raises(FrozenInstanceError) as raised:
         match.score = 2.0  # type: ignore[misc]
+    assert "cannot assign" in str(raised.value).lower() or "frozen" in str(raised.value).lower()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

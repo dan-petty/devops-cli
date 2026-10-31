@@ -53,7 +53,7 @@ def test_marginalia_record_validation() -> None:
 
 
 def test_marginalia_record_rejects_invalid_type() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         MarginaliaRecord.model_validate(
             {
                 "file_path": "src/module.py",
@@ -64,6 +64,7 @@ def test_marginalia_record_rejects_invalid_type() -> None:
                 "created_at": "2026-10-11T20:00:00Z",
             }
         )
+    assert len(raised.value.errors()) > 0
 
 
 def test_annotate_file_and_persistence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

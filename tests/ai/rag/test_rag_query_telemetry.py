@@ -187,8 +187,9 @@ def test_a_stage_that_fails_is_observed_as_an_error(monkeypatch: pytest.MonkeyPa
     qdrant = StubQdrant({"code": CODE_POINTS, "docs": DOCS_POINTS})
     retriever = _retriever(qdrant, SlowFailingEmbedder(clock))
 
-    with pytest.raises(EmbeddingsError):
+    with pytest.raises(EmbeddingsError) as raised:
         retriever.search("retry policy")
+    assert raised.value.error_code == "EMBEDDINGS_ERROR"
 
     name = RAG_QUERY_DURATION.name
     assert emitted == [
@@ -360,8 +361,9 @@ def test_an_interrupted_query_does_not_wait_for_the_other_searches(
     )
     threads_before = set(threading.enumerate())
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt) as raised:
         retriever.search("retry policy")
+    assert raised.value is not None
     docs_still_searching = not docs_done.is_set()
     release.set()
     for thread in set(threading.enumerate()) - threads_before:

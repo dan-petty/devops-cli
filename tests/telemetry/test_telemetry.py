@@ -113,9 +113,10 @@ def test_clean_exit_not_marked_error() -> None:
     otlp = FakeCollector()
     client = otlp.client()
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         with client.span("clean_exit_span"):
             raise typer.Exit(0)
+    assert raised.value.exit_code is not None
 
     (span,) = otlp.spans
     assert (span.status_code, "error" in span.attributes) == ("STATUS_CODE_OK", False)
@@ -127,9 +128,10 @@ def test_handled_cli_exit_non_zero_status_without_stacktrace() -> None:
     otlp = FakeCollector()
     client = otlp.client()
 
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         with client.span("cli_exit_span"):
             raise typer.Exit(1)
+    assert raised.value.exit_code is not None
 
     (span,) = otlp.spans
     # No stacktrace and no exception event on an intentional CLI exit, to keep traces small.
@@ -372,9 +374,10 @@ def test_telemetry_keyboard_interrupt_handling() -> None:
     otlp = FakeCollector()
     client = otlp.client()
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt) as raised:
         with client.span("interrupted_span"):
             raise KeyboardInterrupt()
+    assert raised.value is not None
 
     (span,) = otlp.spans
     assert (span.status_code, span.attributes.get("error.type")) == (

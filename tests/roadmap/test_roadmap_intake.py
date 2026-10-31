@@ -1086,8 +1086,9 @@ def test_a_rate_limit_or_a_refused_token_stops_the_round_with_no_further_writes(
         raise refusal
 
     with patch.object(roadmap.store, "label_issue", side_effect=refuse):
-        with pytest.raises(type(refusal)):
+        with pytest.raises(type(refusal)) as raised:
             roadmap.run(FakeModel())
+        assert raised.value is not None
     assert (tried, roadmap.store.item(second), _labels(roadmap, second)) == ([first], None, ())
 
 
@@ -1798,8 +1799,9 @@ def test_the_mcp_mirror_dry_run_dispatched_in_process_exports_no_telemetry(
     output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
     get_tracer().shutdown()
     after_dry_run = list(exports)
-    with pytest.raises(ToolError):
+    with pytest.raises(ToolError) as raised:
         mcp_server.roadmap_intake(repo=REPO, plan_only=True)
+    assert raised.value is not None
     get_tracer().shutdown()
     assert (
         "Dry run: no request was made" in output,

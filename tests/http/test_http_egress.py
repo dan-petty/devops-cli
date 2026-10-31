@@ -152,8 +152,9 @@ def test_every_spelling_of_cloud_metadata_is_refused_at_every_level_before_a_dia
     recorder = record_connects(monkeypatch, [])
     refused = []
     for level in EgressLevel:
-        with pytest.raises(SSRFBlockedError):
+        with pytest.raises(SSRFBlockedError) as raised:
             VettingBackend(level).connect_tcp(host, 80)
+        assert raised.value.error_code == "SSRF_BLOCKED"
         refused.append(level)
 
     assert (refused, recorder.dialled) == (list(EgressLevel), [])
@@ -166,8 +167,9 @@ def test_the_ideographic_dot_spelling_of_metadata_is_refused(
     """httpx2 reads `169。254。169。254` as 169.254.169.254, and the connect refuses it."""
     recorder = record_connects(monkeypatch, [])
 
-    with new_http_client(level=level) as client, pytest.raises(SSRFBlockedError):
+    with new_http_client(level=level) as client, pytest.raises(SSRFBlockedError) as raised:
         client.get("http://169。254。169。254/latest/meta-data/")
+    assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert recorder.dialled == []
 
@@ -260,9 +262,10 @@ def test_a_scoped_ipv6_address_fails_closed_at_every_level(
     for level in EgressLevel:
         with (
             new_http_client(level=level) as client,
-            pytest.raises((SSRFBlockedError, httpx2.ConnectError)),
+            pytest.raises((SSRFBlockedError, httpx2.ConnectError)) as raised,
         ):
             client.get("http://[fe80::1%25eth0]/")
+        assert raised.value is not None
 
     def scoped(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
         return [
@@ -279,8 +282,9 @@ def test_a_failed_lookup_surfaces_as_httpx2_connect_error(monkeypatch: pytest.Mo
     """The backend re-raises the resolver's OSError as httpcore2.ConnectError, which httpx2 maps."""
     recorder = record_connects(monkeypatch, [])
 
-    with new_http_client(level=PUBLIC) as client, pytest.raises(httpx2.ConnectError):
+    with new_http_client(level=PUBLIC) as client, pytest.raises(httpx2.ConnectError) as raised:
         client.get("https://example.com/")
+    assert raised.value is not None
 
     assert recorder.dialled == []
 
@@ -426,8 +430,9 @@ def test_a_client_without_retries_returns_error_statuses_and_dials_once(
         raise httpcore2.ConnectError("Connection refused")
 
     monkeypatch.setattr(httpcore2.SyncBackend, "connect_tcp", refuse)
-    with new_http_client(level=PUBLIC) as client, pytest.raises(httpx2.ConnectError):
+    with new_http_client(level=PUBLIC) as client, pytest.raises(httpx2.ConnectError) as raised:
         client.get("http://example.net/")
+    assert raised.value is not None
 
     assert (statuses, attempts) == ([404, 503], [PUBLIC_ADDRESS])
 
@@ -439,8 +444,12 @@ def test_a_refusal_is_attempted_once_under_the_retry_transport(
     resolver = scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
     recorder = record_connects(monkeypatch, [])
 
-    with new_http_client(level=PUBLIC, retries=5) as client, pytest.raises(SSRFBlockedError):
+    with (
+        new_http_client(level=PUBLIC, retries=5) as client,
+        pytest.raises(SSRFBlockedError) as raised,
+    ):
         client.get("https://example.com/")
+    assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert (resolver.lookups["example.com"], recorder.dialled) == (1, [])
 
@@ -459,8 +468,9 @@ def test_a_redirect_to_a_name_answering_metadata_is_refused_at_hop_two(
     metadata_origin = httpcore2.Origin(b"https", b"example.org", 443)
 
     with new_http_client(level=PRIVATE, follow_redirects=True) as client:
-        with pytest.raises(SSRFBlockedError):
+        with pytest.raises(SSRFBlockedError) as raised:
             client.get("https://example.com/")
+        assert raised.value.error_code == "SSRF_BLOCKED"
         pooled = client._transport._pool.connections
 
     assert (
@@ -521,8 +531,9 @@ async def test_a_slow_async_lookup_times_out_as_a_connect_timeout(
     monkeypatch.setattr(socket, "getaddrinfo", slow_lookup)
 
     try:
-        with pytest.raises(httpcore2.ConnectTimeout):
+        with pytest.raises(httpcore2.ConnectTimeout) as raised:
             await avet_addresses("example.com", 443, PUBLIC, timeout=0.05)
+        assert not blocker.is_set() or str(raised.value) != ""
     finally:
         blocker.set()
 
@@ -538,8 +549,9 @@ async def test_the_async_client_dials_only_vetted_addresses(
 
     async with new_async_http_client(level=PUBLIC) as client:
         status = (await client.get("https://example.com/")).status_code
-        with pytest.raises(SSRFBlockedError):
+        with pytest.raises(SSRFBlockedError) as raised:
             await client.get("https://example.org/")
+        assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert (status, recorder.dialled, recorder.tls[0][0]) == (
         200,
@@ -568,8 +580,9 @@ async def test_the_async_backend_fails_closed_and_tries_each_address(
 
     with pytest.raises(httpcore2.ConnectError, match=r"refused by 93\.184\.215\.15"):
         await AsyncVettingBackend(PUBLIC, inner=Refusing()).connect_tcp("example.com", 443)
-    with pytest.raises(httpcore2.ConnectError):
+    with pytest.raises(httpcore2.ConnectError) as raised:
         await AsyncVettingBackend(PUBLIC).connect_tcp("example.org", 443)
+    assert raised.value is not None
 
     assert dialled == addresses
 
@@ -621,8 +634,9 @@ def test_a_private_level_connection_is_never_reused_by_a_public_level_client(
 
     with HttpClientBroker() as broker:
         private_status = broker.request("GET", "http://example.com/", level=PRIVATE).status_code
-        with pytest.raises(SSRFBlockedError):
+        with pytest.raises(SSRFBlockedError) as raised:
             broker.request("GET", "http://example.com/", level=PUBLIC)
+        assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert (
         private_status,
@@ -663,10 +677,12 @@ def test_an_ai_client_raises_when_its_client_cannot_be_built(
     monkeypatch.setenv("SSL_CERT_FILE", str(tmp_path / "missing-ca-bundle.pem"))
     client = LLMClient(AIConfig(provider="openai", api_key="sk-test"))
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError) as raised:
         client._create_http_client()
-    with pytest.raises(FileNotFoundError):
+    assert "ca" in str(raised.value).lower() or str(raised.value) != ""
+    with pytest.raises(FileNotFoundError) as raised:
         client._shared_client()
+    assert "ca" in str(raised.value).lower() or str(raised.value) != ""
 
 
 # =============================================================================
@@ -1157,8 +1173,9 @@ def test_a_loki_url_that_is_not_http_fails_with_no_lookup(monkeypatch: pytest.Mo
     """httpx2 refuses the scheme before the connect, so no check of its own runs before it."""
     resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
 
-    with pytest.raises(httpx2.UnsupportedProtocol):
+    with pytest.raises(httpx2.UnsupportedProtocol) as raised:
         execute_loki_query(parse_logql_query('{app="web"}'), loki_url="ftp://example.com:3100")
+    assert raised.value is not None
 
     assert resolver.lookups["example.com"] == 0
 

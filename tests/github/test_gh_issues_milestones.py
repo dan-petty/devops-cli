@@ -131,8 +131,9 @@ def test_a_name_that_is_no_exact_title_is_an_error(github_api: GitHubApiFake, na
 def test_a_milestone_read_that_fails_is_not_a_missing_milestone(github_api: GitHubApiFake) -> None:
     """A page that is no list of milestones raises the unread error, not "not found"."""
     github_api.route("GET", _MILESTONES, github_json({"message": "Server Error"}))
-    with pytest.raises(GitHubUnreadError):
+    with pytest.raises(GitHubUnreadError) as raised:
         resolve_milestone_number("example/repo", "Q4 hardening")
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_resolve_updated_labels(process_fake: ProcessFake) -> None:

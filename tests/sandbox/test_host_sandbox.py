@@ -594,8 +594,9 @@ def test_sandbox_refuses_a_bind_that_holds_the_home_directory_the_tree_or_a_cred
         "credential directory": home / ".ssh" / "keys",
     }[case]
 
-    with pytest.raises(SandboxValidationError):
+    with pytest.raises(SandboxValidationError) as raised:
         HostSandbox().build_bwrap_args(["true"], cwd=tree, repo_root=tree, **{kind: [bind]})
+    assert raised.value.error_code == "SANDBOX_VALIDATION_ERROR"
 
 
 def test_sandbox_binds_each_writable_directory_read_write_after_the_read_only_binds(

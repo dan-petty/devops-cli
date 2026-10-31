@@ -1753,10 +1753,11 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
     fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
     with (
         patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
-        pytest.raises(typer.Exit),
+        pytest.raises(typer.Exit) as raised,
     ):
         _handle_ci_results(fail_results, root=tmp_path, ci_options={})
         assert mock_clear.call_count == 1
+    assert raised.value.exit_code is not None
 
 
 def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
