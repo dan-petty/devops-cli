@@ -42,10 +42,12 @@ from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelContextWindowExceededError,
     ModelHTTPError,
+    ModelRequestTimeout,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
 from pydantic_ai_harness.shell import Shell
@@ -71,6 +73,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
+    CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS,
@@ -79,6 +82,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REASON_TESTS,
+    CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
@@ -86,6 +90,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.process_hardening import end_leftover_processes
+from devops_cli.exceptions.ai_pydantic import OutputCapReached
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
@@ -96,6 +101,7 @@ from devops_cli.roadmap.agent_run import (
     model_call_error,
     record_run_spend,
 )
+from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
@@ -400,8 +406,9 @@ def build_agent(
     """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
     scratch `home`, the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
     tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
-    and it loads no instruction file of the checkout, so its context is the inputs of the step. The
-    shell is no security boundary: the runner of the step is the sandbox."""
+    and it loads no instruction file of the checkout, so its context is the inputs of the step. Each
+    model call has an output cap and a deadline (#2869). The shell is no security boundary: the
+    runner of the step is the sandbox."""
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
@@ -413,7 +420,17 @@ def build_agent(
         model,
         output_type=str,
         retries={"tools": CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES},
-        capabilities=[LocalWorkspace(source), tuned, shell_refusal_hooks(), log.hooks()],
+        model_settings=ModelSettings(
+            max_tokens=CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS,
+            request_timeout=CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+        ),
+        capabilities=[
+            LocalWorkspace(source),
+            tuned,
+            shell_refusal_hooks(),
+            log.hooks(),
+            output_cap_hooks(CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS),
+        ],
     )
 
 
@@ -492,6 +509,8 @@ def _model_call_reason(failed: ModelAPIError, log: ToolCallLog) -> str:
         detail = texts.implement_model_call_status.format(status=failed.status_code, model=detail)
         if body := body_error_text(failed.body):
             detail = texts.implement_model_call_body.format(detail=detail, body=body)
+    if isinstance(failed, ModelRequestTimeout):
+        detail = texts.implement_model_call_deadline.format(detail=detail, seconds=failed.timeout)
     reason = texts.run_stop_reason.format(error=type(failed).__name__, message=detail)
     return _with_counts(reason, log)
 
@@ -572,6 +591,7 @@ def _run_turn(
     )
     reason = last = ""
     kept = resend = None
+    cut: list[ModelResponse] = []
     error: AICredentialsError | None = None
     started = time.monotonic()
     with capture_run_messages() as messages:
@@ -585,6 +605,8 @@ def _run_turn(
             last, kept = result.output, result.conversation
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
             reason, last = _stop_reason(stopped, log), _last_text(messages)
+            if isinstance(stopped, OutputCapReached):
+                cut.append(stopped.response)
         except ModelAPIError as exc:
             refused = model_call_error(exc, "The step's")
             if isinstance(refused, AICredentialsError):
@@ -594,7 +616,7 @@ def _run_turn(
                 reason, last = _model_call_reason(exc, log), _last_text(messages)
                 resend = _resend_after(exc, messages, conversation)
         finally:
-            replies = _new_replies(messages, conversation)
+            replies = [*_new_replies(messages, conversation), *cut]
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
     if error is not None:
         raise error
