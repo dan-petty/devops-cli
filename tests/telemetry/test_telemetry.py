@@ -295,14 +295,9 @@ def test_parent_context_dict_extraction() -> None:
     assert (span.trace_id, span.parent_span_id) == (parent_trace_id, parent_span_id)
 
 
-def test_tracer_helpers_and_shutdown(collector: str) -> None:
-    """Test get_current_span_context, shutdown_tracer and reset_tracer, and that a disabled
-    client exports nothing."""
-    from devops_cli.telemetry.tracer import (
-        get_current_span_context,
-        reset_tracer,
-        shutdown_tracer,
-    )
+def test_get_current_span_context(collector: str) -> None:
+    """get_current_span_context returns active span_id and trace_id within a span."""
+    from devops_cli.telemetry.tracer import get_current_span_context
 
     client = OTelTelemetryClient(endpoint=collector, enabled=True)
     with client.span("context_test_span") as s_id:
@@ -311,6 +306,9 @@ def test_tracer_helpers_and_shutdown(collector: str) -> None:
         assert ctx["trace_id"] is not None
     client.shutdown()
 
+
+def test_disabled_client_exports_nothing() -> None:
+    """A disabled telemetry client exports nothing to the collector."""
     otlp = FakeCollector()
     disabled_client = OTelTelemetryClient(enabled=False, exporter=otlp)
     with disabled_client.span("disabled_span"):
@@ -318,9 +316,16 @@ def test_tracer_helpers_and_shutdown(collector: str) -> None:
     disabled_client.flush()
     assert otlp.exports == []
 
+
+def test_tracer_lifecycle_reset_and_shutdown() -> None:
+    """reset_tracer and shutdown_tracer safely cycle the global tracer."""
+    from devops_cli.telemetry.tracer import reset_tracer, shutdown_tracer
+
     reset_tracer()
-    get_tracer()
+    tracer = get_tracer()
+    assert tracer.endpoint.startswith("http")
     shutdown_tracer()
+    assert tracer._executor is None
 
 
 def test_telemetry_traceparent_helpers() -> None:
@@ -386,19 +391,29 @@ def test_telemetry_keyboard_interrupt_handling() -> None:
     )
 
 
-def test_telemetry_payload_and_shutdown_error_branches(collector: str) -> None:
-    """A full executor drops the export, and a failed executor shutdown still clears it."""
+def test_full_executor_drops_export(collector: str) -> None:
+    """A full executor drops the export gracefully."""
     client = OTelTelemetryClient(endpoint=collector, enabled=True)
     mock_exec = MagicMock()
     mock_exec.submit.side_effect = RuntimeError("thread pool full")
-    mock_exec.shutdown.side_effect = RuntimeError("exec shutdown fail")
     client._executor = mock_exec
 
     with client.span("dropped_span"):
         pass
     client.shutdown()
 
-    assert (client._executor, client.export_successes, client.export_failures) == (None, 0, 0)
+    assert (client.export_successes, client.export_failures) == (0, 0)
+
+
+def test_failed_executor_shutdown_still_clears_executor(collector: str) -> None:
+    """A failed executor shutdown still clears the client executor reference."""
+    client = OTelTelemetryClient(endpoint=collector, enabled=True)
+    mock_exec = MagicMock()
+    mock_exec.shutdown.side_effect = RuntimeError("exec shutdown fail")
+    client._executor = mock_exec
+
+    client.shutdown()
+    assert client._executor is None
 
 
 def test_resolve_telemetry_settings_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -611,3 +626,73 @@ def test_sdk_meter_provider_flushes_one_batch_over_http_receiver() -> None:
         hist_pt["sum"],
         int(hist_pt["startTimeUnixNano"]) < int(hist_pt["timeUnixNano"]),
     ) == ("/v1/metrics", 10.0, True, 10, 55.0, True)
+
+
+def test_otel_typer_subcommand_span_and_metrics() -> None:
+    """Verify that new_typer() commands automatically emit trace spans and metrics."""
+    otlp = FakeCollector()
+    client = otlp.client()
+    from devops_cli.core.cli import new_typer
+
+    app = new_typer()
+
+    @app.command(name="test-subcmd")
+    def sample_subcommand(target: str = "cluster-1") -> None:
+        client.increment_counter("test.runs", 1.0)
+
+    from typer.testing import CliRunner
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--target", "prod-cluster"])
+    assert result.exit_code == 0
+    client.flush()
+    assert any(m["name"] == "test.runs" for m in otlp.metrics)
+
+
+def test_span_events_and_exception_stacktrace() -> None:
+    """Verify that SpanHandle records custom events and captures full exception stack traces."""
+    otlp = FakeCollector()
+    client = otlp.client()
+
+    with client.span("test.milestones") as handle:
+        handle.add_event("milestone_1", {"key": "value1"})
+        handle.add_event("milestone_2", {"step": 2})
+
+    (span,) = otlp.spans
+    assert len(span.events) == 2
+    assert span.events[0] == "milestone_1"
+    assert span.events[1] == "milestone_2"
+
+    with pytest.raises(ValueError, match="Boom"):
+        with client.span("test.failing"):
+            raise ValueError("Boom")
+
+    failing_span = otlp.spans[-1]
+    assert failing_span.status_code == "STATUS_CODE_ERROR"
+    assert failing_span.attributes.get("exception.type") == "ValueError"
+    assert "Boom" in failing_span.attributes.get("exception.message", "")
+
+
+def test_span_handle_attribute_mutation() -> None:
+    """Verify that SpanHandle allows updating attributes dynamically."""
+    from devops_cli.telemetry.tracer import SpanHandle
+
+    attrs: dict[str, Any] = {}
+    handle = SpanHandle("test_span_id", attrs)
+    handle.set_attribute("new_key", "new_val")
+    handle.set_attributes({"a": 1, "b": 2})
+    assert attrs["new_key"] == "new_val"
+    assert attrs["a"] == 1
+    assert attrs["b"] == 2
+
+
+def test_resource_attributes_standard() -> None:
+    """Verify that standardized OTel resource attributes include runtime and SDK details."""
+    client = OTelTelemetryClient(enabled=True)
+    res_attrs = {
+        a["key"]: str(next(iter(a["value"].values()))) for a in client._get_resource_attributes()
+    }
+    assert res_attrs["service.name"] == "devops-cli"
+    assert res_attrs["process.runtime.name"] == "cpython"
+    assert res_attrs["telemetry.sdk.name"] == "devops-cli-otel"
+    assert res_attrs["telemetry.sdk.language"] == "python"

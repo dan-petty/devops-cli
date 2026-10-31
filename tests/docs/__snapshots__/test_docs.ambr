@@ -1,0 +1,96 @@
+# serializer version: 1
+# name: test_render_markdown_and_json
+  dict({
+    'cli_md': '''
+      # DevOps CLI Reference
+      
+      Complete command-line reference for `devops-cli`, automatically generated from CLI command specifications.
+      
+      ## Command Groups
+      
+      - [`devops dummy`](#devops-dummy) — Dummy summary
+      
+      ---
+      
+      ## devops dummy
+      
+      Dummy summary
+      
+      Dummy long description
+      
+      ### `devops dummy run`
+      
+      **Run dummy**
+      
+      Run dummy detail
+      
+      ```bash
+      devops dummy run [OPTIONS]
+      ```
+      
+      **Options:**
+      
+      | Option / Flag | Type | Default | Description |
+      |---|---|---|---|
+      | `--flag` | `boolean` | - | A flag |
+      
+      ---
+  
+    ''',
+    'group_md': '''
+      # `devops dummy`
+      
+      Dummy summary
+      
+      ## Commands
+      
+      ## `devops dummy run`
+      
+      **Run dummy**
+      
+      Run dummy detail
+      
+      ```bash
+      devops dummy run [OPTIONS]
+      ```
+      
+      **Options:**
+      
+      | Option / Flag | Type | Default | Description |
+      |---|---|---|---|
+      | `--flag` | `boolean` | - | A flag |
+      
+      ---
+  
+    ''',
+    'mcp_md': '''
+      # FastMCP Tool Catalog
+      
+      The `devops-cli` FastMCP server exposes DevOps automation and AI review capabilities to Model Context Protocol (MCP) clients and AI agents.
+      
+      ## Available Tools
+      
+      | Tool Name | `readOnlyHint` | Description |
+      |---|---|---|
+      | [`test_tool`](#test-tool) | - | A test tool |
+      
+      ---
+      
+      ### `test_tool`
+      
+      A test tool
+      
+      **Parameters:**
+      
+      | Parameter | Type | Required | Default | Description |
+      |---|---|---|---|---|
+      | `arg` | `string` | Yes | - | - |
+  
+    ''',
+    'readme_table': '''
+      | Command Group | Subcommand / Usage | Purpose & Features |
+      |---|---|---|
+      | [**dummy**](docs/commands/dummy.md) | `devops dummy run [OPTIONS]` | Run dummy |
+    ''',
+  })
+# ---

@@ -509,7 +509,7 @@ class RepoWorker:
     def _execute_scoped(self, scoped_func: Callable[[], None]) -> None:
         """Execute a scoped update task and record Prometheus metrics and execution duration."""
         start_time = time.perf_counter()
-        start_epoch = time.time()
+        start_epoch = self.clock().timestamp()
         GLOBAL_METRICS.set_gauge(
             CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels=self._labels
         )
@@ -562,7 +562,7 @@ class RepoWorker:
     def _execute_batch(self, batch: TriggerBatch) -> None:
         """Execute the job function and record Prometheus metrics and execution duration."""
         start_time = time.perf_counter()
-        start_epoch = time.time()
+        start_epoch = self.clock().timestamp()
         GLOBAL_METRICS.set_gauge(
             CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels=self._labels
         )
@@ -955,3 +955,70 @@ def create_service_app(
         )
 
     return app
+
+
+def validate_service_mode(
+    settings: Settings,
+    *,
+    reload: bool = False,
+    workers: int = 1,
+    raw_webhook_secrets: str | None = None,
+    has_private_key: bool | None = None,
+) -> dict[str, str]:
+    """Validate options, target repositories, GitHub App credentials, and webhook secrets.
+
+    Returns the parsed webhook secrets mapping {repo: secret}.
+    Raises ValueError when the configuration or options are invalid.
+    """
+    if reload:
+        raise ValueError("Service mode does not support auto-reload (--reload).")
+    if workers > 1:
+        raise ValueError("Service mode does not support multiple worker processes (--workers > 1).")
+    if not settings.service.repos:
+        raise ValueError(
+            "Configuration error: service.repos must configure at least one target repository."
+        )
+
+    app_config = settings.service.github_app
+    missing = [
+        option
+        for option, value in (
+            ("service.github_app.app_id", app_config.app_id),
+            ("service.github_app.installation_id", app_config.installation_id),
+            ("service.github_app.slug", app_config.slug),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(MESSAGES.serve.github_app_unset.format(settings=", ".join(missing)))
+
+    from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
+    from devops_cli.core.process import acts_as_github_app
+
+    key_present = acts_as_github_app() if has_private_key is None else has_private_key
+    if not key_present:
+        raise ValueError(
+            MESSAGES.serve.github_app_key_missing.format(
+                login=app_config.bot_login, key_env=CONST_GITHUB_APP_PRIVATE_KEY_ENV
+            )
+        )
+
+    raw_secrets = (
+        get_service_webhook_secrets(settings)
+        if raw_webhook_secrets is None
+        else raw_webhook_secrets
+    )
+    if not raw_secrets:
+        raise ValueError(
+            "Configuration error: managed credential 'service.webhook_secrets' is missing or empty."
+        )
+
+    try:
+        parsed = json.loads(raw_secrets)
+        if not isinstance(parsed, dict):
+            raise ValueError("Must be a JSON object")
+        return {str(k): str(v) for k, v in parsed.items()}
+    except Exception as exc:
+        raise ValueError(
+            "Configuration error: managed credential 'service.webhook_secrets' must be a valid JSON object."
+        ) from exc

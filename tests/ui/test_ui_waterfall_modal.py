@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Static
 
@@ -23,7 +22,6 @@ class DummyModalApp(App[None]):
         self.push_screen(self.modal)
 
 
-@pytest.mark.asyncio
 async def test_trace_waterfall_modal_renders_spans() -> None:
     """Waterfall modal builds span tree and populates data table."""
     sample_spans = [
@@ -63,7 +61,6 @@ async def test_trace_waterfall_modal_renders_spans() -> None:
         assert modal not in app.screen_stack
 
 
-@pytest.mark.asyncio
 async def test_trace_waterfall_modal_empty_state() -> None:
     """Waterfall modal handles missing spans gracefully."""
     modal = TraceWaterfallModal(trace_id="00000000000000000000000000000000", spans=[])

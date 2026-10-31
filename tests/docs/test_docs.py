@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import click
 import pytest
+from syrupy.assertion import SnapshotAssertion
 from typer.testing import CliRunner
 
 from devops_cli.commands.docs import app as docs_app
@@ -103,7 +104,7 @@ def test_doc_generator_introspect_mcp_tools(generator: DocGenerator) -> None:
     assert "review_path" in tool_names
 
 
-def test_render_markdown_and_json(generator: DocGenerator) -> None:
+def test_render_markdown_and_json(generator: DocGenerator, snapshot: SnapshotAssertion) -> None:
     groups = [
         CommandGroupDoc(
             name="dummy",
@@ -155,6 +156,13 @@ def test_render_markdown_and_json(generator: DocGenerator) -> None:
     mcp_md = generator.render_mcp_tools_markdown(tools)
     assert "# FastMCP Tool Catalog" in mcp_md
     assert "### `test_tool`" in mcp_md
+
+    assert {
+        "cli_md": cli_md,
+        "group_md": group_md,
+        "readme_table": readme_table,
+        "mcp_md": mcp_md,
+    } == snapshot
 
     json_dict = generator.to_json_dict()
     assert "groups" in json_dict

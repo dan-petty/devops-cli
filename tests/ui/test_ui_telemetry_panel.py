@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Input, Static
 
@@ -26,7 +25,6 @@ class DummyTelemetryApp(App[None]):
         yield self.panel
 
 
-@pytest.mark.asyncio
 async def test_telemetry_panel_compose_and_snapshot() -> None:
     """TelemetryPanel renders sparklines, LogQL input, and trace table upon snapshot."""
     panel = TelemetryPanel()
@@ -78,7 +76,6 @@ async def test_telemetry_panel_compose_and_snapshot() -> None:
         assert table.row_count == 3
 
 
-@pytest.mark.asyncio
 async def test_telemetry_panel_logql_query_submission() -> None:
     """Submitting a LogQL query triggers log stream in LogPane."""
     panel = TelemetryPanel()
@@ -113,7 +110,6 @@ async def test_telemetry_panel_logql_query_submission() -> None:
             log_pane._close_source()
 
 
-@pytest.mark.asyncio
 async def test_telemetry_panel_opens_waterfall_modal() -> None:
     """Pressing 'w' shortcut or selecting a trace row opens TraceWaterfallModal."""
     panel = TelemetryPanel()
