@@ -940,6 +940,7 @@ def _resolve_effective_addressing(addressing: str | None, settings: Any) -> str:
     return CONST_ADDRESSING_NODEPORT
 
 
+@dry_run_class("request-plan")
 def configure_urls(
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[

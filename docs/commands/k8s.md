@@ -102,6 +102,7 @@ devops k8s render [OPTIONS] <path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

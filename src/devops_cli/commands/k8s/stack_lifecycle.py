@@ -37,7 +37,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
 )
-from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result, set_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.exceptions.k8s import (
     ClusterSecretPushError,
@@ -426,6 +426,7 @@ def _mask_email_display(email: str) -> str:
     return "***"
 
 
+@dry_run_class("request-plan")
 def bootstrap_openwebui(
     email: Annotated[
         str,
@@ -1396,6 +1397,7 @@ def deploy_stack(
     _apply_stack_config_writes(selected_stacks)
 
 
+@dry_run_class("request-plan")
 def sync_secrets(
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
@@ -1414,15 +1416,15 @@ def sync_secrets(
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
-    set_dry_run(dry_run)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s sync-secrets",
+            target=stack,
             action="sync_stack_secrets",
             details={
                 "stack": stack,
-                "context": effective_context or "active",
-                "targets": "argocd.password, grafana.password",
+                "context": effective_context,
+                "credentials": ["argocd", "grafana"] if stack in ("infra", "all") else [],
             },
         )
         return
@@ -1464,6 +1466,7 @@ def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> N
             )
 
 
+@dry_run_class("request-plan")
 def teardown_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,

@@ -13,7 +13,7 @@ import typer
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.paths import validate_no_path_traversal
-from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions.k8s import KubernetesContextError, KubernetesError
 from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.lang import HELP, MESSAGES
@@ -164,19 +164,9 @@ def _apply_template(
     rendered_yaml = render_manifest_path(path, domain=effective_domain)
 
     cmd = ["kubectl", "apply", "-f", "-"]
-    if dry_run or is_dry_run():
-        cmd += ["--dry-run=client"]
     if namespace:
         cmd += ["--namespace", namespace]
 
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s apply",
-            target=path,
-            action="kubectl_apply_template",
-            details={"cmd": " ".join(cmd), "domain": effective_domain, "namespace": namespace},
-        )
-        return
     runtime._run_cmd(cmd, input=rendered_yaml, check=True)
 
 
@@ -206,6 +196,7 @@ def _validate_manifest_url(url: str) -> None:
         raise KubernetesContextError(f"Manifest URL egress check failed: {exc}") from exc
 
 
+@dry_run_class("request-plan")
 def apply(
     path: Annotated[str, typer.Argument(help=HELP.k8s.manifest_path)],
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
@@ -220,6 +211,14 @@ def apply(
     ] = None,
 ) -> None:
     """Apply a Kubernetes manifest (delegates to kubectl)."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.manifest_plans import plan_k8s_apply
+
+        requests = plan_k8s_apply(path=path, namespace=namespace, template=template, domain=domain)
+        render_request_plan("devops k8s apply", requests)
+        return
+
     if bool(urlsplit(path).scheme):
         _validate_manifest_url(path)
     else:
@@ -241,24 +240,26 @@ def apply(
         cmd += ["--dry-run=client"]
     if namespace:
         cmd += ["--namespace", namespace]
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s apply",
-            target=path,
-            action="kubectl_apply",
-            details={"cmd": " ".join(cmd), "namespace": namespace},
-        )
-        return
     runtime._run_cmd(cmd, check=True)
 
 
+@dry_run_class("request-plan")
 def render(
     path: Annotated[str, typer.Argument(help=HELP.k8s.manifest_path)],
     domain: Annotated[
         str | None, typer.Option("--domain", "-d", help=HELP.k8s.template_domain)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Render Kubernetes manifest templates with domain and variables substituted."""
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.manifest_plans import plan_k8s_render
+
+        requests = plan_k8s_render(path=path, domain=domain)
+        render_request_plan("devops k8s render", requests)
+        return
+
     validate_no_path_traversal(path, error_cls=KubernetesContextError, label="Manifest path")
     from devops_cli.k8s.template import render_manifest_path, resolve_template_domain
 
@@ -369,14 +370,6 @@ def _execute_legacy_kubectl_logs(
         cmd += ["--namespace", namespace]
     if follow:
         cmd.append("--follow")
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops k8s logs",
-            target=pod,
-            action="kubectl_logs",
-            details={"cmd": " ".join(cmd), "pod": pod, "tail": bounded_tail},
-        )
-        return
 
     if _stream_native_pod_logs(pod, namespace, container, bounded_tail, follow):
         return
