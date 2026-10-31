@@ -7,7 +7,7 @@
 - [x] 1.4 Regenerate the documentation with `uv run devops docs generate --sync-readme`
 
 ## 2. The routes to the document
-- [x] 2.1 Replace words of one row of the table in `AGENTS.md` so that it links to the document and the file stays within its cap; verify with `uv run devops ci test tests/invariants/test_agents_md_claims.py`
+- [x] 2.1 Route the SDLC row of the table in `AGENTS.md` to the document, and merge the command row into the CONTRIBUTING row and the ADR row into the term row, so that the file stays within its cap (6,471 of 6,500 characters); verify with `uv run devops ci test tests/invariants/test_agents_md_claims.py`
 - [x] 2.2 Shorten Phase 1 of `docs/SDLC.md` and link it to the document
 - [x] 2.3 Add the document to `docs/index.md`
 - [x] 2.4 Regenerate the documentation with `uv run devops docs generate --sync-readme`
