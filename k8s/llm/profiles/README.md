@@ -45,24 +45,28 @@ model_list:
     litellm_params:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
-      model_info:
-        max_input_tokens: 262144
+    model_info:
+      max_input_tokens: 262144
   - model_name: devops-chat
     litellm_params:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
-      model_info:
-        max_input_tokens: 160000
+    model_info:
+      max_input_tokens: 160000
 
   - model_name: devops-coder
     litellm_params:
       model: ollama_chat/qwen3-coder:30b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
+    model_info:
+      max_input_tokens: 262144
 
   - model_name: devops-reasoning
     litellm_params:
       model: ollama_chat/qwen3-coder:30b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
+    model_info:
+      max_input_tokens: 262144
 
   # One deployment on each serving tier; order 1 first, order 2 when every order 1 fails.
   - model_name: qwen3-embedding:0.6b

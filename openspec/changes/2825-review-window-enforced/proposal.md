@@ -32,7 +32,7 @@ None.
 ## Impact
 
 - Cluster: the gateway Deployment rolls when Argo CD syncs the new ConfigMap. No Ollama tier changes.
-- A prompt longer than the window of a deployment no longer reaches it. A prompt longer than every window of a group gets a `ContextWindowExceededError` from the gateway.
+- A prompt longer than the window of a deployment no longer reaches it. A prompt longer than every window of a group ends with a `ContextWindowExceededError` from the gateway, after its plain fallbacks.
 - `devops ai gateway tune` reads `model_info.max_input_tokens` from `/model/info`. It now sees the window of each deployment and keeps its probe prompt within 90% of it.
 - `devops-review` falls back to `devops-background` (128000). A prompt longer than that window now fails there with an error. Before, Ollama cut it without an error.
 
