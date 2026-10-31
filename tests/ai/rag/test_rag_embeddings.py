@@ -772,8 +772,9 @@ def test_an_engine_whose_valkey_refuses_embeds_and_dials_it_once_in_each_cooldow
             clock.shift(_valkey_cache_cooldown())
             engine.embed_texts(["third"])
             dials = list(unexpected_loopback_connects)
-            with pytest.raises(BlockingIOError):
+            with pytest.raises(BlockingIOError) as raised:
                 service.accept()
+            assert raised.value is not None
         finally:
             unexpected_loopback_connects.clear()
     dial = f"127.0.0.1:{port} (MainThread)"
@@ -931,8 +932,9 @@ def test_openai_embeddings_does_not_retry_http_400(monkeypatch: pytest.MonkeyPat
     ai_cfg.tasks.embedding.model = "bge-m3:latest"
     engine = EmbeddingsEngine(ai_cfg, api_key="sk-test", valkey_client=None)
 
-    with pytest.raises(EmbeddingsError):
+    with pytest.raises(EmbeddingsError) as raised:
         engine.embed_texts(["bad request"])
+    assert raised.value.error_code == "EMBEDDINGS_ERROR"
 
     assert attempts == 1
 

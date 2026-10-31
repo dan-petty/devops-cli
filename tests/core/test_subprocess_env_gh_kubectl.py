@@ -111,7 +111,8 @@ def test_run_subprocess_starts_no_child_for_a_refused_gh_key(tmp_path: Path) -> 
     ran = tmp_path / "ran"
     program = [sys.executable, "-c", f"open({str(ran)!r}, 'w').close()"]
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         run_subprocess(program, env={"GH_BROWSER": str(tmp_path / "browser")})
+    assert raised.value.error_code == "SECURITY_ERROR"
 
     assert not ran.exists()

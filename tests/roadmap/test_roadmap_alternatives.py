@@ -410,8 +410,9 @@ def test_a_spent_github_quota_stops_the_run(
     monkeypatch.setattr(store, "repository_facts", spent)
     tools = AlternativesTools(store=store, firecrawl_key="fc-test")
 
-    with pytest.raises(GitHubRateLimitError):
+    with pytest.raises(GitHubRateLimitError) as raised:
         tools.github_repository("example/scanner")
+    assert raised.value.error_code == "GITHUB_RATE_LIMIT_UNKNOWN"
 
 
 def test_the_two_fact_tools_share_one_read_limit(
@@ -1005,8 +1006,9 @@ def test_rejected_credentials_stop_the_run_at_the_first_item(
     _item(store, "Second")
     script = _by_item({first: ModelHTTPError(401, "m")})
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         _plan(store, script)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     assert len(script.seen) == 1
     assert store.job_writes() == []
@@ -1226,8 +1228,9 @@ def test_the_limit_setting_defaults_to_five_and_is_at_least_one(
     from devops_cli.config.settings import AlternativesConfig, load_settings
 
     config()
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         AlternativesConfig(limit=0)
+    assert len(raised.value.errors()) > 0
     assert load_settings().roadmap.alternatives.limit == 5
 
 

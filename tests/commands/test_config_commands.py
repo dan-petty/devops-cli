@@ -368,12 +368,14 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     from devops_cli.exceptions.security import SecurityError
 
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", "/etc/passwd")
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         get_active_config_path()
+    assert raised.value.error_code == "SECURITY_ERROR"
 
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", "../../../etc/shadow")
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         get_active_config_path()
+    assert raised.value.error_code == "SECURITY_ERROR"
 
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
 

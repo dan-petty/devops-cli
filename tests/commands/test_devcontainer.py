@@ -2176,8 +2176,9 @@ def test_the_password_prompt_gives_up_after_its_timeout(monkeypatch: pytest.Monk
         "getpass.getpass", lambda prompt="": hang.wait(THREAD_HANDOFF_BOUND_SECONDS) or "late"
     )
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(TimeoutError) as raised:
         _read_password("Keyring password: ", timeout=1)
+    assert raised.type is TimeoutError
 
 
 def test_post_start_asks_for_the_keyring_password_on_a_terminal(

@@ -337,14 +337,17 @@ def test_cli_and_config_validation_bounds() -> None:
     from pydantic import ValidationError as PydanticValidationError
 
     # Model validation
-    with pytest.raises(PydanticValidationError):
+    with pytest.raises(PydanticValidationError) as raised:
         ChaosConfig(latency_ms=-10)
+    assert raised.value is not None
 
-    with pytest.raises(PydanticValidationError):
+    with pytest.raises(PydanticValidationError) as raised:
         ChaosConfig(error_rate=1.5)
+    assert raised.value is not None
 
-    with pytest.raises(PydanticValidationError):
+    with pytest.raises(PydanticValidationError) as raised:
         ChaosConfig(error_rate=-0.1)
+    assert raised.value is not None
 
     # CLI validation
     runner = CliRunner()
@@ -378,11 +381,13 @@ def test_fastmcp_ai_chaos_model_tool() -> None:
         assert "--dry-run" in cmd
 
     # Argument validation against flag injection
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         ai_chaos_model(mode="--malicious-flag")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         ai_chaos_model(fallback_model="--injected")
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 def test_chaos_injector_latency_delay_bounded() -> None:

@@ -34,8 +34,9 @@ def test_http_broker_traceparent_header_injection() -> None:
 def test_http_broker_hook_refuses_a_scheme_other_than_http() -> None:
     """The request hook admits http and https hops only; it makes no lookup."""
     HttpClientBroker._validate_request(httpx2.Request("GET", "https://example.com/repos"))
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         HttpClientBroker._validate_request(httpx2.Request("GET", "ftp://example.com/api"))
+    assert raised.value.error_code == "INVALID_URL"
 
 
 @pytest.mark.asyncio
@@ -68,8 +69,9 @@ def test_http_broker_never_sends_a_link_local_redirect_hop(stub_web: StubWeb) ->
     """
     _serve_chain(stub_web, _LINK_LOCAL)
 
-    with pytest.raises(SSRFBlockedError):
+    with pytest.raises(SSRFBlockedError) as raised:
         get_broker().request("GET", _START, level=EgressLevel.PRIVATE)
+    assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert stub_web.requested == [_START]
 
@@ -89,8 +91,9 @@ def test_http_broker_holds_every_hop_to_the_request_egress_policy(stub_web: Stub
         request = client.build_request(
             "GET", _START, extensions={CONST_HTTP_EGRESS_POLICY_EXTENSION: public_only}
         )
-        with pytest.raises(SSRFBlockedError):
+        with pytest.raises(SSRFBlockedError) as raised:
             client.send(request)
+        assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert (vetted, stub_web.requested) == ([_START, _LOOPBACK], [_START])
 
@@ -108,8 +111,9 @@ def test_http_broker_keeps_its_own_veto_under_a_request_egress_policy(
         request = client.build_request(
             "GET", _START, extensions={CONST_HTTP_EGRESS_POLICY_EXTENSION: vetted.append}
         )
-        with pytest.raises(SSRFBlockedError):
+        with pytest.raises(SSRFBlockedError) as raised:
             client.send(request)
+        assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert (vetted, stub_web.requested) == ([_START, hop], [_START])
 
@@ -126,8 +130,9 @@ async def test_http_broker_async_client_vetoes_each_redirect_hop(stub_web: StubW
     policy = {CONST_HTTP_EGRESS_POLICY_EXTENSION: public_only}
 
     async with HttpClientBroker() as broker:
-        with pytest.raises(SSRFBlockedError):
+        with pytest.raises(SSRFBlockedError) as raised:
             await broker.arequest("GET", _START, level=EgressLevel.PRIVATE, extensions=policy)
+        assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert stub_web.requested == [_START]
 
@@ -136,8 +141,9 @@ def test_http_broker_stops_a_redirect_loop_below_the_httpx2_default(stub_web: St
     """A redirect loop ends after the broker's redirect limit, which is below httpx2's 20."""
     stub_web.redirect(_START, _START)
 
-    with pytest.raises(httpx2.TooManyRedirects):
+    with pytest.raises(httpx2.TooManyRedirects) as raised:
         get_broker().request("GET", _START, level=EgressLevel.PUBLIC)
+    assert raised.value is not None
 
     assert (len(stub_web.requested), DEFAULT_HTTP_MAX_REDIRECTS < 20) == (
         DEFAULT_HTTP_MAX_REDIRECTS + 1,
@@ -153,8 +159,9 @@ async def test_http_broker_async_client_stops_a_redirect_loop_below_the_httpx2_d
     stub_web.redirect(_START, _START)
 
     async with HttpClientBroker() as broker:
-        with pytest.raises(httpx2.TooManyRedirects):
+        with pytest.raises(httpx2.TooManyRedirects) as raised:
             await broker.arequest("GET", _START, level=EgressLevel.PUBLIC)
+        assert raised.value is not None
 
     assert len(stub_web.requested) == DEFAULT_HTTP_MAX_REDIRECTS + 1
 

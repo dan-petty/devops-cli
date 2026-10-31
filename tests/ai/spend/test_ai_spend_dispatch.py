@@ -363,8 +363,9 @@ def test_failed_chat_dispatch_attempts_are_recorded_in_spend_ledger(
     # 4. 500 five times -> 5 error rows, call raises
     spend_ledger.reset()
     route_retrying_client(client, monkeypatch, _server_error)
-    with pytest.raises(AIClientError):
+    with pytest.raises(AIClientError) as raised:
         client.chat("system", "user", use_cache=False)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
     assert _ledger_rows(spend_ledger) == [("chat_dispatch", "error")] * 5
 
 

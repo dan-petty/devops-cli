@@ -163,8 +163,9 @@ mcpServers:
 
 def test_load_devops_mcp_toolsets_missing_file() -> None:
     """Verify load_devops_mcp_toolsets raises FileNotFoundError for missing configs."""
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError) as raised:
         load_devops_mcp_toolsets("/nonexistent/mcp_servers.json")
+    assert "mcp_servers.json" in str(raised.value)
 
 
 def test_agent_mcp_toolset_to_native() -> None:

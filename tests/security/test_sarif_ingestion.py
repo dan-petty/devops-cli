@@ -214,8 +214,9 @@ def test_a_malformed_result_is_skipped_rather_than_failing_the_document() -> Non
 )
 def test_a_document_that_is_not_sarif_is_rejected(description: str, document: Any) -> None:
     """Silently returning no findings would read as a clean scan."""
-    with pytest.raises(SarifError):
+    with pytest.raises(SarifError) as raised:
         from_sarif(document)
+    assert str(raised.value) != ""
 
 
 def test_reading_a_file_that_is_not_json_reports_the_file(tmp_path: Path) -> None:

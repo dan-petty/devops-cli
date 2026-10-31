@@ -100,10 +100,11 @@ def test_patch_missing_resource_raises_typed_not_found(crd_api: Any) -> None:
     """Patching an absent resource reports not-found rather than a generic failure."""
     crd_api.patch_namespaced_custom_object.side_effect = _ApiError(404)
 
-    with pytest.raises(ArgoResourceNotFoundError):
+    with pytest.raises(ArgoResourceNotFoundError) as raised:
         _service(crd_api).patch_resource(
             CONST_ARGO_PLURAL_ROLLOUTS, "web", {"status": {}}, namespace="apps"
         )
+    assert raised.value.error_code == "ARGO_RESOURCE_NOT_FOUND"
 
 
 def test_patch_transport_failure_raises_typed_argo_error(crd_api: Any) -> None:

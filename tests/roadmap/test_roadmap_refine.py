@@ -276,9 +276,10 @@ def test_the_web_search_state_of_a_round_whose_visibility_read_fails(
             "repository_is_private",
             side_effect=GitHubRateLimitError("GraphQL budget exhausted"),
         ),
-        pytest.raises(GitHubRateLimitError),
+        pytest.raises(GitHubRateLimitError) as raised,
     ):
         web_search_of(store)
+    assert raised.value.error_code == "GITHUB_RATE_LIMIT_UNKNOWN"
 
     with (
         patch.object(
@@ -1138,8 +1139,9 @@ def test_rejected_credentials_still_stop_the_job_at_the_first_item(
     first, _second, _third = _seed_new_items(store)
     sent = scripted_gateway({}, default=httpx2.Response(401, text="Unauthorized"))
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError) as raised:
         plan_refine(store, repo=REPO, source=git_repo)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     assert (_requests_per_item(sent), _bodies_written(store)) == ({first: 1}, [])
 

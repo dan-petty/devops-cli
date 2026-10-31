@@ -498,18 +498,24 @@ def test_llm_client_embeddings_and_claude_messages(monkeypatch) -> None:
 
 def test_base_provider_mixin_abstract_methods() -> None:
     mixin = BaseLLMProviderMixin()
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(NotImplementedError) as raised:
         _ = mixin.backend_type
-    with pytest.raises(NotImplementedError):
+    assert raised.value is not None
+    with pytest.raises(NotImplementedError) as raised:
         _ = mixin.backend_host
-    with pytest.raises(NotImplementedError):
+    assert raised.value is not None
+    with pytest.raises(NotImplementedError) as raised:
         mixin._validate_base_url("http://example.com")
-    with pytest.raises(NotImplementedError):
+    assert raised.value is not None
+    with pytest.raises(NotImplementedError) as raised:
         mixin._request_timeout()
-    with pytest.raises(NotImplementedError):
+    assert raised.value is not None
+    with pytest.raises(NotImplementedError) as raised:
         mixin._connection_error(RuntimeError("err"))
-    with pytest.raises(NotImplementedError):
+    assert raised.value is not None
+    with pytest.raises(NotImplementedError) as raised:
         mixin._strip_think_blocks("test")
+    assert raised.value is not None
     # Base classmethod test
     idx = BaseLLMProviderMixin._load_and_increment_rr_index(5)
     assert 0 <= idx < 5
@@ -634,16 +640,18 @@ def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch
         monkeypatch,
         lambda request: httpx2.Response(401, json={"error": {"message": "Invalid API key"}}),
     )
-    with pytest.raises(AIClientError):
+    with pytest.raises(AIClientError) as raised:
         client_openai.chat("sys", "user")
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     # 3. Stream connection error
     def mock_stream_err(*args: Any, **kwargs: Any) -> Any:
         raise httpx2.ConnectError("Connection refused")
 
     monkeypatch.setattr(httpx2.Client, "stream", mock_stream_err)
-    with pytest.raises(AIClientError):
+    with pytest.raises(AIClientError) as raised:
         list(client_openai.chat_stream("sys", "user"))
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
 def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -674,8 +682,9 @@ def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch,
         lambda request: httpx2.Response(400, json={"error": {"message": "invalid_request_error"}}),
     )
-    with pytest.raises(AIClientError):
+    with pytest.raises(AIClientError) as raised:
         client_claude.chat("sys", "user")
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
 def test_openai_and_ollama_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -703,8 +712,9 @@ def test_openai_and_ollama_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 2. OpenAI list models connection error
     route_client(client_openai, monkeypatch, refuse)
-    with pytest.raises(AIClientError):
+    with pytest.raises(AIClientError) as raised:
         client_openai.list_models()
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     # 3. Ollama list models
     ollama_cfg = AIConfig(
@@ -720,8 +730,9 @@ def test_openai_and_ollama_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 4. Ollama list models error
     route_client(client_ollama, monkeypatch, refuse)
-    with pytest.raises(AIClientError):
+    with pytest.raises(AIClientError) as raised:
         client_ollama.list_models()
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
 def test_chat_cache_and_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -784,8 +795,9 @@ def test_ollama_thinking_only_and_total_duration(monkeypatch: pytest.MonkeyPatch
 
     # 2. HTTP error in ollama request
     route_client(client, monkeypatch, lambda request: httpx2.Response(500))
-    with pytest.raises(AIClientError):
+    with pytest.raises(AIClientError) as raised:
         client.chat("sys", "user_error", use_cache=False)
+    assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
 def test_augment_messages_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:

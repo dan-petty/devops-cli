@@ -150,8 +150,9 @@ def test_a_review_that_fails_part_way_publishes_nothing(
     )
     (orchestrator.session.staging / "candidates.json").mkdir(parents=True)
 
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises(IsADirectoryError) as raised:
         orchestrator.generate_consolidated_report([_reported_finding_payload()])
+    assert raised.value is not None
 
     assert (
         (orchestrator.session.staging / "findings.json").is_file(),

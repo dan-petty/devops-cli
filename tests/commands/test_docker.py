@@ -138,8 +138,9 @@ def test_docker_client_and_error_branches(
 
     # 1. An unreachable daemon is surfaced as a clean CLI exit rather than a traceback.
     with patch("docker.DockerClient", side_effect=Exception("Daemon not running")):
-        with pytest.raises(typer.Exit):
+        with pytest.raises(typer.Exit) as raised:
             _engine()
+        assert raised.value.exit_code is not None
 
     # 3. Dry run branches for build, push, prune, images
     set_dry_run(True)

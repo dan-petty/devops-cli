@@ -135,8 +135,9 @@ def test_a_filter_family_that_is_not_listed_is_refused() -> None:
 
 @pytest.mark.parametrize("option", ["status", "=ready", "status="])
 def test_a_filter_without_a_family_and_a_value_is_refused(option: str) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         parse_filters([option])
+    assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 @pytest.mark.parametrize(

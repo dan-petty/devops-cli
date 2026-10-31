@@ -62,8 +62,9 @@ def test_run_json_subprocess_raises_on_malformed_json_without_default() -> None:
         stderr="",
     )
     with patch("devops_cli.core.process.run_subprocess", return_value=fake_completed):
-        with pytest.raises(DevOpsCLIError):
+        with pytest.raises(DevOpsCLIError) as raised:
             run_json_subprocess(["helm", "list"])
+        assert raised.value.error_code == "SUBPROCESS_FAILED"
 
 
 def test_run_json_subprocess_nonzero_returncode_allowed_when_check_false() -> None:

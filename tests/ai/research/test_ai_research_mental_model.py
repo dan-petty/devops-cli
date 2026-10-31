@@ -171,8 +171,9 @@ def test_invariant_rule_validation() -> None:
         "commit(tx) in {Success, Aborted}",
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         InvariantRule.model_validate({"id": "INV-1"})
+    assert len(raised.value.errors()) > 0
 
 
 def test_mental_model_serialization_round_trip() -> None:

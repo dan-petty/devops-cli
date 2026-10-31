@@ -964,8 +964,9 @@ def test_the_static_job_starts_bandit_once_mutation() -> None:
         if "bandit" in scanners:
             bandit_starts += 1
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError) as raised:
         assert bandit_starts == 1
+    assert raised.value is not None
 
 
 def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() -> None:

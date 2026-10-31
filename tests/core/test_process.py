@@ -80,13 +80,15 @@ def test_run_subprocess_check_and_timeout(monkeypatch: pytest.MonkeyPatch) -> No
     from devops_cli.dry_run import set_dry_run
 
     # 1. Non-zero exit with check=True
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(subprocess.CalledProcessError) as raised:
         run_subprocess(["false"], check=True)
+    assert raised.value is not None
 
     # 2. Not found with check=True
-    with monkeypatch.context() as mp, pytest.raises(FileNotFoundError):
+    with monkeypatch.context() as mp, pytest.raises(FileNotFoundError) as raised:
         mp.setattr(subprocess.Popen, "__init__", _raise_file_not_found)
         run_subprocess(["non_existent_binary_99999"], check=True)
+    assert raised.value.errno == 2 or "No such file" in str(raised.value)
 
     # 3. Dry run execution
     set_dry_run(True)
@@ -104,17 +106,20 @@ async def test_run_subprocess_async_check_and_timeout(monkeypatch: pytest.Monkey
     import subprocess
 
     # 1. Non-zero exit with check=True
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(subprocess.CalledProcessError) as raised:
         await run_subprocess_async(["false"], check=True)
+    assert raised.value.returncode == 1
 
     # 2. Not found with check=True
-    with monkeypatch.context() as mp, pytest.raises(FileNotFoundError):
+    with monkeypatch.context() as mp, pytest.raises(FileNotFoundError) as raised:
         mp.setattr(subprocess.Popen, "__init__", _raise_file_not_found)
         await run_subprocess_async(["non_existent_binary_99999"], check=True)
+    assert raised.value.errno == 2 or "No such file" in str(raised.value)
 
     # 3. Timeout expiration
-    with pytest.raises(subprocess.TimeoutExpired):
+    with pytest.raises(subprocess.TimeoutExpired) as raised:
         await run_subprocess_async(["sleep", "10"], timeout=0.01)
+    assert raised.value.timeout == 0.01
 
 
 def test_run_subprocess_cwd_security() -> None:
@@ -123,11 +128,13 @@ def test_run_subprocess_cwd_security() -> None:
 
     from devops_cli.exceptions.security import SecurityError
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         run_subprocess(["echo", "hi"], cwd=Path("../../../escaped"))
+    assert raised.value.error_code == "SECURITY_ERROR"
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         run_subprocess(["echo", "hi"], cwd=Path("/etc"))
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 @pytest.mark.live("pwd")
@@ -144,11 +151,13 @@ async def test_run_subprocess_async_cwd_security() -> None:
 
     from devops_cli.exceptions.security import SecurityError
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         await run_subprocess_async(["echo", "hi"], cwd=Path("../../../escaped"))
+    assert raised.value.error_code == "SECURITY_ERROR"
 
-    with pytest.raises(SecurityError):
+    with pytest.raises(SecurityError) as raised:
         await run_subprocess_async(["echo", "hi"], cwd=Path("/etc"))
+    assert raised.value.error_code == "SECURITY_ERROR"
 
 
 @pytest.mark.live("sh")
@@ -161,10 +170,11 @@ async def test_run_subprocess_async_timeout_kills_process_group(
     The spawn returns only once the child has written its pids (#1888)."""
     with watching(tmp_path / "pids") as watch:
         _spawn_once_started(monkeypatch, watch)
-        with pytest.raises(subprocess.TimeoutExpired):
+        with pytest.raises(subprocess.TimeoutExpired) as raised:
             await run_subprocess_async(
                 hung_with_grandchild(watch.pid_file), timeout=STARTED_RUN_TIMEOUT_SECONDS
             )
+        assert raised.value is not None
 
         assert await _until(watch.stopped)
 
@@ -257,8 +267,9 @@ async def test_a_cancelled_run_stops_its_whole_process_group(tmp_path: Path) -> 
         run = asyncio.create_task(run_subprocess_async(hung_with_grandchild(watch.pid_file)))
         started = await _until(watch.started)
         run.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError) as raised:
             await run
+        assert raised.value is not None
 
         assert (started, await _until(watch.stopped)) == (True, True)
 
@@ -277,8 +288,9 @@ async def test_a_cancelled_run_sends_its_group_sigint_first_so_its_teardown_runs
         run = asyncio.create_task(run_subprocess_async(hung))
         started = await _until(watch.started)
         run.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError) as raised:
             await run
+        assert raised.value is not None
 
         assert (started, await _until(watch.stopped), marker.is_file()) == (True, True, True)
 
@@ -303,8 +315,9 @@ async def test_a_further_cancellation_during_the_stop_cannot_skip_its_sigkill(
         interrupted = await _until(lambda: "int" in _records(signals))
         mark_second_signal(signals)
         run.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError) as raised:
             await run
+        assert raised.value is not None
 
         assert (
             started,
@@ -340,8 +353,9 @@ async def test_a_cancellation_while_the_child_starts_still_stops_its_group(
         run.cancel()
         await asyncio.sleep(0)
         release.set()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError) as raised:
             await run
+        assert raised.value is not None
 
         assert (started, await _until(watch.stopped)) == (True, True)
 
@@ -363,8 +377,9 @@ async def test_a_cancellation_after_the_child_exited_still_stops_the_members_lef
         go.touch()
         leader_exited = await _until(watch.leader_stopped)
         run.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError) as raised:
             await run
+        assert raised.value is not None
 
         assert (started, leader_exited, await _until(watch.grandchild_stopped)) == (
             True,
@@ -423,8 +438,9 @@ async def test_a_cancellation_after_the_child_exited_stays_a_cancellation(
     await asyncio.wait_for(started[0].exited.wait(), THREAD_HANDOFF_BOUND_SECONDS)
     run.cancel()
 
-    with pytest.raises(asyncio.CancelledError):
+    with pytest.raises(asyncio.CancelledError) as raised:
         await run
+    assert raised.type is asyncio.CancelledError
 
 
 @pytest.mark.live("sh")
@@ -442,10 +458,11 @@ async def test_a_run_that_hangs_after_its_summary_line_is_stopped_at_its_bound_w
     with watching(tmp_path / "pids") as watch:
         _spawn_once_started(monkeypatch, watch)
         hung = hung_with_grandchild(watch.pid_file, script)
-        with pytest.raises(subprocess.TimeoutExpired):
+        with pytest.raises(subprocess.TimeoutExpired) as raised:
             await run_subprocess_async(
                 hung, capture_output=False, timeout=STARTED_RUN_TIMEOUT_SECONDS
             )
+        assert raised.value is not None
 
         assert (SUMMARY_LINE in capfd.readouterr().out, await _until(watch.stopped)) == (
             True,

@@ -377,11 +377,13 @@ class TestFastMCPPrewarmTool:
         """Verify ai_prewarm rejects hyphen-prefixed model or keep-alive argument."""
         from devops_cli.ai.mcp.server import ai_prewarm
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as raised:
             ai_prewarm(model="--injected-flag")
+        assert raised.value.error_code == "VALIDATION_ERROR"
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as raised:
             ai_prewarm(keep_alive="--bad-duration")
+        assert raised.value.error_code == "VALIDATION_ERROR"
 
 
 PREWARM_TOOL_PARAMETERS = [

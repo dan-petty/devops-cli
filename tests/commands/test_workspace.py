@@ -215,17 +215,20 @@ def test_workspace_load_save_boundaries_and_outside_roots(tmp_path: Path) -> Non
     good_json = tmp_path / "good.code-workspace"
     good_json.write_text('{"folders": []}', encoding="utf-8")
     for unreadable in (bad_json, mal_json):
-        with pytest.raises(typer.Exit):
+        with pytest.raises(typer.Exit) as raised:
             _load(unreadable)
+        assert raised.value.exit_code is not None
     with (
         patch("devops_cli.commands.workspace.DEFAULT_MAX_AST_FILE_SIZE_BYTES", 4),
-        pytest.raises(typer.Exit),
+        pytest.raises(typer.Exit) as raised,
     ):
         _load(good_json)
+    assert raised.value.exit_code is not None
 
     # 4. _save unsafe filename extension
-    with pytest.raises(typer.Exit):
+    with pytest.raises(typer.Exit) as raised:
         _save(tmp_path / "unsafe.txt", {"folders": []})
+    assert raised.value.exit_code is not None
 
     # 5. Add folder outside permitted roots
     outside_dir = tmp_path / "outside_root" / "my_project"

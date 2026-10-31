@@ -140,10 +140,11 @@ def test_find_project_via_repo_returns_none_when_empty_and_raises_on_error(
         lambda call: any("projectsV2" in arg for arg in call.argv),
         ProcessAnswer(returncode=1, stderr="Not found"),
     )
-    with pytest.raises(GitHubOperationError):
+    with pytest.raises(GitHubOperationError) as raised:
         find_project_via_repo(
             "dan-petty", "devops-cli", "DevOps CLI — Enterprise Development & Release Roadmap"
         )
+    assert raised.value.error_code == "GITHUB_UNREAD"
 
 
 def test_find_remote_project_prefers_repo_link(process_fake: ProcessFake) -> None:
