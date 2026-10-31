@@ -49,7 +49,7 @@ See proposal.md for the problem and the scope (#2860). The job `Tests & Coverage
 ### 5. Fail closed
 
 - **Decision**: The gate step runs when `outside_plan != 'false'`. When the filter step is skipped (a push or a manual run), when it fails to set an output, or when it says `true`, the full suite runs. Only the exact text `false` selects the reduced run. The filter step has no `continue-on-error`, so an API failure fails the job.
-- A pull request that lists more than 3000 files is cut off by the REST API. Such a list has to be all plan files in its first 3000 entries to count as plan-only. A plan of that size does not exist.
+- The REST API lists 3000 files at most and gives no sign of a cut. The paths come in sorted order, so `src/` and `tests/` would fall off the end behind `openspec/`. The filter step thus runs only when `github.event.pull_request.changed_files < 3000`. Above that, the step is skipped, the output is empty and the full suite runs.
 
 ### 6. Where the contract lives
 
