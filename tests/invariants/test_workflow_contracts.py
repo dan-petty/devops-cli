@@ -1325,6 +1325,8 @@ def test_actionlint_digest_pinned_in_dockerfile_and_ci() -> None:
 
 # ── The plan-only pull request (#2860) ────────────────────────────────────────
 
+# The REST list of the files of a pull request holds 3000 files at most and gives no sign of a cut.
+PLAN_WHEN = "github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000"
 PLAN_FILTERS = "outside_plan:\n  - '**'\n  - '!openspec/changes/[0-9]*-*/**/*'\n"
 PLAN_STEP = "Detect Plan-Only Changes"
 FULL_SUITE_STEP = "Tests & Coverage Quality Gate"
@@ -1355,7 +1357,7 @@ def _plan_only_problems(jobs: dict[str, Any]) -> list[str]:
         ("permissions", job["permissions"], {"contents": "read", "pull-requests": "read"}),
         ("filter id", plan.get("id"), "changes"),
         ("filter action", plan.get("uses"), PATHS_FILTER),
-        ("filter event", plan.get("if"), "github.event_name == 'pull_request'"),
+        ("filter event", plan.get("if"), PLAN_WHEN),
         (
             "filter inputs",
             plan.get("with"),
@@ -1415,6 +1417,7 @@ def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
     "mutate",
     [
         lambda jobs: _without_step(jobs, PLAN_STEP),
+        lambda jobs: _with_step_field(jobs, PLAN_STEP, "if", "github.event_name == 'pull_request'"),
         lambda jobs: _without_step(jobs, PLAN_SUITE_STEP),
         lambda jobs: _with_step_field(jobs, PLAN_SUITE_STEP, "run", "uv run pytest"),
         lambda jobs: _with_step_field(jobs, PLAN_SUITE_STEP, "if", "always()"),
@@ -1428,6 +1431,7 @@ def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
     ],
     ids=[
         "no filter",
+        "filter reads a list that the API cuts at 3000 files",
         "no reduced run",
         "reduced run without the directory",
         "reduced run always",
