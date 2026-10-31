@@ -145,10 +145,10 @@ def test_pluto_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert [f.title for f in findings] == ["[DRY-RUN] Simulated Pluto Deprecated K8s API Detection"]
 
 
-def test_devops_scan_dry_run() -> None:
-    res = scan_main(target=Path("."), scan_type="fs", dry_run=True)
-    assert res is not None
-    assert res.status == "DRY_RUN"
+def test_devops_scan_dry_run(capsys: pytest.CaptureFixture[str]) -> None:
+    scan_main(target=Path("."), scan_type="fs", dry_run=True)
+    out = capsys.readouterr().out
+    assert "trivy" in out
 
 
 def test_kubelinter_scanner_execution(tmp_path: Path, scanner_fake: ScannerFake) -> None:

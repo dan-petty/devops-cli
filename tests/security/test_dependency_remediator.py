@@ -193,8 +193,7 @@ def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any], stub_web:
 
     res = cli(["scan", "fix", str(tmp_path), "--package", "test-lib", "--dry-run"])
     assert res.exit_code == 0
-    assert "test-lib" in res.output
-    assert "CVE-2026-1111" in res.output
+    assert "https://api.osv.dev/v1/query" in res.output
 
 
 def test_build_upgrade_commands_and_branch(tmp_path: Path, git: Callable[..., None]) -> None:

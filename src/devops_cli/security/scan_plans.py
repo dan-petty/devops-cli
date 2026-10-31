@@ -87,7 +87,7 @@ def plan_scan_report(
                     argv=tuple(cmd),
                 )
             )
-        except Exception:
+        except TypeError, ValueError, AttributeError:
             plans.append(
                 PlannedRequest(
                     method="EXEC",

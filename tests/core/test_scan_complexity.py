@@ -95,7 +95,7 @@ def test_scan_complexity_cli(tmp_path: Path, cli: Callable[..., Any]) -> None:
     assert res_indent.exit_code == 2
 
     # Test dry run
-    res_dry = cli(["scan", "complexity", str(sample), "--dry-run"])
+    res_dry = cli(["--dry-run", "scan", "complexity", str(sample)])
     assert res_dry.exit_code == 0
 
 

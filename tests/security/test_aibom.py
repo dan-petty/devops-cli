@@ -241,4 +241,4 @@ def test_scan_aibom_refuses_an_unknown_format(tmp_path: Path, cli: Callable[...,
 
 def test_scan_aibom_dry_run_succeeds(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """`--dry-run` previews the command and exits 0."""
-    assert cli("scan", "aibom", str(_granite_workspace(tmp_path)), "--dry-run").exit_code == 0
+    assert cli("--dry-run", "scan", "aibom", str(_granite_workspace(tmp_path))).exit_code == 0

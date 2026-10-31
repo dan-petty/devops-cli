@@ -111,7 +111,7 @@ def test_scan_sbom_dry_run(
     process_fake: ProcessFake, tmp_path: Path, cli: Callable[..., Any]
 ) -> None:
     """Verify devops scan sbom previews execution plan in dry-run mode."""
-    res = cli(["scan", "sbom", str(tmp_path), "--dry-run"])
+    res = cli(["--dry-run", "scan", "sbom", str(tmp_path)])
     assert res.exit_code == 0
 
 
