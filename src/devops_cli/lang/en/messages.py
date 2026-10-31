@@ -1425,6 +1425,9 @@ class CIMessages:
         "cannot be verified by a narrowed run."
     )
     no_testable_files: str = "No source or test files supplied; nothing to verify."
+    path_not_found: str = (
+        "The path '{path}' does not exist. Check the name: a path that is not there gives no test."
+    )
     directory_without_tests: str = (
         "No test can be selected for the directory '{directory}'. Name a directory of tests/ "
         "that holds a test module, a directory of src/, or a file."

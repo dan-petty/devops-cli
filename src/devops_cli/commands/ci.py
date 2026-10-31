@@ -1555,21 +1555,32 @@ def _directory_modules(directory: str, root: Path) -> list[str]:
     )
 
 
-def _expand_directories(paths: set[str], root: Path) -> set[str]:
-    """The paths with each directory replaced by the files it stands for. A directory that gives
-    no file is refused with an error that names it: running no test must not be a pass (#2868)."""
+def _expand_directories(paths: set[str], root: Path, imports: SuiteImports) -> set[str]:
+    """The paths with each directory replaced by the files it stands for. A path that does not
+    exist, and a directory that gives no file, are refused with an error that names them: running
+    no test must not be a pass. A trigger file that is gone, such as a deleted conftest.py, still
+    forces the full run (#2868)."""
+    from devops_cli.core.test_selection import forces_full_run
+
     expanded: set[str] = set()
     for path in paths:
-        if not (root / path).is_dir():
+        if not (root / path).exists():
+            if not forces_full_run(path, imports):
+                print_error(MESSAGES.ci.path_not_found.format(path=path), prefix=False, safe=True)
+                raise typer.Exit(1)
             expanded.add(path)
-            continue
-        modules = _directory_modules(path, root)
-        if not modules:
-            print_error(
-                MESSAGES.ci.directory_without_tests.format(directory=path), prefix=False, safe=True
-            )
-            raise typer.Exit(1)
-        expanded.update(modules)
+        elif not (root / path).is_dir():
+            expanded.add(path)
+        else:
+            modules = _directory_modules(path, root)
+            if not modules:
+                print_error(
+                    MESSAGES.ci.directory_without_tests.format(directory=path),
+                    prefix=False,
+                    safe=True,
+                )
+                raise typer.Exit(1)
+            expanded.update(modules)
     return expanded
 
 
@@ -1749,7 +1760,9 @@ def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None
     root = _get_project_root()
     index = load_index(resolve_coverage_index_path(root))
     imports = SuiteImports(root)
-    user_paths = _expand_directories({_normalize_repo_rel_path(p, root) for p in paths}, root)
+    user_paths = _expand_directories(
+        {_normalize_repo_rel_path(p, root) for p in paths}, root, imports
+    )
     drift, has_index, removed = _drift_selection(index, root, imports)
     all_paths = user_paths | drift
 

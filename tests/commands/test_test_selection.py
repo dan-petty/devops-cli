@@ -517,6 +517,20 @@ def test_cli_refuses_a_directory_with_a_fallback_too(
     assert (result.exit_code, called) == (1, [])
 
 
+@pytest.mark.parametrize("missing", ["tests/invariantz", "tests/pkg/test_nothere.py"])
+@pytest.mark.parametrize("extra", [(), ("--fallback",)])
+def test_cli_refuses_a_path_that_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch, project: Path, missing: str, extra: tuple[str, ...]
+) -> None:
+    """A mistyped or renamed path exits 1 with an error that names it, and starts no pytest, so a
+    green exit always means that a test ran (#2868)."""
+    (project / "tests" / "pkg").mkdir(parents=True)
+
+    result, called = _invoke_test_with(monkeypatch, project, missing, *extra)
+
+    assert (result.exit_code, called, f"'{missing}'" in result.output) == (1, [], True)
+
+
 def test_cli_runs_the_tests_covering_a_source_directory(
     monkeypatch: pytest.MonkeyPatch, project: Path
 ) -> None:

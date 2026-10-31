@@ -737,7 +737,7 @@ class CICommandHelp:
     test_paths: str = (
         "Source or test files, or directories of src/ or tests/, to verify. Narrows the run to "
         "covering tests; a directory of tests/ runs its test modules. A directory that gives no "
-        "test is refused. Omit to run the full suite."
+        "test, and a path that does not exist, are refused. Omit to run the full suite."
     )
     selection_fallback: str = (
         "Run the full suite when a changed source has no covering tests, rather than "
