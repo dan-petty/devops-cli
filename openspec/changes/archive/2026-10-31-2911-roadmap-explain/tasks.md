@@ -29,7 +29,7 @@
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 - [x] 4.2 Remove the line of #2911 from "Planned changes" in `docs/ROADMAP_WORKFLOW.md` and name `devops roadmap explain` in the notes of the steps
   - Verification: `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
-- [ ] 4.3 Archive the change
+- [x] 4.3 Archive the change
   - Verification: `uv run devops openspec archive 2911-roadmap-explain`
 
 ## Workflow follow-up
