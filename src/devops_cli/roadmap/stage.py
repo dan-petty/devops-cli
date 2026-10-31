@@ -804,13 +804,16 @@ def read_stage_selection(
     limit: int,
     item_number: int | None = None,
     probe: int | None = None,
+    heads: str | None = None,
+    planned: PlannedChanges | None = None,
 ) -> StageRead:
     """Select the items to stage in the clone `source`, with no model call and no write to git or
     to GitHub. `plan_stage` and `devops roadmap explain` read the selection through this one
-    function."""
+    function. A caller that read the heads of `origin` or the plans already passes them in, so
+    that a command that judges both jobs reads each once."""
     sha = inspect_checkout(source, repo)
-    heads = read_remote_heads(source)
-    planned = read_planned_changes(source, operation=_GIT_OPERATION)
+    heads = read_remote_heads(source) if heads is None else heads
+    planned = read_planned_changes(source, operation=_GIT_OPERATION) if planned is None else planned
     selection = select_stageable(
         store,
         filters=filters,

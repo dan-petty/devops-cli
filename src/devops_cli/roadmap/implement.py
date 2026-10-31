@@ -346,13 +346,14 @@ def plan_implement(
     planned: PlannedChanges | None = None,
     why: bool = False,
     probe: int | None = None,
+    remote_heads: str | None = None,
 ) -> ImplementPlan:
     """Plans a run without a write to git or to GitHub: up to `limit` Staged or Planned items that
     `filters` name, and the named items that the job leaves out. `source` is the clone of the
     repository. `planned` is the plans on the default branch when the caller read them already
     (the Service reads them once for a round, #2920). With `why`, the plan also lists the open
     items that the filter does not name. `probe` is the issue that `walk_named` judges also after
-    the limit (#2911)."""
+    the limit (#2911). `remote_heads` is the heads of `origin` when the caller read them already."""
     checkout = Path(source)
     inspect_checkout(checkout, repo)
     client = get_github_session().client
@@ -360,7 +361,7 @@ def plan_implement(
         store,
         repo=repo,
         source=checkout,
-        remote_heads=read_remote_heads(checkout),
+        remote_heads=read_remote_heads(checkout) if remote_heads is None else remote_heads,
         planned=(
             read_planned_changes(checkout, operation=GIT_OPERATION) if planned is None else planned
         ),

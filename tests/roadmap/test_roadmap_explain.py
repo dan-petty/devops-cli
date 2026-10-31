@@ -3,10 +3,14 @@ on a clone with an `origin`, and GitHub is faked."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.git import worktree_add
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap import planned
 from devops_cli.roadmap.explain import Explanation, JobVerdict, explain_item, render_explanation
 from devops_cli.roadmap.implement import parse_implement_filters
 from devops_cli.roadmap.stage import parse_filters
@@ -182,6 +186,29 @@ def test_explain_calls_no_model_and_writes_nothing(
     _explain(job_world, job_world.number)
 
     assert (job_world.store.job_writes, job_world.store.comments_on(number)) == before
+
+
+def test_explain_reads_the_branches_and_the_plans_once_for_both_jobs(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The dry run lists each git read once, so a real run reads each once (#2911)."""
+    reads: list[str] = []
+    run, git = worktree_add._run, planned.git
+
+    def counting_run(argv: list[str]) -> str:
+        reads.extend(arg for arg in argv if arg == "ls-remote")
+        return run(argv)
+
+    def counting_git(source: Path, *args: str, operation: str) -> str:
+        reads.extend(arg for arg in args[:1] if arg in {"fetch", "ls-tree"})
+        return git(source, *args, operation=operation)
+
+    monkeypatch.setattr(worktree_add, "_run", counting_run)
+    monkeypatch.setattr(planned, "git", counting_git)
+
+    _explain(job_world, _seed(job_world))
+
+    assert sorted(reads) == ["fetch", "ls-remote", "ls-tree"]
 
 
 def test_the_report_gives_yes_or_no_for_each_job_and_the_reason_of_a_no() -> None:

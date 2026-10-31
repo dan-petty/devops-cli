@@ -694,7 +694,8 @@ def explain_requests(
     """What `devops roadmap explain` reads, in order (#2911). It makes no write and no model call.
     It reads what the plan of the implement job reads, which covers the clone, the issues, the
     branches and the change folders, and the open issue that a stage item depends on. The
-    selections of both jobs read the same listing, so the list holds each read once."""
+    command reads the heads of `origin` and the plans once and gives them to both jobs, so the list
+    holds each read once."""
     reads, _ = implement_requests(repo, item=item)
     blockers = within(
         StoreRequests(repo).issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"]

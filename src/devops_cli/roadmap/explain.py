@@ -19,14 +19,18 @@ from __future__ import annotations
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
+from devops_cli.git.worktree_add import read_remote_heads
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement import plan_implement
+from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.stage import LeftOut, StageFilter, read_stage_selection
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore
+
+_GIT_OPERATION: Final[str] = "roadmap.explain"
 
 
 class JobVerdict(NamedTuple):
@@ -61,24 +65,59 @@ def _verdict(
     return JobVerdict(True)
 
 
+class _Reads(NamedTuple):
+    """What both jobs read from git: the heads of `origin` and the plans on the default branch."""
+
+    heads: str
+    planned: PlannedChanges
+
+
 def _stage_verdict(
-    store: RoadmapStore, *, repo: str, source: Path, item: Item, filters: StageFilter, limit: int
+    store: RoadmapStore,
+    *,
+    repo: str,
+    source: Path,
+    item: Item,
+    filters: StageFilter,
+    limit: int,
+    reads: _Reads,
 ) -> JobVerdict:
     if (why := filters.mismatch(item)) is not None:
         return JobVerdict(False, why)
     selection = read_stage_selection(
-        store, repo=repo, source=source, filters=filters, limit=limit, probe=item.number
+        store,
+        repo=repo,
+        source=source,
+        filters=filters,
+        limit=limit,
+        probe=item.number,
+        heads=reads.heads,
+        planned=reads.planned,
     ).selection
     return _verdict(item.number, selection.left_out, selection.beyond, limit)
 
 
 def _implement_verdict(
-    store: RoadmapStore, *, repo: str, source: Path, item: Item, filters: StageFilter, limit: int
+    store: RoadmapStore,
+    *,
+    repo: str,
+    source: Path,
+    item: Item,
+    filters: StageFilter,
+    limit: int,
+    reads: _Reads,
 ) -> JobVerdict:
     if (why := filters.mismatch(item)) is not None:
         return JobVerdict(False, why)
     plan = plan_implement(
-        store, repo=repo, source=source, filters=filters, limit=limit, probe=item.number
+        store,
+        repo=repo,
+        source=source,
+        filters=filters,
+        limit=limit,
+        probe=item.number,
+        remote_heads=reads.heads,
+        planned=reads.planned,
     )
     return _verdict(item.number, plan.left_out, plan.beyond, limit)
 
@@ -105,6 +144,9 @@ def explain_item(
         )
         return Explanation(repo, number, item.title if item else "", refusal, refusal)
     checkout = Path(source)
+    reads = _Reads(
+        read_remote_heads(checkout), read_planned_changes(checkout, operation=_GIT_OPERATION)
+    )
     return Explanation(
         repo,
         number,
@@ -116,6 +158,7 @@ def explain_item(
             item=item,
             filters=stage_filters,
             limit=stage_limit or load_settings().roadmap.stage.limit,
+            reads=reads,
         ),
         _implement_verdict(
             store,
@@ -124,6 +167,7 @@ def explain_item(
             item=item,
             filters=implement_filters,
             limit=implement_limit or DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
+            reads=reads,
         ),
     )
 
