@@ -55,7 +55,7 @@ from devops_cli.core import clock
 from devops_cli.core.cli import new_typer
 from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
-from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -1406,6 +1406,7 @@ def _handle_ci_results(
 
 
 @app.callback(invoke_without_command=True)
+@dry_run_class("request-plan")
 def all_checks(
     ctx: typer.Context,
     fix: Annotated[
@@ -1787,6 +1788,7 @@ def _run_shuffled_repeats(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def test(
     paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.test_paths)] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help=HELP.options.verbose)] = False,
@@ -1889,6 +1891,7 @@ def _handle_coverage_index_build(cmd: list[str]) -> None:
 
 
 @app.command()
+@dry_run_class("request-plan")
 def coverage(
     html: Annotated[bool, typer.Option("--html", help=HELP.ci.html_report)] = False,
     build_index: Annotated[
@@ -1919,6 +1922,7 @@ def coverage(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def lint(
     fix: Annotated[bool, typer.Option("--fix/--no-fix", help=HELP.ci.auto_fix)] = True,
     check: Annotated[
@@ -1942,6 +1946,7 @@ def lint(
 
 
 @app.command(name="format")
+@dry_run_class("request-plan")
 def fmt(
     check: Annotated[
         bool,
@@ -1965,6 +1970,7 @@ def fmt(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def typecheck(
     dry_run: Annotated[
         bool,
@@ -1982,6 +1988,7 @@ def typecheck(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def audit(
     dry_run: Annotated[
         bool,
@@ -1998,6 +2005,7 @@ def audit(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def security(
     severity: Annotated[
         str,
@@ -2019,6 +2027,7 @@ def security(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def actionlint(
     dry_run: Annotated[
         bool,
@@ -2043,6 +2052,7 @@ def actionlint(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def docs(
     fix: Annotated[
         bool,
@@ -2067,6 +2077,7 @@ def docs(
 
 
 @app.command(name="uv-check")
+@dry_run_class("request-plan")
 def uv_check(
     dry_run: Annotated[
         bool,
@@ -2084,6 +2095,7 @@ def uv_check(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def lockfile(
     dry_run: Annotated[
         bool,
@@ -2101,6 +2113,7 @@ def lockfile(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def build(
     dry_run: Annotated[
         bool,
@@ -2118,6 +2131,7 @@ def build(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def outdated(
     dry_run: Annotated[
         bool,
@@ -2135,6 +2149,7 @@ def outdated(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def devcontainer(
     dry_run: Annotated[
         bool,
@@ -2152,6 +2167,7 @@ def devcontainer(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def deps(
     dry_run: Annotated[
         bool,
@@ -2169,6 +2185,7 @@ def deps(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def maintain(
     fix: Annotated[
         bool,
@@ -2218,6 +2235,7 @@ def maintain(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def run(
     fix: Annotated[
         bool,
@@ -2279,6 +2297,7 @@ def _report_mutation(results_text: str, targets: Sequence[MutationTarget]) -> No
 
 
 @app.command(help=HELP.ci.mutate)
+@dry_run_class("request-plan")
 def mutate(
     paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.mutate_paths)] = None,
     changed: Annotated[bool, typer.Option("--changed", help=HELP.ci.mutate_changed)] = False,
@@ -2324,6 +2343,7 @@ def _append_step_summary(text: str) -> None:
 
 
 @app.command(name="job-time", help=HELP.ci.job_time)
+@dry_run_class("request-plan")
 def job_time(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.ci.job_time_repo)] = None,
     job: Annotated[str, typer.Option("--job", help=HELP.ci.job_time_job)] = CONST_CI_TEST_JOB_NAME,

@@ -29,7 +29,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
@@ -519,6 +519,7 @@ def _report_reconcile(result: ReconcileResult, repo: str) -> None:
 
 
 @project_app.command("reconcile", help=HELP.gh.project_reconcile)
+@dry_run_class("request-plan")
 def reconcile_project_cmd(
     project_number: Annotated[
         int | None,

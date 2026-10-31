@@ -25,7 +25,7 @@ from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import setting_variables
 from devops_cli.config.settings import GitHubAppConfig
 from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan
+from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import (
     DEFAULT_TEMPLATE,
@@ -300,6 +300,7 @@ def _runner_env(template: TemplateName, repo: str | None) -> dict[str, str] | No
     return {setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo}
 
 
+@dry_run_class("request-plan")
 def run_job(
     args: Annotated[list[str], typer.Argument(help=HELP.k8s.run_job_args, metavar="ARGS...")],
     context: Annotated[
