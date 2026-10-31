@@ -148,7 +148,10 @@ CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "net-scheme-in",
     "net-url-build",
 )
-CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("test-elapsed-upper-bound",)
+CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
+    "test-elapsed-upper-bound",
+    "test-function-has-assertion",
+)
 # The review and scanner packages, which take the working directory from the command layer (#2098).
 CONST_REVIEW_CWD_READ_FILES: Final[tuple[str, ...]] = (
     "src/devops_cli/ai/review/**",

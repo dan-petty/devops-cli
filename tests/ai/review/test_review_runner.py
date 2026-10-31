@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-def test_rendering_helpers() -> None:
+def test_rendering_helpers(capsys: pytest.CaptureFixture[str]) -> None:
     """Verify rendering of structured review results and raw markdown."""
     persona_def = PERSONAS[Persona.DEVSECOPS]
     finding = Finding(
@@ -89,6 +89,9 @@ def test_rendering_helpers() -> None:
     )
     render_review_result(persona_def, res)
     render_review_raw(persona_def, "## Raw review text")
+    captured = capsys.readouterr()
+    assert "Test Vuln" in captured.out
+    assert "Raw review text" in captured.out
 
 
 def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:

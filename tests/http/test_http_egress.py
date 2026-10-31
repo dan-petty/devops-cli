@@ -1238,4 +1238,7 @@ def test_config_wizard_admits_loopback_without_flag(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
     scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
-    _validate_wizard_service_url("http://example.com:3000", "Grafana", allow_private=False)
+    assert (
+        _validate_wizard_service_url("http://example.com:3000", "Grafana", allow_private=False)
+        is None
+    )

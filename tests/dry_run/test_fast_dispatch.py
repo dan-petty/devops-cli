@@ -93,7 +93,7 @@ def test_dry_run_getattr() -> None:
 
     cls = getattr(devops_cli.dry_run, "CommandDryRunResult")
     assert cls is CommandDryRunResult
-    with pytest.raises(AttributeError):
+    with pytest.raises(AttributeError, match="nonexistent_attr_xyz"):
         _ = getattr(devops_cli.dry_run, "nonexistent_attr_xyz")
 
 
@@ -127,15 +127,17 @@ def test_main_helpers_and_entrypoint() -> None:
 def test_entry_main_version(capsys: pytest.CaptureFixture[str], prog_arg: str) -> None:
     from devops_cli import __version__
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         main([prog_arg, "--version"])
+    assert exc_info.value.code == 0
     captured = capsys.readouterr()
     assert __version__ in captured.out
 
 
 def test_entry_main_help(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         main(["devops", "--help"])
+    assert exc_info.value.code == 0
     captured = capsys.readouterr()
     assert "DevOps CLI" in captured.out
 
@@ -169,10 +171,14 @@ def test_a_commands_own_dry_run_marks_the_invocation_after_the_root_callback_cle
     assert seen == [(False, True), (False, False)]
 
 
-def test_entry_main_default_sys_argv() -> None:
+def test_entry_main_default_sys_argv(capsys: pytest.CaptureFixture[str]) -> None:
+    from devops_cli import __version__
+
     with patch("sys.argv", ["devops", "--version"]):
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as exc_info:
             main()
+    assert exc_info.value.code == 0
+    assert __version__ in capsys.readouterr().out
 
 
 def test_entrypoint_flows(monkeypatch: pytest.MonkeyPatch) -> None:

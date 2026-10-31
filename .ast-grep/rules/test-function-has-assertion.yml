@@ -1,0 +1,23 @@
+id: test-function-has-assertion
+language: python
+severity: error
+files:
+  - "tests/**"
+message: Test function has no assert, no pytest.raises, and no assertion or double check.
+note: |
+  Each test asserts the outcome that its name states (docs/TESTING.md, "Names and assertions").
+rule:
+  kind: function_definition
+  all:
+    - has:
+        field: name
+        regex: '^test_'
+    - not:
+        has:
+          stopBy: end
+          any:
+            - kind: assert_statement
+            - kind: call
+              has:
+                field: function
+                regex: '(?i)(?:^|\.)(?:raises|warns|fail|skip|_?assert\w*|call_names|call_count|called|called_once|called_with|called_once_with)$'

@@ -233,11 +233,12 @@ def test_security_stream_cli_render(cli: Callable[..., Any]) -> None:
     assert "Terminal shell in container" in result.output or "CRITICAL" in result.output
 
 
-def test_render_security_alerts_empty() -> None:
+def test_render_security_alerts_empty(capsys: pytest.CaptureFixture[str]) -> None:
     from devops_cli.k8s.security_stream import render_security_alerts
 
     empty_result = SecurityStreamResult(alerts=[])
     render_security_alerts(empty_result)
+    assert "No security anomaly events detected." in capsys.readouterr().out
 
 
 def test_get_severity_color() -> None:

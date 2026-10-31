@@ -45,6 +45,7 @@ _ELAPSED_UPPER_BOUND = (
     "    elapsed = time.perf_counter() - start\n"
     "    assert elapsed < 1.0\n"
 )
+_TEST_FUNCTION_HAS_NO_ASSERTION = "def test_missing_assertion():\n    compute()\n"
 
 # One violation of each rule, and the tree that the rule holds.
 _VIOLATIONS = [
@@ -101,6 +102,12 @@ _VIOLATIONS = [
     ),
     pytest.param(
         "test-elapsed-upper-bound", "tests", _ELAPSED_UPPER_BOUND, id="test-elapsed-upper-bound"
+    ),
+    pytest.param(
+        "test-function-has-assertion",
+        "tests",
+        _TEST_FUNCTION_HAS_NO_ASSERTION,
+        id="test-function-has-assertion",
     ),
     pytest.param(
         "review-cwd-read", "src/devops_cli/ai/review", _CWD_READ, id="review-cwd-read-ai-review"

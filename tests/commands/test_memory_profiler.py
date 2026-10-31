@@ -198,7 +198,7 @@ def test_run_memory_profiler_workload_exception_propagates() -> None:
         mock_mod.fail_fn.side_effect = RuntimeError("Original workload error")
         mock_import.return_value = mock_mod
 
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(RuntimeError, match="Original workload error") as exc_info:
             run_memory_profiler(target="fake_mod:fail_fn", iterations=1)
         assert "Original workload error" in str(exc_info.value)
 

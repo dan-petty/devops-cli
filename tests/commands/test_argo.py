@@ -35,7 +35,7 @@ runner = CliRunner()
     ],
 )
 def test_valid_k8s_label_names(value: str) -> None:
-    _validate_k8s_name(value, "namespace", namespace=True)
+    assert _validate_k8s_name(value, "namespace", namespace=True) is None
 
 
 @pytest.mark.parametrize(
@@ -67,7 +67,7 @@ def test_invalid_k8s_label_names_rejected(value: str) -> None:
     ],
 )
 def test_valid_k8s_resource_names(value: str) -> None:
-    _validate_k8s_name(value, "workflow name")
+    assert _validate_k8s_name(value, "workflow name") is None
 
 
 @pytest.mark.parametrize(

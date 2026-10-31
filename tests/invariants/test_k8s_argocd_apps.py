@@ -150,7 +150,7 @@ def test_automated_sync_policies() -> None:
         assert retry.get("limit") == 5, f"{name} retry.limit is not 5"
 
 
-def _check_app_git_sources(name: str, spec: dict[str, Any]) -> None:
+def _assert_app_git_sources(name: str, spec: dict[str, Any]) -> None:
     if "source" in spec:
         source = spec["source"]
         assert (source["repoURL"], source["targetRevision"]) == (
@@ -170,7 +170,7 @@ def _check_app_git_sources(name: str, spec: dict[str, Any]) -> None:
 
 def test_git_sources_and_revisions() -> None:
     for name, app in _all_applications().items():
-        _check_app_git_sources(name, app["spec"])
+        _assert_app_git_sources(name, app["spec"])
 
 
 def _assert_helm_app_matches_release(

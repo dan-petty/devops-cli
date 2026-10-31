@@ -153,6 +153,16 @@ max-complexity = 10
 [tool.ruff.lint.pylint]
 max-nested-blocks = 4
 
+[tool.ruff.lint.flake8-pytest-style]
+raises-require-match-for = [
+    "BaseException",
+    "Exception",
+    "ValueError",
+    "KeyError",
+    "AttributeError",
+    "RuntimeError",
+]
+
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "socket.inet_aton".msg = "Parse and format addresses with ipaddress.ip_address."
 "socket.inet_ntoa".msg = "Parse and format addresses with ipaddress.ip_address."
