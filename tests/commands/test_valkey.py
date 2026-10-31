@@ -813,7 +813,7 @@ class TestValkeyCliCommands:
     def test_cli_set_dry_run(self) -> None:
         res = runner.invoke(app, ["set", "k", "v", "--dry-run"])
         assert res.exit_code == 0
-        assert "DRY_RUN" in res.output
+        assert "valkey SET k <value>" in res.output
 
     @patch("devops_cli.commands.valkey._resolve_client")
     def test_cli_flush(self, mock_resolve: MagicMock) -> None:
@@ -863,7 +863,7 @@ class TestValkeyCliCommands:
     def test_cli_flush_dry_run(self) -> None:
         res = runner.invoke(app, ["flush", "--dry-run"])
         assert res.exit_code == 0
-        assert "DRY_RUN" in res.output
+        assert "valkey FLUSHDB" in res.output
 
     @patch("devops_cli.commands.valkey._resolve_client")
     def test_cli_backup(self, mock_resolve: MagicMock) -> None:
@@ -878,7 +878,7 @@ class TestValkeyCliCommands:
     def test_cli_backup_dry_run(self) -> None:
         res = runner.invoke(app, ["backup", "--dry-run"])
         assert res.exit_code == 0
-        assert "DRY_RUN" in res.output
+        assert "valkey BGSAVE" in res.output
 
     def test_cli_raw_execution_prints_replies_as_the_server_sent_them(
         self, valkey_client: ValkeyClient

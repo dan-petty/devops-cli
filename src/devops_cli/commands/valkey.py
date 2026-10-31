@@ -9,7 +9,8 @@ import typer
 
 from devops_cli.config.settings import Settings, get_valkey_password, load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run.decorator import dry_run_command
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.lang import HELP
 from devops_cli.output import (
     format_duration,
@@ -21,6 +22,17 @@ from devops_cli.output import (
 from devops_cli.telemetry import trace_span
 from devops_cli.valkey.client import ValkeyProtocol, resolve_valkey_client
 from devops_cli.valkey.endpoint import parse_valkey_url
+from devops_cli.valkey.valkey_plans import (
+    plan_valkey_backup,
+    plan_valkey_cli,
+    plan_valkey_flush,
+    plan_valkey_get,
+    plan_valkey_info,
+    plan_valkey_keys,
+    plan_valkey_ping,
+    plan_valkey_set,
+    plan_valkey_stats,
+)
 
 # A Valkey URL that is not valid, in `valkey.url` or in `--url`, ends the command with its message.
 app = new_typer(
@@ -53,11 +65,19 @@ def _resolve_client(url: str | None = None, settings: Settings | None = None) ->
 
 
 @app.command("ping")
+@dry_run_class("request-plan")
 @trace_span("valkey.ping")
 def valkey_ping(
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     url: _UrlOption = None,
 ) -> None:
     """Test connection and measure round-trip latency to the Valkey server."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey ping (DRY RUN):",
+            plan_valkey_ping(),
+        )
+        return
     client = _resolve_client(url)
     start = time.perf_counter()
     res = client.ping()
@@ -69,6 +89,7 @@ def valkey_ping(
 
 
 @app.command("info")
+@dry_run_class("request-plan")
 @trace_span("valkey.info")
 def valkey_info(
     section: Annotated[
@@ -77,9 +98,16 @@ def valkey_info(
             "--section", "-s", help="Specific INFO section (server, memory, clients, stats)"
         ),
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     url: _UrlOption = None,
 ) -> None:
     """Inspect server configuration, memory allocation, and operational metrics."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey info (DRY RUN):",
+            plan_valkey_info(section),
+        )
+        return
     client = _resolve_client(url)
     info_data = client.info(section)
     columns = [("Property", "bold cyan"), "Value"]
@@ -89,11 +117,19 @@ def valkey_info(
 
 
 @app.command("stats")
+@dry_run_class("request-plan")
 @trace_span("valkey.stats")
 def valkey_stats(
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     url: _UrlOption = None,
 ) -> None:
     """Display quick diagnostic summary of server health, memory, and keys."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey stats (DRY RUN):",
+            plan_valkey_stats(),
+        )
+        return
     client = _resolve_client(url)
     info = client.info()
     dbsize = client.dbsize()
@@ -118,12 +154,20 @@ def valkey_stats(
 
 
 @app.command("keys")
+@dry_run_class("request-plan")
 @trace_span("valkey.keys")
 def valkey_keys(
     pattern: Annotated[str, typer.Argument(help="Glob pattern to search for keys")] = "*",
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     url: _UrlOption = None,
 ) -> None:
     """List keys matching a glob pattern."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey keys (DRY RUN):",
+            plan_valkey_keys(pattern),
+        )
+        return
     client = _resolve_client(url)
     matched_keys = client.keys(pattern)
     if not matched_keys:
@@ -135,12 +179,20 @@ def valkey_keys(
 
 
 @app.command("get")
+@dry_run_class("request-plan")
 @trace_span("valkey.get")
 def valkey_get(
     key: Annotated[str, typer.Argument(help="Key to retrieve")],
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     url: _UrlOption = None,
 ) -> None:
     """Retrieve string value stored at key."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            f"Planned requests for devops valkey get {key} (DRY RUN):",
+            plan_valkey_get(key),
+        )
+        return
     client = _resolve_client(url)
     val = client.get(key)
     if val is None:
@@ -150,12 +202,7 @@ def valkey_get(
 
 
 @app.command("set")
-@dry_run_command(
-    command="devops valkey set",
-    action="valkey_set_key",
-    target_param="key",
-    detail_params=["value", "ex"],
-)
+@dry_run_class("request-plan")
 @trace_span("valkey.set")
 def valkey_set(
     key: Annotated[str, typer.Argument(help="Key name to set")],
@@ -165,6 +212,12 @@ def valkey_set(
     url: _UrlOption = None,
 ) -> None:
     """Set string value of key with optional expiration TTL."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey set (DRY RUN):",
+            plan_valkey_set(key, value, ex=ex),
+        )
+        return
     client = _resolve_client(url)
     client.set(key, value, ex=ex)
     ttl_msg = f" (TTL: {ex}s)" if ex else ""
@@ -172,11 +225,7 @@ def valkey_set(
 
 
 @app.command("flush")
-@dry_run_command(
-    command="devops valkey flush",
-    action="valkey_flush_db",
-    detail_params=["all_databases"],
-)
+@dry_run_class("request-plan")
 @trace_span("valkey.flush")
 def valkey_flush(
     all_databases: Annotated[
@@ -187,6 +236,12 @@ def valkey_flush(
     url: _UrlOption = None,
 ) -> None:
     """Flush and purge keys from current or all databases."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey flush (DRY RUN):",
+            plan_valkey_flush(all_databases),
+        )
+        return
     client = _resolve_client(url)
     if all_databases:
         client.flushall()
@@ -197,22 +252,26 @@ def valkey_flush(
 
 
 @app.command("backup")
-@dry_run_command(
-    command="devops valkey backup",
-    action="valkey_bgsave",
-)
+@dry_run_class("request-plan")
 @trace_span("valkey.backup")
 def valkey_backup(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     url: _UrlOption = None,
 ) -> None:
     """Trigger background RDB persistence snapshot (BGSAVE)."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey backup (DRY RUN):",
+            plan_valkey_backup(),
+        )
+        return
     client = _resolve_client(url)
     res = client.bgsave()
     print_success(f"Backup initiated: {res}")
 
 
 @app.command("cli")
+@dry_run_class("request-plan")
 @trace_span("valkey.cli")
 def valkey_cli(
     command_args: Annotated[
@@ -221,9 +280,16 @@ def valkey_cli(
             help="Optional command and arguments to execute directly (e.g. PING or DBSIZE)"
         ),
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     url: _UrlOption = None,
 ) -> None:
     """Execute raw Valkey commands directly against the server."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops valkey cli (DRY RUN):",
+            plan_valkey_cli(command_args),
+        )
+        return
     client = _resolve_client(url)
     if not command_args:
         print_info(

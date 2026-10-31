@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Annotated
 
@@ -11,7 +12,6 @@ from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_VAULT_AUTH_METHODS,
     CONST_VAULT_LOGIN_KEYRING_KEY,
-    CONST_VAULT_PATH_TOKEN_REVOKE_SELF,
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.os_keyring import (
@@ -23,8 +23,8 @@ from devops_cli.config.os_keyring import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.paths import validate_no_path_traversal
-from devops_cli.dry_run.models import CommandDryRunResult
-from devops_cli.dry_run.state import is_dry_run, set_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.vault import VaultConfigurationError, VaultError
 from devops_cli.lang import HELP
 from devops_cli.models.vault import (
@@ -39,18 +39,25 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
-    render_dry_run_result,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import VaultSecretBroker
-from devops_cli.security.vault_http import vault_url
 from devops_cli.security.vault_lease import (
     login_approle,
     login_kubernetes,
     reset_lease_registry,
     revoke_lease,
     revoke_self,
+)
+from devops_cli.security.vault_plans import (
+    plan_vault_get,
+    plan_vault_leases,
+    plan_vault_login,
+    plan_vault_logout,
+    plan_vault_set,
+    plan_vault_status,
+    plan_vault_sync,
 )
 
 VAULT_PATH_PATTERN = re.compile(r"^(?:vault://)?[a-zA-Z0-9_\-./#]+$")
@@ -81,6 +88,7 @@ app = new_typer(help="Enterprise HashiCorp Vault secret broker commands", no_arg
 
 
 @app.command("status")
+@dry_run_class("request-plan")
 def vault_status(
     vault_addr: Annotated[
         str | None,
@@ -90,20 +98,18 @@ def vault_status(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Inspect HashiCorp Vault cluster health and initialization status.
 
     The health endpoint needs no token, and none is sent. The Token row names where the token
     other commands would use comes from, and why a stored token is not used for this address.
     """
-    set_dry_run(dry_run)
     broker = VaultSecretBroker(vault_addr=vault_addr)
 
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops vault status",
-            action="vault_health_status",
-            details={"vault_addr": broker.vault_addr, "token_source": broker.token_source.source},
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "Planned requests for devops vault status (DRY RUN):",
+            plan_vault_status(broker.vault_addr),
         )
         return None
 
@@ -126,6 +132,7 @@ def vault_status(
 
 
 @app.command("get")
+@dry_run_class("request-plan")
 def vault_get(
     path: Annotated[
         str,
@@ -145,13 +152,12 @@ def vault_get(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.
 
     The keyring answers only with no usable token, when Vault has no value at the path, or when
     Vault is unreachable; never after Vault rejects the token. The output names the source.
     """
-    set_dry_run(dry_run)
     try:
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
@@ -159,16 +165,10 @@ def vault_get(
         raise typer.Exit(1) from exc
     broker = VaultSecretBroker()
 
-    if is_dry_run():
-        render_dry_run_result(
-            command=f"devops vault get {path}",
-            action="vault_get_secret",
-            details={
-                "path": path,
-                "key": key,
-                "vault_addr": broker.vault_addr,
-                "token_source": broker.token_source.source,
-            },
+    if dry_run or is_dry_run():
+        render_request_plan(
+            f"Planned requests for devops vault get {path} (DRY RUN):",
+            plan_vault_get(path, broker.vault_addr),
         )
         return None
 
@@ -199,6 +199,7 @@ def _render_secret(path: str, key: str | None, lookup: VaultSecretLookup, *, sho
 
 
 @app.command("set")
+@dry_run_class("request-plan")
 def vault_set(
     path: Annotated[
         str,
@@ -212,9 +213,8 @@ def vault_set(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Store secret key-value pairs in HashiCorp Vault KV-v2 engine."""
-    set_dry_run(dry_run)
     try:
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
@@ -232,16 +232,10 @@ def vault_set(
         print_error("No valid KEY=VALUE pairs provided.", prefix=False)
         raise typer.Exit(1)
 
-    if is_dry_run():
-        render_dry_run_result(
-            command=f"devops vault set {path} ...",
-            action="vault_set_secret",
-            details={
-                "path": path,
-                "keys": list(payload.keys()),
-                "vault_addr": broker.vault_addr,
-                "token_source": broker.token_source.source,
-            },
+    if dry_run or is_dry_run():
+        render_request_plan(
+            f"Planned requests for devops vault set {path} (DRY RUN):",
+            plan_vault_set(path, list(payload.keys()), broker.vault_addr),
         )
         return None
 
@@ -251,6 +245,7 @@ def vault_set(
 
 
 @app.command("sync")
+@dry_run_class("request-plan")
 def vault_sync(
     path: Annotated[
         str,
@@ -264,13 +259,12 @@ def vault_sync(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
-) -> CommandDryRunResult | None:
+) -> None:
     """Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.
 
     Reads Vault alone. A path with no secret fails, and a field named like the entry that holds
     the `devops vault login` token is never written.
     """
-    set_dry_run(dry_run)
     try:
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
@@ -278,16 +272,10 @@ def vault_sync(
         raise typer.Exit(1) from exc
     broker = VaultSecretBroker()
 
-    if is_dry_run():
-        render_dry_run_result(
-            command=f"devops vault sync {path}",
-            action="vault_sync_keyring",
-            details={
-                "path": path,
-                "keys": keys,
-                "vault_addr": broker.vault_addr,
-                "token_source": broker.token_source.source,
-            },
+    if dry_run or is_dry_run():
+        render_request_plan(
+            f"Planned requests for devops vault sync {path} (DRY RUN):",
+            plan_vault_sync(path, broker.vault_addr),
         )
         return None
 
@@ -318,6 +306,7 @@ def _report_sync(path: str, report: VaultSyncReport) -> None:
 
 
 @app.command("login")
+@dry_run_class("request-plan")
 def vault_login(
     method: Annotated[
         str,
@@ -367,16 +356,14 @@ def vault_login(
 
     broker = VaultSecretBroker()
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops vault login --method {method}",
-            action="vault_authenticate",
-            details={
-                "method": method,
-                "role": role,
-                "store": store,
-                "vault_addr": broker.vault_addr,
-                "namespace": broker.vault_namespace,
-            },
+        render_request_plan(
+            "Planned requests for devops vault login (DRY RUN):",
+            plan_vault_login(
+                method,
+                role=role,
+                role_id=role_id,
+                vault_addr=broker.vault_addr,
+            ),
         )
         return
 
@@ -441,6 +428,7 @@ def _store_login(token: str, broker: VaultSecretBroker) -> None:
 
 
 @app.command("logout")
+@dry_run_class("request-plan")
 def vault_logout(
     dry_run: Annotated[
         bool,
@@ -453,26 +441,27 @@ def vault_logout(
     now. The local copy is deleted even when the revoke fails, for example because Vault is
     unreachable or the token has expired, and the output says the revoke did not happen.
     """
+    if dry_run or is_dry_run():
+        raw_record = _read_stored_login()
+        addr: str | None = None
+        if raw_record is not None:
+            login = _parse_stored_login(raw_record)
+            if login and login.vault_addr:
+                addr = login.vault_addr
+        if not addr:
+            addr = os.getenv("VAULT_ADDR") or os.getenv("DEVOPS_CLI_VAULT_ADDR")
+        if not addr:
+            addr = "https://vault.example.com:8200"
+        render_request_plan(
+            "Planned requests for devops vault logout (DRY RUN):",
+            plan_vault_logout(vault_addr=addr),
+        )
+        return
     raw_record = _read_stored_login()
     if raw_record is None:
         print_success("No Vault token is stored; nothing to log out.")
         return
     login = _parse_stored_login(raw_record)
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops vault logout",
-            action="vault_logout",
-            details={
-                "revoke": (
-                    f"POST {vault_url(login.vault_addr, CONST_VAULT_PATH_TOKEN_REVOKE_SELF)}"
-                    if login
-                    else None
-                ),
-                "namespace": login.namespace if login else None,
-                "keyring_delete": CONST_VAULT_LOGIN_KEYRING_KEY,
-            },
-        )
-        return
     revoke_failure = _revoke_stored_login(login)
     _delete_stored_login()
     reset_lease_registry()
@@ -539,6 +528,7 @@ def _delete_stored_login() -> None:
 
 
 @app.command("leases")
+@dry_run_class("request-plan")
 def vault_leases(
     revoke: Annotated[
         str,
@@ -552,14 +542,9 @@ def vault_leases(
     """
     broker = VaultSecretBroker()
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops vault leases",
-            action="vault_lease_lifecycle",
-            details={
-                "revoke": revoke,
-                "vault_addr": broker.vault_addr,
-                "token_source": broker.token_source.source,
-            },
+        render_request_plan(
+            "Planned requests for devops vault leases (DRY RUN):",
+            plan_vault_leases(revoke, broker.vault_addr),
         )
         return
 
@@ -573,6 +558,7 @@ def vault_leases(
 
 
 @app.command("audit")
+@dry_run_class("no-external-request")
 def vault_audit(
     output_format: Annotated[
         str,

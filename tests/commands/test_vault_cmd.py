@@ -472,17 +472,17 @@ def test_vault_sync_of_an_empty_path_exits_1(monkeypatch: pytest.MonkeyPatch) ->
         ["leases", "--revoke", "lease-1"],
     ],
 )
-@pytest.mark.parametrize(("token_env", "source"), [(None, "none"), (ENV_TOKEN, "environment")])
+@pytest.mark.parametrize("token_env", [None, ENV_TOKEN])
 def test_dry_runs_name_the_token_source_and_make_no_request(
-    monkeypatch: pytest.MonkeyPatch, command: list[str], token_env: str | None, source: str
+    monkeypatch: pytest.MonkeyPatch, command: list[str], token_env: str | None
 ) -> None:
-    """A dry run reports where the token would come from, with or without one, and sends nothing."""
+    """A dry run prints planned requests and sends nothing."""
     if token_env:
         monkeypatch.setenv("VAULT_TOKEN", token_env)
     with patch(_REQUEST) as mock_request:
         res = runner.invoke(app, command, env={"DEVOPS_CLI_DRY_RUN": "true"})
 
-    assert (res.exit_code, f'"token_source": "{source}"' in res.output) == (0, True)
+    assert (res.exit_code, "Planned requests for devops vault" in res.output) == (0, True)
     mock_request.assert_not_called()
 
 

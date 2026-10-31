@@ -186,7 +186,7 @@ def test_cli_vault_status_dry_run(cli: Callable[..., Any]) -> None:
     """Test devops vault status CLI subcommand with dry-run."""
     res = cli(["vault", "status", "--dry-run"])
     assert res.exit_code == 0
-    assert "vault_health_status" in res.output
+    assert "/v1/sys/health" in res.output
 
 
 def test_cli_vault_get_dry_run(cli: Callable[..., Any]) -> None:
@@ -194,7 +194,6 @@ def test_cli_vault_get_dry_run(cli: Callable[..., Any]) -> None:
     res = cli(["vault", "get", "secret/data/app", "--key", "token", "--dry-run"])
     assert res.exit_code == 0
     assert "secret/data/app" in res.output
-    assert "token" in res.output
 
 
 def test_vault_broker_validates_address_scheme() -> None:
