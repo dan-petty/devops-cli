@@ -1329,7 +1329,7 @@ class RoadmapCommandHelp:
         "as stopped with the reason and the masked diff of the work it discarded, and exits 1. "
         "It writes nothing to GitHub. "
         "Without --group it is the job. It takes each Staged or Planned item that a label filter "
-        "names (default: status=ready, effort=low). "
+        "names (default: status=ready, status=planned, effort=low). "
         "A Staged item has its staged branch and draft on origin. A Planned item has "
         "its change folder on the default branch and no branch: the job makes the branch "
         "<type>/<issue>-<slug> there, with the slug of the folder, and opens the draft when the "

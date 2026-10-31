@@ -16,6 +16,7 @@ from devops_cli.roadmap.store import ItemField
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
+from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
@@ -155,6 +156,23 @@ def test_a_round_with_nothing_to_stage_counts_nothing(
 ) -> None:
     assert _round(store, stage_repo) == JobOutcome()
     assert _counted(otlp) == []
+
+
+def test_a_round_sets_planned_for_an_item_whose_plan_is_on_the_default_branch(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    """The round reads the plans once for its selection and for the Status of the items (#2920)."""
+    number = seed_stageable(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_field(item, ItemField.STATUS, "Ready")
+    merge_plan(stage_repo, number)
+
+    outcome = _round(store, stage_repo)
+
+    held = store.item(number)
+    assert held is not None
+    assert (outcome, held.status) == (JobOutcome(), "Planned")
 
 
 def test_a_round_without_a_clone_fails_naming_the_job(store: InMemoryRoadmapStore) -> None:

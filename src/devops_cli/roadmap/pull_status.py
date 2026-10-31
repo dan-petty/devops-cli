@@ -16,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
     CONST_ROADMAP_STATUS_NEW,
+    CONST_ROADMAP_STATUS_PLANNED,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.exceptions.git import GitHubOperationError
@@ -27,13 +28,19 @@ from devops_cli.roadmap.store import ItemField
 # The Statuses that each target replaces; no Status at all is replaced too.
 _REPLACES: Final[dict[str, frozenset[str | None]]] = {
     CONST_ROADMAP_STATUS_IN_PROGRESS: frozenset(
-        {None, CONST_ROADMAP_STATUS_NEW, CONST_ROADMAP_STATUS_READY}
+        {
+            None,
+            CONST_ROADMAP_STATUS_NEW,
+            CONST_ROADMAP_STATUS_READY,
+            CONST_ROADMAP_STATUS_PLANNED,
+        }
     ),
     CONST_ROADMAP_STATUS_IN_REVIEW: frozenset(
         {
             None,
             CONST_ROADMAP_STATUS_NEW,
             CONST_ROADMAP_STATUS_READY,
+            CONST_ROADMAP_STATUS_PLANNED,
             CONST_ROADMAP_STATUS_IN_PROGRESS,
         }
     ),

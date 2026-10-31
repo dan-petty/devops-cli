@@ -2128,7 +2128,7 @@ class RoadmapMessages:
     # `devops roadmap implement` as a job (#2665): why it leaves an item out, and its plan.
     implement_left_not_item: str = "It is not an item of the roadmap."
     implement_left_closed: str = "It is closed."
-    implement_left_not_ready: str = "Its Status is {status}, not Ready."
+    implement_left_not_ready: str = "Its Status is {status}, not Ready or Planned."
     implement_left_not_staged: str = (
         "It is neither Staged nor Planned: its record holds no staged branch or pull request, "
         "and {branch} holds no change folder for it."
@@ -2381,6 +2381,7 @@ class RoadmapMessages:
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
+    status_sync_failed: str = "the Status of {count} item(s) could not be set: {items}"
     stage_plain_note: str = (
         "Stage without a mode flag runs as --plan: it reads GitHub and calls the model, and "
         "writes nothing. --dry-run makes no request."

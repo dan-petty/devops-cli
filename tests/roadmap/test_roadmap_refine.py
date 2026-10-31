@@ -2101,7 +2101,7 @@ def test_an_item_named_with_item_is_refined_though_nothing_changed_since_its_las
     ) == ([number], 3, status)
 
 
-@pytest.mark.parametrize("status", ["In Progress", "Blocked"])
+@pytest.mark.parametrize("status", ["Planned", "In Progress", "Blocked"])
 def test_an_item_named_with_item_that_refine_never_changes_has_nothing_to_do(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, status: str
 ) -> None:
