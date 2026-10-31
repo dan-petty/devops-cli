@@ -20,11 +20,15 @@
 ## ADDED Requirements
 
 ### Requirement: A runner Job carries the label of its repository and is the only one
-The Job and its pod of `run-job --template runner` SHALL carry the label `implement-repo` with the digest of `--repo`, the label that the Service lists its Jobs by. `run-job` SHALL create no Job while a Job with that label has not ended, whoever made it.
+The Job and its pod of `run-job --template runner` SHALL carry the label `implement-repo` with the digest of `--repo` in lower case, the label that the Service lists its Jobs by. `run-job` SHALL create no Job while a Job with that label has not ended, whoever made it. The lock is best effort: the Service and `run-job` list the Jobs just before they create one, and a Job that starts between the two calls is not seen.
 
 #### Scenario: The label of the repository
 - **WHEN** `run-job --template runner --repo example/project` creates a Job
 - **THEN** the Job and its pod carry `implement-repo` with the label value that the Service computes for `example/project`
+
+#### Scenario: Another spelling of the repository
+- **WHEN** a Job of `example/project` has not ended and `run-job` gets `--repo Example/Project`
+- **THEN** the command exits 1 and creates no Job
 
 #### Scenario: A running Job of the repository
 - **WHEN** `run-job --template runner --repo example/project` runs and a Job with that label has no Complete or Failed condition

@@ -390,7 +390,7 @@ The job SHALL take no Item that holds `owner/agent` or `owner/human`, `--item` i
 - **THEN** the Job is created, its name is printed, and the log is not followed
 
 ### Requirement: A start from a workstation is refused when it cannot succeed
-Before it creates the Job, the command SHALL refuse an Item that an agent or a person claimed, an Item whose Status is neither Ready nor Planned, an issue that is closed or no Item, and a repository that has a runner Job that has not ended. It SHALL refuse `--source`, `--filter` and `--limit`, and a missing `--item`, and the refusal SHALL name the `run-job` command. The refusal of `--group` with `--confirm` SHALL name the command that starts the Job.
+Before it creates the Job, the command SHALL refuse an Item that an agent or a person claimed, an Item whose Status is neither Ready nor Planned, a closed issue or an issue that is no Item, a repository that is not `owner/name`, and a repository that has a runner Job that has not ended. With `--confirm` it SHALL also refuse `--source`, `--filter`, `--limit` and a missing `--item`, and name the `run-job` command.
 
 #### Scenario: A claimed Item
 - **WHEN** the Item holds `owner/human` or `owner/agent`
@@ -408,13 +408,21 @@ Before it creates the Job, the command SHALL refuse an Item that an agent or a p
 - **WHEN** the command runs with `--confirm` and `--source`, `--filter` or `--limit`
 - **THEN** the command exits 1, names the option and the `run-job` command, and sends no request
 
+#### Scenario: A repository that is no owner and name
+- **WHEN** `--repo` is `../..`, `owner/..` or has no slash
+- **THEN** the command exits non-zero, reads no Item, and creates no Job
+
 #### Scenario: A step with confirm
 - **WHEN** the command runs with `--group` and `--confirm`
 - **THEN** the command exits 1, and the message names `devops roadmap implement --item <n> --confirm`
 
 ### Requirement: A dry run of the start prints the Job
-`devops roadmap implement --item <n> --dry-run` with `roadmap.implement.in_runner` false SHALL make no request and SHALL print the requests of the start, the read of the Item and the Job included.
+`devops roadmap implement --item <n> --dry-run` with `roadmap.implement.in_runner` false SHALL make no request and SHALL print the requests of the start, the read of the Item and the Job included. It SHALL ignore `--source`, `--filter` and `--limit`.
 
 #### Scenario: A dry run
 - **WHEN** the command runs with `--item 7 --dry-run`
 - **THEN** no process starts, no GitHub request is made, and the output names CronJob `devops-cli-runner`, the args of the Job and the read of the Item
+
+#### Scenario: A dry run with an option that needs the runner
+- **WHEN** the command runs with `--item 7 --dry-run --limit 2`
+- **THEN** the output is the same plan and the command exits 0

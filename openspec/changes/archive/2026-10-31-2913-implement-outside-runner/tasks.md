@@ -9,10 +9,10 @@
 
 ## 2. The command starts the runner Job
 
-- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_implement_outside.py` and `tests/roadmap/test_roadmap_implement_command.py` for the scenarios of "A workstation starts the runner Job for one Item" and "The job runs steps only in a runner": the Job and its args, `--no-wait`, the exit code of the container, a claimed Item, an Item of another Status, a running Job, the refused options, the `--group` message, the dry run with no request, and the old refusal with no `--item`
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_outside.py tests/roadmap/test_roadmap_implement_command.py`
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_implement_outside.py` for the scenarios of "A workstation starts the runner Job for one Item" and "The job runs steps only in a runner": the Job and its args, `--no-wait`, the exit code of the container, a claimed Item, an Item of another Status, a running Job, the refused options, the `--group` message, the dry run with no request, and the old refusal with no `--item`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_outside.py`
 - [x] 2.2 Write `src/devops_cli/roadmap/implement_outside.py` and call it, with `start_job`, from `src/devops_cli/commands/roadmap.py`, with the options `--context` and `--wait/--no-wait`, the messages and the help text
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_outside.py tests/roadmap/test_roadmap_implement_command.py tests/roadmap/test_roadmap_implement_job.py tests/roadmap/test_roadmap_dry_runs.py`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_outside.py tests/roadmap/test_roadmap_implement_job.py tests/roadmap/test_roadmap_dry_runs.py`
 
 ## 3. The documents and the archive
 
@@ -20,6 +20,15 @@
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 - [x] 3.2 Archive the change
   - Verification: `uv run devops openspec archive 2913-implement-outside-runner`
+
+## 4. Review fixes
+
+- [x] 4.1 One lock for every spelling of a repository: `repository_label` folds the case, and the fake `kubectl` lists Jobs by the selector
+  - Verification: `uv run devops ci test tests/commands/k8s/test_k8s_run_job.py tests/roadmap/test_roadmap_implement_outside.py`
+- [x] 4.2 Check `--repo` before any read, refuse a dot segment in the token repository, and let a dry run ignore the options that need the runner
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_outside.py tests/github/test_github_app_identity.py`
+- [x] 4.3 The Service lists the Jobs again before it creates one; the lock is best effort; a repository that the installation lacks fails in the pod with a message that names it
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py tests/github/test_github_app_identity.py`
 
 ## Workflow follow-up
 
