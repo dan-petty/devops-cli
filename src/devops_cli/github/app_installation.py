@@ -115,9 +115,7 @@ def mint_installation_token() -> tuple[str, str, datetime | None]:
         failure = classify_http_error(error, method="POST", path=_token_path(app))
         reason = failure.message
         if failure.details.get("status") == HTTPStatus.UNPROCESSABLE_ENTITY:
-            reason = ERRORS.git.github_app_permissions_not_granted.format(
-                reason=reason, permissions=_asked_permissions()
-            )
+            reason = _not_granted(app, reason)
         return "", _token_failed(app, reason), None
     try:
         token, expires_at = str(answer["token"]), datetime.fromisoformat(answer["expires_at"])
@@ -135,6 +133,19 @@ def mint_installation_token() -> tuple[str, str, datetime | None]:
 def _token_path(app: GitHubApp) -> str:
     """Where the App exchanges its JWT for an installation token."""
     return f"/app/installations/{app.installation_id}/access_tokens"
+
+
+def _not_granted(app: GitHubApp, reason: str) -> str:
+    """`reason` with what the installation must grant. A token for one repository (#2667, #2913)
+    also needs the installation to include that repository, and GitHub's HTTP 422 does not say
+    which of the two is missing."""
+    if app.token_repository:
+        return ERRORS.git.github_app_repository_not_granted.format(
+            reason=reason, repository=app.token_repository, permissions=_asked_permissions()
+        )
+    return ERRORS.git.github_app_permissions_not_granted.format(
+        reason=reason, permissions=_asked_permissions()
+    )
 
 
 def _asked_permissions() -> str:

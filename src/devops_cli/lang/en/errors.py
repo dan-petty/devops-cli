@@ -56,6 +56,10 @@ class GitErrorMessages:
         "{reason} The installation must grant each permission that the token asks for: "
         "{permissions}"
     )
+    github_app_repository_not_granted: str = (
+        "{reason} The installation must include repository {repository}, and grant each "
+        "permission that the token asks for: {permissions}"
+    )
     github_app_key_unreadable: str = "the private key is not an RSA private key in PEM form"
     github_app_answer_unreadable: str = "GitHub's answer holds no token and expiry time"
 

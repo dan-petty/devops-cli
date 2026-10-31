@@ -14,7 +14,10 @@ create the same Job again. A person's comment `implement: retry` clears it, as i
 of the job.
 
 **Wait.** A Job of the repository that has not ended blocks the round, whether or not an item
-records it. The API is the lock, so a restart of the Service loses nothing.
+records it, and a person's `devops roadmap implement --item` starts such a Job too (#2913). The API
+is the lock, so a restart of the Service loses nothing. The lock is best effort: the round lists
+the Jobs again just before it creates one, but a Job that starts between that list and the create
+is not seen. A hard lock needs an object on the server, such as a Lease.
 
 **Submit.** Else the round plans the Staged and Planned items that the default filter names and
 creates one Job for the first of them, from CronJob `devops-cli-runner`, with the item's
@@ -30,7 +33,6 @@ round: the failures come back in `SubmitResult.status_failed` for the row to rai
 
 from __future__ import annotations
 
-import hashlib
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -50,7 +52,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, job_name
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, job_name, repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
@@ -80,11 +82,6 @@ class SubmitResult:
     created: str | None = None
     left: int | None = None
     status_failed: tuple[StageFailure, ...] = ()
-
-
-def repository_label(repo: str) -> str:
-    """The value of the Job label for `repo`: a digest, since `owner/name` is no label value."""
-    return hashlib.sha256(repo.encode("utf-8")).hexdigest()[:16]
 
 
 def _record(item: Item, key: ImplementRecordKey) -> str | None:
@@ -208,6 +205,12 @@ def _create(
     return name
 
 
+def _runs(api: ClusterJobs, label: str) -> bool:
+    """Whether a runner Job of the repository with `label` has not ended."""
+    jobs = api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})
+    return any(job.state is JobState.RUNNING for job in jobs)
+
+
 def run_implement_round(
     store: RoadmapStore, *, repo: str, source: Path | str, jobs: ClusterJobs | None = None
 ) -> SubmitResult:
@@ -235,6 +238,8 @@ def run_implement_round(
     )
     if not plan.selected:
         return SubmitResult(reported=reported, status_failed=failed)
+    if _runs(api, label):
+        return SubmitResult(reported=reported, waiting=True, status_failed=failed)
     number = plan.selected[0].item.number
     created = _create(store, api, repo, plan.selected[0], label)
     failed = sync_statuses(store, repo=repo, planned=planned).failed
@@ -246,4 +251,4 @@ def run_implement_round(
     )
 
 
-__all__ = ["SubmitResult", "repository_label", "run_implement_round"]
+__all__ = ["SubmitResult", "run_implement_round"]

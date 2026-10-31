@@ -227,6 +227,44 @@ def test_a_running_job_of_this_repository_that_no_item_records_blocks_a_new_one(
     assert len(_creates(kube)) == 1
 
 
+def test_a_job_that_a_person_starts_after_the_plan_gets_no_second_job_from_the_round(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The round plans with git and network reads. A runner Job that `devops roadmap implement
+    --item` starts in that time is seen when the round lists the Jobs again before it creates."""
+    from devops_cli.k8s.cluster_job import repository_label
+
+    number = seed_staged(store)
+    real_plan = plan_implement
+
+    def plan_then_start(*args: Any, **kwargs: Any) -> Any:
+        plan = real_plan(*args, **kwargs)
+        kube.custom_objects.objects[JOBS] = [
+            {
+                "metadata": {
+                    "name": "devops-cli-runner-by-hand",
+                    "namespace": "devops",
+                    "labels": {"implement-repo": repository_label(STAGE_REPO)},
+                }
+            }
+        ]
+        return plan
+
+    monkeypatch.setattr("devops_cli.roadmap.implement_submit.plan_implement", plan_then_start)
+
+    _round(store, staged_repo)
+
+    assert (_creates(kube), _owner(store, number), _record(store, number).get("implement.job")) == (
+        [],
+        (None, []),
+        None,
+    )
+
+
 def test_a_job_that_succeeded_is_reported_on_its_item_with_the_tail_of_its_log(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:

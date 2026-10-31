@@ -10,6 +10,7 @@ templates: `devops-cli` for any command, and `devops-cli-runner` for the impleme
 from __future__ import annotations
 
 import copy
+import hashlib
 import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -54,6 +55,14 @@ def job_name(now: datetime | None = None, template: JobTemplate = DEFAULT_TEMPLA
     """`<cronjob>-<UTC yyyymmdd-hhmmss>-<4 hex>`."""
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
     return f"{template.cronjob}-{stamp}-{secrets.token_hex(2)}"
+
+
+def repository_label(repo: str) -> str:
+    """The value of the Job label `implement-repo` for `repo`: a digest, since `owner/name` is no
+    label value. The Service and `devops k8s run-job` label the runner Jobs of a repository with
+    it, and both list the Jobs by it. GitHub names are not case sensitive, so every spelling of a
+    name has one label."""
+    return hashlib.sha256(repo.casefold().encode("utf-8")).hexdigest()[:16]
 
 
 def _labelled(
