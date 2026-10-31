@@ -9,8 +9,8 @@
 - [x] 2.2 Check the workflow with `uv run devops ci --check --only actionlint,zizmor`
 
 ## 3. Documentation
-- [ ] 3.1 Name the rule in the CI section of `docs/SDLC.md`; verify with `uv run devops ci test tests/docs`
-- [ ] 3.2 Regenerate the documentation with `uv run devops docs generate --sync-readme`
+- [x] 3.1 Name the rule in the CI section of `docs/SDLC.md`; verify with `uv run pytest tests/docs`
+- [x] 3.2 Regenerate the documentation with `uv run devops docs generate --sync-readme`
 
 ## 4. Verification
 - [ ] 4.1 Run `uv run devops ci fail-to-pass --base origin/main` and keep its result
