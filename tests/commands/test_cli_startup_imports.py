@@ -35,8 +35,6 @@ DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION: int = 75
 DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP: int = 1100
 DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP: int = 250
 
-pytestmark = pytest.mark.live("python")
-
 
 def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """Return environment cleansed of telemetry and plugin overrides with PYTHONPATH set."""
@@ -108,6 +106,7 @@ def test_entry_toggle_ast_invariants() -> None:
             assert first_devops_import_lineno is None
 
 
+@pytest.mark.live("python")
 def test_entry_toggle_merges_existing_plugin() -> None:
     """Verify PYDANTIC_DISABLE_PLUGINS merges logfire-plugin with existing caller plugins."""
     code = """
@@ -141,6 +140,7 @@ print("__RESULT__" + val)
     ) == (True, True)
 
 
+@pytest.mark.live("python")
 def test_entry_prevents_logfire_plugin_when_telemetry_enabled() -> None:
     """Verify logfire plugin is not loaded into pydantic even when telemetry is configured enabled."""
     code = """
@@ -174,6 +174,7 @@ print("__HAS_LOGFIRE__" + json.dumps(has_logfire))
     assert has_logfire is False
 
 
+@pytest.mark.live("python")
 def test_ai_agents_and_providers_import_no_model_sdks() -> None:
     """Verify loading ai.agents.agent and ai.providers imports neither anthropic, google.genai, nor openai."""
     code = """
@@ -207,6 +208,7 @@ _HEAVY_MODULES = CONST_CLI_HEAVY_MODULES
 _GITHUB_HELP_ARGVS = [["--help"], ["gh", "--help"], ["roadmap", "--help"], ["pr", "--help"]]
 
 
+@pytest.mark.live("python")
 def test_help_leaves_the_github_sessions_etag_store_unloaded() -> None:
     """`cachetools` holds the GitHub session's ETags (#983) and loads with the session's
     transport, on its first request; neither the top-level help nor the help of a command
@@ -237,6 +239,7 @@ print("__ETAG_STORE__" + json.dumps("cachetools" in sys.modules))
     assert json.loads(found_line.removeprefix("__ETAG_STORE__")) is False
 
 
+@pytest.mark.live("python")
 def test_running_commands_import_no_heavy_modules() -> None:
     """Verify importing devops_cli.main, commands.ci, tracer, and http loads zero heavy modules."""
     code = f"""
@@ -267,6 +270,7 @@ print("__HEAVY_STATUS__" + json.dumps(loaded))
     assert loaded == []
 
 
+@pytest.mark.live("python")
 def test_ssrf_helpers_lazy_pydantic_ai() -> None:
     """Verify devops_cli.core.validation and devops_cli.http.egress do not eagerly import pydantic_ai."""
     code = """
@@ -293,6 +297,7 @@ print("__SSRF_STATUS__" + json.dumps(loaded))
     assert loaded is False
 
 
+@pytest.mark.live("python")
 def test_pydantic_ai_exceptions_lazy() -> None:
     """Verify importing devops_cli.exceptions.ai does not eagerly import pydantic_ai."""
     code = """
@@ -463,6 +468,7 @@ def _probe_startup_imports(argv: list[str], preamble: str = "") -> _StartupImpor
     )
 
 
+@pytest.mark.live("python")
 @pytest.mark.parametrize("argv", _HELP_ARGVS)
 def test_cli_help_startup_imports(argv: tuple[str, ...]) -> None:
     """Verify each help argv, run once in a fresh interpreter, imports no heavy module.
@@ -487,6 +493,7 @@ def test_cli_help_startup_imports(argv: tuple[str, ...]) -> None:
     )
 
 
+@pytest.mark.live("python")
 def test_startup_structural_budget_fails_when_extra_heavy_package_imported() -> None:
     """Verify injecting a heavy package causes the structural import budget to fail."""
     probe = _probe_startup_imports(["--help"], preamble="import pydantic_ai\n")
@@ -497,6 +504,7 @@ def test_startup_structural_budget_fails_when_extra_heavy_package_imported() -> 
     ) == (True, True)
 
 
+@pytest.mark.live("python")
 def test_startup_structural_budget_passes_under_cpu_load() -> None:
     """Verify structural import module counts remain invariant and within budget under high CPU load."""
     worker_count = min(os.cpu_count() or 4, 8)
@@ -532,6 +540,7 @@ def test_startup_structural_budget_passes_under_cpu_load() -> None:
                 p.wait()
 
 
+@pytest.mark.live("python")
 @pytest.mark.parametrize(
     ("argv", "forbidden"),
     [
@@ -558,6 +567,7 @@ def test_cli_dry_run_imports_only_plan_dependencies(
     assert loaded == [], f"{argv} eagerly imported forbidden modules: {loaded}"
 
 
+@pytest.mark.live("python")
 def test_entry_turns_off_the_pydantic_ai_banner() -> None:
     """Verify the entry point sets PYDANTIC_AI_NO_BANNER, so pydantic-ai prints no first-run banner
     into the CLI's output (#2398)."""
