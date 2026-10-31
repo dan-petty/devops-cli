@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.26.0](https://github.com/dan-petty/devops-cli/compare/v0.25.0...v0.26.0) (2026-10-31)
+
+
+### Features
+
+* **k8s:** preview requests in dry run for cluster commands ([#2839](https://github.com/dan-petty/devops-cli/issues/2839)) ([b6de1a4](https://github.com/dan-petty/devops-cli/commit/b6de1a46a3162d9dfd5255c4f74e9068f1343966)), closes [#2238](https://github.com/dan-petty/devops-cli/issues/2238)
+* **pr:** preview requests in dry run for pr commands ([#2835](https://github.com/dan-petty/devops-cli/issues/2835)) ([2a9b746](https://github.com/dan-petty/devops-cli/commit/2a9b746b86a45307d98bd9309944ec1a1b49e456)), closes [#2234](https://github.com/dan-petty/devops-cli/issues/2234)
+
+
+### Bug Fixes
+
+* **k8s:** enforce the window of each gateway deployment ([#2843](https://github.com/dan-petty/devops-cli/issues/2843)) ([2ff7d9f](https://github.com/dan-petty/devops-cli/commit/2ff7d9fd2026342f9d358b87bc2ac8ec9073b44d)), closes [#2825](https://github.com/dan-petty/devops-cli/issues/2825)
+* **roadmap:** measure a task group by the files its step reads ([#2847](https://github.com/dan-petty/devops-cli/issues/2847)) ([2f3986a](https://github.com/dan-petty/devops-cli/commit/2f3986a71bbba9f9d6e919f31feb4380d849ca16)), closes [#2838](https://github.com/dan-petty/devops-cli/issues/2838)
+* **tests:** replace real test sleeps with clock ([#2169](https://github.com/dan-petty/devops-cli/issues/2169)) ([#2833](https://github.com/dan-petty/devops-cli/issues/2833)) ([506f769](https://github.com/dan-petty/devops-cli/commit/506f7692457075f31a1e399d9a59c8ee309f5ced))
+
 ## [0.25.0](https://github.com/dan-petty/devops-cli/compare/v0.24.0...v0.25.0) (2026-10-31)
 
 
