@@ -8,6 +8,7 @@ import typer
 
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class
 from devops_cli.lang import HELP, MESSAGES
 
 app = new_typer(
@@ -17,6 +18,7 @@ app = new_typer(
 
 
 @app.command(name="status")
+@dry_run_class("no-external-request")
 def cache_status(
     output_format: Annotated[
         str,
@@ -73,25 +75,11 @@ def cache_status(
 
 
 @app.command(name="clear")
-def cache_clear(
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> None:
+@dry_run_class("no-external-request")
+def cache_clear() -> None:
     """Purge all in-memory and persistent disk cache entries."""
-    from devops_cli.dry_run import is_dry_run, render_dry_run_result
-    from devops_cli.output import print_success
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ai cache clear",
-            action="clear_llm_cache",
-            details={},
-        )
-        return
-
     from devops_cli.ai.response_cache import get_llm_response_cache
+    from devops_cli.output import print_success
 
     cache = get_llm_response_cache()
     cleared_count = cache.clear()
