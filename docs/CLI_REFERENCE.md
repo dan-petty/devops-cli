@@ -8863,6 +8863,7 @@ devops cloudflare status [OPTIONS]
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops cloudflare service-status`
 
@@ -8879,6 +8880,7 @@ devops cloudflare service-status [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops cloudflare dns`
 
@@ -8903,6 +8905,7 @@ devops cloudflare dns list [OPTIONS]
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output DNS records in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops cloudflare dns sync`
 
@@ -8920,7 +8923,7 @@ devops cloudflare dns sync [OPTIONS]
 | `--tunnel-cname`, `-c` | `string` | - | Target tunnel CNAME or Tunnel UUID |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
-| `--dry-run` | `boolean` | - | Preview DNS record reconciliation without applying changes |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output reconciliation summary in JSON format |
 
@@ -8945,7 +8948,7 @@ devops cloudflare dns delete [OPTIONS] <targets>
 | `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
 | `--force`, `-f` | `boolean` | - | Force deletion of records not marked as 'Managed by devops-cli' |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
-| `--dry-run` | `boolean` | - | Preview DNS record deletions without applying changes |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output deletion results in JSON format |
 
@@ -8971,6 +8974,7 @@ devops cloudflare tunnel routes [OPTIONS]
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output tunnel ingress routes in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops cloudflare tunnel sync`
 
@@ -8989,7 +8993,7 @@ devops cloudflare tunnel sync [OPTIONS]
 | `--service` | `string` | `http://traefik.kube-system.svc.cluster.local:80` | Cluster ingress destination service URL |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
-| `--dry-run` | `boolean` | - | Preview tunnel configuration without updating |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output updated tunnel configuration in JSON format |
 
@@ -9014,6 +9018,7 @@ devops cloudflare access status [OPTIONS]
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output access applications in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops cloudflare access sync`
 
@@ -9031,7 +9036,7 @@ devops cloudflare access sync [OPTIONS]
 | `--allowed-emails`, `-e` | `string` | - | Comma-separated emails permitted to access |
 | `--bypass-ips`, `-b` | `string` | - | Comma-separated public IP addresses or CIDRs to bypass Access authentication (e.g. homelab public IP) |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
-| `--dry-run` | `boolean` | - | Preview Access application changes without applying |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output Access sync summary in JSON format |
 
@@ -9056,6 +9061,7 @@ devops cloudflare access policies [OPTIONS] <app_id>
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output policies in JSON format |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
