@@ -196,8 +196,9 @@ class LLMClient(
 
         self._cache = _resolve_llm_cache(config, cache_enabled)
         if append_cache is None:
-            append_cache = getattr(config, "append_cache", False) or getattr(
-                getattr(config, "cache", None), "append_cache", False
+            cache_config = getattr(config, "cache", None)
+            append_cache = (
+                getattr(cache_config, "append_cache", False) if cache_config is not None else False
             )
         self._append_cache = bool(append_cache)
         self._transport = transport
