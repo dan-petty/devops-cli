@@ -13,7 +13,9 @@ import yaml
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import DEFAULT_SANDBOX_NETWORK, DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.models import CommandDryRunResult
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -31,7 +33,6 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
-    render_dry_run_result,
 )
 from devops_cli.output.console import write_stdout
 from devops_cli.output.serialization import emit_serialized, resolve_format
@@ -51,6 +52,17 @@ from devops_cli.sandbox.models import (
     SandboxProbeReport,
     SandboxStatus,
     container_sandbox_policy,
+)
+from devops_cli.sandbox.sandbox_plans import (
+    plan_sandbox_deploy,
+    plan_sandbox_exec,
+    plan_sandbox_logs,
+    plan_sandbox_metrics,
+    plan_sandbox_network_policy,
+    plan_sandbox_probe,
+    plan_sandbox_status,
+    plan_sandbox_stop,
+    plan_sandbox_traces,
 )
 from devops_cli.security.sanitizer import mask_dict_secrets, mask_secrets
 from devops_cli.telemetry.tracer import trace_span
@@ -102,6 +114,7 @@ def _render_instances_table(instances: list[SandboxInstance]) -> None:
 
 
 @app.command("deploy")
+@dry_run_class("request-plan")
 def deploy(
     command: Annotated[list[str] | None, typer.Argument(help="Optional container command")] = None,
     image: Annotated[
@@ -142,14 +155,13 @@ def deploy(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> CommandDryRunResult | None:
     """Deploy an isolated background container sandbox with security containment."""
-    set_dry_run(dry_run)
+    effective_network = network_mode or network
     policy = container_sandbox_policy(seccomp_profile)
     profile = policy.seccomp_profile
     engine = WorkloadSandboxEngine()
     env_map = _parse_env_flags(env)
     cmd_list = command or ["sleep", "infinity"]
 
-    effective_network = network_mode or network
     pub_list = (
         [item.strip() for item in public_whitelist.split(",") if item.strip()]
         if public_whitelist
@@ -176,27 +188,27 @@ def deploy(
         env=env_map,
         policy=policy,
     )
-
-    if is_dry_run():
-        simulated = engine.deploy(cfg, dry_run=True)
-        render_dry_run_result(
-            command="devops sandbox deploy",
-            action="deploy_workload_sandbox",
-            details={
-                "instance_id": simulated.instance_id,
-                "name": simulated.name,
-                "image": simulated.image,
-                "workspace": str(simulated.workspace_dir),
-                "ports": [b.model_dump() for b in simulated.port_bindings],
-                "network_mode": cfg.network_mode,
-                "network_config": cfg.network_config.model_dump(),
-                "declared_controls": engine.declared_controls(cfg),
-                "seccomp_profile": str(profile.path) if profile else None,
-            },
-        )
-        return None
-
     try:
+        if dry_run or is_dry_run():
+            simulated = engine.deploy(cfg, dry_run=True)
+            plan = plan_sandbox_deploy(
+                image=image,
+                name=name,
+                ports=ports,
+                command=command,
+                workspace=simulated.workspace_dir,
+                memory=memory,
+                cpus=cpus,
+                read_only=read_only,
+                network_mode=cfg.network_mode,
+                network_config=cfg.network_config.model_dump(),
+                declared_controls=engine.declared_controls(cfg),
+                seccomp_profile=profile.path if profile else None,
+            )
+            render_request_plan("Planned requests for devops sandbox deploy (dry-run):", plan)
+            return None
+
+        set_dry_run(dry_run)
         inst = engine.deploy(cfg)
         print_success(f"Sandbox '{inst.name}' deployed successfully [ID: {inst.instance_id}]")
         _render_instances_table([inst])
@@ -207,6 +219,7 @@ def deploy(
 
 
 @app.command("status")
+@dry_run_class("request-plan")
 def status(
     instance_id: Annotated[str | None, typer.Argument(help=HELP.sandbox.instance_id)] = None,
     all_instances: Annotated[
@@ -217,8 +230,14 @@ def status(
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.sandbox.json_output)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Inspect status of deployed sandbox containers."""
+    if dry_run or is_dry_run():
+        plan = plan_sandbox_status(instance_id=instance_id, all_instances=all_instances)
+        render_request_plan("Planned requests for devops sandbox status:", plan)
+        return
+
     engine = WorkloadSandboxEngine()
     try:
         instances = engine.status(identifier=instance_id)
@@ -242,6 +261,7 @@ def status(
 
 
 @app.command("stop")
+@dry_run_class("request-plan")
 def stop(
     instance_id: Annotated[str | None, typer.Argument(help=HELP.sandbox.instance_id)] = None,
     all_instances: Annotated[
@@ -251,6 +271,16 @@ def stop(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> CommandDryRunResult | None:
     """Gracefully stop and tear down a sandbox container."""
+    if dry_run or is_dry_run():
+        targets = (
+            [instance_id]
+            if instance_id
+            else (["<all-instances>"] if all_instances else ["<container-id>"])
+        )
+        plan = plan_sandbox_stop(targets=targets, timeout=timeout)
+        render_request_plan("Planned requests for devops sandbox stop:", plan)
+        return None
+
     set_dry_run(dry_run)
     engine = WorkloadSandboxEngine()
 
@@ -258,21 +288,13 @@ def stop(
         print_error("Please specify a sandbox instance ID or use --all to stop all sandboxes.")
         raise typer.Exit(1)
 
-    targets: list[str] = (
+    stop_targets: list[str] = (
         [inst.instance_id for inst in engine.registry.list_instances()]
         if all_instances
         else ([instance_id] if instance_id else [])
     )
 
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops sandbox stop",
-            action="stop_workload_sandbox",
-            details={"targets": targets, "timeout": timeout},
-        )
-        return None
-
-    for target in targets:
+    for target in stop_targets:
         try:
             stopped = engine.stop(target, timeout=timeout)
             print_success(
@@ -284,6 +306,7 @@ def stop(
 
 
 @app.command("exec")
+@dry_run_class("request-plan")
 def exec_cmd(
     instance_id: Annotated[str, typer.Argument(help=HELP.sandbox.instance_id)],
     command: Annotated[
@@ -292,8 +315,14 @@ def exec_cmd(
     workdir: Annotated[
         str | None, typer.Option("--workdir", "-w", help=HELP.sandbox.workdir)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Execute a command inside an active sandbox container."""
+    if dry_run or is_dry_run():
+        plan = plan_sandbox_exec(instance_id=instance_id, command=command, workdir=workdir)
+        render_request_plan("Planned requests for devops sandbox exec:", plan)
+        return
+
     engine = WorkloadSandboxEngine()
     try:
         res = engine.exec(instance_id, command=command, workdir=workdir)
@@ -386,6 +415,7 @@ def _render_probe_report(report: SandboxProbeReport) -> None:
 
 
 @app.command("probe")
+@dry_run_class("request-plan")
 def probe(
     identifier: Annotated[str, typer.Argument(help=HELP.sandbox.instance_id)],
     protocol: Annotated[
@@ -426,24 +456,17 @@ def probe(
     ] = False,
 ) -> CommandDryRunResult | None:
     """Probe endpoint readiness and service health across network protocols."""
-    set_dry_run(dry_run)
     protocols = _parse_protocols(protocol)
-    statuses = _parse_expected_statuses(expected_status)
-
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops sandbox probe",
-            action="probe_sandbox_endpoint",
-            target=identifier,
-            details={
-                "identifier": identifier,
-                "protocols": [p.value for p in protocols],
-                "paths": path or ["/healthz"],
-                "timeout": timeout,
-                "expected_statuses": statuses,
-            },
+    if dry_run or is_dry_run():
+        protos = [p.value for p in protocols]
+        plan = plan_sandbox_probe(
+            identifier=identifier, protocols=protos, paths=path, timeout=timeout
         )
+        render_request_plan("Planned requests for devops sandbox probe:", plan)
         return None
+
+    set_dry_run(dry_run)
+    statuses = _parse_expected_statuses(expected_status)
 
     engine = WorkloadSandboxEngine()
     report: SandboxProbeReport
@@ -599,6 +622,7 @@ def _render_metrics_snapshot(snapshot: SandboxMetricsSnapshot) -> None:
 
 
 @app.command("metrics")
+@dry_run_class("request-plan")
 def metrics(
     identifier: Annotated[str, typer.Argument(help=HELP.sandbox.instance_id)],
     prom_endpoint: Annotated[
@@ -653,20 +677,11 @@ def metrics(
         },
     ):
         if is_dry_run():
-            render_dry_run_result(
-                command="devops sandbox metrics",
-                action="collect_sandbox_metrics",
-                details={
-                    "identifier": identifier,
-                    "prom_endpoint": prom_endpoint,
-                    "timeout": timeout,
-                    "warn_memory_pct": warn_memory_pct,
-                    "warn_cpu_pct": warn_cpu_pct,
-                    "latency_sla_ms": latency_sla_ms,
-                },
+            plan = plan_sandbox_metrics(
+                identifier=identifier, prom_endpoint=prom_endpoint, timeout=timeout
             )
+            render_request_plan("Planned requests for devops sandbox metrics (dry-run):", plan)
             return None
-
         engine = WorkloadSandboxEngine()
         try:
             snapshot = engine.metrics(
@@ -820,6 +835,7 @@ def _resolve_spans_for_traces(
 
 
 @app.command("traces")
+@dry_run_class("request-plan")
 def traces(
     identifier: Annotated[
         str | None,
@@ -855,19 +871,14 @@ def traces(
     ] = False,
 ) -> None:
     """Visualize distributed trace waterfall and cross-service latency for sandbox workloads."""
-    set_dry_run(dry_run)
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops sandbox traces",
-            action="visualize_sandbox_traces",
-            details={
-                "identifier": identifier,
-                "trace_id": trace_id or "latest",
-                "probe": probe,
-                "tempo_url": tempo_url,
-            },
+    if dry_run or is_dry_run():
+        plan = plan_sandbox_traces(
+            identifier=identifier, trace_id=trace_id, probe=probe, tempo_url=tempo_url
         )
+        render_request_plan("Planned requests for devops sandbox traces:", plan)
         return None
+
+    set_dry_run(dry_run)
 
     resolved_trace_id = trace_id
     target_display = identifier
@@ -961,6 +972,7 @@ def _render_logs_output(report: SandboxLogsReport) -> None:
 
 
 @app.command("logs")
+@dry_run_class("request-plan")
 def logs(
     identifier: Annotated[str | None, typer.Argument(help=HELP.sandbox.instance_id)] = None,
     follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.sandbox.follow)] = False,
@@ -989,20 +1001,14 @@ def logs(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Stream stdout/stderr container logs with automated panic and crash detection."""
-    set_dry_run(dry_run)
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops sandbox logs",
-            action="stream_sandbox_logs",
-            details={
-                "identifier": identifier or "auto",
-                "follow": follow,
-                "tail": tail,
-                "timestamps": timestamps,
-                "detect_panics": detect_panics,
-            },
+    if dry_run or is_dry_run():
+        plan = plan_sandbox_logs(
+            identifier=identifier, follow=follow, tail=tail, timestamps=timestamps
         )
+        render_request_plan("Planned requests for devops sandbox logs (dry-run):", plan)
         return None
+
+    set_dry_run(dry_run)
 
     engine = WorkloadSandboxEngine()
     target_id = _resolve_sandbox_identifier(engine, identifier)
@@ -1042,6 +1048,7 @@ def logs(
 
 
 @app.command("network-policy")
+@dry_run_class("request-plan")
 def network_policy(
     network_mode: Annotated[
         str,
@@ -1094,8 +1101,20 @@ def network_policy(
             ),
         ),
     ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
+    if dry_run or is_dry_run():
+        plan = plan_sandbox_network_policy(
+            network_mode=network_mode,
+            name=name,
+            namespace=namespace,
+            public_whitelist=public_whitelist,
+            local_whitelist=local_whitelist,
+            allow_collector=allow_collector,
+        )
+        render_request_plan("Planned requests for devops sandbox network-policy:", plan)
+        return
     pub_list = (
         [item.strip() for item in public_whitelist.split(",") if item.strip()]
         if public_whitelist
