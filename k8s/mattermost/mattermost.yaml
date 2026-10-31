@@ -34,6 +34,11 @@ spec:
       runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
   scheduling:
     resources:
       requests:
