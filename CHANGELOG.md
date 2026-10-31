@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.32.0](https://github.com/dan-petty/devops-cli/compare/v0.31.0...v0.32.0) (2026-10-31)
+
+
+### Features
+
+* **k8s:** argo cd posts deploy notifications to mattermost ([#2904](https://github.com/dan-petty/devops-cli/issues/2904)) ([6d9eff7](https://github.com/dan-petty/devops-cli/commit/6d9eff76da349e548cb93be1383c2962e5abffa6))
+* **k8s:** post alertmanager alerts to mattermost ([#2897](https://github.com/dan-petty/devops-cli/issues/2897)) ([17c5295](https://github.com/dan-petty/devops-cli/commit/17c52957f30e13480024254953082204b1fe5a6f)), closes [#1392](https://github.com/dan-petty/devops-cli/issues/1392)
+
+
+### Bug Fixes
+
+* **security:** the subprocess environment guard accepts... ([#2901](https://github.com/dan-petty/devops-cli/issues/2901)) ([a508203](https://github.com/dan-petty/devops-cli/commit/a5082031c9f806f32e2e0f98684745286d5433b5))
+
 ## [0.31.0](https://github.com/dan-petty/devops-cli/compare/v0.30.0...v0.31.0) (2026-10-31)
 
 
