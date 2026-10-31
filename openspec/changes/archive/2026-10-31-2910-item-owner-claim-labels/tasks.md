@@ -43,7 +43,7 @@
   - Verification: `uv run devops ci test tests/commands/test_pr_status.py`
 - [x] 6.3 Name the owner family in `docs/adr/0016-labels-hold-the-roadmap-items-fields.md`, `CONTEXT.md` and `k8s/README.md`, and regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
-- [ ] 6.4 Archive the change
+- [x] 6.4 Archive the change
   - Verification: `uv run devops openspec archive 2910-item-owner-claim-labels`
 
 ## Workflow follow-up
