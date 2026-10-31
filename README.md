@@ -253,14 +253,14 @@ k8s/. |
 |  | `devops docker sign [OPTIONS] <image>` | Sign a container image using Sigstore Cosign (keyless or keyed). |
 |  | `devops docker verify [OPTIONS] <image>` | Verify container image signature or attestation using Sigstore Cosign. |
 | [**grafana**](docs/commands/grafana.md) | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
-|  | `devops grafana datasources` | List configured datasources. |
-|  | `devops grafana alerts` | List alert rules (Grafana 9+ unified alerting). |
+|  | `devops grafana datasources [OPTIONS]` | List configured datasources. |
+|  | `devops grafana alerts [OPTIONS]` | List alert rules (Grafana 9+ unified alerting). |
 |  | `devops grafana dashboards COMMAND [ARGS]...` | Grafana dashboard and alert management. |
 | [**prometheus**](docs/commands/prometheus.md) | `devops prometheus query [OPTIONS] <expr>` | Execute an instant PromQL query. |
 |  | `devops prometheus query-range [OPTIONS] <expr>` | Execute a range PromQL query and summarise the result. |
 |  | `devops prometheus analyze [OPTIONS] <expr>` | Detect anomalies and project the trend of a metric series, computed locally. |
-|  | `devops prometheus rules` | List Prometheus recording and alerting rules. |
-|  | `devops prometheus targets` | List active Prometheus scrape targets. |
+|  | `devops prometheus rules [OPTIONS]` | List Prometheus recording and alerting rules. |
+|  | `devops prometheus targets [OPTIONS]` | List active Prometheus scrape targets. |
 | [**argo**](docs/commands/argo.md) | `devops argo sync [OPTIONS] <name>` | Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed). |
 |  | `devops argo cd COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo workflows COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |

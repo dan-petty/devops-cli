@@ -25,8 +25,18 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.grafana.grafana_plans import (
+    plan_grafana_alerts,
+    plan_grafana_dashboards_export,
+    plan_grafana_dashboards_import,
+    plan_grafana_dashboards_list,
+    plan_grafana_dashboards_sync,
+    plan_grafana_datasources,
+    plan_grafana_search,
+)
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
 from devops_cli.http.urls import service_base_url
@@ -97,12 +107,24 @@ def _client(settings: Settings) -> httpx2.Client:
     return new_http_client(level=configured_level(settings.ai))
 
 
+def _dry_run_base_url() -> str:
+    """Return the Grafana base URL safely for dry-run request planning."""
+    settings = load_settings()
+    if settings.grafana.url:
+        try:
+            return service_base_url(settings.grafana.url, "grafana.url")
+        except ValueError:
+            pass
+    return "https://grafana.example.com"
+
+
 # =============================================================================
 # Command: devops grafana dashboards list
 # =============================================================================
 
 
 @dashboards_app.command("list")
+@dry_run_class("request-plan")
 def dashboards_list(
     dry_run: Annotated[
         bool,
@@ -111,10 +133,8 @@ def dashboards_list(
 ) -> None:
     """List all dashboards."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops grafana dashboards list",
-            action="list_grafana_dashboards",
-            details={"dashboards": []},
+        render_request_plan(
+            "devops grafana dashboards list", plan_grafana_dashboards_list(_dry_run_base_url())
         )
         return
 
@@ -147,11 +167,23 @@ def dashboards_list(
 
 
 @dashboards_app.command("export")
+@dry_run_class("request-plan")
 def dashboards_export(
     uid: Annotated[str, typer.Argument(help=HELP.grafana.uid)],
     output: Annotated[Path | None, typer.Option("--output", "-o", help=HELP.options.output)] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Export a dashboard to JSON."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops grafana dashboards export",
+            plan_grafana_dashboards_export(_dry_run_base_url(), uid),
+        )
+        return
+
     if not re.fullmatch(r"^[a-zA-Z0-9_-]+$", uid):
         print_error(
             ERRORS.grafana.invalid_uid,
@@ -192,6 +224,7 @@ def dashboards_export(
 
 
 @dashboards_app.command("import")
+@dry_run_class("request-plan")
 def dashboards_import(
     file: Annotated[Path, typer.Argument(help=HELP.grafana.import_file)],
     folder_id: Annotated[
@@ -203,6 +236,13 @@ def dashboards_import(
     ] = False,
 ) -> None:
     """Import a dashboard from JSON."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops grafana dashboards import",
+            plan_grafana_dashboards_import(_dry_run_base_url(), file, folder_id),
+        )
+        return
+
     settings = load_settings()
     base, headers = _client_args(settings)
 
@@ -227,16 +267,6 @@ def dashboards_import(
     if isinstance(dashboard, dict):
         dashboard.pop("id", None)
         dashboard.pop("uid", None)
-
-    if dry_run or is_dry_run():
-        title = dashboard.get("title", "<unknown>") if isinstance(dashboard, dict) else "<unknown>"
-        render_dry_run_result(
-            command="devops grafana dashboards import",
-            target=str(file),
-            action="import_dashboard",
-            details={"folder_id": folder_id, "title": title},
-        )
-        return
 
     with _client(settings) as http_client:
         response = http_client.post(
@@ -326,6 +356,7 @@ def _sync_dashboard_file(
 
 
 @dashboards_app.command("sync")
+@dry_run_class("request-plan")
 def dashboards_sync(
     dir_path: Annotated[
         Path | None,
@@ -342,22 +373,21 @@ def dashboards_sync(
     such as one the dashboard sidecar loads from a ConfigMap, is skipped rather than failed.
     """
     search_dir = dir_path or DEFAULT_GRAFANA_DASHBOARDS_DIR
+    json_files = sorted(search_dir.glob("*.json")) if search_dir.exists() else []
+
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops grafana dashboards sync",
+            plan_grafana_dashboards_sync(_dry_run_base_url(), json_files),
+        )
+        return
+
     if not search_dir.exists():
         print_warning(MESSAGES.grafana.dir_not_found.format(path=search_dir), prefix=False)
         raise typer.Exit(1)
 
-    json_files = sorted(search_dir.glob("*.json"))
     if not json_files:
         print_warning(MESSAGES.grafana.no_json_files.format(path=search_dir), prefix=False)
-        return
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops grafana dashboards sync",
-            target=str(search_dir),
-            action="sync_dashboards",
-            details={"files": [f.name for f in json_files]},
-        )
         return
 
     settings = load_settings()
@@ -426,6 +456,7 @@ def _print_lint_results(reports: list[DashboardLintReport]) -> None:
 
 
 @dashboards_app.command("lint")
+@dry_run_class("no-external-request")
 def dashboards_lint(
     path: Annotated[
         Path, typer.Argument(help=HELP.grafana.lint_path)
@@ -435,10 +466,6 @@ def dashboards_lint(
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Statically check dashboard JSON for layout, query, and binding defects.
 
@@ -449,13 +476,6 @@ def dashboards_lint(
     from devops_cli.grafana import lint_dashboard_files
 
     target = path.resolve()
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops grafana dashboards lint {path}",
-            action="lint_grafana_dashboards",
-            target=str(target),
-        )
-        return
 
     if target.is_dir():
         files = sorted(target.glob("*.json"))
@@ -481,10 +501,21 @@ def dashboards_lint(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def search(
     query: Annotated[str, typer.Option("--query", "-q", help=HELP.grafana.query)] = "",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Search Grafana dashboards and folders by query string."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops grafana search", plan_grafana_search(_dry_run_base_url(), query)
+        )
+        return
+
     settings = load_settings()
     base, headers = _client_args(settings)
     params = {"query": query} if query else {}
@@ -524,8 +555,20 @@ def search(
 
 
 @app.command()
-def datasources() -> None:
+@dry_run_class("request-plan")
+def datasources(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """List configured datasources."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops grafana datasources", plan_grafana_datasources(_dry_run_base_url())
+        )
+        return
+
     settings = load_settings()
     base, headers = _client_args(settings)
 
@@ -561,8 +604,18 @@ def datasources() -> None:
 
 
 @app.command()
-def alerts() -> None:
+@dry_run_class("request-plan")
+def alerts(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """List alert rules (Grafana 9+ unified alerting)."""
+    if dry_run or is_dry_run():
+        render_request_plan("devops grafana alerts", plan_grafana_alerts(_dry_run_base_url()))
+        return
+
     settings = load_settings()
     base, headers = _client_args(settings)
 

@@ -18,7 +18,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
 from devops_cli.http.urls import service_base_url
@@ -31,6 +32,13 @@ from devops_cli.output import (
     print_warning,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
+from devops_cli.prometheus.prometheus_plans import (
+    plan_prometheus_analyze,
+    plan_prometheus_query,
+    plan_prometheus_query_range,
+    plan_prometheus_rules,
+    plan_prometheus_targets,
+)
 
 # A refusal at the connect ends each command with its message and no traceback.
 app = new_typer(help=HELP.prometheus.app, no_args_is_help=True)
@@ -63,6 +71,17 @@ def _base_url(settings: Settings) -> str:
 def _client(settings: Settings) -> httpx2.Client:
     """A Prometheus client that dials the configured level: loopback, or private with the flag."""
     return new_http_client(level=configured_level(settings.ai))
+
+
+def _dry_run_base_url() -> str:
+    """Return the Prometheus base URL safely for dry-run request planning."""
+    settings = load_settings()
+    if settings.prometheus.url:
+        try:
+            return service_base_url(settings.prometheus.url, "prometheus.url")
+        except ValueError:
+            pass
+    return "https://prometheus.example.com"
 
 
 def _validate_expr(expr: str) -> None:
@@ -128,6 +147,7 @@ def _read_json(response: httpx2.Response) -> dict[str, Any]:
 
 
 @app.command()
+@dry_run_class("request-plan")
 def query(
     expr: Annotated[str, typer.Argument(help=HELP.prometheus.expr)],
     at: Annotated[str | None, typer.Option("--time", "-t", help=HELP.prometheus.time_at)] = None,
@@ -138,11 +158,9 @@ def query(
 ) -> None:
     """Execute an instant PromQL query."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops prometheus query",
-            target=expr,
-            action="promql_instant_query",
-            details={"expr": expr, "time": at},
+        render_request_plan(
+            "devops prometheus query",
+            plan_prometheus_query(_dry_run_base_url(), expr, at=at),
         )
         return
 
@@ -184,6 +202,7 @@ def query(
 
 
 @app.command("query-range")
+@dry_run_class("request-plan")
 def query_range(
     expr: Annotated[str, typer.Argument(help=HELP.prometheus.expr)],
     start: Annotated[
@@ -193,8 +212,19 @@ def query_range(
     step: Annotated[
         str, typer.Option("--step", help=HELP.prometheus.step)
     ] = DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Execute a range PromQL query and summarise the result."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops prometheus query-range",
+            plan_prometheus_query_range(_dry_run_base_url(), expr, start, end or "now", step),
+        )
+        return
+
     _validate_expr(expr)
     settings = load_settings()
     base = _base_url(settings)
@@ -253,6 +283,7 @@ def _analysis_rows(analysis: Any) -> list[list[str]]:
 
 
 @app.command("analyze")
+@dry_run_class("request-plan")
 def analyze(
     expr: Annotated[str, typer.Argument(help=HELP.prometheus.expr)],
     start: Annotated[
@@ -275,16 +306,16 @@ def analyze(
     ] = False,
 ) -> None:
     """Detect anomalies and project the trend of a metric series, computed locally."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops prometheus analyze",
+            plan_prometheus_analyze(_dry_run_base_url(), expr, start, "now", step),
+        )
+        return
+
     from devops_cli.prometheus.analysis import analyze_series, extract_series_values
 
     _validate_expr(expr)
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops prometheus analyze {expr[:60]}",
-            action="analyze_metric_series",
-            details={"start": start, "step": step, "threshold": threshold},
-        )
-        return
 
     settings = load_settings()
     base = _base_url(settings)
@@ -346,8 +377,21 @@ def analyze(
 
 
 @app.command()
-def rules() -> None:
+@dry_run_class("request-plan")
+def rules(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """List Prometheus recording and alerting rules."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops prometheus rules",
+            plan_prometheus_rules(_dry_run_base_url()),
+        )
+        return
+
     settings = load_settings()
     base = _base_url(settings)
 
@@ -388,8 +432,21 @@ def rules() -> None:
 
 
 @app.command()
-def targets() -> None:
+@dry_run_class("request-plan")
+def targets(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """List active Prometheus scrape targets."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            "devops prometheus targets",
+            plan_prometheus_targets(_dry_run_base_url()),
+        )
+        return
+
     settings = load_settings()
     base = _base_url(settings)
 

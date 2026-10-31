@@ -464,14 +464,14 @@ def test_cli_json_output_exits_non_zero_on_errors(tmp_path: Path) -> None:
 
 
 def test_cli_supports_dry_run() -> None:
-    """Linting can be previewed without reading dashboards."""
+    """Linting runs normally under dry run as a no-external-request command."""
     result = runner.invoke(
         grafana_app,
         ["dashboards", "lint", str(_REPO_DASHBOARDS)],
         env={"DEVOPS_CLI_DRY_RUN": "true"},
     )
     assert result.exit_code == 0
-    assert "lint_grafana_dashboards" in result.output
+    assert "Linted" in result.output
 
 
 def test_sre_dashboards_contain_heatmap_and_ratio_panels() -> None:

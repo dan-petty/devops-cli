@@ -17,6 +17,7 @@ devops grafana search [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--query`, `-q` | `string` | `` | Search query. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -25,8 +26,14 @@ devops grafana search [OPTIONS]
 **List configured datasources.**
 
 ```bash
-devops grafana datasources
+devops grafana datasources [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -35,8 +42,14 @@ devops grafana datasources
 **List alert rules (Grafana 9+ unified alerting).**
 
 ```bash
-devops grafana alerts
+devops grafana alerts [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -79,6 +92,7 @@ devops grafana dashboards export [OPTIONS] <uid>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana dashboards import`
 
@@ -147,6 +161,5 @@ devops grafana dashboards lint [OPTIONS] <path>
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
