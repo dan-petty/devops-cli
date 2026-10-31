@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from devops_cli.ai.analyze.outlines import (
     _calculate_complexity_score,
     _extract_class_pseudocode,
@@ -17,6 +19,16 @@ from devops_cli.ai.analyze.outlines import (
     _is_import_or_docstring_line,
     analyze_single_file,
 )
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
+
+
+@pytest.fixture(autouse=True)
+def _answer_outlines_git(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and "log" in call.argv),
+        ProcessAnswer(returncode=128, stderr="fatal: not a git repository\n"),
+    )
 
 
 def test_outline_extractor(tmp_path: Path) -> None:
@@ -261,7 +273,7 @@ def test_outline_async_and_multi_language(tmp_path: Path) -> None:
     assert toml_meta.language == "toml"
 
 
-def test_outline_extended_branches(tmp_path: Path) -> None:
+def test_outline_extended_branches(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify RAG prompt formatting, AST unparse edge cases, and fallback pseudocode."""
     from unittest.mock import MagicMock, patch
 
@@ -336,12 +348,12 @@ def test_outline_extended_branches(tmp_path: Path) -> None:
     # 5. _get_last_updated with git log success vs stat mtime
     file_stat = tmp_path / "stat_file.py"
     file_stat.write_text("print('hello')", encoding="utf-8")
-    with patch(
-        "devops_cli.core.process.run_subprocess",
-        return_value=MagicMock(returncode=0, stdout="2026-08-26T12:00:00+00:00\n"),
-    ):
-        ts_git = _get_last_updated("stat_file.py", repo_root=tmp_path)
-        assert ts_git == "2026-08-26T12:00:00+00:00"
+    git_fake.answer(
+        lambda call: bool(call.argv and "log" in call.argv),
+        ProcessAnswer(returncode=0, stdout="2026-08-26T12:00:00+00:00\n"),
+    )
+    ts_git = _get_last_updated("stat_file.py", repo_root=tmp_path)
+    assert ts_git == "2026-08-26T12:00:00+00:00"
 
 
 def test_outlines_extended_validation_and_shell(tmp_path: Path) -> None:

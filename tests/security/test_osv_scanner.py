@@ -8,7 +8,6 @@ EnvironmentFacts, missing-lock coverage gaps, and opt-in threat intelligence.
 from __future__ import annotations
 
 import json
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -32,6 +31,8 @@ from devops_cli.security.osv_scanner import (
 )
 from devops_cli.security.reference_extractor import NetworkReference
 from devops_cli.security.registry import global_scanner_registry
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -207,9 +208,39 @@ def test_osv_scanner_scan_reports_coverage_gap_when_manifest_unlocked(tmp_path: 
     assert outcome.findings == []
 
 
+def _handle_osv_ls_files(call: ProcessCall) -> ProcessAnswer:
+    repo = (
+        Path(call.argv[2])
+        if len(call.argv) > 2 and call.argv[1] == "-C"
+        else (Path(call.cwd) if call.cwd else Path.cwd())
+    )
+    entries = [
+        str(p.relative_to(repo))
+        for p in repo.rglob("*")
+        if p.is_file() and not any(part in (".git", ".data", ".venv") for part in p.parts)
+    ]
+    return ProcessAnswer(stdout="\0".join(entries) + ("\0" if entries else ""))
+
+
+@pytest.fixture(autouse=True)
+def _answer_osv_git(git_fake: GitFake) -> None:
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        _handle_osv_ls_files,
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        ProcessAnswer(stdout="0123456789abcdef0123456789abcdef01234567\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        ProcessAnswer(stdout=""),
+    )
+
+
 def _checkout(root: Path, files: dict[str, str]) -> Path:
     """A git checkout at `root` that holds `files`, none of them committed."""
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    (root / ".git").mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
