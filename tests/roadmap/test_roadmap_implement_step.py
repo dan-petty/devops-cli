@@ -1669,6 +1669,23 @@ ECHOES = [
         "raw",
         id="unclosed-quote",
     ),
+    pytest.param(
+        'error parsing tool call: {"content":"DB_PASSWORD: hunter2hunter2xyz"}',
+        "error parsing tool call: {<text>:<text>}",
+        id="colon-form-echo",
+    ),
+    pytest.param(
+        {
+            "message": "x: {'error': 'cannot unmarshal \"db_password: hunter2hunter2\" into a field'}"
+        },
+        "cannot unmarshal <text> into a field",
+        id="colon-form-echo-in-wrapper",
+    ),
+    pytest.param(
+        "token_value 'hunter2hunter2xyz9f8e7d6c' was bad",
+        "token_value <text> was bad",
+        id="plain-quoted-secret",
+    ),
 ]
 
 
@@ -1677,7 +1694,8 @@ def test_the_error_text_of_the_body_holds_no_echo_of_the_model_output(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, body: object, kept: str
 ) -> None:
     """A provider can echo what the model wrote. The reason keeps the first line, hides quoted
-    text, and stops at the first `=` or `;`, as the reason of other errors does (#2562)."""
+    words outside the error text of a known gateway wrapper, and stops at the first `=` or `;`,
+    as the reason of other errors does (#2562, #2922)."""
     script = ModelScript(ModelHTTPError(400, "example-model", body))
 
     outcome = _step(store, checkout, script)
@@ -1694,19 +1712,22 @@ GATEWAY_ERROR = (
 )
 
 
-def test_the_error_text_of_the_body_keeps_its_quoted_words(
+def test_the_error_text_of_the_gateway_wrapper_is_shown(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The gateway quotes the key and the text of the Ollama error. The stop comment of #2747
-    showed `{<text>: <text>}`, and the cause was not in it (#2922)."""
+    """The gateway quotes the error text of Ollama in a dict. The stop comment of #2747 showed
+    `{<text>: <text>}`, and the cause was not in it (#2922)."""
     script = ModelScript(ModelHTTPError(400, "example-model", {"message": GATEWAY_ERROR}))
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason == f"ModelHTTPError: HTTP 400, model example-model, body: {GATEWAY_ERROR}"
+    assert outcome.reason == (
+        "ModelHTTPError: HTTP 400, model example-model, body: "
+        "XML syntax error on line 70: unexpected EOF"
+    )
 
 
-def test_a_token_in_a_quoted_word_of_the_error_text_is_masked(
+def test_a_token_in_the_error_text_of_the_gateway_wrapper_is_masked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     body = f"Got unexpected response from Ollama: {{'error': 'bad call {TOKEN}'}}"
@@ -1715,7 +1736,9 @@ def test_a_token_in_a_quoted_word_of_the_error_text_is_masked(
     outcome = _step(store, checkout, script)
 
     assert TOKEN not in outcome.reason
-    assert "Got unexpected response from Ollama: {'error': 'bad call " in outcome.reason
+    assert outcome.reason.startswith(
+        "ModelHTTPError: HTTP 400, model example-model, body: bad call "
+    )
 
 
 @pytest.mark.parametrize(
