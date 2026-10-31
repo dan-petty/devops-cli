@@ -931,3 +931,74 @@ def test_mattermost_namespaces_in_namespaces_yaml() -> None:
         assert labels.get("pod-security.kubernetes.io/audit") == "restricted"
         annos = by_name[ns_name]["metadata"].get("annotations", {})
         assert annos.get("argocd.argoproj.io/sync-options") == "Prune=false,Delete=false"
+
+
+def test_argocd_notifications_controller_configuration() -> None:
+    """Argo CD values enable notifications controller with webhook notifier (#1393)."""
+    values = _load_yaml(K8S_DIR / "argocd" / "values.yaml")
+    notif = values.get("notifications", {})
+    assert notif.get("enabled") is True
+    assert notif.get("argocdUrl") == ""
+    assert notif.get("secret", {}).get("create") is False
+    assert notif.get("resources", {}).get("requests") == {"cpu": "50m", "memory": "64Mi"}
+    assert notif.get("resources", {}).get("limits") == {"cpu": "200m", "memory": "128Mi"}
+
+    webhook = notif.get("notifiers", {}).get("service.webhook.mattermost", {})
+    assert webhook.get("url") == "$mattermost-deploys-url"
+    assert webhook.get("headers") == [{"name": "Content-Type", "value": "application/json"}]
+    assert webhook.get("retryMax") == 1
+
+
+def test_argocd_notifications_triggers_and_templates() -> None:
+    """Argo CD values define catalog triggers and toJson templates (#1393)."""
+    values = _load_yaml(K8S_DIR / "argocd" / "values.yaml")
+    notif = values.get("notifications", {})
+    triggers = notif.get("triggers", {})
+
+    on_deployed = triggers.get("trigger.on-deployed", "")
+    assert "app-deployed" in on_deployed
+    assert "oncePer: app.status.sync.revision" in on_deployed
+    assert "Succeeded" in on_deployed
+    assert "Healthy" in on_deployed
+
+    on_sync_failed = triggers.get("trigger.on-sync-failed", "")
+    assert "app-sync-failed" in on_sync_failed
+    assert "Error" in on_sync_failed
+    assert "Failed" in on_sync_failed
+
+    templates = notif.get("templates", {})
+    app_deployed = templates.get("template.app-deployed", "")
+    app_sync_failed = templates.get("template.app-sync-failed", "")
+
+    for tpl in (app_deployed, app_sync_failed):
+        assert "webhook:" in tpl
+        assert "mattermost:" in tpl
+        assert '{"text":' in tpl
+        assert "| toJson" in tpl
+        assert "dig" in tpl
+
+
+def test_argocd_notifications_subscriptions_split() -> None:
+    """on-sync-failed is subscribed globally; on-deployed is only on devops (#1393)."""
+    values = _load_yaml(K8S_DIR / "argocd" / "values.yaml")
+    notif = values.get("notifications", {})
+    subs = notif.get("subscriptions", [])
+    assert subs == [{"recipients": ["mattermost"], "triggers": ["on-sync-failed"]}]
+
+    devops_app = _load_yaml(APPS_DIR / "devops.yaml")
+    annos = devops_app.get("metadata", {}).get("annotations", {})
+    assert annos.get("notifications.argoproj.io/subscribe.on-deployed.mattermost") == ""
+
+    for p in sorted(APPS_DIR.glob("*.yaml")):
+        if p.name in ("projects.yaml", "devops.yaml"):
+            continue
+        data = _load_yaml(p)
+        other_annos = data.get("metadata", {}).get("annotations", {})
+        assert "notifications.argoproj.io/subscribe.on-deployed.mattermost" not in other_annos
+
+
+def test_argocd_notifications_no_leaked_identities() -> None:
+    """Argo CD notifications values hold no channel ID, homelab host, or webhook token (#1393)."""
+    text = (K8S_DIR / "argocd" / "values.yaml").read_text(encoding="utf-8")
+    assert "hooks/" not in text
+    assert "channel_id" not in text.lower()

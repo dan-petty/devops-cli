@@ -270,9 +270,9 @@ def test_networkpolicy_manifests() -> None:
         ["Ingress", "Egress"],
     )
 
-    # Ingress peers: Traefik on 8065, intra-namespace, cnpg-system on 8000 and 5432, monitoring on 9187, alertmanager on 8065
+    # Ingress peers: Traefik on 8065, intra-namespace, cnpg-system on 8000 and 5432, monitoring on 9187, alertmanager on 8065, argocd-notifications-controller on 8065
     ingress_rules = perimeter.get("spec", {}).get("ingress", [])
-    assert len(ingress_rules) == 5
+    assert len(ingress_rules) == 6
 
     # 2. DB API egress policy
     assert (

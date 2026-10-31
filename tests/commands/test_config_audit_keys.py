@@ -73,7 +73,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 17)
+    ) == (True, True, True, 18)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -94,7 +94,9 @@ def test_config_audit_keys_json_output() -> None:
         "service.github_app.private_key" in keys,
         "firecrawl.api_key" in keys,
         "mattermost.alerts_hook" in keys,
+        "mattermost.deploys_hook" in keys,
     ) == (
+        True,
         True,
         True,
         True,

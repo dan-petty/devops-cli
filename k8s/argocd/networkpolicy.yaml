@@ -87,3 +87,11 @@ spec:
           port: 80
         - protocol: TCP
           port: 22
+    # 5. Allow notifications controller to post webhooks to Mattermost
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: mattermost
+      ports:
+        - protocol: TCP
+          port: 8065

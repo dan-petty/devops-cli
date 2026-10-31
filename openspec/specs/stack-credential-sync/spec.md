@@ -105,7 +105,7 @@ The token check and the mint of Argo CD and Grafana SHALL dial loopback and publ
 - **THEN** the check dials `192.0.2.10`
 
 ### Requirement: The push writes Argo CD's GitHub notifier Secret
-The cluster Secret push SHALL write Secret `argocd/argocd-notifications-secret` of stack `infra`: key `github-appID` from setting `argocd.github_app_id`, key `github-installationID` from setting `argocd.github_app_installation_id`, and key `github-privateKey` from keyring entry `argocd_github_app_private_key`, each byte for byte. A change of the Secret SHALL restart no workload.
+The cluster Secret push SHALL write Secret `argocd/argocd-notifications-secret` under stack `infra`: key `github-appID` from setting `argocd.github_app_id`, key `github-installationID` from setting `argocd.github_app_installation_id`, key `github-privateKey` from keyring entry `argocd_github_app_private_key`, and derived key `mattermost-deploys-url` from managed credential `mattermost.deploys_hook`. A change of the Secret SHALL restart no workload.
 
 #### Scenario: A PEM key and two IDs reach the Secret
 - **WHEN** namespace `argocd` exists, the keyring holds a three-line PEM-shaped value under `argocd_github_app_private_key`, and `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` and `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` are set
@@ -114,6 +114,10 @@ The cluster Secret push SHALL write Secret `argocd/argocd-notifications-secret` 
 #### Scenario: The dry run names the keys and makes no request
 - **WHEN** `devops k8s push-secrets --only argocd/argocd-notifications-secret --dry-run` runs
 - **THEN** the output names each key with a placeholder of its source and no value, and no command runs
+
+#### Scenario: Mattermost deploys hook is derived
+- **WHEN** the keyring holds a value for `mattermost_deploys_hook` and `devops k8s push-secrets --only argocd/argocd-notifications-secret` runs
+- **THEN** key `mattermost-deploys-url` is written with the complete Mattermost webhook URL
 
 ### Requirement: Each notifier key is optional and is never generated
 Each key of `argocd/argocd-notifications-secret` SHALL be optional. A missing value SHALL be left out with a warning that names `devops config set <key>`, and the push SHALL generate no value for it.

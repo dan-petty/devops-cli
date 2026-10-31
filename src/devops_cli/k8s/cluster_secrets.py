@@ -388,6 +388,14 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 KeyringSource.for_credential("argocd.github_app_private_key"),
                 required=False,
             ),
+            SecretEntry(
+                "mattermost-deploys-url",
+                DerivedSource(
+                    f"{CONST_K8S_MATTERMOST_URL}/hooks/{{hook}}",
+                    {"hook": KeyringSource.for_credential("mattermost.deploys_hook")},
+                ),
+                required=False,
+            ),
         ),
         labels={"app.kubernetes.io/part-of": "argocd"},
     ),
