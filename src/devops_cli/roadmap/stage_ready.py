@@ -8,14 +8,20 @@ reads the draft of a person, and with no such item it sends no request.
 
 For each such item the round reads the pull request. One that is not an open draft is only
 recorded in `stage.ready`, so no later round reads it. An open draft goes to `ready_to_mark` with
-its check runs. When the function says yes, the round marks the pull request ready with
-`mark_ready`, the function that the implement job uses, and records `stage.ready`. The check runs
-are read without the commit statuses: the App token holds `checks: read` and no `statuses`.
+its check runs. When the function says yes, the round reads the pull request once more. If a
+person pushed a commit or marked it ready since the first read, the draft waits, because no check
+judged that head. A window of milliseconds stays, since `gh pr ready` takes no expected head.
+Else the round marks the pull request ready with `mark_ready`, the function that the implement
+job uses, and records `stage.ready`. The check runs are read without the commit statuses: the App
+token holds `checks: read` and no `statuses`.
 
 `ready_to_mark` is the one decision. It reads the checks today; #2867 replaces its body with a
 judgement of whether the work is complete.
 
-A pull request that fails stops that item only. The round then fails and names each item.
+A pull request that fails stops that item only. The round then fails and names each item. That
+holds for a 404 too: GitHub answers 404 for a repository the token cannot see, so the answer does
+not prove that the pull request is gone, and the row records nothing. Rejected credentials, a rate
+limit and the stop of the Service stop the round, since each later read would fail too.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 
-from devops_cli.exceptions import GitHubNotFoundError
+from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.github.check_verdict import CheckVerdictSummary, read_check_runs
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
@@ -89,16 +95,17 @@ def _recorded_pull(item: Item) -> int | None:
 
 def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome:
     """Read pull request `number` of `item` and mark it ready when it is a green draft."""
-    try:
-        status = get_github_session().client.get_pull_status(repo, number)
-    except GitHubNotFoundError:
-        status = None
-    if status is None or not status.is_open_draft:
+    client = get_github_session().client
+    status = client.get_pull_status(repo, number)
+    if not status.is_open_draft:
         store.set_marks(item, {StageRecordKey.READY: str(number)})
         return _Outcome.SETTLED
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)
     if not ready_to_mark(StageDraft(item, status, checks)):
+        return _Outcome.WAITING
+    again = client.get_pull_status(repo, number)
+    if not again.is_open_draft or again.head_sha != status.head_sha:
         return _Outcome.WAITING
     mark_ready(repo, number)
     store.set_marks(item, {StageRecordKey.READY: str(number)})
@@ -114,7 +121,7 @@ def _run_one(
 def mark_stage_ready(store: RoadmapStore, *, repo: str) -> StageReadyApplied:
     """Mark each green stage draft of `repo` ready, as the module says. A pull request that fails
     stops its item only, and the round then fails naming each such item; rejected credentials and
-    the stop of the Service stop the round."""
+    a rate limit and the stop of the Service stop the round."""
     outcomes: dict[int, _Outcome] = {}
     done: list[int] = []
     failed: list[StageFailure] = []
@@ -123,7 +130,7 @@ def mark_stage_ready(store: RoadmapStore, *, repo: str) -> StageReadyApplied:
         for item in store.items()
         if (number := _recorded_pull(item)) is not None
     ]
-    write_each(writes, done, failed)
+    write_each(writes, done, failed, also_stop=(GitHubRateLimitError,))
     raise_for_failed(failed, summary=MESSAGES.roadmap.stage_ready_failed)
     applied = StageReadyApplied(
         marked=tuple(n for n, o in outcomes.items() if o is _Outcome.MARKED),

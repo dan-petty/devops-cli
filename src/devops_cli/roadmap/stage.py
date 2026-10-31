@@ -921,15 +921,24 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     store.set_marks(removal.item, {key: None for key in StageRecordKey})
 
 
+_STOP_THE_RUN: tuple[type[DevOpsCLIError], ...] = (GitHubUnauthenticatedError, ServiceStoppingError)
+
+
 def write_each(
-    writes: Iterable[tuple[Item, Callable[[], None]]], done: list[int], failed: list[StageFailure]
+    writes: Iterable[tuple[Item, Callable[[], None]]],
+    done: list[int],
+    failed: list[StageFailure],
+    *,
+    also_stop: tuple[type[DevOpsCLIError], ...] = (),
 ) -> None:
-    """Run each write; the row `stage_ready` runs its pull requests the same way (#2865). A write that fails adds a `StageFailure` and the next write still runs;
-    rejected GitHub credentials and the stop of the Service stop the run (#2753)."""
+    """Run each write. A write that fails adds a `StageFailure` and the next write still runs.
+    Rejected GitHub credentials and the stop of the Service stop the run (#2753), and so does
+    each class in `also_stop`. The row `stage_ready` runs its pull requests the same way (#2865)."""
+    stop = (*_STOP_THE_RUN, *also_stop)
     for item, write in writes:
         try:
             write()
-        except GitHubUnauthenticatedError, ServiceStoppingError:
+        except stop:
             raise
         except DevOpsCLIError as exc:
             failed.append(_write_failure(item, exc))

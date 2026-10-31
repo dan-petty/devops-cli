@@ -13,7 +13,8 @@ from typing import Any
 
 import pytest
 
-from devops_cli.exceptions import RoadmapStageError
+from devops_cli.exceptions import GitHubRateLimitError, RoadmapStageError
+from devops_cli.github.client import GitHubClient
 from devops_cli.roadmap import stage_ready
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
@@ -241,6 +242,79 @@ def test_one_refused_pull_request_does_not_stop_the_next_and_fails_the_round_nam
         _record(store, second)[StageRecordKey.READY],
         StageRecordKey.READY in _record(store, first),
     ) == ((first,), True, [str(PULL), str(SECOND_PULL)], str(SECOND_PULL), False)
+
+
+def test_a_pull_request_that_github_cannot_find_fails_its_item_and_is_read_again(
+    store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
+) -> None:
+    """GitHub also answers 404 for a repository the token cannot see, so the answer is no proof
+    that the pull request is gone: the row records nothing and the next round reads it again."""
+    number = seed_staged(store)
+
+    with pytest.raises(RoadmapStageError) as raised:
+        mark_stage_ready(store, repo=STAGE_REPO)
+    sent = len(api.sent)
+    with pytest.raises(RoadmapStageError):
+        mark_stage_ready(store, repo=STAGE_REPO)
+
+    assert (
+        raised.value.failed_items,
+        StageRecordKey.READY in _record(store, number),
+        ready.calls,
+        len(api.sent) > sent,
+    ) == ((number,), False, [], True)
+
+
+def test_a_rate_limit_stops_the_round_at_the_first_pull_request(
+    store: InMemoryRoadmapStore,
+    api: GitHubApiFake,
+    ready: _Ready,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every later read would be refused too, and each would spend the budget of the Service."""
+    for pull in (PULL, SECOND_PULL, SECOND_PULL + 1):
+        seed_staged(store, pull=pull)
+    read: list[int] = []
+
+    def refuse(self: GitHubClient, repo: str, number: int) -> None:
+        read.append(number)
+        raise GitHubRateLimitError("No requests are left.", operation="roadmap.read")
+
+    monkeypatch.setattr(GitHubClient, "get_pull_status", refuse)
+
+    with pytest.raises(GitHubRateLimitError):
+        mark_stage_ready(store, repo=STAGE_REPO)
+
+    assert (read, ready.calls) == ([PULL], [])
+
+
+def test_a_head_that_moved_after_the_checks_stays_a_draft_and_is_read_again(
+    store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
+) -> None:
+    """A push after the read of the checks is a head that no check judged."""
+    number = seed_staged(store)
+    opened = {"state": "open", "draft": True, "merged": False}
+    api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls/{PULL}",
+        github_json({**opened, "head": {"sha": HEAD}}),
+        github_json({**opened, "head": {"sha": "b" * 40}}),
+    )
+    _checks(api, PASS)
+
+    applied = mark_stage_ready(store, repo=STAGE_REPO)
+
+    assert (
+        applied.marked,
+        applied.waiting,
+        ready.calls,
+        StageRecordKey.READY in _record(store, number),
+    ) == (
+        (),
+        (number,),
+        [],
+        False,
+    )
 
 
 def test_the_round_never_calls_the_commit_status_endpoint(
