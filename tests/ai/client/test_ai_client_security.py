@@ -389,4 +389,4 @@ def test_create_http_client_uses_custom_transport() -> None:
     transport = httpx2.MockTransport(lambda req: httpx2.Response(200))
     client._transport = transport
     http_client = client._create_http_client()
-    assert http_client is not None
+    assert http_client._transport is transport
