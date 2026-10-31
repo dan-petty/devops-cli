@@ -1,0 +1,13 @@
+# serializer version: 1
+# name: test_scan_sbom_cyclonedx_argv_and_output_to_file
+  dict({
+    'bomFormat': 'CycloneDX',
+    'specVersion': '1.5',
+  })
+# ---
+# name: test_scan_sbom_spdx_argv_and_output_to_file
+  dict({
+    'SPDXID': 'SPDXRef-DOCUMENT',
+    'spdxVersion': 'SPDX-2.3',
+  })
+# ---

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from syrupy.assertion import SnapshotAssertion
 
 import devops_cli.security.sbom as sbom
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -27,7 +29,7 @@ def test_build_trivy_sbom_cmd(tmp_path: Path) -> None:
 
 
 def test_scan_sbom_cyclonedx_argv_and_output_to_file(
-    process_fake: ProcessFake, tmp_path: Path, cli: Callable[..., Any]
+    process_fake: ProcessFake, tmp_path: Path, cli: Callable[..., Any], snapshot: SnapshotAssertion
 ) -> None:
     """Verify devops scan sbom invokes Trivy with CycloneDX format and writes output unchanged."""
     recorded_output = '{"bomFormat": "CycloneDX", "specVersion": "1.5"}'
@@ -45,10 +47,11 @@ def test_scan_sbom_cyclonedx_argv_and_output_to_file(
     )
     assert out_file.exists()
     assert out_file.read_text(encoding="utf-8") == recorded_output
+    assert json.loads(out_file.read_text(encoding="utf-8")) == snapshot
 
 
 def test_scan_sbom_spdx_argv_and_output_to_file(
-    process_fake: ProcessFake, tmp_path: Path, cli: Callable[..., Any]
+    process_fake: ProcessFake, tmp_path: Path, cli: Callable[..., Any], snapshot: SnapshotAssertion
 ) -> None:
     """Verify devops scan sbom invokes Trivy with SPDX format and writes output unchanged."""
     recorded_output = '{"spdxVersion": "SPDX-2.3", "SPDXID": "SPDXRef-DOCUMENT"}'
@@ -66,6 +69,7 @@ def test_scan_sbom_spdx_argv_and_output_to_file(
     )
     assert out_file.exists()
     assert out_file.read_text(encoding="utf-8") == recorded_output
+    assert json.loads(out_file.read_text(encoding="utf-8")) == snapshot
 
 
 def test_scan_sbom_stdout(

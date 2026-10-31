@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,7 +16,7 @@ from devops_cli.config.constants import (
     CONST_SCANNER_STDOUT_EXCERPT_CHARS,
 )
 from devops_cli.dry_run.state import set_dry_run
-from devops_cli.security.base import BaseSecurityScanner, materialize_targets
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, materialize_targets
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
@@ -48,6 +47,14 @@ class MockDummyScanner(BaseSecurityScanner):
             )
         return findings
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.call_count: int = 0
+
+    def scan(self, target_path: Any, *args: Any, **kwargs: Any) -> ScanOutcome:
+        self.call_count += 1
+        return super().scan(target_path, *args, **kwargs)
+
     def fallback_scan(self, target_path: Path) -> list[Finding]:
         return [
             Finding(
@@ -58,6 +65,14 @@ class MockDummyScanner(BaseSecurityScanner):
                 fix="Install mock tool",
             )
         ]
+
+
+class FailingDummyScanner(MockDummyScanner):
+    """Scanner that raises on scan execution."""
+
+    def scan(self, target_path: Any, *args: Any, **kwargs: Any) -> ScanOutcome:
+        self.call_count += 1
+        raise RuntimeError("Scanner crashed")
 
 
 def test_scanner_executes_successfully(tmp_path: Path, scanner_fake: ScannerFake) -> None:
@@ -207,18 +222,17 @@ def test_a_scanner_that_raises_is_failed_and_only_named_registered_scanners_run(
     """A scanner that raises is recorded as failed with its error, a name the registry does not
     hold is skipped, and a registered scanner that is not named does not run."""
     registry = ScannerRegistry()
-    scanner = MockDummyScanner()
+    scanner = FailingDummyScanner()
     registry.register(scanner)
-    other = MagicMock()
+    other = MockDummyScanner()
     other.name = "other_tool"
     registry.register(other)
 
-    with patch.object(scanner, "scan", side_effect=RuntimeError("Scanner crashed")):
-        results = registry.scan_all(tmp_path, names=["mock_tool", "unregistered"])
+    results = registry.scan_all(tmp_path, names=["mock_tool", "unregistered"])
 
     assert (
         {name: (o.status, o.reason) for name, o in results.items()},
-        other.scan.call_count,
+        other.call_count,
     ) == (
         {"mock_tool": ("failed", "Scanner crashed")},
         0,

@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
     CONST_SARIF_LEVEL_WARNING,
     CONST_SARIF_LEVELS,
 )
-from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.security.base import (
     BaseSecurityScanner,
     ScanOutcome,

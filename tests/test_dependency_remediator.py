@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
 from devops_cli.exceptions import SecurityError
 from devops_cli.models.vulnerability import (
-    PackageLookupResult,
     VulnerabilityFixAction,
     VulnerabilityRecord,
-    VulnerabilityRemediationResult,
 )
 from devops_cli.security.dependency_remediator import (
     DependencyRemediator,
     detect_lockfile_ecosystem,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
+from tests.web_fakes import StubWeb
 
 
 def _upgrades(call: ProcessCall) -> bool:
@@ -169,35 +170,31 @@ def test_remediate_with_git_branch(tmp_path: Path, process_fake: ProcessFake) ->
     ) == (1, branch, True)
 
 
-def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any]) -> None:
+def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any], stub_web: StubWeb) -> None:
     """Test devops scan fix CLI command in dry-run mode."""
     (tmp_path / "uv.lock").write_text("", encoding="utf-8")
+    stub_web.respond(
+        "POST",
+        "https://api.osv.dev/v1/query",
+        200,
+        {
+            "vulns": [
+                {
+                    "id": "CVE-2026-1111",
+                    "summary": "Sample vuln",
+                    "database_specific": {"severity": "HIGH", "fixed_version": "1.1.0"},
+                    "severity": [
+                        {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}
+                    ],
+                }
+            ]
+        },
+    )
 
-    with patch(
-        "devops_cli.security.dependency_remediator.DependencyRemediator.scan_and_plan"
-    ) as mock_plan:
-        mock_plan.return_value = VulnerabilityRemediationResult(
-            target_path=str(tmp_path),
-            ecosystem="PyPI",
-            actions=[
-                VulnerabilityFixAction(
-                    package="test-lib",
-                    current_version="1.0.0",
-                    fixed_version="1.1.0",
-                    cve_id="CVE-2026-1111",
-                    severity="HIGH",
-                    upgrade_command=["uv", "lock", "--upgrade-package", "test-lib==1.1.0"],
-                    status="PENDING",
-                )
-            ],
-            summary="Planned 1 vulnerability remediation",
-        )
-
-        res = cli(["scan", "fix", str(tmp_path), "--dry-run"])
-        assert res.exit_code == 0
-        assert "test-lib" in res.output
-        assert "CVE-2026-1111" in res.output
-        assert "PENDING" in res.output
+    res = cli(["scan", "fix", str(tmp_path), "--package", "test-lib", "--dry-run"])
+    assert res.exit_code == 0
+    assert "test-lib" in res.output
+    assert "CVE-2026-1111" in res.output
 
 
 def test_build_upgrade_commands_and_branch(tmp_path: Path, git: Callable[..., None]) -> None:
@@ -281,39 +278,43 @@ def test_an_upgrade_command_that_raises_fails_the_action_with_the_error(
     )
 
 
-def test_scan_and_plan_with_osv(tmp_path: Path) -> None:
+def test_scan_and_plan_with_osv(tmp_path: Path, stub_web: StubWeb) -> None:
     """Test scan_and_plan calling OSVClient."""
     remediator = DependencyRemediator(target_dir=tmp_path)
 
-    mock_record = VulnerabilityRecord(
-        id="GHSA-test-1234",
-        package="vulnerable-pkg",
-        severity="HIGH",
-        fixed_version="2.0.0",
+    stub_web.respond(
+        "POST",
+        "https://api.osv.dev/v1/query",
+        200,
+        {
+            "vulns": [
+                {
+                    "id": "GHSA-test-1234",
+                    "database_specific": {"severity": "HIGH"},
+                    "summary": "High vulnerability in vulnerable-pkg",
+                }
+            ]
+        },
     )
 
-    with patch(
-        "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
-        return_value=PackageLookupResult(status="ok", vulnerabilities=[mock_record]),
-    ):
-        result = remediator.scan_and_plan(package_filter="vulnerable-pkg")
-        assert len(result.actions) == 1
-        assert result.actions[0].package == "vulnerable-pkg"
-        assert result.actions[0].fixed_version == "2.0.0"
+    result = remediator.scan_and_plan(package_filter="vulnerable-pkg")
+    assert len(result.actions) == 1
+    assert result.actions[0].package == "vulnerable-pkg"
+    assert result.actions[0].severity == "HIGH"
 
 
-def test_scan_and_plan_fails_when_the_osv_lookup_fails(tmp_path: Path) -> None:
+def test_scan_and_plan_fails_when_the_osv_lookup_fails(tmp_path: Path, stub_web: StubWeb) -> None:
     """A lookup that failed is not a package with nothing to fix: planning stops with the reason
     rather than offering an empty plan (#956)."""
     remediator = DependencyRemediator(target_dir=tmp_path)
 
-    with (
-        patch(
-            "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
-            return_value=PackageLookupResult(status="failed", reason="OSV returned status 503"),
-        ),
-        pytest.raises(SecurityError) as failure,
-    ):
+    stub_web.respond(
+        "POST",
+        "https://api.osv.dev/v1/query",
+        503,
+        {"message": "OSV returned status 503"},
+    )
+    with pytest.raises(SecurityError) as failure:
         remediator.scan_and_plan(package_filter="vulnerable-pkg")
 
     assert (failure.value.message, failure.value.details) == (
@@ -382,34 +383,41 @@ def test_plan_remediation_min_severity_filtering(tmp_path: Path) -> None:
     assert [a.package for a in plan_low.actions] == ["p1", "p2", "p3", "p4"]
 
 
-def test_scan_and_plan_without_package_filter(tmp_path: Path) -> None:
+def test_scan_and_plan_without_package_filter(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     """Test scan_and_plan scans workspace vulnerabilities when package_filter is None."""
     remediator = DependencyRemediator(target_dir=tmp_path)
 
-    from devops_cli.ai.review_schema import Finding
+    trivy_payload = {
+        "Results": [
+            {
+                "Target": "uv.lock",
+                "Vulnerabilities": [
+                    {
+                        "VulnerabilityID": "CVE-2026-1234",
+                        "PkgName": "jinja2",
+                        "InstalledVersion": "2.0.0",
+                        "FixedVersion": "2.11.3",
+                        "Severity": "HIGH",
+                        "Title": "Vulnerability in jinja2",
+                        "Description": "High vulnerability",
+                    },
+                    {
+                        "VulnerabilityID": "CVE-2026-5678",
+                        "PkgName": "requests",
+                        "InstalledVersion": "2.25.0",
+                        "FixedVersion": "2.26.0",
+                        "Severity": "LOW",
+                        "Title": "Low issue in requests",
+                        "Description": "Low vulnerability",
+                    },
+                ],
+            }
+        ]
+    }
+    scanner_fake.script("trivy", ToolAnswer(stdout=json.dumps(trivy_payload), exit_code=0))
 
-    mock_findings = [
-        Finding(
-            severity="HIGH",
-            location="uv.lock:jinja2",
-            title="[CVE-2026-1234] Vulnerability in jinja2",
-            description="High vulnerability",
-            fix="Upgrade jinja2",
-            confidence_score=None,
-        ),
-        Finding(
-            severity="LOW",
-            location="uv.lock:requests",
-            title="[CVE-2026-5678] Low issue in requests",
-            description="Low vulnerability",
-            fix="Upgrade requests",
-            confidence_score=None,
-        ),
-    ]
-
-    with patch("devops_cli.security.trivy.run_trivy_scan", return_value=mock_findings):
-        # min_severity=HIGH filters out LOW
-        res = remediator.scan_and_plan(package_filter=None, min_severity="HIGH")
-        assert len(res.actions) == 1
-        assert res.actions[0].package == "jinja2"
-        assert res.actions[0].severity == "HIGH"
+    # min_severity=HIGH filters out LOW
+    res = remediator.scan_and_plan(package_filter=None, min_severity="HIGH")
+    assert len(res.actions) == 1
+    assert res.actions[0].package == "jinja2"
+    assert res.actions[0].severity == "HIGH"

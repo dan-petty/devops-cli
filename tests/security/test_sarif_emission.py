@@ -8,7 +8,6 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import jsonschema
 import pytest
@@ -288,11 +287,17 @@ def test_the_report_command_records_why_scanners_did_not_run(
     """Scanners missing from the workstation become notifications, never empty runs."""
     destination = tmp_path / "out.sarif"
     monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
-    with patch(
-        "devops_cli.security.registry.ScannerRegistry.list_scanners",
-        return_value=["bandit", "gitleaks"],
-    ):
-        result = cli(["scan", "report", str(tmp_path), "--sarif", str(destination)])
+    result = cli(
+        [
+            "scan",
+            "report",
+            str(tmp_path),
+            "--scanner",
+            "bandit,gitleaks",
+            "--sarif",
+            str(destination),
+        ]
+    )
     document = json.loads(destination.read_text(encoding="utf-8"))
     tools = [tool for tool, _, _ in _notifications(document)]
     assert (result.exit_code, _drivers(document), tools) == (
