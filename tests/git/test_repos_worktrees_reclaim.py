@@ -23,6 +23,9 @@ from tests.support.fakes.github import github_json
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
 
+# The command also claims the issue on the roadmap (#2910). The roadmap is in memory.
+pytestmark = pytest.mark.usefixtures("roadmap_store")
+
 Git = Callable[..., None]
 Cli = Callable[..., Any]
 
@@ -217,7 +220,8 @@ def test_the_dry_run_lists_the_reads_of_the_reclaim_and_removes_nothing(
     report = json.loads(result.stdout)
     assert (result.exit_code, merged.exists(), github_api.requested) == (0, True, [])
     assert report["requests"][0] == f"GET /repos/example-org/app/commits/{tip}/pulls"
-    assert len(report["requests"]) == 5
+    # Five of the reclaim and the worktree, and three of the claim of the issue.
+    assert len(report["requests"]) == 8
     assert not new_dir.exists()
 
 
