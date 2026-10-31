@@ -7,6 +7,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+from devops_cli.dry_run import dry_run_class
 from devops_cli.k8s.gpu_matrix import (
     VALID_BACKENDS,
     VALID_GPU_COUNTS,
@@ -112,6 +113,7 @@ def _validate_filter_options(
         raise typer.Exit(1)
 
 
+@dry_run_class("no-external-request")
 def gpu_matrix_cmd(
     gpus: Annotated[
         int | None,

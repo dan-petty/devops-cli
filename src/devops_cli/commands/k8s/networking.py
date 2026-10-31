@@ -46,7 +46,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings, save_settings, setting_default
 from devops_cli.core.validation import is_loopback_host
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.k8s.service_proxy import ServiceRef
 from devops_cli.lang import HELP, MESSAGES
@@ -1118,6 +1118,7 @@ def _launch_port_forwards(
         daemon_mgr.save_forwards(active_forwards)
 
 
+@dry_run_class("request-plan")
 def port_forward(
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
@@ -1190,11 +1191,14 @@ def port_forward(
     }
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops k8s port-forward",
-            action="k8s_port_forward",
-            details=_build_port_forward_details(selected_stacks, ports),
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_port_forward
+
+        services = _collect_port_forward_services(selected_stacks, ports)
+        requests = plan_k8s_port_forward(
+            services, effective_context=effective_context, address=address
         )
+        render_request_plan("devops k8s port-forward", requests)
         return
 
     if not runtime._cluster_reachable(context=effective_context):
@@ -1212,6 +1216,7 @@ def port_forward(
         configure_urls(stack=stack, context=effective_context)
 
 
+@dry_run_class("no-external-request")
 def port_forward_status() -> None:
     """List active background Kubernetes port-forward daemons."""
     from devops_cli.k8s.port_forward_daemon import get_daemon_manager
@@ -1246,19 +1251,29 @@ def port_forward_status() -> None:
     print_table("Active Kubernetes Port-Forward Daemons", columns=columns, rows=rows)
 
 
+@dry_run_class("no-external-request")
 def port_forward_stop(
     service: Annotated[
         str | None, typer.Option("--service", "-s", help="Specific service to stop")
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Terminate active background Kubernetes port-forward daemons."""
     from devops_cli.k8s.port_forward_daemon import get_daemon_manager
 
     mgr = get_daemon_manager()
+    if dry_run or is_dry_run():
+        forwards = mgr.list_forwards()
+        if service:
+            forwards = [f for f in forwards if f.service == service or f.stack == service]
+        print_info(f"Would terminate {len(forwards)} active port-forward daemon(s)")
+        return
+
     stopped = mgr.stop_forwards(service_filter=service)
     print_success(f"Terminated {stopped} active port-forward daemon(s)")
 
 
+@dry_run_class("request-plan")
 def service_url(
     service: Annotated[str, typer.Argument(help=HELP.k8s.proxy_service)],
     namespace: Annotated[
@@ -1275,6 +1290,7 @@ def service_url(
         str, typer.Option("--format", "-f", help=HELP.options.format_type)
     ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Show, or fetch from, a cluster service address that needs no port-forward."""
     from devops_cli.k8s.service_http import get_json
@@ -1293,6 +1309,21 @@ def service_url(
         path=request_path,
         query=request_query,
     )
+
+    if dry_run or is_dry_run():
+        from devops_cli.dry_run.requests import render_request_plan
+        from devops_cli.k8s.cluster_plans import plan_k8s_service_url
+
+        proxy_url = None
+        if fetch:
+            try:
+                target = resolve_proxy_target(ref, context=context)
+                proxy_url = target.url
+            except ServiceAddressError:
+                pass
+        requests = plan_k8s_service_url(ref.describe(), proxy_url=proxy_url, fetch=fetch)
+        render_request_plan("devops k8s service-url", requests)
+        return
 
     resolved_format = resolve_format(output_format, json_output=json_output)
     if not fetch:

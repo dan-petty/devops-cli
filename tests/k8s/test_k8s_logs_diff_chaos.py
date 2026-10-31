@@ -89,7 +89,7 @@ def test_cli_k8s_subcommands_dry_run() -> None:
 
     res_pods = runner.invoke(app, ["pods", "--dry-run", "-n", "kube-system"])
     assert res_pods.exit_code == 0
-    assert "list_k8s_pods" in res_pods.output
+    assert "list_namespaced_pod" in res_pods.output
 
 
 def test_k8s_pods_table_builder() -> None:
