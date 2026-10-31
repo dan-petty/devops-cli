@@ -12,7 +12,6 @@ from unittest.mock import patch
 
 import pytest
 
-from devops_cli.k8s.cluster_job import repository_label
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, ItemField
 from tests.support.fakes.cluster_jobs import FakeJobs
@@ -20,6 +19,13 @@ from tests.support.fakes.cluster_jobs import FakeJobs
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
 RUN_JOB = f"devops k8s run-job --template runner --repo {REPO} -- roadmap implement --repo {REPO}"
+
+
+def _label(repo: str) -> str:
+    """The value of the label `implement-repo` for `repo`, as the Service computes it."""
+    from devops_cli.k8s.cluster_job import repository_label
+
+    return repository_label(repo)
 
 
 def _item(
@@ -82,7 +88,7 @@ def test_confirm_starts_the_runner_job_with_the_args_and_the_repository(
         "runner",
         ["roadmap", "implement", "--repo", REPO, "--item", str(number), "--confirm"],
         REPO,
-        repository_label(REPO),
+        _label(REPO),
         [REPO],
         [],
     )
@@ -289,7 +295,7 @@ def test_a_dry_run_makes_no_request_and_prints_the_read_of_the_item_and_the_job(
         result.exit_code,
         f"gh api repos/{REPO}/issues/7" in output,
         "get cronjob devops-cli-runner" in output,
-        f"get jobs -l implement-repo={repository_label(REPO)}" in output,
+        f"get jobs -l implement-repo={_label(REPO)}" in output,
         '"roadmap", "implement", "--repo", "example/roadmap", "--item", "7", "--confirm"'
         in " ".join(result.output.replace("\n", " ").split()),
         "no request was made" in output,

@@ -12,7 +12,7 @@ from click.testing import CliRunner
 
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name, repository_label
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name
 from tests.support.fakes.cluster_jobs import CRONJOB, FakeJobs, runner_cronjob_manifest
 
 REPO = "example/roadmap"
@@ -22,6 +22,13 @@ LOCK_LABEL = "implement-repo"
 _app = typer.Typer()
 _app.command()(run_job)
 RUN_JOB = typer.main.get_command(_app)
+
+
+def _label(repo: str) -> str:
+    """The value of the label `implement-repo` for `repo`, as the Service computes it."""
+    from devops_cli.k8s.cluster_job import repository_label
+
+    return repository_label(repo)
 
 
 def _run(*args: str) -> Any:
@@ -344,9 +351,9 @@ def _listed_job(name: str, *conditions: str) -> dict[str, Any]:
 
 
 def test_the_repository_label_is_a_digest_that_fits_a_label_value() -> None:
-    label = repository_label(REPO)
+    label = _label(REPO)
 
-    assert (len(label), label == repository_label(REPO), label == repository_label("a/b")) == (
+    assert (len(label), label == _label(REPO), label == _label("a/b")) == (
         16,
         True,
         False,
@@ -363,7 +370,7 @@ def test_a_runner_job_and_its_pod_carry_the_label_of_the_repository(cluster_jobs
         result.exit_code,
         job["metadata"]["labels"][LOCK_LABEL],
         pod[LOCK_LABEL],
-    ) == (0, repository_label(REPO), repository_label(REPO))
+    ) == (0, _label(REPO), _label(REPO))
 
 
 def test_a_job_of_the_default_template_carries_no_repository_label(cluster_jobs: FakeJobs) -> None:
@@ -388,7 +395,7 @@ def test_a_runner_job_looks_for_the_jobs_of_the_repository_by_their_label(
             "get",
             "jobs",
             "-l",
-            f"{LOCK_LABEL}={repository_label(REPO)}",
+            f"{LOCK_LABEL}={_label(REPO)}",
             "-o",
             "json",
         ]
@@ -446,8 +453,8 @@ def test_the_dry_run_of_the_runner_template_lists_the_lookup_and_the_label() -> 
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
-        f"get jobs -l {LOCK_LABEL}={repository_label(REPO)} -o json" in output,
-        f'"{LOCK_LABEL}": "{repository_label(REPO)}"' in result.output,
+        f"get jobs -l {LOCK_LABEL}={_label(REPO)} -o json" in output,
+        f'"{LOCK_LABEL}": "{_label(REPO)}"' in result.output,
     ) == (0, True, True), result.output
 
 
