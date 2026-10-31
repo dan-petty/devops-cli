@@ -36,6 +36,8 @@ LLM_GATEWAY_MASTER_KEY = "llm_gateway_master_key"
 DEVOPS_CACHE_VALKEY_AUTH_KEY = "valkey_devops_password"
 # LiteLLM refuses a master key without this prefix.
 LITELLM_KEY_PREFIX = "sk-"
+# The database password of Mattermost on CloudNativePG (#1391).
+MATTERMOST_DB_PASSWORD_KEY = "mattermost_db_password"  # nosec B105 # Keyring key identifier, not a password
 
 
 @dataclass(frozen=True)
@@ -384,6 +386,32 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "gitea"),),
         labels={"app.kubernetes.io/name": "gitea"},
+    ),
+    ClusterSecret(
+        namespace="mattermost",
+        name="mattermost-db",
+        stack="chat",
+        secret_type="kubernetes.io/basic-auth",  # nosec B106 # Kubernetes SecretType, not a password
+        entries=(
+            SecretEntry("username", LiteralSource("mattermost")),
+            SecretEntry(
+                "password",
+                KeyringSource(MATTERMOST_DB_PASSWORD_KEY),
+                generator=SecretGenerator("urlsafe", 32),
+                adopt_from=SecretKeyRef("mattermost", "mattermost-db", "password"),
+            ),
+            SecretEntry(
+                "DB_CONNECTION_STRING",
+                DerivedSource(
+                    "postgres://{username}:{password}@mattermost-db-rw.mattermost.svc.cluster.local:5432/mattermost?sslmode=require&connect_timeout=10",
+                    {
+                        "username": LiteralSource("mattermost"),
+                        "password": KeyringSource(MATTERMOST_DB_PASSWORD_KEY),
+                    },
+                ),
+            ),
+        ),
+        labels={"app.kubernetes.io/name": "mattermost-db"},
     ),
 )
 

@@ -70,3 +70,10 @@ Each Helm release that `devops k8s deploy-stack` installs SHALL name a chart and
 #### Scenario: A chart update moves only the Application pin
 - **WHEN** a test reads each release of `deploy-stack` and the chart sources of the Applications under `k8s/argocd/apps/`
 - **THEN** each release's chart name and version are the `chart` and `targetRevision` of an Application source
+
+### Requirement: deploy-stack deploys the chat stack
+The stack `chat` SHALL install Helm releases `cloudnative-pg` and `mattermost-operator` in order, and apply post-Helm kustomization `k8s/mattermost` after the Helm releases complete.
+
+#### Scenario: deploy-stack installs chat releases and post-helm kustomization
+- **WHEN** `devops k8s deploy-stack --stack chat --dry-run` executes
+- **THEN** the output lists Helm releases `cloudnative-pg` and `mattermost-operator` and post-Helm kustomization `mattermost`

@@ -77,7 +77,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress. |
 | [`k8s_chaos`](#k8s-chaos) | `false` | Run resilience and chaos experiments against Kubernetes workloads. |
 | [`k8s_create_tls_secret`](#k8s-create-tls-secret) | `false` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
-| [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy one stack (infra, llm, logging, devops, gitea) or all of them to Kubernetes with Helm and Kustomize.  Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything. |
+| [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy one stack (infra, llm, logging, devops, gitea, chat) or all of them to Kubernetes with Helm and Kustomize.  Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything. |
 | [`k8s_diff_helm`](#k8s-diff-helm) | `true` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
 | [`k8s_doctor`](#k8s-doctor) | `false` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
 | [`k8s_enable_tls`](#k8s-enable-tls) | `false` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
@@ -1203,7 +1203,7 @@ Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress.
 |---|---|---|---|---|
 | `k8s_dir` | `string` | No | `k8s` | Directory containing Kubernetes manifests. |
 | `auto_start` | `boolean` | No | `True` | Auto-start minikube if stopped. |
-| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
+| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_chaos`
@@ -1243,7 +1243,7 @@ Create or update a kubernetes.io/tls secret from certificate and private key fil
 
 ### `k8s_deploy_stack`
 
-Deploy one stack (infra, llm, logging, devops, gitea) or all of them to Kubernetes with Helm and Kustomize.
+Deploy one stack (infra, llm, logging, devops, gitea, chat) or all of them to Kubernetes with Helm and Kustomize.
 
 Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything.
 
@@ -1254,7 +1254,7 @@ Right after the namespaces, it pushes the Secrets of the base rows, its stacks a
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
-| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
+| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `domain` | `string` | No | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 | `wait` | `boolean` | No | `True` | Wait for Helm releases and workloads to become ready before returning. |
@@ -1310,7 +1310,7 @@ Generate Homelab certificates and apply TLS secrets across Kubernetes cluster na
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `tls_dir` | `string` | No | `` | Directory with generated TLS certificates. |
 | `secret_name` | `string` | No | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
-| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
+| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `overwrite` | `boolean` | No | `False` | Overwrite existing files or resources if they exist. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
@@ -1409,7 +1409,7 @@ Uninstall the k8s infrastructure / LLM stack and delete namespaces.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
-| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
+| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 

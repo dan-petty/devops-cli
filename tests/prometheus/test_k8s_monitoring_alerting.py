@@ -158,6 +158,8 @@ SERVED_SERIES = frozenset(
         # autodiscovery.
         "alertmanager_config_last_reload_successful",
         "alertmanager_notifications_failed_total",
+        # CloudNativePG PostgreSQL metrics exporter (#1391).
+        "cnpg_collector_up",
         # Argo CD, cloudflared, CoreDNS (#822), and Valkey redis_exporter (#551, #2094).
         "argocd_app_info",
         "cloudflared_tunnel_ha_connections",
@@ -276,6 +278,8 @@ def test_the_baseline_rule_set() -> None:
         ("LogOrMetricVolumeDiskLow", "warning"),
         ("LokiRequestErrors", "warning"),
         ("LokiRetentionNotRunning", "warning"),
+        ("MattermostDatabaseDown", "warning"),
+        ("MattermostUnavailable", "warning"),
         ("NodeNotReady", "critical"),
         ("NodeRebooted", "warning"),
         ("OtelCollectorExportFailing", "warning"),
@@ -1115,6 +1119,34 @@ def test_the_valkey_memory_rule_warns_on_a_valkey_that_refuses_writes_near_its_b
             )
         ],
         True,
+    )
+
+
+def test_mattermost_alert_rules() -> None:
+    """Mattermost rules alert on unavailable replicas and database down (#1391)."""
+    rules = {rule["alert"]: rule for rule in _rules() if rule["alert"].startswith("Mattermost")}
+    assert set(rules) == {"MattermostUnavailable", "MattermostDatabaseDown"}
+
+    unavail = rules["MattermostUnavailable"]
+    assert (
+        unavail["for"],
+        unavail["labels"]["severity"],
+        unavail["expr"],
+    ) == (
+        "10m",
+        "warning",
+        'kube_deployment_status_replicas_available{namespace="mattermost", deployment="mattermost"} < 1',
+    )
+
+    db_down = rules["MattermostDatabaseDown"]
+    assert (
+        db_down["for"],
+        db_down["labels"]["severity"],
+        db_down["expr"],
+    ) == (
+        "5m",
+        "warning",
+        'max(cnpg_collector_up{namespace="mattermost"}) < 1 or absent(cnpg_collector_up{namespace="mattermost"})',
     )
 
 

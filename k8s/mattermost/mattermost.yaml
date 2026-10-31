@@ -1,0 +1,68 @@
+apiVersion: installation.mattermost.com/v1beta1
+kind: Mattermost
+metadata:
+  name: mattermost
+  namespace: mattermost
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  image: mattermost/mattermost-team-edition
+  version: "11.7.11"
+  replicas: 1
+  deploymentTemplate:
+    deploymentStrategyType: Recreate
+  database:
+    external:
+      secret: mattermost-db
+  fileStore:
+    externalVolume:
+      volumeClaimName: mattermost-files
+  ingress:
+    enabled: true
+    host: mattermost.example.com
+    ingressClass: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+  podTemplate:
+    securityContext:
+      runAsUser: 2000
+      runAsGroup: 2000
+      fsGroup: 2000
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+  scheduling:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+  mattermostEnv:
+    - name: MM_LOGSETTINGS_ENABLEDIAGNOSTICS
+      value: "false"
+    - name: MM_SERVICESETTINGS_ENABLESECURITYFIXALERT
+      value: "false"
+    - name: MM_PLUGINSETTINGS_ENABLEUPLOADS
+      value: "false"
+    - name: MM_METRICSSETTINGS_ENABLE
+      value: "false"
+    - name: MM_CLUSTERSETTINGS_ENABLE
+      value: "false"
+    # Cloudflare's 100 MB limit applies to the whole request; 99 MB avoids edge 413s
+    - name: MM_FILESETTINGS_MAXFILESIZE
+      value: "99000000"
+    - name: MM_TEAMSETTINGS_ENABLEOPENSERVER
+      value: "false"
+    - name: MM_LOGSETTINGS_ENABLEFILE
+      value: "false"
+    - name: MM_SERVICESETTINGS_ENABLELOCALMODE
+      value: "true"
+    - name: MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS
+      value: "false"
+    - name: MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE
+      value: "false"

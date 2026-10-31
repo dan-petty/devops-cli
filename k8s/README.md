@@ -15,9 +15,10 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM), Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki (pod and journal logs shipped by the `infra` stack's Alloy `alloy-logs` DaemonSet) | `logging` | `3100` (Loki) |
 | **`gitea`** | Gitea: the internal forge and container registry ([Gitea](#gitea)) | `gitea` | `3000` (Gitea HTTP, in the cluster) |
-| **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops` | All ports above |
+| **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `cnpg-system`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
+| **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator` | All ports above |
 
-Register each manifest, Helm release and post-Helm step that runs in the cluster in `_MANIFESTS_BY_STACK`, `_HELM_RELEASES_BY_STACK` or `_POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops` and `gitea` stacks. deploy-stack applies a file of `_MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
+Register each manifest, Helm release and post-Helm step that runs in the cluster in `_MANIFESTS_BY_STACK`, `_HELM_RELEASES_BY_STACK` or `_POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `_MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
 
 ## Prerequisites
 
@@ -528,6 +529,9 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `argocd/argocd-notifications-secret` | `github-privateKey` | keyring `argocd_github_app_private_key` | no | adopt the live value; else skip with a warning | infra | none |
 | `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |
 | `gitea/gitea-admin` | `password` | keyring `gitea_admin_password` | yes | adopt the live value; else fail | gitea | `deployment/gitea` |
+| `mattermost/mattermost-db` | `username` | literal | yes | fail | chat | none |
+| `mattermost/mattermost-db` | `password` | keyring `mattermost_db_password` | yes | adopt from `mattermost/mattermost-db password`; else generate `token_urlsafe(32)` | chat | none |
+| `mattermost/mattermost-db` | `DB_CONNECTION_STRING` | derived from `username` and `password` | yes | fail | chat | none |
 
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
@@ -538,6 +542,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>` and `devops config set argocd.github_app_private_key --from-file <key.pem>`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
 - `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
+- `chat` rows are pushed by `push-secrets` with no `--stack` or with `--stack chat`, and by `deploy-stack --stack chat` or `all`. The database password is generated or adopted, and `DB_CONNECTION_STRING` is derived from it. The `homelab` project ignores the Secret as an orphan.
 - Secrets are server-side applied from stdin under field manager `devops-cli`, labelled `app.kubernetes.io/managed-by: devops-cli`, with values in `data`: never in argv, a file, an annotation or the output. A Secret still carrying a client-side apply's `kubectl.kubernetes.io/last-applied-configuration` loses it.
 - `--plan` reads the keyring and the live Secrets, says so, and prints each key's state (`would adopt`, `unchanged`, `differs`, ...) and the workloads a change would restart, writing nothing. `--dry-run` makes no request at all, not even those reads: it prints the requests a push would make, in order, with `<placeholders>` for every value and the condition under which each later request runs.
 - A Secret whose data changed has its workloads restarted (`kubectl rollout restart`); `--no-restart` prints the commands instead. Open WebUI keeps the gateway connection in its database, so a changed gateway key is also updated under Admin Panel > Settings > Connections.
@@ -845,6 +850,46 @@ There are no backups yet. A branch that a clone pushed is also in that clone, bu
 
 The next major version of the chart (its main branch, with Gitea 28) replaces `gitea.admin` with `secrets.admin`, turns persistence off by default and moves `strategy` under `deployment`. Change those keys in `gitea/values.yaml` in the pull request that changes the pinned version in `argocd/apps/gitea.yaml` and `_HELM_RELEASES_BY_STACK`.
 
+## Mattermost
+
+Mattermost Team Edition runs under Argo CD from the Mattermost Operator on CloudNativePG PostgreSQL 17.
+
+### What runs where
+
+- **Operator**: `mattermost-operator` runs in namespace `mattermost-operator`.
+- **Database Operator**: `cloudnative-pg` runs in namespace `cnpg-system`.
+- **Workload**: `Mattermost` runs in namespace `mattermost`.
+- **Database**: CloudNativePG `Cluster` named `mattermost-db` runs in namespace `mattermost`.
+- **Volume**: PVC `mattermost-files` stores uploaded files on `local-path`.
+
+| Consumer | Address | How it reaches Mattermost |
+| :--- | :--- | :--- |
+| In-cluster pods | `http://mattermost.mattermost.svc.cluster.local:8065` | the service on TCP 8065 |
+| Workstations and browsers | `https://mattermost.<domain>` | Cloudflare Tunnel, Traefik and Ingress `mattermost/mattermost` |
+
+### Rollout
+
+1. Merge the pull request. Argo CD creates the namespaces and objects. The database waits for Secret `mattermost/mattermost-db`. Alert `MattermostDatabaseDown` fires until step 2 completes.
+2. Run `uv run devops k8s deploy-stack --stack chat --context <context>`. Always keep the default `--wait`: CloudNativePG's admission webhook refuses the `Cluster` until its operator is ready. The deploy pushes Secret `mattermost/mattermost-db` and sets the host on Application `mattermost`.
+3. The owner signs up first from the bypassed network address. Cloudflare Access admits only the owner, so nobody else can claim the administrator account.
+4. Set both persistent volumes to Retain:
+   ```bash
+   kubectl patch pv "$(kubectl -n mattermost get pvc -l cnpg.io/cluster=mattermost-db -o jsonpath='{.items[0].spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+   kubectl patch pv "$(kubectl -n mattermost get pvc mattermost-files -o jsonpath='{.spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+   ```
+5. Create the primary team and the channels `alerts` and `deploys`. Create each incoming webhook with "Lock to this channel" (#1390).
+
+### Operations
+
+- **Backups**: The homelab has no backup mechanism for Mattermost yet (#1081). If a worker node fails, unbacked data on `local-path` is lost.
+- **Upload limits**: The upload limit is 99 MB (`MM_FILESETTINGS_MAXFILESIZE=99000000`). Cloudflare enforces a 100 MB request ceiling, so 99 MB prevents edge 413 errors before Mattermost sees the payload. The mobile app has the same limit.
+- **Upgrades**: Change `version` in `k8s/mattermost/mattermost.yaml`. With `Recreate` deployment strategy, an upgrade causes a brief outage while the old pod terminates and the new pod mounts the volume.
+- **Password reset without email**:
+  ```bash
+  kubectl -n mattermost exec deploy/mattermost -- mmctl --local user change-password <user> --password <new>
+  ```
+- **Teardown**: On a cluster without Argo CD, `teardown-stack --stack chat` deletes the database and the files claim.
+
 ## Teardown
 
 ```bash
@@ -1045,12 +1090,13 @@ Expose homelab Kubernetes services securely to the internet without public ports
                            k8s / Namespace: kube-system
                            [Traefik Ingress (ClusterIP:80)]
                                    │           │
-                 ┌─────────────────┘           └─────────────────┐
-                 ▼                                               ▼
-     k8s / Namespace: llm                         k8s / Namespaces: monitoring, argocd, gitea
-  [chat.homelab.<domain>] ──▶ open-webui       [grafana.homelab.<domain>] ──▶ grafana
-  [ai.homelab.<domain>]   ──▶ llm-gateway      [argocd.homelab.<domain>]  ──▶ argocd
-                                               [git.homelab.<domain>]     ──▶ gitea-http
+                 ┌─────────────────┘           └─────────────────────────────────┐
+                 ▼                                                               ▼
+     k8s / Namespace: llm                         k8s / Namespaces: monitoring, argocd, gitea, mattermost
+  [chat.homelab.<domain>] ──▶ open-webui       [grafana.homelab.<domain>]    ──▶ grafana
+  [ai.homelab.<domain>]   ──▶ llm-gateway      [argocd.homelab.<domain>]     ──▶ argocd
+                                               [git.homelab.<domain>]        ──▶ gitea-http
+                                               [mattermost.homelab.<domain>] ──▶ mattermost
 ```
 
 ### 1. Cloudflare Dashboard Tunnel Configuration

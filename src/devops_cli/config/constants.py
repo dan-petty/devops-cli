@@ -1051,7 +1051,11 @@ CONST_RAG_INCOMPLETE_FILE_MARKER: Final[str] = "incomplete"
 """The RAG cache entry of a file only some of whose chunks are stored; it matches no content hash."""
 CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
 """The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
-CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = ("devops", "ingress")
+CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = (
+    "devops",
+    "ingress",
+    "mattermost",
+)
 """The Argo CD Applications whose hosts deploy-stack sets from the configured domain (#1290)."""
 CONST_K8S_KUSTOMIZATION_NAMES: Final[tuple[str, ...]] = (
     "kustomization.yaml",
@@ -1059,7 +1063,7 @@ CONST_K8S_KUSTOMIZATION_NAMES: Final[tuple[str, ...]] = (
     "Kustomization",
 )
 """The standard file names Kustomize recognizes for a directory overlay."""
-CONST_K8S_STACKS: Final[tuple[str, ...]] = ("infra", "llm", "logging", "devops", "gitea")
+CONST_K8S_STACKS: Final[tuple[str, ...]] = ("infra", "llm", "logging", "devops", "gitea", "chat")
 """The stacks of the Kubernetes stack commands, in deploy order: the one declaration of a stack
 name. `_resolve_stacks` and every help text that lists stacks read it (#2008)."""
 CONST_K8S_ALL_STACKS: Final[str] = "all"
@@ -1079,6 +1083,7 @@ CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]
     "devops": ("devops", "ingress"),
     # Application `ingress` renders the Ingress of the git host (k8s/ingress/ingress-routes.yaml).
     "gitea": ("ingress",),
+    "chat": ("mattermost",),
 }
 """The homelab Applications whose hosts a stack's deploy sets."""
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0

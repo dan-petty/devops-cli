@@ -1,0 +1,15 @@
+# Mattermost Operator Helm Chart Values
+# Chart: mattermost/mattermost-operator (1.0.5)
+# Repo:  https://helm.mattermost.com
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
