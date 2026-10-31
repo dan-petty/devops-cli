@@ -763,6 +763,17 @@ def monitor_pr_command(
 # =============================================================================
 
 
+def _run_patch_step(cmd: list[str]) -> bool:
+    """Execute a single PATCH command in the fallback and report error on failure."""
+    res = run_gh(cmd, check=False)
+    if res.returncode != 0:
+        err_msg = (res.stderr or res.stdout or "").strip()
+        if err_msg:
+            print_error(err_msg, prefix=False)
+        return False
+    return True
+
+
 def _fallback_patch_pr(
     number: int,
     base: str | None = None,
@@ -791,8 +802,9 @@ def _fallback_patch_pr(
         patch_cmd.extend(["-f", f"base={base}"])
     pull_ok = True
     if len(patch_cmd) > 5:
-        res = run_gh(patch_cmd, check=False)
-        pull_ok = res.returncode == 0
+        pull_ok = _run_patch_step(patch_cmd)
+        if not pull_ok:
+            return False
 
     if milestone is not None:
         ms_cmd = [
@@ -804,8 +816,7 @@ def _fallback_patch_pr(
             "-F",
             f"milestone={milestone}",
         ]
-        res_ms = run_gh(ms_cmd, check=False)
-        return pull_ok and res_ms.returncode == 0
+        return _run_patch_step(ms_cmd)
     return pull_ok
 
 

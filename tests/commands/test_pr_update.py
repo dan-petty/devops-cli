@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -15,12 +17,16 @@ from devops_cli.commands.pr import (
     _process_candidate_pr_row,
     app,
 )
+from devops_cli.core.process import PlannedRequest
 from devops_cli.github.branch_update import (
     build_dispatch_ci_cmd,
     build_update_branch_cmd,
+    open_prs_argv,
     parse_update_error,
     plan_update_all_prs,
 )
+from devops_cli.lang import MESSAGES
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 
 def test_build_update_branch_cmd() -> None:
@@ -598,3 +604,308 @@ def test_update_all_prs_cli_dispatch_ci(monkeypatch: pytest.MonkeyPatch) -> None
         "dispatched" in result.stdout,
         "draft (skipped)" in result.stdout,
     ) == (0, 1, True, True, True)
+
+
+def _rate_limit_answer(call: ProcessCall) -> ProcessAnswer:
+    return ProcessAnswer(
+        returncode=0,
+        stdout=json.dumps(
+            {
+                "resources": {
+                    "core": {"limit": 5000, "remaining": 5000, "reset": int(time.time()) + 1},
+                    "graphql": {"limit": 5000, "remaining": 5000, "reset": int(time.time()) + 1},
+                }
+            }
+        ),
+    )
+
+
+def test_pr_edit_fallback_patch_title_body_base_milestone(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """devops pr edit falls back to REST PATCH when gh pr edit fails (#2159)."""
+    # 0. Answer rate_limit requests
+    process_fake.answer(
+        lambda call: "rate_limit" in call.argv,
+        _rate_limit_answer,
+    )
+    # 1. gh pr edit fails (triggering fallback)
+    process_fake.answer(
+        ["gh", "pr", "edit"],
+        ProcessAnswer(returncode=1, stderr="GraphQL: mutation error"),
+    )
+    # 2. REST PATCH pulls (title, body, base) succeeds
+    process_fake.answer(
+        ["gh", "api", "--method", "PATCH", "repos/owner/repo/pulls/184"],
+        ProcessAnswer(returncode=0, stdout='{"number": 184}'),
+    )
+    # 3. REST PATCH issues (milestone) succeeds
+    process_fake.answer(
+        ["gh", "api", "--method", "PATCH", "repos/owner/repo/issues/184"],
+        ProcessAnswer(returncode=0, stdout='{"number": 184}'),
+    )
+
+    result = cli(
+        "pr",
+        "edit",
+        "184",
+        "--title",
+        "New Title",
+        "--body",
+        "New Body",
+        "--base",
+        "main",
+        "--milestone",
+        "2026-11",
+        "--repo",
+        "owner/repo",
+    )
+
+    assert result.exit_code == 0
+    assert "Successfully updated PR #184" in result.output
+    # Verify the exact commands executed (excluding internal rate_limit checks)
+    cmd_argvs = [call.argv for call in process_fake.calls if "rate_limit" not in call.argv]
+    assert len(cmd_argvs) == 3
+    assert cmd_argvs[0] == (
+        "gh",
+        "pr",
+        "edit",
+        "184",
+        "--base",
+        "main",
+        "--title",
+        "New Title",
+        "--body",
+        "New Body",
+        "--repo",
+        "owner/repo",
+        "--milestone",
+        "2026-11",
+    )
+    assert cmd_argvs[1] == (
+        "gh",
+        "api",
+        "--method",
+        "PATCH",
+        "repos/owner/repo/pulls/184",
+        "-f",
+        "title=New Title",
+        "-f",
+        "body=New Body",
+        "-f",
+        "base=main",
+    )
+    assert cmd_argvs[2] == (
+        "gh",
+        "api",
+        "--method",
+        "PATCH",
+        "repos/owner/repo/issues/184",
+        "-F",
+        "milestone=2026-11",
+    )
+
+
+def test_pr_edit_fallback_milestone_failure_fails_with_message(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """A failed milestone PATCH makes devops pr edit fail with its message (#2159)."""
+    # 0. Answer rate_limit requests
+    process_fake.answer(
+        lambda call: "rate_limit" in call.argv,
+        _rate_limit_answer,
+    )
+    # 1. gh pr edit fails
+    process_fake.answer(
+        ["gh", "pr", "edit"],
+        ProcessAnswer(returncode=1, stderr="GraphQL: mutation error"),
+    )
+    # 2. REST PATCH pulls succeeds
+    process_fake.answer(
+        ["gh", "api", "--method", "PATCH", "repos/owner/repo/pulls/184"],
+        ProcessAnswer(returncode=0, stdout='{"number": 184}'),
+    )
+    # 3. REST PATCH issues (milestone) fails with descriptive error message
+    process_fake.answer(
+        ["gh", "api", "--method", "PATCH", "repos/owner/repo/issues/184"],
+        ProcessAnswer(returncode=1, stderr="Milestone '2026-11' does not exist."),
+    )
+
+    result = cli(
+        "pr",
+        "edit",
+        "184",
+        "--title",
+        "New Title",
+        "--milestone",
+        "2026-11",
+        "--repo",
+        "owner/repo",
+    )
+
+    assert result.exit_code != 0
+    assert "Milestone '2026-11' does not exist." in result.output
+
+
+def test_pr_update_all_dry_run_plan_whole_value(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """devops pr update --all --dry-run plans requests without mutating external state (#2159)."""
+    # 1. Plan without --dispatch-ci as whole value
+    plan_no_dispatch = plan_update_all_prs("owner/repo", None, dispatch_ci=False)
+    assert plan_no_dispatch == [
+        PlannedRequest(
+            method="GET",
+            target="repos/owner/repo/pulls",
+            argv=tuple(open_prs_argv("owner/repo", None)),
+        ),
+        PlannedRequest(
+            method="GET",
+            target="repos/owner/repo/pulls/<number>",
+            argv=("gh", "api", "repos/owner/repo/pulls/<number>"),
+            repeat="each open non-draft PR",
+        ),
+        PlannedRequest(
+            method="PUT",
+            target="repos/owner/repo/pulls/<number>/update-branch",
+            argv=("gh", "api", "-X", "PUT", "repos/owner/repo/pulls/<number>/update-branch"),
+            repeat="each open non-draft PR",
+        ),
+    ]
+
+    # 2. Plan with --dispatch-ci as whole value
+    plan_dispatch = plan_update_all_prs("owner/repo", "main", dispatch_ci=True)
+    assert plan_dispatch == [
+        PlannedRequest(
+            method="GET",
+            target="repos/owner/repo/pulls",
+            argv=tuple(open_prs_argv("owner/repo", "main")),
+        ),
+        PlannedRequest(
+            method="GET",
+            target="repos/owner/repo/pulls/<number>",
+            argv=("gh", "api", "repos/owner/repo/pulls/<number>"),
+            repeat="each open non-draft PR",
+        ),
+        PlannedRequest(
+            method="PUT",
+            target="repos/owner/repo/pulls/<number>/update-branch",
+            argv=("gh", "api", "-X", "PUT", "repos/owner/repo/pulls/<number>/update-branch"),
+            repeat="each open non-draft PR",
+        ),
+        PlannedRequest(
+            method="GET",
+            target="repos/owner/repo/pulls/<number>",
+            argv=("gh", "api", "repos/owner/repo/pulls/<number>"),
+            repeat="each open non-draft PR; up to 6, 5s apart",
+        ),
+        PlannedRequest(
+            method="POST",
+            target="repos/owner/repo/actions/workflows/ci.yml/dispatches",
+            argv=tuple(build_dispatch_ci_cmd("owner/repo", "<branch>")),
+            condition="the head changed and lives in this repository",
+            repeat="each open non-draft PR",
+        ),
+    ]
+
+    # 3. CLI execution with --dry-run
+    res1 = cli("pr", "update", "--all", "--dry-run", "--repo", "owner/repo")
+    assert res1.exit_code == 0
+    assert MESSAGES.pr.update_all_dry_run_heading in res1.output
+    assert "repos/owner/repo/pulls/<number>/update-branch" in res1.output
+
+    # 4. CLI execution with --dry-run and --dispatch-ci
+    res2 = cli("pr", "update", "--all", "--dry-run", "--dispatch-ci", "--repo", "owner/repo")
+    assert res2.exit_code == 0
+    assert "repos/owner/repo/actions/workflows/ci.yml/dispatches" in res2.output
+
+    # 5. Zero external requests were sent
+    assert len(process_fake.calls) == 0
+
+
+def test_pr_update_all_executes_oldest_first_and_skips_draft(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """devops pr update --all updates open PRs oldest first and leaves drafts alone (#2159)."""
+    # 0. Answer rate_limit requests
+    process_fake.answer(
+        lambda call: "rate_limit" in call.argv,
+        _rate_limit_answer,
+    )
+    # Candidate list: PR 10 (older), PR 20 (newer), PR 5 (draft)
+    candidate_prs = [
+        {
+            "number": 20,
+            "headRefName": "feat/newer",
+            "baseRefName": "main",
+            "isDraft": False,
+            "createdAt": "2026-10-05T12:00:00Z",
+        },
+        {
+            "number": 10,
+            "headRefName": "feat/older",
+            "baseRefName": "main",
+            "isDraft": False,
+            "createdAt": "2026-10-01T12:00:00Z",
+        },
+        {
+            "number": 5,
+            "headRefName": "feat/draft",
+            "baseRefName": "main",
+            "isDraft": True,
+            "createdAt": "2026-09-20T12:00:00Z",
+        },
+    ]
+
+    process_fake.answer(
+        ["gh", "pr", "list"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(candidate_prs)),
+    )
+    process_fake.answer(
+        ["gh", "api", "-X", "PUT", "repos/owner/repo/pulls/10/update-branch"],
+        ProcessAnswer(returncode=0, stdout='{"message": "Updating branch"}'),
+    )
+    process_fake.answer(
+        ["gh", "api", "-X", "PUT", "repos/owner/repo/pulls/20/update-branch"],
+        ProcessAnswer(returncode=0, stdout='{"message": "Updating branch"}'),
+    )
+
+    result = cli("pr", "update", "--all", "--repo", "owner/repo")
+    assert result.exit_code == 0
+    assert "draft (skipped)" in result.output
+
+    # Query filtered by --author @me, leaving pull requests of other authors alone
+    list_call = next(
+        call for call in process_fake.calls if "pr" in call.argv and "list" in call.argv
+    )
+    assert "--author" in list_call.argv
+    assert "@me" in list_call.argv
+
+    # Check update order: PR 10 before PR 20; PR 5 not updated
+    update_calls = [
+        call.argv for call in process_fake.calls if "update-branch" in " ".join(call.argv)
+    ]
+    assert len(update_calls) == 2
+    assert "repos/owner/repo/pulls/10/update-branch" in update_calls[0]
+    assert "repos/owner/repo/pulls/20/update-branch" in update_calls[1]
+
+
+def test_pr_update_all_no_open_prs_prints_message(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """devops pr update --all prints no PRs message when none are found (#2159)."""
+    # 0. Answer rate_limit requests
+    process_fake.answer(
+        lambda call: "rate_limit" in call.argv,
+        _rate_limit_answer,
+    )
+    process_fake.answer(
+        ["gh", "pr", "list"],
+        ProcessAnswer(returncode=0, stdout="[]"),
+    )
+
+    result = cli("pr", "update", "--all", "--repo", "owner/repo")
+    assert result.exit_code == 0
+    assert MESSAGES.pr.update_branch_no_prs in result.output
+    # No update requests were made
+    assert not any("update-branch" in " ".join(call.argv) for call in process_fake.calls)
