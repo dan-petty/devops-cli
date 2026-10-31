@@ -25,7 +25,7 @@ import ssl
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fakeredis import FakeServer, FakeValkey
@@ -72,6 +72,20 @@ def valkey_client(valkey_server: FakeServer) -> Iterator[ValkeyClient]:
     client = valkey_client_on(valkey_server)
     yield client
     client.close()
+
+
+@pytest.fixture
+def valkey(valkey_server: Any) -> Iterator[Any]:
+    """Install an in-memory Valkey client as the Valkey seam override, and return it."""
+    from devops_cli.valkey.client import install_valkey_client, reset_valkey_client
+
+    client = valkey_client_on(valkey_server)
+    install_valkey_client(client)
+    try:
+        yield client
+    finally:
+        reset_valkey_client()
+        client.close()
 
 
 def bulk_reply(payload: bytes) -> bytes:

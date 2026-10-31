@@ -7,8 +7,10 @@ upserts, cosine search, payload filtering, and simulated unreachable / refusing 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any
+
+import pytest
 
 from devops_cli.ai.rag.qdrant import QdrantClientError, QdrantProtocol
 
@@ -237,3 +239,16 @@ class FakeQdrantClient(QdrantProtocol):
                 if p.get("payload", {}).get("project_name") != project_name
             ]
         return True
+
+
+@pytest.fixture
+def qdrant() -> Iterator[Any]:
+    """Install an in-memory FakeQdrantClient as the Qdrant seam override, and return it."""
+    from devops_cli.ai.rag.qdrant import install_qdrant_client, reset_qdrant_client
+
+    fake = FakeQdrantClient()
+    install_qdrant_client(fake)
+    try:
+        yield fake
+    finally:
+        reset_qdrant_client()

@@ -433,7 +433,7 @@ def test_no_forbidden_constructs_remain() -> None:
         rf"\b{target_ident}\b",
         "src",
         "tests",
-        ":^tests/test_url_credential_masking.py",
+        ":^tests/ai/client/test_url_credential_masking.py",
     ]
     res3 = subprocess.run(cmd3, cwd=REPO_ROOT, capture_output=True, text=True)
     assert (res3.returncode, res3.stdout.strip()) == (1, "")

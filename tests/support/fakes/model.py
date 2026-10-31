@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 from pydantic_ai.messages import (
     FinishReason,
@@ -623,3 +624,18 @@ class ModelFakeReplies(StructuredOutputMixin):
         """The real `chat_structured`, with no wait between two tries."""
         options.setdefault("backoff_seconds", 0.0)
         return super().chat_structured(system, *args, **options)
+
+
+@pytest.fixture
+def model_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModelFake]:
+    """The model and embedding edge, faked for every AI client the test opens (ADR 0007, #1001).
+
+    Installs an in-memory `ModelFake` into the client factory seam. Any client built by
+    `get_llm_client` or `build_llm_client` routes to this fake, answering queued responses,
+    matching route patterns, or returning deterministic embeddings without network calls.
+    """
+    from devops_cli.ai.client import factory
+
+    fake = ModelFake()
+    monkeypatch.setattr(factory, "_client_override", fake)
+    yield fake

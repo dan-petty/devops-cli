@@ -163,7 +163,7 @@ def test_the_coverage_command_waits_for_a_free_slot(
 
 @pytest.mark.parametrize(
     "arguments",
-    [["test", "tests/test_ci_gate_slots.py"], ["test", "-n", "4"]],
+    [["test", "tests/ci/test_ci_gate_slots.py"], ["test", "-n", "4"]],
     ids=["narrowed by a path", "narrowed by -n"],
 )
 def test_a_narrowed_test_run_never_waits(

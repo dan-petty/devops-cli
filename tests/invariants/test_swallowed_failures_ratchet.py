@@ -481,7 +481,7 @@ def test_ratchet_fails_when_file_under_ceiling_and_prints_lower_command(tmp_path
 
     assert (bool(over), bool(under)) == (False, True)
     err_msg = format_under_ceiling_error(under)
-    lower = "uv run python -m tests.test_swallowed_failures_ratchet --lower"
+    lower = CONST_LOWER_COMMAND
     assert (lower in err_msg, "sample.py: count fell from 2 to 0" in err_msg) == (True, True)
 
 

@@ -23,6 +23,9 @@ def test_shutdown_joins_all_worker_threads(
     monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
     """Verify shutdown waits for in-flight executor threads before returning."""
+    initial_threads = {
+        t for t in threading.enumerate() if t.name.startswith("devops-otel") and t.is_alive()
+    }
     started = threading.Event()
     completed = threading.Event()
     finish = threading.Event()
@@ -44,7 +47,9 @@ def test_shutdown_joins_all_worker_threads(
     assert completed.is_set()
     assert client._executor is None
     otel_threads = [
-        t for t in threading.enumerate() if t.name.startswith("devops-otel") and t.is_alive()
+        t
+        for t in threading.enumerate()
+        if t.name.startswith("devops-otel") and t.is_alive() and t not in initial_threads
     ]
     assert otel_threads == []
 

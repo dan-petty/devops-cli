@@ -1039,7 +1039,7 @@ def test_cli_test_unindexed_source_falls_back_per_source(
 # ─────────────────────────────────────────────────────────────────────────────
 
 # The ban on reading `__file__` and importing a test module, which parses every test file.
-_TEST_MODULE_BAN = Path("tests/test_test_module_independence.py")
+_TEST_MODULE_BAN = Path("tests/invariants/test_test_module_independence.py")
 
 
 def test_no_narrowed_selection_over_a_changed_source_or_helper_runs_the_test_module_ban(
@@ -1064,7 +1064,7 @@ def test_no_narrowed_selection_over_a_changed_source_or_helper_runs_the_test_mod
         shutil.copyfile(REPO_ROOT / relative, tmp_path / relative)
     imports = SuiteImports(tmp_path)
     conftests = [path for path in shared if path.name == CONST_CONFTEST_FILENAME]
-    helpers = [path for path in shared if path not in conftests]
+    helpers = [path for path in shared if path not in conftests and path.name != "__init__.py"]
     selections = {
         "every source module": [
             path.relative_to(REPO_ROOT) for path in sorted((REPO_ROOT / "src").rglob("*.py"))

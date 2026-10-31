@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import (
@@ -284,3 +286,34 @@ class ProcessFake:
                 res.returncode, res.args, output=res.stdout, stderr=res.stderr
             )
         return res
+
+
+@pytest.fixture
+def process_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ProcessFake]:
+    """The process runner edge, faked for every command that starts child processes (ADR 0007, #775).
+
+    Installs an in-memory `ProcessFake` into the process runner seam. Any subprocess call
+    via `run_subprocess`, `run_subprocess_async`, or `get_process_runner()` routes to this fake.
+    Also fakes `shutil.which` for any tool not on the passthrough list (`git`, `bwrap`),
+    returning a hermetic fake path `/usr/local/bin/<tool>`.
+    """
+    import shutil
+
+    from devops_cli.core.process import reset_process_runner, set_process_runner
+
+    fake = ProcessFake()
+    set_process_runner(fake)
+
+    real_which = shutil.which
+
+    def fake_which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
+        cmd_name = Path(cmd).name
+        if cmd_name in {"git", "bwrap"}:
+            return real_which(cmd, *args, **kwargs)
+        return f"/usr/local/bin/{cmd_name}"
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    try:
+        yield fake
+    finally:
+        reset_process_runner()
