@@ -155,7 +155,20 @@ def test_the_variable_of_the_job_sets_the_repository_of_the_token(
     assert load_settings().service.github_app.token_repository == "example-org/app"
 
 
-@pytest.mark.parametrize("value", ["app", "a/b/c", "/app", "example-org/", "has space/app"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "app",
+        "a/b/c",
+        "/app",
+        "example-org/",
+        "has space/app",
+        "../..",
+        "./app",
+        "owner/.",
+        "owner/..",
+    ],
+)
 def test_a_token_repository_that_is_not_owner_slash_name_is_refused(value: str) -> None:
     with pytest.raises(ValidationError) as raised:
         GitHubAppConfig(token_repository=value)

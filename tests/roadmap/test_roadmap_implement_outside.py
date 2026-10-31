@@ -14,7 +14,7 @@ import pytest
 
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, ItemField
-from tests.support.fakes.cluster_jobs import FakeJobs
+from tests.support.fakes.cluster_jobs import FakeJobs, listed_job
 
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
@@ -209,7 +209,7 @@ def test_a_closed_item_is_refused(
 def test_a_runner_job_of_the_repository_that_has_not_ended_refuses_the_start(
     cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore, cluster_jobs: FakeJobs
 ) -> None:
-    cluster_jobs.listed = [{"metadata": {"name": "devops-cli-runner-20261031-010101-abcd"}}]
+    cluster_jobs.listed = [listed_job("devops-cli-runner-20261031-010101-abcd", REPO)]
     number = _item(roadmap_store)
 
     result = _implement(cli, number, "--confirm")
@@ -219,6 +219,59 @@ def test_a_runner_job_of_the_repository_that_has_not_ended_refuses_the_start(
         "devops-cli-runner-20261031-010101-abcd" in _output(result),
         cluster_jobs.created,
     ) == (1, True, [])
+
+
+def test_a_running_job_blocks_the_start_for_another_spelling_of_the_repository(
+    cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore, cluster_jobs: FakeJobs
+) -> None:
+    cluster_jobs.listed = [listed_job("devops-cli-runner-20261031-010101-abcd", REPO)]
+    number = _item(roadmap_store)
+
+    result = cli(
+        "roadmap", "implement", "--repo", "Example/Roadmap", "--item", str(number),
+        "--context", "test-ctx", "--confirm",
+    )  # fmt: skip
+
+    assert (result.exit_code, cluster_jobs.created) == (1, [])
+
+
+@pytest.mark.parametrize("repo", ["../..", "owner/..", "./name", "no-slash"])
+def test_a_repository_that_is_no_owner_and_name_is_refused_before_any_read(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+    cluster_jobs: FakeJobs,
+    repo: str,
+) -> None:
+    number = _item(roadmap_store)
+
+    result = cli(
+        "roadmap", "implement", "--repo", repo, "--item", str(number), "--context", "test-ctx",
+        "--confirm",
+    )  # fmt: skip
+
+    assert (result.exit_code != 0, roadmap_store_repos, cluster_jobs.calls) == (True, [], [])
+
+
+@pytest.mark.parametrize(
+    "flags", [["--limit", "2"], ["--filter", "status=ready"], ["--source", "."]]
+)
+def test_a_dry_run_ignores_the_options_that_need_the_runner_and_prints_the_job(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    cluster_jobs: FakeJobs,
+    flags: list[str],
+) -> None:
+    number = _item(roadmap_store)
+
+    result = _implement(cli, number, "--dry-run", *flags)
+
+    assert (
+        result.exit_code,
+        f"gh api repos/{REPO}/issues/{number}" in _output(result),
+        f"get jobs -l implement-repo={_label(REPO)}" in _output(result),
+        cluster_jobs.calls,
+    ) == (0, True, True, [])
 
 
 @pytest.mark.parametrize(

@@ -60,8 +60,9 @@ def job_name(now: datetime | None = None, template: JobTemplate = DEFAULT_TEMPLA
 def repository_label(repo: str) -> str:
     """The value of the Job label `implement-repo` for `repo`: a digest, since `owner/name` is no
     label value. The Service and `devops k8s run-job` label the runner Jobs of a repository with
-    it, and both list the Jobs by it."""
-    return hashlib.sha256(repo.encode("utf-8")).hexdigest()[:16]
+    it, and both list the Jobs by it. GitHub names are not case sensitive, so every spelling of a
+    name has one label."""
+    return hashlib.sha256(repo.casefold().encode("utf-8")).hexdigest()[:16]
 
 
 def _labelled(

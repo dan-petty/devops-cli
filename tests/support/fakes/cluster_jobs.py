@@ -62,7 +62,7 @@ class FakeJobs:
             held = self.runner_cronjob if argv[5] == "devops-cli-runner" else self.cronjob
             return json.dumps(held) if held else ""
         if verb == ["get", "jobs"]:
-            return json.dumps({"items": self.listed})
+            return json.dumps({"items": self._matching(argv)})
         if argv[3:4] == ["create"]:
             self.created.append(json.loads(stdin or "{}"))
             return "job.batch/created\n"
@@ -71,6 +71,30 @@ class FakeJobs:
         if verb == ["get", "pods"]:
             return self.exit_code
         return ""
+
+    def _matching(self, argv: list[str]) -> list[dict[str, Any]]:
+        """The listed Jobs that carry every label of the `-l` selector, as the API server selects
+        them. A lookup with no selector lists them all."""
+        if "-l" not in argv:
+            return self.listed
+        wanted = dict(pair.split("=", 1) for pair in argv[argv.index("-l") + 1].split(","))
+        return [
+            job
+            for job in self.listed
+            if wanted.items() <= job.get("metadata", {}).get("labels", {}).items()
+        ]
+
+
+def listed_job(name: str, repo: str, *conditions: str) -> dict[str, Any]:
+    """A runner Job as `kubectl get jobs -o json` lists it: the label of `repo`, and the conditions
+    that are True. With no condition the Job has not ended."""
+    from devops_cli.k8s.cluster_job import repository_label
+
+    status = {"conditions": [{"type": kind, "status": "True"} for kind in conditions]}
+    return {
+        "metadata": {"name": name, "labels": {"implement-repo": repository_label(repo)}},
+        "status": status,
+    }
 
 
 @pytest.fixture

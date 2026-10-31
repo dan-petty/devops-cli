@@ -834,6 +834,15 @@ class GitHubAppConfig(BaseModel):
         ),
     )
 
+    @field_validator("token_repository")
+    @classmethod
+    def _segments_are_names(cls, value: str | None) -> str | None:
+        """No segment of `owner/name` is `.` or `..`: the pattern lets them through, and they
+        are no repository."""
+        if value is not None and {".", ".."} & set(value.split("/")):
+            raise ValueError(f"{value!r} has a dot segment; use owner/name")
+        return value
+
     @property
     def bot_login(self) -> str | None:
         """The login GitHub gives the App's bot, `<slug>[bot]`, or None without a slug."""

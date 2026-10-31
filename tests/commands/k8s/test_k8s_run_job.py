@@ -13,7 +13,7 @@ from click.testing import CliRunner
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name
-from tests.support.fakes.cluster_jobs import CRONJOB, FakeJobs, runner_cronjob_manifest
+from tests.support.fakes.cluster_jobs import CRONJOB, FakeJobs, listed_job, runner_cronjob_manifest
 
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
@@ -344,12 +344,6 @@ def test_a_repository_that_is_not_owner_slash_name_is_refused(cluster_jobs: Fake
 # ── The label and the lock of a runner Job (#2913) ────────────────────────────────────────
 
 
-def _listed_job(name: str, *conditions: str) -> dict[str, Any]:
-    """A Job as `kubectl get jobs -o json` lists it, with the conditions that are True."""
-    status = {"conditions": [{"type": kind, "status": "True"} for kind in conditions]}
-    return {"metadata": {"name": name}, "status": status}
-
-
 def test_the_repository_label_is_a_digest_that_fits_a_label_value() -> None:
     label = _label(REPO)
 
@@ -359,6 +353,31 @@ def test_the_repository_label_is_a_digest_that_fits_a_label_value() -> None:
         False,
     )
     assert int(label, 16) >= 0
+
+
+def test_the_repository_label_is_the_same_for_every_spelling_of_the_name() -> None:
+    """GitHub names are not case sensitive, so one repository has one label."""
+    assert _label("Example/Roadmap") == _label(REPO)
+
+
+def test_a_running_job_blocks_a_runner_job_of_another_spelling_of_the_repository(
+    cluster_jobs: FakeJobs,
+) -> None:
+    cluster_jobs.listed = [listed_job("devops-cli-runner-20261031-010101-abcd", REPO)]
+
+    result = _run("--template", "runner", "--repo", "Example/Roadmap", "--", "roadmap", "implement")
+
+    assert (result.exit_code, cluster_jobs.created) == (1, [])
+
+
+def test_a_running_job_of_another_repository_does_not_block_a_runner_job(
+    cluster_jobs: FakeJobs,
+) -> None:
+    cluster_jobs.listed = [listed_job("devops-cli-runner-20261031-010101-abcd", "example/other")]
+
+    result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
+
+    assert (result.exit_code, len(cluster_jobs.created)) == (0, 1)
 
 
 def test_a_runner_job_and_its_pod_carry_the_label_of_the_repository(cluster_jobs: FakeJobs) -> None:
@@ -403,7 +422,7 @@ def test_a_runner_job_looks_for_the_jobs_of_the_repository_by_their_label(
 
 
 def test_a_running_job_of_the_repository_blocks_a_runner_job(cluster_jobs: FakeJobs) -> None:
-    cluster_jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd")]
+    cluster_jobs.listed = [listed_job("devops-cli-runner-20261031-010101-abcd", REPO)]
 
     result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
 
@@ -420,7 +439,7 @@ def test_a_running_job_of_the_repository_blocks_a_runner_job(cluster_jobs: FakeJ
 def test_a_job_that_ended_does_not_block_a_runner_job(
     cluster_jobs: FakeJobs, condition: str
 ) -> None:
-    cluster_jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd", condition)]
+    cluster_jobs.listed = [listed_job("devops-cli-runner-20261031-010101-abcd", REPO, condition)]
 
     result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
 
@@ -429,8 +448,8 @@ def test_a_job_that_ended_does_not_block_a_runner_job(
 
 def test_a_running_job_blocks_a_runner_job_after_one_that_ended(cluster_jobs: FakeJobs) -> None:
     cluster_jobs.listed = [
-        _listed_job("devops-cli-runner-old", "Complete"),
-        _listed_job("devops-cli-runner-new"),
+        listed_job("devops-cli-runner-old", REPO, "Complete"),
+        listed_job("devops-cli-runner-new", REPO),
     ]
 
     result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")

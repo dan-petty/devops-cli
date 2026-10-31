@@ -325,6 +325,14 @@ def execute_job(
     return JobRun(name, exit_code=_follow(name, context, start_timeout, template))
 
 
+def check_repo(repo: str) -> None:
+    """Raise `typer.BadParameter` unless `repo` is `owner/name`, the form of the token setting."""
+    try:
+        GitHubAppConfig.model_validate({"token_repository": repo})
+    except ValidationError as exc:
+        raise typer.BadParameter(repo, param_hint="--repo") from exc
+
+
 def _runner_env(template: TemplateName, repo: str | None) -> dict[str, str] | None:
     """The environment a runner Job gets so that its GitHub token names one repository: the
     variable of `service.github_app.token_repository`, as the Service sets it on its Jobs. The
@@ -338,10 +346,7 @@ def _runner_env(template: TemplateName, repo: str | None) -> dict[str, str] | No
     if repo is None:
         print_error(MESSAGES.k8s.job_runner_needs_repo, prefix=False, safe=True)
         raise typer.Exit(1)
-    try:
-        GitHubAppConfig.model_validate({"token_repository": repo})
-    except ValidationError as exc:
-        raise typer.BadParameter(str(repo), param_hint="--repo") from exc
+    check_repo(repo)
     return {setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo}
 
 

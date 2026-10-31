@@ -539,14 +539,20 @@ def _start_implement_job(
     preview: bool,
 ) -> None:
     """Outside a runner, start the runner Job for one item with the code of `devops k8s run-job`
-    (#2913), or print the Job with `preview`. The item is read first and a refused item starts no
-    Job. The pod makes the full plan."""
-    from devops_cli.commands.k8s.cluster_jobs import DEFAULT_JOB_START_TIMEOUT_SECONDS, start_job
+    (#2913), or print the Job with `preview`. The repository is checked first, then the item, and a
+    refused item starts no Job. The options that need the runner are refused with `--confirm`; a
+    preview ignores them, as it did before. The pod makes the full plan."""
+    from devops_cli.commands.k8s.cluster_jobs import (
+        DEFAULT_JOB_START_TIMEOUT_SECONDS,
+        check_repo,
+        start_job,
+    )
     from devops_cli.k8s.cluster_job import TemplateName
     from devops_cli.roadmap import implement_outside as outside
 
+    check_repo(target)
     options = outside.runner_only_options(source=source, filters=filters, limit=limit)
-    if options:
+    if options and not preview:
         _refuse(outside.refusal(target, options=options))
     before: list[PlannedRequest] = []
     if preview:
