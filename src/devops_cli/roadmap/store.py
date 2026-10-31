@@ -8,7 +8,7 @@ keeps it, and its due date orders it. Both adapters keep the same promises: read
 every result, and a read that cannot complete raises instead of returning an empty or partial
 result. No store reads or writes a project board.
 
-**Fields.** Each of an Item's Status, Priority, Value and Effort is one label family: the label
+**Fields.** Each of an Item's Status, Priority, Value, Effort and Owner is one label family: the label
 is the field's name and the value, lower case, with a hyphen for each space (`status/in-progress`
 for In Progress). A field has the value of the family's label, or none when the issue holds no
 label of the family. A family that holds more than one label has the value the job record does
@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_OWNER_VALUES,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_RECORD_MARKER,
     CONST_ROADMAP_SIZE_OPTIONS,
@@ -79,6 +80,7 @@ class ItemField(StrEnum):
     PRIORITY = "Priority"
     VALUE = "Value"
     EFFORT = "Effort"
+    OWNER = "Owner"
 
 
 FIELD_VALUES: Mapping[ItemField, tuple[str, ...]] = {
@@ -86,6 +88,7 @@ FIELD_VALUES: Mapping[ItemField, tuple[str, ...]] = {
     ItemField.PRIORITY: CONST_ROADMAP_PRIORITY_VALUES,
     ItemField.VALUE: CONST_ROADMAP_SIZE_OPTIONS,
     ItemField.EFFORT: CONST_ROADMAP_SIZE_OPTIONS,
+    ItemField.OWNER: CONST_ROADMAP_OWNER_VALUES,
 }
 """Each field's values, in the order of its label family."""
 
@@ -243,8 +246,8 @@ class Candidate(BaseModel):
 class Item(BaseModel):
     """An issue of this repository with its fields and job record.
 
-    State, labels and the milestone title come from the issue; Status, Priority, Value and
-    Effort from its label families (`field_values`). The job record holds the last value the
+    State, labels and the milestone title come from the issue; Status, Priority, Value, Effort
+    and Owner from its label families (`field_values`). The job record holds the last value the
     store set for each field; a field missing from it was never set by a job. `body` is the
     issue's body, with no record block, as the read the Item came from gave it, so a job can
     judge an Item by its text without a read of each issue. `author_association` is the
@@ -267,6 +270,7 @@ class Item(BaseModel):
     priority: str | None = None
     value: str | None = None
     effort: str | None = None
+    owner: str | None = None
     job_record: JobRecord = Field(default_factory=dict)
 
     def field_value(self, field: ItemField) -> str | None:

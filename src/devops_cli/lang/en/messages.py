@@ -1828,6 +1828,20 @@ class RoadmapMessages:
         "run reads the issue again and plans with that change."
     )
     item_value_unset: str = "unset"
+    # The claim of an Item (#2910).
+    claim_not_item: str = "#{number} is not an item of the roadmap."
+    claim_held: str = (
+        "#{number} is claimed by {owner}. An item has one owner at a time: release it first. "
+        "Only a person can take an item from the Service."
+    )
+    claim_no_owner: str = "none"
+    claim_plan: str = "Item #{number}: {title}\nOwner: {current} -> {target}"
+    claim_plan_only: str = "Plan only: pass --confirm to apply."
+    claim_done: str = "Item #{number} is claimed by {owner}."
+    claim_released: str = "Item #{number} has no owner."
+    claim_unchanged: str = "Item #{number} has the owner {owner} already. Nothing was written."
+    claim_release_unchanged: str = "Item #{number} has no owner. Nothing was written."
+    item_left_claimed: str = "It is claimed by {owner}."
     field_value_unknown: str = "{value!r} is not a {field} value; the values are {values}."
     record_unreadable: str = (
         "The job record block of {issue} holds no JSON object of text values, so it reads as "

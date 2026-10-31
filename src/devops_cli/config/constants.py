@@ -3154,6 +3154,16 @@ CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
     {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
 )
 CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
+# An Item's Owner values, in the order of their labels' family (`owner/service`, ...; ADR 0016,
+# #2910). The Service claims an Item for the Job it creates, an agent and a person claim by hand.
+CONST_ROADMAP_OWNER_SERVICE: Final[str] = "Service"
+CONST_ROADMAP_OWNER_AGENT: Final[str] = "Agent"
+CONST_ROADMAP_OWNER_HUMAN: Final[str] = "Human"
+CONST_ROADMAP_OWNER_VALUES: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_OWNER_SERVICE,
+    CONST_ROADMAP_OWNER_AGENT,
+    CONST_ROADMAP_OWNER_HUMAN,
+)
 # `devops roadmap intake` (#742). Its reason comment carries this marker, so a run that finds it
 # posts no second reason comment.
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"

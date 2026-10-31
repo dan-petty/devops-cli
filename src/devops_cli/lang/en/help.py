@@ -1440,6 +1440,24 @@ class RoadmapCommandHelp:
         "Make no request: print the requests a run makes, in order, with placeholders for "
         "values a read gives."
     )
+    claim: str = (
+        "Claim an item for an agent or a person with the label owner/agent or owner/human. An "
+        "item has one owner. A person can take an item from the Service. The jobs stage and "
+        "implement take no item that an agent or a person claimed."
+    )
+    claim_arg: str = "The issue or item number to claim."
+    claim_as: str = "Who claims the item: agent or human."
+    claim_confirm: str = "Make the write to GitHub: set the owner label."
+    claim_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
+    release: str = (
+        "Release an item: remove its owner/* label, whoever holds it. No job removes the claim "
+        "of an agent or a person."
+    )
+    release_arg: str = "The issue or item number to release."
+    release_confirm: str = "Make the write to GitHub: remove the owner label."
 
 
 @dataclass(frozen=True)

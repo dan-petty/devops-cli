@@ -2,9 +2,9 @@
 
 ## 1. The owner label family and the rule of a claim
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_claim.py` and `tests/roadmap/test_roadmap_store_contract.py` for the scenarios of "One label family holds the owner of an Item" and of "A claim sets the owner label of one owner" and "A release clears the owner label": the owner read from the label, a person's label wins, a changed owner raises, a free claim, a person's claim over the Service, every refused claim, the same owner twice, a candidate, release of a held and a free Item, and the labels file declaring the label of every value of every field
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_claim.py` and `tests/roadmap/test_roadmap_store_contract.py` for the scenarios of "One label family holds the owner of an Item" and of "A claim sets the owner label of one owner" and "A release clears the owner label": the owner read from the label, a person's label wins, a changed owner raises, a free claim, a person's claim over the Service, every refused claim, the same owner twice, a candidate, release of a held and a free Item, and the labels file declaring the label of every value of every field
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_store_contract.py`
-- [ ] 1.2 Add `ItemField.OWNER`, the owner constants, `Item.owner` and the three labels to `.github/labels.yml`; write `src/devops_cli/roadmap/claim.py` and `RoadmapClaimError`
+- [x] 1.2 Add `ItemField.OWNER`, the owner constants, `Item.owner` and the three labels to `.github/labels.yml`; write `src/devops_cli/roadmap/claim.py` and `RoadmapClaimError`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_intake.py`
 
 ## 2. The commands
