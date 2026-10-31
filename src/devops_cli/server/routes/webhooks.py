@@ -13,7 +13,7 @@ import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from cachetools import LRUCache
 from fastapi import APIRouter, Request, Response
@@ -492,14 +492,14 @@ def _authenticated_payload(
     """The body's typed payload once its signature matches the secret of the repository it names,
     or the 401 or 400 that refuses it. It validates only a body that was signed, so a sender
     without a secret learns nothing of the schema."""
-    assert isinstance(provider.verifier, HmacSha256)
-    assert provider.payload_model is not None
-    signature = request.headers.get(provider.verifier.header)
-    signers = provider.verifier.signers(body, signature, service_manager.secrets)
+    verifier = cast(HmacSha256, provider.verifier)
+    payload_model = cast(type[GitHubWebhookPayload], provider.payload_model)
+    signature = request.headers.get(verifier.header)
+    signers = verifier.signers(body, signature, service_manager.secrets)
     if not signers:
         return _rejected(401, "invalid signature")
     try:
-        payload = provider.payload_model.model_validate_json(body)
+        payload = payload_model.model_validate_json(body)
     except ValidationError as failure:
         return _rejected(400, invalid_payload_detail(failure))
     repo = payload.repository.full_name
