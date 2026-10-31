@@ -14,7 +14,10 @@ create the same Job again. A person's comment `implement: retry` clears it, as i
 of the job.
 
 **Wait.** A Job of the repository that has not ended blocks the round, whether or not an item
-records it. The API is the lock, so a restart of the Service loses nothing.
+records it, and a person's `devops roadmap implement --item` starts such a Job too (#2913). The API
+is the lock, so a restart of the Service loses nothing. The lock is best effort: the round lists
+the Jobs again just before it creates one, but a Job that starts between that list and the create
+is not seen. A hard lock needs an object on the server, such as a Lease.
 
 **Submit.** Else the round plans the Staged and Planned items that the default filter names and
 creates one Job for the first of them, from CronJob `devops-cli-runner`, with the item's
@@ -202,6 +205,12 @@ def _create(
     return name
 
 
+def _runs(api: ClusterJobs, label: str) -> bool:
+    """Whether a runner Job of the repository with `label` has not ended."""
+    jobs = api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})
+    return any(job.state is JobState.RUNNING for job in jobs)
+
+
 def run_implement_round(
     store: RoadmapStore, *, repo: str, source: Path | str, jobs: ClusterJobs | None = None
 ) -> SubmitResult:
@@ -229,6 +238,8 @@ def run_implement_round(
     )
     if not plan.selected:
         return SubmitResult(reported=reported, status_failed=failed)
+    if _runs(api, label):
+        return SubmitResult(reported=reported, waiting=True, status_failed=failed)
     number = plan.selected[0].item.number
     created = _create(store, api, repo, plan.selected[0], label)
     failed = sync_statuses(store, repo=repo, planned=planned).failed

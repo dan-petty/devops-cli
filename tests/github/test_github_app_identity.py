@@ -225,6 +225,35 @@ def test_an_installation_without_a_requested_permission_fails_naming_the_permiss
     }
 
 
+def test_a_runner_job_whose_repository_the_installation_lacks_fails_naming_the_repository(
+    app_identity: GitHubApiFake, config: Callable[..., Path]
+) -> None:
+    """GitHub refuses a token for a repository that the installation does not cover with HTTP
+    422. The Job then fails in its pod, and the error names the repository, so a person who
+    started the Job from a workstation sees why in its log (#2913)."""
+    config(service={"github_app": {**APP_SETTINGS, "token_repository": "example-org/app"}})
+    reset_github_session()
+    app_identity.route(
+        "POST",
+        MINT,
+        github_json(
+            {
+                "message": "There is at least one repository that does not exist or is not "
+                "accessible to the parent installation."
+            },
+            status=422,
+        ),
+    )
+    with pytest.raises(GitHubUnauthenticatedError) as raised:
+        github_token()
+    message = raised.value.message
+    assert (
+        "(HTTP 422): There is at least one repository that does not exist" in message,
+        "The installation must include repository example-org/app" in message,
+        "grant each permission that the token asks for" in message,
+    ) == (True, True, True)
+
+
 def test_the_apps_login_is_its_bot_and_no_get_user_is_sent(app_identity: GitHubApiFake) -> None:
     """The App's login comes from its slug; the session asks GitHub nothing for it."""
     assert (get_github_session().login, app_identity.requested) == (BOT_LOGIN, [])
