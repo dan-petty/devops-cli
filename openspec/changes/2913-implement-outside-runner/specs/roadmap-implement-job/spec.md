@@ -27,15 +27,15 @@ The job SHALL run a step only when the setting `roadmap.implement.in_runner` is 
 - **THEN** the Job is created, its name is printed, and the log is not followed
 
 ### Requirement: A start from a workstation is refused when it cannot succeed
-Before it creates the Job, the command SHALL refuse an Item that an agent or a person claimed, an Item whose Status is neither Ready nor Planned, and a repository that has a runner Job that has not ended. It SHALL refuse `--source`, `--filter` and `--limit`, and a missing `--item`, and the refusal SHALL name the `run-job` command. The refusal of `--group` with `--confirm` SHALL name the command that starts the Job.
+Before it creates the Job, the command SHALL refuse an Item that an agent or a person claimed, an Item whose Status is neither Ready nor Planned, an issue that is closed or no Item, and a repository that has a runner Job that has not ended. It SHALL refuse `--source`, `--filter` and `--limit`, and a missing `--item`, and the refusal SHALL name the `run-job` command. The refusal of `--group` with `--confirm` SHALL name the command that starts the Job.
 
 #### Scenario: A claimed Item
 - **WHEN** the Item holds `owner/human` or `owner/agent`
 - **THEN** the command exits 1, names the owner, and creates no Job
 
 #### Scenario: An Item that is not ready to implement
-- **WHEN** the Item is In Progress, In Review, Done or New
-- **THEN** the command exits 1, names the Status, and creates no Job
+- **WHEN** the Item is New, In Progress, In Review or Blocked, or the issue is closed or is no Item of the roadmap
+- **THEN** the command exits 1, names the Status or the cause, and creates no Job
 
 #### Scenario: A running Job
 - **WHEN** a Job of the repository carries the label `implement-repo` and has no Complete or Failed condition

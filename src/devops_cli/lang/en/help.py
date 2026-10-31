@@ -1348,7 +1348,12 @@ class RoadmapCommandHelp:
         "push and no pull request. The job never merges. --confirm runs steps only when the "
         "setting "
         "roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell "
-        "of the agent is no security boundary."
+        "of the agent is no security boundary. On a workstation, --item <n> --confirm starts "
+        "that runner Job for the item, with the code of devops k8s run-job --template runner, "
+        "and follows its log (--no-wait prints the Job's name). It refuses an item that an "
+        "agent or a person claimed, an item that is neither Ready nor Planned, and a repository "
+        "that has a runner Job that has not ended. --dry-run --item <n> prints the Job and "
+        "makes no request."
     )
     implement_item: str = (
         "The issue number of an item. With --group, the item whose change holds the group. "
@@ -1378,8 +1383,13 @@ class RoadmapCommandHelp:
         "leaves out. This is the mode when no flag is given."
     )
     implement_confirm: str = (
-        "Plan as --plan does, then run the items. It refuses unless roadmap.implement.in_runner "
-        "is true."
+        "Plan as --plan does, then run the items. It runs steps only when "
+        "roadmap.implement.in_runner is true. Outside a runner, with --item, it starts the "
+        "runner Job for that item instead; without --item it refuses."
+    )
+    implement_wait: str = (
+        "Outside a runner: follow the Job's log and exit with its exit code. --no-wait prints "
+        "the Job's name."
     )
     stage: str = (
         "Make Ready items Staged: for each item that a label filter names, make the branch "

@@ -33,7 +33,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
-from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
@@ -526,6 +526,46 @@ def _implement_step(
         raise typer.Exit(1)
 
 
+def _start_implement_job(
+    target: str,
+    item: int,
+    *,
+    source: Path | None,
+    filters: list[str] | None,
+    limit: int,
+    context: str | None,
+    wait: bool,
+    preview: bool,
+) -> None:
+    """Outside a runner, start the runner Job for one item with the code of `devops k8s run-job`
+    (#2913), or print the Job with `preview`. The item is read first and a refused item starts no
+    Job. The pod makes the full plan."""
+    from devops_cli.commands.k8s.cluster_jobs import DEFAULT_JOB_START_TIMEOUT_SECONDS, start_job
+    from devops_cli.k8s.cluster_job import TemplateName
+    from devops_cli.roadmap import implement_outside as outside
+
+    options = outside.runner_only_options(source=source, filters=filters, limit=limit)
+    if options:
+        _refuse(outside.refusal(target, options=options))
+    before: list[PlannedRequest] = []
+    if preview:
+        before = outside.read_requests(target, item)
+    else:
+        with _exit_on_failure("Could not start the job"):
+            _, store = _open_store(target)
+            outside.require_startable(store, item)
+    start_job(
+        outside.job_args(target, item),
+        context=context,
+        template=TemplateName.RUNNER,
+        repo=target,
+        wait=wait,
+        start_timeout=DEFAULT_JOB_START_TIMEOUT_SECONDS,
+        dry_run=preview,
+        before=before,
+    )
+
+
 def _implement_job(
     repo: str | None,
     source: Path | None,
@@ -536,9 +576,13 @@ def _implement_job(
     dry_run: bool,
     plan_only: bool,
     confirm: bool,
+    context: str | None = None,
+    wait: bool = True,
 ) -> None:
-    """Take the Staged and Planned items that the filter names to a ready pull request."""
+    """Take the Staged and Planned items that the filter names to a ready pull request. Outside a
+    runner, `--confirm` and `--dry-run` with `--item` start the runner Job instead (#2913)."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.implement import (
         dry_run_implement,
         parse_implement_filters,
@@ -550,10 +594,29 @@ def _implement_job(
     with _exit_on_failure("Could not read the options"):
         parsed = parse_implement_filters(filters or ())
     target = _target(repo)
-    if dry_run or is_dry_run():
+    preview = dry_run or is_dry_run()
+    outside = not load_settings().roadmap.implement.in_runner
+    if outside and item is not None and (confirm or preview):
+        _start_implement_job(
+            target,
+            item,
+            source=source,
+            filters=filters,
+            limit=limit,
+            context=context,
+            wait=wait,
+            preview=preview,
+        )
+        return
+    if preview:
         planned = dry_run_implement(target, item=item, limit=limit)
         render_dry_run("implement", target, planned.requests, planned.write_requests)
         return
+    if confirm and outside:
+        from devops_cli.roadmap.implement_outside import refusal, runner_only_options
+
+        options = runner_only_options(source=source, filters=filters, limit=limit)
+        _refuse(refusal(target, options=options))
     if confirm:
         with _exit_on_failure("Could not run the job"):
             require_runner(target)
@@ -573,7 +636,6 @@ def _implement_job(
         return
 
     from devops_cli.ai.client.factory import get_task_model
-    from devops_cli.config.settings import load_settings
 
     with _exit_on_failure("Could not run the job"):
         applied = apply_implement(
@@ -624,6 +686,12 @@ def implement_cmd(
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.implement_confirm)
     ] = False,
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+    wait: Annotated[
+        bool, typer.Option("--wait/--no-wait", help=HELP.roadmap.implement_wait)
+    ] = True,
 ) -> None:
     """Run one task group of a Staged item's change (--group), or the job that implements items."""
     if group is None:
@@ -636,6 +704,8 @@ def implement_cmd(
             dry_run=dry_run,
             plan_only=plan_only,
             confirm=confirm,
+            context=context,
+            wait=wait,
         )
         return
     if filters or plan_only or confirm:

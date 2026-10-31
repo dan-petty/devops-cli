@@ -3,94 +3,25 @@
 from __future__ import annotations
 
 import copy
-import json
-from collections.abc import Iterator
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 import typer
-import yaml
 from click.testing import CliRunner
 
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name, repository_label
-from tests.support.paths import REPO_ROOT
+from tests.support.fakes.cluster_jobs import CRONJOB, FakeJobs, runner_cronjob_manifest
 
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
 LOCK_LABEL = "implement-repo"
 
-CRONJOB = yaml.safe_load(
-    (REPO_ROOT / "k8s" / "devops" / "cronjob.yaml").read_text(encoding="utf-8")
-)
-
-
-def _runner_cronjob() -> dict[str, Any]:
-    """CronJob devops-cli-runner as the manifest names it: the template of CronJob devops-cli
-    with the name, the container and the image of the runner."""
-    cronjob = copy.deepcopy(CRONJOB)
-    cronjob["metadata"]["name"] = "devops-cli-runner"
-    container = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
-    container["name"] = "runner"
-    container["image"] = "ghcr.io/dan-petty/devops-cli/runner"
-    container["env"] = [{"name": "DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", "value": "true"}]
-    return cronjob
-
-
 _app = typer.Typer()
 _app.command()(run_job)
 RUN_JOB = typer.main.get_command(_app)
-
-
-@dataclass
-class FakeJobs:
-    """kubectl in namespace devops: the CronJob, the created Job's pod phase and exit code."""
-
-    cronjob: dict[str, Any] | None = field(default_factory=lambda: copy.deepcopy(CRONJOB))
-    runner_cronjob: dict[str, Any] | None = field(default_factory=_runner_cronjob)
-    phases: list[str] = field(default_factory=lambda: ["Pending", "Running"])
-    exit_code: str = "0"
-    listed: list[dict[str, Any]] = field(default_factory=list)
-    calls: list[list[str]] = field(default_factory=list)
-    created: list[dict[str, Any]] = field(default_factory=list)
-
-    def __call__(self, cmd: list[str], **kwargs: Any) -> Any:
-        import subprocess
-
-        argv = [a for a in cmd if a not in ("--context", "test-ctx")]
-        self.calls.append(argv)
-        return subprocess.CompletedProcess(cmd, 0, self._answer(argv, kwargs.get("input")), "")
-
-    def _answer(self, argv: list[str], stdin: str | None) -> str:
-        verb = argv[3:5]
-        if verb == ["get", "cronjob"]:
-            held = self.runner_cronjob if argv[5] == "devops-cli-runner" else self.cronjob
-            return json.dumps(held) if held else ""
-        if verb == ["get", "jobs"]:
-            return json.dumps({"items": self.listed})
-        if argv[3:4] == ["create"]:
-            self.created.append(json.loads(stdin or "{}"))
-            return "job.batch/created\n"
-        if verb == ["get", "pods"] and "phase" in argv[-1]:
-            return self.phases.pop(0) if len(self.phases) > 1 else self.phases[0]
-        if verb == ["get", "pods"]:
-            return self.exit_code
-        return ""
-
-
-@pytest.fixture
-def jobs(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeJobs]:
-    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
-    fake = FakeJobs()
-    with (
-        patch("devops_cli.core.process.subprocess.run", side_effect=fake),
-        patch("devops_cli.commands.k8s.cluster_jobs.time.sleep"),
-    ):
-        yield fake
 
 
 def _run(*args: str) -> Any:
@@ -145,21 +76,21 @@ def test_job_names_carry_utc_time_and_four_hex() -> None:
     )
 
 
-def test_the_command_exits_with_the_containers_exit_code(jobs: FakeJobs) -> None:
-    jobs.exit_code = "3"
+def test_the_command_exits_with_the_containers_exit_code(cluster_jobs: FakeJobs) -> None:
+    cluster_jobs.exit_code = "3"
     result = _run("--", "no-such-command", "--dry-run")
-    created = jobs.created[0]
+    created = cluster_jobs.created[0]
     assert (
         result.exit_code,
         created["spec"]["template"]["spec"]["containers"][0]["args"],
         ["kubectl", "-n", "devops", "logs", "-f", f"job/{created['metadata']['name']}"]
-        in jobs.calls,
+        in cluster_jobs.calls,
     ) == (3, ["no-such-command", "--dry-run"], True)
 
 
-def test_no_wait_creates_the_job_and_prints_its_name(jobs: FakeJobs) -> None:
+def test_no_wait_creates_the_job_and_prints_its_name(cluster_jobs: FakeJobs) -> None:
     result = _run("--no-wait", "--", "--version")
-    name = jobs.created[0]["metadata"]["name"]
+    name = cluster_jobs.created[0]["metadata"]["name"]
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
@@ -170,7 +101,7 @@ def test_no_wait_creates_the_job_and_prints_its_name(jobs: FakeJobs) -> None:
         True,
         True,
     )
-    assert [c for c in jobs.calls if "logs" in c] == []
+    assert [c for c in cluster_jobs.calls if "logs" in c] == []
 
 
 def test_dry_run_makes_no_request_and_prints_the_requests_in_order() -> None:
@@ -207,31 +138,31 @@ def test_dry_run_with_no_wait_lists_only_the_read_and_the_create() -> None:
     ) == (JobRun, True, None, ["kubectl get", "kubectl create"])
 
 
-def test_the_dry_run_lists_exactly_the_requests_a_run_then_makes(jobs: FakeJobs) -> None:
+def test_the_dry_run_lists_exactly_the_requests_a_run_then_makes(cluster_jobs: FakeJobs) -> None:
     """A run whose pod starts at once and reports its exit code at once makes each listed
     request once, in order, with the Job's name where the placeholder stood."""
     from devops_cli.commands.k8s.cluster_jobs import dry_run_job
 
-    jobs.phases = ["Running"]
+    cluster_jobs.phases = ["Running"]
     planned = dry_run_job(["--version"], "test-ctx", wait=True, start_timeout=5.0).requests
     result = _run("--", "--version")
-    name = jobs.created[0]["metadata"]["name"]
+    name = cluster_jobs.created[0]["metadata"]["name"]
     expected = [
         [a.replace("<devops-cli-yyyymmdd-hhmmss-xxxx>", name) for a in r.argv] for r in planned
     ]
-    assert (result.exit_code, jobs.calls) == (
+    assert (result.exit_code, cluster_jobs.calls) == (
         0,
         [[a for a in argv if a not in ("--context", "test-ctx")] for argv in expected],
     )
 
 
-def test_a_missing_cronjob_exits_1_with_the_deploy_stack_hint(jobs: FakeJobs) -> None:
-    jobs.cronjob = None
+def test_a_missing_cronjob_exits_1_with_the_deploy_stack_hint(cluster_jobs: FakeJobs) -> None:
+    cluster_jobs.cronjob = None
     result = _run("--", "--version")
     assert (
         result.exit_code,
         "devops k8s deploy-stack --stack devops" in result.output,
-        jobs.created,
+        cluster_jobs.created,
     ) == (
         1,
         True,
@@ -239,10 +170,10 @@ def test_a_missing_cronjob_exits_1_with_the_deploy_stack_hint(jobs: FakeJobs) ->
     )
 
 
-def test_a_pod_that_never_starts_exits_1_naming_describe(jobs: FakeJobs) -> None:
-    jobs.phases = ["Pending"]
+def test_a_pod_that_never_starts_exits_1_naming_describe(cluster_jobs: FakeJobs) -> None:
+    cluster_jobs.phases = ["Pending"]
     result = _run("--start-timeout", "0", "--", "--version")
-    name = jobs.created[0]["metadata"]["name"]
+    name = cluster_jobs.created[0]["metadata"]["name"]
     output = " ".join(result.output.split())
     assert (result.exit_code, f"kubectl -n devops describe job/{name}" in output) == (1, True)
 
@@ -250,7 +181,7 @@ def test_a_pod_that_never_starts_exits_1_naming_describe(jobs: FakeJobs) -> None
 def test_a_runner_job_changes_only_the_args_of_the_runner_container_and_adds_env_and_labels() -> (
     None
 ):
-    cronjob = _runner_cronjob()
+    cronjob = runner_cronjob_manifest()
     name = job_name(datetime(2026, 10, 4, 2, 14, 5, tzinfo=UTC), RUNNER_TEMPLATE)
     job = build_job(
         cronjob,
@@ -285,7 +216,7 @@ def test_a_runner_job_changes_only_the_args_of_the_runner_container_and_adds_env
 
 def test_an_env_name_that_the_template_sets_is_replaced_not_repeated() -> None:
     job = build_job(
-        _runner_cronjob(),
+        runner_cronjob_manifest(),
         ["--version"],
         "devops-cli-runner-x",
         template=RUNNER_TEMPLATE,
@@ -298,17 +229,20 @@ def test_an_env_name_that_the_template_sets_is_replaced_not_repeated() -> None:
 
 
 def test_the_runner_template_reads_its_own_cronjob_and_follows_its_container(
-    jobs: FakeJobs,
+    cluster_jobs: FakeJobs,
 ) -> None:
     result = _run(
         "--template", "runner", "--repo", REPO, "--", "roadmap", "implement", "--item", "7"
     )
-    name = jobs.created[0]["metadata"]["name"]
-    (container,) = jobs.created[0]["spec"]["template"]["spec"]["containers"]
-    exit_code_read = next(c for c in jobs.calls if "jsonpath" in c[-1] and "exitCode" in c[-1])
+    name = cluster_jobs.created[0]["metadata"]["name"]
+    (container,) = cluster_jobs.created[0]["spec"]["template"]["spec"]["containers"]
+    exit_code_read = next(
+        c for c in cluster_jobs.calls if "jsonpath" in c[-1] and "exitCode" in c[-1]
+    )
     assert (
         result.exit_code,
-        ["kubectl", "-n", "devops", "get", "cronjob", "devops-cli-runner"] == jobs.calls[0][:6],
+        ["kubectl", "-n", "devops", "get", "cronjob", "devops-cli-runner"]
+        == cluster_jobs.calls[0][:6],
         name.startswith("devops-cli-runner-"),
         container["name"],
         container["args"],
@@ -316,8 +250,8 @@ def test_the_runner_template_reads_its_own_cronjob_and_follows_its_container(
     ) == (0, True, True, "runner", ["roadmap", "implement", "--item", "7"], True)
 
 
-def test_a_missing_runner_cronjob_names_it(jobs: FakeJobs) -> None:
-    jobs.runner_cronjob = None
+def test_a_missing_runner_cronjob_names_it(cluster_jobs: FakeJobs) -> None:
+    cluster_jobs.runner_cronjob = None
     result = _run("--template", "runner", "--repo", REPO, "--", "--version")
     assert (result.exit_code, "CronJob devops/devops-cli-runner not found" in result.output) == (
         1,
@@ -340,12 +274,14 @@ def test_an_unknown_template_is_refused() -> None:
     assert (result.exit_code, "runner" in result.output) == (2, True)
 
 
-def test_the_runner_template_scopes_the_token_of_the_job_to_the_repository(jobs: FakeJobs) -> None:
+def test_the_runner_template_scopes_the_token_of_the_job_to_the_repository(
+    cluster_jobs: FakeJobs,
+) -> None:
     """A runner Job refuses to run unless its token names the one repository (#2667), so
     `--repo` sets the variable that the Service sets on the Jobs it creates."""
     result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
 
-    (container,) = jobs.created[0]["spec"]["template"]["spec"]["containers"]
+    (container,) = cluster_jobs.created[0]["spec"]["template"]["spec"]["containers"]
     assert (result.exit_code, {e["name"]: e["value"] for e in container["env"]}[REPO_ENV]) == (
         0,
         REPO,
@@ -353,11 +289,16 @@ def test_the_runner_template_scopes_the_token_of_the_job_to_the_repository(jobs:
 
 
 def test_the_runner_template_without_a_repository_is_refused_before_any_request(
-    jobs: FakeJobs,
+    cluster_jobs: FakeJobs,
 ) -> None:
     result = _run("--template", "runner", "--", "roadmap", "implement")
 
-    assert (result.exit_code, "--repo" in result.output, jobs.calls, jobs.created) == (
+    assert (
+        result.exit_code,
+        "--repo" in result.output,
+        cluster_jobs.calls,
+        cluster_jobs.created,
+    ) == (
         1,
         True,
         [],
@@ -377,16 +318,20 @@ def test_the_dry_run_of_the_runner_template_shows_the_token_repository() -> None
     assert (result.exit_code, REPO_ENV in result.output, REPO in result.output) == (0, True, True)
 
 
-def test_a_repository_with_the_default_template_is_refused(jobs: FakeJobs) -> None:
+def test_a_repository_with_the_default_template_is_refused(cluster_jobs: FakeJobs) -> None:
     result = _run("--repo", REPO, "--", "--version")
 
-    assert (result.exit_code, "--template runner" in result.output, jobs.created) == (1, True, [])
+    assert (result.exit_code, "--template runner" in result.output, cluster_jobs.created) == (
+        1,
+        True,
+        [],
+    )
 
 
-def test_a_repository_that_is_not_owner_slash_name_is_refused(jobs: FakeJobs) -> None:
+def test_a_repository_that_is_not_owner_slash_name_is_refused(cluster_jobs: FakeJobs) -> None:
     result = _run("--template", "runner", "--repo", "no-slash", "--", "--version")
 
-    assert (result.exit_code, jobs.created) == (2, [])
+    assert (result.exit_code, cluster_jobs.created) == (2, [])
 
 
 # ── The label and the lock of a runner Job (#2913) ────────────────────────────────────────
@@ -409,10 +354,10 @@ def test_the_repository_label_is_a_digest_that_fits_a_label_value() -> None:
     assert int(label, 16) >= 0
 
 
-def test_a_runner_job_and_its_pod_carry_the_label_of_the_repository(jobs: FakeJobs) -> None:
+def test_a_runner_job_and_its_pod_carry_the_label_of_the_repository(cluster_jobs: FakeJobs) -> None:
     result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
 
-    (job,) = jobs.created
+    (job,) = cluster_jobs.created
     pod = job["spec"]["template"]["metadata"]["labels"]
     assert (
         result.exit_code,
@@ -421,20 +366,20 @@ def test_a_runner_job_and_its_pod_carry_the_label_of_the_repository(jobs: FakeJo
     ) == (0, repository_label(REPO), repository_label(REPO))
 
 
-def test_a_job_of_the_default_template_carries_no_repository_label(jobs: FakeJobs) -> None:
+def test_a_job_of_the_default_template_carries_no_repository_label(cluster_jobs: FakeJobs) -> None:
     result = _run("--", "--version")
 
-    (job,) = jobs.created
+    (job,) = cluster_jobs.created
     assert (result.exit_code, LOCK_LABEL in job["metadata"]["labels"]) == (0, False)
-    assert [call for call in jobs.calls if call[3:5] == ["get", "jobs"]] == []
+    assert [call for call in cluster_jobs.calls if call[3:5] == ["get", "jobs"]] == []
 
 
 def test_a_runner_job_looks_for_the_jobs_of_the_repository_by_their_label(
-    jobs: FakeJobs,
+    cluster_jobs: FakeJobs,
 ) -> None:
     _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
 
-    lookups = [call for call in jobs.calls if call[3:5] == ["get", "jobs"]]
+    lookups = [call for call in cluster_jobs.calls if call[3:5] == ["get", "jobs"]]
     assert lookups == [
         [
             "kubectl",
@@ -450,8 +395,8 @@ def test_a_runner_job_looks_for_the_jobs_of_the_repository_by_their_label(
     ]
 
 
-def test_a_running_job_of_the_repository_blocks_a_runner_job(jobs: FakeJobs) -> None:
-    jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd")]
+def test_a_running_job_of_the_repository_blocks_a_runner_job(cluster_jobs: FakeJobs) -> None:
+    cluster_jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd")]
 
     result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
 
@@ -460,21 +405,23 @@ def test_a_running_job_of_the_repository_blocks_a_runner_job(jobs: FakeJobs) -> 
         result.exit_code,
         "devops-cli-runner-20261031-010101-abcd" in output,
         REPO in output,
-        jobs.created,
+        cluster_jobs.created,
     ) == (1, True, True, [])
 
 
 @pytest.mark.parametrize("condition", ["Complete", "Failed"])
-def test_a_job_that_ended_does_not_block_a_runner_job(jobs: FakeJobs, condition: str) -> None:
-    jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd", condition)]
+def test_a_job_that_ended_does_not_block_a_runner_job(
+    cluster_jobs: FakeJobs, condition: str
+) -> None:
+    cluster_jobs.listed = [_listed_job("devops-cli-runner-20261031-010101-abcd", condition)]
 
     result = _run("--template", "runner", "--repo", REPO, "--", "roadmap", "implement")
 
-    assert (result.exit_code, len(jobs.created)) == (0, 1)
+    assert (result.exit_code, len(cluster_jobs.created)) == (0, 1)
 
 
-def test_a_running_job_blocks_a_runner_job_after_one_that_ended(jobs: FakeJobs) -> None:
-    jobs.listed = [
+def test_a_running_job_blocks_a_runner_job_after_one_that_ended(cluster_jobs: FakeJobs) -> None:
+    cluster_jobs.listed = [
         _listed_job("devops-cli-runner-old", "Complete"),
         _listed_job("devops-cli-runner-new"),
     ]
@@ -505,11 +452,11 @@ def test_the_dry_run_of_the_runner_template_lists_the_lookup_and_the_label() -> 
 
 
 def test_the_dry_run_of_the_runner_template_lists_exactly_the_requests_a_run_then_makes(
-    jobs: FakeJobs,
+    cluster_jobs: FakeJobs,
 ) -> None:
     from devops_cli.commands.k8s.cluster_jobs import dry_run_job
 
-    jobs.phases = ["Running"]
+    cluster_jobs.phases = ["Running"]
     args = ["roadmap", "implement"]
     planned = dry_run_job(
         args,
@@ -521,12 +468,12 @@ def test_the_dry_run_of_the_runner_template_lists_exactly_the_requests_a_run_the
         repo=REPO,
     ).requests
     result = _run("--template", "runner", "--repo", REPO, "--", *args)
-    name = jobs.created[0]["metadata"]["name"]
+    name = cluster_jobs.created[0]["metadata"]["name"]
     expected = [
         [a.replace("<devops-cli-runner-yyyymmdd-hhmmss-xxxx>", name) for a in r.argv]
         for r in planned
     ]
-    assert (result.exit_code, jobs.calls) == (
+    assert (result.exit_code, cluster_jobs.calls) == (
         0,
         [[a for a in argv if a not in ("--context", "test-ctx")] for argv in expected],
     )
