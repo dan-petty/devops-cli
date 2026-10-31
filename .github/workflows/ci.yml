@@ -94,8 +94,10 @@ jobs:
   # active change folder: the archive, the specs, the OpenSpec config, the workflows and every
   # other path count as outside. A renamed file lists its old path as deleted, so a move out of
   # src/ counts, too. Only the exact text `false` selects the reduced run. A push, a manual run
-  # or a skipped filter step leaves no output, so those run the full gate. The job and its name
-  # stay as they are, so the required check reports success.
+  # or a skipped filter step leaves no output, so those run the full gate. The REST list of the
+  # files of a pull request holds 3000 files at most and gives no sign of a cut, so the filter
+  # runs only for a pull request with fewer files. The job and its name stay as they are, so the
+  # required check reports success.
   test:
     name: Tests & Coverage
     if: github.event_name != 'schedule'
@@ -108,7 +110,7 @@ jobs:
     steps:
       - name: Detect Plan-Only Changes
         id: changes
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           predicate-quantifier: some-with-excludes
@@ -144,7 +146,7 @@ jobs:
         run: uv run devops ci --check --no-cache --only test
 
       # No coverage option: the coverage of tests/invariants alone is under the floor of the whole
-      # tree, and a plan holds no Python line. `devops ci test` cannot take a directory: it
+      # tree, and a plan holds no Python line. `devops ci test` cannot take a directory (#2868): it
       # maps files to tests, finds none and exits 0.
       - name: Plan-Only Invariant Tests
         if: steps.changes.outputs.outside_plan == 'false'
