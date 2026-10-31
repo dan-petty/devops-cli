@@ -774,6 +774,17 @@ def test_a_pull_request_status_says_whether_it_is_an_open_draft(
     )
 
 
+def test_a_pull_request_status_gives_the_commit_of_its_head(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    payload = {"state": "open", "draft": True, "merged": False, "head": {"sha": "abc123"}}
+    github_api.route("GET", "/repos/octocat/Hello-World/pulls/9", github_json(payload))
+
+    status = _client().get_pull_status("octocat/Hello-World", 9)
+
+    assert status.head_sha == "abc123"
+
+
 def test_the_title_and_the_body_of_a_pull_request_are_set_with_one_patch(
     github_api: GitHubApiFake, pin_github_session: str
 ) -> None:

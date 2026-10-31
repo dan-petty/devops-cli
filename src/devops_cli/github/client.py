@@ -64,11 +64,15 @@ class PullRequest(BaseModel):
 
 
 class PullStatus(BaseModel):
-    """Whether a pull request is open, a draft, or merged (#2665)."""
+    """Whether a pull request is open, a draft, or merged (#2665), and the commit of its head
+    (#2865). `head_sha` is empty when GitHub names no head."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
     state: str
     draft: bool = False
     merged: bool = False
+    head_sha: str = Field(default="", validation_alias=AliasPath("head", "sha"))
 
     @property
     def is_open_draft(self) -> bool:
@@ -276,7 +280,8 @@ class GitHubClient:
         return _read_as(CreatedPull, self._session.rest("POST", path, body=payload), path=path)
 
     def get_pull_status(self, repo: str, number: int) -> PullStatus:
-        """The state, the draft flag and the merge flag of the pull request `number` (#2665)."""
+        """The state, the draft flag, the merge flag and the head commit of the pull request `number`
+        (#2665, #2865)."""
         path = _repo_path(repo, f"pulls/{number}")
         return _read_as(PullStatus, self._session.rest("GET", path), path=path)
 

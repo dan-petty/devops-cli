@@ -17,6 +17,7 @@ from devops_cli.github.check_verdict import (
     PRCheckItem,
     classify_check_item,
     fetch_pr_check_verdicts,
+    read_check_runs,
 )
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -689,3 +690,86 @@ def test_with_no_repo_the_fallback_reads_the_origin_of_the_checkout_it_gets(
         True,
         [tmp_path.resolve()],
     )
+
+
+def _check_run(name: str, status: str, conclusion: str | None) -> dict[str, Any]:
+    return {"name": name, "status": status, "conclusion": conclusion}
+
+
+@pytest.mark.parametrize(
+    ("runs", "passing", "buckets"),
+    [
+        ([_check_run("build", "completed", "success")], True, [CheckBucket.PASS]),
+        (
+            [
+                _check_run("build", "completed", "success"),
+                _check_run("lint", "completed", "skipped"),
+            ],
+            True,
+            [CheckBucket.PASS, CheckBucket.SKIPPING],
+        ),
+        (
+            [
+                _check_run("build", "completed", "success"),
+                _check_run("test", "completed", "failure"),
+            ],
+            False,
+            [CheckBucket.PASS, CheckBucket.FAIL],
+        ),
+        ([_check_run("test", "completed", "cancelled")], False, [CheckBucket.CANCEL]),
+        (
+            [_check_run("build", "completed", "success"), _check_run("test", "in_progress", None)],
+            False,
+            [CheckBucket.PASS, CheckBucket.PENDING],
+        ),
+        ([], False, [CheckBucket.PENDING]),
+    ],
+    ids=["passed", "passed-and-skipped", "failed", "cancelled", "running", "no-check-yet"],
+)
+def test_the_check_runs_of_a_commit_pass_only_when_every_run_ended_and_passed(
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+    runs: list[dict[str, Any]],
+    passing: bool,
+    buckets: list[CheckBucket],
+) -> None:
+    github_api.route(
+        "GET",
+        _check_runs("headsha"),
+        github_json({"total_count": len(runs), "check_runs": runs}),
+    )
+
+    verdict = read_check_runs("owner", "repo", "headsha")
+
+    assert (verdict.is_passing, [item.bucket for item in verdict.items]) == (passing, buckets)
+
+
+def test_the_check_runs_of_a_commit_are_read_with_one_request_and_no_commit_status(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The App token holds no `statuses` permission, so the read must not call that endpoint."""
+    github_api.route("GET", _check_runs("headsha"), github_json(_ONE_PASSING_BUILD))
+
+    read_check_runs("owner", "repo", "headsha")
+
+    assert github_api.requested == [
+        "GET https://api.github.com/repos/owner/repo/commits/headsha/check-runs?per_page=100"
+    ]
+
+
+def test_check_runs_that_cannot_be_read_do_not_pass(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    verdict = read_check_runs("owner", "repo", "headsha")
+
+    assert (verdict.is_passing, verdict.items, "check-runs" in verdict.unread_reason) == (
+        False,
+        [],
+        True,
+    )
+
+
+def test_check_runs_of_a_missing_head_do_not_pass() -> None:
+    verdict = read_check_runs("owner", "repo", "")
+
+    assert (verdict.is_passing, bool(verdict.unread_reason)) == (False, True)

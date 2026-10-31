@@ -2,10 +2,10 @@
 
 ## 1. The reads of the row
 
-- [ ] 1.1 Write failing tests in `tests/github/test_check_runs.py` and `tests/github/test_client_pulls.py`: `read_check_runs` reads the check runs of a commit and sends no request to the commit status endpoint, a head with no check run reads as pending, a failed or cancelled run is not passing, and `get_pull_status` gives the head commit
-  - Verification: `uv run devops ci test tests/github/test_check_runs.py tests/github/test_client_pulls.py`
-- [ ] 1.2 Add `read_check_runs` to `src/devops_cli/github/check_verdict.py` and `head_sha` to `PullStatus` in `src/devops_cli/github/client.py`
-  - Verification: `uv run devops ci test tests/github/test_check_runs.py tests/github/test_client_pulls.py`
+- [x] 1.1 Write failing tests in `tests/github/test_pr_check_verdict.py` and `tests/github/test_github_client.py`: `read_check_runs` reads the check runs of a commit and sends no request to the commit status endpoint, a head with no check run reads as pending, a failed or cancelled run is not passing, and `get_pull_status` gives the head commit
+  - Verification: `uv run devops ci test tests/github/test_pr_check_verdict.py tests/github/test_github_client.py`
+- [x] 1.2 Add `read_check_runs` to `src/devops_cli/github/check_verdict.py` and `head_sha` to `PullStatus` in `src/devops_cli/github/client.py`
+  - Verification: `uv run devops ci test tests/github/test_pr_check_verdict.py tests/github/test_github_client.py`
 
 ## 2. The decision and the round
 
