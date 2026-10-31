@@ -25,7 +25,6 @@ from devops_cli.ai.rag.indexer import WorkspaceIndexer
 from devops_cli.ai.rag.kb_sync import (
     ensure_knowledge_base_ready,
     is_kb_rebuild_needed,
-    reset_kb_sync_state,
 )
 from devops_cli.commands.rag import app
 from devops_cli.config.constants import CONST_RAG_KB_PROJECT
@@ -149,11 +148,6 @@ class DummyEmbedder:
 
     def embed_query(self, text: str) -> list[float]:
         return [0.1] * 384
-
-
-@pytest.fixture(autouse=True)
-def clean_kb_sync_state() -> None:
-    reset_kb_sync_state()
 
 
 def test_knowledge_base_digest_is_deterministic(tmp_path: Path) -> None:

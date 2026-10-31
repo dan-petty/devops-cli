@@ -31,7 +31,6 @@ from devops_cli.security.secrets import (
     build_default_resolver,
     build_secret_registry,
     get_resolver,
-    reset_resolver,
 )
 from devops_cli.security.vault_lease import (
     LeaseRegistry,
@@ -43,16 +42,6 @@ from tests.support.fakes.keyring import FakeKeyring
 from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
-
-
-@pytest.fixture(autouse=True)
-def _reset_resolver_singleton(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Guarantee no resolver state or shell environment leaks between tests."""
-    for name in ("VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN", "VAULT_ADDR", "VAULT_NAMESPACE"):
-        monkeypatch.delenv(name, raising=False)
-    reset_resolver()
-    yield
-    reset_resolver()
 
 
 def _ref(**overrides: Any) -> SecretRef:

@@ -843,16 +843,6 @@ def test_a_handler_failure_reports_its_exception_type(caplog) -> None:
 # =============================================================================
 
 
-@pytest.fixture(autouse=True)
-def reset_domain_gate():
-    """Hydration is process-wide state, so a test must not inherit another's."""
-    from devops_cli.ai.mcp import server as mcp_server
-
-    mcp_server.reset_hydrated_domains()
-    yield
-    mcp_server.reset_hydrated_domains()
-
-
 def test_the_advertised_set_is_a_fraction_of_the_registered_one() -> None:
     """All 155 tools were advertised on every turn.
 

@@ -40,7 +40,7 @@ def bwrap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def tree(tmp_path: Path) -> Path:
+def review_sandbox_tree(tmp_path: Path) -> Path:
     """A tree outside any checkout, with one Python file to review."""
     root = (tmp_path / "tree").resolve()
     root.mkdir()
@@ -68,12 +68,12 @@ def _orchestrator(tree: Path, tmp_path: Path) -> ReviewPipelineOrchestrator:
 
 
 def test_a_review_with_no_executor_runs_each_tool_in_the_sandbox(
-    tree: Path, tmp_path: Path, bwrap: Path, process_fake: ProcessFake
+    review_sandbox_tree: Path, tmp_path: Path, bwrap: Path, process_fake: ProcessFake
 ) -> None:
     """The orchestrator gets no executor, so it starts each analyzer and each canary in the
     sandbox. The host check starts bubblewrap one time. Then each command starts bubblewrap with
     the tool in it, and the record of each run names the sandbox."""
-    orchestrator = _orchestrator(tree, tmp_path)
+    orchestrator = _orchestrator(review_sandbox_tree, tmp_path)
 
     orchestrator.init_per_file_payloads(["app.py"], {})
 
@@ -88,13 +88,13 @@ def test_a_review_with_no_executor_runs_each_tool_in_the_sandbox(
 
 
 def test_a_review_on_a_host_that_cannot_start_the_sandbox_runs_no_tool_and_reports_a_gap(
-    tree: Path, tmp_path: Path, bwrap: Path, process_fake: ProcessFake
+    review_sandbox_tree: Path, tmp_path: Path, bwrap: Path, process_fake: ProcessFake
 ) -> None:
     """The host check fails, so no tool starts, in the sandbox or outside it. Each analyzer that
     had files reports a coverage gap that names the cause. No canary ran, so no canary withholds
     a finding."""
     process_fake.answer(str(bwrap), ProcessAnswer(returncode=1, stderr=f"{_NAMESPACE_REFUSED}\n"))
-    orchestrator = _orchestrator(tree, tmp_path)
+    orchestrator = _orchestrator(review_sandbox_tree, tmp_path)
 
     orchestrator.init_per_file_payloads(["app.py"], {})
 
@@ -108,7 +108,10 @@ def test_a_review_on_a_host_that_cannot_start_the_sandbox_runs_no_tool_and_repor
 
 
 def test_a_review_that_the_host_cannot_sandbox_says_why_and_what_to_change_on_the_host(
-    tree: Path, bwrap: Path, process_fake: ProcessFake, capsys: pytest.CaptureFixture[str]
+    review_sandbox_tree: Path,
+    bwrap: Path,
+    process_fake: ProcessFake,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The review command runs its tools in the sandbox, so on a host that cannot start it, no
     tool runs. The review says one time why, and what a person can change on the host. It offers
@@ -116,7 +119,12 @@ def test_a_review_that_the_host_cannot_sandbox_says_why_and_what_to_change_on_th
     process_fake.answer(str(bwrap), ProcessAnswer(returncode=1, stderr=f"{_NAMESPACE_REFUSED}\n"))
 
     _execute_review_workflow(
-        [], "app.py", False, ReviewClients(), target_dir=tree, routed_files=["app.py"]
+        [],
+        "app.py",
+        False,
+        ReviewClients(),
+        target_dir=review_sandbox_tree,
+        routed_files=["app.py"],
     )
 
     out = " ".join(capsys.readouterr().out.split())

@@ -25,11 +25,6 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-@pytest.fixture(autouse=True)
-def _reset_investigation_cache() -> None:
-    clear_investigation_cache()
-
-
 def test_investigate_rag_context_empty_query() -> None:
     """Empty or whitespace queries return None immediately."""
     assert investigate_rag_context("") is None

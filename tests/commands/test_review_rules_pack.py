@@ -38,13 +38,6 @@ RULE_ID = "k8s-networkpolicy-ingress-any"
 runner = CliRunner()
 
 
-@pytest.fixture(autouse=True)
-def _reset_dry_run() -> Any:
-    set_dry_run(False)
-    yield
-    set_dry_run(False)
-
-
 def test_networkpolicy_ingress_any_rule_and_test_cases() -> None:
     """`k8s-networkpolicy-ingress-any.yaml` is MIT-licensed with CWE metadata and tests both recall shapes."""
     rules = discover_pack_rules()

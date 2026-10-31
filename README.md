@@ -293,6 +293,7 @@ k8s/. |
 |  | `devops ci outdated [OPTIONS]` | Display outdated dependencies and packages via uv tree --outdated. |
 |  | `devops ci devcontainer [OPTIONS]` | Validate devcontainer manifest configuration syntax. |
 |  | `devops ci deps [OPTIONS]` | Validate dependency hygiene and imports via deptry. |
+|  | `devops ci test-settings [OPTIONS]` | Verify test configuration settings and environment variables. |
 |  | `devops ci maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 |  | `devops ci mutate [OPTIONS] <paths>` | Mutation-test functions with mutmut and show each mutant no test killed; never a gate. |

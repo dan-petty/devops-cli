@@ -11,11 +11,6 @@ from devops_cli.dry_run.decorator import dry_run_command
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 
 
-@pytest.fixture(autouse=True)
-def reset_dry_run_state() -> None:
-    set_dry_run(False)
-
-
 def test_dry_run_command_executes_when_dry_run_false() -> None:
     """When dry_run=False, the wrapped function executes normally and returns its value."""
     mock_fn = MagicMock(return_value="executed_result")

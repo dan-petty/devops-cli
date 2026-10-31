@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +22,6 @@ from devops_cli.telemetry.logfire import (
     logfire_agent_turn,
     render_agent_turn_panel,
     render_agent_turn_table,
-    reset_logfire_bridge,
 )
 from devops_cli.telemetry.tracer import (
     build_span_waterfall_tree,
@@ -35,16 +33,6 @@ from devops_cli.telemetry.tracer import (
 from tests.support.fakes.keyring import FakeKeyring
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _clean_logfire_state() -> Generator[None]:
-    """Reset LogfireBridge and span buffers before and after each test."""
-    reset_logfire_bridge()
-    clear_span_buffer()
-    yield
-    reset_logfire_bridge()
-    clear_span_buffer()
 
 
 def test_logfire_status_model() -> None:

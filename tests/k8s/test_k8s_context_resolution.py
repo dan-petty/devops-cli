@@ -6,28 +6,17 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from devops_cli.k8s.context import (
     apply_configured_k8s_context,
     configured_context,
-    reset_context_cache,
     resolve_context,
 )
 from devops_cli.k8s.service import KubernetesService
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-
-
-@pytest.fixture(autouse=True)
-def clear_context_cache() -> Any:
-    """The resolved context is cached process-wide; tests must not inherit one another's."""
-    reset_context_cache()
-    yield
-    reset_context_cache()
-
 
 # =============================================================================
 # Resolution

@@ -38,7 +38,7 @@ def bwrap(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def tree(tmp_path: Path) -> Path:
+def sandbox_scan_tree(tmp_path: Path) -> Path:
     """A tree outside any checkout, with one file to scan."""
     root = (tmp_path / "tree").resolve()
     root.mkdir()
@@ -85,14 +85,14 @@ def _stand_in(tmp_path: Path, tool: str) -> Path:
 
 
 def test_the_executor_checks_the_host_one_time_then_starts_each_tool_in_the_sandbox(
-    tree: Path, bwrap: Path, process_fake: ProcessFake
+    sandbox_scan_tree: Path, bwrap: Path, process_fake: ProcessFake
 ) -> None:
     """The check starts `prlimit -- true` in a sandbox. Each run then starts bubblewrap, with
     `prlimit` and the tool in it, under the limits of the request."""
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
 
-    executor.run(_request(tree))
-    executor.run(_request(tree))
+    executor.run(_request(sandbox_scan_tree))
+    executor.run(_request(sandbox_scan_tree))
 
     probe, first, second = (call.argv for call in process_fake.calls)
     prlimit = shutil.which("prlimit")
@@ -112,7 +112,7 @@ def test_the_executor_checks_the_host_one_time_then_starts_each_tool_in_the_sand
                 "--",
                 shutil.which("gitleaks"),
                 "dir",
-                str(tree / "app.py"),
+                str(sandbox_scan_tree / "app.py"),
             ),
         ),
         True,
@@ -123,7 +123,7 @@ def test_the_executor_checks_the_host_one_time_then_starts_each_tool_in_the_sand
 @pytest.mark.parametrize("case", ["no bubblewrap", "no prlimit", "no user namespace"])
 def test_a_host_that_cannot_start_the_sandbox_runs_no_tool_and_names_the_cause(
     case: str,
-    tree: Path,
+    sandbox_scan_tree: Path,
     bwrap: Path,
     tmp_path: Path,
     process_fake: ProcessFake,
@@ -145,7 +145,7 @@ def test_a_host_that_cannot_start_the_sandbox_runs_no_tool_and_names_the_cause(
     refusals = []
     for _ in range(2):
         with pytest.raises(SandboxUnavailableError) as refused:
-            executor.run(_request(tree))
+            executor.run(_request(sandbox_scan_tree))
         refusals.append(refused.value.message)
 
     assert (refusals, executor.refusal, len(process_fake.calls)) == (
@@ -156,7 +156,7 @@ def test_a_host_that_cannot_start_the_sandbox_runs_no_tool_and_names_the_cause(
 
 
 def test_the_sandbox_binds_the_program_of_a_tool_read_only(
-    tree: Path, bwrap: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    sandbox_scan_tree: Path, bwrap: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The sandbox shows only the system directories and the tree, so it binds the program that
     starts the tool. A native program is one file. A program in the `bin` of a virtualenv needs
@@ -171,8 +171,8 @@ def test_the_sandbox_binds_the_program_of_a_tool_read_only(
     _installed(monkeypatch, {"trivy": native, "semgrep": venv / "bin" / "semgrep"})
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
 
-    trivy = _binds(executor.command(_request(tree, "trivy")))
-    semgrep = _binds(executor.command(_request(tree, "semgrep")))
+    trivy = _binds(executor.command(_request(sandbox_scan_tree, "trivy")))
+    semgrep = _binds(executor.command(_request(sandbox_scan_tree, "semgrep")))
 
     assert (
         ["--ro-bind", str(native), str(native)] in trivy,
@@ -181,7 +181,7 @@ def test_the_sandbox_binds_the_program_of_a_tool_read_only(
 
 
 def test_the_sandbox_binds_the_paths_of_the_host_that_a_tool_reads_when_it_starts(
-    tree: Path, bwrap: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    sandbox_scan_tree: Path, bwrap: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The engine of Semgrep loads the CA bundle when it starts, though a scan uses no network,
     and stops without it. The sandbox shows no `/etc`, so it binds what the tool reads there."""
@@ -193,8 +193,8 @@ def test_the_sandbox_binds_the_paths_of_the_host_that_a_tool_reads_when_it_start
         if Path(path).exists()
     ]
 
-    semgrep = _binds(executor.command(_request(tree, "semgrep")))
-    gitleaks = _binds(executor.command(_request(tree, "gitleaks")))
+    semgrep = _binds(executor.command(_request(sandbox_scan_tree, "semgrep")))
+    gitleaks = _binds(executor.command(_request(sandbox_scan_tree, "gitleaks")))
 
     assert ([bind for bind in needed if bind in semgrep], [b for b in needed if b in gitleaks]) == (
         needed,
@@ -203,7 +203,7 @@ def test_the_sandbox_binds_the_paths_of_the_host_that_a_tool_reads_when_it_start
 
 
 def test_the_sandbox_binds_each_writable_directory_of_a_request_read_write(
-    tree: Path, bwrap: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    sandbox_scan_tree: Path, bwrap: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A tool that keeps a cache, as mypy does, writes it in a directory that the request names.
     It is the one place outside the private HOME where the tool writes."""
@@ -212,7 +212,7 @@ def test_the_sandbox_binds_each_writable_directory_of_a_request_read_write(
     _installed(monkeypatch, {"mypy": _stand_in(tmp_path, "mypy")})
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
 
-    command = executor.command(_request(tree, "mypy", writable_dirs=(cache,)))
+    command = executor.command(_request(sandbox_scan_tree, "mypy", writable_dirs=(cache,)))
 
     assert _binds(command)[-1] == ["--bind", str(cache), str(cache)]
 
