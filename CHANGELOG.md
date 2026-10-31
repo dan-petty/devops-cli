@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.26.1](https://github.com/dan-petty/devops-cli/compare/v0.26.0...v0.26.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **ci:** allow only declared scopes in pull request titles ([#2846](https://github.com/dan-petty/devops-cli/issues/2846)) ([f6aea38](https://github.com/dan-petty/devops-cli/commit/f6aea380ceacd5bf9bde13d6ea0e49bff082f093)), closes [#2800](https://github.com/dan-petty/devops-cli/issues/2800)
+* **security:** remove pre-flight resolve paths for egress ([#2845](https://github.com/dan-petty/devops-cli/issues/2845)) ([6ebc968](https://github.com/dan-petty/devops-cli/commit/6ebc9683abcc8501aa9e1c39c19cd3c3128d9d46)), closes [#2437](https://github.com/dan-petty/devops-cli/issues/2437)
+
 ## [0.26.0](https://github.com/dan-petty/devops-cli/compare/v0.25.0...v0.26.0) (2026-10-31)
 
 
