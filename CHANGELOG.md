@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.25.0](https://github.com/dan-petty/devops-cli/compare/v0.24.0...v0.25.0) (2026-10-31)
+
+
+### Features
+
+* **gh:** preview requests in dry run for api, status, secrets ([#2832](https://github.com/dan-petty/devops-cli/issues/2832)) ([9baf3dd](https://github.com/dan-petty/devops-cli/commit/9baf3ddf6b0c3b768d1e5832ff420796601dd0d9)), closes [#2237](https://github.com/dan-petty/devops-cli/issues/2237)
+* **gh:** preview requests in dry run for issues, labels, runs ([#2826](https://github.com/dan-petty/devops-cli/issues/2826)) ([c58a50d](https://github.com/dan-petty/devops-cli/commit/c58a50d6a318f7c6f82e466f95635fdc54517bb1)), closes [#2235](https://github.com/dan-petty/devops-cli/issues/2235)
+
+
+### Bug Fixes
+
+* **config:** preserve file mode on write and copy ([#2831](https://github.com/dan-petty/devops-cli/issues/2831)) ([8028319](https://github.com/dan-petty/devops-cli/commit/8028319e1e48830fd78cb98967003ba90cb6ddee)), closes [#2745](https://github.com/dan-petty/devops-cli/issues/2745)
+* **config:** report a clear error for merge-key unset ([#2828](https://github.com/dan-petty/devops-cli/issues/2828)) ([7514766](https://github.com/dan-petty/devops-cli/commit/75147663b634ec89fbf0808786be33702c2a28ab)), closes [#2656](https://github.com/dan-petty/devops-cli/issues/2656)
+
 ## [0.24.0](https://github.com/dan-petty/devops-cli/compare/v0.23.0...v0.24.0) (2026-10-31)
 
 
