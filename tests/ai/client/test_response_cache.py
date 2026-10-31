@@ -23,6 +23,7 @@ from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import route_client
+from tests.support.fakes.clock import ClockFake
 
 
 @pytest.fixture(autouse=True)
@@ -150,7 +151,7 @@ def test_starting_point_lookup_and_formatting(clean_cache: LLMResponseCache) -> 
     assert "Review updated release.py diff" in formatted
 
 
-def test_cache_capacity_enforcement(tmp_path: Path) -> None:
+def test_cache_capacity_enforcement(tmp_path: Path, clock: ClockFake) -> None:
     """Verify LRU capacity enforcement when max_entries is exceeded."""
     small_cache = LLMResponseCache(
         cache_dir=tmp_path / "small_cache",
@@ -158,9 +159,9 @@ def test_cache_capacity_enforcement(tmp_path: Path) -> None:
         max_entries=2,
     )
     small_cache.set(_valid_test_key("1"), "p", "m", "s", "p1", "c1")
-    time.sleep(0.01)
+    clock.sleep(0.01)
     small_cache.set(_valid_test_key("2"), "p", "m", "s", "p2", "c2")
-    time.sleep(0.01)
+    clock.sleep(0.01)
     small_cache.set(_valid_test_key("3"), "p", "m", "s", "p3", "c3")
 
     stats = small_cache.get_stats()

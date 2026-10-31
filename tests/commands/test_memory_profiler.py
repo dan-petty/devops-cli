@@ -181,7 +181,7 @@ def test_run_memory_profiler_custom_import() -> None:
 
 def test_profile_custom_async_callable() -> None:
     async def async_workload() -> None:
-        await asyncio.sleep(0.001)
+        await asyncio.sleep(0)
 
     report = profile_custom_callable(
         func=async_workload,

@@ -12,7 +12,6 @@ import json
 import os
 import tempfile
 import threading
-import time
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -254,6 +253,8 @@ def test_gateway_slots_never_admit_more_than_the_slot_sum() -> None:
     """Verify eight threads through the gateway limiter never hold more than the slot sum."""
     in_flight = peak = entered = 0
     counter_lock = threading.Lock()
+    limit = min(8, DEFAULT_GATEWAY_REVIEW_CONCURRENCY)
+    barrier = threading.Barrier(limit)
 
     def hold_a_slot() -> None:
         nonlocal in_flight, peak, entered
@@ -262,7 +263,9 @@ def test_gateway_slots_never_admit_more_than_the_slot_sum() -> None:
                 in_flight += 1
                 entered += 1
                 peak = max(peak, in_flight)
-            time.sleep(0.02)
+                wait_at_barrier = entered <= limit
+            if wait_at_barrier:
+                barrier.wait(timeout=5)
             with counter_lock:
                 in_flight -= 1
 
@@ -352,13 +355,18 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
 
     in_flight = peak = 0
     lock = threading.Lock()
+    first_entered = threading.Event()
+    release_first = threading.Event()
 
     def slow_send(request: httpx2.Request) -> httpx2.Response:
         nonlocal in_flight, peak
         with lock:
             in_flight += 1
             peak = max(peak, in_flight)
-        time.sleep(0.02)
+            is_first = peak == 1 and not first_entered.is_set()
+        if is_first:
+            first_entered.set()
+            release_first.wait(timeout=1.0)
         with lock:
             in_flight -= 1
         return httpx2.Response(200, json=_CHAT_REPLY)
@@ -371,6 +379,8 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
     ]
     for lane in lanes:
         lane.start()
+    first_entered.wait(timeout=5)
+    release_first.set()
     for lane in lanes:
         lane.join(timeout=10)
 
@@ -384,6 +394,7 @@ def test_the_model_call_slot_admits_only_its_limit() -> None:
     network.set_model_call_limit(2)
     in_flight = peak = 0
     lock = threading.Lock()
+    two_in_flight = threading.Event()
 
     def hold_the_slot() -> None:
         nonlocal in_flight, peak
@@ -391,7 +402,10 @@ def test_the_model_call_slot_admits_only_its_limit() -> None:
             with lock:
                 in_flight += 1
                 peak = max(peak, in_flight)
-            time.sleep(0.03)
+                if in_flight >= 2:
+                    two_in_flight.set()
+            if not two_in_flight.is_set():
+                two_in_flight.wait(timeout=1.0)
             with lock:
                 in_flight -= 1
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import time
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +10,7 @@ from rich.text import Text
 
 from devops_cli.watchers.file_watcher import DebouncedFileWatcher
 from devops_cli.watchers.live_resource import LiveResourceWatcher
+from tests.support.fakes.clock import ClockFake
 
 
 def test_live_resource_watcher_bounded_iterations() -> None:
@@ -65,7 +66,7 @@ def test_live_resource_watcher_keyboard_interrupt() -> None:
     assert watcher._running is False
 
 
-def test_debounced_file_watcher_detects_changes(tmp_path: Path) -> None:
+def test_debounced_file_watcher_detects_changes(tmp_path: Path, clock: ClockFake) -> None:
     """DebouncedFileWatcher should detect new and modified files in watched directories."""
     file1 = tmp_path / "app.py"
     file1.write_text("print('v1')", encoding="utf-8")
@@ -88,8 +89,9 @@ def test_debounced_file_watcher_detects_changes(tmp_path: Path) -> None:
     assert file1 in initial_changes
 
     # Modify file
-    time.sleep(0.05)
+    clock.sleep(0.05)
     file1.write_text("print('v2')", encoding="utf-8")
+    os.utime(file1, (file1.stat().st_mtime + 1, file1.stat().st_mtime + 1))
 
     subsequent_changes = watcher.check_changes()
     assert file1 in subsequent_changes

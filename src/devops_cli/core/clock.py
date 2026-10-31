@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import time
 
-sleep = time.sleep
-monotonic = time.monotonic
+
+def sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def monotonic() -> float:
+    return time.monotonic()
+
 
 __all__ = ["monotonic", "sleep"]

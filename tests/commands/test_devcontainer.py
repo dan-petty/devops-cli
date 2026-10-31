@@ -2166,13 +2166,14 @@ def test_the_password_prompt_gives_up_after_its_timeout(monkeypatch: pytest.Monk
     not give up would return the answer, and no TimeoutError would come, so the test reads no
     clock (#1902).
     """
-    import time
+    import threading
 
     from devops_cli.commands.devcontainer import _read_password
     from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
+    hang = threading.Event()
     monkeypatch.setattr(
-        "getpass.getpass", lambda prompt="": time.sleep(THREAD_HANDOFF_BOUND_SECONDS) or "late"
+        "getpass.getpass", lambda prompt="": hang.wait(THREAD_HANDOFF_BOUND_SECONDS) or "late"
     )
 
     with pytest.raises(TimeoutError):

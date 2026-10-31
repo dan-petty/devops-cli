@@ -11,6 +11,7 @@ from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import route_client
+from tests.support.fakes.clock import ClockFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
@@ -293,9 +294,10 @@ def test_llm_response_processing_time(monkeypatch: pytest.MonkeyPatch) -> None:
     assert res.processing_seconds == 10.0
 
 
-def test_ollama_max_parallel_concurrency_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_max_parallel_concurrency_slots(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
     import threading
-    import time
     from concurrent.futures import ThreadPoolExecutor
 
     cfg = AIConfig(
@@ -313,7 +315,7 @@ def test_ollama_max_parallel_concurrency_slots(monkeypatch: pytest.MonkeyPatch) 
         with lock:
             concurrent_active += 1
             max_observed_concurrent = max(max_observed_concurrent, concurrent_active)
-        time.sleep(0.05)
+        clock.sleep(0.05)
         with lock:
             concurrent_active -= 1
         return httpx2.Response(

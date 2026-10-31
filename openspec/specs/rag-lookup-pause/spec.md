@@ -22,3 +22,14 @@ The first lookup after the pause SHALL be a probe. A probe that succeeds SHALL r
 #### Scenario: A probe that fails
 - **WHEN** three lookups time out, and 60 s later the probe times out too
 - **THEN** a lookup 59 s after the failed probe sends no request, the probe 60 s after the failed probe and the next lookup return context, and the two warnings are `RAG lookups paused for 60s after 3 failures: Timeout embedding query 3.` and `RAG lookups paused for 60s after 3 failures: Timeout embedding probe 1.`
+
+### Requirement: qdrant-retry-wait-uses-clock-seam
+The Qdrant retry SHALL wait between attempts through the sleep parameter of tenacity, supplied by the clock seam, and SHALL NOT call time.sleep directly.
+
+#### Scenario: retry records waits on the clock fixture
+- **WHEN** a Qdrant operation fails and the retry runs on the clock fixture
+- **THEN** the clock fixture records the wait durations and no real wall-clock time is spent
+
+#### Scenario: retry backoff sequence is recorded in order
+- **WHEN** three retry attempts occur with the default backoff of 0.5 times the attempt number
+- **THEN** the clock fixture records waits of 0.5, 1.0, and 1.5 seconds in that order

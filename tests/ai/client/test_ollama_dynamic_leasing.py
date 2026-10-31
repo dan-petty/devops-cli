@@ -4,7 +4,6 @@ a slot as a histogram by priority and outcome (#815)."""
 from __future__ import annotations
 
 import concurrent.futures
-import time
 from collections.abc import Iterator
 
 import pytest
@@ -18,6 +17,7 @@ from devops_cli.ai.client.network import (
     reset_ollama_slots,
 )
 from devops_cli.telemetry.instruments import AI_OLLAMA_SLOT_WAIT
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
@@ -66,7 +66,7 @@ def test_acquire_ollama_slot_timeout_when_all_full() -> None:
                 pass
 
 
-def test_concurrent_slot_leasing_across_threads() -> None:
+def test_concurrent_slot_leasing_across_threads(clock: ClockFake) -> None:
     """Verify multi-threaded slot leasing properly synchronizes and shares capacity."""
     candidates = [
         "http://example.com:11434",
@@ -76,7 +76,7 @@ def test_concurrent_slot_leasing_across_threads() -> None:
 
     def _worker(worker_id: int) -> str:
         with acquire_ollama_slot(candidates, max_parallel=1, timeout=3.0) as leased_url:
-            time.sleep(0.05)
+            clock.sleep(0.05)
             return str(leased_url)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:

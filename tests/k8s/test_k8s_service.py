@@ -25,6 +25,7 @@ from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.api import KubernetesClientSource
 from devops_cli.k8s.informer import ResourceInformer
 from devops_cli.k8s.service import KubernetesService, PodLogStream
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.kubernetes import (
     FAKE_CONTEXT,
     FakeCluster,
@@ -349,16 +350,14 @@ def test_k8s_service_list_exceptions(cluster: FakeCluster) -> None:
         svc.list_pods()
 
 
-def test_k8s_service_cache_expiration() -> None:
+def test_k8s_service_cache_expiration(clock: ClockFake) -> None:
     """Verify _get_cached invalidates entries after TTL."""
     svc = KubernetesService(FakeCluster())
     svc._cache_ttl = 0.01
     svc._set_cached("test-key", "test-val")
     val_immediate = svc._get_cached("test-key")
 
-    import time
-
-    time.sleep(0.02)
+    clock.sleep(0.02)
     val_expired = svc._get_cached("test-key")
     assert (val_immediate, val_expired) == ("test-val", None)
 

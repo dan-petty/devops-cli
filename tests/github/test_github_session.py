@@ -35,6 +35,7 @@ from devops_cli.github import rate_limiter, session_transport
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import GitHubSession, get_github_session, reset_github_session
 from devops_cli.http.egress import EgressLevel
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import (
     API,
     JSON_TYPE,
@@ -442,7 +443,7 @@ def test_closing_a_session_cancels_a_request_waiting_out_a_retry(
 
 
 def test_closing_a_session_mid_flight_fails_each_request_with_a_typed_error(
-    github_api: GitHubApiFake,
+    github_api: GitHubApiFake, clock: ClockFake
 ) -> None:
     """Requests in flight when the session closes fail with `GitHubUnreadError`, never with the
     closed client's or the stopped loop's own exceptions."""
@@ -461,7 +462,7 @@ def test_closing_a_session_mid_flight_fails_each_request_with_a_typed_error(
     callers = [threading.Thread(target=call, args=(15,)) for _ in range(4)]
     for caller in callers:
         caller.start()
-    time.sleep(0.03)
+    clock.sleep(0.03)
     session.close()
     for caller in callers:
         caller.join(timeout=10.0)

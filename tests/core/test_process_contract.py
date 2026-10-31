@@ -23,6 +23,7 @@ from devops_cli.core.process import (
     ProcessRunner,
 )
 from devops_cli.dry_run import PlannedRequest
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 
@@ -249,3 +250,22 @@ def test_process_fake_records_the_input_that_run_subprocess_sends(
     run_subprocess(["kubectl", "create", "-f", "-"], input='{"kind": "Pod"}')
 
     assert [call.stdin for call in process_fake.calls] == ['{"kind": "Pod"}']
+
+
+def test_process_fake_delay_advances_clock(clock: ClockFake, tmp_path: Path) -> None:
+    fake = ProcessFake()
+    fake.answer(["git", "delay_test"], ProcessAnswer(delay=2.0, returncode=0, stdout="ok\n"))
+    res = fake.run(["git", "delay_test"], cwd=tmp_path, timeout=5.0)
+    assert res.returncode == 0
+    assert clock.waits == [2.0]
+
+
+def test_process_fake_timeout_raises_at_once_with_no_sleep(
+    clock: ClockFake, tmp_path: Path
+) -> None:
+    fake = ProcessFake()
+    fake.answer(["git", "timeout_test"], ProcessAnswer(delay=10.0))
+    with pytest.raises(subprocess.TimeoutExpired) as exc_info:
+        fake.run(["git", "timeout_test"], cwd=tmp_path, timeout=5.0)
+    assert exc_info.value.timeout == 5.0
+    assert clock.waits == []

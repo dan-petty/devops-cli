@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import functools
 import threading
-import time
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -30,6 +29,7 @@ from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, Instrument
 from devops_cli.telemetry.tracer import OTelTelemetryClient, reset_tracer
+from tests.support.fakes.clock import ClockFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 Emitted = list[tuple[str, float, dict[str, Any] | None]]
@@ -292,7 +292,6 @@ def test_a_query_waits_for_a_collection_search_that_ends_after_its_own(
             code_answered.set()
             return
         docs_after_code.append(code_answered.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
-        time.sleep(0.05)
 
     threads_before = set(threading.enumerate())
     results = _retriever(
@@ -377,6 +376,7 @@ def test_an_interrupted_query_does_not_wait_for_the_other_searches(
 
 def test_a_retried_qdrant_request_is_counted_by_the_error_behind_it(
     monkeypatch: pytest.MonkeyPatch,
+    clock: ClockFake,
 ) -> None:
     """Verify each retry counts once, by operation and the transport error qdrant_client wrapped.
 
@@ -387,7 +387,6 @@ def test_a_retried_qdrant_request_is_counted_by_the_error_behind_it(
     """
     emitted: Emitted = []
     monkeypatch.setattr(qdrant_module, "emit", _recorder(emitted))
-    monkeypatch.setattr(qdrant_module, "time", SimpleNamespace(sleep=lambda _: None))
     failures: list[type[httpx.TransportError]] = [httpx.RemoteProtocolError, httpx.ReadTimeout]
 
     def qdrant_server(request: httpx.Request) -> httpx.Response:

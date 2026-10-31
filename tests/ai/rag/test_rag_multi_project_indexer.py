@@ -6,6 +6,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_RAG_KB_PROJECT,
 )
 from devops_cli.config.settings import AIConfig
+from tests.support.fakes.clock import ClockFake
 
 CONST_INDEX_COUNTS_FILENAME = getattr(constants, "CONST_INDEX_COUNTS_FILENAME", "index_counts.json")
 CONST_RAG_PAYLOAD_INDEXES = getattr(
@@ -686,3 +688,25 @@ def test_count_that_raises_fails_run_and_reindexes_nothing(tmp_path: Path) -> No
         indexer.index_workspace(repo, project="proj-count-fail")
 
     assert len(qdrant.upsert_calls) == upserts_before
+
+
+def test_qdrant_retry_backoff_recorded_on_clock(clock: ClockFake) -> None:
+    attempts = 0
+
+    def fail_three_times(_: Any) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 3:
+            raise ConnectionResetError("connection reset")
+        return "success"
+
+    client = QdrantClient(base_url="http://example.com:6333", client=MagicMock())
+    result = client._execute_with_retry(
+        fail_three_times,
+        operation="test_search",
+        target="test_target",
+        max_attempts=4,
+        sleep=clock.sleep,
+    )
+    assert result == "success"
+    assert clock.waits == [0.5, 1.0, 1.5]
