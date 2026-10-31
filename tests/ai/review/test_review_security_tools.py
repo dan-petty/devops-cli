@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review_schema import Finding
 from devops_cli.ai.tools.registry import get_default_tools
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 
@@ -46,11 +43,11 @@ metadata:
 """
 
 
-def _scanned_workspace(root: Path, git: Callable[..., None]) -> Path:
+def _scanned_workspace(root: Path) -> Path:
     """A checkout with a Dockerfile, a Python module and a Kubernetes manifest, whose review.toml
     names the Kubernetes version that Pluto checks against."""
     root.mkdir()
-    git(root, "init", "--quiet")
+    (root / ".git").mkdir()
     files = {
         "Dockerfile": "FROM alpine\n",
         "src/main.py": "import subprocess\n" * 15,
@@ -137,12 +134,31 @@ def _script_scanner_reports(scanner_fake: ScannerFake, workspace: Path) -> None:
 
 
 def test_pipeline_multi_scanner_aggregation(
-    tmp_path: Path, git: Callable[..., None], scanner_fake: ScannerFake
+    tmp_path: Path, git_fake: GitFake, scanner_fake: ScannerFake
 ) -> None:
     """Each payload holds the findings of the scanners of its file: Trivy for the Dockerfile,
     Bandit for the Python module, kube-linter and Pluto for the manifest. The orchestrator takes
     a temporary workspace and the scanner fake through its constructor (#2098)."""
-    workspace = _scanned_workspace(tmp_path / "workspace", git)
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        ProcessAnswer(returncode=0, stdout="1111111111111111111111111111111111111111\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        ProcessAnswer(returncode=0, stdout=""),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "diff" in call.argv),
+        ProcessAnswer(returncode=0, stdout=""),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        ProcessAnswer(
+            returncode=0,
+            stdout="Dockerfile\0src/main.py\0k8s/app.yaml\0.devops/review.toml\0",
+        ),
+    )
+    workspace = _scanned_workspace(tmp_path / "workspace")
     _script_scanner_reports(scanner_fake, workspace)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-sec-tools",
@@ -166,34 +182,39 @@ def test_pipeline_multi_scanner_aggregation(
     }
 
 
-@pytest.mark.usefixtures("scanner_fake")
-@patch("devops_cli.security.bandit.run_bandit_scan")
 def test_review_pipeline_admit_inline_suppression_added_by_change(
-    mock_bandit: MagicMock,
+    scanner_fake: ScannerFake,
     tmp_path: Path,
+    git_fake: GitFake,
 ) -> None:
     """Inline suppressions added by the change stay OPEN with suppressed_by_change=True."""
     from devops_cli.review.state import FindingState
 
-    mock_bandit.return_value = [
-        Finding(
-            severity="HIGH",
-            location="src/main.py:1",
-            title="[B602] Shell injection",
-            description="Subprocess shell=True",
-            fix="Use list args",
-            confidence_score=0.95,
-        )
-    ]
     src_dir = tmp_path / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
-    # Bandit's own marker: Bandit ignores "# noqa", and so does admission (#1341)
+    # Bandit's own marker: Bandit ignores noqa comments, and so does admission (#1341)
     (src_dir / "main.py").write_text("import os  # nosec B602\n", encoding="utf-8")
+
+    bandit = {
+        "errors": [],
+        "results": [
+            {
+                "filename": str(tmp_path / "src" / "main.py"),
+                "issue_severity": "HIGH",
+                "issue_text": "Shell injection",
+                "line_number": 1,
+                "test_id": "B602",
+                "test_name": "subprocess_popen_with_shell_equals_true",
+            }
+        ],
+    }
+    scanner_fake.script("bandit", ToolAnswer(exit_code=1, stdout=json.dumps(bandit)))
 
     orch_added = ReviewPipelineOrchestrator(
         session_id="test-added-supp",
         session_dir=tmp_path / "test-added-supp",
         target_dir=tmp_path,
+        tool_executor=scanner_fake,
     )
     orch_added.init_per_file_payloads(
         file_paths=["src/main.py"],
@@ -206,6 +227,7 @@ def test_review_pipeline_admit_inline_suppression_added_by_change(
         session_id="test-base-supp",
         session_dir=tmp_path / "test-base-supp",
         target_dir=tmp_path,
+        tool_executor=scanner_fake,
     )
     orch_base.init_per_file_payloads(
         file_paths=["src/main.py"],

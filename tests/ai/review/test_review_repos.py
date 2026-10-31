@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,8 @@ import pytest
 
 from devops_cli.ai.review.runner import detect_base_branch, is_allowed_review_boundary
 from devops_cli.config.settings import Settings
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -29,25 +30,17 @@ class TestReviewReposSubdirectories:
 
         assert is_allowed_review_boundary(sub_dir, settings, tmp_path / "elsewhere") is True
 
-    def test_detect_base_branch_falls_back_to_master(self, tmp_path: Path) -> None:
+    def test_detect_base_branch_falls_back_to_master(
+        self, tmp_path: Path, git_fake: GitFake
+    ) -> None:
         """detect_base_branch must detect master if main does not exist in repo."""
-        subprocess.run(
-            ["git", "init", "-b", "master"],
-            cwd=tmp_path,
-            check=True,
-            capture_output=True,
+        git_fake.answer(
+            lambda call: bool(call.argv and "rev-parse" in call.argv),
+            ProcessAnswer(returncode=1, stdout=""),
         )
-        subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True)
-        subprocess.run(
-            ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True
-        )
-        (tmp_path / "init.txt").write_text("initial", encoding="utf-8")
-        subprocess.run(["git", "add", "init.txt"], cwd=tmp_path, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", "initial"],
-            cwd=tmp_path,
-            check=True,
-            capture_output=True,
+        git_fake.answer(
+            lambda call: bool(call.argv and "for-each-ref" in call.argv),
+            ProcessAnswer(returncode=0, stdout="master\n"),
         )
         detected = detect_base_branch(tmp_path, preferred_base="main")
         assert detected == "master"
@@ -59,6 +52,7 @@ class TestReviewReposSubdirectories:
         tmp_path: Path,
         tmp_path_factory: pytest.TempPathFactory,
         monkeypatch: pytest.MonkeyPatch,
+        git_fake: GitFake,
     ) -> None:
         """`devops review path --summary` of a clone under repos/ lists the cached analysis of the
         clone, even when the command runs in another directory: the review takes its workspace
@@ -66,8 +60,13 @@ class TestReviewReposSubdirectories:
         from devops_cli.ai.analyze.cache import save_analysis_metadata
         from devops_cli.models.ai import FileAnalysisMeta
 
+        git_fake.answer(
+            lambda call: bool(call.argv and "rev-parse" in call.argv),
+            ProcessAnswer(returncode=0, stdout=str(tmp_path / "repos" / "sample-app") + "\n"),
+        )
         target_dir = tmp_path / "repos" / "sample-app"
         target_dir.mkdir(parents=True)
+        (target_dir / ".git").mkdir(parents=True, exist_ok=True)
         (target_dir / "main.py").write_text("print('hello')", encoding="utf-8")
         greeting = FileAnalysisMeta(path="main.py", language="python", primary_purpose="Greets")
         save_analysis_metadata("path", str(target_dir), "sample-app", [greeting], target_dir)

@@ -46,12 +46,32 @@ from devops_cli.review.score import score_sessions
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.review.state import FindingState
 from tests.llm_stream_fakes import route_client
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = getattr(
     constants, "CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED", "reply-truncated"
 )
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
+
+
+def _handle_group_git(call: ProcessCall) -> ProcessAnswer:
+    argv = call.argv or []
+    if "rev-parse" in argv:
+        if "--show-toplevel" in argv:
+            return ProcessAnswer(returncode=0, stdout=f"{call.cwd or ''}\n")
+        return ProcessAnswer(returncode=0, stdout="1111111111111111111111111111111111111111\n")
+    if "status" in argv:
+        return ProcessAnswer(returncode=0, stdout="")
+    if "log" in argv:
+        return ProcessAnswer(returncode=0, stdout="2026-10-01T12:00:00Z\n")
+    return ProcessAnswer(returncode=0, stdout="")
+
+
+@pytest.fixture(autouse=True)
+def _answer_group_analysis_git(git_fake: GitFake) -> None:
+    git_fake.answer(lambda call: True, _handle_group_git)
 
 
 def _make_region_finding(

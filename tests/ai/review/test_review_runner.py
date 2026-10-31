@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -44,6 +43,7 @@ from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
+    from tests.support.fakes.git import GitFake
     from tests.support.fakes.github import GitHubApiFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -94,13 +94,17 @@ def test_rendering_helpers(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Raw review text" in captured.out
 
 
-def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
+def test_runner_file_and_repo_helpers(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify runner repository traversal, git boundary, and gitignore evaluation."""
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        ProcessAnswer(returncode=0, stdout="src/app.py\0"),
+    )
     st = Settings()
     st.repos.base_dir = tmp_path
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    subprocess.run(["git", "init", str(repo_dir)], check=True, capture_output=True)
+    (repo_dir / ".git").mkdir()
     (repo_dir / "src").mkdir()
     sample_file = repo_dir / "src" / "app.py"
     sample_file.write_text("print('hello')\n")

@@ -27,6 +27,8 @@ from devops_cli.ai.review.profile import (
 )
 from devops_cli.commands import review as review_commands
 from devops_cli.main import app
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -108,7 +110,7 @@ def test_busy_share_is_capped_and_absent_without_activity() -> None:
 
 
 def test_benchmark_table_shows_busy_share_and_peak(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake
 ) -> None:
     """Verify the benchmark table gives each backend's share of the stage and its peak."""
     corpus = tmp_path / "corpus"
@@ -119,6 +121,14 @@ def test_benchmark_table_shows_busy_share_and_peak(
     def fake_review(**_: Any) -> None:
         report_profile(next(runs))
 
+    git_fake.answer(
+        lambda call: bool(call.argv and "rev-parse" in call.argv),
+        ProcessAnswer(returncode=0, stdout=str(tmp_path) + "\n"),
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        ProcessAnswer(returncode=0, stdout="site.yaml\n"),
+    )
     monkeypatch.setattr(review_commands, "path", fake_review)
 
     result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "2"])
