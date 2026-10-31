@@ -19,7 +19,7 @@ from devops_cli.output import (
     print_warning,
 )
 from devops_cli.telemetry import trace_span
-from devops_cli.valkey.client import ValkeyClient
+from devops_cli.valkey.client import ValkeyProtocol, resolve_valkey_client
 from devops_cli.valkey.endpoint import parse_valkey_url
 
 # A Valkey URL that is not valid, in `valkey.url` or in `--url`, ends the command with its message.
@@ -37,7 +37,7 @@ _UrlOption = Annotated[
 ]
 
 
-def _resolve_client(url: str | None = None, settings: Settings | None = None) -> ValkeyClient:
+def _resolve_client(url: str | None = None, settings: Settings | None = None) -> ValkeyProtocol:
     """The client for the Valkey at `url`, or at `valkey.url` when `url` is None.
 
     The password goes to the host of `url`. A person types `--url`, and no MCP tool publishes it
@@ -46,7 +46,10 @@ def _resolve_client(url: str | None = None, settings: Settings | None = None) ->
     cfg_settings = settings or load_settings()
     cfg = cfg_settings.valkey
     endpoint = cfg.endpoint if url is None else parse_valkey_url(url, setting=_URL_OPTION)
-    return ValkeyClient(endpoint, password=get_valkey_password(cfg_settings), timeout=cfg.timeout)
+    client = resolve_valkey_client(
+        endpoint, password=get_valkey_password(cfg_settings), timeout=cfg.timeout
+    )
+    return client
 
 
 @app.command("ping")

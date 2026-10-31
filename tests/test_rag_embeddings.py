@@ -36,6 +36,41 @@ from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
+def test_embedder_protocol_and_fake() -> None:
+    from devops_cli.ai.rag.embeddings import (
+        EmbedderProtocol,
+        EmbeddingsEngine,
+        create_embedder,
+        get_embedder_override,
+        install_embedder,
+        reset_embedder,
+    )
+    from tests.support.fakes.embeddings import FakeEmbedder
+
+    fake = FakeEmbedder()
+    assert isinstance(fake, EmbedderProtocol)
+    vecs = fake.embed_texts(["hello"])
+    assert len(vecs) == 1
+    assert len(vecs[0]) == 4
+
+    install_embedder(fake)
+    assert get_embedder_override() is fake
+    assert create_embedder() is fake
+    reset_embedder()
+    assert get_embedder_override() is None
+    engine = create_embedder()
+    assert isinstance(engine, EmbeddingsEngine)
+
+
+def test_embedder_fixture(embedder: Any) -> None:
+    from devops_cli.ai.rag.embeddings import create_embedder
+
+    client = create_embedder()
+    assert client is embedder
+    vectors = client.embed_texts(["test text"])
+    assert len(vectors) == 1
+
+
 def _fixed_vectors(width: int, value: float = 0.5) -> Any:
     """A `_dispatch_embed` stand-in that answers every text with the same vector."""
     return lambda self, texts: [[value] * width for _ in texts]

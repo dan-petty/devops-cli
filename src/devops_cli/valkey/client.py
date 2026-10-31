@@ -15,7 +15,7 @@ import socket
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from itertools import batched
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import httpcore2
 import valkey
@@ -108,6 +108,47 @@ def _valkey_failures(host: str, port: int, timeout: float) -> Iterator[None]:
         raise ValkeyCommandError(str(exc)) from exc
 
 
+@runtime_checkable
+class ValkeyProtocol(Protocol):
+    """Protocol for Valkey client operations."""
+
+    host: str
+    port: int
+    db: int
+
+    def ping(self) -> bool: ...
+
+    def get(self, key: str) -> str | None: ...
+
+    def set(self, key: str, value: str, ex: int | None = None) -> bool: ...
+
+    def delete(self, *keys: str) -> int: ...
+
+    def mget(self, *keys: str) -> list[str | None]: ...
+
+    def keys(self, pattern: str) -> list[str]: ...
+
+    def scan(
+        self, cursor: int = 0, match: str | None = None, count: int | None = None
+    ) -> tuple[int, list[str]]: ...
+
+    def info(self, section: str | None = None) -> dict[str, Any]: ...
+
+    def dbsize(self) -> int: ...
+
+    def eval(self, script: str, numkeys: int, *keys_and_args: Any) -> Any: ...
+
+    def flushdb(self) -> bool: ...
+
+    def flushall(self) -> bool: ...
+
+    def bgsave(self) -> str: ...
+
+    def execute(self, *parts: Any) -> Any: ...
+
+    def pipeline(self, commands: Sequence[Sequence[Any]]) -> list[Any]: ...
+
+
 class ValkeyClient:
     """The Valkey commands devops-cli runs, sent by valkey-py over vetted connections.
 
@@ -196,13 +237,37 @@ class ValkeyClient:
         """Set a string, expiring after `ex` seconds when given."""
         return bool(self._call(self._valkey.set, key, value, ex=ex))
 
+    def delete(self, *keys: str) -> int:
+        """Delete one or more keys; return the number of keys removed."""
+        if not keys:
+            return 0
+        return int(self._call(self._valkey.delete, *keys))
+
+    def mget(self, *keys: str) -> list[str | None]:
+        """Get the values of all specified keys."""
+        if not keys:
+            return []
+        values = self._call(self._valkey.mget, *keys)
+        return [str(v) if v is not None else None for v in values]
+
     def keys(self, pattern: str) -> list[str]:
         """Every key matching a glob pattern."""
         return list(self._call(self._valkey.keys, pattern))
 
+    def scan(
+        self, cursor: int = 0, match: str | None = None, count: int | None = None
+    ) -> tuple[int, list[str]]:
+        """Incrementally iterate over keys."""
+        res = self._call(self._valkey.scan, cursor=cursor, match=match, count=count)
+        return int(res[0]), [str(k) for k in res[1]]
+
     def dbsize(self) -> int:
         """The number of keys in the current database."""
         return int(self._call(self._valkey.dbsize))
+
+    def eval(self, script: str, numkeys: int, *keys_and_args: Any) -> Any:
+        """Execute a Lua script server-side."""
+        return self._call(self._valkey.eval, script, numkeys, *keys_and_args)
 
     def flushdb(self) -> bool:
         """Delete every key in the current database."""
@@ -219,3 +284,53 @@ class ValkeyClient:
     def close(self) -> None:
         """Close every connection the client holds."""
         self._valkey.connection_pool.disconnect()
+
+
+_VALKEY_CLIENT_OVERRIDE: ValkeyProtocol | None = None
+
+
+def install_valkey_client(override: ValkeyProtocol | None) -> None:
+    """Install or remove a Valkey client override for tests."""
+    global _VALKEY_CLIENT_OVERRIDE
+    _VALKEY_CLIENT_OVERRIDE = override
+
+
+def reset_valkey_client() -> None:
+    """Reset the Valkey client override."""
+    global _VALKEY_CLIENT_OVERRIDE
+    _VALKEY_CLIENT_OVERRIDE = None
+
+
+def resolve_valkey_client(
+    endpoint: ValkeyEndpoint | str | None = None,
+    *,
+    password: str | None = None,
+    timeout: float | None = None,
+) -> ValkeyProtocol:
+    """Supply a connected Valkey client for the configured endpoint or override."""
+    if _VALKEY_CLIENT_OVERRIDE is not None:
+        return _VALKEY_CLIENT_OVERRIDE
+    from devops_cli.config.settings import get_valkey_password, load_settings
+    from devops_cli.valkey.endpoint import parse_valkey_url
+
+    ep: ValkeyEndpoint
+    pwd: str | None = password
+    to: float | None = timeout
+    if endpoint is None:
+        settings = load_settings()
+        cfg = settings.valkey
+        ep = cfg.endpoint
+        if pwd is None:
+            pwd = get_valkey_password(settings)
+        if to is None:
+            to = cfg.timeout
+    elif isinstance(endpoint, str):
+        settings = load_settings()
+        ep = parse_valkey_url(endpoint, setting="valkey.url")
+        if pwd is None:
+            pwd = get_valkey_password(settings)
+        if to is None:
+            to = settings.valkey.timeout
+    else:
+        ep = endpoint
+    return ValkeyClient(ep, password=pwd, timeout=to)

@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import httpx2
 from cachetools import LRUCache
@@ -397,6 +397,40 @@ def _count_cache_lookups(*, memory: int, valkey: int, misses: int) -> None:
     ):
         if count:
             emit(EMBEDDING_CACHE_LOOKUPS_TOTAL, count, attributes)
+
+
+@runtime_checkable
+class EmbedderProtocol(Protocol):
+    """Protocol for text embedding engines."""
+
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]: ...
+
+
+_EMBEDDER_OVERRIDE: EmbedderProtocol | None = None
+
+
+def install_embedder(override: EmbedderProtocol | None) -> None:
+    """Install or remove an embedder override for tests."""
+    global _EMBEDDER_OVERRIDE
+    _EMBEDDER_OVERRIDE = override
+
+
+def reset_embedder() -> None:
+    """Reset the embedder override."""
+    global _EMBEDDER_OVERRIDE
+    _EMBEDDER_OVERRIDE = None
+
+
+def get_embedder_override() -> EmbedderProtocol | None:
+    """Return the active embedder override, if any."""
+    return _EMBEDDER_OVERRIDE
+
+
+def create_embedder(ai_config: AIConfig | None = None, **kwargs: Any) -> EmbedderProtocol:
+    """Build the EmbeddingsEngine from settings or the given AIConfig."""
+    if _EMBEDDER_OVERRIDE is not None:
+        return _EMBEDDER_OVERRIDE
+    return EmbeddingsEngine(ai_config=ai_config, **kwargs)
 
 
 class EmbeddingsEngine:
