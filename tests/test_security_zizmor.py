@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.commands.ci import get_check_spec
-from devops_cli.commands.scan import app as scan_app
 from devops_cli.config.commands import BIN_ZIZMOR, build_zizmor_cmd
 from devops_cli.config.constants import CONST_EXIT_COMMAND_NOT_FOUND
 from devops_cli.exceptions.tools import ToolExecutionError
@@ -20,7 +19,6 @@ from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 
-runner = CliRunner()
 WORKFLOW = ".github/workflows/release.yml"
 
 
@@ -95,10 +93,14 @@ def test_zizmor_that_could_not_run_is_an_error_not_a_clean_result(
     ids=["injection", "permissions", "unpinned", "other-rules-only", "none"],
 )
 def test_scan_workflows_fails_only_on_the_gated_rules_and_shows_every_finding(
-    process_fake: ProcessFake, findings: list[Any], exit_code: int, blocking: bool
+    process_fake: ProcessFake,
+    findings: list[Any],
+    exit_code: int,
+    blocking: bool,
+    cli: Callable[..., Any],
 ) -> None:
     _answer_zizmor(process_fake, findings)
-    result = runner.invoke(scan_app, ["workflows"])
+    result = cli(["scan", "workflows"])
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
@@ -107,9 +109,11 @@ def test_scan_workflows_fails_only_on_the_gated_rules_and_shows_every_finding(
     ) == (exit_code, True, blocking)
 
 
-def test_scan_workflows_fails_when_zizmor_could_not_run(process_fake: ProcessFake) -> None:
+def test_scan_workflows_fails_when_zizmor_could_not_run(
+    process_fake: ProcessFake, cli: Callable[..., Any]
+) -> None:
     _answer_zizmor(process_fake, [], CONST_EXIT_COMMAND_NOT_FOUND)
-    result = runner.invoke(scan_app, ["workflows"])
+    result = cli(["scan", "workflows"])
     assert (result.exit_code, "zizmor" in result.output) == (1, True)
 
 
@@ -122,11 +126,13 @@ def test_the_ci_gate_runs_the_scan_with_the_pinned_dev_zizmor() -> None:
     ) == (["uv", "run", "devops", "scan", "workflows"], ["zizmor==1.30.1"])
 
 
-def test_scan_workflows_json_marks_which_findings_block(process_fake: ProcessFake) -> None:
+def test_scan_workflows_json_marks_which_findings_block(
+    process_fake: ProcessFake, cli: Callable[..., Any]
+) -> None:
     _answer_zizmor(
         process_fake, [_finding("template-injection"), _finding("artipacked", "Medium", row=40)]
     )
-    result = runner.invoke(scan_app, ["workflows", "--json"])
+    result = cli(["scan", "workflows", "--json"])
     rows = json.loads(result.stdout[result.stdout.index("[") :])
     assert (result.exit_code, [(row["rule"], row["blocks"]) for row in rows]) == (
         1,
@@ -134,8 +140,10 @@ def test_scan_workflows_json_marks_which_findings_block(process_fake: ProcessFak
     )
 
 
-def test_a_dry_run_names_the_audit_and_runs_nothing(process_fake: ProcessFake) -> None:
-    result = runner.invoke(scan_app, ["workflows", "--dry-run"])
+def test_a_dry_run_names_the_audit_and_runs_nothing(
+    process_fake: ProcessFake, cli: Callable[..., Any]
+) -> None:
+    result = cli(["scan", "workflows", "--dry-run"])
     assert (result.exit_code, process_fake.calls) == (0, [])
 
 
@@ -165,7 +173,10 @@ def test_zizmor_is_a_registered_scanner_that_publishes_without_gating(tmp_path: 
 
 
 def test_scan_report_publishes_zizmor_findings_in_its_sarif_by_rule_and_line(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
+    cli: Callable[..., Any],
 ) -> None:
     repo = _repo_with_workflow(tmp_path / "repo")
     monkeypatch.chdir(repo)
@@ -173,7 +184,7 @@ def test_scan_report_publishes_zizmor_findings_in_its_sarif_by_rule_and_line(
     found = [_finding("template-injection"), _finding("artipacked", "Medium", row=40)]
     scanner_fake.script(BIN_ZIZMOR, ToolAnswer(stdout=json.dumps(found)))
 
-    result = runner.invoke(scan_app, ["report", "--scanner", "zizmor", "--sarif", str(sarif)])
+    result = cli(["scan", "report", "--scanner", "zizmor", "--sarif", str(sarif)])
     document = json.loads(sarif.read_text(encoding="utf-8"))
     published = sorted(
         (r["ruleId"], r["locations"][0]["physicalLocation"]["region"]["startLine"])

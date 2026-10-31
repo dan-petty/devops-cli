@@ -7,7 +7,6 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -24,6 +23,8 @@ from devops_cli.security.suppression import (
     load_policy,
 )
 from tests.support.builders import make_normalized_finding
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_a_report_deduplicates_and_correlates_scanner_output(tmp_path: Path) -> None:
@@ -135,19 +136,23 @@ def test_a_report_can_be_built_from_ingested_sarif() -> None:
 
 
 def test_the_report_command_renders_correlated_findings(
-    tmp_path: Path, cli: Callable[..., Any]
+    tmp_path: Path, cli: Callable[..., Any], scanner_fake: ScannerFake
 ) -> None:
     """The command is the pipeline's only user-facing surface."""
-    results = {"bandit": [Finding(severity="HIGH", location="a.py:4", title="[B602] shell true")]}
-    with (
-        patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners",
-            return_value=["bandit"],
-        ),
-        patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
-    ):
-        mock_get.return_value.scan.return_value = results["bandit"]
-        result = cli(["scan", "report", str(tmp_path)])
+    bandit_output = {
+        "results": [
+            {
+                "test_id": "B602",
+                "issue_severity": "HIGH",
+                "issue_confidence": "HIGH",
+                "issue_text": "shell true",
+                "line_number": 4,
+                "filename": "a.py",
+            }
+        ]
+    }
+    scanner_fake.script("bandit", ToolAnswer(stdout=json.dumps(bandit_output), exit_code=0))
+    result = cli(["scan", "report", str(tmp_path), "--scanner", "bandit"])
     assert (result.exit_code, "B602" in result.stdout) == (0, True)
 
 
@@ -160,80 +165,91 @@ def test_the_report_command_rejects_an_unknown_scanner(
 
 
 def test_the_report_command_fails_the_build_on_a_severe_finding(
-    tmp_path: Path, cli: Callable[..., Any]
+    tmp_path: Path, cli: Callable[..., Any], scanner_fake: ScannerFake
 ) -> None:
     """The gate is what makes the command usable in CI."""
-    findings = [Finding(severity="CRITICAL", location="a.py:4", title="[C1] severe")]
-    with (
-        patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners",
-            return_value=["bandit"],
-        ),
-        patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
-    ):
-        mock_get.return_value.scan.return_value = findings
-        result = cli(["scan", "report", str(tmp_path), "--fail-on", "HIGH"])
+    bandit_output = {
+        "results": [
+            {
+                "test_id": "C1",
+                "issue_severity": "HIGH",
+                "issue_confidence": "HIGH",
+                "issue_text": "severe",
+                "line_number": 4,
+                "filename": "a.py",
+            }
+        ]
+    }
+    scanner_fake.script("bandit", ToolAnswer(stdout=json.dumps(bandit_output), exit_code=0))
+    result = cli(["scan", "report", str(tmp_path), "--scanner", "bandit", "--fail-on", "HIGH"])
     assert result.exit_code == 1
 
 
 def test_the_report_command_passes_when_nothing_meets_the_gate(
-    tmp_path: Path, cli: Callable[..., Any]
+    tmp_path: Path, cli: Callable[..., Any], scanner_fake: ScannerFake
 ) -> None:
     """A gate that always fails is a gate nobody keeps."""
-    findings = [Finding(severity="LOW", location="a.py:4", title="[L1] minor")]
-    with (
-        patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners",
-            return_value=["bandit"],
-        ),
-        patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
-    ):
-        mock_get.return_value.scan.return_value = findings
-        result = cli(["scan", "report", str(tmp_path), "--fail-on", "HIGH"])
+    bandit_output = {
+        "results": [
+            {
+                "test_id": "L1",
+                "issue_severity": "LOW",
+                "issue_confidence": "HIGH",
+                "issue_text": "minor",
+                "line_number": 4,
+                "filename": "a.py",
+            }
+        ]
+    }
+    scanner_fake.script("bandit", ToolAnswer(stdout=json.dumps(bandit_output), exit_code=0))
+    result = cli(["scan", "report", str(tmp_path), "--scanner", "bandit", "--fail-on", "HIGH"])
     assert result.exit_code == 0
 
 
-def test_the_report_command_writes_sarif(tmp_path: Path, cli: Callable[..., Any]) -> None:
+def test_the_report_command_writes_sarif(
+    tmp_path: Path, cli: Callable[..., Any], scanner_fake: ScannerFake
+) -> None:
     """Exporting is how findings reach GitHub code scanning."""
-    findings = [Finding(severity="HIGH", location="a.py:4", title="[B602] shell true")]
+    bandit_output = {
+        "results": [
+            {
+                "test_id": "B602",
+                "issue_severity": "HIGH",
+                "issue_confidence": "HIGH",
+                "issue_text": "shell true",
+                "line_number": 4,
+                "filename": "a.py",
+            }
+        ]
+    }
+    scanner_fake.script("bandit", ToolAnswer(stdout=json.dumps(bandit_output), exit_code=0))
     destination = tmp_path / "out.sarif"
-    with (
-        patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners",
-            return_value=["bandit"],
-        ),
-        patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
-    ):
-        mock_get.return_value.scan.return_value = findings
-        result = cli(["scan", "report", str(tmp_path), "--sarif", str(destination)])
+    result = cli(
+        ["scan", "report", str(tmp_path), "--scanner", "bandit", "--sarif", str(destination)]
+    )
     document = json.loads(destination.read_text())
     assert (result.exit_code, document["version"]) == (0, CONST_SARIF_VERSION)
 
 
 def test_a_failing_scanner_does_not_discard_the_others(
-    tmp_path: Path, cli: Callable[..., Any]
+    tmp_path: Path, cli: Callable[..., Any], scanner_fake: ScannerFake
 ) -> None:
     """One broken tool must not lose every other tool's findings."""
-    good = [Finding(severity="HIGH", location="a.py:4", title="[B602] shell true")]
-
-    def scanner_for(name: str) -> Any:
-        from unittest.mock import MagicMock
-
-        scanner = MagicMock()
-        if name == "broken":
-            scanner.scan.side_effect = RuntimeError("scanner crashed")
-        else:
-            scanner.scan.return_value = good
-        return scanner
-
-    with (
-        patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners",
-            return_value=["broken", "bandit"],
-        ),
-        patch("devops_cli.security.registry.ScannerRegistry.get", side_effect=scanner_for),
-    ):
-        result = cli(["scan", "report", str(tmp_path), "--json"])
+    bandit_output = {
+        "results": [
+            {
+                "test_id": "B602",
+                "issue_severity": "HIGH",
+                "issue_confidence": "HIGH",
+                "issue_text": "shell true",
+                "line_number": 4,
+                "filename": "a.py",
+            }
+        ]
+    }
+    scanner_fake.script("bandit", ToolAnswer(stdout=json.dumps(bandit_output), exit_code=0))
+    scanner_fake.script("semgrep", ToolAnswer(exit_code=1, stderr="scanner crashed"))
+    result = cli(["scan", "report", str(tmp_path), "--scanner", "bandit,semgrep", "--json"])
     assert (result.exit_code, "B602" in result.stdout) == (0, True)
 
 

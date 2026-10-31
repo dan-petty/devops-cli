@@ -13,13 +13,31 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
 import typer
 
 from devops_cli.exceptions import SecurityError, ValidationError
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+
+
+class _DummyLLM:
+    def chat(self, *args: Any, **kwargs: Any) -> str:
+        return "Summary contains secret_key=sk-proj-super_confidential_api_token"
+
+
+class _DummySpan:
+    def __init__(self) -> None:
+        self.attributes: dict[str, Any] = {}
+        self.events: list[tuple[str, Any]] = []
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self.attributes[key] = value
+
+    def add_event(self, name: str, attributes: Any = None) -> None:
+        self.events.append((name, attributes))
 
 
 # 1. Ground truth verification for Finding 1
@@ -105,8 +123,7 @@ def test_agent_memory_masks_secrets_in_auto_summarize() -> None:
         MemoryEntry(role="user", content="Trigger summary"),
     ]
 
-    mock_llm = MagicMock()
-    mock_llm.chat.return_value = "Summary contains secret_key=sk-proj-super_confidential_api_token"
+    mock_llm = _DummyLLM()
 
     summarized = mem.auto_summarize_if_needed(llm_client=mock_llm)
     assert summarized is True
@@ -117,28 +134,29 @@ def test_agent_memory_masks_secrets_in_auto_summarize() -> None:
 # 9. Telemetry error sample secret sanitization (Finding 9)
 @pytest.mark.live("python")
 @pytest.mark.asyncio
-async def test_subprocess_telemetry_masks_secrets_in_error_sample(tmp_path: Path) -> None:
+async def test_subprocess_telemetry_masks_secrets_in_error_sample(
+    tmp_path: Path, otlp: FakeCollector
+) -> None:
     """Verify run_subprocess_async masks secrets in error sample recorded to telemetry."""
     from devops_cli.core.process import run_subprocess_async
 
-    with patch("devops_cli.core.process.trace_span") as mock_trace:
-        span_mock = MagicMock()
-        mock_trace.return_value.__enter__.return_value = span_mock
+    # Run command that fails and outputs a token
+    cmd = [
+        "python3",
+        "-c",
+        "import sys; sys.stderr.write('Error: password=SuperSecretPassword123\\n'); sys.exit(1)",
+    ]
+    with pytest.raises(subprocess.CalledProcessError):
+        await run_subprocess_async(cmd, check=True)
 
-        # Run command that fails and outputs a token
-        cmd = [
-            "python3",
-            "-c",
-            "import sys; sys.stderr.write('Error: password=SuperSecretPassword123\\n'); sys.exit(1)",
-        ]
-        with pytest.raises(subprocess.CalledProcessError):
-            await run_subprocess_async(cmd, check=True)
-
-        for call in span_mock.set_attribute.call_args_list:
-            attr_name, attr_val = call[0]
-            if attr_name == "subprocess.error_sample":
-                assert "SuperSecretPassword123" not in attr_val
-                assert "<masked" in attr_val.lower() or "[REDACTED" in attr_val
+    found = False
+    for span in otlp.spans:
+        if "subprocess.error_sample" in span.attributes:
+            attr_val = str(span.attributes["subprocess.error_sample"])
+            assert "SuperSecretPassword123" not in attr_val
+            assert "<masked" in attr_val.lower() or "[REDACTED" in attr_val
+            found = True
+    assert found
 
 
 # 10. CLI failure telemetry secret sanitization (Finding 16)
@@ -146,17 +164,15 @@ def test_cli_telemetry_masks_secrets_in_cli_error() -> None:
     """Verify _record_cli_failure masks secrets in cli.error telemetry attribute."""
     from devops_cli.core.cli import _record_cli_failure
 
-    span_mock = MagicMock()
+    span = _DummySpan()
     exc = ValueError("Failed connection with token=ghp_secret_telemetry_token_999")
     _record_cli_failure(
-        span_mock, "test_cmd", {"command": "test_cmd", "sub_command": "test_cmd"}, 1.5, exc
+        span, "test_cmd", {"command": "test_cmd", "sub_command": "test_cmd"}, 1.5, exc
     )
 
-    for call in span_mock.set_attribute.call_args_list:
-        attr_name, attr_val = call[0]
-        if attr_name == "cli.error":
-            assert "ghp_secret_telemetry_token_999" not in str(attr_val)
-            assert "<masked" in str(attr_val).lower() or "[REDACTED" in str(attr_val)
+    attr_val = str(span.attributes.get("cli.error", ""))
+    assert "ghp_secret_telemetry_token_999" not in attr_val
+    assert "<masked" in attr_val.lower() or "[REDACTED" in attr_val
 
 
 # 11. Tool execution error message secret sanitization (Finding 17)
