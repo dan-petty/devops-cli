@@ -26,7 +26,7 @@ A Staged item SHALL have a recorded branch on `origin` and an open draft pull re
 - **THEN** the plan selects it as a Planned item
 
 ### Requirement: The job leaves out an item and says why
-The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. An item that is In Progress SHALL stay in the plan while its record names a Job that no round reported. It SHALL also leave out a Planned item with a branch of `origin` or a worktree that holds it, an archived change, no branch type, no branch name, no `tasks.md`, or no unticked task.
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App, is held by a worktree, or whose pull request is not an open draft. It SHALL also leave out a Planned item with a branch or worktree that holds it, an archived change, no branch name, no `tasks.md`, or no unticked task.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record and no change folder on `origin/main`
