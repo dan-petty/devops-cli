@@ -16,6 +16,14 @@ Reads: `.github/workflows/ci.yml`, `tests/invariants/test_workflow_contracts.py`
 - [x] 2.2 Change the step `Plan-Only Invariant Tests` of `.github/workflows/ci.yml` to run `uv run devops ci test tests/invariants`, drop the comment that cites #2868, and verify that `uv run devops ci test tests/invariants/test_workflow_contracts.py` passes
 - [x] 2.3 Write the directory rule in `docs/TESTING.md` and name the new command in `docs/SDLC.md`, and verify that `uv run devops ci docs` passes
 
+## 3. Refuse a path that does not exist
+
+Reads: `src/devops_cli/commands/ci.py`, `tests/commands/test_test_selection.py`. Changes: `src/devops_cli/commands/ci.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `tests/commands/test_test_selection.py`, `tests/commands/test_ci.py`, `docs/TESTING.md`.
+
+- [x] 3.1 Write the test of the scenario `A path that does not exist is refused`, and verify that `uv run devops ci test tests/commands/test_test_selection.py` fails on it
+- [x] 3.2 Refuse a missing path in `_expand_directories` with the message `path_not_found`, keep a gone trigger file on the full run, and verify that `uv run devops ci test tests/commands/test_test_selection.py tests/commands/test_ci.py` passes
+- [x] 3.3 Name the rule in the help text of `paths` and in `docs/TESTING.md`, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
