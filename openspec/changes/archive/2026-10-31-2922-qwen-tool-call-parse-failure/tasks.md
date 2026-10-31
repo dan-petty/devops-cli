@@ -21,7 +21,7 @@
 
 ## 4. Archive
 
-- [ ] Archive the change.
+- [x] Archive the change.
   - Verification: `uv run devops openspec archive 2922-qwen-tool-call-parse-failure`
 
 ## Workflow follow-up
