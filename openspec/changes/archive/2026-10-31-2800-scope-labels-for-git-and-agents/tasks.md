@@ -7,6 +7,6 @@
 
 ## 2. Verification
 
-- [ ] 2.1 Run `uv run devops ci fail-to-pass --base origin/main`.
-- [ ] 2.2 Run the full `uv run devops ci` once.
-- [ ] 2.3 Archive the change with `uv run devops openspec archive 2800-scope-labels-for-git-and-agents`.
+- [x] 2.1 Run `uv run devops ci fail-to-pass --base origin/main`.
+- [x] 2.2 Run the full `uv run devops ci` once.
+- [x] 2.3 Archive the change with `uv run devops openspec archive 2800-scope-labels-for-git-and-agents`.
