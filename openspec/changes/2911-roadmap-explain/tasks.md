@@ -23,7 +23,7 @@
 
 ## 4. The documents and the archive
 
-- [ ] 4.1 Regenerate the command documents
+- [x] 4.1 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 - [ ] 4.2 Archive the change
   - Verification: `uv run devops openspec archive 2911-roadmap-explain`
