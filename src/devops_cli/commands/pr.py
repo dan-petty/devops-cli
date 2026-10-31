@@ -770,11 +770,11 @@ def _fallback_patch_pr(
     body: str | None = None,
     repo: str | None = None,
     milestone: str | None = None,
-) -> bool:
+) -> tuple[bool, str]:
     """Fallback to REST API PATCH when gh pr edit fails (e.g. rate limit)."""
     target = _target_repo(repo)
     if not target or "/" not in target:
-        return False
+        return False, "Target repository must be in OWNER/REPO format."
     owner, repo_name = target.split("/", 1)
     patch_cmd = [
         CONST_GH_CLI,
@@ -789,10 +789,10 @@ def _fallback_patch_pr(
         patch_cmd.extend(["-f", f"body={body}"])
     if base is not None:
         patch_cmd.extend(["-f", f"base={base}"])
-    pull_ok = True
     if len(patch_cmd) > 5:
         res = run_gh(patch_cmd, check=False)
-        pull_ok = res.returncode == 0
+        if res.returncode != 0:
+            return False, res.stderr or res.stdout
 
     if milestone is not None:
         ms_cmd = [
@@ -805,8 +805,9 @@ def _fallback_patch_pr(
             f"milestone={milestone}",
         ]
         res_ms = run_gh(ms_cmd, check=False)
-        return pull_ok and res_ms.returncode == 0
-    return pull_ok
+        if res_ms.returncode != 0:
+            return False, res_ms.stderr or res_ms.stdout
+    return True, ""
 
 
 @app.command("edit")
@@ -858,9 +859,17 @@ def edit_pr(
     cmd = pr_edit_args(number, base, title, body, repo, milestone)
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
-        if _fallback_patch_pr(number, base, title, body, repo, milestone=milestone):
+        ok, err = _fallback_patch_pr(number, base, title, body, repo, milestone=milestone)
+        if ok:
             print_success(f"Successfully updated PR #{number}")
             return
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets((err or res.stderr or "").strip()[:256])
+        if clean_err:
+            print_error(f"Failed to update PR #{number}: {clean_err}", safe=True)
+        else:
+            print_error(f"Failed to update PR #{number}", safe=True)
         raise typer.Exit(res.returncode)
     print_success(f"Successfully updated PR #{number}")
 

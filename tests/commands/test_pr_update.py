@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -15,12 +17,34 @@ from devops_cli.commands.pr import (
     _process_candidate_pr_row,
     app,
 )
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.github.branch_update import (
     build_dispatch_ci_cmd,
     build_update_branch_cmd,
+    open_prs_argv,
     parse_update_error,
     plan_update_all_prs,
 )
+from devops_cli.lang.en.messages import MESSAGES
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+
+
+@pytest.fixture(autouse=True)
+def _answer_rate_limit(process_fake: ProcessFake) -> None:
+    payload = json.dumps(
+        {
+            "resources": {
+                name: {
+                    "limit": 5000,
+                    "used": 10,
+                    "remaining": 4990,
+                    "reset": int(time.time()) + 600,
+                }
+                for name in ("core", "graphql", "search")
+            }
+        }
+    )
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=payload))
 
 
 def test_build_update_branch_cmd() -> None:
@@ -598,3 +622,219 @@ def test_update_all_prs_cli_dispatch_ci(monkeypatch: pytest.MonkeyPatch) -> None
         "dispatched" in result.stdout,
         "draft (skipped)" in result.stdout,
     ) == (0, 1, True, True, True)
+
+
+def test_pr_edit_fallback_success(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
+    """devops pr edit falls back to REST PATCH when gh pr edit fails."""
+    process_fake.answer(
+        ["gh", "pr", "edit"],
+        ProcessAnswer(returncode=1, stderr="GraphQL: operation failed"),
+    )
+    process_fake.answer(
+        lambda call: "pulls/184" in " ".join(call.argv),
+        ProcessAnswer(returncode=0, stdout='{"number": 184}'),
+    )
+    process_fake.answer(
+        lambda call: "issues/184" in " ".join(call.argv),
+        ProcessAnswer(returncode=0, stdout='{"number": 184}'),
+    )
+
+    res = cli(
+        "pr",
+        "edit",
+        "184",
+        "--title",
+        "New Title",
+        "--body",
+        "New Body",
+        "--base",
+        "main",
+        "--milestone",
+        "2026-11",
+        "--repo",
+        "owner/repo",
+    )
+    assert res.exit_code == 0
+    assert "Successfully updated PR #184" in res.output
+
+    calls = [c for c in process_fake.calls if c.argv[:3] != ("gh", "api", "rate_limit")]
+    assert len(calls) == 3
+    assert list(calls[0].argv) == [
+        "gh",
+        "pr",
+        "edit",
+        "184",
+        "--base",
+        "main",
+        "--title",
+        "New Title",
+        "--body",
+        "New Body",
+        "--repo",
+        "owner/repo",
+        "--milestone",
+        "2026-11",
+    ]
+    assert list(calls[1].argv) == [
+        "gh",
+        "api",
+        "--method",
+        "PATCH",
+        "repos/owner/repo/pulls/184",
+        "-f",
+        "title=New Title",
+        "-f",
+        "body=New Body",
+        "-f",
+        "base=main",
+    ]
+    assert list(calls[2].argv) == [
+        "gh",
+        "api",
+        "--method",
+        "PATCH",
+        "repos/owner/repo/issues/184",
+        "-F",
+        "milestone=2026-11",
+    ]
+
+
+def test_pr_edit_fallback_milestone_failure(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """devops pr edit fails with its message when milestone REST PATCH fails."""
+    process_fake.answer(
+        ["gh", "pr", "edit"],
+        ProcessAnswer(returncode=1, stderr="GraphQL: operation failed"),
+    )
+    process_fake.answer(
+        lambda call: "pulls/184" in " ".join(call.argv),
+        ProcessAnswer(returncode=0, stdout='{"number": 184}'),
+    )
+    process_fake.answer(
+        lambda call: "issues/184" in " ".join(call.argv),
+        ProcessAnswer(returncode=1, stderr="Milestone '2026-11' not found"),
+    )
+
+    res = cli(
+        "pr",
+        "edit",
+        "184",
+        "--title",
+        "New Title",
+        "--milestone",
+        "2026-11",
+        "--repo",
+        "owner/repo",
+    )
+    assert res.exit_code != 0
+    assert "Milestone '2026-11' not found" in res.output
+
+
+def test_pr_update_all_dry_run_plan(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
+    """devops pr update --all --dry-run checks request plans and sends no request."""
+    expected_plain = plan_update_all_prs("owner/repo", None, dispatch_ci=False)
+    assert expected_plain == [
+        PlannedRequest(
+            method="GET",
+            target="repos/owner/repo/pulls",
+            argv=tuple(open_prs_argv("owner/repo", None)),
+        ),
+        PlannedRequest(
+            method="GET",
+            target="repos/owner/repo/pulls/<number>",
+            argv=("gh", "api", "repos/owner/repo/pulls/<number>"),
+            repeat="each open non-draft PR",
+        ),
+        PlannedRequest(
+            method="PUT",
+            target="repos/owner/repo/pulls/<number>/update-branch",
+            argv=(
+                "gh",
+                "api",
+                "-X",
+                "PUT",
+                "repos/owner/repo/pulls/<number>/update-branch",
+            ),
+            repeat="each open non-draft PR",
+        ),
+    ]
+
+    res_plain = cli("pr", "update", "--all", "--dry-run", "--repo", "owner/repo")
+    assert res_plain.exit_code == 0
+    assert "Planned external requests to update all open PRs" in res_plain.output
+    assert process_fake.calls == []
+
+    expected_dispatch = plan_update_all_prs("owner/repo", None, dispatch_ci=True)
+    assert len(expected_dispatch) == 5
+    assert expected_dispatch[:3] == expected_plain
+    assert expected_dispatch[3].method == "GET"
+    assert expected_dispatch[4].method == "POST"
+
+    res_dispatch = cli(
+        "pr", "update", "--all", "--dry-run", "--dispatch-ci", "--repo", "owner/repo"
+    )
+    assert res_dispatch.exit_code == 0
+    assert "Planned external requests to update all open PRs" in res_dispatch.output
+    assert process_fake.calls == []
+
+
+def test_pr_update_all_batch_and_empty(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
+    """devops pr update --all updates active PRs oldest first and handles empty list."""
+    open_prs = [
+        {"number": 202, "headRefName": "feat/newer", "baseRefName": "main", "isDraft": False},
+        {"number": 201, "headRefName": "feat/older", "baseRefName": "main", "isDraft": False},
+        {"number": 203, "headRefName": "feat/draft", "baseRefName": "main", "isDraft": True},
+    ]
+
+    process_fake.answer(
+        ["gh", "pr", "list"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(open_prs)),
+    )
+    process_fake.answer(
+        lambda call: (
+            "pulls/201" in " ".join(call.argv) and "update-branch" not in " ".join(call.argv)
+        ),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"number": 201, "base": {"ref": "main"}, "head": {"sha": "sha201"}}),
+        ),
+    )
+    process_fake.answer(
+        lambda call: (
+            "pulls/202" in " ".join(call.argv) and "update-branch" not in " ".join(call.argv)
+        ),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"number": 202, "base": {"ref": "main"}, "head": {"sha": "sha202"}}),
+        ),
+    )
+    process_fake.answer(
+        lambda call: "update-branch" in " ".join(call.argv),
+        ProcessAnswer(returncode=0, stdout='{"message": "Updating branch"}'),
+    )
+
+    res = cli("pr", "update", "--all", "--repo", "owner/repo")
+    assert res.exit_code == 0
+    assert "Pull Request Branch Update Summary" in res.output
+    assert "#201" in res.output
+    assert "#202" in res.output
+    assert "draft (skipped)" in res.output
+
+    list_call = next(c for c in process_fake.calls if c.argv[:3] == ("gh", "pr", "list"))
+    assert "--author" in list_call.argv
+    assert "@me" in list_call.argv
+
+    update_calls = [c for c in process_fake.calls if "update-branch" in " ".join(c.argv)]
+    assert len(update_calls) == 2
+    assert "repos/owner/repo/pulls/201/update-branch" in " ".join(update_calls[0].argv)
+    assert "repos/owner/repo/pulls/202/update-branch" in " ".join(update_calls[1].argv)
+
+    # Empty PR list test
+    process_fake.answer(
+        ["gh", "pr", "list"],
+        ProcessAnswer(returncode=0, stdout="[]"),
+    )
+    res_empty = cli("pr", "update", "--all", "--repo", "owner/repo")
+    assert res_empty.exit_code == 0
+    assert MESSAGES.pr.update_branch_no_prs in res_empty.output

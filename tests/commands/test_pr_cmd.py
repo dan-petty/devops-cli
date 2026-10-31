@@ -498,29 +498,6 @@ class TestPrCommands:
                 "ci/status" in res.output,
             ) == (1, True, True, True)
 
-    def test_pr_edit_fallback(self, runner: CliRunner) -> None:
-        """devops pr edit falls back to REST PATCH when gh pr edit fails."""
-        with (
-            patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                side_effect=[
-                    MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
-                    MagicMock(returncode=0, stdout="", stderr=""),
-                ],
-            ) as mock_sub,
-        ):
-            res = runner.invoke(
-                app, ["edit", "184", "--title", "New Title", "--body", "New Body", "--base", "main"]
-            )
-            assert res.exit_code == 0
-            assert "Successfully updated PR #184" in res.output
-            assert mock_sub.call_count == 2
-            patch_cmd = mock_sub.call_args_list[1][0][0]
-            assert "PATCH" in patch_cmd
-            assert "title=New Title" in patch_cmd
-
     def test_pr_edit_no_changes(self, runner: CliRunner) -> None:
         """devops pr edit warns when no options are provided."""
         with (
