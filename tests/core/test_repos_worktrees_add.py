@@ -15,6 +15,13 @@ from typing import Any
 
 import pytest
 
+from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+
+# The command claims the issue on the roadmap of the repository of `origin` (#2910). The roadmap
+# is in memory: it reaches no GitHub.
+pytestmark = pytest.mark.usefixtures("roadmap_store")
+
 Git = Callable[..., None]
 Cli = Callable[..., Any]
 
@@ -519,7 +526,7 @@ def test_a_dry_run_report_has_the_type_of_the_real_report(
     assert {key for key in planned if key != "requests"} == {
         key for key in created if key != "requests"
     }
-    assert len(planned["requests"]) == 4
+    assert sum(line.startswith("git ") for line in planned["requests"]) == 4
 
 
 def test_a_dry_run_names_the_read_of_the_authors_and_the_staged_branch(
@@ -717,3 +724,116 @@ def test_a_missing_type_or_slug_without_a_branch_of_origin_is_an_error(
     assert "--slug" in _said(result)
     assert not standard_dir.exists()
     assert _branches(repo) == ["main"]
+
+
+# ── The claim of the issue for an agent (#2910) ───────────────────────────────────────────
+
+
+def _an_item(store: InMemoryRoadmapStore, *labels: str) -> int:
+    """Issue 1 of the roadmap, an item, with `labels`."""
+    return store.seed_issue("work", labels=("priority/p2-medium", *labels))
+
+
+def _owner(store: InMemoryRoadmapStore) -> list[str]:
+    item = store.item(1)
+    assert item is not None
+    return [label for label in item.labels if label.startswith("owner/")]
+
+
+def test_add_claims_the_issue_for_an_agent(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = _an_item(roadmap_store)
+
+    result = _add(cli, repo, issue=number, extra=("--json",))
+
+    report = json.loads(result.output)
+    assert (result.exit_code, _owner(roadmap_store), report["claimed"], report["claim_error"]) == (
+        0,
+        ["owner/agent"],
+        True,
+        None,
+    )
+
+
+def test_add_prints_that_it_claimed_the_issue(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = _an_item(roadmap_store)
+
+    result = _add(cli, repo, issue=number)
+
+    assert f"Claimed #{number} for an agent." in _said(result)
+
+
+def test_add_keeps_the_worktree_and_warns_when_a_person_holds_the_item(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = _an_item(roadmap_store, "owner/human")
+
+    result = _add(cli, repo, issue=number)
+
+    said = _said(result)
+    assert result.exit_code == 0, result.output
+    assert (isolate_data_dir / "agent" / "worktrees" / f"w-{number}").is_dir()
+    assert _owner(roadmap_store) == ["owner/human"]
+    assert f"#{number} is not claimed for an agent" in said
+    assert "claimed by human" in said
+
+
+def test_add_keeps_the_worktree_when_the_label_write_fails(
+    cli: Cli,
+    repo: Path,
+    roadmap_store: InMemoryRoadmapStore,
+    isolate_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    number = _an_item(roadmap_store)
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise GitHubOperationError("HTTP 502", operation="roadmap.item.set_field")
+
+    monkeypatch.setattr(roadmap_store, "set_field", refuse)
+
+    result = _add(cli, repo, issue=number, extra=("--json",))
+
+    report = json.loads(result.output)
+    assert (result.exit_code, report["claimed"], report["claim_error"]) == (0, False, "HTTP 502")
+    assert (isolate_data_dir / "agent" / "worktrees" / f"w-{number}").is_dir()
+
+
+def test_add_reports_an_issue_that_is_no_item_and_keeps_the_worktree(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = roadmap_store.seed_issue("a candidate")
+
+    report = json.loads(_add(cli, repo, issue=number, extra=("--json",)).output)
+
+    assert (report["claimed"], f"#{number} is not an item" in report["claim_error"]) == (
+        False,
+        True,
+    )
+
+
+def test_a_refused_issue_claims_nothing(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = _an_item(roadmap_store)
+    held = isolate_data_dir / "agent" / "worktrees" / f"w-{number}"
+    held.mkdir(parents=True)
+
+    result = _add(cli, repo, issue=number)
+
+    assert (result.exit_code, _owner(roadmap_store), roadmap_store.job_writes()) == (1, [], [])
+
+
+def test_a_dry_run_claims_nothing_and_lists_the_label_write(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = _an_item(roadmap_store)
+
+    result = _add(cli, repo, issue=number, extra=("--dry-run", "--json"))
+
+    requests = json.loads(result.output)["requests"]
+    assert (result.exit_code, _owner(roadmap_store), roadmap_store.job_writes()) == (0, [], [])
+    assert any("PATCH" in line and f"issues/{number}" in line for line in requests)

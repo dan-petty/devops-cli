@@ -476,12 +476,16 @@ class RepoMessages:
         "command and adds the worktree on that branch with --track.",
         "If a local branch of the new name exists, no worktree uses it, and origin holds all its "
         "commits, the run deletes that stray branch first.",
+        "A run also claims the issue for an agent with the label owner/agent on the roadmap of "
+        "origin. The claim lists the requests of the label write.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
     worktrees_add_took_over: str = (
         "Took over the staged branch {branch} in worktree {path}. Commits by the App: {commits}."
     )
     worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
+    worktrees_add_claimed: str = "Claimed #{issue} for an agent."
+    worktrees_add_not_claimed: str = "#{issue} is not claimed for an agent: {reason}"
     worktrees_add_no_origin: str = (
         "The repository has no remote named origin, so the branches of origin cannot be read. "
         "Add the remote."

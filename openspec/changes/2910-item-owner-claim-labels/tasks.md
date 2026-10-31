@@ -30,9 +30,9 @@
 
 ## 5. The worktree claims the issue
 
-- [ ] 5.1 Write failing tests in `tests/core/test_repos_worktrees_add.py` for the scenarios of "A new worktree claims the issue for an agent": a free item, an item a person holds, a failed write, a refused issue, a dry run
+- [x] 5.1 Write failing tests in `tests/core/test_repos_worktrees_add.py` for the scenarios of "A new worktree claims the issue for an agent": a free item, an item a person holds, a failed write, a refused issue, a dry run
   - Verification: `uv run devops ci test tests/core/test_repos_worktrees_add.py`
-- [ ] 5.2 Claim after the worktree in `src/devops_cli/commands/repos.py`, and add `claimed` and `claim_error` to `WorktreeAddReport` in `src/devops_cli/git/worktree_add.py`
+- [x] 5.2 Claim after the worktree in `src/devops_cli/commands/repos.py`, and add `claimed` and `claim_error` to `WorktreeAddReport` in `src/devops_cli/git/worktree_add.py`
   - Verification: `uv run devops ci test tests/core/test_repos_worktrees_add.py tests/git/test_git_worktree.py`
 
 ## 6. The documents
