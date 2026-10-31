@@ -334,12 +334,14 @@ class CloudflareClient:
         zone_id: str | None = None,
         base_url: str = CONST_URL_CLOUDFLARE_API_BASE,
         sleep: Callable[[float], None] = clock.sleep,
+        transport: httpx2.BaseTransport | None = None,
     ) -> None:
         self._token = token
         self._account_id = account_id
         self._zone_id = zone_id
         self._base_url = base_url.rstrip("/")
         self._sleep = sleep
+        self._transport = transport
 
     @property
     def account_id(self) -> str | None:
@@ -348,6 +350,20 @@ class CloudflareClient:
     @property
     def zone_id(self) -> str | None:
         return self._zone_id
+
+    def _require_account(self, account_id: str | None = None) -> str:
+        """Resolve account ID, falling back to configured, or raise CloudflareAPIError."""
+        target_id = account_id or self._account_id
+        if not target_id:
+            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        return target_id
+
+    def _require_zone(self, zone_id: str | None = None) -> str:
+        """Resolve zone ID, falling back to configured, or raise CloudflareAPIError."""
+        target_id = zone_id or self._zone_id
+        if not target_id:
+            raise CloudflareAPIError("Zone ID is required but neither passed nor configured.")
+        return target_id
 
     def _request(
         self,
@@ -367,7 +383,9 @@ class CloudflareClient:
         headers = _build_auth_headers(self._token)
 
         def make_request() -> httpx2.Response:
-            with new_http_client(level=EgressLevel.PUBLIC, read_timeout=30.0) as client:
+            with new_http_client(
+                level=EgressLevel.PUBLIC, read_timeout=30.0, transport=self._transport
+            ) as client:
                 try:
                     return client.request(
                         method, url, headers=headers, json=json_data, params=params
@@ -477,9 +495,7 @@ class CloudflareClient:
 
     def get_zone(self, zone_id: str | None = None) -> CloudflareZone:
         """Fetch details for a managed DNS zone."""
-        zid = zone_id or self._zone_id
-        if not zid:
-            raise CloudflareAPIError("Zone ID is required but neither passed nor configured.")
+        zid = self._require_zone(zone_id)
         result = self._request("GET", f"zones/{zid}")
         if not isinstance(result, dict):
             raise CloudflareAPIError(f"Zone {zid} returned invalid details.")
@@ -498,9 +514,7 @@ class CloudflareClient:
         name: str | None = None,
     ) -> list[CloudflareDNSRecord]:
         """List DNS records in the designated zone with full pagination."""
-        zid = zone_id or self._zone_id
-        if not zid:
-            raise CloudflareAPIError("Zone ID is required but neither passed nor configured.")
+        zid = self._require_zone(zone_id)
         params = _build_dns_records_params(record_type, name)
         raw_records = self._get_paginated(f"zones/{zid}/dns_records", params=params)
         return [_parse_dns_record(item) for item in raw_records]
@@ -517,9 +531,7 @@ class CloudflareClient:
         zone_id: str | None = None,
     ) -> CloudflareDNSRecord:
         """Create a new DNS record."""
-        zid = zone_id or self._zone_id
-        if not zid:
-            raise CloudflareAPIError("Zone ID is required but neither passed nor configured.")
+        zid = self._require_zone(zone_id)
         payload: dict[str, Any] = {
             "type": record_type,
             "name": name,
@@ -545,9 +557,7 @@ class CloudflareClient:
         zone_id: str | None = None,
     ) -> CloudflareDNSRecord:
         """Update an existing DNS record."""
-        zid = zone_id or self._zone_id
-        if not zid:
-            raise CloudflareAPIError("Zone ID is required but neither passed nor configured.")
+        zid = self._require_zone(zone_id)
         payload: dict[str, Any] = {
             "type": record_type,
             "name": name,
@@ -562,9 +572,7 @@ class CloudflareClient:
 
     def delete_dns_record(self, record_id: str, zone_id: str | None = None) -> bool:
         """Delete a DNS record by ID."""
-        zid = zone_id or self._zone_id
-        if not zid:
-            raise CloudflareAPIError("Zone ID is required but neither passed nor configured.")
+        zid = self._require_zone(zone_id)
         self._request("DELETE", f"zones/{zid}/dns_records/{record_id}")
         return True
 
@@ -576,9 +584,7 @@ class CloudflareClient:
         """Resolve a tunnel name or ID to its canonical UUID."""
         if _is_uuid(tunnel_name_or_id):
             return tunnel_name_or_id
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         result = self._request(
             "GET",
             f"accounts/{aid}/cfd_tunnel",
@@ -603,9 +609,7 @@ class CloudflareClient:
         account_id: str | None = None,
     ) -> CloudflareTunnelConfig:
         """Fetch tunnel ingress configuration rules."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         resolved_id = self.resolve_tunnel_id(tunnel_id, account_id=aid)
         result = self._request("GET", f"accounts/{aid}/cfd_tunnel/{resolved_id}/configurations")
         return _parse_tunnel_config(resolved_id, result if isinstance(result, dict) else {})
@@ -618,9 +622,7 @@ class CloudflareClient:
         base_config: dict[str, Any] | None = None,
     ) -> CloudflareTunnelConfig:
         """Update tunnel ingress configuration rules while preserving existing options."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         resolved_id = self.resolve_tunnel_id(tunnel_id, account_id=aid)
         cfg_payload = dict(base_config) if base_config else {}
         cfg_payload["ingress"] = [
@@ -711,9 +713,7 @@ class CloudflareClient:
         account_id: str | None = None,
     ) -> CloudflareTunnelConfig:
         """Ensure tunnel ingress rules route domain traffic to cluster ingress controller."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         resolved_id = self.resolve_tunnel_id(tunnel_id, account_id=aid)
 
         raw_cfg = self._request("GET", f"accounts/{aid}/cfd_tunnel/{resolved_id}/configurations")
@@ -745,9 +745,7 @@ class CloudflareClient:
         self, account_id: str | None = None
     ) -> list[CloudflareAccessApplication]:
         """List Cloudflare Zero Trust Access applications for the account."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         raw_apps = self._get_paginated(f"accounts/{aid}/access/apps")
         return [_parse_access_application(item) for item in raw_apps]
 
@@ -760,9 +758,7 @@ class CloudflareClient:
         account_id: str | None = None,
     ) -> CloudflareAccessApplication:
         """Create a self-hosted Cloudflare Zero Trust Access application."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         payload = {
             "name": name,
             "domain": domain,
@@ -776,9 +772,7 @@ class CloudflareClient:
         self, app_id: str, account_id: str | None = None
     ) -> list[CloudflareAccessPolicy]:
         """List policies for a designated Access application."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         raw_policies = self._get_paginated(f"accounts/{aid}/access/apps/{app_id}/policies")
         return [_parse_access_policy(item) for item in raw_policies]
 
@@ -831,9 +825,7 @@ class CloudflareClient:
         account_id: str | None = None,
     ) -> CloudflareAccessPolicy:
         """Create or update an Access policy restricting or bypassing access."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         include_rules = _build_policy_include_rules(allowed_emails, bypass_ips)
         payload = {
             "name": name,
@@ -867,9 +859,7 @@ class CloudflareClient:
         account_id: str | None = None,
     ) -> dict[str, Any]:
         """Ensure an Access application, allow policy, and optional IP bypass policy protect the domain."""
-        aid = account_id or self._account_id
-        if not aid:
-            raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
+        aid = self._require_account(account_id)
         app, app_action = self._ensure_access_application(
             domain=domain,
             name=name,
