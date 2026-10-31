@@ -60,9 +60,9 @@ def test_docker_commands(tmp_path: Path, docker_engine: Any, docker_client: Any)
 
 def test_docker_client_fixture_is_autospecced(docker_client: Any) -> None:
     """The docker_client fixture pins DockerClient attributes and signatures."""
-    with pytest.raises(AttributeError):
+    with pytest.raises(AttributeError, match="Mock object has no attribute 'system'"):
         _ = docker_client.system
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="got an unexpected keyword argument 'volumes'"):
         docker_client.containers.prune(volumes=True)
 
 

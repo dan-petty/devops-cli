@@ -226,10 +226,10 @@ async def test_embedder_and_embedding_result() -> None:
     assert res_docs["Doc 2 content"] == [0.2, 0.2, 0.3, 0.4]
 
     # 3. Key error on missing text
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="not found in embedding result inputs"):
         _ = res_docs["Missing doc"]
 
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="indices must be integers or strings"):
         _ = res_docs[1.5]  # type: ignore[index]
 
     # 4. Sync methods

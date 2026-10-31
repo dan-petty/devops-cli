@@ -753,7 +753,7 @@ def test_sanitize_command_args_masking() -> None:
     assert sanitized[9] == "safe-value"
 
 
-def test_print_panel_fallback_on_exception() -> None:
+def test_print_panel_fallback_on_exception(capsys: pytest.CaptureFixture[str]) -> None:
     """Test print_panel fallback to rich Text when initial panel render raises."""
     from devops_cli.output.console import print_panel
 
@@ -763,6 +763,7 @@ def test_print_panel_fallback_on_exception() -> None:
 
     # Should not raise; catches exception and renders via fallback Text
     print_panel(FailingRenderable(), title="Fallback Panel")
+    assert "Fallback Panel" in capsys.readouterr().out
 
 
 def test_is_markdown_syntax_detection() -> None:

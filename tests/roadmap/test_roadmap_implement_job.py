@@ -698,4 +698,4 @@ def test_an_item_whose_worktree_cannot_be_made_is_reported_and_left_alone(
 
 
 def test_a_run_with_no_failure_raises_nothing() -> None:
-    raise_for_failed(())
+    assert raise_for_failed(()) is None

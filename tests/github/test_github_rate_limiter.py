@@ -904,7 +904,7 @@ def test_disk_quota_lock_oserror_fallback_and_propagation(tmp_path: Path) -> Non
     lock_target = tmp_path / "quota.json"
 
     with patch("fcntl.flock", side_effect=OSError("Flock failed")):
-        with pytest.raises(KeyError):
+        with pytest.raises(KeyError, match="expected_key_error"):
             with disk_quota_lock(lock_target):
                 raise KeyError("expected_key_error")
 

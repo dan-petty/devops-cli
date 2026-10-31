@@ -357,7 +357,7 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     s = Settings()
     dotted_set(s, "ai.model", "qwen2.5-coder:14b")
     assert dotted_get(s, "ai.model") == "qwen2.5-coder:14b"
-    with pytest.raises(AttributeError):
+    with pytest.raises(AttributeError, match="has no attribute 'non'"):
         dotted_get(s, "non.existent.path")
 
     cfg_file = tmp_path / "config.yaml"

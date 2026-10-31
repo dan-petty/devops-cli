@@ -171,8 +171,11 @@ def test_a_failing_close_does_not_abandon_the_rest() -> None:
 
 def test_closing_an_empty_registry_is_harmless() -> None:
     """This runs at interpreter exit, where a process may have opened no clients at all."""
+    from devops_cli.http import pool
+
     close_shared_clients()
     close_shared_clients()
+    assert (close_shared_clients(), pool._CLIENTS) == (None, {})
 
 
 def test_closing_is_registered_with_atexit() -> None:
