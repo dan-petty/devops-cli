@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -11,19 +11,150 @@ from devops_cli.ci.cache import (
     _worktree_divergent_paths,
     compute_workspace_fingerprint,
 )
+from devops_cli.core.gitignore import get_index, reset_indexes
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
+
+
+def _git_blob_sha(content: bytes) -> str:
+    return hashlib.sha1(
+        b"blob " + str(len(content)).encode() + b"\0" + content,
+        usedforsecurity=False,
+    ).hexdigest()
+
+
+class _FingerprintGitRepo:
+    def __init__(self, root: Path, git_fake: GitFake) -> None:
+        self.root = root
+        self.git_fake = git_fake
+        self.head_sha = "1111111111111111111111111111111111111111"
+        self.index: dict[str, str] = {}
+        self.staged_replaces: dict[str, str] = {}
+        self._setup_answers()
+
+    def _setup_answers(self) -> None:
+        self.git_fake.answer(
+            lambda call: bool(
+                call.argv and call.argv[0:2] == ("git", "rev-parse") and "HEAD" in call.argv
+            ),
+            lambda _call: ProcessAnswer(returncode=0, stdout=f"{self.head_sha}\n"),
+        )
+        self.git_fake.answer(
+            lambda call: bool(call.argv and "ls-files" in call.argv and "-s" in call.argv),
+            self._ls_files_answer,
+        )
+        self.git_fake.answer(
+            lambda call: bool(
+                call.argv and "status" in call.argv and "--porcelain=v1" in call.argv
+            ),
+            self._status_answer,
+        )
+        self.git_fake.answer(
+            lambda call: bool(call.argv and "hash-object" in call.argv),
+            self._hash_object_answer,
+        )
+
+    def _ls_files_answer(self, _call: ProcessCall) -> ProcessAnswer:
+        lines = [f"100644 {sha} 0\t{path}" for path, sha in sorted(self.index.items())]
+        return ProcessAnswer(returncode=0, stdout="\n".join(lines) + ("\n" if lines else ""))
+
+    def _tracked_status(self) -> list[str]:
+        lines: list[str] = [f"R  {old} -> {new}" for old, new in self.staged_replaces.items()]
+        for path in sorted(self.index):
+            if path in self.staged_replaces:
+                continue
+            target = self.root / path
+            if not target.exists():
+                lines.append(f" D {path}")
+            elif _git_blob_sha(target.read_bytes()) != self.index[path]:
+                lines.append(f" M {path}")
+        return lines
+
+    def _untracked_status(self) -> list[str]:
+        lines: list[str] = []
+        for p in sorted(self.root.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(self.root).as_posix()
+            if rel.startswith(".git") or rel in self.index or rel in self.staged_replaces.values():
+                continue
+            if not get_index(self.root).is_ignored(p):
+                lines.append(f"?? {rel}")
+        return lines
+
+    def _status_answer(self, _call: ProcessCall) -> ProcessAnswer:
+        lines = self._tracked_status() + self._untracked_status()
+        return ProcessAnswer(returncode=0, stdout="\n".join(lines) + ("\n" if lines else ""))
+
+    def _hash_object_answer(self, call: ProcessCall) -> ProcessAnswer:
+        hashes: list[str] = []
+        if call.stdin and isinstance(call.stdin, str):
+            for path_str in call.stdin.splitlines():
+                if path_str:
+                    target = self.root / path_str
+                    if target.is_file():
+                        hashes.append(_git_blob_sha(target.read_bytes()))
+                    else:
+                        hashes.append("0000000000000000000000000000000000000000")
+        return ProcessAnswer(returncode=0, stdout="\n".join(hashes) + ("\n" if hashes else ""))
+
+    def git_add(self, *args: str) -> None:
+        reset_indexes()
+        for old, new in list(self.staged_replaces.items()):
+            sha = self.index.pop(old, None)
+            if (self.root / new).is_file():
+                self.index[new] = _git_blob_sha((self.root / new).read_bytes())
+            elif sha:
+                self.index[new] = sha
+        self.staged_replaces.clear()
+
+        for p in sorted(self.root.rglob("*")):
+            if p.is_file():
+                rel = p.relative_to(self.root).as_posix()
+                if rel.startswith(".git"):
+                    continue
+                if not get_index(self.root).is_ignored(p):
+                    self.index[rel] = _git_blob_sha(p.read_bytes())
+        for rel in list(self.index):
+            if not (self.root / rel).is_file():
+                del self.index[rel]
+
+    def git_commit(self, *args: str) -> None:
+        if any("-a" in arg for arg in args):
+            self.git_add()
+        self.staged_replaces.clear()
+        self.head_sha = hashlib.sha1(
+            (self.head_sha + "commit").encode(), usedforsecurity=False
+        ).hexdigest()
+
+    def git_mv(self, src: str, dst: str) -> None:
+        source = self.root / src
+        target = self.root / dst
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_file():
+            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            source.unlink()
+        sha = self.index.pop(src, None)
+        if target.is_file():
+            self.index[dst] = _git_blob_sha(target.read_bytes())
+        elif sha:
+            self.index[dst] = sha
+        self.staged_replaces[src] = dst
+
+
+_REPOS: dict[Path, _FingerprintGitRepo] = {}
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    """Create a git repository with one committed file."""
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "user.email", "t@example.com"], check=True
-    )
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True)
+def repo(tmp_path: Path, git_fake: GitFake) -> Path:
+    """Create a git repository fixture with one committed file."""
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "init"], check=True)
+
+    sim = _FingerprintGitRepo(tmp_path, git_fake)
+    sim.git_add()
+    _REPOS[tmp_path.resolve()] = sim
     return tmp_path
 
 
@@ -35,8 +166,17 @@ def fingerprint(repo: Path) -> str:
 
 
 def git(repo: Path, *args: str) -> None:
-    """Run a git command in the repository."""
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    """Run simulated git commands for repository manipulation."""
+    sim = _REPOS.get(repo.resolve())
+    if not sim or not args:
+        return
+    cmd = args[0]
+    if cmd == "add":
+        sim.git_add(*args[1:])
+    elif cmd == "commit":
+        sim.git_commit(*args[1:])
+    elif cmd == "mv":
+        sim.git_mv(args[1], args[2])
 
 
 # =============================================================================

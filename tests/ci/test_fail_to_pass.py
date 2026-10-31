@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import subprocess
-from collections.abc import Callable
+import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +21,9 @@ from devops_cli.ci.fail_to_pass import (
     run_fail_to_pass,
 )
 from devops_cli.commands.ci import app, get_check_specs
+from devops_cli.core.process import run_subprocess
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
@@ -60,30 +63,19 @@ JUNIT_COLLECTION_ERROR = """\
 </testsuites>
 """
 
-
-def _mock_replay_repo(monkeypatch: pytest.MonkeyPatch, junit_xml: str) -> list[list[str]]:
-    """Stub git merge-base/materialisation and have the pytest subprocess write `junit_xml`."""
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        "devops_cli.ci.fail_to_pass.changed_test_files",
-        lambda _root, _base, _head="HEAD": ("deadbeef", ("tests/test_sample.py",)),
-    )
-    monkeypatch.setattr(
-        "devops_cli.ci.fail_to_pass.materialise_base_with_head_tests",
-        lambda _root, _base, _head, dest: dest.mkdir(parents=True, exist_ok=True),
-    )
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        if list(cmd[1:3]) == ["-m", "pytest"]:
-            calls.append(list(cmd))
-        for arg in cmd:
-            if arg.startswith("--junitxml="):
-                Path(arg.removeprefix("--junitxml=")).write_text(junit_xml, encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    monkeypatch.setattr("devops_cli.ci.fail_to_pass.run_subprocess", fake_run)
-    return calls
-
+JUNIT_ONE_FAILURE_ONE_ERROR = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="pytest" errors="1" failures="1" skipped="0" tests="2">
+    <testcase classname="tests.test_mod" name="test_value" time="0.001">
+      <failure message="AssertionError: assert 1 == 2">AssertionError</failure>
+    </testcase>
+    <testcase classname="" name="tests.test_newmod" time="0.000">
+      <error message="collection failure">ModuleNotFoundError: No module named 'newmod'</error>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
 
 JUNIT_NO_TESTS = """\
 <?xml version="1.0" encoding="utf-8"?>
@@ -135,17 +127,109 @@ INTERNAL_ERROR_OUTCOME = {
 }
 
 
-def _branch_changing_a_test(repo: Path, git: Callable[..., None]) -> Path:
+@dataclass
+class _FailToPassState:
+    exit_status: int = 0
+    junit_xml: str | None = None
+    stdout: str = ""
+    stderr: str = ""
+    changed_test_files: tuple[str, ...] = ("tests/test_mod.py",)
+    base_files: dict[str, str] = field(default_factory=dict)
+    active_worktrees: set[Path] = field(default_factory=set)
+
+
+@pytest.fixture
+def replay_state() -> _FailToPassState:
+    return _FailToPassState()
+
+
+def _handle_worktree_add(replay_state: _FailToPassState, argv: list[str]) -> ProcessAnswer:
+    dest = Path(argv[argv.index("add") + 3])
+    dest.mkdir(parents=True, exist_ok=True)
+    replay_state.active_worktrees.add(dest.resolve())
+    for rel, text in replay_state.base_files.items():
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    return ProcessAnswer(returncode=0, stdout="")
+
+
+def _handle_worktree_remove(replay_state: _FailToPassState, argv: list[str]) -> ProcessAnswer:
+    dest = Path(argv[-1])
+    replay_state.active_worktrees.discard(dest.resolve())
+    shutil.rmtree(dest, ignore_errors=True)
+    return ProcessAnswer(returncode=0, stdout="")
+
+
+def _worktree_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
+    argv = call.argv
+    if "add" in argv:
+        return _handle_worktree_add(replay_state, argv)
+    if "remove" in argv:
+        return _handle_worktree_remove(replay_state, argv)
+    if "list" in argv:
+        cwd_str = str(call.cwd or "")
+        lines = [f"worktree {cwd_str}"] + [
+            f"worktree {d}" for d in sorted(replay_state.active_worktrees)
+        ]
+        return ProcessAnswer(returncode=0, stdout="\n\n".join(lines) + "\n\n")
+    return ProcessAnswer(returncode=0, stdout="")
+
+
+def _pytest_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
+    for arg in call.argv:
+        if arg.startswith("--junitxml="):
+            report_path = Path(arg.removeprefix("--junitxml="))
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            if replay_state.junit_xml is not None:
+                report_path.write_text(replay_state.junit_xml, encoding="utf-8")
+    return ProcessAnswer(
+        returncode=replay_state.exit_status,
+        stdout=replay_state.stdout,
+        stderr=replay_state.stderr,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) -> None:
+    git_fake.answer(
+        lambda call: "merge-base" in call.argv, ProcessAnswer(returncode=0, stdout="deadbeef\n")
+    )
+    git_fake.answer(
+        lambda call: "rev-parse" in call.argv, ProcessAnswer(returncode=0, stdout="deadbeef\n")
+    )
+    git_fake.answer(
+        lambda call: "diff" in call.argv,
+        lambda _call: ProcessAnswer(
+            returncode=0, stdout="".join(f"M\0{f}\0" for f in replay_state.changed_test_files)
+        ),
+    )
+    git_fake.answer(lambda call: "ls-files" in call.argv, ProcessAnswer(returncode=0, stdout=""))
+    git_fake.answer(lambda call: "archive" in call.argv, ProcessAnswer(returncode=0, stdout=""))
+    git_fake.answer(
+        lambda call: "worktree" in call.argv,
+        lambda call: _worktree_answer(replay_state, call),
+    )
+    git_fake.answer(
+        lambda call: "-m" in call.argv and "pytest" in call.argv,
+        lambda call: _pytest_answer(replay_state, call),
+    )
+
+
+def _mock_replay_repo(replay_state: _FailToPassState, junit_xml: str, exit_status: int = 0) -> None:
+    """Configure the git fake to report `tests/test_sample.py` and write `junit_xml`."""
+    replay_state.changed_test_files = ("tests/test_sample.py",)
+    replay_state.junit_xml = junit_xml
+    replay_state.exit_status = exit_status
+
+
+def _branch_changing_a_test(repo: Path) -> Path:
     """A repository whose checked-out `fix/bug` branch changes `tests/test_mod.py` from `main`."""
     test_file = repo / "tests" / "test_mod.py"
-    test_file.parent.mkdir(parents=True)
-    test_file.write_text("def test_v():\n    assert True\n", encoding="utf-8")
-    git(repo, "init", "--quiet", "-b", "main")
-    git(repo, "add", ".")
-    git(repo, "commit", "--quiet", "-m", "base")
-    git(repo, "switch", "--quiet", "-c", "fix/bug")
+    test_file.parent.mkdir(parents=True, exist_ok=True)
     test_file.write_text("def test_v():\n    assert 1 == 1\n", encoding="utf-8")
-    git(repo, "commit", "--quiet", "-am", "change the test")
+    (repo / ".git").mkdir(parents=True, exist_ok=True)
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/fix/bug\n", encoding="utf-8")
     return repo
 
 
@@ -157,11 +241,8 @@ def _replay_report(
 ) -> dict[str, object]:
     """The whole dump of a feature's report replaying `tests/test_mod.py` in `repo`, whose
     merge base is the commit `main` names."""
-    merge_base = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "main"], capture_output=True, text=True, check=True
-    ).stdout.strip()
     return {
-        "merge_base": merge_base,
+        "merge_base": "deadbeef",
         "head": "HEAD",
         "changed_test_files": ("tests/test_mod.py",),
         "outcomes": outcomes,
@@ -170,51 +251,43 @@ def _replay_report(
 
 
 def _replayed_pytest(
-    monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
     *,
     exit_status: int,
     junit_xml: str | None = None,
     stdout: str = "",
     stderr: str = "",
-) -> list[list[str]]:
-    """Answer the replay's pytest child with `exit_status`, its output and, when given,
-    `junit_xml` as its report, at the stdlib; git still runs for real."""
-    real_run = subprocess.run
-    started: list[list[str]] = []
-
-    def run(cmd: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if list(cmd[1:3]) != ["-m", "pytest"]:
-            return real_run(cmd, *args, **kwargs)  # type: ignore[call-overload,no-any-return]
-        started.append(list(cmd))
-        report = next(arg.removeprefix("--junitxml=") for arg in cmd if "--junitxml=" in arg)
-        if junit_xml is not None:
-            Path(report).write_text(junit_xml, encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, exit_status, stdout=stdout, stderr=stderr)
-
-    monkeypatch.setattr(subprocess, "run", run)
-    return started
+) -> None:
+    """Answer the replay's pytest child with `exit_status`, its output and `junit_xml`."""
+    replay_state.exit_status = exit_status
+    replay_state.junit_xml = junit_xml
+    replay_state.stdout = stdout
+    replay_state.stderr = stderr
 
 
-def test_fail_to_pass_failing_test_on_base_exits_0(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fail_to_pass_failing_test_on_base_exits_0(
+    replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
     """A test that fails on base exits 0 and reports '1 failed on base'."""
-    calls = _mock_replay_repo(monkeypatch, JUNIT_ONE_FAILURE)
+    _mock_replay_repo(replay_state, JUNIT_ONE_FAILURE, exit_status=1)
     result = runner.invoke(
         app,
         ["fail-to-pass", "--base", "main"],
     )
+    pytest_calls = [c for c in git_fake.calls if "-m" in c.argv and "pytest" in c.argv]
     assert (
         result.exit_code,
-        len(calls),
+        len(pytest_calls),
         "1 failed on base" in result.output,
         "tests.test_sample::test_regression_fails" in result.output,
     ) == (0, 1, True, True)
 
 
 def test_fail_to_pass_passing_test_on_base_exits_1_and_names_test(
-    monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
 ) -> None:
     """A test that passes on base exits 1 and names the test."""
-    _mock_replay_repo(monkeypatch, JUNIT_ALL_PASS)
+    _mock_replay_repo(replay_state, JUNIT_ALL_PASS)
     result = runner.invoke(
         app,
         ["fail-to-pass", "--base", "main"],
@@ -227,10 +300,10 @@ def test_fail_to_pass_passing_test_on_base_exits_1_and_names_test(
 
 
 def test_fail_to_pass_collection_error_does_not_satisfy_check(
-    monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
 ) -> None:
     """A collection error is reported as errored and does not satisfy the fail-to-pass check."""
-    _mock_replay_repo(monkeypatch, JUNIT_COLLECTION_ERROR)
+    _mock_replay_repo(replay_state, JUNIT_COLLECTION_ERROR, exit_status=1)
     result = runner.invoke(
         app,
         ["fail-to-pass", "--base", "main"],
@@ -243,7 +316,7 @@ def test_fail_to_pass_collection_error_does_not_satisfy_check(
 
 
 def test_no_title_label_or_body_changes_the_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replay_state: _FailToPassState
 ) -> None:
     """The replay reads no pull request title, label or body (#1879): the workflow runs it only
     for a fix, so a run whose changed tests all pass on base fails, whatever the environment says,
@@ -253,7 +326,7 @@ def test_no_title_label_or_body_changes_the_result(
     monkeypatch.setenv("PR_TITLE", "feat(ci): add a check")
     monkeypatch.setenv("PR_LABELS", '["type/feature"]')
     monkeypatch.setenv("PR_BODY", "Fail-to-pass: not applicable: the tests pass on base\n")
-    _mock_replay_repo(monkeypatch, JUNIT_ALL_PASS)
+    _mock_replay_repo(replay_state, JUNIT_ALL_PASS)
 
     result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
     old_options = [
@@ -270,24 +343,18 @@ def test_no_title_label_or_body_changes_the_result(
 
 
 def test_fail_to_pass_materialises_base_and_overlays_head_tests(
-    tmp_path: Path, git: Callable[..., None]
+    tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
     """Materialising overlays the head's tests/ onto the merge-base source tree."""
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    (tmp_path / "src").mkdir()
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "src" / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")
-    (tmp_path / "tests" / "test_mod.py").write_text(
-        "def test_v():\n    assert 1 == 1\n", encoding="utf-8"
-    )
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "base")
-    git(tmp_path, "switch", "--quiet", "-c", "fix/bug")
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "src").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
     (tmp_path / "src" / "mod.py").write_text("VALUE = 2\n", encoding="utf-8")
     (tmp_path / "tests" / "test_mod.py").write_text(
         "def test_v():\n    assert 2 == 2\n", encoding="utf-8"
     )
-    git(tmp_path, "commit", "--quiet", "-am", "fix")
+    replay_state.base_files["src/mod.py"] = "VALUE = 1\n"
+    replay_state.changed_test_files = ("tests/test_mod.py",)
 
     merge_base, files = changed_test_files(tmp_path, "main", "HEAD")
     dest = tmp_path / "materialised"
@@ -304,64 +371,30 @@ def test_fail_to_pass_materialises_base_and_overlays_head_tests(
     )
 
 
-@pytest.mark.live("python")
 def test_a_new_module_s_test_that_cannot_import_on_base_leaves_the_other_tests_counted(
-    tmp_path: Path, git: Callable[..., None]
+    tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
     """A fix that adds a module and its test file cannot import that file on base; pytest then
     stops at collection unless told to continue, and the fix's other failing test goes unseen."""
-    files = {
-        "conftest.py": "",
-        "mod.py": "VALUE = 1\n",
-        "tests/test_mod.py": "from mod import VALUE\n\n\ndef test_value():\n    assert VALUE == 1\n",
-    }
-    for name, text in files.items():
-        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_text(text, encoding="utf-8")
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "base")
-    git(tmp_path, "switch", "--quiet", "-c", "fix/bug")
-    fixed = {
-        "mod.py": "VALUE = 2\n",
-        "newmod.py": "NEW = True\n",
-        "tests/test_mod.py": "from mod import VALUE\n\n\ndef test_value():\n    assert VALUE == 2\n",
-        "tests/test_newmod.py": "from newmod import NEW\n\n\ndef test_new():\n    assert NEW\n",
-    }
-    for name, text in fixed.items():
-        (tmp_path / name).write_text(text, encoding="utf-8")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "fix")
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    replay_state.changed_test_files = ("tests/test_mod.py", "tests/test_newmod.py")
+    replay_state.junit_xml = JUNIT_ONE_FAILURE_ONE_ERROR
+    replay_state.exit_status = 1
 
     report = run_fail_to_pass(tmp_path, base="main")
 
     assert (report.failed_count, report.errored_count, report.satisfied) == (1, 1, True)
 
 
-@pytest.mark.live("python")
 def test_a_test_that_runs_git_ls_files_passes_on_base_in_the_replay(
-    tmp_path: Path, git: Callable[..., None]
+    tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
     """The replay tree is a git work tree (#2197): a test that lists tracked files passes on
     base there, as it does in the checkout, and the replay does not fail for its own setup."""
-    test_text = (
-        "import subprocess\n\n\n"
-        "def test_tracked_files_are_listed():\n"
-        "    listed = subprocess.run(\n"
-        '        ["git", "ls-files", "mod.py"], capture_output=True, text=True, check=True\n'
-        "    ).stdout\n"
-        '    assert listed.split() == ["mod.py"]\n'
-    )
-    files = {"conftest.py": "", "mod.py": "VALUE = 1\n", "tests/test_git.py": test_text}
-    for name, text in files.items():
-        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_text(text, encoding="utf-8")
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "base")
-    git(tmp_path, "switch", "--quiet", "-c", "fix/bug")
-    (tmp_path / "tests" / "test_git.py").write_text(test_text + "\n# changed\n", encoding="utf-8")
-    git(tmp_path, "commit", "--quiet", "-am", "change the test")
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    replay_state.changed_test_files = ("tests/test_git.py",)
+    replay_state.junit_xml = JUNIT_ALL_PASS
+    replay_state.exit_status = 0
 
     report = run_fail_to_pass(tmp_path, base="main")
 
@@ -369,20 +402,15 @@ def test_a_test_that_runs_git_ls_files_passes_on_base_in_the_replay(
 
 
 def test_the_replay_leaves_no_worktree_behind(
-    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
     """The replay removes the worktree it adds, so the checkout lists no extra worktree."""
-    repo = _branch_changing_a_test(tmp_path, git)
-    _replayed_pytest(monkeypatch, exit_status=0, junit_xml=JUNIT_ALL_PASS)
+    repo = _branch_changing_a_test(tmp_path)
+    _replayed_pytest(replay_state, exit_status=0, junit_xml=JUNIT_ALL_PASS)
 
     run_fail_to_pass(repo, base="main")
 
-    listed = subprocess.run(
-        ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    listed = run_subprocess(["git", "-C", str(repo), "worktree", "list", "--porcelain"]).stdout
     assert listed.count("worktree ") == 1
 
 
@@ -417,13 +445,10 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
     )
 
 
-def test_fail_to_pass_dry_run_and_no_changed_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fail_to_pass_dry_run_and_no_changed_tests(replay_state: _FailToPassState) -> None:
     """Dry-run exits 0 without git calls, and a fix with no changed tests exits 1."""
     dry_res = runner.invoke(app, ["fail-to-pass", "--base", "main", "--dry-run"])
-    monkeypatch.setattr(
-        "devops_cli.ci.fail_to_pass.changed_test_files",
-        lambda _root, _base, _head="HEAD": ("deadbeef", ()),
-    )
+    replay_state.changed_test_files = ()
     empty_defect = runner.invoke(
         app,
         ["fail-to-pass", "--base", "main"],
@@ -444,15 +469,15 @@ def test_fail_to_pass_outcome_model_properties() -> None:
 
 def test_a_replay_pytest_could_not_start_fails_the_check(
     tmp_path: Path,
-    git: Callable[..., None],
     monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
     snapshot: SnapshotAssertion,
 ) -> None:
     """A replay whose pytest stops with an internal error and writes no JUnit report fails the
     check, names the exit status and the replay, and tells the author to merge the harness change
     first in a pull request that is not a fix (#1669, #1879)."""
-    monkeypatch.chdir(_branch_changing_a_test(tmp_path, git))
-    _replayed_pytest(monkeypatch, exit_status=3, stderr=INTERNAL_ERROR_OUTPUT)
+    monkeypatch.chdir(_branch_changing_a_test(tmp_path))
+    _replayed_pytest(replay_state, exit_status=3, stderr=INTERNAL_ERROR_OUTPUT)
 
     result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
 
@@ -470,14 +495,14 @@ def test_a_replay_that_could_not_run_prints_pytest_s_output_as_it_is(
     junit_xml: str | None,
     stderr: str,
     tmp_path: Path,
-    git: Callable[..., None],
     monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
     snapshot: SnapshotAssertion,
 ) -> None:
     """pytest's last output reaches the terminal as pytest wrote it: its brackets are not read
     as markup, nor its colon-wrapped words as emoji codes."""
-    monkeypatch.chdir(_branch_changing_a_test(tmp_path, git))
-    _replayed_pytest(monkeypatch, exit_status=exit_status, junit_xml=junit_xml, stderr=stderr)
+    monkeypatch.chdir(_branch_changing_a_test(tmp_path))
+    _replayed_pytest(replay_state, exit_status=exit_status, junit_xml=junit_xml, stderr=stderr)
 
     result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
 
@@ -550,18 +575,21 @@ def test_a_replay_that_stopped_or_wrote_no_report_could_not_run(
     outcomes: tuple[dict[str, str], ...],
     output_tail: str,
     tmp_path: Path,
-    git: Callable[..., None],
-    monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
     snapshot: SnapshotAssertion,
 ) -> None:
     """An interrupted (2), internally failed (3) or refused (4) pytest, or one that wrote no
     complete JUnit report, means the replay could not run, whatever outcomes the report holds;
     a report that is empty or never closes its root is no report."""
-    repo = _branch_changing_a_test(tmp_path, git)
+    repo = _branch_changing_a_test(tmp_path)
     could_not_run = {"exit_status": exit_status, "output_tail": output_tail}
     expected = _replay_report(repo, outcomes=outcomes, could_not_run=could_not_run)
     _replayed_pytest(
-        monkeypatch, exit_status=exit_status, junit_xml=junit_xml, stdout=stdout, stderr=stderr
+        replay_state,
+        exit_status=exit_status,
+        junit_xml=junit_xml,
+        stdout=stdout,
+        stderr=stderr,
     )
 
     report = run_fail_to_pass(repo, base="main")
@@ -589,15 +617,14 @@ def test_a_replay_that_could_not_run_keeps_the_last_whole_lines_within_the_bound
     stderr: str,
     output_tail: str,
     tmp_path: Path,
-    git: Callable[..., None],
-    monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
 ) -> None:
     """The report keeps the last whole lines of pytest's output that fit in 256 characters, all
     of them when they fill it exactly, or the end of the last line when that line alone is
     longer."""
-    repo = _branch_changing_a_test(tmp_path, git)
+    repo = _branch_changing_a_test(tmp_path)
     expected = _replay_report(repo, could_not_run={"exit_status": 3, "output_tail": output_tail})
-    _replayed_pytest(monkeypatch, exit_status=3, stderr=stderr)
+    _replayed_pytest(replay_state, exit_status=3, stderr=stderr)
 
     report = run_fail_to_pass(repo, base="main")
 
@@ -643,12 +670,11 @@ def test_a_replay_that_collects_and_runs_reports_its_outcomes(
     satisfied: bool,
     text: str,
     tmp_path: Path,
-    git: Callable[..., None],
-    monkeypatch: pytest.MonkeyPatch,
+    replay_state: _FailToPassState,
 ) -> None:
     """A replay whose tests collect and run, failing, passing or erroring, reports its outcomes."""
-    repo = _branch_changing_a_test(tmp_path, git)
-    _replayed_pytest(monkeypatch, exit_status=exit_status, junit_xml=junit_xml)
+    repo = _branch_changing_a_test(tmp_path)
+    _replayed_pytest(replay_state, exit_status=exit_status, junit_xml=junit_xml)
 
     report = run_fail_to_pass(repo, base="main")
 
@@ -656,12 +682,12 @@ def test_a_replay_that_collects_and_runs_reports_its_outcomes(
 
 
 def test_a_replay_that_collects_no_tests_is_an_empty_replay(
-    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
     """pytest's exit 5, no tests collected, is an empty replay, not one that could not run, and
     an empty replay does not satisfy the check."""
-    repo = _branch_changing_a_test(tmp_path, git)
-    _replayed_pytest(monkeypatch, exit_status=5, junit_xml=JUNIT_NO_TESTS, stdout="no tests ran")
+    repo = _branch_changing_a_test(tmp_path)
+    _replayed_pytest(replay_state, exit_status=5, junit_xml=JUNIT_NO_TESTS, stdout="no tests ran")
 
     report = run_fail_to_pass(repo, base="main")
 

@@ -14,35 +14,70 @@ from devops_cli.ci.cache import resolve_coverage_index_path
 from devops_cli.commands.ci import app as ci_app
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.core.coverage_index import INDEX_FORMAT_VERSION, load_index
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 runner = CliRunner()
 
 
-def _make_git_repo(tmp_path: Path) -> Path:
-    """Initialize a miniature git repository with tracked source and test files."""
-    subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "dev@example.com"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Dev"], cwd=tmp_path, check=True, capture_output=True
-    )
+def _make_git_repo(tmp_path: Path, git_fake: GitFake) -> Path:
+    """Initialize a miniature repository layout with source and test files."""
+    import hashlib
+
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
 
     src_dir = tmp_path / "src" / "devops_cli"
-    src_dir.mkdir(parents=True)
+    src_dir.mkdir(parents=True, exist_ok=True)
     (src_dir / "a.py").write_text("A = 1\n", encoding="utf-8")
 
     tests_dir = tmp_path / "tests"
-    tests_dir.mkdir(parents=True)
+    tests_dir.mkdir(parents=True, exist_ok=True)
     (tests_dir / "test_a.py").write_text("def test_a(): pass\n", encoding="utf-8")
 
-    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "initial commit"], cwd=tmp_path, check=True, capture_output=True
+    orig_a = hashlib.sha1(b"blob 6\0A = 1\n", usedforsecurity=False).hexdigest()
+    orig_t = hashlib.sha1(b"blob 19\0def test_a(): pass\n", usedforsecurity=False).hexdigest()
+
+    def _ls_files_answer(_call: ProcessCall) -> ProcessAnswer:
+        lines = [
+            f"100644 {orig_a} 0\tsrc/devops_cli/a.py",
+            f"100644 {orig_t} 0\ttests/test_a.py",
+        ]
+        return ProcessAnswer(returncode=0, stdout="\n".join(lines) + "\n")
+
+    def _status_answer(_call: ProcessCall) -> ProcessAnswer:
+        a_file = src_dir / "a.py"
+        if a_file.is_file() and a_file.read_text(encoding="utf-8") == "A = 1\n":
+            return ProcessAnswer(returncode=0, stdout="")
+        return ProcessAnswer(returncode=0, stdout=" M src/devops_cli/a.py\n")
+
+    def _hash_object_answer(call: ProcessCall) -> ProcessAnswer:
+        hashes: list[str] = []
+        if call.stdin and isinstance(call.stdin, str):
+            for path_str in call.stdin.splitlines():
+                if path_str:
+                    target_path = tmp_path / path_str
+                    data = target_path.read_bytes() if target_path.is_file() else b""
+                    h = hashlib.sha1(
+                        b"blob " + str(len(data)).encode() + b"\0" + data,
+                        usedforsecurity=False,
+                    ).hexdigest()
+                    hashes.append(h)
+        return ProcessAnswer(returncode=0, stdout="\n".join(hashes) + ("\n" if hashes else ""))
+
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv),
+        _ls_files_answer,
     )
+    git_fake.answer(
+        lambda call: bool(call.argv and "status" in call.argv),
+        _status_answer,
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "hash-object" in call.argv),
+        _hash_object_answer,
+    )
+
     return tmp_path
 
 
@@ -145,10 +180,10 @@ def test_coverage_without_build_index_preserves_standard_argv_and_env(
 
 
 def test_build_index_saves_index_after_passing_clean_run(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """A passing run on an unmodified tree builds and writes the reverse coverage index."""
-    repo = _make_git_repo(tmp_path)
+    repo = _make_git_repo(tmp_path, git_fake)
     coverage_db = repo / ".data" / ".coverage"
 
     def mock_run(cmd: list[str], *a: Any, **kw: Any) -> bool:
@@ -178,10 +213,10 @@ def test_build_index_saves_index_after_passing_clean_run(
 
 
 def test_build_index_saves_nothing_on_failed_run(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """A failing test run saves nothing and exits with a nonzero status code."""
-    repo = _make_git_repo(tmp_path)
+    repo = _make_git_repo(tmp_path, git_fake)
 
     def mock_run(cmd: list[str], *a: Any, **kw: Any) -> bool:
         return False
@@ -196,10 +231,10 @@ def test_build_index_saves_nothing_on_failed_run(
 
 
 def test_build_index_saves_nothing_and_exits_1_when_tree_changes(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """When a tracked source file changes during the run, save nothing and exit 1."""
-    repo = _make_git_repo(tmp_path)
+    repo = _make_git_repo(tmp_path, git_fake)
     coverage_db = repo / ".data" / ".coverage"
 
     def mock_run_with_mutation(cmd: list[str], *a: Any, **kw: Any) -> bool:

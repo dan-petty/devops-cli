@@ -16,6 +16,8 @@ from typer.testing import CliRunner
 from devops_cli.ci.mutate import MutationTarget, select_targets, tally
 from devops_cli.commands.ci import app, get_check_specs
 from devops_cli.config.constants import CONST_GITIGNORE_PATTERN_STYLE
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -144,21 +146,102 @@ def _write(root: Path, rel_path: str, text: str) -> None:
     target.write_text(text, encoding="utf-8")
 
 
+_SWITCHED_TO_MAIN: set[Path] = set()
+
+
+_LS_TREE_RESPONSES = {
+    MODULE_PATH: f"100644 blob sha_mod\t{MODULE_PATH}\0",
+    PACKAGE_PATH: f"100644 blob sha_pkg\t{PACKAGE_PATH}\0",
+    TEST_PATH: f"100644 blob sha_test\t{TEST_PATH}\0",
+}
+
+_CAT_FILE_RESPONSES = {
+    "sha_mod": BASE_MODULE,
+    "sha_pkg": "",
+    "sha_test": "def test_mod():\n    assert True\n",
+}
+
+
+def _mutate_merge_base(call: ProcessCall) -> ProcessAnswer:
+    base = call.argv[call.argv.index("merge-base") + 1]
+    if base == "main":
+        return ProcessAnswer(returncode=0, stdout="deadbeef\n")
+    return ProcessAnswer(returncode=1, stderr=f"fatal: Not a valid object name {base}\n")
+
+
+def _mutate_rev_parse(call: ProcessCall) -> ProcessAnswer:
+    for arg in call.argv:
+        if "main^{commit}" in arg:
+            return ProcessAnswer(returncode=0, stdout="deadbeef\n")
+        if "^{commit}" in arg:
+            return ProcessAnswer(returncode=1, stderr="fatal: Not a valid object name\n")
+    return ProcessAnswer(returncode=0, stdout="deadbeef\n")
+
+
+def _mutate_diff(root: Path) -> Callable[[ProcessCall], ProcessAnswer]:
+    def _diff(_call: ProcessCall) -> ProcessAnswer:
+        if root.resolve() in _SWITCHED_TO_MAIN:
+            return ProcessAnswer(returncode=0, stdout=f"M\0{MODULE_PATH}\0")
+        return ProcessAnswer(
+            returncode=0,
+            stdout=f"M\0{PACKAGE_PATH}\0M\0{MODULE_PATH}\0M\0{TEST_PATH}\0",
+        )
+
+    return _diff
+
+
+def _mutate_ls_tree(call: ProcessCall) -> ProcessAnswer:
+    rel = call.argv[-1]
+    if rel in _LS_TREE_RESPONSES:
+        return ProcessAnswer(returncode=0, stdout=_LS_TREE_RESPONSES[rel])
+    return ProcessAnswer(returncode=1)
+
+
+def _mutate_cat_file(call: ProcessCall) -> ProcessAnswer:
+    return ProcessAnswer(returncode=0, stdout=_CAT_FILE_RESPONSES.get(call.argv[-1], ""))
+
+
+def _mutate_ls_files(root: Path) -> Callable[[ProcessCall], ProcessAnswer]:
+    def _ls_files(_call: ProcessCall) -> ProcessAnswer:
+        if (root / UNTRACKED_PATH).is_file():
+            return ProcessAnswer(returncode=0, stdout=f"{UNTRACKED_PATH}\0")
+        return ProcessAnswer(returncode=0, stdout="")
+
+    return _ls_files
+
+
+def _setup_mutate_git_fake(git_fake: GitFake, root: Path) -> None:
+    git_fake.answer(lambda call: bool(call.argv and "merge-base" in call.argv), _mutate_merge_base)
+    git_fake.answer(lambda call: bool(call.argv and "rev-parse" in call.argv), _mutate_rev_parse)
+    git_fake.answer(lambda call: bool(call.argv and "diff" in call.argv), _mutate_diff(root))
+    git_fake.answer(lambda call: bool(call.argv and "ls-tree" in call.argv), _mutate_ls_tree)
+    git_fake.answer(lambda call: bool(call.argv and "cat-file" in call.argv), _mutate_cat_file)
+    git_fake.answer(
+        lambda call: bool(call.argv and "ls-files" in call.argv), _mutate_ls_files(root)
+    )
+
+
 @pytest.fixture
-def mutation_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
+def git() -> Callable[..., None]:
+    def run(root: Path, *args: str) -> None:
+        if args and args[0] == "switch":
+            _SWITCHED_TO_MAIN.add(root.resolve())
+            _write(root, MODULE_PATH, BASE_MODULE)
+            _write(root, PACKAGE_PATH, "")
+
+    return run
+
+
+@pytest.fixture
+def mutation_repo(tmp_path: Path, git_fake: GitFake) -> Path:
     """A repository whose `feature` branch changes the module, the package's `__init__` and
     a test module, which is no source mutmut mutates."""
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    _write(tmp_path, MODULE_PATH, BASE_MODULE)
-    _write(tmp_path, PACKAGE_PATH, "")
-    _write(tmp_path, TEST_PATH, "def test_mod():\n    assert True\n")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "--quiet", "-m", "base")
-    git(tmp_path, "switch", "--quiet", "-c", "feature")
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/feature\n", encoding="utf-8")
     _write(tmp_path, MODULE_PATH, HEAD_MODULE)
     _write(tmp_path, PACKAGE_PATH, "def version():\n    return 1\n")
     _write(tmp_path, TEST_PATH, "def test_mod():\n    assert 1\n")
-    git(tmp_path, "commit", "--quiet", "-am", "head")
+    _setup_mutate_git_fake(git_fake, tmp_path)
     return tmp_path
 
 
