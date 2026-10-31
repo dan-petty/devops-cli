@@ -66,7 +66,7 @@ dependencies = [
     "tree-sitter-dockerfile==0.2.0",
     "tree-sitter-yaml==0.7.2",
     "markdown-it-py==4.2.0",
-    "graphql-core==3.3.0",
+    "graphql-core==3.3.1",
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
     "gidgethub==6.0.0",
