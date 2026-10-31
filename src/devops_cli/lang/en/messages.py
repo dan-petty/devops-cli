@@ -1425,6 +1425,10 @@ class CIMessages:
         "cannot be verified by a narrowed run."
     )
     no_testable_files: str = "No source or test files supplied; nothing to verify."
+    directory_without_tests: str = (
+        "No test can be selected for the directory '{directory}'. Name a directory of tests/ "
+        "that holds a test module, a directory of src/, or a file."
+    )
     selection_fallback: str = (
         "Falling back to the full suite because the changed sources map to no tests."
     )

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from devops_cli.ci.cache import resolve_coverage_index_path
 from devops_cli.commands import ci as ci_module
@@ -455,6 +455,76 @@ def test_cli_exits_cleanly_for_documentation_only_changes(
     result = runner.invoke(ci_app, ["test", "README.md"])
 
     assert (result.exit_code, called) == (0, [])
+
+
+def _invoke_test_with(
+    monkeypatch: pytest.MonkeyPatch, project: Path, *args: str
+) -> tuple[Result, list[list[str]]]:
+    """`devops ci test <args>` run on the project with pytest doubled: the result and the pytest
+    command lines the run started."""
+    called: list[list[str]] = []
+
+    def record(cmd: list[str], **_: object) -> bool:
+        called.append(cmd)
+        return True
+
+    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
+    monkeypatch.setattr("devops_cli.commands.ci._run", record)
+    return runner.invoke(ci_app, ["test", *args]), called
+
+
+def test_cli_runs_the_test_modules_of_a_tests_directory(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """A directory under tests/ runs its test modules at any depth, and not its helpers (#2868)."""
+    (project / "tests" / "pkg" / "deep").mkdir(parents=True)
+    for name in ("test_a.py", "deep/test_b.py", "helper.py"):
+        (project / "tests" / "pkg" / name).write_text("X = 1\n", encoding="utf-8")
+
+    result, called = _invoke_test_with(monkeypatch, project, "tests/pkg/")
+
+    run_targets = sorted(arg for arg in called[0] if arg.startswith("tests/"))
+    assert (result.exit_code, run_targets) == (
+        0,
+        ["tests/pkg/deep/test_b.py", "tests/pkg/test_a.py"],
+    )
+
+
+@pytest.mark.parametrize("directory", ["tests/empty", "tests/..", "docs", "."])
+def test_cli_refuses_a_directory_that_gives_no_test_module(
+    monkeypatch: pytest.MonkeyPatch, project: Path, directory: str
+) -> None:
+    """A directory without a test module under tests/, and one outside src/ and tests/, exit 1
+    with an error that names it, and start no pytest (#2868)."""
+    (project / "tests" / "empty").mkdir()
+    (project / "tests" / "empty" / "helper.py").write_text("X = 1\n", encoding="utf-8")
+    (project / "docs").mkdir()
+
+    result, called = _invoke_test_with(monkeypatch, project, directory)
+
+    assert (result.exit_code, called, f"'{directory}'" in result.output) == (1, [], True)
+
+
+def test_cli_refuses_a_directory_with_a_fallback_too(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """The full-suite fallback does not turn a refused directory into a run: the argument is the
+    mistake, not a source without a test (#2868)."""
+    (project / "docs").mkdir()
+
+    result, called = _invoke_test_with(monkeypatch, project, "docs", "--fallback")
+
+    assert (result.exit_code, called) == (1, [])
+
+
+def test_cli_runs_the_tests_covering_a_source_directory(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """A directory under src/ runs the tests that cover the modules inside it (#2868)."""
+    result, called = _invoke_test_with(monkeypatch, project, "src/devops_cli/security")
+
+    run_targets = [arg for arg in called[0] if arg.startswith("tests/")]
+    assert (result.exit_code, "tests/test_credential_flow.py" in run_targets) == (0, True)
 
 
 def _worker_options(argv: list[str]) -> list[list[str]]:

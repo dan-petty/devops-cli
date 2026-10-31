@@ -735,8 +735,9 @@ class CICommandHelp:
         "serially, a larger selection on a few workers, and the full suite on every logical CPU."
     )
     test_paths: str = (
-        "Source or test files to verify. Narrows the run to covering tests; "
-        "omit to run the full suite."
+        "Source or test files, or directories of src/ or tests/, to verify. Narrows the run to "
+        "covering tests; a directory of tests/ runs its test modules. A directory that gives no "
+        "test is refused. Omit to run the full suite."
     )
     selection_fallback: str = (
         "Run the full suite when a changed source has no covering tests, rather than "
