@@ -4,11 +4,13 @@ audit log, never a value (#1921)."""
 from __future__ import annotations
 
 import json
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from devops_cli.config.settings import load_settings, save_settings
+from devops_cli.config.write_history import _copy
 from tests.support.config_writes import config_writes, written_keys
 from tests.support.fakes.clock import ClockFake
 
@@ -152,3 +154,31 @@ def test_config_set_of_a_credential_writes_no_config_file(
         isolate_devops_cli_config.read_text(encoding="utf-8"),
         written_keys(isolate_data_dir),
     ) == (0, before, [])
+
+
+def test_copy_preserves_source_mode(tmp_path: Path) -> None:
+    """_copy preserves the mode of the source file when redacting credentials."""
+    source_file = tmp_path / "source.yaml"
+    source_file.write_text("test: value\n", encoding="utf-8")
+    source_file.chmod(0o600)
+
+    assert stat.S_IMODE(source_file.stat().st_mode) == 0o600
+
+    dest_file = tmp_path / "dest.yaml"
+    _copy(source_file, dest_file, redact=[("test",)])
+
+    assert stat.S_IMODE(dest_file.stat().st_mode) == 0o600
+
+
+def test_copy_preserves_source_mode_no_redaction(tmp_path: Path) -> None:
+    """_copy preserves the mode of the source file when no redaction is requested."""
+    source_file = tmp_path / "source.yaml"
+    source_file.write_text("test: value\n", encoding="utf-8")
+    source_file.chmod(0o600)
+
+    assert stat.S_IMODE(source_file.stat().st_mode) == 0o600
+
+    dest_file = tmp_path / "dest.yaml"
+    _copy(source_file, dest_file, redact=[])
+
+    assert stat.S_IMODE(dest_file.stat().st_mode) == 0o600
