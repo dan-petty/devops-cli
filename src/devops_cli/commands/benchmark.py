@@ -17,6 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_BENCHMARK_TYPE,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import ERRORS, HELP
 from devops_cli.output import print_error, print_success, write_stdout, write_text_file
@@ -205,7 +206,40 @@ def _execute_embedding_benchmark(
         write_text_file(resolved_output, embed_report.model_dump_json(indent=2))
         print_success(f"Exported custom report to {resolved_output}")
 
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_benchmark
+        from devops_cli.dry_run.requests import render_request_plan
+
+        planned = plan_ai_benchmark(
+            models=model_list,
+            servers=server_list,
+            benchmark_type="embedding",
+        )
+        if format_type.lower() != "json":
+            render_request_plan("Plan for AI benchmark", planned)
+
     embed_runner.print_report(embed_report, format_type=format_type)
+
+
+def _render_tasks_dry_run(
+    report: Any,
+    runner: Any,
+    planned: list[Any],
+    format_type: str,
+) -> None:
+    import json
+
+    from devops_cli.dry_run.requests import render_request_plan
+
+    if format_type.lower() == "json":
+        data = report.model_dump(mode="json")
+        data["requests"] = [r.__dict__ for r in planned]
+        write_stdout(json.dumps(data, indent=2) + "\n")
+    elif format_type.lower() == "markdown":
+        write_stdout(runner.to_markdown(report) + "\n")
+    else:
+        render_request_plan("Plan for AI benchmark", planned)
+        runner.render_results(report)
 
 
 def _execute_tasks_benchmark(
@@ -220,6 +254,8 @@ def _execute_tasks_benchmark(
     format_type: str,
 ) -> None:
     """Execute peer-grading task benchmark run."""
+    import json
+
     from devops_cli.ai.benchmark.runner import BenchmarkRunner
     from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
 
@@ -231,18 +267,47 @@ def _execute_tasks_benchmark(
         print_error(err)
         raise typer.Exit(1)
 
+    effective_dry_run = dry_run or is_dry_run()
+    if effective_dry_run and format_type.lower() == "json":
+        from devops_cli.ai.ai_plans import plan_ai_benchmark
+        from devops_cli.models.benchmark import BenchmarkReport
+
+        planned = plan_ai_benchmark(
+            models=model_list,
+            servers=server_list,
+            benchmark_type="tasks",
+        )
+        rep = BenchmarkReport(
+            session_id="dry-run",
+            models_evaluated=model_list,
+            tasks_run=task_list,
+            responses=[],
+            peer_grades=[],
+            leaderboard=[],
+            server_benchmarks=[],
+            is_dry_run=True,
+        )
+        data = rep.model_dump(mode="json")
+        data["requests"] = [r.__dict__ for r in planned]
+        if output:
+            resolved_output = output.resolve()
+            write_text_file(resolved_output, json.dumps(data, indent=2))
+            print_success(f"Exported custom report to {resolved_output}")
+        write_stdout(json.dumps(data, indent=2) + "\n")
+        return
+
     runner = BenchmarkRunner(
         models=model_list,
         tasks=task_list,
         settings=settings,
         provider=provider,
-        is_dry_run=dry_run,
+        is_dry_run=effective_dry_run,
         concurrency=safe_concurrency,
         servers=server_list,
     )
 
     report = runner.execute()
-    if not dry_run:
+    if not effective_dry_run:
         _record_benchmark(
             "tasks",
             report,
@@ -251,10 +316,24 @@ def _execute_tasks_benchmark(
             format_type=format_type,
         )
 
+    if effective_dry_run:
+        from devops_cli.ai.ai_plans import plan_ai_benchmark
+
+        planned = plan_ai_benchmark(
+            models=model_list,
+            servers=server_list,
+            benchmark_type="tasks",
+        )
+        report.is_dry_run = True
+
     if output:
         resolved_output = output.resolve()
         write_text_file(resolved_output, report.model_dump_json(indent=2))
         print_success(f"Exported custom report to {resolved_output}")
+
+    if effective_dry_run:
+        _render_tasks_dry_run(report, runner, planned, format_type)
+        return
 
     if format_type.lower() == "json":
         write_stdout(report.model_dump_json(indent=2) + "\n")
@@ -264,6 +343,7 @@ def _execute_tasks_benchmark(
         runner.render_results(report)
 
 
+@dry_run_class("request-plan")
 @app.callback(invoke_without_command=True)
 def run_benchmark(
     ctx: typer.Context,
@@ -381,11 +461,13 @@ def run_benchmark(
     if servers:
         effective_ai_cfg = effective_ai_cfg.model_copy(update={"ollama_urls": server_list or []})
 
-    try:
-        resolve_ai_endpoint(effective_ai_cfg)
-    except ConfigurationError as exc:
-        print_error(f"Configuration error: {exc.message} ({exc.key})", prefix=False)
-        raise typer.Exit(1) from exc
+    effective_dry_run = dry_run or is_dry_run()
+    if not effective_dry_run:
+        try:
+            resolve_ai_endpoint(effective_ai_cfg)
+        except ConfigurationError as exc:
+            print_error(f"Configuration error: {exc.message} ({exc.key})", prefix=False)
+            raise typer.Exit(1) from exc
 
     model_list = parse_model_list(models, settings.ai.model)
     safe_concurrency = max(1, min(concurrency, 32))
@@ -407,7 +489,7 @@ def run_benchmark(
             model_list=model_list,
             settings=settings,
             provider=provider,
-            dry_run=dry_run,
+            dry_run=effective_dry_run,
             safe_concurrency=safe_concurrency,
             server_list=server_list,
             document=document,
@@ -423,7 +505,7 @@ def run_benchmark(
         tasks_filter=tasks_filter,
         settings=settings,
         provider=provider,
-        dry_run=dry_run,
+        dry_run=effective_dry_run,
         safe_concurrency=safe_concurrency,
         server_list=server_list,
         output=output,

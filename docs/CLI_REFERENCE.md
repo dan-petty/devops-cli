@@ -3549,16 +3549,28 @@ devops ai config [OPTIONS]
 **List available models for the configured provider.**
 
 ```bash
-devops ai models
+devops ai models [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai preload`
 
 **Preload configured model into VRAM across all configured Ollama servers.**
 
 ```bash
-devops ai preload
+devops ai preload [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai test`
 
@@ -3574,6 +3586,7 @@ devops ai test [OPTIONS]
 |---|---|---|---|
 | `--prompt`, `-p` | `string` | `Hello, world!` | Test prompt to send to the provider. |
 | `--url`, `-u` | `string` | - | Specific Ollama server URL to test. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai prewarm`
 
@@ -3594,6 +3607,7 @@ devops ai prewarm [OPTIONS]
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output results as structured JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai agents`
 
@@ -3611,6 +3625,7 @@ devops ai agents [OPTIONS]
 | `--template` | `boolean` | - | Generate from built-in template without calling the LLM. |
 | `--force` | `boolean` | - | Overwrite existing instruction files (such as AGENTS.md). |
 | `--file`, `-f` | `string` | - | Files to generate (repeatable). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai chat`
 
@@ -3633,6 +3648,7 @@ devops ai chat [OPTIONS]
 | `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 | `--prewarm` / `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
 | `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai bundle-models`
 
@@ -5033,6 +5049,7 @@ devops ai gateway status [OPTIONS]
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
 | `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai gateway routes`
 
@@ -5049,6 +5066,7 @@ devops ai gateway routes [OPTIONS]
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. Only the configured gateway gets the AI API key. |
 | `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai gateway connect`
 
@@ -5066,6 +5084,7 @@ devops ai gateway connect [OPTIONS]
 | `--namespace`, `-n` | `string` | `llm` | Kubernetes namespace. |
 | `--service` | `string` | `llm-gateway` | Name of the Service running the gateway. |
 | `--timeout` | `float` | `5.0` | Health probe timeout in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai gateway failover`
 
@@ -5089,6 +5108,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--reset` | `boolean` | - | Restore the default route of every virtual model and clear the circuit breaker. --simulate and --force apply only to a failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai gateway probe-backend`
 
@@ -5110,6 +5130,7 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 |---|---|---|---|
 | `--backend-url`, `-u` | `string` | - | Optional backend base URL override. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai gateway tune`
 
@@ -5141,6 +5162,7 @@ devops ai gateway tune [OPTIONS]
 | `--image` | `string` | `python:3.14-slim` | Python image for the sweep container. |
 | `--estimate` | `boolean` | - | Estimate capacity from prior measurements and GPU memory bandwidth without sending load. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai gateway load`
 
@@ -5160,6 +5182,7 @@ devops ai gateway load [OPTIONS]
 |---|---|---|---|
 | `--window`, `-w` | `string` | `1h` | How far back to look, e.g. 30m, 2h or 1d. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai gateway render`
 

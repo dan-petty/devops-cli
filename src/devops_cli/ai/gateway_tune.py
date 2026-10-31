@@ -121,6 +121,8 @@ class TuneReport(BaseModel):
     prompt_tokens: int
     max_tokens: int
     deployments: list[DeploymentTune]
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def discover_pool(model_info: list[dict[str, Any]], model_group: str) -> list[dict[str, Any]]:

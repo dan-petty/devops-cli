@@ -19,6 +19,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_PROVIDER,
     DEFAULT_TABLE_FORMAT,
 )
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP
 from devops_cli.output import (
     print_error,
@@ -59,6 +60,7 @@ def _build_report_rows(report: ModelChaosReport) -> list[list[str]]:
     return rows
 
 
+@dry_run_class("request-plan")
 def run_chaos_model_cmd(
     mode: Annotated[
         str,
@@ -117,6 +119,7 @@ def run_chaos_model_cmd(
         print_error(f"Invalid --error-rate '{error_rate}': must be between 0.0 and 1.0.")
         raise typer.Exit(code=1)
 
+    effective_dry_run = dry_run or is_dry_run()
     config = ChaosConfig(
         mode=chaos_mode,
         latency_ms=latency_ms,
@@ -126,11 +129,44 @@ def run_chaos_model_cmd(
         fallback_provider=fallback_provider,
         fallback_model=fallback_model,
         prompt=prompt,
-        dry_run=dry_run,
+        dry_run=effective_dry_run,
     )
 
     injector = ModelChaosInjector(config)
     report = injector.execute()
+
+    if effective_dry_run:
+        from devops_cli.ai.ai_plans import plan_ai_chaos_model
+        from devops_cli.dry_run.requests import render_request_plan
+
+        planned = plan_ai_chaos_model(
+            mode=mode,
+            primary_provider=primary_provider,
+            primary_model=primary_model,
+            fallback_provider=fallback_provider,
+            fallback_model=fallback_model,
+        )
+        report.dry_run = True
+        report.requests = [r.__dict__ for r in planned]
+        resolved = normalize_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(report.model_dump(), resolved)
+            return
+        render_request_plan("Plan for AI chaos-model fault injection", planned)
+        rows = _build_report_rows(report)
+        print_table(
+            title="AI Model Dependency Chaos Engineering Suite",
+            columns=[
+                ("Fault Mode", "cyan"),
+                ("Status", "bold"),
+                ("Fault Simulation", "white"),
+                ("Fallback Route", "yellow"),
+                ("Latency", "dim"),
+            ],
+            rows=rows,
+            box_style=None,
+        )
+        return
 
     resolved = normalize_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

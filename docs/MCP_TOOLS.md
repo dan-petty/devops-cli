@@ -14,7 +14,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_cost_report`](#ai-cost-report) | `true` | Generate detailed spend and token report across backend services and servers. |
 | [`ai_diagram`](#ai-diagram) | `true` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
 | [`ai_failover`](#ai-failover) | `false` | Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic. |
-| [`ai_gateway_failover`](#ai-gateway-failover) | `false` | Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset. |
+| [`ai_gateway_failover`](#ai-gateway-failover) | `true` | Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset. |
 | [`ai_gateway_probe_backend`](#ai-gateway-probe-backend) | `true` | Directly probe health and latency of an inference backend. |
 | [`ai_gateway_routes`](#ai-gateway-routes) | `true` | List registered virtual models and target backend inference instances. |
 | [`ai_gateway_status`](#ai-gateway-status) | `true` | Probe LLM Gateway health, latency, and circuit breaker metrics. |
@@ -288,7 +288,7 @@ Record a fallback route in the constellation flag; `devops ai gateway failover` 
 
 Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset.
 
-**Annotations:** `readOnlyHint: false`
+**Annotations:** `readOnlyHint: true`
 
 **Parameters:**
 
@@ -298,6 +298,7 @@ Trigger or test circuit-breaker failover of a virtual model to secondary backend
 | `simulate` | `boolean` | No | `True` | Simulate failover without altering active routing table. |
 | `force` | `boolean` | No | `False` | Bypass model capability tier minimum checks during failover. |
 | `reset` | `boolean` | No | `False` | Restore the default route of every virtual model and clear the circuit breaker. --simulate and --force apply only to a failover. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_gateway_probe_backend`
 
