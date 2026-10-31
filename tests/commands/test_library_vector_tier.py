@@ -328,9 +328,8 @@ def test_cli_ai_ingest_index_libraries(tmp_path: Path, cli: Callable[..., Any]) 
     result = cli("ai", "ingest", "index-libraries", "--dir", str(tmp_path), "--dry-run")
     assert result.exit_code == 0
     assert (
-        "Indexed" in result.stdout
-        or "demo-pkg" in result.stdout
-        or "dry-run" in result.stdout.lower()
+        "Plan for AI library contracts indexing" in result.stdout
+        or "valkey SET devops:ai:library" in result.stdout
     )
 
 
@@ -454,6 +453,10 @@ def test_cli_ai_ingest_index_libraries_live(
     assert result.exit_code == 0
     assert "demo-pkg" in result.stdout
     assert len(qdrant.collections.get("devops_libraries", [])) >= 2
+
+    json_result = cli("ai", "ingest", "index-libraries", "--dir", str(tmp_path), "--format", "json")
+    assert json_result.exit_code == 0
+    assert '"package": "demo-pkg"' in json_result.stdout
 
 
 def test_cli_ai_ingest_query_library_semantic(

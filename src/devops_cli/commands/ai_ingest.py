@@ -13,6 +13,7 @@ from devops_cli.ai.rag.library_store import library_contracts_dir, load_local_co
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
@@ -27,6 +28,7 @@ app = new_typer(
 )
 
 
+@dry_run_class("no-external-request")
 @app.command(name="library")
 def ingest_library(
     package_name: Annotated[str, typer.Argument(help=HELP.ai.ingest_library)],
@@ -72,6 +74,7 @@ def ingest_library(
     )
 
 
+@dry_run_class("request-plan")
 @app.command(name="docs")
 def ingest_docs(
     source: Annotated[str, typer.Argument(help=HELP.ai.ingest_docs)],
@@ -82,8 +85,34 @@ def ingest_docs(
     output_format: Annotated[
         str, typer.Option("--format", "-f", help=HELP.options.format_type)
     ] = DEFAULT_TABLE_FORMAT,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Ingest local or remote documentation into chunked markdown knowledge files."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_ingest_docs
+        from devops_cli.dry_run.requests import render_request_plan
+
+        planned = plan_ai_ingest_docs(source=source, max_pages=max_pages)
+        resolved = resolve_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            from devops_cli.models.library import IngestDocResult
+
+            res = IngestDocResult(
+                source=source,
+                is_remote=urlsplit(source).scheme in {"http", "https"},
+                total_pages=0,
+                total_chunks=0,
+                output_dir=str(output_dir or "<output-dir>"),
+                chunk_files=[],
+            )
+            data = res.model_dump()
+            data["requests"] = [r.__dict__ for r in planned]
+            data["is_dry_run"] = True
+            emit_serialized(data, resolved)
+            return
+        render_request_plan(f"Plan for AI ingest docs '{source}'", planned)
+        return
+
     from devops_cli.ai.library.docs_ingester import DocsIngester
     from devops_cli.output import print_error, print_table
 
@@ -256,6 +285,7 @@ def build_runtime_vector_store(
 _build_runtime_vector_store = build_runtime_vector_store
 
 
+@dry_run_class("request-plan")
 @app.command(name="index-libraries")
 def index_libraries(
     contracts_dir: Annotated[
@@ -267,6 +297,24 @@ def index_libraries(
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
     """Index exported library API contracts into Qdrant vector collection and Valkey cache."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_ingest_index_libraries
+        from devops_cli.dry_run.requests import render_request_plan
+
+        planned = plan_ai_ingest_index_libraries(contracts_dir)
+        resolved = resolve_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            contracts_dir_res = contracts_dir or library_contracts_dir()
+            contracts = load_local_contracts(contracts_dir_res)
+            payload = {
+                "packages": [c.package_name for c in contracts],
+                "dry_run": True,
+                "requests": [r.__dict__ for r in planned],
+            }
+            emit_serialized(payload, resolved)
+            return
+        render_request_plan("Plan for AI library contracts indexing", planned)
+        return
 
     from devops_cli.output import print_warning
 
@@ -276,22 +324,22 @@ def index_libraries(
         print_warning(f"No library contract JSON files found in {contracts_dir}.")
         return
 
-    if not dry_run:
-        store = _build_runtime_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
-        for contract in contracts:
-            store.index_contract(contract)
+    store = _build_runtime_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
+    for contract in contracts:
+        store.index_contract(contract)
 
     resolved = resolve_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        payload = [
-            {"package": c.package_name, "version": c.version, "dry_run": dry_run} for c in contracts
+        contracts_payload = [
+            {"package": c.package_name, "version": c.version, "dry_run": False} for c in contracts
         ]
-        emit_serialized(payload, resolved)
+        emit_serialized(contracts_payload, resolved)
         return
 
-    _render_index_libraries_table(contracts, dry_run=dry_run)
+    _render_index_libraries_table(contracts, dry_run=False)
 
 
+@dry_run_class("request-plan")
 @app.command(name="query-library")
 def query_library(
     query: Annotated[str, typer.Argument(help=HELP.ai.query_library)],
@@ -306,8 +354,27 @@ def query_library(
     output_format: Annotated[
         str, typer.Option("--format", "-f", help=HELP.options.format_type)
     ] = DEFAULT_TABLE_FORMAT,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Search library contracts and documentation via semantic search or exact symbol lookup."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_ingest_query_library
+        from devops_cli.dry_run.requests import render_request_plan
+
+        planned = plan_ai_ingest_query_library(query=query, package=package)
+        resolved = resolve_format(output_format)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            data = {
+                "query": query,
+                "package": package,
+                "exact": exact,
+                "dry_run": True,
+                "requests": [r.__dict__ for r in planned],
+            }
+            emit_serialized(data, resolved)
+            return
+        render_request_plan(f"Plan for AI query-library '{query}'", planned)
+        return
     from devops_cli.output import print_error
 
     store = _build_runtime_vector_store(

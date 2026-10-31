@@ -20,7 +20,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_gateway_status`](#ai-gateway-status) | `true` | Probe LLM Gateway health, latency, and circuit breaker metrics. |
 | [`ai_harness_offload`](#ai-harness-offload) | `true` | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_harness_status`](#ai-harness-status) | `true` | Display the harness slots as configured; nothing here checks a model is reachable. |
-| [`ai_ingest_library`](#ai-ingest-library) | `false` | Introspect an installed Python package and extract its public API contract. |
+| [`ai_ingest_library`](#ai-ingest-library) | `true` | Introspect an installed Python package and extract its public API contract. |
 | [`ai_ingest_query_library`](#ai-ingest-query-library) | `true` | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_pack_context`](#ai-pack-context) | `true` | Pack and prune source code context to fit token budget while preserving signatures. |
 | [`ai_prewarm`](#ai-prewarm) | `false` | Prewarm local models into GPU VRAM or evict idle models across cluster nodes. |
@@ -368,7 +368,7 @@ Display the harness slots as configured; nothing here checks a model is reachabl
 
 Introspect an installed Python package and extract its public API contract.
 
-**Annotations:** `readOnlyHint: false`
+**Annotations:** `readOnlyHint: true`
 
 **Parameters:**
 
@@ -393,6 +393,7 @@ Search library contracts and documentation via semantic search or exact symbol l
 | `exact` | `boolean` | No | `False` | Perform exact qualified symbol lookup instead of semantic vector search. |
 | `top_k` | `integer` | No | `5` | Maximum number of items to return or display. |
 | `contracts_dir` | `string` | No | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_pack_context`
 
