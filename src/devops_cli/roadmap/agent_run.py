@@ -54,10 +54,14 @@ def bounded_text(text: str) -> str:
 
 
 # A provider can echo what the model wrote into its error text, as Ollama does in `raw='...'`.
-# So the text of a body keeps its first line, hides each quoted part and a quote that is not
-# closed, and stops at the first `=` or `;`, where the echo of a value begins (#2794).
+# So the text of a body hides each quoted part and a quote that is not closed, and stops at the
+# first `=` or `;`, where the echo of a value begins (#2794).
 _BODY_QUOTED = re.compile(r"""(['"`]).*?(?:\1|$)""")
 _BODY_DATA = re.compile(r"[;=]")
+# The gateway wraps the error text of Ollama in the repr of a dict at the end of its message:
+# `Got unexpected response from Ollama: {'error': '<text>'}`. Only that shape is unwrapped, and
+# its text then goes through the same guards as any other, so its quoted words stay hidden (#2922).
+_BODY_WRAPPED = re.compile(r"""\{'error': (?:'(?P<single>[^']*)'|"(?P<double>[^"]*)")\}$""")
 
 
 def _body_string(body: object) -> str:
@@ -76,10 +80,13 @@ def _body_string(body: object) -> str:
 
 def body_error_text(body: object) -> str:
     """The error text in the `body` of a model's error reply, safe to show: masked and cut like
-    other stop text, then reduced to the part that the provider wrote and not the model."""
+    other stop text, then reduced to the part that the provider wrote and not the model: the error
+    text of a gateway wrapper when there is one (#2922)."""
     first = (_body_string(body).splitlines() or [""])[0]
-    hidden = _BODY_QUOTED.sub("<text>", bounded_text(first))
-    description = _BODY_DATA.split(hidden, maxsplit=1)[0]
+    text = bounded_text(first)
+    if wrapped := _BODY_WRAPPED.search(text):
+        text = wrapped["single"] or wrapped["double"] or ""
+    description = _BODY_DATA.split(_BODY_QUOTED.sub("<text>", text), maxsplit=1)[0]
     return "".join(char for char in description if char.isprintable()).strip()
 
 

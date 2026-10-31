@@ -388,11 +388,23 @@ A run that ends on a failed model call (a `ModelAPIError` that is not a refused 
 - **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of the work of the first turn, the requests of both turns, and the last text of the first turn, and the checkout is reset
 
 ### Requirement: A failed model call gives a reason with the error text of the provider
-The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status when it has one, and the name of the model. For a `ModelHTTPError` it SHALL also hold the error text of the body, masked and cut like other stop text, without a quoted part, a second line, or what follows the first `=` or `;`. For a `ModelRequestTimeout` it SHALL hold the deadline in seconds. It SHALL hold no other value of the body and not the message of the error.
+The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status if any, and the name of the model. For a `ModelHTTPError` it SHALL also hold the first line of the error text of the body: masked, cut like other stop text, without quoted parts, and ending at the first `=` or `;`. A gateway dict `{'error': '<text>'}` ending that line is read as `<text>`. For a `ModelRequestTimeout` it SHALL hold the deadline in seconds. It SHALL hold no other value.
 
 #### Scenario: The body of a 400
 - **WHEN** the body of a `ModelHTTPError` with the status 400 is a dict with the `message` "XML syntax error on line 75: unexpected EOF"
 - **THEN** the reason is "ModelHTTPError: HTTP 400, model example-model, body: XML syntax error on line 75: unexpected EOF"
+
+#### Scenario: The gateway wrapper
+- **WHEN** the message of the body is "litellm.BadRequestError: Ollama_chatException - KeyError: 'message', Got unexpected response from Ollama: {'error': 'XML syntax error on line 70: unexpected EOF'}"
+- **THEN** the reason holds "XML syntax error on line 70: unexpected EOF"
+
+#### Scenario: A token in the gateway wrapper
+- **WHEN** the error text inside the gateway wrapper holds a token in the form of a GitHub token
+- **THEN** the reason holds the text with the token masked
+
+#### Scenario: A quoted secret
+- **WHEN** the error text of the body, with or without the wrapper, holds a quoted part such as "db_password: hunter2" that has no `=` and no known secret form
+- **THEN** the reason holds `<text>` in place of the quoted part
 
 #### Scenario: A message and a body of a failed model call
 - **WHEN** the message of a `ModelAPIError` holds a token in the form of a GitHub token, or the body of a `ModelHTTPError` is a dict with the values of the keys `x-api-key` and `api_key` and no error text
@@ -404,7 +416,7 @@ The reason of a step that a failed model call ended SHALL hold the class of the 
 
 #### Scenario: A body that echoes the model
 - **WHEN** the error text of the body is "error parsing tool call: raw='{...DB_PASSWORD=hunter2...}', err=EOF", or holds a key and value such as "api_key=abc", or an unclosed quote, or a second line
-- **THEN** the reason holds the first line up to the quoted part or the first `=` or `;`, and no value of the echo
+- **THEN** the reason holds the first line up to the first `=` or `;`, with each quoted part hidden, and no value of the echo
 
 #### Scenario: The diff cannot be read
 - **WHEN** a model call fails and `git add` or `git diff` fails when the step reads the diff of the discarded work
@@ -522,6 +534,17 @@ Before the verification commands and the static checks, the step SHALL run `uv r
 #### Scenario: A symbolic link
 - **WHEN** a changed Python file is a symbolic link
 - **THEN** the step reports stopped, the reason names the link, and no formatter runs
+
+### Requirement: A failure of the generation inside a stream names a known cause
+When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the reason of the stopped step SHALL hold one more line, after the line of the class, the status and the body. The line SHALL say that the provider failed inside the stream and that tool call parsing failed is a known cause. The step SHALL choose the line by the fields of the error and not by its text.
+
+#### Scenario: A failure inside a stream
+- **WHEN** a model call fails with a 400 inside an open stream, and every send fails
+- **THEN** the reason holds a line that says tool call parsing failed is a known cause, after the line of the class, the status and the body
+
+#### Scenario: A failure outside a stream
+- **WHEN** a model call fails with a 400 that is not inside a stream, or with a 503
+- **THEN** the reason holds no such line
 
 ### Requirement: An error of the generation inside a stream is sent again
 When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again with the same history, at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. A send that gets a reply SHALL give the next failed request its own resends. The limits SHALL count the failed requests too. After the last send, the step SHALL stop with the reason of a failed model call.
