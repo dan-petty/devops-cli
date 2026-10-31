@@ -66,6 +66,8 @@ class ArgoFleetSyncResult(BaseModel):
     total_synced: int = 0
     total_failed: int = 0
     success: bool = True
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RolloutMetricThreshold(BaseModel):
@@ -94,6 +96,8 @@ class RolloutAnalysisResult(BaseModel):
     metric_results: list[dict[str, object]] = []
     action_taken: str = "promoted"
     reason: str = ""
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class GitOpsDriftEvent(BaseModel):
@@ -116,6 +120,8 @@ class GitOpsSyncTriggerResult(BaseModel):
     duration_seconds: float = 0.0
     timestamp: float = 0.0
     success: bool = True
+    dry_run: bool = False
+    requests: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _section(manifest: dict[str, Any], key: str) -> dict[str, Any]:

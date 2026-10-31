@@ -45,7 +45,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.validation import validate_k8s_name
-from devops_cli.dry_run import dry_run_command, is_dry_run
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.argo import ArgoError
 from devops_cli.http.client import new_http_client
@@ -213,11 +213,7 @@ def _argocd_client(settings: Any) -> httpx2.Client:
 
 
 @cd_apps_app.command("list")
-@dry_run_command(
-    command="devops argo cd apps list",
-    action="list_argocd_apps",
-    detail_params=["watch"],
-)
+@dry_run_class("request-plan")
 def cd_apps_list(
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
     interval: Annotated[float, typer.Option("--interval", "-i", help=HELP.argo.interval)] = 3.0,
@@ -227,6 +223,11 @@ def cd_apps_list(
     ] = False,
 ) -> None:
     """List all ArgoCD applications."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argocd_apps_list
+
+        render_request_plan("Plan for listing Argo CD applications", plan_argocd_apps_list())
+        return
 
     def _build_apps_table() -> TablePayload:
         settings = load_settings()
@@ -276,13 +277,23 @@ def cd_apps_list(
 
 
 @cd_apps_app.command("sync")
+@dry_run_class("request-plan")
 def cd_apps_sync(
     name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
     prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
     force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Trigger a sync for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argocd_apps_sync
+
+        render_request_plan(
+            f"Plan for syncing Argo CD application '{name}'",
+            plan_argocd_apps_sync(name=name, prune=prune, force=force),
+        )
+        return
     settings = load_settings()
     base, headers = _argocd(settings)
 
@@ -303,12 +314,7 @@ def cd_apps_sync(
 
 
 @cd_apps_app.command("status")
-@dry_run_command(
-    command="devops argo cd apps status",
-    action="show_argocd_app_status",
-    target_param="name",
-    detail_params=["watch"],
-)
+@dry_run_class("request-plan")
 def cd_apps_status(
     name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
@@ -325,6 +331,14 @@ def cd_apps_status(
     when the status cannot be read, a tag names another digest, or a registry gives no digest.
     """
     _validate_k8s_name(name, "application name")
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argocd_apps_status
+
+        render_request_plan(
+            f"Plan for Argo CD application '{name}' status",
+            plan_argocd_apps_status(name=name),
+        )
+        return
 
     def _build_status_panel() -> tuple[PanelPayload, bool]:
         settings = load_settings()
@@ -405,12 +419,7 @@ def _pin_check_line(check: PinCheck) -> tuple[bool, str]:
 
 
 @cd_apps_app.command("bootstrap-gitops")
-@dry_run_command(
-    command="devops argo cd apps bootstrap-gitops",
-    action="bootstrap_argocd_gitops",
-    target_param="root_app_path",
-    detail_params=["context"],
-)
+@dry_run_class("request-plan")
 def cd_apps_bootstrap_gitops(
     root_app_path: Annotated[
         Path,
@@ -430,6 +439,14 @@ def cd_apps_bootstrap_gitops(
     ] = False,
 ) -> None:
     """Apply the GitOps root Application to bootstrap local project orchestration."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argocd_bootstrap_gitops
+
+        render_request_plan(
+            "Plan for bootstrapping GitOps root application",
+            plan_argocd_bootstrap_gitops(root_app_path, context=context),
+        )
+        return
     resolved_manifest = root_app_path.resolve()
     if not resolved_manifest.exists() or not resolved_manifest.is_file():
         print_error(f"Root app manifest not found or not a file: {root_app_path}", prefix=False)
@@ -578,12 +595,22 @@ def cd_apps_retire_helm_records(
 
 
 @workflows_app.command("list")
+@dry_run_class("request-plan")
 def workflows_list(
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """List Argo Workflows."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_workflows_list
+
+        render_request_plan(
+            "Plan for listing Argo Workflows",
+            plan_argo_workflows_list(namespace=_namespace(namespace)),
+        )
+        return
     workflows = get_argo_crd_service().list_workflows(namespace=_namespace(namespace))
     print_table(
         title=MESSAGES.argo.table_title_workflows,
@@ -596,15 +623,25 @@ def workflows_list(
 
 
 @workflows_app.command("submit")
+@dry_run_class("request-plan")
 def workflows_submit(
     file: Annotated[Path, typer.Argument(help=HELP.argo.workflow_file)],
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
     ] = None,
     wait: Annotated[bool, typer.Option("--wait", "-w", help=HELP.argo.wait)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Submit an Argo Workflow from a YAML file."""
     target_ns = _namespace(namespace)
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_workflows_submit
+
+        render_request_plan(
+            f"Plan for submitting Argo Workflow from {file}",
+            plan_argo_workflows_submit(file, namespace=target_ns),
+        )
+        return
     service = get_argo_crd_service()
     submitted = service.submit_workflow(_load_manifest(file.resolve()), namespace=target_ns)
     print_success(
@@ -618,6 +655,7 @@ def workflows_submit(
 
 
 @workflows_app.command("logs")
+@dry_run_class("request-plan")
 def workflows_logs(
     name: Annotated[str, typer.Argument(help=HELP.argo.workflow_name)],
     namespace: Annotated[
@@ -627,8 +665,18 @@ def workflows_logs(
         str, typer.Option("--container", "-c", help=HELP.argo.container)
     ] = CONST_ARGO_DEFAULT_LOG_CONTAINER,
     follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.argo.follow)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Stream logs for an Argo Workflow."""
+    target_ns = _namespace(namespace)
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_workflows_logs
+
+        render_request_plan(
+            f"Plan for streaming logs of Argo Workflow '{name}'",
+            plan_argo_workflows_logs(name, namespace=target_ns, container=container),
+        )
+        return
     from devops_cli.k8s.service import KubernetesService
 
     target_ns = _namespace(namespace)
@@ -682,12 +730,22 @@ def _rollout_step(state: ArgoRolloutState) -> str:
 
 
 @rollouts_app.command("list")
+@dry_run_class("request-plan")
 def rollouts_list(
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """List Argo Rollouts."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_rollouts_list
+
+        render_request_plan(
+            "Plan for listing Argo Rollouts",
+            plan_argo_rollouts_list(namespace=_namespace(namespace)),
+        )
+        return
     rollouts = get_argo_crd_service().list_rollouts(namespace=_namespace(namespace))
     print_table(
         title=MESSAGES.argo.table_title_rollouts,
@@ -707,15 +765,25 @@ def rollouts_list(
 
 
 @rollouts_app.command("status")
+@dry_run_class("request-plan")
 def rollouts_status(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
     ] = None,
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Show status for an Argo Rollout."""
     target_ns = _namespace(namespace)
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_rollouts_status
+
+        render_request_plan(
+            f"Plan for Argo Rollout '{name}' status",
+            plan_argo_rollouts_status(name, namespace=target_ns),
+        )
+        return
     service = get_argo_crd_service()
 
     if watch:
@@ -734,12 +802,7 @@ def rollouts_status(
 
 
 @fleet_app.command("sync")
-@dry_run_command(
-    command="devops argo fleet sync",
-    action="sync_argo_fleet",
-    target_param="app_name",
-    detail_params=["clusters", "fleet_name", "concurrency"],
-)
+@dry_run_class("request-plan")
 def fleet_sync(
     app_name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
     clusters: Annotated[
@@ -777,11 +840,49 @@ def fleet_sync(
 ) -> None:
     """Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency."""
     _validate_k8s_name(app_name, "application name")
-    from devops_cli.argo.fleet import render_fleet_sync_table, sync_fleet
-
     cluster_list = [c.strip() for c in clusters.split(",") if c.strip()]
     for c in cluster_list:
         _validate_k8s_name(c, "cluster name")
+
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_fleet_sync
+        from devops_cli.argo.fleet import resolve_cluster_app_name
+        from devops_cli.models.argo import ArgoFleetAppTarget, ArgoFleetSyncResult
+
+        planned = plan_argo_fleet_sync(
+            app_name=app_name,
+            clusters=cluster_list,
+            prune=prune,
+            force=force,
+        )
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            result = ArgoFleetSyncResult(
+                fleet_name=fleet_name,
+                targets=[
+                    ArgoFleetAppTarget(
+                        app_name=resolve_cluster_app_name(app_name, c),
+                        cluster=c,
+                        status="DryRun",
+                        message="Dry run simulation succeeded",
+                    )
+                    for c in cluster_list
+                ],
+                total_synced=len(cluster_list),
+                total_failed=0,
+                success=True,
+                dry_run=True,
+                requests=[r.__dict__ for r in planned],
+            )
+            emit_serialized(result.model_dump(), resolved)
+            return
+        render_request_plan(
+            f"Plan for syncing fleet '{fleet_name}' application '{app_name}'",
+            planned,
+        )
+        return
+
+    from devops_cli.argo.fleet import render_fleet_sync_table, sync_fleet
 
     result = sync_fleet(
         app_name=app_name,
@@ -804,6 +905,7 @@ def fleet_sync(
 
 
 @app.command("sync")
+@dry_run_class("request-plan")
 def argo_sync_cmd(
     name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
     fleet: Annotated[
@@ -841,6 +943,7 @@ def argo_sync_cmd(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed)."""
     if fleet:
@@ -853,18 +956,26 @@ def argo_sync_cmd(
             force=force,
             output_format=output_format,
             json_output=json_output,
+            dry_run=dry_run or is_dry_run(),
         )
     else:
+        if dry_run or is_dry_run():
+            from devops_cli.argo.argo_plans import plan_argocd_apps_sync
+
+            planned = plan_argocd_apps_sync(name=name, prune=prune, force=force)
+            resolved = resolve_format(output_format, json_output=json_output)
+            if resolved != CONST_OUTPUT_FORMAT_TABLE:
+                emit_serialized(
+                    {"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved
+                )
+                return
+            render_request_plan(f"Plan for syncing Argo CD application '{name}'", planned)
+            return
         cd_apps_sync(name=name, prune=prune, force=force)
 
 
 @rollouts_app.command("promote")
-@dry_run_command(
-    command="devops argo rollouts promote",
-    action="promote_argo_rollout",
-    target_param="name",
-    detail_params=["namespace", "full"],
-)
+@dry_run_class("request-plan")
 def rollouts_promote(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
@@ -882,6 +993,14 @@ def rollouts_promote(
     ] = False,
 ) -> None:
     """Promote an in-progress Argo Rollout to the next progressive step or full release."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_rollouts_promote
+
+        render_request_plan(
+            f"Plan for promoting rollout '{name}'",
+            plan_argo_rollouts_promote(name, namespace=namespace, full=full),
+        )
+        return
     from devops_cli.argo.rollouts import promote_rollout
 
     success = promote_rollout(name, namespace=namespace, full=full, dry_run=is_dry_run())
@@ -895,12 +1014,7 @@ def rollouts_promote(
 
 
 @rollouts_app.command("abort")
-@dry_run_command(
-    command="devops argo rollouts abort",
-    action="abort_argo_rollout",
-    target_param="name",
-    detail_params=["namespace"],
-)
+@dry_run_class("request-plan")
 def rollouts_abort(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
@@ -912,6 +1026,14 @@ def rollouts_abort(
     ] = False,
 ) -> None:
     """Abort an in-progress Argo Rollout and revert immediately to the stable replica set."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_rollouts_abort
+
+        render_request_plan(
+            f"Plan for aborting rollout '{name}'",
+            plan_argo_rollouts_abort(name, namespace=namespace),
+        )
+        return
     from devops_cli.argo.rollouts import abort_rollout
 
     success = abort_rollout(name, namespace=namespace, dry_run=is_dry_run())
@@ -922,12 +1044,7 @@ def rollouts_abort(
 
 
 @rollouts_app.command("restart")
-@dry_run_command(
-    command="devops argo rollouts restart",
-    action="restart_argo_rollout",
-    target_param="name",
-    detail_params=["namespace"],
-)
+@dry_run_class("request-plan")
 def rollouts_restart(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
@@ -939,6 +1056,14 @@ def rollouts_restart(
     ] = False,
 ) -> None:
     """Perform a restart rollout across all pods in an Argo Rollout."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_rollouts_restart
+
+        render_request_plan(
+            f"Plan for restarting rollout '{name}'",
+            plan_argo_rollouts_restart(name, namespace=namespace),
+        )
+        return
     from devops_cli.argo.rollouts import restart_rollout
 
     success = restart_rollout(name, namespace=namespace, dry_run=is_dry_run())
@@ -949,6 +1074,7 @@ def rollouts_restart(
 
 
 @rollouts_app.command("analyze")
+@dry_run_class("request-plan")
 def rollouts_analyze(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
@@ -982,6 +1108,32 @@ def rollouts_analyze(
     ] = False,
 ) -> None:
     """Evaluate metric rollback gates and trigger automated rollback on threshold violation."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_rollouts_analyze
+        from devops_cli.models.argo import RolloutAnalysisResult
+
+        planned = plan_argo_rollouts_analyze(
+            name=name,
+            namespace=namespace,
+            error_rate_threshold=error_rate_threshold,
+            auto_abort=auto_abort,
+        )
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            result = RolloutAnalysisResult(
+                rollout_name=name,
+                namespace=namespace,
+                passed=True,
+                metric_results=[],
+                action_taken="promoted",
+                reason="Dry run simulated rollout analysis",
+                dry_run=True,
+                requests=[r.__dict__ for r in planned],
+            )
+            emit_serialized(result.model_dump(), resolved)
+            return
+        render_request_plan(f"Plan for analyzing rollout '{name}'", planned)
+        return
     from devops_cli.argo.rollouts import evaluate_rollout_gate, render_rollout_analysis_table
     from devops_cli.models.argo import RolloutMetricThreshold
 
@@ -1093,11 +1245,7 @@ def _handle_gitops_continuous(
 
 
 @gitops_app.command("watch")
-@dry_run_command(
-    command="devops argo gitops watch",
-    action="watch_gitops_drift",
-    detail_params=["path", "app_name", "debounce_ms", "interval", "mode"],
-)
+@dry_run_class("request-plan")
 def gitops_watch(
     path: Annotated[
         str,
@@ -1154,6 +1302,22 @@ def gitops_watch(
         print_error(f"Unsupported GitOps sync mode '{mode}'. Allowed: api, webhook")
         raise typer.Exit(1)
 
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_gitops_watch
+
+        planned = plan_argo_gitops_watch(
+            app_name=app_name,
+            mode=mode,
+            prune=prune,
+            force=force,
+        )
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
+            return
+        render_request_plan(f"Plan for GitOps watch on '{app_name}'", planned)
+        return
+
     from devops_cli.argo.gitops import GitOpsWatcher
 
     paths = _parse_manifest_paths(path)
@@ -1175,6 +1339,7 @@ def gitops_watch(
 
 
 @gitops_app.command("drift")
+@dry_run_class("no-external-request")
 def gitops_drift(
     path: Annotated[
         str,
@@ -1222,12 +1387,7 @@ def gitops_drift(
 
 
 @gitops_app.command("sync")
-@dry_run_command(
-    command="devops argo gitops sync",
-    action="trigger_gitops_sync",
-    target_param="app_name",
-    detail_params=["mode"],
-)
+@dry_run_class("request-plan")
 def gitops_sync(
     app_name: Annotated[
         str,
@@ -1253,6 +1413,35 @@ def gitops_sync(
     if mode not in ("api", "webhook"):
         print_error(f"Unsupported GitOps sync mode '{mode}'. Allowed: api, webhook")
         raise typer.Exit(1)
+
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_gitops_sync
+        from devops_cli.models.argo import GitOpsSyncTriggerResult
+
+        planned = plan_argo_gitops_sync(
+            app_name=app_name,
+            mode=mode,
+            prune=prune,
+            force=force,
+        )
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            result = GitOpsSyncTriggerResult(
+                app_name=app_name,
+                changed_files=[],
+                status="DryRun",
+                sync_mode=mode,
+                message="Simulated GitOps synchronization trigger succeeded",
+                duration_seconds=0.0,
+                timestamp=0.0,
+                success=True,
+                dry_run=True,
+                requests=[r.__dict__ for r in planned],
+            )
+            emit_serialized(result.model_dump(), resolved)
+            return
+        render_request_plan(f"Plan for GitOps sync on '{app_name}'", planned)
+        return
 
     from devops_cli.argo.gitops import render_gitops_sync_table, trigger_argocd_sync
 

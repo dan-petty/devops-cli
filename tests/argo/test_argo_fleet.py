@@ -568,25 +568,24 @@ def test_rollout_gate_abort_failed() -> None:
 def test_rollout_dry_run_propagation() -> None:
     """Verify CLI rollout commands propagate dry-run mode and prevent execution."""
     with (
-        patch("devops_cli.dry_run.decorator.is_dry_run", return_value=True),
         patch("devops_cli.argo.rollouts.promote_rollout", return_value=True) as mock_promote,
         patch("devops_cli.argo.rollouts.abort_rollout", return_value=True) as mock_abort,
         patch("devops_cli.argo.rollouts.restart_rollout", return_value=True) as mock_restart,
     ):
-        res1 = runner.invoke(app, ["rollouts", "promote", "svc"])
+        res1 = runner.invoke(app, ["rollouts", "promote", "svc", "--dry-run"])
         assert res1.exit_code == 0
         mock_promote.assert_not_called()
-        assert "dry_run" in res1.output.lower()
+        assert "Plan for promoting rollout" in res1.output
 
-        res2 = runner.invoke(app, ["rollouts", "abort", "svc"])
+        res2 = runner.invoke(app, ["rollouts", "abort", "svc", "--dry-run"])
         assert res2.exit_code == 0
         mock_abort.assert_not_called()
-        assert "dry_run" in res2.output.lower()
+        assert "Plan for aborting rollout" in res2.output
 
-        res3 = runner.invoke(app, ["rollouts", "restart", "svc"])
+        res3 = runner.invoke(app, ["rollouts", "restart", "svc", "--dry-run"])
         assert res3.exit_code == 0
         mock_restart.assert_not_called()
-        assert "dry_run" in res3.output.lower()
+        assert "Plan for restarting rollout" in res3.output
 
 
 def test_mcp_argo_rollout_analyze_no_auto_abort() -> None:

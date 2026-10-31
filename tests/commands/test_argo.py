@@ -340,7 +340,7 @@ def test_argo_cd_apps_list_and_status_dry_run() -> None:
     try:
         res_list = runner.invoke(argo_app, ["cd", "apps", "list"])
         assert res_list.exit_code == 0
-        assert "list_argocd_apps" in res_list.output
+        assert "Plan for listing Argo CD applications" in res_list.output
     finally:
         set_dry_run(False)
 
