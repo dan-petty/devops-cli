@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.30.0](https://github.com/dan-petty/devops-cli/compare/v0.29.0...v0.30.0) (2026-10-31)
+
+
+### Features
+
+* **k8s:** mattermost team edition on cloudnativepg ([#2891](https://github.com/dan-petty/devops-cli/issues/2891)) ([c8e0948](https://github.com/dan-petty/devops-cli/commit/c8e0948e1c5d69b09287b842ce7ebc9c7d25dbc3))
+* **review:** preview requests in dry run for review commands ([#2892](https://github.com/dan-petty/devops-cli/issues/2892)) ([69c1f26](https://github.com/dan-petty/devops-cli/commit/69c1f262fc6a93425b9e8281db18ffa75837b7c1)), closes [#2248](https://github.com/dan-petty/devops-cli/issues/2248)
+
 ## [0.29.0](https://github.com/dan-petty/devops-cli/compare/v0.28.0...v0.29.0) (2026-10-31)
 
 
