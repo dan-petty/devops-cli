@@ -84,6 +84,10 @@ from devops_cli.github.projects import (
     sync_remote_project,
     sync_remote_project_views,
 )
+from devops_cli.github.rate_limit_view import (
+    format_rate_limit_rows,
+    parse_rate_limit_payload,
+)
 from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
 from devops_cli.github.secrets import (
     list_repository_secrets,
@@ -1278,54 +1282,6 @@ def api_cmd(
 # =============================================================================
 
 
-def _format_reset_time(epoch_seconds: int | float) -> str:
-    """Format an epoch timestamp into a human-readable UTC string and countdown."""
-    import time
-
-    now = time.time()
-    diff = int(epoch_seconds - now)
-    dt_str = datetime.datetime.fromtimestamp(epoch_seconds, datetime.UTC).strftime("%H:%M:%S UTC")
-    if diff <= 0:
-        return f"{dt_str} (ready)"
-    mins, secs = divmod(diff, 60)
-    return f"{dt_str} (in {mins}m {secs}s)"
-
-
-def _parse_rate_limit_payload(stdout: str) -> dict[str, Any]:
-    """Parse and validate JSON payload from GitHub rate_limit API."""
-    try:
-        data = json.loads(stdout) if stdout.strip() else {}
-    except json.JSONDecodeError as exc:
-        print_error(f"Failed to parse rate limit response: {exc}")
-        raise typer.Exit(1) from exc
-
-    if not isinstance(data, dict):
-        print_error("Invalid rate limit response: expected JSON object")
-        raise typer.Exit(1)
-
-    resources = data.get("resources")
-    if not isinstance(resources, dict):
-        print_error("Invalid rate limit response: missing 'resources' object")
-        raise typer.Exit(1)
-
-    return data
-
-
-def _format_rate_limit_rows(resources: dict[str, Any]) -> list[list[str]]:
-    """Format rate limit resources dictionary into display table rows."""
-    rows: list[list[str]] = []
-    for res_name, info in sorted(resources.items()):
-        if not isinstance(info, dict):
-            continue
-        limit = str(info.get("limit", "-")) if info.get("limit") is not None else "-"
-        used = str(info.get("used", "-")) if info.get("used") is not None else "-"
-        remaining = str(info.get("remaining", "-")) if info.get("remaining") is not None else "-"
-        reset_epoch = info.get("reset")
-        reset_str = _format_reset_time(float(reset_epoch)) if reset_epoch is not None else "-"
-        rows.append([res_name, limit, used, remaining, reset_str])
-    return rows
-
-
 @app.command("rate-limit", help=HELP.gh.rate_limit)
 @app.command("rate_limit", hidden=True)
 def rate_limit_cmd(
@@ -1347,7 +1303,11 @@ def rate_limit_cmd(
         print_error(f"Failed to query rate limits: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
-    data = _parse_rate_limit_payload(res.stdout)
+    try:
+        data = parse_rate_limit_payload(res.stdout)
+    except GitHubOperationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
 
     limiter = get_github_rate_limiter()
     throttles = limiter.get_total_throttles()
@@ -1364,7 +1324,7 @@ def rate_limit_cmd(
     print_table(
         title="GitHub API Rate Limits & Quotas",
         columns=["Resource", "Limit", "Used", "Remaining", "Reset"],
-        rows=_format_rate_limit_rows(data["resources"]),
+        rows=format_rate_limit_rows(data["resources"]),
     )
     print_info(
         f"Rate Limiter Activity: {throttles} throttle(s), {wait_sec:.1f}s total backoff wait"

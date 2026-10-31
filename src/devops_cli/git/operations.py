@@ -16,6 +16,7 @@ import subprocess
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
@@ -27,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_HTTP_PREFIX,
     CONST_GITHUB_HTTPS_PREFIX,
     CONST_GITHUB_KNOWN_HOSTS_LINES,
+    CONST_GITHUB_REPO_SUFFIX,
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -123,6 +125,43 @@ def _ensure_known_host(known_hosts: Path | None = None) -> None:
 def reset_known_host_cache() -> None:
     """Clear the cached known_hosts check."""
     _ensure_known_host.cache_clear()
+
+
+def _extract_url_path(url: str) -> tuple[str, bool]:
+    """Extract raw path from URL and return whether it is a file:// scheme."""
+    clean = url.strip()
+    parsed = urlsplit(clean)
+    if parsed.scheme:
+        return parsed.path, parsed.scheme == "file"
+    if ":" in clean:
+        _, _, path = clean.rpartition(":")
+        return path, False
+    return clean, False
+
+
+def parse_clone_destination(url: str) -> tuple[str, str]:
+    """Extract organization/group and repository name from a Git clone URL.
+
+    Returns (org_name, repo_name). Falls back to ("_standalone", repo_name)
+    when no organization or owner can be determined from the URL.
+    """
+    from devops_cli.core.paths import validate_no_path_traversal
+
+    path, is_file_scheme = _extract_url_path(url)
+    validate_no_path_traversal(path, label="URL path")
+    parts = [p for p in path.strip("/").split("/") if p]
+    if not parts:
+        return "_standalone", "repo"
+
+    repo_name = Path(parts[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)).name
+    if is_file_scheme:
+        return "_standalone", repo_name
+
+    if len(parts) >= 2 and ("." in parts[0] or ":" in parts[0]):
+        parts = parts[1:]
+
+    org_name = Path(parts[-2]).name if len(parts) >= 2 else "_standalone"
+    return org_name, repo_name
 
 
 def _validate_clone_dest(dest: Path) -> None:

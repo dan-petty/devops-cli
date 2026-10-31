@@ -24,6 +24,7 @@ from devops_cli.git.operations import (
     iter_workspace_repos,
     list_branches,
     list_changed_files,
+    parse_clone_destination,
     pull_tracking,
     read_file_at_revision,
     reset_known_host_cache,
@@ -520,3 +521,20 @@ def test_commit_snapshot_makes_the_same_one_commit_of_the_same_files(
             "GIT_COMMITTER_DATE": "2026-10-03T00:00:00+00:00",
         },
     )
+
+
+def test_parse_clone_destination_extracts_org_and_repo() -> None:
+    """`parse_clone_destination` resolves organization and repo name from HTTPS and SSH URLs."""
+    assert parse_clone_destination("https://github.com/my-org/my-repo.git") == (
+        "my-org",
+        "my-repo",
+    )
+    assert parse_clone_destination("git@github.com:my-org/my-repo.git") == (
+        "my-org",
+        "my-repo",
+    )
+    assert parse_clone_destination("file:///tmp/repo.git") == (
+        "_standalone",
+        "repo",
+    )
+    assert parse_clone_destination("just-a-repo") == ("_standalone", "just-a-repo")

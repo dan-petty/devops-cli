@@ -11,18 +11,22 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import pr_update
 from devops_cli.commands.pr import (
-    _build_update_branch_cmd,
     _execute_update_branch,
-    _parse_update_error,
     _process_candidate_pr_row,
     app,
+)
+from devops_cli.github.branch_update import (
+    build_dispatch_ci_cmd,
+    build_update_branch_cmd,
+    parse_update_error,
+    plan_update_all_prs,
 )
 
 
 def test_build_update_branch_cmd() -> None:
     """Test construction of GitHub CLI update-branch API command."""
-    cmd_plain = _build_update_branch_cmd("owner/repo", 101)
-    cmd_sha = _build_update_branch_cmd("owner/repo", 101, expected_head_sha="sha999")
+    cmd_plain = build_update_branch_cmd("owner/repo", 101)
+    cmd_sha = build_update_branch_cmd("owner/repo", 101, expected_head_sha="sha999")
 
     assert (
         cmd_plain,
@@ -42,10 +46,10 @@ def test_parse_update_error() -> None:
     err_plain = "HTTP 500 Server Error"
 
     assert (
-        _parse_update_error(err_simple),
-        _parse_update_error(err_detailed),
-        _parse_update_error(err_plain),
-        _parse_update_error(""),
+        parse_update_error(err_simple),
+        parse_update_error(err_detailed),
+        parse_update_error(err_plain),
+        parse_update_error(""),
     ) == (
         "Branch update failed",
         "Validation Failed: merge commit cannot be clean",
@@ -341,14 +345,14 @@ def test_update_all_lists_only_the_current_accounts_open_prs(
     person owns, such as the one release-please writes, is never updated."""
     from unittest.mock import patch
 
-    from devops_cli.commands.pr import _fetch_open_prs, _plan_update_all_prs
+    from devops_cli.commands.pr import _fetch_open_prs
 
     with patch(
         "devops_cli.commands.pr.run_gh", return_value=MagicMock(returncode=0, stdout="[]")
     ) as gh:
         _fetch_open_prs("owner/repo", base)
     listed = gh.call_args.args[0]
-    planned = list(_plan_update_all_prs("owner/repo", base)[0].argv)
+    planned = list(plan_update_all_prs("owner/repo", base)[0].argv)
     assert (listed[:7], listed[-2:] if base else [], planned) == (
         ["gh", "pr", "list", "--state", "open", "--author", "@me"],
         filtered,
@@ -357,10 +361,8 @@ def test_update_all_lists_only_the_current_accounts_open_prs(
 
 
 def test_build_dispatch_ci_cmd() -> None:
-    """_build_dispatch_ci_cmd returns proper GitHub CLI API dispatch invocation."""
-    from devops_cli.commands.pr import _build_dispatch_ci_cmd
-
-    cmd = _build_dispatch_ci_cmd("owner/repo", "feat/x")
+    """build_dispatch_ci_cmd returns proper GitHub CLI API dispatch invocation."""
+    cmd = build_dispatch_ci_cmd("owner/repo", "feat/x")
     assert cmd == [
         "gh",
         "api",

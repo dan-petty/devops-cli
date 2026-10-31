@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 if TYPE_CHECKING:
     from devops_cli.github.client import GitHubClient
-from urllib.parse import urlsplit
 
 import typer
 
@@ -36,6 +35,7 @@ from devops_cli.git.operations import (
     current_branch,
     fetch_all,
     iter_workspace_repos,
+    parse_clone_destination,
     pull_tracking,
 )
 from devops_cli.git.worktree_add import ReclaimResult, add_worktree, reclaim_merged_worktrees
@@ -208,41 +208,6 @@ def clone_org(
 # =============================================================================
 
 
-def _extract_url_path(url: str) -> tuple[str, bool]:
-    """Extract raw path from URL and return whether it is a file:// scheme."""
-    clean = url.strip()
-    parsed = urlsplit(clean)
-    if parsed.scheme:
-        return parsed.path, parsed.scheme == "file"
-    if ":" in clean:
-        _, _, path = clean.rpartition(":")
-        return path, False
-    return clean, False
-
-
-def _parse_clone_destination(url: str) -> tuple[str, str]:
-    """Extract organization/group and repository name from a Git clone URL.
-
-    Returns (org_name, repo_name). Falls back to ("_standalone", repo_name)
-    when no organization or owner can be determined from the URL.
-    """
-    path, is_file_scheme = _extract_url_path(url)
-    validate_no_path_traversal(path, label="URL path")
-    parts = [p for p in path.strip("/").split("/") if p]
-    if not parts:
-        return "_standalone", "repo"
-
-    repo_name = Path(parts[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)).name
-    if is_file_scheme:
-        return "_standalone", repo_name
-
-    if len(parts) >= 2 and ("." in parts[0] or ":" in parts[0]):
-        parts = parts[1:]
-
-    org_name = Path(parts[-2]).name if len(parts) >= 2 else "_standalone"
-    return org_name, repo_name
-
-
 @app.command()
 def clone(
     url: Annotated[str, typer.Argument(help=HELP.repos.repo_url)],
@@ -271,7 +236,7 @@ def clone(
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
     try:
-        org_name, raw_name = _parse_clone_destination(url)
+        org_name, raw_name = parse_clone_destination(url)
         validate_no_path_traversal(org_name, label="Organization name")
         validate_no_path_traversal(raw_name, label="Repository name")
     except Exception as exc:
