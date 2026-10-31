@@ -269,7 +269,7 @@ roadmap configuration settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `alternatives` | `AlternativesConfig` | `limit=5 recheck_days=30` | - | - |
-| `stage` | `RoadmapStageConfig` | `filter=['status=ready', 'priority=p0-critical', 'priority=p1-high', 'type=bug'] limit=3 step_tokens=40000` | - | - |
+| `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 step_tokens=40000` | - | - |
 | `implement` | `RoadmapImplementConfig` | `in_runner=False` | - | - |
 
 ## Firecrawl Configuration (`firecrawl`)
