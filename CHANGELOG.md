@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.27.0](https://github.com/dan-petty/devops-cli/compare/v0.26.1...v0.27.0) (2026-10-31)
+
+
+### Features
+
+* **ai:** preview requests in dry run for model and gateway ([#2862](https://github.com/dan-petty/devops-cli/issues/2862)) ([efd6159](https://github.com/dan-petty/devops-cli/commit/efd615964d281fabb8b9035181aa2bd78218d1df)), closes [#2241](https://github.com/dan-petty/devops-cli/issues/2241)
+* **argo:** preview requests in dry run for argo commands ([#2855](https://github.com/dan-petty/devops-cli/issues/2855)) ([9b18d68](https://github.com/dan-petty/devops-cli/commit/9b18d683445ef2e210a443d28a5506b56a29639a)), closes [#2240](https://github.com/dan-petty/devops-cli/issues/2240)
+* **k8s:** preview requests in dry run for manifest commands ([#2851](https://github.com/dan-petty/devops-cli/issues/2851)) ([92be95c](https://github.com/dan-petty/devops-cli/commit/92be95c7e8c0ec940e8bba0ee43a72bbe4df05ab)), closes [#2239](https://github.com/dan-petty/devops-cli/issues/2239)
+
 ## [0.26.1](https://github.com/dan-petty/devops-cli/compare/v0.26.0...v0.26.1) (2026-10-31)
 
 
