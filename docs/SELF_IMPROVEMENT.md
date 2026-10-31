@@ -557,7 +557,7 @@ Before altering implementation code in `src/`:
 ### Step 5: Verify
 
 - Run the targeted tests: `uv run devops ci test <test-file>`.
-- Push through the pre-push hook, which runs the fast static checks. The required checks of CI run the full suite before the merge. Run `uv run devops ci` by hand if you want every check before the push.
+- Push through the pre-push hook, which runs the fast static checks. The required checks of CI run the full suite before the merge. A plan-only pull request runs `tests/invariants` only (see [The Plan-Only Test Run](SDLC.md#the-plan-only-test-run-ciyml-test)). Run `uv run devops ci` by hand if you want every check before the push.
 
 ### Step 6: Leave the Verdict to a Person and Prevent a Recurrence
 

@@ -220,6 +220,7 @@ A pull request is plan-only when every changed file is a file of an active chang
 - A file in `openspec/specs/`, the file `openspec/config.yaml`, or a file under `.github/`.
 - A source, test, document or any other file. A file moved out of `src/` lists its old path as deleted, so it counts, too.
 - A push to `main` or a manual run. Only a `pull_request` event runs the filter.
+- A pull request with 3000 changed files or more. The REST list of the files holds 3000 files at most and gives no sign of a cut, so the filter does not run and the full suite runs.
 
 The job keeps its name and its place. Its steps are skipped, not the job, so the required check `Tests & Coverage` reports success. The rule does not cover `docs/` or the README, because tests read those files.
 
