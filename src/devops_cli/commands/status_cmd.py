@@ -12,6 +12,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions.telemetry import ServiceStatusError
 from devops_cli.output import (
     print_error,
@@ -60,7 +61,39 @@ def _resolve_target_services(service: str) -> tuple[str, ...]:
     return (clean_svc,)
 
 
+def _handle_status_dry_run(targets: tuple[str, ...], output_format: str, json_output: bool) -> None:
+    from devops_cli.dry_run.requests import render_request_plan
+    from devops_cli.telemetry.service_status import service_status_requests
+
+    planned = service_status_requests(targets)
+    resolved_format = resolve_format(output_format, json_output=json_output)
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(
+            {"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved_format
+        )
+        return
+    render_request_plan("Plan for status", planned)
+
+
+def _fetch_target_statuses(targets: tuple[str, ...], emit_telemetry: bool) -> dict[str, Any]:
+    fetchers = {
+        "github": service_status.fetch_github_status,
+        "cloudflare": service_status.fetch_cloudflare_status,
+    }
+    results = {}
+    for svc in targets:
+        try:
+            summary = fetchers[svc]()
+            results[svc] = summary
+            if emit_telemetry:
+                service_status.emit_service_status_telemetry(summary, svc)
+        except ServiceStatusError as exc:
+            print_error(f"Failed to fetch {svc} status: {exc.message}")
+    return results
+
+
 @app.callback(invoke_without_command=True)
+@dry_run_class("request-plan")
 def status_main(
     ctx: typer.Context,
     service: Annotated[
@@ -82,27 +115,21 @@ def status_main(
             help="Emit operational service status metrics over OpenTelemetry to Prometheus",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview statuspage requests without HTTP calls"),
+    ] = False,
 ) -> None:
     """Inspect published operational status of upstream cloud platforms."""
     if ctx.invoked_subcommand is not None:
         return
 
     targets = _resolve_target_services(service)
-    fetchers = {
-        "github": service_status.fetch_github_status,
-        "cloudflare": service_status.fetch_cloudflare_status,
-    }
+    if dry_run or is_dry_run():
+        _handle_status_dry_run(targets, output_format, json_output)
+        return
 
-    results = {}
-    for svc in targets:
-        try:
-            summary = fetchers[svc]()
-            results[svc] = summary
-            if emit_telemetry:
-                service_status.emit_service_status_telemetry(summary, svc)
-        except ServiceStatusError as exc:
-            print_error(f"Failed to fetch {svc} status: {exc.message}")
-
+    results = _fetch_target_statuses(targets, emit_telemetry)
     if not results:
         raise typer.Exit(1)
 

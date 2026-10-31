@@ -1497,6 +1497,7 @@ def issues_close_cmd(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     help=HELP.gh.api,
 )
+@dry_run_class("request-plan")
 def api_cmd(
     ctx: typer.Context,
     endpoint: Annotated[
@@ -1526,6 +1527,10 @@ def api_cmd(
         float,
         typer.Option("--cache-ttl", help="Cache TTL in seconds (default 15.0)"),
     ] = 15.0,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching."""
     args = ["api", endpoint]
@@ -1539,6 +1544,14 @@ def api_cmd(
         args.extend(["-t", template])
     if ctx.args:
         args.extend(ctx.args)
+
+    if dry_run or is_dry_run():
+        from devops_cli.roadmap.request_plan import planned_gh
+
+        repeat = MESSAGES.roadmap.plan_repeat_page if paginate else ""
+        planned = [planned_gh(args, f"GitHub API {endpoint}", repeat=repeat)]
+        render_request_plan(f"Plan for api ({endpoint})", planned)
+        return
 
     # gh walks every `Link` page of a `--paginate` call in one process, under one timeout.
     timeout = (
@@ -1568,16 +1581,31 @@ def api_cmd(
 
 @app.command("rate-limit", help=HELP.gh.rate_limit)
 @app.command("rate_limit", hidden=True)
+@dry_run_class("request-plan")
 def rate_limit_cmd(
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
     if output_format not in {"table", "json"}:
         print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
         raise typer.Exit(1)
+
+    if dry_run or is_dry_run():
+        from devops_cli.roadmap.request_plan import planned_gh
+
+        planned = [planned_gh(["api", "rate_limit"], "rate_limit")]
+        if output_format == "json":
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, "json")
+            return
+        render_request_plan("Plan for rate-limit", planned)
+        return
 
     res = run_gh(["api", "rate_limit"], check=False, quiet=True, use_cache=False)
     if res.returncode != 0:
@@ -1616,6 +1644,7 @@ def rate_limit_cmd(
 
 
 @app.command("status")
+@dry_run_class("request-plan")
 def gh_status_cmd(
     output_format: Annotated[
         str,
@@ -1632,8 +1661,22 @@ def gh_status_cmd(
             help="Emit operational service status metrics over OpenTelemetry to Prometheus",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Display GitHub published operational status, key components, and active incidents."""
+    if dry_run or is_dry_run():
+        from devops_cli.telemetry.service_status import service_status_requests
+
+        planned = service_status_requests(("github",))
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
+            return
+        render_request_plan("Plan for GitHub status", planned)
+        return
     from devops_cli.exceptions.telemetry import ServiceStatusError
     from devops_cli.telemetry.service_status import (
         emit_service_status_telemetry,
@@ -1815,6 +1858,7 @@ def runs_view_cmd(
 
 
 @branch_protection_app.command("audit", help=HELP.gh.branch_protection_audit)
+@dry_run_class("request-plan")
 def audit_branch_protection_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     branch: Annotated[
@@ -1830,6 +1874,10 @@ def audit_branch_protection_cmd(
         typer.Option("--format", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit branch protection against declarative policy specifications."""
     target_repo = _resolve_repo(repo)
@@ -1838,6 +1886,17 @@ def audit_branch_protection_cmd(
     except Exception as exc:
         print_error(f"Failed to load branch protection policies: {exc}")
         raise typer.Exit(1) from exc
+
+    if dry_run or is_dry_run():
+        from devops_cli.github.branch_protection import audit_branch_protection_requests
+
+        planned = audit_branch_protection_requests(target_repo, policies, branch=branch)
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
+            return
+        render_request_plan(f"Plan for auditing branch protection ({target_repo})", planned)
+        return
 
     results = audit_branch_protection(target_repo, policies, branch=branch)
 
@@ -1871,6 +1930,7 @@ def audit_branch_protection_cmd(
 
 
 @branch_protection_app.command("sync", help=HELP.gh.branch_protection_sync)
+@dry_run_class("request-plan")
 def sync_branch_protection_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     branch: Annotated[
@@ -1897,7 +1957,14 @@ def sync_branch_protection_cmd(
         print_error(f"Failed to load branch protection policies: {exc}")
         raise typer.Exit(1) from exc
 
-    res = sync_branch_protection(target_repo, policies, branch=branch, dry_run=dry_run)
+    if dry_run or is_dry_run():
+        from devops_cli.github.branch_protection import sync_branch_protection_requests
+
+        planned = sync_branch_protection_requests(target_repo, policies, branch=branch)
+        render_request_plan(f"Plan for synchronizing branch protection ({target_repo})", planned)
+        return
+
+    res = sync_branch_protection(target_repo, policies, branch=branch, dry_run=False)
     mode_text = "[yellow][DRY RUN][/yellow] " if res.dry_run else ""
     summary_parts = [
         f"{len(res.synced_branches)} synced ({', '.join(res.synced_branches) or 'none'})",
@@ -1923,6 +1990,7 @@ def sync_branch_protection_cmd(
 
 
 @secrets_app.command("sync", help=HELP.gh.secrets_sync)
+@dry_run_class("request-plan")
 def sync_secrets_cmd(
     secret_names: Annotated[
         str,
@@ -1947,6 +2015,13 @@ def sync_secrets_cmd(
     names = [n.strip() for n in secret_names.split(",") if n.strip()]
     if not names:
         print_warning("No secret names provided to synchronize.")
+        return
+
+    if dry_run or is_dry_run():
+        from devops_cli.github.secrets import sync_secrets_requests
+
+        planned = sync_secrets_requests(target_repo, names)
+        render_request_plan(f"Plan for synchronizing secrets ({target_repo})", planned)
         return
 
     try:
@@ -1980,11 +2055,23 @@ def sync_secrets_cmd(
 
 
 @secrets_app.command("list")
+@dry_run_class("request-plan")
 def list_secrets_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List Actions secrets configured in the repository (names only, values are hidden)."""
     target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        from devops_cli.github.secrets import list_secrets_requests
+
+        planned = list_secrets_requests(target_repo)
+        render_request_plan(f"Plan for listing secrets ({target_repo})", planned)
+        return
+
     secrets = list_repository_secrets(target_repo)
     if not secrets:
         print_info(f"No repository secrets found for {target_repo}.")
@@ -2079,7 +2166,21 @@ def _render_traffic_tables(traffic: TrafficSummaryMetric, repo: str) -> None:
         print_table(f"Popular Content Paths - 14 Days ({repo})", columns, rows)
 
 
+def _handle_metrics_dry_run(
+    target_repo: str, ci_limit: int, output_format: str, json_output: bool
+) -> None:
+    from devops_cli.github.metrics import project_metrics_requests
+
+    planned = project_metrics_requests(target_repo, ci_limit=ci_limit)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
+        return
+    render_request_plan(f"Plan for project metrics ({target_repo})", planned)
+
+
 @app.command("metrics")
+@dry_run_class("request-plan")
 def project_metrics_cmd(
     limit: Annotated[
         int,
@@ -2109,9 +2210,17 @@ def project_metrics_cmd(
             help="Emit project and velocity metrics over OpenTelemetry to Prometheus",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and roadmap Items."""
     target_repo = _resolve_repo(repo)
+    if dry_run or is_dry_run():
+        _handle_metrics_dry_run(target_repo, ci_limit, output_format, json_output)
+        return
+
     report = collect_project_metrics_report(
         repo=target_repo,
         release_limit=limit,

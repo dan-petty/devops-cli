@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 import yaml
 from pydantic import BaseModel, Field
@@ -133,10 +136,31 @@ def _is_branch_unprotected_error(err_msg: str) -> bool:
     return "404" in err_msg and ("branch" in err_lower or "protection" in err_lower)
 
 
+def audit_branch_protection_args(repo: str, branch: str) -> list[str]:
+    """Arguments for fetching branch protection configuration via gh api."""
+    return ["api", f"repos/{repo}/branches/{branch}/protection"]
+
+
+def audit_branch_protection_requests(
+    repo: str,
+    policies: list[BranchProtectionPolicy],
+    branch: str | None = None,
+) -> list[PlannedRequest]:
+    """Planned requests for auditing branch protection rules."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    target_policies = [p for p in policies if branch is None or p.branch == branch]
+    requests: list[PlannedRequest] = []
+    for pol in target_policies:
+        args = audit_branch_protection_args(repo, pol.branch)
+        requests.append(planned_gh(args, f"repos/{repo}/branches/{pol.branch}/protection"))
+    return requests
+
+
 def get_remote_branch_protection(repo: str, branch: str) -> dict[str, Any] | None:
     """Fetch branch protection configuration from GitHub REST API via gh cli."""
     with trace_span("github.branch_protection.get", attributes={"repo": repo, "branch": branch}):
-        cmd = [CONST_GH_CLI, "api", f"repos/{repo}/branches/{branch}/protection"]
+        cmd = [CONST_GH_CLI, *audit_branch_protection_args(repo, branch)]
         res = run_gh(cmd, check=False, quiet=True)
         if res.returncode != 0:
             err_msg = (res.stderr or "").strip()
@@ -374,10 +398,9 @@ def build_protection_payload(policy: BranchProtectionPolicy) -> dict[str, Any]:
     }
 
 
-def _apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) -> bool:
-    """Push branch protection update to GitHub via gh CLI."""
-    cmd = [
-        CONST_GH_CLI,
+def sync_branch_protection_args(repo: str, branch: str) -> list[str]:
+    """Arguments for updating branch protection configuration via gh api."""
+    return [
         "api",
         "-X",
         "PUT",
@@ -385,6 +408,34 @@ def _apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) ->
         "--input",
         "-",
     ]
+
+
+def sync_branch_protection_requests(
+    repo: str,
+    policies: list[BranchProtectionPolicy],
+    branch: str | None = None,
+) -> list[PlannedRequest]:
+    """Planned requests for synchronizing branch protection rules."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    target_policies = [p for p in policies if branch is None or p.branch == branch]
+    requests: list[PlannedRequest] = []
+    for pol in target_policies:
+        args = sync_branch_protection_args(repo, pol.branch)
+        payload = build_protection_payload(pol)
+        requests.append(
+            planned_gh(
+                args,
+                f"repos/{repo}/branches/{pol.branch}/protection",
+                stdin=json.dumps(payload),
+            )
+        )
+    return requests
+
+
+def _apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) -> bool:
+    """Push branch protection update to GitHub via gh CLI."""
+    cmd = [CONST_GH_CLI, *sync_branch_protection_args(repo, branch)]
     payload_str = json.dumps(payload)
     res = run_gh(cmd, input=payload_str, check=False, quiet=True)
     if res.returncode != 0:

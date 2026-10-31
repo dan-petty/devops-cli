@@ -20,5 +20,6 @@ devops status [OPTIONS]
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+| `--dry-run` | `boolean` | - | Preview statuspage requests without HTTP calls |
 
 ---

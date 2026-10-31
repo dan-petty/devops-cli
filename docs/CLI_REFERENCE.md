@@ -6967,6 +6967,7 @@ devops gh api [OPTIONS] <endpoint>
 | `--template`, `-t` | `string` | - | Format JSON output using a Go template |
 | `--cache` | `boolean` | - | Cache response in-memory for subsequent reads |
 | `--cache-ttl` | `float` | `15.0` | Cache TTL in seconds (default 15.0) |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh rate-limit`
 
@@ -6981,6 +6982,7 @@ devops gh rate-limit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh status`
 
@@ -6997,6 +6999,7 @@ devops gh status [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit structured JSON service status summary |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh metrics`
 
@@ -7017,6 +7020,7 @@ devops gh metrics [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit structured JSON metrics report |
 | `--emit-telemetry` | `boolean` | - | Emit project and velocity metrics over OpenTelemetry to Prometheus |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh labels`
 
@@ -7654,6 +7658,7 @@ devops gh branch-protection audit [OPTIONS]
 | `--policy-file`, `-f` | `path` | `.github/branch-protection.yml` | Path to declarative branch protection policy YAML file. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops gh branch-protection sync`
 
@@ -7709,6 +7714,7 @@ devops gh secrets list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr`
 
@@ -9744,6 +9750,7 @@ devops status [OPTIONS]
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+| `--dry-run` | `boolean` | - | Preview statuspage requests without HTTP calls |
 
 ---
 

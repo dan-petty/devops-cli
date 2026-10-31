@@ -311,22 +311,14 @@ def test_cli_secrets_list_empty(mock_list: MagicMock) -> None:
     assert "No repository secrets found" in res.stdout
 
 
-@patch("devops_cli.commands.gh.sync_repository_secrets")
-def test_cli_secrets_sync_dry_run(mock_sync: MagicMock) -> None:
-    mock_sync.return_value = SecretSyncResult(
-        synced_secrets=["MY_TOKEN"],
-        items=[
-            SecretSyncItem(name="MY_TOKEN", source="keyring", status="synced", message="dry-run")
-        ],
-        dry_run=True,
-    )
+def test_cli_secrets_sync_dry_run() -> None:
     res = runner.invoke(
         app,
         ["secrets", "sync", "-n", "MY_TOKEN", "--repo", "dan-petty/devops-cli", "--dry-run"],
     )
     assert res.exit_code == 0
-    assert "DRY RUN" in res.stdout
-    assert "Synced: 1" in res.stdout
+    assert "Plan for synchronizing secrets (dan-petty/devops-cli)" in res.stdout
+    assert "gh api" in res.stdout
 
 
 @patch("devops_cli.commands.gh.sync_repository_secrets")

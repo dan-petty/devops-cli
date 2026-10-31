@@ -7,6 +7,10 @@ key components, and active incidents, and emits OpenTelemetry metrics.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from devops_cli.dry_run.requests import PlannedRequest
 
 import httpx2
 
@@ -74,6 +78,28 @@ def fetch_all_service_statuses(
         "github": fetch_github_status(timeout=timeout),
         "cloudflare": fetch_cloudflare_status(timeout=timeout),
     }
+
+
+def service_status_requests(services: tuple[str, ...]) -> list[PlannedRequest]:
+    """Planned HTTP requests for querying statuspage summaries."""
+    from devops_cli.dry_run.requests import PlannedRequest
+
+    endpoints = {
+        "github": (CONST_URL_GITHUB_STATUS_SUMMARY, "GitHub Statuspage summary"),
+        "cloudflare": (CONST_URL_CLOUDFLARE_STATUS_SUMMARY, "Cloudflare Statuspage summary"),
+    }
+    requests: list[PlannedRequest] = []
+    for svc in services:
+        if svc in endpoints:
+            url, desc = endpoints[svc]
+            requests.append(
+                PlannedRequest(
+                    method="GET",
+                    target=desc,
+                    argv=("curl", url),
+                )
+            )
+    return requests
 
 
 def filter_key_components(
