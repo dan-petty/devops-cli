@@ -192,11 +192,11 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `ruff`: Enforces lint rules, among them the complexity cap (`C901`) and the nesting cap of 4 blocks (`PLR1702`), and code formatting.
 - `ast-grep-scan` and `ast-grep-test`: Run the ast-grep rules over `src` and `tests`, and the tests of the rules.
 - `openspec-gate`: Runs `devops ci --only openspec` when a commit changes `openspec/` or the committed skills.
-- A commit runs no tests. The `Tests & Coverage` check of CI runs the full suite, and so does `uv run devops ci` by hand (#2086).
+- A commit runs no tests. The `Tests & Coverage` check of CI runs the full suite, and so does `uv run devops ci` by hand (#2086). The one exception is a pull request that only adds a plan: it runs `tests/invariants` (see [The Plan-Only Test Run](#the-plan-only-test-run-ciyml-test)).
 - `devops-ci-pre-push`: Runs only the fast static checks before a push, `uv run devops ci --check --only lint,format,actionlint,zizmor` (#1752). It is in check-only mode, so it changes no file: when it reports a lint or format problem, fix it (`uv run devops ci format`, `uv run devops ci lint`), commit, and push again. Never use `--no-verify`.
 
 #### The Primary CI Verification Gate (`devops ci`)
-CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)). The required checks of the `main` ruleset, `Static Analysis`, `Tests & Coverage` and `Semantic PR title`, must pass on a pull request before it merges (Phase 6). `Static Analysis` runs `devops ci --check --no-cache --skip test,outdated`, and `Tests & Coverage` runs `devops ci --check --no-cache --only test`. The pre-push hook runs only the fast static checks, so the full `uv run devops ci` is a manual run. Run it by hand when you want every check before a push. The default run auto-applies ruff format and lint fixes and regenerates the docs, so commit what it changes. This command runs every check `devops ci` defines:
+CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)). The required checks of the `main` ruleset, `Static Analysis`, `Tests & Coverage` and `Semantic PR title`, must pass on a pull request before it merges (Phase 6). `Static Analysis` runs `devops ci --check --no-cache --skip test,outdated`, and `Tests & Coverage` runs `devops ci --check --no-cache --only test`, or `tests/invariants` alone for a plan-only pull request. The pre-push hook runs only the fast static checks, so the full `uv run devops ci` is a manual run. Run it by hand when you want every check before a push. The default run auto-applies ruff format and lint fixes and regenerates the docs, so commit what it changes. This command runs every check `devops ci` defines:
 1. `python_version`: Verifies Python runtime compatibility.
 2. `test`: Executes all unit and integration tests via `pytest`.
 3. `coverage`: Enforces strict $\ge 90\%$ code coverage across `src/`.
@@ -211,6 +211,18 @@ CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.m
 12. `lockfile`: Verifies lockfile synchronization via `uv lock --check`.
 13. `outdated`: Inspects dependency tree for outdated packages via `uv tree --outdated`.
 14. `openspec`: Runs `devops openspec check`, the OpenSpec gate: `openspec validate --all --strict` and `--archived`, a regeneration of the committed skills under the isolated profile compared with the tree, the instructions of a probe change with nothing on standard error, and a check that no requirement is rewritten by two active changes. It needs Node and the pinned `openspec` (`uv run devops install-tools --tool openspec --only-missing`), runs in every `devops ci` and in the `static` job with no path filter and no exemption, and runs alone in a commit hook when a commit touches `openspec/` or the generated skills ([ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
+
+#### The Plan-Only Test Run (`ci.yml`, `test`)
+A pull request that only adds a plan under `openspec/changes/<issue>-<slug>/` changes no line that the suite tests. The full suite takes about 300 s to 370 s for it. The job `Tests & Coverage` thus finds such a pull request with `dorny/paths-filter`, and runs `uv run pytest tests/invariants` and nothing more of the suite. Those tests read the change folders: their names and forms, private addresses in committed files, the pull request template and the architectural rules. The step `Changed-Line Coverage` does not run, because the reduced run writes no coverage data and a plan holds no Python line.
+
+A pull request is plan-only when every changed file is a file of an active change folder, `openspec/changes/<issue>-<slug>/<file>`. The rule is a path rule. No label, title or author turns it on. These make the full suite run:
+- A file in `openspec/changes/archive/`. A pull request that implements an item archives its change folder, so it runs everything.
+- A file in `openspec/specs/`, the file `openspec/config.yaml`, or a file under `.github/`.
+- A source, test, document or any other file. A file moved out of `src/` lists its old path as deleted, so it counts, too.
+- A push to `main` or a manual run. Only a `pull_request` event runs the filter.
+- A pull request with 3000 changed files or more. The REST list of the files holds 3000 files at most and gives no sign of a cut, so the filter does not run and the full suite runs.
+
+The job keeps its name and its place. Its steps are skipped, not the job, so the required check `Tests & Coverage` reports success. The rule does not cover `docs/` or the README, because tests read those files.
 
 #### The Docs Site Build (`ci.yml`, `docs-site`)
 GitHub Pages publishes `main:/docs` when a pull request merges. The `Docs Site Build` job builds `docs/` first, with the GitHub Pages builder: the image of `actions/jekyll-build-pages` v1.0.13, pinned by digest. A Liquid or Jekyll error thus fails the pull request before it breaks the site. The job builds only when a pull request changes `docs/` or `ci.yml`. On any other pull request, the job skips the build and reports success. The container has no network and mounts `docs/` read-only, so the job needs no token and writes nothing.

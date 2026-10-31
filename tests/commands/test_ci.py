@@ -1152,11 +1152,12 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
     """Pull requests fail when under 90% of their changed lines are covered (#850, #2356).
 
     The step writes coverage.xml from the combined data that the gate keeps, before diff-cover
-    reads it (#1743); the gate itself writes no XML. It runs only on pull requests,
-    takes the base ref through env rather than an inline expression, and fails the job
-    below 90% of the changed lines. The summary still gets the added `pragma: no cover` lines
-    when the figure fails: the step keeps diff-cover's status and exits with it last. It is
-    never part of `devops ci`, so no check row runs it.
+    reads it (#1743); the gate itself writes no XML. It runs only on pull requests that are not
+    plan-only, since a plan-only run writes no coverage data (#2860). It takes the base ref
+    through env rather than an inline expression, and fails the job below 90% of the changed
+    lines. The summary still gets the added `pragma: no cover` lines when the figure fails: the
+    step keeps diff-cover's status and exits with it last. It is never part of `devops ci`, so no
+    check row runs it.
     """
     import yaml
 
@@ -1181,7 +1182,7 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
         any("diff-cover" in " ".join(s.cmd) for s in get_check_specs()),
     ) == (
         True,
-        "github.event_name == 'pull_request'",
+        "github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'",
         {"BASE_REF": "${{ github.base_ref }}"},
         True,
         True,
@@ -2721,6 +2722,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "test",
             "Install promtool",
         ): "Installs the pinned promtool that the rule tests of the test row run, with the lock's installer",
+        (
+            "test",
+            "Plan-Only Invariant Tests",
+        ): "Path-filtered pytest of tests/invariants alone when a pull request only adds a plan (#2860)",
         (
             "job-time",
             "Check the duration of Tests & Coverage",
