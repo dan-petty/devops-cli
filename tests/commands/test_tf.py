@@ -32,20 +32,19 @@ def temp_tf_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_resolve_tf_binary_found_tofu() -> None:
+@pytest.mark.parametrize(
+    ("available_binary", "expected_binary"),
+    [
+        pytest.param("tofu", "tofu", id="opentofu-preferred"),
+        pytest.param("terraform", "terraform", id="terraform-fallback"),
+    ],
+)
+def test_resolve_tf_binary_precedence(available_binary: str, expected_binary: str) -> None:
     def _mock_which(name: str) -> str | None:
-        return "/usr/bin/tofu" if name == "tofu" else None
+        return f"/usr/bin/{name}" if name == available_binary else None
 
     with patch("shutil.which", side_effect=_mock_which):
-        assert _resolve_tf_binary() == "tofu"
-
-
-def test_resolve_tf_binary_fallback_terraform() -> None:
-    def _mock_which(name: str) -> str | None:
-        return "/usr/bin/terraform" if name == "terraform" else None
-
-    with patch("shutil.which", side_effect=_mock_which):
-        assert _resolve_tf_binary() == "terraform"
+        assert _resolve_tf_binary() == expected_binary
 
 
 def test_resolve_tf_binary_not_found() -> None:

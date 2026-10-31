@@ -441,15 +441,22 @@ def test_cli_docker_sign_and_verify_live_mock(
     assert "verified" in verify_res.output.lower()
 
 
-def test_cli_docker_sign_missing_binary(
-    cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("subcmd", "method_name"),
+    [
+        pytest.param("sign", "sign_image", id="docker-sign"),
+        pytest.param("verify", "verify_image", id="docker-verify"),
+    ],
+)
+def test_cli_docker_cosign_missing_binary(
+    cli_runner: CliRunner, subcmd: str, method_name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Validate CLI handles missing cosign executable gracefully."""
     monkeypatch.setattr(
-        "devops_cli.docker.cosign.CosignRunner.sign_image",
+        f"devops_cli.docker.cosign.CosignRunner.{method_name}",
         MagicMock(side_effect=DependencyError(tool_name="cosign", install_hint="Install Cosign")),
     )
-    res = cli_runner.invoke(docker_app, ["sign", "example.com/app:1.0.0"])
+    res = cli_runner.invoke(docker_app, [subcmd, "example.com/app:1.0.0"])
     assert res.exit_code != 0
     assert "cosign" in res.output.lower()
 
@@ -461,19 +468,6 @@ def test_cosign_parse_verification_output_empty_and_invalid() -> None:
     assert _parse_verification_output("") == ([], [])
     assert _parse_verification_output("   \n\t ") == ([], [])
     assert _parse_verification_output("not valid json content") == ([], [])
-
-
-def test_cli_docker_verify_missing_binary(
-    cli_runner: CliRunner, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Validate CLI verify handles missing cosign executable gracefully."""
-    monkeypatch.setattr(
-        "devops_cli.docker.cosign.CosignRunner.verify_image",
-        MagicMock(side_effect=DependencyError(tool_name="cosign", install_hint="Install Cosign")),
-    )
-    res = cli_runner.invoke(docker_app, ["verify", "example.com/app:1.0.0"])
-    assert res.exit_code != 0
-    assert "cosign" in res.output.lower()
 
 
 def test_cli_docker_verify_verification_error(

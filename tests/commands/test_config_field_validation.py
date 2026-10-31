@@ -117,20 +117,23 @@ def test_boolean_environment_override_y_accepted(monkeypatch: pytest.MonkeyPatch
     assert settings.ai.allow_private_network is True
 
 
-def test_ollama_urls_schemeless_in_environment_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A schemeless URL in DEVOPS_CLI_AI_OLLAMA_URLS is refused with the list index in the error."""
-    monkeypatch.setenv("DEVOPS_CLI_AI_OLLAMA_URLS", "localhost:11434")
+@pytest.mark.parametrize(
+    ("env_var", "env_val", "expected_field"),
+    [
+        pytest.param(
+            "DEVOPS_CLI_AI_OLLAMA_URLS", "localhost:11434", "ai.ollama_urls.0", id="ollama-urls"
+        ),
+        pytest.param("DEVOPS_CLI_GRAFANA_URL", "example.com", "grafana.url", id="grafana-url"),
+    ],
+)
+def test_schemeless_url_in_environment_refused(
+    env_var: str, env_val: str, expected_field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A schemeless URL in environment variables is refused naming the field or index."""
+    monkeypatch.setenv(env_var, env_val)
     with pytest.raises(ConfigurationError) as exc_info:
         load_settings()
-    assert "ai.ollama_urls.0" in str(exc_info.value)
-
-
-def test_grafana_url_schemeless_in_environment_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A schemeless URL in DEVOPS_CLI_GRAFANA_URL is refused naming grafana.url."""
-    monkeypatch.setenv("DEVOPS_CLI_GRAFANA_URL", "example.com")
-    with pytest.raises(ConfigurationError) as exc_info:
-        load_settings()
-    assert "grafana.url" in str(exc_info.value)
+    assert expected_field in str(exc_info.value)
 
 
 def test_config_set_ollama_urls_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

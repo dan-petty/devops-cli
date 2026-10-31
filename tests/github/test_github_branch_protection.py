@@ -236,24 +236,22 @@ def test_get_remote_branch_protection_not_found(process_fake: ProcessFake) -> No
     assert data is None
 
 
-def test_get_remote_branch_protection_repo_not_found_raises(process_fake: ProcessFake) -> None:
-    process_fake.answer(
-        ["gh", "api", "repos/dan-petty/devops-cli/branches/main/protection"],
-        ProcessAnswer(
-            returncode=1,
-            stdout="",
-            stderr="gh: HTTP 404: Not Found (https://api.github.com/repos/org/repo)",
+@pytest.mark.parametrize(
+    "stderr_payload",
+    [
+        pytest.param(
+            "gh: HTTP 404: Not Found (https://api.github.com/repos/org/repo)",
+            id="repository-not-found",
         ),
-    )
-    with pytest.raises(GitHubOperationError) as exc_info:
-        get_remote_branch_protection("dan-petty/devops-cli", "main")
-    assert "Failed to fetch branch protection" in str(exc_info.value)
-
-
-def test_get_remote_branch_protection_api_error(process_fake: ProcessFake) -> None:
+        pytest.param("Internal Server Error (HTTP 500)", id="server-error"),
+    ],
+)
+def test_get_remote_branch_protection_api_failure_raises(
+    process_fake: ProcessFake, stderr_payload: str
+) -> None:
     process_fake.answer(
         ["gh", "api", "repos/dan-petty/devops-cli/branches/main/protection"],
-        ProcessAnswer(returncode=1, stdout="", stderr="Internal Server Error (HTTP 500)"),
+        ProcessAnswer(returncode=1, stdout="", stderr=stderr_payload),
     )
     with pytest.raises(GitHubOperationError) as exc_info:
         get_remote_branch_protection("dan-petty/devops-cli", "main")

@@ -24,27 +24,21 @@ from devops_cli.exceptions import ConfigurationError
 # =============================================================================
 
 
-def test_num_ctx_refused_on_gateway_provider() -> None:
-    """A client for the gateway provider raises ConfigurationError naming the task when num_ctx is set."""
-    cfg = AIConfig(provider="gateway", num_ctx=4096, task_name="analysis")
+@pytest.mark.parametrize(
+    ("provider", "task_name"),
+    [
+        pytest.param("gateway", "analysis", id="gateway-provider"),
+        pytest.param("openai", "chat", id="openai-provider"),
+    ],
+)
+def test_num_ctx_refused_on_unsupported_providers(provider: str, task_name: str) -> None:
+    """A client for providers other than native Ollama raises ConfigurationError when num_ctx is set."""
+    cfg = AIConfig(provider=provider, num_ctx=4096, task_name=task_name)
     with pytest.raises(ConfigurationError) as exc_info:
         LLMClient(config=cfg)
 
     msg = str(exc_info.value)
-    assert "analysis" in msg
-    assert "num_ctx" in msg
-    assert "OLLAMA_CONTEXT_LENGTH" in msg
-    assert "context_window" in msg
-
-
-def test_num_ctx_refused_on_openai_provider() -> None:
-    """A client for an OpenAI-compatible provider raises ConfigurationError when num_ctx is set."""
-    cfg = AIConfig(provider="openai", num_ctx=4096, task_name="chat")
-    with pytest.raises(ConfigurationError) as exc_info:
-        LLMClient(config=cfg)
-
-    msg = str(exc_info.value)
-    assert "chat" in msg
+    assert task_name in msg
     assert "num_ctx" in msg
     assert "OLLAMA_CONTEXT_LENGTH" in msg
     assert "context_window" in msg

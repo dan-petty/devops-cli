@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.ai.thinking_stream import (
     ThinkingStreamProcessor,
     extract_think_blocks,
@@ -9,40 +11,44 @@ from devops_cli.ai.thinking_stream import (
 )
 
 
-def test_strip_think_blocks_basic() -> None:
-    """strip_think_blocks removes <think>...</think> tags and inner reasoning content."""
-    raw = "<think>\nAnalyzing the request...\n</think>\nHere is the final answer."
-    assert strip_think_blocks(raw) == "Here is the final answer."
-
-
-def test_strip_think_blocks_multiple() -> None:
-    """strip_think_blocks handles multiple thinking blocks."""
-    raw = "<think>Step 1</think>Part 1<think>Step 2</think>Part 2"
-    assert strip_think_blocks(raw) == "Part 1Part 2"
-
-
-def test_strip_think_blocks_only_thinking_returns_empty() -> None:
-    """strip_think_blocks returns empty string when text contains only thinking blocks."""
-    raw = "<think>\nInternal chain of thought\nAnalyzing the code...\n</think>"
-    assert strip_think_blocks(raw) == ""
-
-
-def test_strip_think_blocks_unclosed_returns_empty() -> None:
-    """strip_think_blocks returns empty string when text contains unclosed think block."""
-    raw = "<think>\nModel ran out of tokens while thinking and never closed tag..."
-    assert strip_think_blocks(raw) == ""
-
-
-def test_strip_think_blocks_thinking_with_json_returns_empty() -> None:
-    """strip_think_blocks returns empty string even if think block contains JSON brackets."""
-    raw = '<think>Let me formulate JSON: {"findings": [], "status": "ok"}</think>'
-    assert strip_think_blocks(raw) == ""
-
-
-def test_strip_think_blocks_unclosed_with_clean_prefix() -> None:
-    """strip_think_blocks preserves clean content preceding unclosed thinking tag."""
-    raw = "Actual answer.<think>Unclosed thinking trailing off..."
-    assert strip_think_blocks(raw) == "Actual answer."
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(
+            "<think>\nAnalyzing the request...\n</think>\nHere is the final answer.",
+            "Here is the final answer.",
+            id="basic-thinking-block",
+        ),
+        pytest.param(
+            "<think>Step 1</think>Part 1<think>Step 2</think>Part 2",
+            "Part 1Part 2",
+            id="multiple-thinking-blocks",
+        ),
+        pytest.param(
+            "<think>\nInternal chain of thought\nAnalyzing the code...\n</think>",
+            "",
+            id="only-thinking-returns-empty",
+        ),
+        pytest.param(
+            "<think>\nModel ran out of tokens while thinking and never closed tag...",
+            "",
+            id="unclosed-thinking-returns-empty",
+        ),
+        pytest.param(
+            '<think>Let me formulate JSON: {"findings": [], "status": "ok"}</think>',
+            "",
+            id="thinking-with-json-brackets",
+        ),
+        pytest.param(
+            "Actual answer.<think>Unclosed thinking trailing off...",
+            "Actual answer.",
+            id="unclosed-with-clean-prefix",
+        ),
+    ],
+)
+def test_strip_think_blocks(raw: str, expected: str) -> None:
+    """strip_think_blocks removes thinking tags and inner reasoning content."""
+    assert strip_think_blocks(raw) == expected
 
 
 def test_extract_think_blocks() -> None:

@@ -114,22 +114,22 @@ def test_keyring_outranks_environment_and_settings(
     assert resolver.resolve(_ref()) == "from-keyring"
 
 
-def test_environment_outranks_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Environment variables override committed configuration for every secret."""
+@pytest.mark.parametrize(
+    ("env_value", "expected_result"),
+    [
+        pytest.param("from-env", "from-env", id="environment-variable-set"),
+        pytest.param("", "from-settings", id="environment-variable-empty"),
+    ],
+)
+def test_environment_and_settings_precedence(
+    env_value: str, expected_result: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Environment variables override configuration, and configuration serves as fallback."""
     settings = SimpleNamespace(section=SimpleNamespace(value="from-settings"))
     resolver = build_default_resolver(settings_source=lambda: settings)
-    monkeypatch.setenv("TEST_SECRET", "from-env")
+    monkeypatch.setenv("TEST_SECRET", env_value)
 
-    assert resolver.resolve(_ref()) == "from-env"
-
-
-def test_settings_answer_only_as_last_resort(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Configuration supplies the value when nothing above it can."""
-    settings = SimpleNamespace(section=SimpleNamespace(value="from-settings"))
-    resolver = build_default_resolver(settings_source=lambda: settings)
-    monkeypatch.setenv("TEST_SECRET", "")
-
-    assert resolver.resolve(_ref()) == "from-settings"
+    assert resolver.resolve(_ref()) == expected_result
 
 
 def test_cached_resolver_never_serves_a_stale_settings_snapshot(
@@ -205,24 +205,22 @@ def test_providers_skip_references_they_cannot_serve() -> None:
     assert SettingsProvider(lambda: SimpleNamespace()).get(bare) is None
 
 
-def test_environment_provider_prefers_earlier_variables(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The first named variable that holds a value wins."""
-    provider = EnvironmentProvider()
-    ref = SecretRef(name="multi", env_vars=("PRIMARY_VAR", "FALLBACK_VAR"))
-    monkeypatch.setenv("PRIMARY_VAR", "primary")
-    monkeypatch.setenv("FALLBACK_VAR", "fallback")
-    assert provider.get(ref) == "primary"
-
-
-def test_environment_provider_ignores_whitespace_only_variables(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("primary_val", "fallback_val", "expected"),
+    [
+        pytest.param("primary", "fallback", "primary", id="first-variable-present"),
+        pytest.param("  ", "fallback", "fallback", id="whitespace-variable-ignored"),
+    ],
+)
+def test_environment_provider_variable_selection(
+    primary_val: str, fallback_val: str, expected: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Empty or whitespace-only environment values are treated as unset."""
+    """The first non-empty named variable is selected from the environment."""
     provider = EnvironmentProvider()
     ref = SecretRef(name="multi", env_vars=("PRIMARY_VAR", "FALLBACK_VAR"))
-    monkeypatch.setenv("PRIMARY_VAR", "  ")
-    monkeypatch.setenv("FALLBACK_VAR", "fallback")
-    assert provider.get(ref) == "fallback"
+    monkeypatch.setenv("PRIMARY_VAR", primary_val)
+    monkeypatch.setenv("FALLBACK_VAR", fallback_val)
+    assert provider.get(ref) == expected
 
 
 def test_settings_provider_tolerates_attribute_errors() -> None:

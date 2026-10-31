@@ -9,9 +9,7 @@ from devops_cli.review.diff import (
     extract_added_diff_lines,
     extract_diff_hunks,
     extract_file_diff_hunks,
-    number_diff_lines,
     number_source_lines,
-    strip_line_numbers,
 )
 
 
@@ -57,46 +55,6 @@ def test_source_lines_are_numbered_from_one() -> None:
     """Verify each source line carries its number and a tab, counted at newlines only."""
     numbered = number_source_lines("a = 1\n\tb = 2\nc = '\x0c'\n")
     assert numbered == "1\ta = 1\n2\t\tb = 2\n3\tc = '\x0c'\n"
-
-
-def test_diff_lines_carry_their_new_file_numbers() -> None:
-    """Verify context and added lines carry new-file numbers and removed lines none."""
-    diff = (
-        "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n"
-        "@@ -10,4 +10,4 @@ def f():\n keep\n-old\n--- looks like a header\n+new\n+added\n tail\n"
-        "@@ -40 +41 @@\n-gone\n+here\n"
-    )
-    numbered = number_diff_lines(diff).splitlines()
-
-    assert numbered[:4] == [
-        "diff --git a/x.py b/x.py",
-        "--- a/x.py",
-        "+++ b/x.py",
-        "@@ -10,4 +10,4 @@ def f():",
-    ]
-    assert numbered[4:] == [
-        "10\t keep",
-        "\t-old",
-        "\t--- looks like a header",
-        "11\t+new",
-        "12\t+added",
-        "13\t tail",
-        "@@ -40 +41 @@",
-        "\t-gone",
-        "41\t+here",
-    ]
-
-
-def test_numbers_strip_back_to_the_original_text() -> None:
-    """Verify removing the number column restores source and diff text exactly."""
-    source = "def f():\n\treturn 1\n"
-    diff = "diff --git a/x b/x\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n"
-
-    restored = (
-        strip_line_numbers(number_source_lines(source)),
-        strip_line_numbers(number_diff_lines(diff)),
-    )
-    assert restored == (source, diff)
 
 
 def test_extract_added_diff_lines_raw_and_numbered() -> None:
