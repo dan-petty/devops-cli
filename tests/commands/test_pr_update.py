@@ -731,6 +731,50 @@ def test_pr_edit_fallback_milestone_failure(
     assert "Milestone '2026-11' not found" in res.output
 
 
+def test_pr_edit_fallback_pull_failure(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
+    """devops pr edit fails when the pull request REST PATCH itself fails."""
+    process_fake.answer(
+        ["gh", "pr", "edit"],
+        ProcessAnswer(returncode=1, stderr="GraphQL: operation failed"),
+    )
+    process_fake.answer(
+        lambda call: "pulls/184" in " ".join(call.argv),
+        ProcessAnswer(returncode=1, stderr="Validation Failed: invalid base"),
+    )
+
+    res = cli(
+        "pr",
+        "edit",
+        "184",
+        "--title",
+        "New Title",
+        "--repo",
+        "owner/repo",
+    )
+    assert res.exit_code != 0
+    assert "Validation Failed: invalid base" in res.output
+
+
+def test_pr_edit_fallback_invalid_repo(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
+    """devops pr edit fallback fails cleanly when target repo has no owner/repo format."""
+    process_fake.answer(
+        ["gh", "pr", "edit"],
+        ProcessAnswer(returncode=1, stderr="GraphQL: operation failed"),
+    )
+
+    res = cli(
+        "pr",
+        "edit",
+        "184",
+        "--title",
+        "New Title",
+        "--repo",
+        "invalid-repo-without-slash",
+    )
+    assert res.exit_code != 0
+    assert "Target repository must be in OWNER/REPO format" in res.output
+
+
 def test_pr_update_all_dry_run_plan(cli: Callable[..., Any], process_fake: ProcessFake) -> None:
     """devops pr update --all --dry-run checks request plans and sends no request."""
     expected_plain = plan_update_all_prs("owner/repo", None, dispatch_ci=False)

@@ -865,11 +865,8 @@ def edit_pr(
             return
         from devops_cli.security.sanitizer import mask_secrets
 
-        clean_err = mask_secrets((err or res.stderr or "").strip()[:256])
-        if clean_err:
-            print_error(f"Failed to update PR #{number}: {clean_err}", safe=True)
-        else:
-            print_error(f"Failed to update PR #{number}", safe=True)
+        clean_err = mask_secrets((err or res.stderr or "Unknown error").strip()[:256])
+        print_error(f"Failed to update PR #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
     print_success(f"Successfully updated PR #{number}")
 
