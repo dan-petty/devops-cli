@@ -62,9 +62,9 @@ Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`.
   - Verification: `uv run devops ci docs`
 - [x] 7.2 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
-- [ ] 7.3 Run the fail-to-pass check on the new tests
+- [x] 7.3 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] 7.4 Archive the change
+- [x] 7.4 Archive the change
   - Verification: `uv run devops openspec archive 3030-implement-fixtures-eval` and `uv run devops openspec check`
 
 ## Workflow follow-up
