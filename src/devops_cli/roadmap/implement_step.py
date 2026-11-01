@@ -108,13 +108,13 @@ from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
-    MARKDOWN,
     GroupTask,
     TaskGroup,
     file_lines,
     named_files,
     packed_file,
     parse_task_groups,
+    section_text,
 )
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -131,27 +131,6 @@ class ItemReader(Protocol):
 
     def item(self, number: int) -> Item | None:
         """The item numbered `number`, or None when that issue is no item."""
-
-
-def section_text(body: str, titles: frozenset[str]) -> str:
-    """The text of each section of `body` whose heading is one of `titles`, heading included.
-    A section ends at the next heading of its level or a higher one."""
-    tokens = MARKDOWN.parse(body)
-    lines = body.splitlines()
-    marks = [
-        (token.map[0], int(token.tag[1:]), tokens[index + 1].content)
-        for index, token in enumerate(tokens)
-        if token.type == "heading_open" and token.map is not None
-    ]
-    found: list[str] = []
-    for position, (first, level, title) in enumerate(marks):
-        if title.strip().casefold() not in titles:
-            continue
-        end = next(
-            (start for start, deeper, _ in marks[position + 1 :] if deeper <= level), len(lines)
-        )
-        found.append("\n".join(lines[first:end]).rstrip())
-    return "\n\n".join(found)
 
 
 def issue_inputs(item: Item) -> str:

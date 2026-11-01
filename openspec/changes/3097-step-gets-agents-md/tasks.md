@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/implement_step.py`. Changes: `src/devops_cli/roadmap/step_rules.py` (new), `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_run.py`, `tests/roadmap/test_roadmap_step_rules.py` (new).
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_step_rules.py`: each route names a row of the "Where to look" table of `AGENTS.md` that links its document, the document exists, each section exists, and the selected text fits `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS`; `rules_sections` gives `AGENTS.md` verbatim, gives `docs/TESTING.md` for a group that names a test file (also one that does not exist yet, and a `::test` suffix), gives nothing of it for a group that names only a manifest, gives only `AGENTS.md` for a group with no path, and gives nothing for a checkout with no `AGENTS.md`
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_step_rules.py`: each route names a row of the "Where to look" table of `AGENTS.md` that links its document, the document exists, each section exists, and the selected text fits `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS`; `rules_sections` gives `AGENTS.md` verbatim, gives `docs/TESTING.md` for a group that names a test file (also one that does not exist yet, and a `::test` suffix), gives nothing of it for a group that names only a manifest, gives only `AGENTS.md` for a group with no path, and gives nothing for a checkout with no `AGENTS.md`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_step_rules.py` fails on the base
-- [ ] 1.2 Move `section_text` from `implement_step.py` to `step_files.py`, and add `ROUTES`, `Route` and `rules_sections` in `src/devops_cli/roadmap/step_rules.py`
+- [x] 1.2 Move `section_text` from `implement_step.py` to `step_files.py`, and add `ROUTES`, `Route` and `rules_sections` in `src/devops_cli/roadmap/step_rules.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_step_rules.py tests/roadmap/test_roadmap_implement_step.py` passes
 
 ## 2. The message and the measure

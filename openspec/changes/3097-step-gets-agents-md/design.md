@@ -10,7 +10,7 @@
 
 | Pattern | Document | Sections |
 | :--- | :--- | :--- |
-| `tests/**` | `docs/TESTING.md` | Which change gets a test, Doubles, Layout, Names and assertions |
+| `tests/**` | `docs/TESTING.md` | Which change gets a test, Doubles, Layout |
 | `src/**` | `ARCHITECTURE.md` | The architectural standards 1, 2, 3 and 5 of section 7 |
 | `src/**` | `CONTRIBUTING.md` | Development Philosophy and Core Invariants, Naming |
 | `src/devops_cli/security/**` | `SECURITY.md` | Zero-Trust Security and Egress Safety Principles |
