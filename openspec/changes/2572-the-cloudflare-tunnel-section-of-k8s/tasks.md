@@ -1,21 +1,14 @@
 # Tasks
 
-## 1. Write failing test for tunnel section hosts
+## 1. Name the hosts that the manifests serve in the tunnel section
 
-Reads: none. Changes: `tests/test_k8s_readme_hosts.py`.
+Reads: `tests/invariants/test_k8s_manifests.py` (lines 1 to 50 and 800 to 1010), `k8s/README.md` (lines 1131 to 1223). Changes: `tests/invariants/test_k8s_manifests.py`, `k8s/README.md`.
 
-- [ ] 1.1 Write tests/test_k8s_readme_hosts.py. The test reads k8s/README.md, locates the Cloudflare tunnel section by its heading, extracts every host-like token (a string matching the pattern of optional asterisk, word characters, hyphens, dots, and the literal <domain>), reads all Ingress manifests under k8s/ to collect the set of host values, then asserts each README host is in the Ingress set or equals *.<domain>. It also asserts no host token contains the substring homelab. The test must fail on the current text because it contains homelab. subdomains, and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` fails on the base
-- [ ] 1.2 Implement the test. Read k8s/README.md as text. Find the section between the Cloudflare tunnel heading and the next same-level heading. Use a regex to extract host-like tokens: tokens that end with <domain> and contain at least one dot before it. Read every YAML file under k8s/ that defines Ingress resources (k8s/ingress/ingress-routes.yaml, k8s/devops/roadmap-service/ingress.yaml, and any other Ingress manifest). Collect the set of host values from the spec.rules[].host fields. For each README host token, assert it is in the Ingress host set or equals *.<domain>. Assert no token contains the substring homelab. Use pytest.fail with a message naming each mismatched host, and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-
-## 2. Fix tunnel section host names in README
-
-Reads: none. Changes: `k8s/README.md`.
-
-- [ ] 2.1 The test tests/test_k8s_readme_hosts.py from the previous group must pass after the fix. Run uv run pytest tests/test_k8s_readme_hosts.py -x and confirm exit code 0, and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` fails on the base
-- [ ] 2.2 In the Cloudflare tunnel section of k8s/README.md, replace every occurrence of *.homelab.<domain> with *.<domain>. Replace every occurrence of <name>.homelab.<domain> with <name>.<domain> for each named host (chat, grafana, ai, argocd, git, hooks, k8s, alloy, qdrant, prometheus). Verify each named host appears in k8s/ingress/ingress-routes.yaml or k8s/devops/roadmap-service/ingress.yaml. Remove any sentence that references the homelab subdomain as a DNS wildcard target, and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` passes
-- [ ] 2.3 k8s/README.md, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 1.1 In `tests/invariants/test_k8s_manifests.py`, split `_hosts(rendered)` into `_document_hosts(documents)` and `_hosts(rendered)`. `_document_hosts` holds the loop and skips a document that is not a mapping. `_hosts` calls it with `yaml.safe_load_all(rendered)`. Its result stays the same. And verify that `uv run devops ci test tests/invariants/test_k8s_manifests.py` passes
+- [ ] 1.2 In the same file, add the test `test_the_tunnel_section_of_the_k8s_readme_names_only_hosts_that_a_manifest_serves` after `test_kustomize_applies_the_overrides_to_every_host_the_application_renders`, with `import fnmatch` and `import re` at the top. The test takes the text of `K8S_DIR / "README.md"` from the heading `## Cloudflare Wildcard Tunnel & Ingress Routing` up to the heading ``### 4. The Kubernetes API at `k8s.<domain>` ``, and fails with a message if a heading is missing. The names are every match of `[\w*.-]+\.<domain>` in that text, and `<span>.<domain>` for every code span that follows `**Subdomain**: `. The served hosts are `_document_hosts(document for _, document in yaml_documents(K8S_DIR))` with `example.com` replaced by `<domain>`. The test asserts that the set of names and the set of served hosts are not empty, and that the sorted list of names that no served host matches with `fnmatch.fnmatchcase(host, name)` equals `[]`. Run the test before the README changes. The check is repeatable: `uv run devops ci test tests/invariants/test_k8s_manifests.py` must fail on the current README, and its message must list the seven names `*.homelab.<domain>`, `ai.homelab.<domain>`, `argocd.homelab.<domain>`, `chat.homelab.<domain>`, `git.homelab.<domain>`, `grafana.homelab.<domain>` and `mattermost.homelab.<domain>`
+- [ ] 1.3 In `k8s/README.md`, lines 1131 to 1223 only, remove `homelab.` from the hosts: the DNS line and the five host boxes of the diagram (keep the boxes aligned), the example host of the HTTP Host Header (`chat.<domain>`) and the Application Domain (`*.<domain>`). In step 1 of the dashboard configuration, set the subdomain to `*`, so the public hostname is `*.<domain>`. Keep the tunnel name `homelab`, the application name `Homelab Wildcard`, the heading text and the other text of the section. And verify that `uv run devops ci test tests/invariants/test_k8s_manifests.py` passes, and that `! git grep -n -E 'homelab\.<|\*\.homelab' -- k8s/README.md` exits 0
+- [ ] 1.4 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes and that `uv run devops openspec check` passes
 
 ## Workflow follow-up
 
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- Pending a person: look at the Cloudflare dashboard, and check that the public hostname of the tunnel is `*.<domain>`. No offline command reads the dashboard.

@@ -2,37 +2,41 @@
 
 ## Why
 
-#2572: the Cloudflare tunnel section of k8s/README.md writes hosts as *.homelab.<domain>, but the 24 live Ingress hosts have the form <name>.<domain> with no homelab subdomain. A reader who follows the section configures Cloudflare Access and DNS for a domain that no Ingress serves.
+Issue #2572: the Cloudflare tunnel section of `k8s/README.md` writes the public hosts as `*.homelab.<domain>` and `<name>.homelab.<domain>`. The Ingress manifests under `k8s/` serve `<name>.<domain>`. A person who follows the section sets the Cloudflare public hostname and the Access application to a domain that no Ingress serves.
 
 ## What Changes
 
-- Rewrite the Cloudflare tunnel section of k8s/README.md to use <name>.<domain> and *.<domain> instead of <name>.homelab.<domain> and *.homelab.<domain>
-- Add tests/test_k8s_readme_hosts.py that extracts host tokens from the tunnel section and asserts each matches an Ingress host in k8s/
-- The test fails on the current text and passes after the fix
+- In the section `## Cloudflare Wildcard Tunnel & Ingress Routing` of `k8s/README.md`, write the wildcard as `*.<domain>` and each host as `<name>.<domain>`. The dashboard step sets the subdomain `*`, not `*.homelab`.
+- Add one test to `tests/invariants/test_k8s_manifests.py`. It reads the host names of that section and fails for each name that no host of a manifest under `k8s/` matches.
+- Split the host reader `_hosts` of that test file, so that the new test and the existing kustomize test share one reader.
+- The change has no spec delta. It changes a document and adds a test, and no `devops` command, option or message, no manifest and no service behavior changes. So `.openspec.yaml` sets `skip_specs: true`.
 - The change fits one pull request.
 
-## Capabilities
+## Acceptance
 
-### New Capabilities
-
-None.
-
-### Modified Capabilities
-
-- `k8s-api-tunnel`: Tunnel section hosts match Ingress, Offline test guards tunnel hosts
+- "No `homelab.<domain>` host form remains in `k8s/README.md` unless an Ingress in `k8s/` uses it": group 1 (README edit). The only Ingress host with `homelab.` is `homelab.example.com` (an alias of Open WebUI); the section never names it.
+- "The test fails on the current text and passes after the fix": group 1 (tasks 1.2 and 1.4).
+- Pending a person: the check of the live Cloudflare dashboard. No offline command reads it.
 
 ## Impact
 
-- Documents: `k8s/README.md`
-- Tests: `tests/test_k8s_readme_hosts.py`
+- Documents: `k8s/README.md` (lines 1131 to 1223 only).
+- Tests: `tests/invariants/test_k8s_manifests.py`.
+- Code that the change must keep: the helper `_hosts`, the test `test_kustomize_applies_the_overrides_to_every_host_the_application_renders` and the test `test_readme_lists_the_table` in the same file. The anchor `#cloudflare-wildcard-tunnel--ingress-routing` (linked from line 54 and from `k8s/ingress/ingress-routes.yaml`) stays, so the heading text stays.
 
 ## Feasibility
 
-- The issue cites lines 972, 989-991, 1004 and 1010 of k8s/README.md on origin/main. The context shows the README references hosts like argocd.<domain>, alloy.<domain>, chat.<domain>, qdrant.<domain>, ai.<domain>, and hooks.<domain> in other sections, confirming the <name>.<domain> form is the correct one.
-- The Ingress manifests live at k8s/ingress/ingress-routes.yaml and k8s/devops/roadmap-service/ingress.yaml. The issue confirms 24 Ingress hosts with no homelab subdomain.
-- The test naming pattern follows existing tests: tests/test_k8s_llm_gateway.py, tests/test_k8s_local_path_placement.py. The new test goes to tests/test_k8s_readme_hosts.py.
-- First checks the implementation runs: (1) uv run pytest tests/test_k8s_readme_hosts.py -x to confirm the test fails on the current text; (2) after the fix, the same command exits 0; (3) grep -n 'homelab\.' k8s/README.md to confirm no homelab. host form remains in the tunnel section.
+Checked on `origin/main` (00a43ae5) on 2026-11-01.
+
+- The defect is real. `git grep -n -E 'homelab\.<|\*\.homelab' -- k8s/README.md` prints eight lines: 1139, 1156, 1157, 1158, 1159, 1166, 1172 and 1178. The line numbers of the issue (972 to 1010) are out of date: the section now sits at lines 1131 to 1223.
+- No Ingress serves the form `<name>.homelab.<domain>`. A script that reads every `kind: Ingress` and `kind: Mattermost` document under `k8s/` finds 24 distinct hosts, all `<name>.example.com`. One of them is `homelab.example.com` (`k8s/ingress/ingress-routes.yaml`, line 35), a second host of Open WebUI. It is not a wildcard, and `*.homelab.<domain>` does not match it.
+- The hosts that the section names all exist: `chat`, `ai`, `grafana`, `argocd` and `git` in `k8s/ingress/ingress-routes.yaml`, and `mattermost` in `k8s/mattermost/mattermost.yaml` line 25 (`spec.ingress.host` of a `Mattermost` resource, not an `Ingress`). So the reader of the test must read both kinds. The test file already does it: `_hosts` handles `Ingress`, `IngressRoute` and `Mattermost`.
+- The host `k8s.<domain>` (subsection 4 of the section) is a Cloudflare TCP route that `devops cloudflare tunnel sync --service tcp://...` makes. No manifest serves it, so the test stops before subsection 4.
+- The text agrees with the code. `CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS` is `("*", "@")` in `src/devops_cli/config/constants.py`, and `_format_subdomain_hostname` in `src/devops_cli/commands/cloudflare.py` turns `*` into `*.{domain}`. So `devops cloudflare tunnel sync` and `devops cloudflare dns sync` make the wildcard `*.<domain>`, not `*.homelab.<domain>`. The Gitea section of the README (line 841) already uses `devops cloudflare access sync --domain '*.<domain>'`. The service URL of step 1, `traefik.kube-system.svc.cluster.local:80`, equals the default of `--service`.
+- Nothing newer did or removed the work. `git log -S'.homelab.<domain>' -- k8s/README.md` shows the form since 2026-09-28, and the last commit that touched it is the Mattermost change (#2891). No open plan under `openspec/changes/` edits this section. #2570 edits another part of `k8s/README.md` (Prerequisites).
+- The planned reader works. A throwaway script, kept outside git, applied the planned rules to the current text and to the text with `homelab.` removed. Current text: seven names do not match (`*.homelab.<domain>`, `ai.homelab.<domain>`, `argocd.homelab.<domain>`, `chat.homelab.<domain>`, `git.homelab.<domain>`, `grafana.homelab.<domain>`, `mattermost.homelab.<domain>`). Fixed text: no name is unmatched.
+- First checks of the implementation: `uv run devops ci test tests/invariants/test_k8s_manifests.py`, `uv run devops ci docs` and `uv run devops openspec check`.
 
 ## Existing Tool Considered
 
-None needed. The change is a documentation fix in k8s/README.md and a test over the repository's own Ingress manifests. The written cost is the tokens to edit the tunnel section, write one test file, and fix any test failure, plus the elapsed time of one pull request.
+None needed. PyYAML and `fnmatch` from the standard library read the manifests and match the wildcard. The change reuses `_hosts` and `yaml_documents` of `tests/invariants/test_k8s_manifests.py`, and it adds no module. The change deletes no code.
