@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.37.0](https://github.com/dan-petty/devops-cli/compare/v0.36.0...v0.37.0) (2026-11-01)
+
+
+### Features
+
+* **config:** preview requests in dry run for config commands ([#2963](https://github.com/dan-petty/devops-cli/issues/2963)) ([47cdf0d](https://github.com/dan-petty/devops-cli/commit/47cdf0d447b5744a4752982409f19b6df71cb5da))
+* **devcontainer:** preview requests in dry run for devcontainer commands ([#2969](https://github.com/dan-petty/devops-cli/issues/2969)) ([c30583d](https://github.com/dan-petty/devops-cli/commit/c30583d68fc0debc62bf431fedbd041801a08713))
+* **roadmap:** a stop sets Blocked; a new image clears it ([#2974](https://github.com/dan-petty/devops-cli/issues/2974)) ([665e058](https://github.com/dan-petty/devops-cli/commit/665e0584ba4c58bc0d52c6ba85cb841ab9d187d2)), closes [#2912](https://github.com/dan-petty/devops-cli/issues/2912)
+* **roadmap:** add devops roadmap inbox for what waits for a person ([#2970](https://github.com/dan-petty/devops-cli/issues/2970)) ([f21e459](https://github.com/dan-petty/devops-cli/commit/f21e4594552bdfeaf9b880504f5d844ffbecdc5c)), closes [#2915](https://github.com/dan-petty/devops-cli/issues/2915)
+* **service:** shorter prime-number intervals for the roadmap rows ([#2973](https://github.com/dan-petty/devops-cli/issues/2973)) ([f414791](https://github.com/dan-petty/devops-cli/commit/f4147911208c865e7c5eaf10234baa4039f29807)), closes [#2965](https://github.com/dan-petty/devops-cli/issues/2965)
+
+
+### Bug Fixes
+
+* **tests:** concurrent slot leasing test synchronizes on barrier ([#2962](https://github.com/dan-petty/devops-cli/issues/2962)) ([20d72ac](https://github.com/dan-petty/devops-cli/commit/20d72ac5e973ffcc04c19582ebe880231eae54ad)), closes [#2841](https://github.com/dan-petty/devops-cli/issues/2841)
+* **tests:** fake model calls in tests write to tmp_path ledger ([#2966](https://github.com/dan-petty/devops-cli/issues/2966)) ([d422e3a](https://github.com/dan-petty/devops-cli/commit/d422e3a83a7578002d645d7d9dadf02d288f2809)), closes [#2192](https://github.com/dan-petty/devops-cli/issues/2192)
+
 ## [0.36.0](https://github.com/dan-petty/devops-cli/compare/v0.35.0...v0.36.0) (2026-11-01)
 
 
