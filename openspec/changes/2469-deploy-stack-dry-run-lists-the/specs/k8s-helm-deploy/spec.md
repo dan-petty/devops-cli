@@ -19,7 +19,7 @@ The dry run of `devops k8s deploy-stack` SHALL list, in `details.helm_commands` 
 - **THEN** the last entry of `details.helm_commands` holds neither `--wait` nor `--timeout`
 
 ### Requirement: The Helm commands of a deploy-stack dry run are those of the real run
-The `helm repo` and `helm upgrade` commands in `details.helm_commands` of a `devops k8s deploy-stack` dry run SHALL be built by the builders that the real run uses, so that the real run starts the same argument lists, in the same order, for the same options on Helm 3.
+The `helm repo` and `helm upgrade` commands in `details.helm_commands` of a `devops k8s deploy-stack` dry run SHALL be built by the builders that the real run uses, so that the real run starts the same argument lists, in the same order, for the same options on Helm 3 and a cluster without unready nodes. The dry run reads no node state. For a DaemonSet release on a cluster with unready nodes, the real run omits `--wait` and the dry run lists it.
 
 #### Scenario: The real run starts the commands that the dry run lists
 - **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --no-wait --no-push-secrets` runs against a process double that answers Helm 3.17.0 and a ready cluster, and the same command runs with `--dry-run`
