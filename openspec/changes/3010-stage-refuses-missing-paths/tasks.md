@@ -40,7 +40,7 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `k8s/README.md`. Chang
 
 - [x] 5.1 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
-- [ ] 5.2 Run the fail-to-pass check on the new tests
+- [x] 5.2 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
 - [ ] 5.3 Archive the change
   - Verification: `uv run devops openspec archive 3010-stage-refuses-missing-paths` and `uv run devops openspec check`

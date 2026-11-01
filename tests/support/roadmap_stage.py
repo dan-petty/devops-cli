@@ -18,12 +18,9 @@ import pytest
 
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage_change import StageGroup
-from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.store import ItemField
 from tests.support.builders import make_stage_proposal
 
-# The one file of the sample proposal that exists before the plan: the tree of a check with no clone.
-SAMPLE_TREE = StagedTree(["src/devops_cli/sample.py"])
 STAGE_REPO = "example/roadmap"
 STAGE_NAME = "devops-roadmap[bot]"
 STAGE_EMAIL = "1+devops-roadmap[bot]@users.noreply.github.com"

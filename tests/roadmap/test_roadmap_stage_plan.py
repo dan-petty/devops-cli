@@ -28,11 +28,11 @@ from devops_cli.roadmap.stage_change import (
     closing_keyword_in,
     render_change,
 )
+from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import (
     NO_FILES,
-    SAMPLE_TREE,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
@@ -52,6 +52,8 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+# The one file of the sample proposal that exists before the plan.
+SAMPLE_TREE = StagedTree(["src/devops_cli/sample.py"])
 CHANGE = "1-the-job-drops-a-comment"
 VALIDATE = validate_args(CHANGE)
 VALID = (0, VALID_REPORT)
