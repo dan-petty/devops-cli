@@ -39,11 +39,16 @@ class TitleLabels:
         return tuple(label for label in (self.type_label, self.scope_label) if label)
 
 
+def declared_label_specs(text: str) -> list[LabelSpec]:
+    """The labels that the text of `.github/labels.yml` declares. Text that is not YAML raises
+    `yaml.YAMLError`, and YAML that is no list of label specs raises `pydantic.ValidationError`."""
+    return _LABEL_SPECS.validate_python(yaml.safe_load(text))
+
+
 def declared_label_names(text: str) -> tuple[str, ...]:
-    """The names of the labels that the text of `.github/labels.yml` declares. Text that is not
-    YAML raises `yaml.YAMLError`, and YAML that is no list of label specs raises
-    `pydantic.ValidationError`."""
-    return tuple(spec.name for spec in _LABEL_SPECS.validate_python(yaml.safe_load(text)))
+    """The names of the labels that the text of `.github/labels.yml` declares, with the errors of
+    `declared_label_specs`."""
+    return tuple(spec.name for spec in declared_label_specs(text))
 
 
 def requested_labels(title: str) -> tuple[str | None, str | None]:

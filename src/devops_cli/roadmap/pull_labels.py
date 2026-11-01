@@ -13,18 +13,19 @@ from pydantic import ValidationError
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.title_labels import TitleLabels, declared_label_names, title_labels
+from devops_cli.roadmap.title_labels import TitleLabels, declared_label_specs, title_labels
 
 
-def declared_labels(store: roadmap_store.RoadmapStore, *, ref: str | None) -> tuple[str, ...]:
-    """The names of the labels that `.github/labels.yml` declares in the repository of `store` on
-    `ref` (the default branch when None). A file that is missing, or is no list of label specs, or
-    a read that fails, raises `GitHubOperationError` that names the file."""
+def declared_specs(store: roadmap_store.RoadmapStore, *, ref: str | None) -> list[LabelSpec]:
+    """The labels that `.github/labels.yml` declares in the repository of `store` on `ref` (the
+    default branch when None). A file that is missing, or is no list of label specs, or a read
+    that fails, raises `GitHubOperationError` that names the file."""
     text = store.repository_file(CONST_ROADMAP_LABELS_PATH, ref=ref)
     try:
-        return declared_label_names(text)
+        return declared_label_specs(text)
     except (yaml.YAMLError, ValidationError) as exc:
         raise GitHubOperationError(
             MESSAGES.pr.labels_unreadable.format(
@@ -33,6 +34,12 @@ def declared_labels(store: roadmap_store.RoadmapStore, *, ref: str | None) -> tu
             operation="pr.labels",
             details={"path": CONST_ROADMAP_LABELS_PATH},
         ) from exc
+
+
+def declared_labels(store: roadmap_store.RoadmapStore, *, ref: str | None) -> tuple[str, ...]:
+    """The names of the labels that `.github/labels.yml` declares, with the errors of
+    `declared_specs`."""
+    return tuple(spec.name for spec in declared_specs(store, ref=ref))
 
 
 def read_title_labels(repo: str, title: str, *, ref: str | None) -> TitleLabels:

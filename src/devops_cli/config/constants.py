@@ -3188,6 +3188,13 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
+# `devops roadmap inbox` (#2915). A claim whose issue and open pull requests have not changed for
+# this many days is old. The head branch of the release pull request starts with the prefix that
+# release-please gives (`release-please--branches--<branch>`). The line of the labels names this
+# many labels, then counts the rest.
+CONST_ROADMAP_INBOX_CLAIM_DAYS: Final[int] = 7
+CONST_ROADMAP_RELEASE_BRANCH_PREFIX: Final[str] = "release-please--branches--"
+CONST_ROADMAP_INBOX_LABEL_NAMES: Final[int] = 5
 CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
 CONST_ROADMAP_PRIORITY_LABEL_PREFIX: Final[str] = "priority/"
 CONST_ROADMAP_SCOPE_LABEL_PREFIX: Final[str] = "scope/"

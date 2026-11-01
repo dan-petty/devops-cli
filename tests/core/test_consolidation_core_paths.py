@@ -43,10 +43,7 @@ def test_safe_resolve_subpath_symlink_escape_blocked(tmp_path: Path) -> None:
     outside_file.write_text("secret", encoding="utf-8")
 
     symlink_path = tmp_path / "link_to_outside"
-    try:
-        symlink_path.symlink_to(outside_file)
-    except OSError:
-        pytest.skip("Symlink creation not permitted in this test environment")
+    symlink_path.symlink_to(outside_file)
 
     with pytest.raises(SecurityError) as raised:
         safe_resolve_subpath(tmp_path, "link_to_outside", allow_symlinks=False)
@@ -63,10 +60,7 @@ def test_safe_resolve_subpath_external_symlink_blocked_even_with_allow_symlinks(
     outside_file.write_text("secret", encoding="utf-8")
 
     symlink_path = tmp_path / "link_to_outside_allowed"
-    try:
-        symlink_path.symlink_to(outside_file)
-    except OSError:
-        pytest.skip("Symlink creation not permitted in this test environment")
+    symlink_path.symlink_to(outside_file)
 
     with pytest.raises(SecurityError) as raised:
         safe_resolve_subpath(tmp_path, "link_to_outside_allowed", allow_symlinks=True)
@@ -79,10 +73,7 @@ def test_safe_resolve_subpath_internal_symlink_allowed(tmp_path: Path) -> None:
     internal_file.write_text("internal", encoding="utf-8")
 
     symlink_path = tmp_path / "link_internal"
-    try:
-        symlink_path.symlink_to(internal_file)
-    except OSError:
-        pytest.skip("Symlink creation not permitted in this test environment")
+    symlink_path.symlink_to(internal_file)
 
     # allow_symlinks=True succeeds
     resolved = safe_resolve_subpath(tmp_path, "link_internal", allow_symlinks=True)

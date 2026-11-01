@@ -464,6 +464,143 @@ def refuse_real_programs() -> None:
     setattr(subprocess.Popen, "__init__", refusing_init)
 
 
+_HOST_PATH_GUARD_INSTALLED = False
+
+
+def _is_denied_host_path(norm: str, raw: str) -> bool:
+    """Report whether a path points to /proc or /usr/local/share/tiktoken (#2165)."""
+    if norm == "/proc" or norm.startswith("/proc/"):
+        return True
+    if norm == "/usr/local/share/tiktoken" or norm.startswith("/usr/local/share/tiktoken/"):
+        return True
+    if raw.startswith("/proc") or raw.startswith("/usr/local/share/tiktoken"):
+        return True
+    return False
+
+
+def _collect_allowed_host_roots() -> tuple[Path, ...]:
+    """Collect the allowed repository, temporary, and interpreter directory roots (#2165)."""
+    import sysconfig
+
+    from tests.support.paths import REPO_ROOT
+
+    allowed_roots: list[Path] = [
+        REPO_ROOT.resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+        Path(os.sep).joinpath("tmp").resolve(),
+        Path(os.sep).joinpath("var", "tmp").resolve(),
+        Path(sys.prefix).resolve(),
+        Path(sys.base_prefix).resolve(),
+        Path(sys.exec_prefix).resolve(),
+        Path(sys.base_exec_prefix).resolve(),
+        Path(sys.executable).resolve().parent,
+    ]
+    main_worktree = Path("/workspaces/devops-cli")
+    if main_worktree.exists():
+        allowed_roots.append(main_worktree.resolve())
+    for p in sys.path:
+        if p:
+            try:
+                allowed_roots.append(Path(p).resolve())
+            except OSError:
+                pass
+    for path_name in ("stdlib", "purelib", "platlib", "data"):
+        try:
+            allowed_roots.append(Path(sysconfig.get_path(path_name)).resolve())
+        except Exception:
+            pass
+    return tuple(dict.fromkeys(allowed_roots))
+
+
+def _is_allowed_host_path(raw_path: str, unique_roots: tuple[Path, ...]) -> bool:
+    """Check whether a path is allowed under the hermetic floor (#2165)."""
+    if raw_path.startswith("/dev/"):
+        return True
+    if raw_path in (
+        "/etc/ld.so.cache",
+        "/etc/localtime",
+        "/etc/os-release",
+        "/etc/machine-id",
+        "/var/lib/dbus/machine-id",
+        "/usr/lib/os-release",
+    ) or raw_path.startswith("/usr/share/zoneinfo"):
+        return True
+    if (
+        raw_path.startswith(
+            (
+                "/bin/",
+                "/usr/bin/",
+                "/usr/local/bin/",
+                "/sbin/",
+                "/usr/sbin/",
+                "/usr/lib",
+                "/usr/local/lib",
+                "/opt/lib",
+                "/opt/scanners",
+                "/usr/lib64",
+                "/lib",
+                "/lib64",
+                "/usr/share",
+            )
+        )
+        or "/site-packages" in raw_path
+        or "/dist-packages" in raw_path
+    ):
+        return True
+
+    try:
+        resolved = Path(raw_path).resolve()
+    except Exception:
+        resolved = Path(os.path.abspath(raw_path))
+
+    for root in unique_roots:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            pass
+    return False
+
+
+def _install_host_path_guard() -> None:
+    """Install file open guard to deny host paths outside repo, temp, and interpreter (#2165)."""
+    global _HOST_PATH_GUARD_INSTALLED
+    if _HOST_PATH_GUARD_INSTALLED:
+        return
+    _HOST_PATH_GUARD_INSTALLED = True
+
+    import builtins
+    import io
+
+    unique_roots = _collect_allowed_host_roots()
+    real_open = builtins.open
+
+    def guarded_open(file: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(file, int):
+            return real_open(file, *args, **kwargs)
+        raw_path = os.fsdecode(file)
+        if not raw_path:
+            return real_open(file, *args, **kwargs)
+        norm = os.path.normpath(raw_path)
+        if _is_denied_host_path(norm, raw_path) or not _is_allowed_host_path(
+            raw_path, unique_roots
+        ):
+            msg = f"host path reached without a fake: {raw_path}"
+            _UNEXPECTED_LOOPBACK_CONNECTS.append(msg)
+            pytest.fail(msg, pytrace=False)
+
+        return real_open(file, *args, **kwargs)
+
+    builtins.open = guarded_open
+    io.open = guarded_open
+
+
+@pytest.fixture(autouse=True, scope="session")
+def refuse_host_paths() -> None:
+    """Deny opening host paths outside tmp_path, repo root, and the interpreter (#2165)."""
+    _install_host_path_guard()
+
+
 def _raise_keyring_deny(service: str, username: str | None) -> NoReturn:
     """Record and raise an unfaked keyring edge reach."""
     target = f"{service}/{username}" if username is not None else service
@@ -676,6 +813,93 @@ def isolate_tempdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
         yield tmp_path
     finally:
         tempfile.tempdir = prev_tempdir
+
+
+@pytest.fixture(scope="session")
+def _hermetic_floor_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Session temporary directory holding floor double files outside test tmp_path (#2165)."""
+    floor_dir = tmp_path_factory.mktemp("hermetic_floor")
+    (floor_dir / "tiktoken_cache").mkdir(parents=True, exist_ok=True)
+    mounts_file = floor_dir / "proc_mounts"
+    mounts_file.write_text("/dev/root / ext4 rw,relatime 0 0\n", encoding="utf-8")
+    proc_root = floor_dir / "proc"
+    proc_root.mkdir(parents=True, exist_ok=True)
+    self_dir = proc_root / "self"
+    self_dir.mkdir(parents=True, exist_ok=True)
+    dummy_stat = b"1 (python3) R 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1000 0 0 0\n"
+    (self_dir / "stat").write_bytes(dummy_stat)
+    return floor_dir
+
+
+@pytest.fixture(autouse=True)
+def isolate_tiktoken_cache(_hermetic_floor_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Ensure tests see an empty tokenizer cache by default (#2165)."""
+    cache_dir = _hermetic_floor_dir / "tiktoken_cache"
+    cache_str = str(cache_dir)
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", cache_str)
+    monkeypatch.setenv("DATA_GYM_CACHE_DIR", cache_str)
+    return cache_dir
+
+
+@pytest.fixture(autouse=True)
+def isolate_proc_mounts(_hermetic_floor_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Ensure tests see an isolated mounts table rather than /proc/mounts (#2165)."""
+    mounts_file = _hermetic_floor_dir / "proc_mounts"
+    import devops_cli.ci.diagnostics as diag
+
+    monkeypatch.setattr(diag, "_PROC_MOUNTS", mounts_file)
+    return mounts_file
+
+
+@pytest.fixture(autouse=True)
+def isolate_proc_root(_hermetic_floor_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Ensure tests see an isolated process table rather than host /proc (#2165)."""
+    proc_root = _hermetic_floor_dir / "proc"
+    import devops_cli.k8s.port_forward_daemon as pfd
+
+    real_process_start_ticks = pfd.process_start_ticks
+
+    def floor_process_start_ticks(pid: int) -> int | None:
+        if not (pfd._PROC_ROOT / "self" / "stat").is_file():
+            return None
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            stat_file = pfd._PROC_ROOT / str(pid) / "stat"
+            if stat_file.is_file():
+                stat_file.unlink(missing_ok=True)
+            return None
+
+        stat_file = pfd._PROC_ROOT / str(pid) / "stat"
+        if not stat_file.is_file():
+            pid_dir = pfd._PROC_ROOT / str(pid)
+            pid_dir.mkdir(parents=True, exist_ok=True)
+            dummy_stat = (
+                f"{pid} (proc) R 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1000 0 0 0\n"
+            ).encode()
+            (pid_dir / "stat").write_bytes(dummy_stat)
+        return real_process_start_ticks(pid)
+
+    monkeypatch.setattr(pfd, "_PROC_ROOT", proc_root)
+    monkeypatch.setattr(pfd, "process_start_ticks", floor_process_start_ticks)
+    import devops_cli.k8s.tunnel as tunnel_mod
+
+    monkeypatch.setattr(tunnel_mod, "process_start_ticks", floor_process_start_ticks)
+    return proc_root
+
+
+@pytest.fixture(autouse=True)
+def isolate_end_leftover_processes(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """Ensure non-live tests do not read host /proc to find leftover processes (#2165)."""
+    if "live" in request.keywords:
+        return
+    import devops_cli.core.process_hardening as ph
+    import devops_cli.roadmap.implement_step as implement_step
+
+    monkeypatch.setattr(ph, "end_leftover_processes", lambda timeout=0.0: None)
+    monkeypatch.setattr(implement_step, "end_leftover_processes", lambda timeout=0.0: None)
 
 
 @pytest.fixture(autouse=True)

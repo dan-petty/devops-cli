@@ -2143,6 +2143,7 @@ def test_no_process_of_the_agent_is_alive_when_git_runs_after_the_step_in_a_runn
     checkout: Path,
     programs: ProcessFake,
     config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A `git` or `gh` child of the job gets the session token in its environment, which a process
     of the same user can read through `/proc/<pid>/environ`. The agent's shell is such a process,
@@ -2151,6 +2152,16 @@ def test_no_process_of_the_agent_is_alive_when_git_runs_after_the_step_in_a_runn
     config(roadmap={"implement": {"in_runner": True}})
     leftovers: list[subprocess.Popen[bytes]] = []
     alive_at_git: list[bool] = []
+
+    def fake_end_leftover_processes(timeout: float = 5.0) -> None:
+        for p in leftovers:
+            p.kill()
+            p.wait()
+
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_step.end_leftover_processes",
+        fake_end_leftover_processes,
+    )
 
     def leave_a_process() -> None:
         leftovers.append(subprocess.Popen(["sleep", "60"], start_new_session=True))

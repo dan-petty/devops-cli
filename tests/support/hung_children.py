@@ -107,12 +107,11 @@ def _has_exited(pidfd: int) -> bool:
 
 
 def _session_of(pid: int) -> int | None:
-    """The session id of `pid`, from `/proc/<pid>/stat`, or None once it is gone."""
+    """The session id of `pid`, or None once it is gone."""
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        return os.getsid(pid)
     except OSError:
         return None
-    return int(stat.rpartition(")")[2].split()[3])
 
 
 def _open_pidfd(pid: int) -> int | None:

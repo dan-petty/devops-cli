@@ -30,6 +30,7 @@ Notes on the table:
 - A plan that an agent or a person writes is part of the one pull request that closes the issue. It has no separate gate G1. G1 exists for a plan that the Service stages.
 - A person can do every step of an agent or of the Service. A person's claim beats the Service's claim.
 - The command `devops roadmap explain <number>` says why the stage job and the implement job take an Item or leave it out. It names the first rule that fails for each job. It calls no model and writes nothing. The option `--why` on `devops roadmap stage` and `devops roadmap implement` lists the open Items that the filter does not name.
+- The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. First the ready plan pull requests of the jobs (G1), the ready implementation pull requests of the jobs (G2) and the release pull request (G3). Then the Items in `status/blocked` with their cause, the claims with no activity for 7 days, and the labels of `.github/labels.yml` that the repository lacks. Each line has the number, the age and the one command or action that clears it. The pull requests of people and agents are in a second list. The command reads GitHub only and writes nothing. It does not list an image digest that is not rolled: `devops argo cd apps status devops` reads it.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
 
 ## The transitions
@@ -165,8 +166,8 @@ Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the w
 | Issue | Step | What it will change |
 | :--- | :--- | :--- |
 | #2913 | The manual path | `devops roadmap implement` outside the runner makes the runner Job, and `--repo` is needed once |
-| #2915 | All | A command lists what waits for a person |
 | #2916 | 6 Verify | One function decides when any draft pull request is ready |
 | #2867 | 6 Verify | A model evaluator marks a draft ready when it matches its issue and the project rules |
 | #2917 | 8 Release and learn | A release comments its version and its deploy time on each issue it carries |
 | #2919 | All | Metrics show the age of stuck Items, and one alert fires |
+| #2968 | All | The counts of `devops roadmap inbox` are gauges with a Grafana panel, and the inbox lists an image digest that is not rolled |
