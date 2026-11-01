@@ -27,8 +27,9 @@ and the draft and takes them over as a Staged item.
 
 **A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
 item: the job pushes the commits that passed, comments the step, the reason and the last message
-of the agent, sets Status Ready, and records `implement.stopped`. It does not run the item again
-until a person comments `implement: retry`.
+of the agent, sets Status Blocked, and records `implement.stopped`. It does not run the item again
+until a clear rule of the Service removes the stop: a person's comment `implement: retry`, or a new
+runner image (`stop_clear.py`).
 
 **A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. The job
 reads the item before each unticked task group, when a step stops, and before the push. When an
@@ -64,7 +65,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
-    CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import acts_as_github_app, run_subprocess
@@ -93,6 +93,7 @@ from devops_cli.roadmap.implement_step import (
 )
 from devops_cli.roadmap.pull_labels import declared_labels
 from devops_cli.roadmap.stage_change import closing_keyword_in, delivery_title, safe_text
+from devops_cli.roadmap.status_sync import StatusFacts, derive_status
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
@@ -589,7 +590,7 @@ class _ItemRun:
     # ── The stop ──
 
     def stop(self, stop: _StopError) -> None:
-        """Push what passed, tell the item why, put it back to Ready, and record the step."""
+        """Push what passed, tell the item why, set it Blocked, and record the step."""
         texts = MESSAGES.roadmap
         note = self._push_passed() if stop.push else ""
         last = safe_text(mask_secrets(stop.last_message))[
@@ -616,7 +617,10 @@ class _ItemRun:
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
         self.store.set_field(
-            self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks
+            self._fresh(),
+            ItemField.STATUS,
+            derive_status(StatusFacts(stopped=True)),
+            marks=marks,
         )
 
     def _push_passed(self) -> str:

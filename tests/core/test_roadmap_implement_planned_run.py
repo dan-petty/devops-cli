@@ -127,7 +127,11 @@ def test_a_stop_before_the_first_commit_pushes_nothing_and_opens_no_pull_request
     applied = planned_world.run(ModelScript(say("I could not do group 1.")))
 
     status, record = _item(planned_world)
-    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Ready", "group 1")
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "group 1",
+    )
     assert _on_origin(planned_world) == ["main"]
     assert planned_world.sent("POST", "pulls") == []
     assert record.get("implement.pr") is None
@@ -146,7 +150,7 @@ def test_a_stop_after_a_commit_pushes_the_branch_and_opens_a_draft_that_closes_n
     assert planned_world.origin_log() == ["The first group (#1)"]
     assert (created["draft"], "Closes" in created["body"]) == (True, False)
     assert (status, record["implement.stopped"], record["implement.pr"]) == (
-        "Ready",
+        "Blocked",
         "group 2",
         str(PULL),
     )
@@ -187,7 +191,7 @@ def test_a_draft_that_github_refuses_takes_the_branch_off_origin_and_stops_the_i
     applied = planned_world.run(two_groups())
 
     status, record = _item(planned_world)
-    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Ready", "push")
+    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Blocked", "push")
     assert _on_origin(planned_world) == ["main"]
     assert record.get("implement.pr") is None
     assert "did not open the draft pull request" in planned_world.issue_comments()[0]

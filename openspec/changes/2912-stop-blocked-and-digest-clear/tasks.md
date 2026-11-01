@@ -20,9 +20,9 @@ Reads: `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/roadmap/implemen
 
 Reads: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/roadmap/implement_submit.py`. Changes: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/pull_status.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_implement_job.py`, `tests/roadmap/test_roadmap_implement_planned.py`, `tests/roadmap/test_roadmap_implement_submit.py`.
 
-- [ ] 3.1 Change the tests of a stop of a step, of a stop of a Planned item and of a Job report to expect the Status Blocked. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_job.py tests/roadmap/test_roadmap_implement_planned.py tests/roadmap/test_roadmap_implement_submit.py` fails on the base
-- [ ] 3.2 Set the Status of both stop paths with `derive_status`, and change the stop comment, the report text and the help text to say Blocked. Verify that the same command passes
-- [ ] 3.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 3.1 Change the tests of a stop of a step, of a stop of a Planned item and of a Job report to expect the Status Blocked. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_job.py tests/roadmap/test_roadmap_implement_planned.py tests/roadmap/test_roadmap_implement_submit.py` fails on the base
+- [x] 3.2 Set the Status of both stop paths with `derive_status`, and change the stop comment, the report text and the help text to say Blocked. Verify that the same command passes
+- [x] 3.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 4. Two clear rules take an item out of Blocked
 

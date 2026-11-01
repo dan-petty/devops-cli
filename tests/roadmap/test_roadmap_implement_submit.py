@@ -335,7 +335,7 @@ def test_a_job_that_failed_stops_an_item_that_is_in_progress_and_no_job_is_made_
         "ended: failed." in comment,
         "implement: retry" in comment,
         len(_creates(kube)),
-    ) == ("Ready", "failed", "job", True, True, 1)
+    ) == ("Blocked", "failed", "job", True, True, 1)
 
 
 def test_a_job_that_ended_and_left_the_item_ready_and_unstopped_stops_it_too(
@@ -351,7 +351,7 @@ def test_a_job_that_ended_and_left_the_item_ready_and_unstopped_stops_it_too(
     held = store.item(number)
     assert held is not None
     assert (held.status, _record(store, number)["implement.stopped"], len(_creates(kube))) == (
-        "Ready",
+        "Blocked",
         "job",
         1,
     )

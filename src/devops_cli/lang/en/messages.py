@@ -2288,8 +2288,9 @@ class RoadmapMessages:
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
         "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
-        "{last}{diff}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
-        "Then comment `implement: retry`.{note}"
+        "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
+        "Then comment `implement: retry`. The Service also clears the stop one time when a new "
+        "runner image rolls out.{note}"
     )
     implement_comment_last_none: str = "none."
     implement_comment_diff: str = (
@@ -2307,8 +2308,9 @@ class RoadmapMessages:
     implement_job_report_digest: str = "\nImage digest: {digest}"
     implement_job_report_no_log: str = "    (no log: the Job has no pod)"
     implement_job_report_stopped: str = (
-        "\n\nThe Job left this item without a result. The item is Ready again, and the job "
-        "will not run it. Fix the cause. Then comment `implement: retry`."
+        "\n\nThe Job left this item without a result. The item is Blocked, and the job "
+        "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
+        "clears the stop one time when a new runner image rolls out."
     )
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"

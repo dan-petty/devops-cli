@@ -9,9 +9,9 @@ that no round reported. When the Job has ended, the round comments the state and
 log of its pod on the item, and records `implement.job_state` as `succeeded` or `failed`. A Job
 that no longer exists is recorded as `gone`. A Job that leaves its item In Progress, or Ready and
 not stopped, is a stop that the runner could not write, such as a pod killed for its memory: the
-round sets the item to Ready and records `implement.stopped` as `job`, or the next round would
-create the same Job again. A person's comment `implement: retry` clears it, as it clears the stop
-of the job.
+round sets the item to Blocked and records `implement.stopped` as `job`, or the next round would
+create the same Job again. A clear rule of the Service takes the item out of Blocked
+(`stop_clear.py`), as it does for the stop of the job.
 
 **Wait.** A Job of the repository that has not ended blocks the round, whether or not an item
 records it, and a person's `devops roadmap implement --item` starts such a Job too (#2913). The API
@@ -64,7 +64,7 @@ from devops_cli.roadmap.implement import (
 )
 from devops_cli.roadmap.planned import read_planned_changes
 from devops_cli.roadmap.stage import StageFailure
-from devops_cli.roadmap.status_sync import sync_statuses
+from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_statuses
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -165,7 +165,7 @@ def _report(
         store.set_field(
             _fresh(store, item.number),
             ItemField.STATUS,
-            CONST_ROADMAP_STATUS_READY,
+            derive_status(StatusFacts(stopped=True)),
             marks={ImplementRecordKey.STOPPED: CONST_ROADMAP_IMPLEMENT_JOB_STEP},
         )
 
