@@ -33,11 +33,11 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cl
 
 Kind: other. Reads: `.pre-commit-config.yaml`, `tests/invariants/test_workflow_contracts.py`, `Dockerfile`. Changes: `.pre-commit-config.yaml`, `tests/invariants/test_workflow_contracts.py`, `tests/invariants/test_runner_hooks.py` (new), `CONTRIBUTING.md`, `docs/SDLC.md`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md`.
 
-- [ ] 4.1 Split the `pre-push` hook: `devops-ci-pre-push` runs `lint,format`, and the new `devops-ci-workflows-pre-push` runs `actionlint,zizmor` when the push changes a file of `.github/workflows/` or `.github/actions/`
+- [x] 4.1 Split the `pre-push` hook: `devops-ci-pre-push` runs `lint,format`, and the new `devops-ci-workflows-pre-push` runs `actionlint,zizmor` when the push changes a file of `.github/workflows/` or `.github/actions/`
   - Verification: `uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD` and `uv run devops ci test tests/invariants/test_workflow_contracts.py`
-- [ ] 4.2 Add `tests/invariants/test_runner_hooks.py`: each scoped row is a row of `devops ci`, each local hook runs a tool that the runner holds, and the branch-name hook accepts a branch of every type that the job makes; update the contract test of the `pre-push` hooks
+- [x] 4.2 Add `tests/invariants/test_runner_hooks.py`: each scoped row is a row of `devops ci`, each local hook runs a tool that the runner holds, and the branch-name hook accepts a branch of every type that the job makes; update the contract test of the `pre-push` hooks
   - Verification: `uv run devops ci test tests/invariants/test_runner_hooks.py tests/invariants/test_workflow_contracts.py`
-- [ ] 4.3 Change the three documents that name the hook command
+- [x] 4.3 Change the three documents that name the hook command
   - Verification: `git grep -n "lint,format,actionlint,zizmor" -- CONTRIBUTING.md docs/SDLC.md src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md` prints nothing
 
 ## 5. The prompt and the documents

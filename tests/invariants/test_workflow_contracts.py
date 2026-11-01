@@ -597,24 +597,61 @@ def test_the_main_branch_stays_refused_by_name() -> None:
     assert ["--branch", "main"] in args
 
 
-# The fast static checks that a push runs (#1752): rows of the `devops ci` check table.
-FAST_STATIC_CHECKS = ["lint", "format", "actionlint", "zizmor"]
+# The fast static checks that a push runs (#1752): rows of the `devops ci` check table. The two
+# workflow checks run only when the push changes a workflow (#3043): the runner image holds no
+# `actionlint`, and a push that changes no workflow has nothing for the two checks to read.
+FAST_STATIC_CHECKS = ["lint", "format"]
+WORKFLOW_CHECKS = ["actionlint", "zizmor"]
 
 
-def test_the_pre_push_hook_runs_only_the_fast_static_checks() -> None:
-    """A push runs the fast static checks and changes no file. The required checks of CI run the
-    test suite and the other checks before a merge, and the full `devops ci` is a manual run
-    (#1752)."""
+def _pre_push_hooks() -> list[dict[str, Any]]:
+    """The hooks of the `pre-push` stage of `.pre-commit-config.yaml`, in file order."""
     config = yaml.safe_load(PRE_COMMIT_PATH.read_text(encoding="utf-8"))
     default_stages = config.get("default_stages", ["pre-commit"])
-    push_commands = [
-        [*shlex.split(str(hook.get("entry", ""))), *map(str, hook.get("args", []))]
+    return [
+        hook
         for repo in config["repos"]
         for hook in repo.get("hooks", [])
         if "pre-push" in hook.get("stages", default_stages)
     ]
-    assert [resolve_step_rows(shlex.join(argv)) for argv in push_commands] == [FAST_STATIC_CHECKS]
-    assert [argv for argv in push_commands if "--check" not in argv] == []
+
+
+def _argv(hook: dict[str, Any]) -> list[str]:
+    return [*shlex.split(str(hook.get("entry", ""))), *map(str, hook.get("args", []))]
+
+
+def test_the_pre_push_hooks_run_only_the_fast_static_checks() -> None:
+    """A push runs the fast static checks and changes no file. The required checks of CI run the
+    test suite and the other checks before a merge, and the full `devops ci` is a manual run
+    (#1752)."""
+    hooks = _pre_push_hooks()
+    commands = [_argv(hook) for hook in hooks]
+    assert [resolve_step_rows(shlex.join(argv)) for argv in commands] == [
+        FAST_STATIC_CHECKS,
+        WORKFLOW_CHECKS,
+    ]
+    assert [argv for argv in commands if "--check" not in argv] == []
+
+
+def test_the_workflow_checks_run_only_when_a_push_changes_a_workflow() -> None:
+    """The first hook has no file filter and always runs. The second runs when the pushed commits
+    change a file of `.github/workflows/` or `.github/actions/`."""
+    always, workflows = _pre_push_hooks()
+    pattern = re.compile(str(workflows["files"]))
+    assert (always.get("always_run"), workflows.get("always_run"), workflows["pass_filenames"]) == (
+        True,
+        None,
+        False,
+    )
+    assert [
+        pattern.search(name) is not None
+        for name in (
+            ".github/workflows/ci.yml",
+            ".github/actions/setup/action.yml",
+            ".github/labels.yml",
+            "src/devops_cli/main.py",
+        )
+    ] == [True, True, False, False]
 
 
 def test_a_misspelled_command_in_a_workflow_is_reported() -> None:
