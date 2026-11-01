@@ -6,9 +6,9 @@ Reads: `src/devops_cli/core/process.py` lines 470 to 482, `tests/core/test_proce
 
 This group keeps behavior, so it adds no test. The repeatable check is `git grep -n "_prepare_cmd" -- src tests`. It prints 8 lines on the base and nothing when the group is done.
 
-- [ ] 1.1 Run `git grep -n "_prepare_cmd" -- src tests` and note the 8 lines. In `tests/support/fakes/process.py`, import `prepare_tool_cmd` at the top in place of `_prepare_cmd`, call it in the two places that call `_prepare_cmd(cmd)`, and make the method `prepare_cmd` use the top-level import and not a local one. Verify with `uv run devops ci test tests/core/test_process_contract.py tests/core/test_process_hardening.py`
-- [ ] 1.2 In `tests/core/test_process.py`, import and call `prepare_tool_cmd` in `test_uv_preview_flags_injection`, with the same expected values. Verify with `uv run devops ci test tests/core/test_process.py`
-- [ ] 1.3 Delete the line `_prepare_cmd = prepare_tool_cmd` and its blank lines from `src/devops_cli/core/process.py`. Verify that `git grep -n "_prepare_cmd" -- src tests` prints nothing and that `uv run devops ci test tests/core/test_process.py tests/core/test_process_contract.py tests/core/test_process_hardening.py tests/commands/test_ci.py` passes. The full suite, which holds the 128 files that use the process fake, runs in CI
+- [x] 1.1 Run `git grep -n "_prepare_cmd" -- src tests` and note the 8 lines. In `tests/support/fakes/process.py`, import `prepare_tool_cmd` at the top in place of `_prepare_cmd`, call it in the two places that call `_prepare_cmd(cmd)`, and make the method `prepare_cmd` use the top-level import and not a local one. Verify with `uv run devops ci test tests/core/test_process_contract.py tests/core/test_process_hardening.py`
+- [x] 1.2 In `tests/core/test_process.py`, import and call `prepare_tool_cmd` in `test_uv_preview_flags_injection`, with the same expected values. Verify with `uv run devops ci test tests/core/test_process.py`
+- [x] 1.3 Delete the line `_prepare_cmd = prepare_tool_cmd` and its blank lines from `src/devops_cli/core/process.py`. Verify that `git grep -n "_prepare_cmd" -- src tests` prints nothing and that `uv run devops ci test tests/core/test_process.py tests/core/test_process_contract.py tests/core/test_process_hardening.py tests/commands/test_ci.py` passes. The full suite, which holds the 128 files that use the process fake, runs in CI
 
 ## 2. Set the `src noqa: F401` ceiling to 0
 

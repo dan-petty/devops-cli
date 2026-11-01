@@ -20,7 +20,7 @@ from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core import clock as clock_seam
 from devops_cli.core.process import (
     PlannedProcessResult,
-    _prepare_cmd,
+    prepare_tool_cmd,
 )
 from devops_cli.dry_run import is_dry_run
 
@@ -245,8 +245,6 @@ class ProcessFake:
 
     def prepare_cmd(self, cmd: Sequence[str] | list[str]) -> list[str]:
         """Prepare command arguments list, injecting standardized uv preview features when starting uv."""
-        from devops_cli.core.process import prepare_tool_cmd
-
         return prepare_tool_cmd(cmd)
 
     def run(
@@ -269,7 +267,7 @@ class ProcessFake:
         `run_subprocess` sends a body as `input`, as the real runner takes it; the call records it
         as `stdin`.
         """
-        full_cmd = _prepare_cmd(cmd)
+        full_cmd = prepare_tool_cmd(cmd)
         call = ProcessCall(
             argv=tuple(full_cmd),
             cwd=cwd,
@@ -358,7 +356,7 @@ class ProcessFake:
         **kwargs: Any,
     ) -> subprocess.CompletedProcess[str]:
         """Record and execute an asynchronous subprocess command."""
-        full_cmd = _prepare_cmd(cmd)
+        full_cmd = prepare_tool_cmd(cmd)
         call = ProcessCall(
             argv=tuple(full_cmd),
             cwd=cwd,
