@@ -728,6 +728,8 @@ DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
+# The most extra turns of an implement step (#3043): each fixes a failed check or asks for ticks.
+DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
 # The most items one implement run takes, and the seconds between two reads of a pull request
 # whose checks are not there yet (#2665).
 DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1

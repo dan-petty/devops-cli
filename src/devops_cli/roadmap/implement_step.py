@@ -65,6 +65,7 @@ from devops_cli.config.commands import (
 )
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_PRE_COMMIT_COMMIT_STAGE,
     CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
@@ -100,6 +101,7 @@ from devops_cli.roadmap.agent_run import (
     model_call_error,
     record_run_spend,
 )
+from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
@@ -197,7 +199,8 @@ def fix_group(fix: FixRequest, groups: Sequence[TaskGroup]) -> TaskGroup:
 class StepInputs:
     """What one step gives the model: the instructions, the user message, and their tokens.
     `change` is the change folder, and `tasks_md` is the text of its `tasks.md` before the run,
-    read with its line ends. The job writes that text back after each turn."""
+    read with its line ends. The job writes that text back after each turn. `hooks` is the trusted
+    configuration of the hooks (`trusted_config`), or None when the repository has no hook (#3043)."""
 
     group: TaskGroup
     change: Path
@@ -206,6 +209,7 @@ class StepInputs:
     message: str
     tokens: int
     fix: FixRequest | None = None
+    hooks: Path | None = None
 
 
 def _files_section(source: Path, group: TaskGroup) -> str:
@@ -329,7 +333,8 @@ class StepOutcome(BaseModel):
     the diff of the work that a stopped step discarded, with secrets masked and cut to
     `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, and `diff_cut` says that it was cut (#2721).
     `tool_calls` counts the tool calls of the replies (#3030). `removed` lists the stray files that
-    the step deleted (#3092). `planned_requests` are the requests a dry run lists."""
+    the step deleted (#3092). `repair_rounds` counts the extra turns that the step used (#3043).
+    `planned_requests` are the requests a dry run lists."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -347,6 +352,7 @@ class StepOutcome(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     removed: tuple[str, ...] = ()
+    repair_rounds: int = 0
     dry_run: bool = False
     planned_requests: tuple[str, ...] = ()
 
@@ -943,12 +949,13 @@ def _stage(source: Path) -> list[str]:
 
 @dataclass(frozen=True)
 class _Failure:
-    """Why the step stops, and, for a failed static check, the paths that the step changed: the
-    files that the one extra turn for that failure may change (#2795). `repair_paths` is None for
-    a failure that gets no such turn."""
+    """Why the step stops, and, for a failed static check or hook, the paths that the step changed:
+    the files that an extra turn for that failure may change (#2795). `repair_paths` is None for
+    a failure that gets no such turn. `hook` says that a hook of the project failed (#3043)."""
 
     reason: str
     repair_paths: frozenset[str] | None = None
+    hook: bool = False
 
 
 def _exit_failure(
@@ -976,7 +983,27 @@ def _exit_failure(
     if early:
         return _Failure(early)
     static = _static_failure(source, changed)
-    return _Failure(static, frozenset(changed)) if static else None
+    if static:
+        return _Failure(static, frozenset(changed))
+    return _hooks_failure(source, inputs.hooks, changed)
+
+
+def _hooks_failure(source: Path, config: Path | None, changed: Sequence[str]) -> _Failure | None:
+    """Run the `pre-commit` stage of the hooks of `config` over the staged changes (#3043). None
+    when it passes. A failed hook (exit 1) is a failure that the agent may repair in the files the
+    step changed. Any other exit code, a run that ran out of time too, is a stop. A repository with
+    no hook configuration (`config` is None) has no hook to run."""
+    if config is None:
+        return None
+    run = commit_stage(source, config)
+    if run is None:
+        return None
+    reason = MESSAGES.roadmap.implement_stop_hooks_failed.format(
+        stage=CONST_PRE_COMMIT_COMMIT_STAGE, status=run.returncode, output=run.output
+    )
+    if not run.repairable:
+        return _Failure(reason)
+    return _Failure(reason, frozenset(changed), hook=True)
 
 
 def _discarded_diff(source: Path, start: str) -> tuple[str, bool]:
@@ -1009,8 +1036,9 @@ def _read_discarded_diff(source: Path, start: str, reason: str) -> tuple[str, bo
 
 
 def _commit(source: Path, message: str) -> tuple[str, str]:
-    """Commit the staged changes, with the hooks of the repository. The commit, and why the
-    step stops when git refuses it."""
+    """Commit the staged changes. The commit, and why the step stops when git refuses it. The
+    hooks of the repository ran as an exit check (`_hooks_failure`), and the job installs no git
+    hook, so the commit runs none."""
     done = _git(source, "commit", "-m", message)
     if done.returncode != 0:
         return "", MESSAGES.roadmap.implement_stop_commit_failed.format(output=_tail(done))
@@ -1083,11 +1111,11 @@ def _unticked_fields(source: Path, inputs: StepInputs) -> dict[str, str]:
 def _extra_ask(
     source: Path, inputs: StepInputs, failure: _Failure | None, log: ToolCallLog
 ) -> _Ask | None:
-    """The extra turn that the result of the exit checks earns, or None. A step gets one extra turn
-    at most: a failed static check gets the turn that fixes it, and the message lists the unticked
-    tasks too, so no turn for the ticks follows. A step whose checks passed gets the turn for the
-    ticks when a task is unticked. No other failure gets a turn. The message names the stray files
-    that the step deleted, and why (#3092)."""
+    """The extra turn that the result of the exit checks earns, or None. A failed static check or
+    hook gets the turn that fixes it, and the message lists the unticked tasks too, so no turn for
+    the ticks follows. A step whose checks passed gets the turn for the ticks when a task is
+    unticked. No other failure gets a turn. The message names the stray files that the step
+    deleted, and why (#3092). The caller counts the turns against `repair_rounds`."""
     texts = MESSAGES.roadmap
     removed = texts.implement_removed_note.format(paths=log.removed_text()) if log.removed else ""
     unticked = bool(_unticked(inputs))
@@ -1101,7 +1129,8 @@ def _extra_ask(
     if failure.repair_paths is None:
         return None
     ticks = texts.implement_repair_turn_ticks.format(**_unticked_fields(source, inputs))
-    message = texts.implement_repair_turn.format(
+    template = texts.implement_hook_turn if failure.hook else texts.implement_repair_turn
+    message = template.format(
         failure=mask_secrets(failure.reason)[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
         ticks=ticks if unticked else "",
         removed=removed,
@@ -1118,38 +1147,40 @@ def _extra_turn(
     start: str,
     first: _Run,
     ask: _Ask,
-) -> tuple[_Run, str]:
-    """The one extra turn of a step (#2721, #2795): the same conversation and the same limits as
-    the first turn, and the message of `ask`. The turn and the first together, and why the step
-    stops, if it does. The turn may change only the files that `ask` names and the `tasks.md`.
-    Every exit check runs again after it, and the first that fails stops the step. The stray files
-    of the turn are deleted first, so they are no change that `ask` does not allow (#3092)."""
+) -> tuple[_Run, _Failure | None]:
+    """One extra turn of a step (#2721, #2795, #3043): the same conversation and the same limits as
+    the first turn, and the message of `ask`. The turns so far and this one together, and the
+    first exit check that fails after it, if any. The turn may change only the files that `ask`
+    names and the `tasks.md`. Every exit check runs again after it. The stray files of the turn
+    are deleted first, so they are no change that `ask` does not allow (#3092). A turn that a
+    limit ended, and a change that `ask` does not allow, give a failure that gets no more turns."""
     tree = _tree(source)
     run = first.then(_turn(agent, model, log, ask.message, first.conversation))
-    reason = run.reason
-    if not reason:
-        _remove_strays(source, inputs, log)
-        reason = _foreign_change(source, inputs, tree, ask) or ""
-    if not reason:
-        failure = _exit_failure(source, inputs, start, log)
-        reason = failure.reason if failure else ""
-    return run, reason
+    if run.reason:
+        return run, _Failure(run.reason)
+    _remove_strays(source, inputs, log)
+    foreign = _foreign_change(source, inputs, tree, ask)
+    if foreign:
+        return run, _Failure(foreign)
+    return run, _exit_failure(source, inputs, start, log)
 
 
 def _attempt(
     source: Path, model: Any, window: int, inputs: StepInputs, item: int, start: str
 ) -> StepOutcome:
-    """Run the agent, then judge the exit and commit."""
+    """Run the agent, then judge the exit and commit. A failed check or a missing tick gets an
+    extra turn while one of the `roadmap.implement.repair_rounds` rounds is left."""
+    budget = load_settings().roadmap.implement.repair_rounds
+    rounds = 0
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
         log = ToolCallLog(source)
         agent = build_agent(model, source, inputs.instructions, window, Path(home), log)
         run = _turn(agent, model, log, inputs.message)
         failure = _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start, log)
-        ask = _extra_ask(source, inputs, failure, log)
-        if ask is None:
-            reason = failure.reason if failure else ""
-        else:
-            run, reason = _extra_turn(agent, model, log, source, inputs, start, run, ask)
+        while rounds < budget and (ask := _extra_ask(source, inputs, failure, log)) is not None:
+            run, failure = _extra_turn(agent, model, log, source, inputs, start, run, ask)
+            rounds += 1
+    reason = failure.reason if failure else ""
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,
@@ -1161,6 +1192,7 @@ def _attempt(
         input_tokens=run.input_tokens,
         output_tokens=run.output_tokens,
         removed=tuple(log.removed),
+        repair_rounds=rounds,
     )
     reason = reason or _unticked_failure(inputs) or ""
     commit = ""
@@ -1181,6 +1213,7 @@ def run_step(
     model: Any,
     window: int,
     fix: FixRequest | None = None,
+    hooks: Path | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1189,9 +1222,14 @@ def run_step(
     the run raises. It reads the item once and writes nothing to GitHub. A failed model call ends
     the step as stopped, with the diff of the work. Raises `RoadmapImplementError` for a step it
     refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
-    step makes the failed check pass and ticks no task (`run_fix_step`).
+    step makes the failed check pass and ticks no task (`run_fix_step`). `hooks` is the trusted
+    configuration of the hooks of the project (`trusted_config`): the step runs its `pre-commit`
+    stage as an exit check, and none when `hooks` is None (#3043).
     """
-    inputs = build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix)
+    inputs = replace(
+        build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix),
+        hooks=hooks,
+    )
     _require_clean(source)
     start = _head(source)
     done = False
@@ -1205,7 +1243,14 @@ def run_step(
 
 
 def run_fix_step(
-    store: ItemReader, *, item: int, fix: FixRequest, source: Path, model: Any, window: int
+    store: ItemReader,
+    *,
+    item: int,
+    fix: FixRequest,
+    source: Path,
+    model: Any,
+    window: int,
+    hooks: Path | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits as `<that title> (#<item>)` when the
@@ -1218,6 +1263,7 @@ def run_fix_step(
         model=model,
         window=window,
         fix=fix,
+        hooks=hooks,
     )
 
 
@@ -1273,6 +1319,7 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
         labels["tool_calls"]: str(outcome.tool_calls),
         labels["input_tokens"]: str(outcome.input_tokens),
         labels["output_tokens"]: str(outcome.output_tokens),
+        labels["repair_rounds"]: str(outcome.repair_rounds),
         labels["last_message"]: escape_text(outcome.last_message),
     }
     if outcome.removed:
