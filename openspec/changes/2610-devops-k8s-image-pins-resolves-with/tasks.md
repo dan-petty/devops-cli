@@ -1,25 +1,46 @@
 # Tasks
 
-## 1. Resolve image pins with tag_digest HEAD
+## 1. Move the reference split to the registry module
 
-Reads: `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/docker/registry.py`, `tests/k8s/test_image_pins.py`, `tests/docker/test_registry_tag_digest.py`. Changes: `src/devops_cli/k8s/image_pins.py`, `tests/k8s/test_image_pins.py`.
+Reads: `src/devops_cli/k8s/image_pins.py` (the constants `_DEFAULT_REGISTRY` and `_DEFAULT_REGISTRY_ALIAS`, and `image_reference`), `src/devops_cli/docker/registry.py`, `tests/docker/test_registry_tag_digest.py`, `tests/k8s/test_image_pins.py` (the Docker SDK parity test). Changes: `src/devops_cli/docker/registry.py`, `src/devops_cli/k8s/image_pins.py`, `tests/docker/test_registry_tag_digest.py`, `tests/k8s/test_image_pins.py`.
 
-- [ ] 1.1 Write a test in tests/k8s/test_image_pins.py that calls resolve_image with an httpx2 client whose MockTransport answers HEAD with a 200 and Docker-Content-Digest header, and asserts the returned PinResolution holds that digest and no subprocess was started, and verify that `uv run pytest tests/k8s/test_image_pins.py -x` fails on the base
-- [ ] 1.2 In src/devops_cli/k8s/image_pins.py, remove the inspect_command function. Add a _normalize_reference helper that prepends docker.io/library/ when the first path component names no registry host (no dot, no colon, not localhost). Change resolve_image to accept an httpx2.Client parameter and call tag_digest from devops_cli.docker.registry with the normalized reference. Catch RegistryReadError and return a PinResolution with the error text. Change resolve_image_pins to accept and pass the client. In tests/k8s/test_image_pins.py, remove the ImagetoolsFake import and fixture usage. Write a test that builds an httpx2 client with a MockTransport answering HEAD with a 200 and Docker-Content-Digest header, calls resolve_image, and asserts the PinResolution holds that digest. Write a test for the 401-then-200 Bearer token flow. Write a test for a 404 that asserts the error is recorded, and verify that `uv run pytest tests/k8s/test_image_pins.py -x` passes
+This group keeps the behavior. It adds no test: the parity test moves with the function.
 
-## 2. Replace image_reference with tagged_image
+- [ ] 1.1 Move `image_reference` and its two constants from `src/devops_cli/k8s/image_pins.py` to `src/devops_cli/docker/registry.py`, with the body and the name as they are. Import it in `src/devops_cli/k8s/image_pins.py` for `collect_image_pins`, `updater_repositories` and `resolve_image`. Move the test `test_an_image_reference_splits_as_the_docker_sdk_splits_it` with its list of images to `tests/docker/test_registry_tag_digest.py`. Fix the import lists of both test files
+  - Verification: `uv run devops ci test tests/docker/test_registry_tag_digest.py tests/k8s/test_image_pins.py tests/argo/test_image_pins.py` passes, and `! git grep -n "def image_reference" -- src/devops_cli/k8s` prints nothing
 
-Reads: `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/docker/registry.py`. Changes: `src/devops_cli/k8s/image_pins.py`.
+## 2. Read Docker Hub names and digest references
 
-- [ ] 2.1 Write a test in tests/k8s/test_image_pins.py that calls collect_image_pins with a fixture Application naming a Docker Hub shorthand image (nginx:1.27) and a full-registry image (ghcr.io/org/app:1.0), and asserts both are classified as pinned with the correct registry and repository, and verify that `uv run pytest tests/k8s/test_image_pins.py -x` fails on the base
-- [ ] 2.2 In src/devops_cli/k8s/image_pins.py, remove the image_reference function. In collect_image_pins, replace the image_reference call with _normalize_reference followed by tagged_image from devops_cli.docker.registry. Use the TaggedImage fields for registry and repository classification. In updater_repositories, replace the image_reference call the same way. Remove the _DEFAULT_REGISTRY and _DEFAULT_REGISTRY_ALIAS constants if they are no longer referenced. Keep names_latest and is_local_registry unchanged, and verify that `uv run pytest tests/k8s/test_image_pins.py -x` passes
+Reads: `src/devops_cli/docker/registry.py`, `tests/docker/test_registry_tag_digest.py`, `tests/support/fakes/oci_registry.py`. Changes: `src/devops_cli/docker/registry.py`, `tests/docker/test_registry_tag_digest.py`.
 
-## 3. Remove ImagetoolsFake and contract suite
+- [ ] 2.1 Write the failing tests in `tests/docker/test_registry_tag_digest.py`. `tagged_image` splits `nginx:1.27`, `library/nginx:1.27`, `docker.io/traefik:v3.7.16` and `index.docker.io/library/nginx:1.27` with the registry `docker.io`; it splits `ghcr.io/example/app:1.0@sha256:<digest>` into a tag and a digest, and a reference with only a digest into a digest; it still refuses a reference with neither a tag nor a digest (`nginx`, `registry.example.com:5000/app`). Move the cases `no-registry` and `hub-path` out of the list of refused references. `tag_digest` of `nginx:1.27`, `valkey/valkey:9.1.2-alpine` and `docker.io/traefik:v3.7.16`, with `RegistryFake(..., host="registry-1.docker.io")` served by `stub_web`, sends its HEAD requests to `registry-1.docker.io` for `library/nginx`, `valkey/valkey` and `library/traefik`, and the first request carries no `Authorization` header. `tag_digest` of a reference with a digest sends the HEAD to the manifest of the digest. The existing ghcr tests stay as they are
+  - Verification: `uv run devops ci test tests/docker/test_registry_tag_digest.py` fails on the base, because `tagged_image` refuses `nginx:1.27` and reads a digest as a tag
+- [ ] 2.2 In `src/devops_cli/docker/registry.py`, build `tagged_image` on `image_reference`, add a `digest` field (default `None`) to `TaggedImage`, and make `tag_digest` send a Docker Hub name to the host `registry-1.docker.io`, put the prefix library before a repository of one component, and ask for the digest when the reference has one. Keep the constant of the Docker Hub host private to the module. Update the docstrings of the module and of the two functions
+  - Verification: `uv run devops ci test tests/docker/test_registry_tag_digest.py tests/argo/test_image_pins.py` passes
 
-Reads: `tests/support/fakes/imagetools.py`, `tests/k8s/test_imagetools_contract.py`, `tests/support/imagetools_recording.py`. Changes: `tests/support/fakes/imagetools.py`, `tests/k8s/test_imagetools_contract.py`, `tests/support/imagetools_recording.py`, `tests/fixtures/imagetools_runs/recorded_runs.json`.
+## 3. Resolve the image pins with tag_digest and delete the imagetools fake
 
-- [ ] 3.1 Delete tests/support/fakes/imagetools.py, tests/k8s/test_imagetools_contract.py, tests/support/imagetools_recording.py, and tests/fixtures/imagetools_runs/recorded_runs.json. Remove the imagetools fixture registration from tests/support/bootstrap.py. Remove any import of the imagetools fixture from tests/k8s/test_image_pins.py if a reference remains after group 1, and verify that `! git grep -n ImagetoolsFake src/ tests/` passes
+Reads: `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/commands/k8s/image_pins.py`, `src/devops_cli/docker/registry.py`, `src/devops_cli/argo/image_pins.py` (the model of `check_pins`), `tests/k8s/test_image_pins.py`, `tests/support/fakes/oci_registry.py`, `src/devops_cli/lang/en/messages.py` (the line of `image_pins_dry_run`). Changes: `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/commands/k8s/image_pins.py`, `src/devops_cli/lang/en/messages.py`, `tests/k8s/test_image_pins.py`. Deletes: `tests/support/fakes/imagetools.py`, `tests/support/imagetools_recording.py`, `tests/k8s/test_imagetools_contract.py`, `tests/fixtures/imagetools_runs/recorded_runs.json`.
 
-## Workflow follow-up
+- [ ] 3.1 Write the failing tests in `tests/k8s/test_image_pins.py`, with `stub_web.serve(RegistryFake(...))` for the registries and `process_fake` for helm and kubectl. Replace the tests that use the `imagetools` fixture and `RECORDED_IMAGES`. The new tests: each image resolves to its digest, or to the error of `tag_digest` (404 on `docker.io`, 404 on `quay.io`, a token endpoint that answers 401 on `ghcr.io`); a Docker Hub pin of the command goes to `registry-1.docker.io` and the table shows `docker.io`; the first request of a pin carries no `Authorization` header; a reply with no `Docker-Content-Digest` does not resolve; every manifest request of the command is a HEAD; the command passes when each pin resolves and fails with the message of the failed pin; a refused `latest` image sends no request; a dry run sends no request (`stub_web.sent == []`) and prints `HEAD https://<registry>/v2/<repository>/manifests/<reference>`. Remove the `imagetools` fixture from the signatures of the tests of `collect_image_pins`
+  - Verification: `uv run devops ci test tests/k8s/test_image_pins.py` fails on the base, because `resolve_image` takes no client and starts `docker buildx`
+- [ ] 3.2 In `src/devops_cli/k8s/image_pins.py`, give `resolve_image` and `resolve_image_pins` a client and a timeout. `resolve_image` calls `tag_digest` and records `RegistryReadError`, `SSRFBlockedError` and `httpx2.HTTPError` in `PinResolution.error`. Delete `inspect_command`, the process call, the `planned` field of `PinResolution`, and the imports and constants that this leaves unused. In `src/devops_cli/commands/k8s/image_pins.py`, open `new_http_client(level=EgressLevel.PUBLIC)` with `DEFAULT_HTTP_TIMEOUT_SECONDS` only outside a dry run, remove the "planned" text from `_result_text`, and change the dry-run message in `src/devops_cli/lang/en/messages.py` to name the HEAD request. Write the docstring of the module and the help text of the command as they read now: a HEAD request that Docker Hub does not count
+  - Verification: `uv run devops ci test tests/k8s/test_image_pins.py tests/docker/test_registry_tag_digest.py tests/argo/test_image_pins.py` passes
+- [ ] 3.3 Delete the four files of the imagetools fake, its recording, its record and its contract suite
+  - Verification: `! git grep -n -E "ImagetoolsFake|inspect_command|imagetools_recording|imagetools_runs" -- src tests` prints nothing, and `uv run devops ci test tests/k8s tests/docker tests/argo` passes
 
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+## 4. Fix the documents that name the old resolver
+
+Reads: `docs/SDLC.md` (the section "The Image Pins"), `docs/TESTING.md` (the list of fakes), `k8s/README.md` (the section "Image Pins"), `.github/workflows/ci.yml` (the comment above the job `image-pins`). Changes: `docs/SDLC.md`, `docs/TESTING.md`, `k8s/README.md`, `.github/workflows/ci.yml` (comment only), `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/k8s.md`.
+
+- [ ] 4.1 In `docs/SDLC.md`, `k8s/README.md` and the comment of the job `image-pins` in `.github/workflows/ci.yml`, say that the check resolves each image with a HEAD request of its manifest, which Docker Hub does not count. Remove the advice to run the job again after the hour only where it no longer applies. In `docs/TESTING.md`, remove the sentence about `ImagetoolsFake`, its recording and its contract suite
+  - Verification: `! git grep -n -i "imagetools" -- docs/SDLC.md docs/TESTING.md k8s/README.md README.md docs/CLI_REFERENCE.md docs/commands .github/workflows/ci.yml` prints nothing, and `uv run devops ci test tests/invariants/test_workflow_contracts.py` passes
+- [ ] 4.2 Regenerate the command documents
+  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
+
+## 5. Fail-to-pass and archive
+
+- [ ] 5.1 Run the fail-to-pass check on the new tests, and check that the job needs no new binary
+  - Verification: `uv run devops ci fail-to-pass --base origin/main`, and `git diff --exit-code origin/main -- src/devops_cli/tools_lock/tools.lock`
+- [ ] 5.2 Archive the change
+  - Verification: `uv run devops openspec archive 2610-devops-k8s-image-pins-resolves-with` and `uv run devops openspec check`
