@@ -8,8 +8,8 @@ The seven commands `branches sync`, `branches update`, `repos clone`, `repos clo
 - **THEN** no `git fetch` and no `git pull` runs, and the output lists `git -C <repo> fetch --prune origin` and then `git -C <repo> pull origin <branch>`
 
 #### Scenario: A dry run refuses what a run refuses
-- **WHEN** user executes `devops repos clone -- -bad --dry-run`
-- **THEN** the command exits with status 1 and lists no request
+- **WHEN** user executes `devops repos clone --dry-run -- -bad` or `devops --dry-run repos clone -- -bad`
+- **THEN** the command exits with status 1, reports `Invalid repository URL: must not start with a hyphen.` and lists no request
 
 #### Scenario: Dry run on repos update through the root flag
 - **WHEN** user executes `devops --dry-run repos update --no-pull`
@@ -117,6 +117,10 @@ The commands `tls ca`, `tls cert`, `tls homelab`, `tls inspect` and `tls verify`
 #### Scenario: Dry run on tls ca
 - **WHEN** user executes `devops tls ca --output-dir <dir> --dry-run`
 - **THEN** the output says which files it would write, and `<dir>` holds no `ca.crt` and no `ca.key`
+
+#### Scenario: tls ca and tls cert are not MCP tools
+- **WHEN** a client lists the tools of the MCP server
+- **THEN** the list holds no `tls_ca` and no `tls_cert`, and it holds `tls_inspect`
 
 #### Scenario: Dry run on tls homelab through the root flag
 - **WHEN** user executes `devops --dry-run tls homelab --output-dir <dir>`
