@@ -43,8 +43,6 @@ logger = logging.getLogger(__name__)
 
 active_ollama_requests: dict[str, int] = {}
 ollama_active_lock = threading.Lock()
-ollama_semaphores: dict[str, threading.Semaphore] = {}
-ollama_sem_lock = threading.Lock()
 ollama_slot_condition = threading.Condition(threading.Lock())
 waiting_priority_requests: dict[RequestPriority, int] = {
     RequestPriority.HIGH: 0,
@@ -313,18 +311,6 @@ def load_and_increment_rr_index(n: int) -> int:
         return idx % n
 
 
-def get_ollama_semaphore(url: str, max_parallel: int) -> threading.Semaphore:
-    with ollama_sem_lock:
-        if (
-            url not in ollama_semaphores
-            or getattr(ollama_semaphores[url], "_max_parallel", None) != max_parallel
-        ):
-            sem = threading.Semaphore(max(1, max_parallel))
-            setattr(sem, "_max_parallel", max_parallel)
-            ollama_semaphores[url] = sem
-        return ollama_semaphores[url]
-
-
 def _is_priority_eligible(priority: RequestPriority) -> bool:
     """Check if priority tier is eligible without higher-priority starvation."""
     if priority == RequestPriority.HIGH:
@@ -587,8 +573,6 @@ def reset_ollama_slots() -> None:
         for p in RequestPriority:
             waiting_priority_requests[p] = 0
         ollama_slot_condition.notify_all()
-    with ollama_sem_lock:
-        ollama_semaphores.clear()
     with global_ollama_url_lock:
         global_ollama_url_index = 0
 
