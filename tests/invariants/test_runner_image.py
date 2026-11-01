@@ -218,7 +218,8 @@ def test_the_smoke_test_runs_uv_in_a_copy_of_the_checkout() -> None:
 
 def test_the_smoke_test_of_the_runner_image_is_the_same_in_ci_and_in_the_release() -> None:
     """Verify that both workflows run one smoke test, in a read-only container with no capability,
-    which checks the tools of a step and that the image holds no compiler."""
+    which checks the tools of a step through the table `RUNNER_TOOLS` and not through a list of
+    its own, bounds the size of the image, and checks that the image holds no compiler (#3072)."""
     ci = _step(_workflow("ci.yml")["jobs"]["runner-image"], RUNNER_STEPS[1])["run"].strip()
     release = _step(_release_job(), RUNNER_STEPS[1])["run"].strip()
 
@@ -227,9 +228,11 @@ def test_the_smoke_test_of_the_runner_image_is_the_same_in_ci_and_in_the_release
         "--read-only" in ci,
         "--cap-drop ALL" in ci,
         "no-new-privileges" in ci,
+        "-m devops_cli.roadmap.runner_tools" in ci,
+        "-gt 3000000000" in ci,
         [
-            tool
-            for tool in ("gh", "git", "openspec", "uv", "ruff", "mypy", "pytest")
-            if tool not in ci
+            line
+            for line in ci.splitlines()
+            if "--entrypoint" in line and line.endswith('"$IMAGE" --version')
         ],
-    ) == (True, True, True, True, [])
+    ) == (True, True, True, True, True, True, [])
