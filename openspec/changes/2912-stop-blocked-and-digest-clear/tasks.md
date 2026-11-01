@@ -28,9 +28,9 @@ Reads: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/roadmap/implem
 
 Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/implement_submit.py`. Changes: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stop_clear.py`.
 
-- [ ] 4.1 Write tests for the retry rule, the digest rule, the same digest over ten rounds (the count of Job creates stays 1), a second stop on the new digest, a stop with no digest, a stop of an item that a Job or an agent or a person holds, a comment of a stranger, and a failed clear that does not stop the others. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py` fails on the base
-- [ ] 4.2 Add `stop_clear.py` with the two rules and call it in the round of the row `implement`, after the Status sweep and before the plan. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py tests/roadmap/test_roadmap_implement_submit.py` passes
-- [ ] 4.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 4.1 Write tests for the retry rule, the digest rule, the same digest over ten rounds (the count of Job creates stays 1), a second stop on the new digest, a stop with no digest, a stop of an item that a Job or an agent or a person holds, a comment of a stranger, and a failed clear that does not stop the others. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py` fails on the base
+- [x] 4.2 Add `stop_clear.py` with the two rules and call it in the round of the row `implement`, after the Status sweep and before the plan. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py tests/roadmap/test_roadmap_implement_submit.py` passes
+- [x] 4.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 5. The documents say what the code does
 

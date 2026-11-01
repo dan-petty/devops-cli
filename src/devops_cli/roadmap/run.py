@@ -574,9 +574,10 @@ def _run_implement_adapter(
     source = _job_clone("implement", clone_path)
     result = run_implement_round(store, repo=repo, source=source)
     logger.info(
-        "The implement row of %s reported %d Job(s), waited %s, created %s",
+        "The implement row of %s reported %d Job(s), cleared %d stop(s), waited %s, created %s",
         repo,
         len(result.reported),
+        len(result.cleared),
         result.waiting,
         result.created,
     )

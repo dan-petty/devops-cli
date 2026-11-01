@@ -2312,6 +2312,17 @@ class RoadmapMessages:
         "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
         "clears the stop one time when a new runner image rolls out."
     )
+    stop_clear_retry: str = (
+        "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: a person commented "
+        "`implement: retry`. The item is {status} again, and the Service takes it in the next "
+        "round."
+    )
+    stop_clear_digest: str = (
+        "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: the runner image changed "
+        "since the stop, from {old} to {new}. The item is {status} again, and the Service takes "
+        "it in the next round. The Service clears a stop one time for each runner image. A new "
+        "stop on this image waits for a comment `implement: retry`."
+    )
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "

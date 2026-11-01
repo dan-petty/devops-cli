@@ -24,6 +24,12 @@ creates one Job for the first of them, from CronJob `devops-cli-runner`, with th
 arguments and a token for the one repository (`service.github_app.token_repository`). The record
 of the item then names the Job.
 
+**Clear.** After the report, the round clears the stop of each item that the Service set Blocked
+when a person asked for a retry, or when the digest in the CronJob template differs from the
+digest of the Job that stopped it (`stop_clear.py`, #2912). A cleared item is eligible in the same
+round, so the plan below can take it. `implement.job_digest` is the digest in the template at the
+time of the create, recorded with the Job.
+
 **Status.** After it reports the Jobs, and again after it creates one, the round sets the Status
 label of each item from the record and the plans on the default branch (`status_sync.py`, #2920):
 Planned once the plan is merged, and In Progress as soon as the record names a Job. The round reads
@@ -36,6 +42,7 @@ from __future__ import annotations
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from devops_cli.config.constants import (
@@ -65,6 +72,7 @@ from devops_cli.roadmap.implement import (
 from devops_cli.roadmap.planned import read_planned_changes
 from devops_cli.roadmap.stage import StageFailure
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_statuses
+from devops_cli.roadmap.stop_clear import clear_stops
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -75,13 +83,14 @@ _GONE = "gone"
 class SubmitResult:
     """What a round did: the Jobs it reported, whether a running Job held it, the Job it created,
     and the item it left because an agent or a person claimed it after the plan (#2910), and the
-    items whose Status it could not set."""
+    items whose Status it could not set, and the items whose stop it cleared (#2912)."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
     created: str | None = None
     left: int | None = None
     status_failed: tuple[StageFailure, ...] = ()
+    cleared: tuple[int, ...] = ()
 
 
 def _record(item: Item, key: ImplementRecordKey) -> str | None:
@@ -235,9 +244,15 @@ def run_implement_round(
     held = {job.name: job for job in api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})}
     reported = _report_ended(store, api, held)
     planned = read_planned_changes(Path(source), operation=GIT_OPERATION)
-    failed = sync_statuses(store, repo=repo, planned=planned).failed
+    swept = sync_statuses(store, repo=repo, planned=planned).failed
+    stops = clear_stops(
+        store, planned=planned, digest=partial(api.template_digest, RUNNER_TEMPLATE)
+    )
+    failed = (*swept, *stops.failed)
     if any(job.state is JobState.RUNNING for job in held.values()):
-        return SubmitResult(reported=reported, waiting=True, status_failed=failed)
+        return SubmitResult(
+            reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
+        )
     plan = plan_implement(
         store,
         repo=repo,
@@ -247,17 +262,20 @@ def run_implement_round(
         planned=planned,
     )
     if not plan.selected:
-        return SubmitResult(reported=reported, status_failed=failed)
+        return SubmitResult(reported=reported, status_failed=failed, cleared=stops.cleared)
     if _runs(api, label):
-        return SubmitResult(reported=reported, waiting=True, status_failed=failed)
+        return SubmitResult(
+            reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
+        )
     number = plan.selected[0].item.number
     created = _create(store, api, repo, plan.selected[0], label)
-    failed = sync_statuses(store, repo=repo, planned=planned).failed
+    failed = (*stops.failed, *sync_statuses(store, repo=repo, planned=planned).failed)
     return SubmitResult(
         reported=reported,
         created=created,
         left=number if created is None else None,
         status_failed=failed,
+        cleared=stops.cleared,
     )
 
 

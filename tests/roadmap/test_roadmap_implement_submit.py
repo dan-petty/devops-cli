@@ -517,7 +517,7 @@ def test_the_report_of_a_job_names_the_digest_of_its_image(
 
     _round(store, staged_repo)
 
-    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    (comment,) = [c for c in _comments(store, number) if "ended: failed" in c]
     assert (f"Image digest: {DIGEST_A}" in comment, DIGEST_B in comment) == (True, False)
 
 
@@ -615,6 +615,137 @@ def test_a_retry_comment_after_the_stop_makes_a_new_job_that_clears_the_report_o
         True,
         None,
     )
+
+
+def _stop_with_a_failed_job(
+    store: InMemoryRoadmapStore, repo: StageRepo, kube: FakeCluster, index: int = 0
+) -> None:
+    """The Job at `index` ends Failed while its item is In Progress, and a round reports it."""
+    number = 1
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed", index)
+    _round(store, repo)
+
+
+def test_a_stop_is_blocked_with_the_digest_of_the_failed_job_and_the_same_digest_makes_no_job(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The Service creates one Job on one digest, however many rounds run (#2912)."""
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    _stop_with_a_failed_job(store, staged_repo, kube)
+
+    for _ in range(10):
+        _round(store, staged_repo)
+
+    assert (
+        _held(store, number).status,
+        _record(store, number)["implement.stopped"],
+        _record(store, number)["implement.job_digest"],
+        len(_creates(kube)),
+    ) == ("Blocked", "job", DIGEST_A, 1)
+
+
+def test_a_new_digest_clears_the_stop_once_and_the_item_gets_a_new_job_on_that_digest(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    _stop_with_a_failed_job(store, staged_repo, kube)
+    _roll(kube, DIGEST_B)
+
+    _round(store, staged_repo)
+
+    record = _record(store, number)
+    comment = _comments(store, number)[-1]
+    assert (
+        len(_creates(kube)),
+        record["implement.job_digest"],
+        record["implement.job_state"],
+        record.get("implement.stopped"),
+        "rule `digest`" in comment,
+        _held(store, number).status,
+    ) == (2, DIGEST_B, None, None, True, "In Progress")
+
+
+def test_a_second_stop_on_the_new_digest_makes_no_job_in_any_number_of_rounds(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """One automatic clear for each digest: the loop of Job, stop, clear, Job does not run."""
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    _stop_with_a_failed_job(store, staged_repo, kube)
+    _roll(kube, DIGEST_B)
+    _round(store, staged_repo)
+    _stop_with_a_failed_job(store, staged_repo, kube, index=1)
+
+    for _ in range(10):
+        _round(store, staged_repo)
+
+    assert (
+        _held(store, number).status,
+        _record(store, number)["implement.job_digest"],
+        len(_creates(kube)),
+    ) == ("Blocked", DIGEST_B, 2)
+
+
+def test_a_retry_of_the_owner_clears_the_stop_on_the_same_digest_and_names_the_rule(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    _stop_with_a_failed_job(store, staged_repo, kube)
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+
+    _round(store, staged_repo)
+
+    comments = [c for c in _comments(store, number) if "rule `" in c]
+    assert (len(_creates(kube)), len(comments), "rule `retry`" in comments[0]) == (2, 1, True)
+
+
+def test_a_stop_of_the_runner_with_a_new_digest_waits_for_the_report_of_its_job(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The runner wrote the stop while its pod still ends. The Job is not reported yet, so the
+    round clears nothing and makes no second Job."""
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    store.set_field(
+        _held(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={ImplementRecordKey.STOPPED: "group 1"},
+    )
+    _roll(kube, DIGEST_B)
+
+    _round(store, staged_repo)
+
+    assert (_held(store, number).status, len(_creates(kube))) == ("Blocked", 1)
+
+
+def test_a_stop_that_the_runner_wrote_is_cleared_after_the_report_when_the_digest_changed(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    store.set_field(
+        _held(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={ImplementRecordKey.STOPPED: "group 1"},
+    )
+    _end(kube, "Failed")
+    _roll(kube, DIGEST_B)
+
+    _round(store, staged_repo)
+
+    assert (len(_creates(kube)), _record(store, number)["implement.job_digest"]) == (2, DIGEST_B)
 
 
 def test_the_args_of_a_job_hold_only_the_repository_and_the_number_of_the_item_never_its_text(

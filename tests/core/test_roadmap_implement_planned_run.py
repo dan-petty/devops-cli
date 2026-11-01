@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 
+from devops_cli.roadmap.planned import PlannedChanges
+from devops_cli.roadmap.stop_clear import clear_stops
 from tests.support.fakes.github import github_json
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.implement_step import command_text
@@ -163,12 +165,20 @@ def test_a_retry_takes_over_the_branch_and_the_draft_that_the_stop_left(
 ) -> None:
     planned_world.run(ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Stuck.")))
     planned_world.store.seed_comment(1, "implement: retry", author_association="OWNER")
+    cleared = clear_stops(
+        planned_world.store, planned=PlannedChanges("main", {}, {}), digest=lambda: None
+    )
     script = ModelScript(tool_calls(*group_two_calls()), say("Group 2 is done."))
 
     applied = planned_world.run(script)
 
     status, record = _item(planned_world)
-    assert (applied.ready, status, record.get("implement.stopped")) == ((1,), "In Review", None)
+    assert (cleared.cleared, applied.ready, status, record.get("implement.stopped")) == (
+        (1,),
+        (1,),
+        "In Review",
+        None,
+    )
     assert planned_world.origin_log() == [
         "The first group (#1)",
         "The second group (#1)",
