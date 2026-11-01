@@ -22,8 +22,9 @@ spec:
     - ports:
         - protocol: TCP
           port: 4000
-  # Every backend is an in-cluster Service, admitted by its pods' labels. No ipBlock: kube-router
-  # matches one against pod addresses, so a private range admits every pod on its ports.
+  # Every backend is an in-cluster Service, admitted by its pods' labels. No ipBlock admits a
+  # private range: kube-router matches one against pod addresses, so it admits every pod on its
+  # ports. The one ipBlock rule below admits public addresses on 443 for the hosted models.
   egress:
     # Allow communication to backend inference pods (Ollama). The config turns on no cache, so
     # the gateway calls no Valkey.
@@ -34,6 +35,21 @@ spec:
       ports:
         - protocol: TCP
           port: 11434
+    # The hosted model groups (#3113) call the providers over HTTPS. A NetworkPolicy cannot name
+    # a host, so the rule admits TCP 443 to any public address. It excludes every private range,
+    # which kube-router matches against pod addresses (#795), and the cloud metadata address.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
     # DNS queries to kube-system
     - to:
         - namespaceSelector:

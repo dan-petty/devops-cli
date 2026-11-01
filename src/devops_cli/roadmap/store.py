@@ -137,8 +137,9 @@ class RefineRecordKey(StrEnum):
     validated was about (#1539), the next step the item waits on with the open items that
     block it (#1758), the repository paths whose code the proposal cites as the cause of
     the block (#2005), and the creation time of the newest comment that the cap on refine's
-    comments last left with no answer (#2475), and the URL of the covering tool that the
-    alternatives check found and refine put to a person (#2652)."""
+    comments last left with no answer (#2475), the URL of the covering tool that the
+    alternatives check found and refine put to a person (#2652), and the numbers of the issues
+    that refine filed for the deferred parts of the item, comma separated (#2423)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -149,6 +150,7 @@ class RefineRecordKey(StrEnum):
     BLOCK_PATHS = "refine.block_paths"
     CAPPED_AFTER = "refine.capped_after"
     ALTERNATIVES_ASKED = "refine.alternatives_asked"
+    DEFERRED = "refine.deferred"
 
 
 class Verdict(StrEnum):
