@@ -58,9 +58,9 @@ Reads: `tests/fixtures/dry_run_gaps.json`. Changes: `tests/fixtures/roadmap_eval
 
 Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 7.1 Add the section "Measure the implement job" to `docs/ROADMAP_WORKFLOW.md`: the command, the six properties, and the rule that a change to the implement prompt or tool set states its score before and after
+- [x] 7.1 Add the section "Measure the implement job" to `docs/ROADMAP_WORKFLOW.md`: the command, the six properties, and the rule that a change to the implement prompt or tool set states its score before and after
   - Verification: `uv run devops ci docs`
-- [ ] 7.2 Regenerate the command documents
+- [x] 7.2 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 - [ ] 7.3 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
