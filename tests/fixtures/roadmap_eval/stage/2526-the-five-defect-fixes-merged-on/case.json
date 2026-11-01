@@ -1,0 +1,93 @@
+{
+ "issue": 2526,
+ "pull": 2994,
+ "title": "fix(hardening): the five defect fixes merged on 2026-10-28 add their root-cause guardrail to a declared hardening surface",
+ "change": "2526-the-five-defect-fixes-merged-on",
+ "merge_commit": "055ed51169cd3eab043ed703eb0dc618c2ba8537",
+ "base_commit": "80da9bbb74e9ba1d574ebe5ca91fe33676a5809b",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 2,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The PR is merged (squash commit 055ed511, head 208659d5). Its title is a valid Conventional Commit with no \"!\". Its body says \"Plans #2526\" and has no closing keyword. All 20 checks passed or were skipped. The plan has real defects. It covers five of the six defect PRs that issue #2526 holds. It adds no test, so it cannot prove the guardrails stay. Its spec delta breaks a rule in openspec/config.yaml. One planned sentence is wrong for the code it describes. The plan also never addresses the fact that the audit reads only the diff of the defect PR itself. The plan is not wrong enough to reject, but an implementer would need to fix it first.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The plan omits the sixth defect PR, #2516 (issue #2426, config audit-keys scans each merged config file). Issue #2526 holds six PRs. A comment of the issue adds #2516, and the refined body lists it with a CONTRIBUTING.md guardrail. The plan, the PR body and the spec say five. The implementer will leave #2516 without a guardrail. The issue then cannot close complete.",
+   "evidence": "Issue comment (2026-10-28T20:21:50Z): \"A sixth defect PR has the same finding: #2516 ... This issue holds it with the other five.\" The refine body: \"#2516 goes to CONTRIBUTING.md (config management).\" The PR body: \"Five defect PRs\"; tasks.md has only one CONTRIBUTING.md task group, for the Loki CVE.",
+   "gate": "pending"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The Feasibility section does not check that the change can meet the acceptance criterion of the issue. The issue requires that `devops pr hardening-report` reports each PR as hardened. The audit counts only lines added by the defect PR itself. A later PR cannot change the report for an old PR. The five old PRs stay unhardened whatever this change adds. The plan names no verification of that criterion and does not say that the criterion cannot be met. Under rule 2 the plan must record this evidence, and either re-scope the criterion or state that the guardrail text is the only deliverable.",
+   "evidence": "src/devops_cli/github/defect_classifier.py audit_pr_hardening(pr_number, title, labels, files): it loops over `files` (the files of that PR) and counts `additions` per surface with match_hardening_surface. Issue criterion: \"WHEN devops pr hardening-report runs for each of the six PRs ... THEN each PR is reported as hardened\". The Feasibility section only says the five PRs \"are reported as unhardened\" and shows no command output.",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "No task adds a test that is kept in the repository. Tasks 1.1 and 2.1 are one-time `grep` commands in the task text, not tests. The spec scenarios say \"a test reads the declared hardening surfaces\" and \"a test searches all declared surfaces\", but no task writes such a test. The scenarios are not assertable as written. The rule says to write only scenarios that a test under tests/ can assert. The scenario \"the defect class name appears in exactly one surface\" has no defined name list to search. This breaks AGENTS.md rule 4 and the openspec/config.yaml rules for specs and tasks. Rule 11 asks for a check that fails if the problem returns, and this plan has none.",
+   "evidence": "tasks.md 1.1: \"`grep -q 'frozen lockfile' SECURITY.md && ... ` fails before the change and passes after\". spec.md: \"WHEN a test reads the declared hardening surfaces for a defect PR's guardrail\". tests/ has no task that names a test file.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": ".openspec.yaml",
+   "problem": "The change edits only documents, but it carries a spec delta and sets no skip_specs. openspec/config.yaml says a change that alters no consumer-observable behavior, including documentation, has no spec delta and sets skip_specs: true. design.md rejects skip_specs with the claim that the guardrails change what the audit reports. That claim is false: the audit reads the diff of each PR, not the text of the surfaces. Archive would create a new capability spec for prose rules, with no test to hold it.",
+   "evidence": "openspec/config.yaml: \"A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.\" The plan's .openspec.yaml holds only `schema: spec-driven` and `created: 2026-11-01`. design.md: \"Adding a guardrail changes what the audit reports, which is observable behavior.\" Compare audit_pr_hardening above.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The planned sentence for SECURITY.md item 2 is wrong for the code it describes. It says a NetworkPolicy or scrape target must resolve the host \"at connect time\" and must \"not cache the resolution\". The NetworkPolicy builders resolve at build time, not at connect time. The fix in #2521 resolves each host one time through `vet_addresses`, and the scrape connect uses the same lookup. The words \"one time\" and \"connect time\" and \"not cache\" can conflict. The implementer must guess the meaning.",
+   "evidence": "Commit 7c014269 (#2521): \"the builders of the whitelist NetworkPolicy resolve each host name one time, through the resolve-and-check function of the egress policy (`vet_addresses` in `devops_cli.http.egress`) ... The policy builder makes the one lookup\". tasks.md 1.2: \"resolve it one time, through the egress check, at connect time and MUST NOT cache the resolution\".",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The frozen-lockfile guardrail is placed in item 7 and written too broadly. Item 7 covers the tools that a review starts through a ToolExecutor. The uv audit adapter is not on its list, and the module docstring says a review does not run it (the sandbox has no network). The planned rule says \"a scan command that runs a tool adapter MUST use the frozen lockfile (`--frozen`)\". `--frozen` is a uv flag only. Many adapters have no such flag. The text does not say it applies to uv. The defect in #2446 was that `uv audit` re-locked and could rewrite uv.lock under a read-only MCP tool, which is a different reason from the \"reproducible\" reason in the plan.",
+   "evidence": "SECURITY.md item 7 tool list: \"Bandit, Gitleaks, Semgrep, Trivy, kube-linter, Pluto, osv-scanner, golangci-lint, Ruff, mypy\" (no uv audit). src/devops_cli/security/uv_audit.py lines 9-11: \"so a review, whose sandbox has none, does not run it\". src/devops_cli/config/commands.py build_uv_audit_cmd: \"`--frozen` audits the lockfile as it is: without it, uv locks the project again and rewrites a stale `uv.lock`\".",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section makes claims that its own check commands do not support. It says CONTRIBUTING.md section 1 \"holds the process rules\" and the plan has a \"dependency section context\". CONTRIBUTING.md has no dependency section and no mention of CVE or sub-chart. The planned CVE sentence goes into \"Development Philosophy & Core Invariants\", where it does not fit, and it asks for a new rule (\"found and accepted\" with a CVE id in the PR body) that the issue does not request. No real evidence is given for the Loki claim either (for example the CVE reference in #2470).",
+   "evidence": "grep -n -i 'known CVE\\|sub-chart\\|CVE' CONTRIBUTING.md returns no line. CONTRIBUTING.md headings: 1 Development Philosophy & Core Invariants, 2 Local Environment Setup, 3 Test-First, 4 Git Hygiene, 5 Naming, 6 Routine Tasks. Issue table: \"Loki runs from the grafana-community chart on Loki 3.7.9 (CVE-2026-21729)\". The refine body names \"CONTRIBUTING.md (dependency management)\".",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "tasks.md",
+   "problem": "Some task text is garbled or repeats itself. Task 1.1 writes the same grep command twice. Tasks 1.3 and 2.3 start with a bare file name (\"SECURITY.md, run ...\"). Task 1.2 puts four separate edits and one verify in one checkbox. The tasks do not follow the order failing test, implementation, then documentation in a clear way.",
+   "evidence": "tasks.md 1.3: \"SECURITY.md, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes\"; 2.3: \"CONTRIBUTING.md, run ...\".",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1, 2",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Add four guardrails to SECURITY.md' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

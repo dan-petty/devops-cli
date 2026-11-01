@@ -1,0 +1,101 @@
+{
+ "summary": "move three volumes off control-plane",
+ "pull_request_body": "This change adds the control-plane DoesNotExist node affinity to the Grafana, Prometheus server, and Loki values files, and removes the three entries from the exemption list. The volume move is an operational step run with devops k8s volume move before this code change is deployed. After the change, tests/test_k8s_local_path_placement.py passes with no exemptions. The control-plane node root disk is freed from these three workloads.",
+ "why": "Issue #2147: the Grafana, Prometheus server, and Loki volumes sit on the control-plane node, whose 236 GB root disk is about 79% used. The three workloads are in the placement exemption list, so the test does not check their affinity. Moving them to worker nodes and adding the affinity frees the control-plane disk and closes the exemption gap left by #1634.",
+ "what_changes": [
+  "Add the control-plane DoesNotExist node affinity to monitoring/grafana-values.yaml (key affinity), monitoring/prometheus-values.yaml (key server.affinity), and logging/loki-values.yaml (key singleBinary.affinity).",
+  "Remove the three entries (grafana, prometheus-server, storage-loki-0) from CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS in src/devops_cli/config/constants.py.",
+  "Remove the three entries from _CONTROL_PLANE_CLAIM_EXEMPTIONS in tests/test_k8s_local_path_placement.py so the test checks the affinity for all three workloads."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The README section Local-Path Volume Placement confirms the affinity pattern, the exemption mechanism, and the move procedure. The three values files and the constants file are named in the issue and the README.",
+  "The test tests/test_k8s_local_path_placement.py is named in the README and the issue. It currently passes with the three workloads in the exemption list.",
+  "First check: run uv run devops ci test tests/test_k8s_local_path_placement.py to confirm the test passes with the current exemptions.",
+  "Second check: read monitoring/grafana-values.yaml, monitoring/prometheus-values.yaml, and logging/loki-values.yaml to confirm the affinity is not yet present.",
+  "Third check: read src/devops_cli/config/constants.py to confirm the three entries are in CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS."
+ ],
+ "existing_tool": "No external tool covers this. The change edits YAML values files and a Python constants file in this repository. The operational volume move uses the project's own devops k8s volume move command, described in k8s/README.md.",
+ "decisions": [
+  {
+   "decision": "Add the affinity to the values files before removing the exemptions.",
+   "reason": "If the exemptions are removed first, the placement test fails because the affinity is not yet in the values files. Adding the affinity first keeps the test green at every step."
+  },
+  {
+   "decision": "Use the exact affinity pattern from the README Local-Path Volume Placement section.",
+   "reason": "The README defines the pattern and the test checks for it. A different pattern would fail the test."
+  },
+  {
+   "decision": "Keep the constant as an empty list rather than deleting it.",
+   "reason": "Other code may import CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS. An empty list is a safe no-op that avoids an import error."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Remove the exemptions before adding the affinity.",
+   "evidence": "The placement test checks the affinity for every pod not in the exemption list. Removing the exemptions first makes the test fail because the affinity is not yet in the values files."
+  },
+  {
+   "alternative": "Use a nodeSelector instead of nodeAffinity.",
+   "evidence": "The README and the test both use the nodeAffinity form. A nodeSelector would not match the test assertion and would not be consistent with the other workloads that already use nodeAffinity."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "local-path-volume-placement",
+   "purpose": null,
+   "added": [
+    {
+     "name": "grafana-prometheus-loki-control-plane-affinity",
+     "text": "The values files for Grafana, the Prometheus server, and Loki SHALL include the control-plane DoesNotExist node affinity, and the three claims SHALL NOT appear in the control-plane claim exemption list.",
+     "scenarios": [
+      {
+       "name": "placement test passes with no exemptions",
+       "when": "tests/test_k8s_local_path_placement.py runs with grafana, prometheus-server, and storage-loki-0 removed from the exemption list",
+       "then": "the test passes, confirming the affinity is present in all three values files"
+      },
+      {
+       "name": "exemption list is empty",
+       "when": "CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS is read from src/devops_cli/config/constants.py",
+       "then": "the list is empty or the constant is absent"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add control-plane affinity to the three values files",
+   "reads": [],
+   "changes": [
+    "monitoring/grafana-values.yaml",
+    "monitoring/prometheus-values.yaml",
+    "logging/loki-values.yaml"
+   ],
+   "creates": [],
+   "test": "Add an assertion to tests/test_k8s_local_path_placement.py that reads each of the three values files and asserts the control-plane DoesNotExist node affinity is present at the correct key path. Run the test; it fails because the affinity is not yet in the files",
+   "implementation": "Add the requiredDuringSchedulingIgnoredDuringExecution nodeAffinity block with node-role.kubernetes.io/control-plane DoesNotExist to monitoring/grafana-values.yaml at key affinity, to monitoring/prometheus-values.yaml at key server.affinity, and to logging/loki-values.yaml at key singleBinary.affinity",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_k8s_local_path_placement.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Remove the three exemptions from constants and test",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/config/constants.py",
+    "tests/test_k8s_local_path_placement.py"
+   ],
+   "creates": [],
+   "test": "Remove the three entries (grafana, prometheus-server, storage-loki-0) from _CONTROL_PLANE_CLAIM_EXEMPTIONS in tests/test_k8s_local_path_placement.py. Run the test; it now checks the affinity for these three workloads and passes because the previous group added it",
+   "implementation": "Remove the three entries from CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS in src/devops_cli/config/constants.py. If the list is empty after removal, set the constant to an empty list or remove it",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_k8s_local_path_placement.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

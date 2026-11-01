@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_paths.py`. Changes: `src/devops_cli/roadmap/stage_eval_cases.py` (new), `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_eval_cases.py` (new), `tests/fixtures/roadmap_eval/stage/README.md` (new).
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_stage_eval_cases.py`: the set loads with at least 40 cases and 3 `good` cases, every one of the 37 pull requests is present, every defect type is in the enum, a case with a bad type fails with the case name, and each `plan.json` holds the fields of a `StageProposal` (the groups raw)
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_stage_eval_cases.py`: the set loads with at least 40 cases and 3 `good` cases, every one of the 37 pull requests is present, every defect type is in the enum, a case with a bad type fails with the case name, and each `plan.json` holds the fields of a `StageProposal` (the groups raw)
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_cases.py` fails on the base
-- [ ] 1.2 Add the models and `load_cases` in `src/devops_cli/roadmap/stage_eval_cases.py`, the fixture folders and their `README.md`, and the messages
+- [x] 1.2 Add the models and `load_cases` in `src/devops_cli/roadmap/stage_eval_cases.py`, the fixture folders and their `README.md`, and the messages
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_cases.py` passes
 
 ## 2. The gates and the replay

@@ -1,0 +1,85 @@
+{
+ "issue": 2554,
+ "pull": 2996,
+ "title": "fix(sandbox): devops sandbox deploy fails with a raw 404 when the sandbox image is not on the engine",
+ "change": "2554-devops-sandbox-deploy-fails-with-a",
+ "merge_commit": "435e8a6f6141d6383e92287a25717c1cb9f95803",
+ "base_commit": "d580cdd86e307fa872bc6c5891012224f4b33ea3",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 2,
+  "task_quality": 3,
+  "rule_compliance": 4,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "PR #2996 is merged. It plans issue #2554 (sandbox deploy fails with a raw 404 when the image is absent). The issue is open and valid, and checks and the PR form are good. The plan puts the pull in the wrong code path. `devops sandbox deploy` runs `SandboxEngine._spawn_container` in `src/devops_cli/sandbox/engine.py`. The plan changes only `WorkloadSandboxRunner.run` in `src/devops_cli/docker/sandbox.py`, which `devops sandbox deploy` does not call. An implementer who follows the plan would not fix the reported bug. Group order and the fake contract work also have defects. Fix the plan before an implement job builds it.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md / tasks.md (group 3) / design.md",
+   "problem": "The plan fixes the wrong call site. `devops sandbox deploy` runs `SandboxEngine.deploy`, then `_spawn_container`, in `src/devops_cli/sandbox/engine.py`. That code calls `engine.create_container` and wraps errors as 'Failed deploying sandbox container'. The plan adds the pull to `WorkloadSandboxRunner.run` in `src/devops_cli/docker/sandbox.py`. That runner serves `devops docker sandbox` and `devops test`, not `sandbox deploy`. After the plan is built, the reproduction in the issue (`devops sandbox deploy --name check --network-mode isolated`) still fails with the 404. The Feasibility section names the wrong file as the deploy path. Impact omits `src/devops_cli/sandbox/engine.py`.",
+   "evidence": "git show origin/main:src/devops_cli/commands/sandbox.py: `inst = engine.deploy(cfg)`. git show origin/main:src/devops_cli/sandbox/engine.py lines 331-394: `def deploy(...)` -> `_spawn_container` -> `container = engine.create_container(**create_kwargs)`; line 381: `raise SandboxError(f\"Failed deploying sandbox container: {exc}\")` (this is the text in the issue's Actual output). `git grep WorkloadSandboxRunner origin/main -- src` lists only src/devops_cli/commands/docker.py, commands/test_cmd.py and docker/sandbox.py, with no hit in commands/sandbox.py or sandbox/. The only two create_container callers are docker/sandbox.py:295 and sandbox/engine.py:394.",
+   "gate": "pending"
+  },
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md (groups 1 and 2)",
+   "problem": "The group order is wrong. Group 1 tests (1.1, 1.2) need `images.get` and `images.pull` on `DockerEngineFake`, but group 2 adds them. The 'passes' verify of 1.2 cannot pass until group 2 is done. A step-per-group implementer is blocked at group 1.",
+   "evidence": "tasks.md 1.1: 'Assert images.get was called first, then images.pull was called' on the fake; 2.2 adds 'images.get and images.pull methods to the fake image collection'. In origin/main tests/support/fakes/docker_engine.py, FakeImages (line 346) has only list, build, push and prune; there is no get or pull.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md (group 2)",
+   "problem": "The fake needs a contract case against the real SDK, but the plan names no recorded exchange. Per docs/TESTING.md, every fake feature must run over the fake and over a real `docker.DockerClient` that replays recorded Engine API answers (`tests/fixtures/docker_engine/recorded_exchanges.json`, scenarios in `tests/support/docker_engine_scenarios.py`, recorded again by `tests/support/docker_engine_recording.py` on a host with a local engine). Group 2 lists only the fake file under Changes and never mentions the scenarios file, the recording or the fixture. The step cannot be done as written. It also needs a real engine to record.",
+   "evidence": "docs/TESTING.md line 193: 'tests/docker/test_engine_contract.py runs each scenario of tests/support/docker_engine_scenarios.py over the fake and over a real docker.DockerClient that reads the Engine API's answers, recorded from a local engine in tests/fixtures/docker_engine/recorded_exchanges.json'. Group 2 says 'Changes: tests/support/fakes/docker_engine.py' only. git grep pull in tests/support/docker_engine_scenarios.py: no match.",
+   "gate": "none"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "tasks.md 1.2",
+   "problem": "Wrong Protocol. The task says to add `get` and `pull` to the `EngineImage` protocol in sdk.py. `EngineImage` is a single image (attrs, id, short_id, tags). The collection methods belong on `EngineImages`, which now has list, build, push and prune.",
+   "evidence": "git show origin/main:src/devops_cli/docker/sdk.py: `class EngineImage(Protocol)` (line 79) has attrs/id/short_id/tags; `class EngineImages(Protocol)` (line 94) has list/build/push/prune. The plan also says 'if they are not already declared' but checks nothing.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "tasks.md 2.2",
+   "problem": "The task says to add 'a fail method' to the fake. `DockerEngineFake.fail(name, error, times=)` already exists and can make `images.pull` raise. The task asks for duplicate code.",
+   "evidence": "origin/main tests/support/fakes/docker_engine.py line 615: `def fail(self, name: str, error: BaseException, *, times: int | None = None)`.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md (all groups)",
+   "problem": "Every group says 'Reads: none'. Each group must read files (engine.py, sdk.py, fake, sandbox code, existing tests). The Reads line is not usable for an implementer, and the 40000-token budget claim in the stage comment is not backed by a real Reads list.",
+   "evidence": "tasks.md: groups 1, 2 and 3 all begin 'Reads: none. Changes: ...'. The stage comment lists 3450, 3372 and 3381 tokens of inputs.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "specs/sandbox-deploy/spec.md",
+   "problem": "The spec is a new capability `sandbox-deploy`. The test file names in tasks do not follow the existing layout for sandbox code (`tests/sandbox/`). The plan puts new tests in `tests/docker/test_sandbox_deploy_pull.py`. If the call site moves to `sandbox/engine.py`, the test should sit with the sandbox tests.",
+   "evidence": "git ls-tree origin/main tests/sandbox/ lists sandbox tests; openspec/specs has sandbox-logs, sandbox-egress, sandbox-seccomp-profile as sibling capabilities.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 2",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Add image pull support to DockerEngineFake' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

@@ -1,0 +1,72 @@
+{
+ "issue": 2116,
+ "pull": 2977,
+ "title": "test(review): the scanner executor tests find the scanners through stand-ins on PATH, not a patched shutil.which",
+ "change": "2116-the-scanner-executor-tests-find-the",
+ "merge_commit": "5bd946250ab7ff8e7c58ae562ca08ed9cf4a09c9",
+ "base_commit": "8d4a217a923392bacbf2a0bf4b9f5ae8be67f113",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "PR #2977 is merged (5bd94625), with all checks green. The plan for #2116 names the wrong test file. The file `tests/test_scanner_tool_executor.py` does not exist on main. It moved to `tests/security/test_scanner_tool_executor.py` in #2830. The Service stage comment warned of this, and the plan merged unchanged. The implement job then stopped at group 1 (OutputCapReached), and the issue is now Blocked. The same fixture also exists in `tests/security/test_review_tool_runs.py`. The plan does not cover it. The plan also adds a spec delta for a tests-only change, which config.yaml forbids. Its task 1.1 is a circular meta-test. Its verify commands do not use `devops ci test`. The PR title, the PR body (\"Plans #2116\"), and the issue premise are fine. The issue is open, not a duplicate, and not superseded.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "blocker",
+   "where": "tasks.md, proposal.md (Feasibility, Impact), design.md",
+   "problem": "The plan names `tests/test_scanner_tool_executor.py` in the Changes line, the Impact, the Feasibility checks, and the verify commands. That path does not exist on main. The file is `tests/security/test_scanner_tool_executor.py`, moved by #2830. The fixture is at line 77 in the new path, so the line number is right but the directory is wrong. An implementer who follows the plan finds no file. The Feasibility section says to confirm the premise with commands, but it records no output from a run. The path was never checked against main.",
+   "evidence": "`git show origin/main:tests/test_scanner_tool_executor.py` gives `fatal: path ... does not exist in 'origin/main'`. `git ls-tree -r origin/main --name-only | grep test_scanner` gives `tests/security/test_scanner_tool_executor.py`. `git log --diff-filter=DR` gives `513bb31f test(cli): tests mirror package directories and trim root conftest (#2830)`. The stage comment on #2116 says: `These paths of the plan are no file on the default branch ... A person checks that the plan names them right.` The implement comment says `Stopped at group 1. OutputCapReached`, and the status is Blocked.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_scanner_tool_executor.py"
+   ]
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/review-tool-runs/spec.md, .openspec.yaml",
+   "problem": "The change only edits a test fixture, and no consumer can observe the change. openspec/config.yaml says such a change has no spec delta and sets `skip_specs: true` in `.openspec.yaml`. This plan adds a new requirement to the `review-tool-runs` spec about how test fixtures make scanners findable. It does not set `skip_specs`. Archive would write a test-convention rule into the product spec. The proposal's What Changes does not say why a delta is needed.",
+   "evidence": "config.yaml, proposal rule: `A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.` The plan's `.openspec.yaml` has only `schema: spec-driven` and `created: 2026-11-01`. The delta adds `### Requirement: test-fixture-makes-scanner-findable-on-path`. The spec file `openspec/specs/review-tool-runs/spec.md` has a Purpose about the record of review tool runs, not test fixtures.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md (1.1)",
+   "problem": "Task 1.1 asks for a test that asserts that a fixture creates a file on PATH and does not patch `shutil.which`. This tests the test scaffolding. The sentence also contradicts itself. It says the new test fails on the old fixture, but the verify command is the whole file, `pytest tests/test_scanner_tool_executor.py -x`, and the plan says elsewhere that the existing tests pass unchanged. The plan does not say where the new test goes, what it is named, or how it can see the fixture body. An implementer must guess. The convention in docs/TESTING.md is a ratchet or an architectural check, or a grep-based invariant, not a meta-test inside the same module.",
+   "evidence": "tasks.md 1.1: `Write a test that asserts the fixture creates an executable file in a directory on PATH ... verify that uv run pytest tests/test_scanner_tool_executor.py -x fails on the base`. proposal.md: `The existing tests pass unchanged.` docs/TESTING.md line 179: `Ratchets hold each thing being retired to a ceiling ... Patches aimed at devops-cli ... get ratchets of their own (target).`",
+   "gate": "kind"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "proposal.md, tasks.md (scope)",
+   "problem": "The same `scanners_installed` fixture, with the same body, is in a second file. The plan's own spec requirement says a test fixture SHALL NOT patch a shutil name. After the plan is built, `tests/security/test_review_tool_runs.py` would still break that rule. The plan does not mention that file, and it does not file a follow-up. The grep checks in Feasibility cover only one file.",
+   "evidence": "`git grep -n scanners_installed origin/main -- tests` gives `tests/security/test_review_tool_runs.py:75:def scanners_installed(...)` and `tests/security/test_scanner_tool_executor.py:77`. In `test_review_tool_runs.py`, lines 76-83 hold `real_which = shutil.which ... monkeypatch.setattr(shutil, \"which\", which)`.",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "minor",
+   "where": "tasks.md (verify commands)",
+   "problem": "The verify commands use `uv run pytest <file>`. config.yaml asks for `uv run devops ci test <path>`. Task 1.3 is also unclear: `Change no document, run devops docs generate --sync-readme` is a contradiction. The change touches no code that a README documents. Task 1.2 does not say what the stand-in file contains, or whether to reuse `_STAND_IN` from `tests/support/fakes/scanners.py`. Its `scanner name the test needs` is open. The list is `_REVIEW_SCANS` in the test file, and the plan does not name it.",
+   "evidence": "config.yaml tasks rule: `name each task's verification command, such as uv run devops ci test tests/test_<feature>.py`. CONTRIBUTING.md line 57: `uv run devops ci test <test-file>`. tasks.md 1.1 and 1.2 use `uv run pytest tests/test_scanner_tool_executor.py -x`. `tests/security/test_scanner_tool_executor.py:76-85` builds `installed = {tool for tool, _ in _REVIEW_SCANS}`. `tests/support/fakes/scanners.py:84` defines `_STAND_IN`.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "proposal.md (Existing Tool Considered)",
+   "problem": "The section says the change reuses the mechanism of `ScannerFake.script`, but the task rewrites the stand-in logic inline. This copies the code of `ScannerFake.script`. It does not reuse it. The plan does not say that it copies, or why a shared helper is not used.",
+   "evidence": "proposal.md: `This change reuses the same mechanism in the test fixture.` `tests/support/fakes/scanners.py:206-213`: `stand_in = self.bin_dir / tool; stand_in.write_text(_STAND_IN); stand_in.chmod(0o755)`. tasks.md 1.2 says `write an executable stand-in file for each scanner name ... set the executable bit`.",
+   "gate": "none"
+  }
+ ]
+}

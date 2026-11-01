@@ -1,0 +1,85 @@
+{
+ "summary": "refuse GH_TELEMETRY_ENDPOINT_URL",
+ "pull_request_body": "This change adds GH_TELEMETRY_ENDPOINT_URL to the data-egress environment variable set refused by build_subprocess_env. A caller that sets this key can redirect gh telemetry to an arbitrary host, which is egress of command data. The key is already excluded from the ambient environment path because it is not in DEFAULT_ALLOWED_ENV_VARS. The fix extends _is_env_override_refused to also refuse keys in the new CONST_DATA_EGRESS_ENV_VARS set. GH_TELEMETRY and GH_TELEMETRY_SAMPLE_RATE remain accepted because they do not name a destination.",
+ "why": "The subprocess environment guard in build_subprocess_env accepts a caller override of GH_TELEMETRY_ENDPOINT_URL, which names the URL that gh sends its telemetry to. A caller can redirect gh telemetry to a host it names, which is egress of command data to an arbitrary destination. #2739",
+ "what_changes": [
+  "Add CONST_DATA_EGRESS_ENV_VARS frozenset containing GH_TELEMETRY_ENDPOINT_URL to src/devops_cli/config/constants.py",
+  "Import CONST_DATA_EGRESS_ENV_VARS in src/devops_cli/core/process.py",
+  "Extend _is_env_override_refused to return True when the key is in CONST_DATA_EGRESS_ENV_VARS",
+  "Add tests for the refusal, the ambient exclusion, and the acceptance of other GH_TELEMETRY keys"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed against the inputs: GH_TELEMETRY_ENDPOINT_URL is not in DEFAULT_ALLOWED_ENV_VARS (visible in src/devops_cli/core/process.py), not in DEFAULT_ALLOWED_ENV_PREFIXES, and _is_env_override_refused checks only CONST_CODE_LOADING_ENV_PATTERNS and CONST_GIT_ACCEPTED_ENV, so the key passes through the caller override path.",
+  "First check: run the reproduction command uv run python -c 'from devops_cli.core.process import build_subprocess_env as b; print(b(env={\"GH_TELEMETRY_ENDPOINT_URL\": \"https://example.com\"}))' to confirm the key is currently accepted without SecurityError.",
+  "Second check: after the fix, run uv run devops ci test tests/core/test_subprocess_env_gh_kubectl.py to confirm the key is refused and the other GH_TELEMETRY keys are accepted."
+ ],
+ "existing_tool": "No external tool covers this need. The change adds one key to the project's own refused-env-var list in src/devops_cli/config/constants.py and src/devops_cli/core/process.py. The written cost is about 15 lines of code and test, well under one page of tokens to build, keep and fix.",
+ "decisions": [],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "subprocess-environment",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Refuse data-egress environment variable caller override",
+     "text": "build_subprocess_env SHALL raise SecurityError when a caller provides a key in the data-egress environment variable set in the env parameter.",
+     "scenarios": [
+      {
+       "name": "Caller sets GH_TELEMETRY_ENDPOINT_URL",
+       "when": "build_subprocess_env is called with env containing GH_TELEMETRY_ENDPOINT_URL set to https://example.com",
+       "then": "SecurityError is raised and the key is not in the returned environment"
+      }
+     ]
+    },
+    {
+     "name": "Ambient filter excludes data-egress keys",
+     "text": "The ambient environment filter SHALL exclude keys in the data-egress environment variable set because they are not in DEFAULT_ALLOWED_ENV_VARS and match no allowed prefix.",
+     "scenarios": [
+      {
+       "name": "Ambient environment holds GH_TELEMETRY_ENDPOINT_URL",
+       "when": "os.environ contains GH_TELEMETRY_ENDPOINT_URL and isolate_env is True",
+       "then": "the key is absent from the returned environment dictionary"
+      }
+     ]
+    },
+    {
+     "name": "Non-egress GH_TELEMETRY keys remain accepted",
+     "text": "build_subprocess_env SHALL NOT raise SecurityError for a caller override of GH_TELEMETRY or GH_TELEMETRY_SAMPLE_RATE.",
+     "scenarios": [
+      {
+       "name": "Caller sets GH_TELEMETRY",
+       "when": "build_subprocess_env is called with env containing GH_TELEMETRY set to log",
+       "then": "no SecurityError is raised and the key is present in the returned environment"
+      },
+      {
+       "name": "Caller sets GH_TELEMETRY_SAMPLE_RATE",
+       "when": "build_subprocess_env is called with env containing GH_TELEMETRY_SAMPLE_RATE set to 0.5",
+       "then": "no SecurityError is raised and the key is present in the returned environment"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Refuse GH_TELEMETRY_ENDPOINT_URL caller override",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/config/constants.py",
+    "src/devops_cli/core/process.py",
+    "tests/core/test_subprocess_env_gh_kubectl.py"
+   ],
+   "creates": [],
+   "test": "Write a test that build_subprocess_env raises SecurityError when env contains GH_TELEMETRY_ENDPOINT_URL set to https://example.com. Write a test that build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY set to log, and the key is present in the returned dict. Write a test that build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY_SAMPLE_RATE set to 0.5, and the key is present. Write a test that with isolate_env=True and os.environ containing GH_TELEMETRY_ENDPOINT_URL, the key is absent from the returned dict",
+   "implementation": "Add CONST_DATA_EGRESS_ENV_VARS: Final[frozenset[str]] = frozenset({\"GH_TELEMETRY_ENDPOINT_URL\"}) to src/devops_cli/config/constants.py. Import CONST_DATA_EGRESS_ENV_VARS in src/devops_cli/core/process.py. Extend _is_env_override_refused to return True when key.upper() is in CONST_DATA_EGRESS_ENV_VARS, in addition to the existing CONST_CODE_LOADING_ENV_PATTERNS check",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/core/test_subprocess_env_gh_kubectl.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

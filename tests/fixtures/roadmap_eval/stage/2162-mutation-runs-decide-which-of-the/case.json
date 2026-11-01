@@ -1,0 +1,100 @@
+{
+ "issue": 2162,
+ "pull": 2979,
+ "title": "test(review): mutation runs decide which of the 18 review and scanner test files that add no covered line of their own are merged or deleted",
+ "change": "2162-mutation-runs-decide-which-of-the",
+ "merge_commit": "d252096e14da070d68394aa708f07bc4b7e1268b",
+ "base_commit": "7231ebcbac924cc489d45f5bced2cfd1ee141184",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 1,
+  "rule_compliance": 2,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "The plan is merged but an implementer cannot build it. 13 of the 18 test paths do not exist on main. The plan writes its report and task files into a folder that does not exist, 2162-mutation-review-scanner. The tasks hold fake \"tests\" that check a report file and a CI exit code. Feasibility has no own evidence. The step cannot run in one 40k-token step: a mutmut run takes hours. The spec delta is not assertable by a test, and a tests-only change should set skip_specs: true. The issue itself is valid, not closed, not a tracker and not superseded.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "blocker",
+   "where": "tasks.md and proposal.md (Impact)",
+   "problem": "13 of the 18 test paths do not exist on origin/main. The files moved into subfolders. Task group 2 'Changes' line lists these wrong paths. The Service stage comment flagged them, but the plan merged unchanged. An implementer will fail on a missing file or guess a path.",
+   "evidence": "git cat-file on origin/main: MISSING tests/test_custom_personas.py, test_review_advisory_backing.py, test_review_deduplication.py, test_review_defects_comments.py, test_review_defenses_and_verification.py, test_review_history.py, test_review_location_paths.py, test_review_loop_hardening.py, test_review_regression_harness.py, test_review_taxonomy_and_severity.py, test_review_verification.py, test_structural_positional_oracles.py, test_security_kubelinter.py, test_security_tflint.py. Real paths: tests/ai/personas/test_custom_personas.py, tests/ai/test_review_advisory_backing.py, tests/ai/review/test_review_deduplication.py, tests/ai/review/test_review_defects_comments.py, tests/ai/review/test_review_defenses_and_verification.py, tests/ai/review/test_review_history.py, tests/ai/test_review_location_paths.py, tests/ai/test_review_loop_hardening.py, tests/ai/review/test_review_regression_harness.py, tests/ai/review/test_review_taxonomy_and_severity.py, tests/ai/test_review_verification.py, tests/ai/test_structural_positional_oracles.py, tests/security/test_security_kubelinter.py. tests/test_security_tflint.py exists nowhere; the nearest file is tests/security/test_tflint.py. Stage bot comment on #2162 lists the same paths as 'no file on the default branch'.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_custom_personas.py",
+    "tests/test_security_tflint.py"
+   ]
+  },
+  {
+   "type": "missing_path",
+   "severity": "blocker",
+   "where": "tasks.md, proposal.md (Impact)",
+   "problem": "The plan names a change folder that does not exist. The real folder is 2162-mutation-runs-decide-which-of-the. The report path and the tasks.md path in groups 1 and 3 point to 2162-mutation-review-scanner. Also, 'archive' moves the change folder, so a report inside it is not a stable record. The issue asks for the mutants in the pull request, not in a committed file.",
+   "evidence": "git ls-tree origin/main shows only openspec/changes/2162-mutation-runs-decide-which-of-the/ (5 files). tasks.md uses openspec/changes/2162-mutation-review-scanner/mutation-report.md and .../tasks.md. The issue criterion 1: 'The pull request gives, for each file in the table, the mutants it killed'.",
+   "gate": "paths",
+   "paths": [
+    "openspec/changes/2162-mutation-review-scanner/mutation-report.md"
+   ]
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md (tasks 1.1, 2.1, 3.1)",
+   "problem": "The 'failing test first' tasks are not real tests. 1.1 asserts that a report file exists. 2.1 asserts that files are deleted. 3.1 asserts that `devops ci` exits 0 and tasks are ticked. No test under tests/ would assert these, and 'verify ... fails on the base' for 2.1 and 3.1 names a full coverage run and the full CI, not a test. 2.1 uses `uv run pytest --cov=...` where config rules ask for `uv run devops ci test <path>`. This is test-first in form only and wastes an implementer step.",
+   "evidence": "tasks.md 1.1: 'A test that asserts the file ...mutation-report.md exists'. 3.1: 'A test that asserts `uv run devops ci` exits with code 0 and the tasks.md file has all tasks marked complete.' openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'.",
+   "gate": "kind"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md (group 1)",
+   "problem": "Group 1 hides a very large job in one step. The method needs a mutmut run with the full suite and 18 runs with --ignore per file, over all functions each file covers (some cover 1000 to 1800 lines). The command's own help says the first run 'can take hours'. The plan does not say how to turn the file-excluded run into per-mutant results, how to pick functions, or how to reuse mutants/ and its test stats after the --ignore change. 'Reads: none' hides the true input size. The group is not sized for a 128k context and the stage token count (4232) does not reflect the real work. The plan should split it per file or set a measured bound, or return the item for a refine.",
+   "evidence": "`uv run devops ci mutate --help`: 'The first run copies the whole source tree into mutants/, mutates it and runs the test suite once, serially, which can take hours; later runs reuse mutants/ and its test stats.' Issue table: test_review_history.py covers 1815 lines, test_cited_code.py 1716, test_review_verification.py 1300. pyproject.toml:266 pytest_add_cli_args_test_selection is a static list of ignores for the mutmut run; the plan names no way to add a per-file ignore.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md (Feasibility)",
+   "problem": "Feasibility holds no own evidence. It repeats the issue ('confirmed by the issue evidence citing its --help output'), cites gitignored scratch files that no one else can read, and lists 'first checks' as future steps. Rule 2 asks for a confirmed premise. The key premise (a per-file --ignore run of mutmut gives per-file unique mutants) is never tested. The first bullet claims the 18 files exist 'confirmed by the directory tree', which is false for 14 of them (a stage check would have found it).",
+   "evidence": "proposal.md Feasibility bullets 1-5; `git cat-file` shows 14 of the 18 paths missing. .data/ has 0 tracked files on origin/main (git ls-tree -r origin/main | grep -c '^\\.data' = 0).",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/ci-test-selection/spec.md and .openspec.yaml",
+   "problem": "The change deletes test files and alters no observable consumer behavior, so config rules say it has no spec delta and sets skip_specs: true. Instead it adds a requirement to ci-test-selection. That capability is about how `devops ci test` maps paths to tests (its Purpose). The new requirement is an end-state rule for the repo ('suite SHALL contain no test file that kills no unique mutant') that no test under tests/ can assert offline, which breaks the specs rule. It would also be false after the next test is added. .openspec.yaml has no skip_specs.",
+   "evidence": "openspec/config.yaml: 'A change that alters no behavior a consumer observes (tests, CI workflows ...) has no spec delta and sets skip_specs: true' and 'Write only scenarios a test under tests/ can assert offline'. openspec/specs/ci-test-selection/spec.md Purpose: 'How `devops ci test` turns its path arguments into the test modules that pytest runs...'. Other test-only changes (1323, 1325, 1327) set skip_specs: true. The change's .openspec.yaml is only 'schema: spec-driven / created: 2026-11-01'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md (tasks 1.3, 2.3, 3.3)",
+   "problem": "Three tasks say 'Change no document, run docs generate --sync-readme'. They are empty ceremony: the change alters no source command or doc. The tasks also lack the archive step (`uv run devops openspec archive`) as the last commit and the 'ticked only when merged' rule. Task 2.2 has no clear rule for a file with one distinct case ('the file that covers the same lines' is open; the issue gives a covering file only for 11 of the 18 rows).",
+   "evidence": "tasks.md 1.3/2.3/3.3 text. Issue table: only 11 rows name a covering file; test_review_removed_options.py, test_custom_personas.py, test_review_advisory_backing.py, test_review_defects_comments.py, test_review_location_paths.py, test_review_loop_hardening.py, test_review_taxonomy_and_severity.py, test_structural_positional_oracles.py, test_sarif_fuzzing.py give none.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "design.md",
+   "problem": "The design cites ADR 0005 as the 'pre-1.0 policy of deleting'. ADR 0005 is about review findings coming from tools. It lists deleted review stages, not a test-deletion policy. The source for the rule is AGENTS.md ('alpha ... removes the old path'). Also the 'Rejected alternatives' have no rejecting evidence (config rule: 'Record each rejected alternative with the evidence that rejected it'); the second repeats the Decisions text.",
+   "evidence": "docs/adr/0005-review-findings-come-from-tools-not-models.md: '**Deleted, not kept behind flags (pre-1.0):** the persona review stage, the model verifier, ...'. openspec/config.yaml design rule.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "PR #2979 body and proposal.md",
+   "problem": "The PR itself is good: title 'docs(openspec): plan #2162 ...' is a Conventional Commit with no '!', body says 'Plans #2162' with no closing keyword, and all required checks passed (Tests & Coverage, Semantic PR title, Static Analysis, CodeQL success). The Capabilities heading in proposal.md has no bullet for 'fits one pull request' beyond a single line inside What Changes, which is acceptable. Proposal gives the issue number in Why. No private data found.",
+   "evidence": "PR state: merged True, head af44f35b, body 'Plans #2162'. check-runs: Tests & Coverage success, Semantic PR title success, Static Analysis success; Audit Defect PR Hardening and Test Job Duration skipped.",
+   "gate": "none"
+  }
+ ]
+}

@@ -1,0 +1,23 @@
+{
+ "issue": 2739,
+ "pull": 2859,
+ "title": "fix(security): the subprocess environment guard accepts GH_TELEMETRY_ENDPOINT_URL, which sends gh telemetry to a caller URL",
+ "change": "2739-the-subprocess-environment-guard-accepts-gh",
+ "merge_commit": "7ea2d5f0c80841c9b7e115e3de42b04480c663d4",
+ "base_commit": "c3354bbd9b16588286f4c8468afff13746a1df0a",
+ "verdict": "good",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The plan of this case is the merged plan of pull request #2859, which the evaluation of 2026-11-01 judged acceptable, with one path corrected: `tests/test_process_env.py` is `tests/core/test_subprocess_env_gh_kubectl.py`. It has no known defect.",
+ "twin_of": "2739-the-subprocess-environment-guard-accepts-gh",
+ "notes": [
+  "Corrected path: `tests/test_process_env.py` is `tests/core/test_subprocess_env_gh_kubectl.py`."
+ ],
+ "defects": []
+}

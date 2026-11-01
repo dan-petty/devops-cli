@@ -1,0 +1,72 @@
+{
+ "issue": 2570,
+ "pull": 2998,
+ "title": "fix(devcontainer): minikube starts with no local-path StorageClass, so the claims that name it stay Pending",
+ "change": "2570-minikube-starts-with-no-local-path",
+ "merge_commit": "89fcba203c7e7b6f4867780b2430f9fd7c607ac1",
+ "base_commit": "209fc84d147290ceb9a80b6f1b2067dd91491b9b",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The PR is merged (title and Plans #2570 body are correct, all checks green). The issue is open, not a duplicate, and not done on main. The premise is sound in the code. The plan names a test file that does not exist, and it misses the existing tests that pin the exact minikube argv. It also describes _start_minikube wrongly (one call, subprocess.run). An implementer would hit failing tests that the plan does not tell them to fix.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.1 and the Changes line name tests/test_k8s_cluster_runtime.py, which does not exist. The tests for _start_minikube are in tests/commands/k8s/test_k8s_bootstrap.py. The Stage job comment also flagged this path and left it to a person to check. A new test file at this path would sit outside the tests/commands/k8s layout.",
+   "evidence": "ls tests | grep -i k8s...cluster/runtime gave no match. grep -rn _start_minikube tests shows tests/commands/k8s/test_k8s_bootstrap.py:21 imports it and tests it at lines 56-110. Stage comment: 'These paths of the plan are no file on the default branch... tests/test_k8s_cluster_runtime.py'.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_k8s_cluster_runtime.py"
+   ]
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The plan does not update the existing tests that pin the exact argv. These tests fail after task 1.2 and the plan has no step for them. The archived #990 plan had this step (its task 1.3).",
+   "evidence": "tests/commands/k8s/test_k8s_bootstrap.py:68 assert_any_call([\"minikube\",\"start\",\"--driver=docker\",\"--cni=calico\",\"--gpus=all\"], check=False); lines 89 and 103 assert [\"minikube\",\"start\",\"--driver=docker\",\"--cni=calico\"]. Archived 990 tasks.md 1.3: 'Update existing tests ... to match the updated Minikube argv and messages'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.2 says to add the flag to 'the list of arguments passed to the minikube start subprocess call'. The function has two start calls (GPU path and CPU fallback), plus a dry-run suffix string and two success messages that name the flags. The plan does not say to change both calls. It does not say whether the messages and gpu_suffix list the new flag. An implementer can patch one call only, and the spec scenario then passes on one path only. The plan also says to mock subprocess.run, but the code calls _run_cmd and the existing tests mock _run_cmd.",
+   "evidence": "cluster_runtime.py lines 101-102 (GPU: [\"minikube\",\"start\",\"--driver=docker\",\"--cni=calico\",\"--gpus=all\"]) and line 108 (fallback); gpu_suffix lines 92-96; return message line 111 'Started Minikube cluster (--driver=docker --cni=calico)'. Tests assert these messages exactly (test_k8s_bootstrap.py:65,88,102).",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section holds no evidence from the real system for the key claim, that the addon gives a StorageClass named local-path in minikube v1.39.0. It only repeats the issue text ('listed in minikube v1.39.0 addons list'), and the issue says it was not run on a live minikube. The last two bullets are verify commands, not feasibility evidence. Rule 2 asks for a check against upstream documents, library source or command output.",
+   "evidence": "proposal.md '## Feasibility' bullets 4 and 5 are 'First check the implementation runs...' and 'Second check...'. Issue 2570: 'Not run on a live minikube: the minikube of this devcontainer was stopped.'",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Rule 4: this is a type/bug fix, but the failing-first step is only 'verify that ci test ... fails on the base'. It does not use `devops ci fail-to-pass --base <ref>`, which a fix PR must cite. Because the named test file does not exist, 'fails' would also mean a collection error, not a real failing assertion. The Reads line says 'none' although the group must read cluster_runtime.py and test_k8s_bootstrap.py.",
+   "evidence": "AGENTS.md rule 4: 'A fix pull request cites its fail-to-pass check run (devops ci fail-to-pass --base <ref>)'. Archived 990 task 1.1 uses 'uv run devops ci fail-to-pass --base origin/main'. tasks.md line: 'Reads: none. Changes: ...'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "tasks.md",
+   "problem": "Task 1.3 runs `uv run devops docs generate --sync-readme`, but the edit is to k8s/README.md, a hand-written file (line 32 of k8s/README.md). The command regenerates the root README command tables, so it is probably not needed. design.md says 'Decisions: None' although the issue records two chosen decisions (flag on start vs after start; rancher vs standard class).",
+   "evidence": "k8s/README.md:32 holds the sentence to replace: 'devops devcontainer does not enable it...'. src/devops_cli/commands/docs.py has the sync-readme command for the root README. Issue 2570 body, 'Key questions'.",
+   "gate": "none"
+  }
+ ]
+}

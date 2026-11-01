@@ -1,0 +1,87 @@
+{
+ "issue": 2745,
+ "pull": 2761,
+ "title": "fix(config): config files and their copies keep the mode of the file, never 0644",
+ "change": "2745-config-files-and-their-copies-keep",
+ "merge_commit": "b57b9b3ce58f8c8e611bf3512c562a2f824516de",
+ "base_commit": "e76f656cbc580542ce8b548142aaac056ebabcac",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 2,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "PR 2761 is merged. It plans #2745 (config files keep their mode). The PR itself is fine: the title is a Conventional Commit with no \"!\", the body says \"Plans #2745\", and all checks passed. The plan has real defects. Both task groups have empty \"Reads: None.. Changes: None..\" lines. Tasks 1.3 and 2.3 are garbled. The _copy fix in group 2 is a no-op, and its failing-test-first check cannot fail on the base. The design claims \"no window of wrong mode\", but chmod after write_bytes keeps the window that the issue names. Impact says \"None\" for a change to two source files. Feasibility has no command output. The issue is closed as completed, so the plan is moot now. The implement job stopped many times on this plan, and PR #2831 delivered the fix.",
+ "notes": [
+  "The plan was staged before #2775, so its groups name no files. `changes` lists the paths that the tasks name."
+ ],
+ "defects": [
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Group 2 (_copy) is a no-op as planned, and its failing-test-first step cannot work. _copy already calls shutil.copystat(source, partial) before os.replace, so the final copy already has the source mode. Task 2.1 says the test must fail on the base. Case (1) (redact path, dest mode 0600) and case (2) (shutil.copy2 path) both pass on the base. Task 2.2 adds os.chmod right before copystat, which sets the same mode as copystat does. It does not close the window the issue names (the tmp file exists with the umask mode after write_bytes and before the mode is set).",
+   "evidence": "src/devops_cli/config/write_history.py _copy at the parent of b57b9b3c: `partial.write_bytes(redacted)` / `shutil.copystat(source, partial)` / `os.replace(partial, dest)`. Task 2.2: 'after partial.write_bytes(redacted) and before shutil.copystat(source, partial), add: os.chmod(partial, ...)'. The implement job later reported: 'Verified existing implementation ... All tests in tests/test_config_write_history.py pass' and stopped at group 2.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The design claims 'No window of wrong mode is visible to other users', but the planned code does not give that. Both functions create the tmp file with Path.write_bytes (umask mode, content written) and call os.chmod only after. For a few moments the tmp file holds the secrets at the umask mode. The issue and its refined design said to set the mode before writing the content (os.open with a mode argument). The plan chose the weaker order and still claims the strong result. The spec scenario 'Tmp file never more open' is not met.",
+   "evidence": "tasks.md 1.2: 'after tmp.write_bytes(content) and before os.replace(tmp, dest_path), add ... os.chmod(tmp, mode)'. Issue #2745 refined design for _copy: 'Set the tmp file's mode to the source file's mode before writing content. Use os.open with the source mode'. design.md: 'The tmp file has the correct mode before it becomes the live file. No window of wrong mode'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Every task group has the line 'Reads: None.. Changes: None..' (empty values, double dots). The group names no files to read or change, though the tasks edit src/devops_cli/config/settings.py, src/devops_cli/config/write_history.py and two test files. The step cannot load the right inputs, and the step-limit check (a step changes only its own group) cannot work. The implement job stopped repeatedly with 'Group 2 changed. A step may change only its own group.' and 'Restored the tasks.md ...'.",
+   "evidence": "tasks.md lines under '## 1.' and '## 2.': 'Reads: None.. Changes: None..'. Stage comment on #2745 listed the groups with only about 3400 tokens each. The implement stops on #2745 include 'Group 2 changed. A step may change only its own group.'",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Tasks 1.3 and 2.3 are garbled: the text starts with a comma ('- [ ] 1.3 , run `uv run devops docs generate --sync-readme`, and verify ...'). The action text before the comma is missing. The tasks ask for a README sync and docs check although no documented setting or command changes, so they add work the issue did not ask for. Section 'Workflow follow-up' (pending a person: tuicr) is not a task group and is tracking text.",
+   "evidence": "tasks.md: '- [ ] 1.3 , run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes' and the same for 2.3; the last section is '## Workflow follow-up'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Impact section says 'None.' although the change edits two source modules and adds or edits two test modules. The 'Capabilities' section lists config-commands as modified, which is right, but Impact gives the implementer and reviewer no file list.",
+   "evidence": "proposal.md '## Impact' body is 'None.'. The PR body names src/devops_cli/config/settings.py, src/devops_cli/config/write_history.py and their tests.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section only restates what the code says. It has no command output that proves the bug (the issue gives a stat reproduction: 600 before, 644 after) and no run of the reproduction. It ends with 'First checks the implementation runs: ...', which is a verify command, not evidence. The failing-first claim for the _copy case was not checked, and it is wrong (see the major finding on group 2).",
+   "evidence": "proposal.md Feasibility bullets: 'The code ... confirms _write_content calls tmp.write_bytes(content) then os.replace ...' with no stat output or version.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "openspec/changes/2745-config-files-and-their-copies-keep/specs/config-commands/spec.md",
+   "problem": "The spec delta is valid (ADDED requirements, MUST, scenarios), and openspec/specs/config-commands exists. The last requirement was reworded to 'has mode 0600 before it is replaced', which a test through the public _copy result cannot observe, because the file is replaced at once. The check can only hold if the code opens the tmp file with the right mode. This ties to the design defect above.",
+   "evidence": "spec.md: '#### Scenario: Tmp file mode during redact copy ... THEN The temporary file has mode 0600 before it is replaced by os.replace'.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1, 2",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, A task text holds only full stops and spaces.",
+   "gate": "kind"
+  }
+ ]
+}

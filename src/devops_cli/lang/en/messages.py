@@ -2913,6 +2913,56 @@ class RoadmapMessages:
         "This checkout has no {path}. The evaluation reads the type labels from it, as intake "
         "reads them from the repository. Run the command in a checkout that has the file."
     )
+    stage_eval_bad_case: str = "The case {name} of the golden set is not valid: {reason}"
+    stage_eval_no_cases: str = (
+        "The golden set has no case in {path}. Run the command in a checkout that has the "
+        "folder, or pass --cases."
+    )
+    stage_eval_unknown_case: str = (
+        "The golden set has no case named {names}. Give the name of a case folder or the "
+        "number of its issue."
+    )
+    stage_eval_over_budget: str = "A task group is over the step budget."
+    stage_eval_schema_failed: str = (
+        "The model broke the schema of the reply twice, so the run saw no reply."
+    )
+    stage_eval_no_value: str = "-"
+    stage_eval_replay_title: str = (
+        "# Stage golden set, replay through the gates: {cases} case(s), {good} good"
+    )
+    stage_eval_replay_header: str = "Gate   Issue  Defect type               Known  Caught  Missed"
+    stage_eval_replay_row: str = (
+        "{gate:<6} {reference:<6} {type:<24} {known:>5}  {caught:>6}  {missed:>6}"
+    )
+    stage_eval_replay_pending: str = (
+        "Defects that wait for a gate. They are listed and they fail nothing:"
+    )
+    stage_eval_replay_pending_row: str = "  {type:<24} {count:>4}  {reference}"
+    stage_eval_replay_unjudged: str = "Defects that no gate judges: {types}."
+    stage_eval_replay_good: str = "Good plans that every gate accepts: {good} of {cases}."
+    stage_eval_replay_ok: str = "Result: every gate refuses what it must refuse."
+    stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"
+    stage_eval_pending_gate: str = "{reference}"
+    stage_eval_score_title: str = (
+        "# Stage golden set: {cases} case(s), the analysis model {model} at {gateway}"
+    )
+    stage_eval_score_header: str = "Defect type               Gate     Cases  Avoided  Caught  Rate"
+    stage_eval_score_row: str = (
+        "{type:<24}  {gate:<7} {cases:>6}  {avoided:>7}  {caught:>6}  {rate:>4}"
+    )
+    stage_eval_score_total: str = (
+        "Score: the model avoided {avoided} of {cases} known defect(s) of the types that a "
+        "gate catches ({rate})."
+    )
+    stage_eval_score_ended: str = "Cases by end: {ended}."
+    stage_eval_dry_run: str = (
+        "Dry run: no request was made. A run plans {cases} case(s) with the analysis model at "
+        "{gateway}, one case at a time:"
+    )
+    stage_eval_dry_run_case: str = "plan of the case {name}"
+    stage_eval_dry_run_repeat: str = "up to {count} calls for each case"
+    stage_eval_stored: str = "Stored the report in {path}."
+    stage_eval_failed: str = "{failed} case(s) could not run. The score counts them as not avoided."
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "

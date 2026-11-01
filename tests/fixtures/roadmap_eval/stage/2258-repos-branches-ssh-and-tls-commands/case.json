@@ -1,0 +1,113 @@
+{
+ "issue": 2258,
+ "pull": 2972,
+ "title": "feat(repos): repos, branches, ssh and tls commands list their requests in a dry run and make none",
+ "change": "2258-repos-branches-ssh-and-tls-commands",
+ "merge_commit": "a765a4d19ac837d866806368a505a8b0366c6a8a",
+ "base_commit": "37561bcbddd410cb46981c16a6dcf6293e7c534b",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 4,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "PR #2972 is merged. It plans issue #2258 (24 repos, branches, ssh and tls commands get dry-run classes). The folder is well formed: openspec validate --strict passes, the title is a Conventional Commit, the body says \"Plans #2258\", the 24-command count and the 9/15 split match the fixture and the issue, and the checks are green. Several facts in the plan are wrong or missing, so an implementer would hit them. The plan says the git code uses GitPython, but it now runs git through run_subprocess. The \"same argument builder\" it names does not exist. Its Changes lines miss the existing tests that assert the old echo output. It tells the implementer to remove the working --dry-run of branches clean. Its mark-only test recipe cannot pass for commands that read git. The Feasibility section checks none of this against the code. The issue itself is still open and its premise is mostly valid, so this is not a reject.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md (2.1, 4.1) and proposal.md Feasibility",
+   "problem": "The plan builds its tests on GitPython (\"GitPython's fetch and pull patched to raise\", \"clone_from, fetch and pull\"). The code no longer uses GitPython. All git calls go through core.process.run_subprocess. The issue evidence line (\"gitpython .fetch() @ git.operations:fetch_all:164\") is stale, and Feasibility did not recheck it, although the issue says to check each row against the code. The fake the plan needs differs: the process runner, not a GitPython patch. A test that patches GitPython passes for the wrong reason.",
+   "evidence": "origin/main:src/devops_cli/git/operations.py: `def _git(...): \"\"\"Run git -C <repo_dir> <args> through the process runner...\"\"\" return run_subprocess([\"git\",\"-C\",...])`; `def fetch_all` is at line 254 and `clone_repo` calls run_subprocess([\"git\",\"clone\",...]). `grep -in gitpython pyproject.toml` returns nothing.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md (2.2, 4.2, 6.2, 8.2) and design.md",
+   "problem": "The plan says to build each PlannedRequest \"from the same argument builder the real run uses (the fetch_all function ...)\". No such builder exists. fetch_all, clone_repo, register_key_on_github and enable_k8s_cmd run the request. They build the argv inline. The plan hides a refactor: split each into a pure builder plus a runner, in git/operations.py, github/ssh.py and commands/tls.py. These files are not in any Changes line. The plan also does not say how to plan reads that the real run needs: the remote list for fetch/pull, the GitHub org listing for clone-org, the key-age condition for ssh rotate, or the repeat per repo and per namespace. For tls enable-k8s it cites only \"the kubectl create call at commands.tls:enable_k8s_cmd:508\". Line 508 is the start of one of four per-namespace calls: `get namespace`, a conditional `create namespace`, `create secret tls --dry-run=client`, and `apply -f -` with stdin from the previous output. For ssh, register_key_on_github POSTs to each endpoint in CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES, with a conditional follow-up read on 422. Then _configure_git_signing runs. The plan names none of this.",
+   "evidence": "origin/main:src/devops_cli/commands/tls.py: `ns_check = run_subprocess([\"kubectl\",\"get\",\"namespace\",ns]...)`, `if ns_check.returncode != 0: run_subprocess([\"kubectl\",\"create\",\"namespace\",...])`, `render_cmd = [\"kubectl\",\"create\",\"secret\",\"tls\",...,\"--dry-run=client\"...]`, then `run_subprocess([\"kubectl\",\"apply\",\"-f\",\"-\",...], input=proc.stdout)`. origin/main:src/devops_cli/github/ssh.py: `for endpoint in CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES: _add_key(...)`. Every group says \"Reads: none\".",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md Changes lines (groups 1 to 8)",
+   "problem": "Existing tests assert the echo-only previews and the --dry-run option that the plan removes. No Changes line lists them, so the implementer will break them unplanned. The files are tests/commands/test_branches.py, test_repos.py, test_tls_cmd.py and tests/crypto/test_ssh.py. The plan only creates new flat test files.",
+   "evidence": "tests/commands/test_branches.py:136 `[\"clean\",\"--dry-run\",...]`; tests/commands/test_repos.py:845 test_repos_commands_dry_run and :1135 test_repos_clone_org_dry_run_and_missing_org; tests/commands/test_tls_cmd.py:31,105,174-189 (asserts \"generate_tls_certificate\" and \"generate_homelab_tls_bundle\" in output), :311; tests/crypto/test_ssh.py:258 and :782 (`ssh list --all --prefix alpha --dry-run`).",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md 1.1 and 1.2",
+   "problem": "Task 1.1 asserts that `branches clean` has no --dry-run option, and 1.2 removes it. The --dry-run of branches clean is not an echo-only preview: it calls delete_merged_branches(dry_run=dry_run) and prints \"would delete\". The issue asks to remove only echo-only previews (render_dry_run_result or @dry_run_command). Removing this option deletes a working local preview and is more than the issue asks. It also breaks tests/commands/test_branches.py:136.",
+   "evidence": "origin/main:src/devops_cli/commands/branches.py: `dry_run: Annotated[bool, typer.Option(\"--dry-run\", \"-n\", ...)]`, `deleted = delete_merged_branches(repo_dir, dry_run=dry_run)`, `verb = \"[yellow]would delete[/yellow]\" if dry_run else ...`. It uses neither render_dry_run_result nor dry_run_command.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md 1.1, 3.1, 5.1, 7.1 and specs/command-dry-run-class/spec.md",
+   "problem": "The mark-only test recipe says to run each command \"with the process runner and HTTP clients patched to fail\" and to assert it completes. Some mark-only commands read git through the process runner (local_read), so they would fail under that patch. They are branches list, branches clean, repos list (via current_branch), and repos worktrees status/prune. The plan copies the issue wording and does not resolve it. The implementer must decide alone what to fake. The spec scenario \"no-external-request command ... process runner patched to raise\" cannot hold for them.",
+   "evidence": "origin/main:src/devops_cli/git/operations.py: `_branch_refs`/`_checked(..., read=True)` call `_git(..., read=read)` which calls `run_subprocess(..., local_read=read)`. origin/main:src/devops_cli/commands/repos.py `_current_branch` calls `current_branch(repo_dir)`.",
+   "gate": "none"
+  },
+  {
+   "type": "missing_path",
+   "severity": "minor",
+   "where": "tasks.md group 9, proposal.md Impact",
+   "problem": "The plan names tests/test_roadmap_dry_runs.py. The file lives at tests/roadmap/test_roadmap_dry_runs.py. The ratchet test is tests/invariants/test_dry_run_class_ratchet.py. Group 9 says \"Run the ratchet test from sub-issue 00\" but Changes names the wrong file. The new test files (tests/test_branches_dry_run.py and three more) sit flat in tests/. The merged dry-run work puts them in tests/commands/ (for example tests/commands/test_docker_dry_run.py). The staging bot already warned that these paths do not exist.",
+   "evidence": "git ls-tree origin/main: tests/roadmap/test_roadmap_dry_runs.py, tests/invariants/test_dry_run_class_ratchet.py, tests/commands/test_*_dry_run.py exist. No tests/test_roadmap_dry_runs.py. Staging comment on #2258: \"These paths of the plan are no file on the default branch...\"",
+   "gate": "paths",
+   "paths": [
+    "tests/test_branches_dry_run.py",
+    "tests/test_roadmap_dry_runs.py"
+   ]
+  },
+  {
+   "type": "verify_form",
+   "severity": "minor",
+   "where": "tasks.md group 9 (9.1, 9.2)",
+   "problem": "Group 9 is mostly empty. 9.1 asks to verify that the full `uv run devops ci` \"fails on the base\", which is a slow check for no gain. 9.2 leaves a decision open (\"If the ratchet test needs an update ... add the assertion\"). The ratchet already fails when a classified command stays in the gaps file and when a request-plan command lacks --dry-run, so no ratchet change is needed.",
+   "evidence": "tests/invariants/test_dry_run_class_ratchet.py audit_dry_run_ratchet: Criterion 2 (class set but still in gaps) and Criterion 4 (request-plan must declare --dry-run).",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md x.3 in every group",
+   "problem": "Every group ends with \"Change no document, run `uv run devops docs generate --sync-readme`, and verify ... `uv run devops ci docs` passes\". The text contradicts itself (change no document, then regenerate one). It repeats nine times. One closing check would do.",
+   "evidence": "tasks.md lines 1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3, 8.3, 9.3 carry the same sentence. `uv run devops ci docs` and `devops docs generate --sync-readme` both exist.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md 2.2, 4.2, 6.2, 8.2 and spec.md",
+   "problem": "Tasks say \"Add --dry-run to repos clone, repos clone-org, repos sync, repos update, ssh register, ssh rotate, tls enable-k8s\". These options already exist as echo-only. Only branches sync/update lack one. The tasks and spec also ask for \"the real result type marked as a dry run\" and a `--format json` scenario. None of these commands has --format/--json or a result type, since they return None. The plan does not say to add them. The issue criterion that both `devops <cmd> --dry-run` and `devops --dry-run <cmd>` work has no task or spec scenario.",
+   "evidence": "origin/main:src/devops_cli/commands/repos.py clone/clone_org/update, ssh.py register/rotate, tls.py enable_k8s_cmd each declare `typer.Option(\"--dry-run\", ...)` and call render_dry_run_result. branches.py update has no dry_run parameter.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md Feasibility",
+   "problem": "Feasibility shows no evidence from the code. It cites CHANGELOG.md and the #886 inventory, and lists three \"first checks\" for the implementer. The issue says to check each row against the code. Two rows deserve a check. ssh generate and tls ca/cert/homelab are marked \"mark only\", yet they write key and certificate files, so `devops --dry-run ssh generate` would really write a private key. The plan does not record that this was reviewed.",
+   "evidence": "origin/main:src/devops_cli/crypto/ssh_keys.py generate_ed25519_key writes the private key with os.open(key_path, O_WRONLY|O_CREAT|O_TRUNC); origin/main:src/devops_cli/commands/tls.py cmd_ca calls generate_ca_certificate(output_dir=...).",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 9",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Ratchet test and full CI verification' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

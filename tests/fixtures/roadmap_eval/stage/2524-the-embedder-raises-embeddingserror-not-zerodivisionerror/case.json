@@ -1,0 +1,100 @@
+{
+ "issue": 2524,
+ "pull": 2993,
+ "title": "fix(rag): the embedder raises EmbeddingsError, not ZeroDivisionError, when ai.provider is ollama and no ollama URL is set, and the hardening audit can file its finding",
+ "change": "2524-the-embedder-raises-embeddingserror-not-zerodivisionerror",
+ "merge_commit": "209fc84d147290ceb9a80b6f1b2067dd91491b9b",
+ "base_commit": "cba71f952843355388a2c1c5eb52877f53b07f20",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The plan is merged and the issue is open (status/in-progress, an implement job runs). The embedder half is sound, but both test paths are wrong, and the workflow half would break an existing contract test that the plan never names. Part 2 also bypasses intake and leaves the label choice open. The PR title is a valid Conventional Commit and the body says \"Plans #2524\". Note: PR 3000 is a different change, not a build of this plan (it is refactor(cli) for #2175). The implement job for #2524 runs on branch fix/2524-..., and no PR for it exists yet.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.1 names the test file tests/ai/rag/test_embeddings.py. It does not exist on main. The real file is tests/ai/rag/test_rag_embeddings.py. The stage job warned about this and asked a person to check; the plan was merged unchanged. The group says 'Changes' this file, but no task creates it. An implementer may create a duplicate test file, or the 'fails on base' command may run a path that is missing.",
+   "evidence": "git ls-tree origin/main: tests/ai/rag/test_rag_embeddings.py and tests/ai/rag/test_rag_embedding_model_compatibility.py exist; no test_embeddings.py. Stage comment on #2524: 'These paths of the plan are no file on the default branch... tests/ai/rag/test_embeddings.py, tests/workflows/test_defect_pr_hardening_audit.py'.",
+   "gate": "paths",
+   "paths": [
+    "tests/ai/rag/test_embeddings.py",
+    "tests/workflows/test_defect_pr_hardening_audit.py"
+   ]
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 2.1 names tests/workflows/test_defect_pr_hardening_audit.py, which does not exist (no tests/workflows dir for it). The workflow already has a contract test in tests/invariants/test_workflow_contracts.py. That test asserts a step contains 'devops roadmap intake', and a mutation test replaces 'roadmap intake' and expects an AssertionError. Task 2.2 removes 'devops roadmap intake', so assert_audit_workflow_contract and test_defect_pr_hardening_audit_workflow_mutation (mutated3) fail. The plan never reads or changes that file. The implementer will hit a red CI and must guess how to fix it.",
+   "evidence": "tests/invariants/test_workflow_contracts.py lines ~418-425: 'has_intake = any(\"devops roadmap intake\" in run ...)' and assert 'Workflow failure path must hand findings to intake via devops roadmap intake'; mutated3 replaces 'roadmap intake' with 'create_repository_issue' and uses pytest.raises(AssertionError, match=\"intake\"). grep for defect-pr-hardening-audit in tests finds only tests/invariants/test_workflow_contracts.py and tests/github/test_defect_classifier.py.",
+   "gate": "paths",
+   "paths": [
+    "tests/workflows/test_defect_pr_hardening_audit.py"
+   ]
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Part 2 swaps 'devops roadmap intake' for raw 'gh issue create'. This skips intake: no priority, type and status label placement, no duplicate flag, and the project rule that intake sets the priority label. Task 2.2 says 'a label for priority' without naming which label, so a decision is left open and it conflicts with 'Intake sets the priority label of a new issue'. The issue offered a second option (scope the step so it does not run where it cannot work); the design rejects it with a weak reason. The plan does not check whether intake can run without a model credential (for example, a flag to skip embedding), so the Feasibility section holds no evidence on this premise.",
+   "evidence": "AGENTS.md: 'Intake sets the priority label of a new issue, so set no milestone or priority on it.' docs/ROADMAP_WORKFLOW.md row 1: 'Row intake places each candidate'. proposal.md Feasibility only says 'The gh CLI is available on GitHub-hosted runners' and that the workflow has issues: write. tasks.md 2.2: 'Pass the title, the body file, and a label for priority.'",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "Feasibility cites the modulo at 'line 988'. On main the code is at line 1033, inside the nested _embed_single_batch of _embed_ollama (line 1021). The line number was copied from the issue and is stale.",
+   "evidence": "git show origin/main:src/devops_cli/ai/rag/embeddings.py: line 1021 'def _embed_ollama', line 1033 'start = batch_idx % len(urls)'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "design.md",
+   "problem": "The guard reuses ERRORS.rag.embedding_no_provider. That message says the provider 'is not ollama, openai, copilot or gateway' and then 'Set ai.tasks.embedding.provider'. For this case the provider IS ollama and the missing setting is the Ollama URL, so the message misleads the user. The issue asks for an error 'that names the missing setting'. The spec scenario asks for the 'embedding_no_provider message', so spec and issue conflict. The plan does not see this.",
+   "evidence": "src/devops_cli/lang/en/errors.py:294-298: 'Embedding model {model} has no provider: the embedding task's provider '{provider}' is not ollama, openai, copilot or gateway, and no Ollama URLs are set. Set ai.tasks.embedding.provider'. Issue: 'the embedder raises EmbeddingsError that names the missing setting'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Tasks 1.3 and 2.3 say 'Change no document, run devops docs generate --sync-readme, and verify ci docs passes'. They change nothing and add noise. The groups also say 'Reads: none' though the implementer must read embeddings.py (lines 700-730, 860-880, 1018-1050), the workflow file and the existing contract test. The stage token count (about 3.6k) is low for that reason.",
+   "evidence": "tasks.md groups 1 and 2: 'Reads: none.' The existing contract test is not listed in any Reads or Changes line.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/review-filed-findings/spec.md",
+   "problem": "The delta adds the hardening audit requirement to the review-filed-findings capability. That capability covers the review finding marker and 'devops review intake'. The defect PR hardening audit is another subject, so the requirement is in the wrong capability.",
+   "evidence": "openspec/specs/review-filed-findings/spec.md Purpose: 'The marker that an issue filed from a review finding carries, the lookup... and which findings the review leaves out of a hand-off to roadmap intake'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "tasks.md",
+   "problem": "The 'Workflow follow-up' section lists 'Pending a person: review the diff in tuicr', a tracking note, not a task.",
+   "evidence": "tasks.md last lines.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 2",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Replace intake handoff with gh issue create' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

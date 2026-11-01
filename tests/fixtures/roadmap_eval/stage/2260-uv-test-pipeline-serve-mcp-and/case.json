@@ -1,0 +1,107 @@
+{
+ "issue": 2260,
+ "pull": 2975,
+ "title": "feat(ci): uv, test, pipeline, serve, mcp and ci fail-to-pass commands list their requests in a dry run and make none",
+ "change": "2260-uv-test-pipeline-serve-mcp-and",
+ "merge_commit": "22f953d15df962a9a2e2bf785c2667ce10525971",
+ "base_commit": "e093ac8d609b8bc972bbbe3658706c24087d45c5",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "PR #2975 is merged. The issue (#2260) is open and valid. The plan names wrong paths for 5 source files, 5 test files, and the ratchet test. Its task order breaks the ratchet test between groups 1-7 and group 8. The Feasibility section holds no checked evidence. An implementer would hit these errors in the first step. The PR title and body are correct (Plans #2260, no closing keyword), and all checks passed.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md, proposal.md (Impact)",
+   "problem": "Five source files named by the plan do not exist on main. The real modules are commands/uv.py, mcp.py, serve.py, pipeline.py and ci.py. Only test_cmd.py is right. Groups 1, 2, 5, 6 and 7 each name a wrong file in Changes, so the implementer must search for the files. The stage bot comment on the issue warned that these paths are not files and asked a person to check them. The merged plan still holds them.",
+   "evidence": "git cat-file on origin/main: MISSING src/devops_cli/commands/uv_cmd.py, mcp_cmd.py, serve_cmd.py, pipeline_cmd.py, ci_cmd.py; OK test_cmd.py. ls src/devops_cli/commands shows ci.py mcp.py pipeline.py serve.py test_cmd.py uv.py.",
+   "gate": "paths",
+   "paths": [
+    "src/devops_cli/commands/uv_cmd.py"
+   ]
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md groups 1-8 (verify commands), proposal.md Feasibility and Existing Tool Considered",
+   "problem": "The plan names tests/test_roadmap_dry_runs.py as the ratchet test and as the plan-equality pattern. That file does not exist. The real ratchet test is tests/invariants/test_dry_run_class_ratchet.py. Task 8.1 and 8.2 verify against the wrong file, and Feasibility check (4) cannot run.",
+   "evidence": "git cat-file origin/main:tests/test_roadmap_dry_runs.py gives MISSING. git grep dry_run_gaps origin/main shows tests/invariants/test_dry_run_class_ratchet.py. The archived plan 2240-argo-dry-run uses uv run pytest tests/invariants/test_dry_run_class_ratchet.py.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_roadmap_dry_runs.py"
+   ]
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md groups 1-5 (new test files)",
+   "problem": "The plan puts five new test files at the tests/ top level (tests/test_dry_run_uv.py and others). Every prior delivery puts command dry-run tests under tests/commands/ with a name like test_<group>_dry_run.py. None of the five files exists, and the plan has no task that creates a file in the repo convention.",
+   "evidence": "Existing: tests/commands/test_argo_dry_run.py, test_pr_dry_run.py, test_cloudflare_dry_run.py, test_review_dry_run.py. MISSING on main: tests/test_dry_run_uv.py, test_dry_run_test_cmd.py, test_dry_run_mcp.py, test_dry_run_serve.py, test_dry_run_pipeline_ci.py.",
+   "gate": "pending"
+  },
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md group 8 versus groups 1-7",
+   "problem": "The order breaks the ratchet test. Groups 1-7 add the dry_run_class to each command, but the paths stay in dry_run_gaps.json until group 8. The ratchet test reports an error for a classified command still in the gap list. So the test run after groups 1-7 fails. Also, task 8.1 asks for a failing test that the ratchet test 'fails on the base'. The ratchet test passes on base, so this check cannot hold. Each group should remove its own paths from the gap list, as the archived 2240 plan and the sibling plan 2258 do.",
+   "evidence": "tests/invariants/test_dry_run_class_ratchet.py audit_dry_run_ratchet: 'Command ... has dry-run class ... but is still listed in tests/fixtures/dry_run_gaps.json. Remove this entry from the list.' Sibling plan 2258 task 1.2 removes the gap entries in the same group that adds the class.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md Feasibility; design.md",
+   "problem": "Rule 2 asks for evidence that the premise holds. Feasibility only lists checks the implementer will run later. It cites 'shown in context' and 'CHANGELOG shows 15+ prior deliveries'. The issue asks to decide, with evidence, whether the pass-through commands uv run and pipeline can list a plan. The design answers with CHANGELOG.md:1390 and tests/test_roadmap_dry_runs.py. Line 1390 of CHANGELOG.md is about 'Active marginalia' and 'Socratic inquiry' under devops ai research. It has no dry-run content. The second source does not exist. The decision for uv run (an arbitrary command with extra args and a possible implicit sync) and for pipeline (Dagger) has no real evidence.",
+   "evidence": "git show origin/main:CHANGELOG.md lines 1385-1395: 'Active marginalia & epistemic scratchpad (devops ai research annotate)' and 'Socratic inquiry'. tests/test_roadmap_dry_runs.py is missing on main.",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "minor",
+   "where": "tasks.md (all verify commands)",
+   "problem": "Verify commands use uv run pytest <file>. openspec/config.yaml asks for 'uv run devops ci test tests/test_<feature>.py', and sibling plan 2258 uses that form. Prior archived plans used uv run pytest with -n 0, so this is a weak finding, but the plan does not follow the config.",
+   "evidence": "openspec/config.yaml line 33: 'name each task's verification command, such as uv run devops ci test tests/test_<feature>.py'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md tasks 1.3 to 8.3",
+   "problem": "Each x.3 task says 'Change no document, run docs generate'. It is a self-contradicting line, repeated 8 times, and it runs the README sync even for groups whose change may not alter the docs. One docs task at the end would do. Also the plan has no task for the issue criterion that --format json or --json returns the real result type marked as a dry run, and no task for the dry-run flag in both orders (devops --dry-run <cmd> and devops <cmd> --dry-run) for each request-plan command. The tests in tasks 1.1 to 7.1 name only one order.",
+   "evidence": "Issue #2260 acceptance criteria 2 and 3 name both flag orders and the JSON result type. tasks.md 1.1 to 7.1 test 'devops <command> --dry-run' only (except mcp tools). The issue-body proposed-design criterion 5 repeats the JSON requirement.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md task 7.2; design.md; proposal.md",
+   "problem": "The plan says ci fail-to-pass and pipeline 'gain' a request plan and 'replace the echo-only --dry-run'. This matches the code. But the plan does not say that pipeline needs a different plan builder (build_dagger_cmd) and that test run, test load, test sandbox and test profile-memory have their own builders (sandbox_runner.build_dry_run_details). 'Same argument builder' is stated without naming one builder per command. The implementer must find 14 builders alone.",
+   "evidence": "src/devops_cli/commands/test_cmd.py line 409: details=sandbox_runner.build_dry_run_details(); pipeline.py calls build_dagger_cmd(...). The plan names neither.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "tasks.md 'Workflow follow-up'",
+   "problem": "The plan ends with a 'Pending a person: review the diff in tuicr' item. It is workflow tracking text, not part of the change, and it is stale now the PR is merged.",
+   "evidence": "tasks.md last lines: '## Workflow follow-up - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).'",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 8",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Remove 14 paths from dry_run_gaps.json and verify ratchet test' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

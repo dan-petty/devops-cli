@@ -1,0 +1,89 @@
+{
+ "issue": 2152,
+ "pull": 2971,
+ "title": "refactor(security): the egress checks read legacy numeric hosts with getaddrinfo and AI_NUMERICHOST, and the hand-written ipv4 parser goes",
+ "change": "2152-the-egress-checks-read-legacy-numeric",
+ "merge_commit": "37561bcbddd410cb46981c16a6dcf6293e7c534b",
+ "base_commit": "f4147911208c865e7c5eaf10234baa4039f29807",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "PR #2971 is merged and its checks are green. The plan has the right core idea (replace the hand-written parser with getaddrinfo and AI_NUMERICHOST) and the structure is valid. But it names test files and functions that do not exist on main. Its error handling would raise on long or non-ASCII hosts. Its test-first order is wrong for a refactor. It breaks an existing test that the plan does not mention. An implementer would stop at task 1.1. The plan needs a rewrite before implementation. The issue (#2152) is still open and is not stale: the parser, the classifier and the missing tests are all still on main.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "blocker",
+   "where": "tasks.md",
+   "problem": "Both task groups and Feasibility name test files that do not exist on main: tests/test_reference_extractor.py and tests/test_builtin_tools.py. The tests are in tests/security/test_reference_address_classes.py, tests/security/test_builtin_tools.py and tests/core/test_validation.py. Every verify command in tasks.md (uv run pytest tests/test_reference_extractor.py ...) fails with file not found. The staging comment on the issue flagged that path, and a person did not fix it. Groups 1 and 2 say 'Reads: none', so they give the implementer no file to start from. The plan also uses bare `uv run pytest` where docs/TESTING.md names `uv run devops ci test <path>`.",
+   "evidence": "ls tests/test_reference_extractor.py -> No such file or directory. Existing tests found: tests/security/test_reference_address_classes.py:142-144 ('2130706433','127.1','0x7f.0.0.1') and tests/security/test_builtin_tools.py:306.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_reference_extractor.py",
+    "tests/test_builtin_tools.py"
+   ]
+  },
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "specs/public-api-egress/spec.md",
+   "problem": "The plan names validate_url, allow_private=False and _enforce_non_private_ssrf. Commit 6ebc9683 (#2845, 2026-10-31, one day before the plan) removed them. The three spec scenarios that call validate_url(allow_private=False), and task 1.1, cannot be written. Task 2.2 and the proposal ask to delete 'the repeated metadata check in _enforce_non_private_ssrf', but that function is gone. design.md cites line 614 and 'its only caller validate_url', which also do not exist. The plan was built from the issue text of b170358e and was not checked against main.",
+   "evidence": "grep -rn '_enforce_non_private_ssrf' src -> no match. grep -rn 'def validate_url' src -> no match. git log -S_enforce_non_private_ssrf -- src -> 6ebc9683 'fix(security): remove pre-flight resolve paths for egress (#2845)'. The only validate_url hit is a docstring in tests/http/test_http_egress.py:183.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 2.2 says to catch only OSError and return None. getaddrinfo with AI_NUMERICHOST raises UnicodeEncodeError (a ValueError subclass) for a long or non-ASCII host label. The current parse_numeric_ip catches OSError and ValueError. The new code would let the exception out of parse_numeric_ip. The first call in _check_numeric_metadata has no try around it, and is_loopback_host, _is_numeric_host and reference_extractor.py:101,103 also call it. A long host name would crash the egress checks.",
+   "evidence": "python3: socket.getaddrinfo('x'*300, None, flags=socket.AI_NUMERICHOST) -> UnicodeEncodeError 'idna' codec can't encode characters: label too long. Same for 'é'*70. src/devops_cli/core/validation.py:242-251 catches 'OSError, ValueError' today; the first parse_numeric_ip call in _check_numeric_metadata (line 306) is outside any try.",
+   "gate": "none"
+  },
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The failing-test-first order is wrong for a refactor. Task 1.1 says the new octal, three-part, zone-ID and unparsable tests must 'fail on the base', but the current parser already handles all of those forms, so they pass on the base. Task 1.2 then says the same command passes. The two tasks contradict each other. Task 2.1 asks to verify that the existing tests 'fail on the base', which is false. The plan gives no real fail-to-pass check. It should call these pinning tests that pass before and after.",
+   "evidence": "_parse_part / _combine_ipv4_parts at validation.py:193-224 already read '0177' as octal and 3-part forms. python3 getaddrinfo output for 0177.0.0.1, 127.0.1 and fe80::1%eth0 matches the old parser's results.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The plan does not mention an existing test that the change breaks. test_a_network_target_names_the_address_a_resolver_would_dial patches socket.getaddrinfo to raise AssertionError('no lookup may be made'). Its cases 2130706433, 127.1 and 0x7f.0.0.1, and the name cases, reach parse_numeric_ip. After the change they call getaddrinfo and raise AssertionError, which is not an OSError. The implementer must change that test's contract (allow the AI_NUMERICHOST call only), and the plan should say so. Task 2.2 would fail its own verify command.",
+   "evidence": "tests/security/test_reference_address_classes.py:149-160: monkeypatch.setattr(socket, 'getaddrinfo', _no_lookup) with raise AssertionError('no lookup may be made'); parse_numeric_ip is called from reference_extractor.py:101,103.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Tasks 1.3 and 2.3 are filler: 'Change no document, run devops docs generate --sync-readme'. The change touches no document or generated README, so these tasks add steps with no purpose. The plan also never says where the new zone-ID and unparsable tests go (is_private_ip and is_loopback_or_private_host are in tests/core/test_validation.py). It does not name the 'constructs' CI row it wants to pass.",
+   "evidence": "tasks.md 1.3 and 2.3. proposal.md Impact lists only validation.py and the nonexistent test file.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section copies the issue's claim ('checked 2026-10-24') and does not record a fresh command on main. The proposal's What Changes says 'Replace parse_numeric_ip' but never states the stdlib fallback order (ip_address first, then getaddrinfo) that task 2.2 uses. A line-number citation also shifted: the hermetic floor is at tests/conftest.py:311-323 (correct), but the issue's validation.py line numbers (198-256, 612-617) are stale. The only check the plan adds is a pytest -k filter that matches nothing on main.",
+   "evidence": "proposal.md Feasibility bullet 1 cites the issue. Real run on main: getaddrinfo('0177.0.0.1',..)->127.0.0.1, ('08.0.0.1')->gaierror, as stated, so the technical premise holds but no new evidence was recorded.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Add tests for legacy numeric IP forms and classifier edge cases' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

@@ -1,0 +1,115 @@
+{
+ "summary": "add osv-scanner and ruff toolrun digests",
+ "pull_request_body": "This change adds a digest field to the ToolRun record of osv-scanner and Ruff runs. The osv-scanner ToolRun records a streamed SHA-256 of its advisory database files in sorted order. The digest changes when the database changes and stays the same when it does not. The Ruff ToolRun records the SHA-256 of the resolved configuration that Ruff used for the target, obtained from `ruff --show-settings`. These digests let a user verify which database version or configuration produced a given scan result. The 36 MB PyPI database exceeds the file-size cap of a plain file hash, so the osv-scanner digest streams the hash over the database files rather than loading them into memory. The Ruff digest covers the resolved configuration, not the raw file.",
+ "why": "Issue #2130: the ToolRun of an osv-scanner run records no digest of its advisory database, and the ToolRun of a Ruff run records no digest of the Ruff configuration it read. Without these digests, a user cannot verify which database version or configuration produced a given scan result. The 36 MB PyPI database exceeds the file-size cap of the record's digest step, so a plain file hash is not possible.",
+ "what_changes": [
+  "The ToolRun of an osv-scanner run records a `database_digest` field: a streamed SHA-256 over the advisory database files in sorted filename order.",
+  "The ToolRun of a Ruff run records a `config_digest` field: the SHA-256 of the JSON output of `ruff --show-settings` for the target.",
+  "The `review-tool-runs` capability gains two requirements that pin the digest behavior."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue states the ToolRun records no digest today and cites #2096 for the 36 MB database and the file-size cap. The capability `review-tool-runs` exists in the spec list, confirming the ToolRun record is a defined concept.",
+  "Python's `hashlib` supports streaming SHA-256 over file objects, so the 36 MB database can be hashed without loading it into memory. This satisfies the file-size cap constraint.",
+  "Ruff's `--show-settings` flag outputs the resolved configuration as JSON to stdout. A test can invoke it on a fixture directory and hash the output offline.",
+  "First checks the implementation runs against the real system: `uv run ruff --show-settings --isolated` to confirm the flag exists and outputs JSON; `uv run devops review scan --help` to confirm the scan command and its flags; `ls` of the osv-scanner database directory to confirm the file layout for the streamed hash."
+ ],
+ "existing_tool": "Python's `hashlib` (standard library) provides the streamed SHA-256. Ruff's `--show-settings` flag outputs the resolved configuration. No external library is needed. The change adds two small functions in devops-cli's own scanner adapter code and one field to the ToolRun record. The written cost is roughly 80 lines of code and tests, well within one step's budget. No internal code is deleted.",
+ "decisions": [
+  {
+   "decision": "Use a streamed SHA-256 over the database files in sorted filename order for the osv-scanner digest.",
+   "reason": "The 36 MB database exceeds the file-size cap of a plain file hash. A streamed hash avoids loading the file into memory. Sorting by filename makes the digest deterministic across runs on the same database."
+  },
+  {
+   "decision": "Use the SHA-256 of `ruff --show-settings` JSON output for the Ruff digest.",
+   "reason": "The issue asks for the resolved configuration, not the raw file. `--show-settings` outputs the final merged configuration as JSON, which is the exact input Ruff uses for the scan."
+  },
+  {
+   "decision": "Store both digests as optional string fields on the existing ToolRun record.",
+   "reason": "The ToolRun record already lives in the SARIF run property bag (#1983). Adding a field is the minimal change. Optional keeps the record valid for tools that do not produce a digest."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Use the database's modified time combined with a digest of its index.",
+   "evidence": "The modified time is not content-addressed: a file can be rewritten with the same mtime, or the mtime can change without a content change. A streamed content hash is more robust and matches the acceptance criterion that the digest changes when the database changes."
+  },
+  {
+   "alternative": "Hash the raw `ruff.toml` or `pyproject.toml` file for the Ruff digest.",
+   "evidence": "The issue and the proposed design both state the digest covers the resolved configuration, not the raw file. Ruff merges defaults with the project config, so the raw file does not capture the full input."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "review-tool-runs",
+   "purpose": null,
+   "added": [
+    {
+     "name": "osv-scanner toolrun records database digest",
+     "text": "The ToolRun of an osv-scanner run SHALL record a `database_digest` field that is a SHA-256 hex digest computed by streaming the advisory database files in sorted filename order. The digest SHALL change when the database content changes and SHALL stay the same when it does not.",
+     "scenarios": [
+      {
+       "name": "digest changes when database changes",
+       "when": "the advisory database files differ between two osv-scanner runs",
+       "then": "the `database_digest` in the two ToolRun records is different"
+      },
+      {
+       "name": "digest stable for unchanged database",
+       "when": "the advisory database files are identical between two osv-scanner runs",
+       "then": "the `database_digest` in the two ToolRun records is the same"
+      }
+     ]
+    },
+    {
+     "name": "ruff toolrun records configuration digest",
+     "text": "The ToolRun of a Ruff run SHALL record a `config_digest` field that is a SHA-256 hex digest of the resolved configuration that Ruff used for the target. The digest SHALL change when the resolved configuration changes and SHALL stay the same when it does not.",
+     "scenarios": [
+      {
+       "name": "digest changes when configuration changes",
+       "when": "the Ruff configuration of the target differs between two Ruff runs",
+       "then": "the `config_digest` in the two ToolRun records is different"
+      },
+      {
+       "name": "digest stable for unchanged configuration",
+       "when": "the Ruff configuration of the target is identical between two Ruff runs",
+       "then": "the `config_digest` in the two ToolRun records is the same"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add osv-scanner database digest to the ToolRun",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/review/scanners/osv_scanner.py",
+    "tests/test_review_tool_runs.py"
+   ],
+   "creates": [],
+   "test": "Write a test that creates two temporary directories with different file contents, calls the new `database_digest` function on each, and asserts the digests differ. Write a second test that calls the function twice on the same directory and asserts the digests are equal. The test fails because `database_digest` does not exist yet",
+   "implementation": "Add a `database_digest(db_path: Path) -> str` function to the osv-scanner adapter. It lists the files under `db_path` in sorted order by relative path, opens each file in binary mode, and feeds its bytes into a single `hashlib.sha256` object in 64 KiB chunks. It returns the hex digest. Add a `database_digest: str | None` field to the ToolRun record. In the osv-scanner scan path, call `database_digest` on the database directory and store the result in the ToolRun before the SARIF export",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_review_tool_runs.py -k osv_scanner",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Add Ruff configuration digest to the ToolRun",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/review/scanners/ruff.py",
+    "tests/test_review_tool_runs.py"
+   ],
+   "creates": [],
+   "test": "Write a test that creates a temporary project with a `ruff.toml`, calls the new `config_digest` function, and asserts it returns a 64-character hex string. Write a second test that modifies the `ruff.toml` and calls the function again, asserting the digest differs. The test fails because `config_digest` does not exist yet",
+   "implementation": "Add a `config_digest(target: Path) -> str` function to the Ruff adapter. It runs `ruff --show-settings --isolated <target>` via `subprocess.run`, captures stdout, and returns the SHA-256 hex digest of the JSON bytes. Add a `config_digest: str | None` field to the ToolRun record. In the Ruff scan path, call `config_digest` on the target and store the result in the ToolRun before the SARIF export",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_review_tool_runs.py -k ruff",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

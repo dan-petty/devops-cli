@@ -1,0 +1,105 @@
+{
+ "issue": 2373,
+ "pull": 2987,
+ "title": "perf(ci): measure what coverage and branch measurement cost the test job",
+ "change": "2373-measure-what-coverage-and-branch-measurement",
+ "merge_commit": "5feb5939a26492f3f65a74dcd3b67a732c609c25",
+ "base_commit": "022d784cbc39bbcc359f191009445cab10601e5c",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The PR is merged (title and body are fine, all checks green, \"Plans #2373\"). The plan has real defects that an implementer would hit. Every output path names a folder that does not exist. The plan copies a stale gate command that still writes XML. The spec delta conflicts with an existing requirement. Task 1.2 does not give the four configurations, and the verify commands only check that a file exists. The issue is open and not a duplicate, so the plan should be fixed, not rejected.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "proposal.md, tasks.md",
+   "problem": "All planned output paths name a folder that does not exist: `openspec/changes/2373-coverage-cost-measurement/`. The real folder is `2373-measure-what-coverage-and-branch-measurement`. The stage bot comment already warned that these paths are no file on the default branch and no group creates them. An implementer creates a second, wrong change folder, or the verify greps point at nothing. Archive would also not pick the files up.",
+   "evidence": "git ls-tree on origin/main lists only openspec/changes/2373-measure-what-coverage-and-branch-measurement/{.openspec.yaml,design.md,proposal.md,specs/...,tasks.md}. proposal.md Impact and every task cite `openspec/changes/2373-coverage-cost-measurement/benchmark-results.md` and `.../design.md`. Stage comment: 'These paths of the plan are no file on the default branch, and no group creates them'.",
+   "gate": "paths",
+   "paths": [
+    "openspec/changes/2373-coverage-cost-measurement/benchmark-results.md"
+   ]
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md (Feasibility), tasks.md 1.2, issue premise",
+   "problem": "The plan takes the gate command from the archived 2026-10-27 design (`--cov-report=term-missing --cov-report=xml`). The gate no longer writes an XML report (#2582). So the 'lines' configuration, the `coverage xml` timing (task 2.2) and the issue premise of a serial XML step are stale. The Feasibility section did not check the current gate on main, so rule 2 (check the premise against the real system) is not met. The plan should state the real current command and drop or justify the xml step.",
+   "evidence": "src/devops_cli/commands/ci.py:658-659 has `--cov=src` and `--cov-report=term-missing` only. openspec/specs/ci-coverage-reports/spec.md: 'The devops ci test row SHALL ... NOT ask pytest-cov for an XML report'. Commit ae9ebb23 'perf(ci): the gate writes no coverage XML' (#2582). Feasibility cites only the archived design.md and its 'gate command (pytest --cov=src --cov-report=term-missing --cov-report=xml)'.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/ci-coverage-reports/spec.md",
+   "problem": "The delta is wrong in two ways. (1) The requirement `coverage-report-options-cost` says the test job 'drops the term-missing report from the runner'. The existing spec requires the test row to hold `--cov-report=term-missing`. Such a change needs a MODIFIED requirement of the existing one, not an ADDED one, and it would contradict the current spec as written. (2) `coverage-cost-benchmark-record` describes a measurement document, not behavior a consumer observes, and no test under tests/ can assert its scenarios offline. This breaks the openspec/config.yaml rule: 'Write only scenarios a test under tests/ can assert offline'. A benchmark with no product change should set skip_specs: true.",
+   "evidence": "openspec/specs/ci-coverage-reports/spec.md: 'Requirement: The test row writes no XML report ... SHALL run pytest with --cov=src and the term-missing report' and scenario 'the command holds --cov=src and --cov-report=term-missing'. The delta spec uses '## ADDED Requirements' only. .openspec.yaml has no skip_specs. Also, the spec delta is not asserted by any task group; no group has a test under tests/.",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md 1.2",
+   "problem": "The task does not name the four configurations. It says only 'run uv run pytest with the gate options three times' for each. The `--cov-branch` option and `COVERAGE_CORE=ctrace` env var, the no-coverage command and how to get user-plus-system CPU time (for example `/usr/bin/time -v`) appear nowhere in the task. The implementer must read the issue to learn them. Also no rule keeps the same worker count and `-n`/dist setting across the runs, and the plan does not say how to meet 'uptime under 2' in a shared devcontainer (project memory: host is rootless Podman on WSL2, 16 CPUs, other parallel runs).",
+   "evidence": "tasks.md 1.2: 'For each of the four configurations, run uv run pytest with the gate options three times.' The only place with the option table is issue #2373 (table: `--cov-branch`, `COVERAGE_CORE=ctrace`). design.md and proposal.md also omit them.",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md (all groups)",
+   "problem": "The verify commands do not verify the work. `test -f ... && grep -q 'median'` and `grep -q 'branch' && grep -q 'seconds'` pass for any file with those words. Tasks 1.1, 2.1 and 3.1 'write a check' that is only a shell one-liner, not a test under tests/ or a script, so there is no real failing test first. Task 3.1 says 'The file does not exist' for design.md, but design.md already exists in the change folder, so that 'fails on base' claim is false for the real path. No task checks the three-run count, the uptime reading, or that the branch cost is a number.",
+   "evidence": "tasks.md 3.1: 'The file does not exist, so the check fails' while origin/main has openspec/changes/2373-measure-what-coverage-and-branch-measurement/design.md with 14 lines. openspec/config.yaml tasks rule: 'order tasks as failing test, implementation, then documentation, and name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'. No task uses `devops ci test`.",
+   "gate": "pending"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "tasks.md 3.2, proposal.md, issue acceptance",
+   "problem": "The issue puts the result table in the pull request description and the cost statement on #2163. The plan puts it in change-folder files (benchmark-results.md, design.md). Those files would be archived with the change and break the rule that artifacts read as merged. No task posts to the PR or to #2163. Also the conditional CI change (a lower-cost `--cov-report`) has no concrete task group: 3.2 says only 'record the lower-cost option', so the change itself is left open, though acceptance criterion 4 needs the 'lines' CPU time shown lower after the change.",
+   "evidence": "Issue #2373: 'Report the table in the pull request' and 'say so on #2163 for the owner'; criteria 1-4 verify against 'The pull request description'. tasks.md 3.2: 'If the report or combine step is a large share, record the lower-cost option and verify the coverage floor in pyproject.toml is unchanged'. Group 3 lists `Changes: .../design.md` only; no group changes src/devops_cli/commands/ci.py.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md 1.3, 2.3, 3.3",
+   "problem": "Each group ends with 'Change no document, run `devops docs generate --sync-readme`, and verify `devops ci docs` passes'. This is an empty step: nothing in the group changes a documented command. The sentence 'Change no document' contradicts a task that runs the doc generator. Three copies add noise to the 40000-token budget.",
+   "evidence": "tasks.md lines 1.3, 2.3 and 3.3 use the same sentence; groups only write markdown inside openspec/changes.",
+   "gate": "none"
+  },
+  {
+   "type": "missing_path",
+   "severity": "minor",
+   "where": "proposal.md (Feasibility), design.md",
+   "problem": "Feasibility step (4) names `tests/test_cli_startup_imports.py`, which does not exist. The file is `tests/commands/test_cli_startup_imports.py`. The 'first checks' are also future steps for the implementer, not evidence that the plan author collected (no output, no version for coverage.py or pytest-cov). design.md cites 'design.md section 4' and 'proposed design, key questions' from the issue, which are not stable sources.",
+   "evidence": "ls tests/test_cli_startup_imports.py: No such file; git ls-tree finds tests/commands/test_cli_startup_imports.py. pyproject.toml pins pytest-cov==7.1.0 (not cited in the plan).",
+   "gate": "paths",
+   "paths": []
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "proposal.md Impact, Capabilities",
+   "problem": "Impact lists only the two non-existent documents. It does not list the files the conditional change would touch (src/devops_cli/commands/ci.py, openspec/specs/ci-coverage-reports/spec.md, tests). The 'Modified Capabilities' line lists requirement names, which are ADDED, not modified. proposal.md has no statement 'fits one pull request' under its own heading except a bullet in What Changes.",
+   "evidence": "proposal.md: '### Modified Capabilities - `ci-coverage-reports`: coverage-cost-benchmark-record, coverage-report-options-cost' while spec.md uses '## ADDED Requirements'.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1, 2, 3",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Run four coverage configurations and record medians' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

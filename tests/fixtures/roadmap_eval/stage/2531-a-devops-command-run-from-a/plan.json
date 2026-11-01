@@ -1,0 +1,110 @@
+{
+ "summary": "guard Path.cwd in _resolve_git_dir",
+ "pull_request_body": "A devops command run from a deleted working directory crashed with an unhandled FileNotFoundError traceback from the telemetry setup. The telemetry tracer calls _resolve_git_dir, which calls Path.cwd(). When the directory no longer exists, Path.cwd() raises FileNotFoundError and the command does not complete. This change wraps the Path.cwd() call in _resolve_git_dir with a try/except OSError guard. On failure, the function returns None, which is the same value it returns when no .git entry is found. The caller _detect_vcs_metadata already handles None by returning an empty dict, so the command proceeds without telemetry VCS attributes. The fix is one try/except block of about 4 lines in src/devops_cli/telemetry/tracer.py, plus a test that patches Path.cwd to raise FileNotFoundError and a",
+ "why": "#2531 reports that a devops command run from a deleted working directory prints a FileNotFoundError traceback from _resolve_git_dir in the telemetry setup. The command does not report a clean error and does not complete. The root cause is that Path.cwd() raises FileNotFoundError when the directory no longer exists, and _resolve_git_dir does not catch it.",
+ "what_changes": [
+  "Wrap the Path.cwd() call in _resolve_git_dir with a try/except OSError guard that returns None on failure.",
+  "Add a test that patches Path.cwd to raise FileNotFoundError and asserts _resolve_git_dir returns None.",
+  "Add a test that confirms _resolve_git_dir still returns the correct .git path for a valid working directory."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The code at src/devops_cli/telemetry/tracer.py line 628 shows current = (start_dir or Path.cwd()).resolve() with no exception handling around Path.cwd(). This confirms the premise of the issue.",
+  "The same file already catches OSError in _resolve_git_dir_from_file (line 618) and _read_packed_refs (line 596), so catching OSError is the established pattern in this module.",
+  "The caller _detect_vcs_metadata (line 646) already handles a None return from _resolve_git_dir by returning an empty dict, so returning None on a deleted CWD is consistent with the existing contract.",
+  "First check: run uv run devops ci test tests/test_tracer.py to confirm the new test passes and existing tests are unaffected.",
+  "Second check: run uv run devops ci test to confirm the full test suite passes with the guard in place."
+ ],
+ "existing_tool": "No external tool or library covers this need. The fix is a try/except OSError block of about 4 lines around the Path.cwd() call in _resolve_git_dir (src/devops_cli/telemetry/tracer.py:628). The written cost is one guard block, one test case, and the maintenance of that guard for the lifetime of the function. No internal code is deleted.",
+ "decisions": [
+  {
+   "decision": "Catch OSError in _resolve_git_dir at the Path.cwd() call site",
+   "reason": "This is the origin of the exception. The function already returns None when no git directory is found, so returning None on a deleted CWD is consistent with its contract. Catching it here protects all callers, not just _detect_vcs_metadata."
+  },
+  {
+   "decision": "Catch OSError rather than FileNotFoundError",
+   "reason": "FileNotFoundError is a subclass of OSError. Path.cwd() can raise OSError for reasons other than a missing directory, such as a permission error on the getcwd syscall. The existing code in this file already catches OSError in _resolve_git_dir_from_file and _read_packed_refs, so OSError is the established pattern."
+  },
+  {
+   "decision": "Return None when the CWD is unavailable",
+   "reason": "The function signature is Path | None, and it already returns None when no .git entry is found. A deleted CWD is another case of no git directory found. The caller _detect_vcs_metadata already handles None by returning an empty dict."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Catch the exception in _detect_vcs_metadata",
+   "evidence": "This leaves _resolve_git_dir vulnerable for any other caller. The exception would still propagate if any other code calls _resolve_git_dir directly. The fix at the origin is more targeted."
+  },
+  {
+   "alternative": "Catch the exception in the CLI entry point",
+   "evidence": "Too broad. It hides the specific cause and makes the telemetry path less testable in isolation. A targeted guard at the call site is simpler and more precise."
+  },
+  {
+   "alternative": "Catch FileNotFoundError only",
+   "evidence": "Narrower than needed. A permission error on getcwd would still crash the command. OSError covers all OS-level failures from the getcwd syscall."
+  },
+  {
+   "alternative": "Raise a custom exception for a deleted CWD",
+   "evidence": "Adds a new exception type for a case that is semantically identical to no git directory found. The existing None-return contract already covers this. Unnecessary complexity."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "command-telemetry",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Deleted CWD returns no git directory",
+     "text": "_resolve_git_dir SHALL return None when Path.cwd() raises OSError because the working directory no longer exists.",
+     "scenarios": [
+      {
+       "name": "CWD deleted before call",
+       "when": "Path.cwd() raises FileNotFoundError because the process working directory was removed",
+       "then": "_resolve_git_dir returns None and no exception propagates to the caller"
+      }
+     ]
+    },
+    {
+     "name": "Command completes without traceback from deleted CWD",
+     "text": "A devops command run from a deleted working directory SHALL complete without an unhandled FileNotFoundError traceback from the telemetry setup.",
+     "scenarios": [
+      {
+       "name": "gh api from deleted directory",
+       "when": "a devops gh api command runs after its working directory has been deleted",
+       "then": "the command exits with a clean result or a single error line, not a traceback"
+      }
+     ]
+    },
+    {
+     "name": "Normal resolution unaffected",
+     "text": "_resolve_git_dir SHALL return the correct git directory when the working directory exists and contains a .git entry.",
+     "scenarios": [
+      {
+       "name": "CWD inside a git repository",
+       "when": "the process working directory exists and is inside a git repository",
+       "then": "_resolve_git_dir returns the path to the .git directory"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Guard Path.cwd in _resolve_git_dir",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/telemetry/tracer.py",
+    "tests/test_tracer.py"
+   ],
+   "creates": [],
+   "test": "Write a test that patches Path.cwd to raise FileNotFoundError, calls _resolve_git_dir(), and asserts it returns None with no exception. Write a second test that calls _resolve_git_dir with a valid start_dir containing a .git directory and asserts it returns that path",
+   "implementation": "In _resolve_git_dir, replace current = (start_dir or Path.cwd()).resolve() with a try/except OSError block. When start_dir is None, attempt Path.cwd() inside the try block. On OSError, return None. When start_dir is provided, use it directly. The existing directory traversal logic remains unchanged",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_tracer.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

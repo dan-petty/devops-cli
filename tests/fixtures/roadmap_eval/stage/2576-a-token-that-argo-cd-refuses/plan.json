@@ -1,0 +1,174 @@
+{
+ "summary": "retry argo cd token on 401",
+ "pull_request_body": "This change adds a shared helper in argo/credentials.py that wraps Argo CD API calls. On HTTP 401, it mints a new token with the stored admin password, stores it, and retries the request once. When no password is stored, or the retry also fails, it raises ArgoError with a message naming argocd.token. Other HTTP errors raise ArgoError with the status code. The commands cd_apps_list, cd_apps_sync, and cd_apps_status use this helper instead of raw raise_for_status, so every Argo CD API error is a DevOpsCLIError that the exit seam reports as one line.",
+ "why": "#2576: When Argo CD rejects the stored token with HTTP 401, every Argo CD API command ends in a Python traceback. The httpx2.HTTPStatusError is not a DevOpsCLIError, so the exit seam does not report it. The token path never replaces a stored token that the server refuses. The user must delete the keyring entry by hand.",
+ "what_changes": [
+  "Add argocd_api_request helper in src/devops_cli/argo/credentials.py that handles 401 retry with token minting and raises ArgoError on failure",
+  "Update cd_apps_sync in src/devops_cli/commands/argo.py to use the helper instead of raw raise_for_status",
+  "Update cd_apps_list and cd_apps_status in src/devops_cli/commands/argo.py to use the helper instead of raw raise_for_status"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed: src/devops_cli/commands/argo.py cd_apps_sync calls resp.raise_for_status() which raises httpx2.HTTPStatusError, not a DevOpsCLIError, so the exit seam of new_typer() does not report it.",
+  "src/devops_cli/argo/credentials.py resolve_argocd_server_and_token takes the stored argocd.token first. src/devops_cli/k8s/credentials.py get_or_mint_argocd_token mints only when no token is stored, so a rejected stored token is never replaced.",
+  "mint_argocd_token in src/devops_cli/k8s/credentials.py already calls POST /api/v1/session and stores the token. ArgoError in src/devops_cli/exceptions/argo.py is a DevOpsCLIError subclass.",
+  "First checks: uv run devops ci test tests/test_argo_credentials.py verifies the helper handles 401 retry, 401 without password, retry 401, and other HTTP errors. uv run devops ci test tests/test_argo_commands.py verifies the commands use the helper and raise ArgoError."
+ ],
+ "existing_tool": "mint_argocd_token in src/devops_cli/k8s/credentials.py already calls the Argo CD session API (POST /api/v1/session) and stores the token. The fix reuses this function. ArgoError in src/devops_cli/exceptions/argo.py already exists as a DevOpsCLIError subclass. Nothing new is built.",
+ "decisions": [
+  {
+   "decision": "Shared helper in argo/credentials.py for the 401 retry logic",
+   "reason": "One place for the retry logic, beside the existing token functions. Avoids duplicating the mint-and-retry across four or more commands."
+  },
+  {
+   "decision": "Raise ArgoError for all Argo CD API HTTP errors",
+   "reason": "ArgoError is a DevOpsCLIError subclass, so the exit seam of new_typer() reports it as one error line with no traceback."
+  },
+  {
+   "decision": "Error message names argocd.token and the credential sync command",
+   "reason": "Tells the user exactly which keyring entry to fix and which command to run."
+  },
+  {
+   "decision": "Helper lives in argo/credentials.py",
+   "reason": "Already holds Argo CD credential and token resolution logic. The helper belongs with the code it calls."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Per-command try/except in commands/argo.py",
+   "evidence": "Duplicates the mint-and-retry logic in every command that calls the Argo CD API."
+  },
+  {
+   "alternative": "Pre-verify the token in resolve_argocd_server_and_token",
+   "evidence": "Adds an extra HTTP call to every command. The issue specifies a reactive retry on 401, not a proactive check."
+  },
+  {
+   "alternative": "typer.Exit(1) for HTTP errors",
+   "evidence": "Bypasses the exit seam. The user sees no structured error message."
+  },
+  {
+   "alternative": "A new exception class for Argo CD API errors",
+   "evidence": "ArgoError already exists in src/devops_cli/exceptions/argo.py and is a DevOpsCLIError subclass."
+  },
+  {
+   "alternative": "A generic authentication-failed message",
+   "evidence": "Does not tell the user how to fix the problem."
+  },
+  {
+   "alternative": "Helper in commands/argo.py",
+   "evidence": "Mixes command logic with credential logic. The commands should call the helper, not define it."
+  },
+  {
+   "alternative": "A new module for the helper",
+   "evidence": "Unnecessary for one function. Adds a file with no other content."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "stack-credential-sync",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Retry on 401 with stored password",
+     "text": "When the Argo CD API returns HTTP 401 and an admin password is stored, the command SHALL mint a new token, store it in the keyring, and retry the request once.",
+     "scenarios": [
+      {
+       "name": "401 with password stored",
+       "when": "the Argo CD API returns HTTP 401 and argocd.password is stored in the keyring",
+       "then": "the command mints a new token via POST /api/v1/session, stores it as argocd_token, and sends the original request again"
+      }
+     ]
+    },
+    {
+     "name": "Error on 401 without password",
+     "text": "When the Argo CD API returns HTTP 401 and no admin password is stored, the command SHALL stop with one error line that names argocd.token and the credential sync command.",
+     "scenarios": [
+      {
+       "name": "401 without password",
+       "when": "the Argo CD API returns HTTP 401 and argocd.password is not stored",
+       "then": "the command exits with one error line naming argocd.token and the credential sync command, with no traceback"
+      }
+     ]
+    },
+    {
+     "name": "Error on retry 401",
+     "text": "When the retried request after minting a new token also returns HTTP 401, the command SHALL stop with one error line.",
+     "scenarios": [
+      {
+       "name": "retry also returns 401",
+       "when": "the command mints a new token and retries, and the Argo CD API returns HTTP 401 again",
+       "then": "the command exits with one error line, with no traceback"
+      }
+     ]
+    },
+    {
+     "name": "Error on other HTTP status",
+     "text": "When the Argo CD API returns any HTTP status other than 401, the command SHALL stop with one error line containing the status code.",
+     "scenarios": [
+      {
+       "name": "HTTP 500 response",
+       "when": "the Argo CD API returns HTTP 500",
+       "then": "the command exits with one error line containing the text '500', with no traceback"
+      }
+     ]
+    },
+    {
+     "name": "Argo CD API errors are DevOpsCLIError",
+     "text": "Every Argo CD API error SHALL be raised as a DevOpsCLIError subclass so the exit seam reports it.",
+     "scenarios": [
+      {
+       "name": "error type check",
+       "when": "the Argo CD API returns an error status",
+       "then": "the raised exception is an instance of DevOpsCLIError"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add argocd_api_request helper",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/argo/credentials.py"
+   ],
+   "creates": [],
+   "test": "Write a test that mocks the HTTP client to return 401, then verifies argocd_api_request mints a new token via mint_argocd_token, stores it, and retries the request. Write a test for 401 without password that verifies ArgoError is raised with a message naming argocd.token. Write a test for retry 401 that verifies ArgoError is raised. Write a test for HTTP 500 that verifies ArgoError is raised with the status code in the message",
+   "implementation": "Add argocd_api_request to src/devops_cli/argo/credentials.py. It takes the client, method, url, headers, json body, timeout, and settings. It makes the request. On 401 with a stored password, it calls mint_argocd_token, updates the Authorization header, and retries once. On 401 without a password, it raises ArgoError naming argocd.token and devops k8s credentials sync. On retry 401, it raises ArgoError. On any other non-2xx status, it raises ArgoError with the status code. On success, it returns the response",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_argo_credentials.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Update cd_apps_sync to use the helper",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/argo.py"
+   ],
+   "creates": [],
+   "test": "Write a test that mocks the Argo CD API to return 401, then verifies cd_apps_sync retries with a new token and succeeds. Write a test that verifies cd_apps_sync raises ArgoError on 401 without password, with no traceback",
+   "implementation": "In cd_apps_sync, replace the client.post and resp.raise_for_status pattern with a call to argocd_api_request. Pass the settings so the helper can mint a token on 401. Remove the direct raise_for_status call",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_argo_commands.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Update cd_apps_list and cd_apps_status to use the helper",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/argo.py"
+   ],
+   "creates": [],
+   "test": "Write a test that mocks the Argo CD API to return 401, then verifies cd_apps_list retries with a new token. Write a test that verifies cd_apps_status raises ArgoError on 401 without password, with no traceback",
+   "implementation": "In cd_apps_list and cd_apps_status, replace the client.get and resp.raise_for_status pattern with a call to argocd_api_request. Pass the settings so the helper can mint a token on 401. Remove the direct raise_for_status call",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_argo_commands.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

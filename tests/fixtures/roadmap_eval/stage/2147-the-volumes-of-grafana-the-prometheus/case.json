@@ -1,0 +1,83 @@
+{
+ "issue": 2147,
+ "pull": 2857,
+ "title": "fix(k8s): the volumes of grafana, the prometheus server and loki move off the control-plane node, and their placement exemptions go",
+ "change": "2147-the-volumes-of-grafana-the-prometheus",
+ "merge_commit": "ecbdcfc0abe8e0d5fed3624a433b68dd45d1075d",
+ "base_commit": "e491215868ad8db7d01fb170008afa4e3bb3b344",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 2,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "PR #2857 is merged. Its plan for #2147 names wrong paths and a constant that does not exist. Its task order breaks the placement test. It leaves out the volume move, which is the main acceptance criterion. An implementer would fail at the first group. The plan needs a rewrite before anyone builds it. The PR itself is fine: the title is a Conventional Commit without \"!\", the body says \"Plans #2147\", and all checks passed.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md, tasks.md, design.md, specs/local-path-volume-placement/spec.md",
+   "problem": "The plan edits CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS in src/devops_cli/config/constants.py. This constant does not exist. The only exemption list is _CONTROL_PLANE_CLAIM_EXEMPTIONS in the test file. Task 2.2, the second spec scenario, the 'Keep the constant as an empty list' decision and the Impact line for constants.py all describe a change that cannot be made. The reason the design gives, that other code may import the constant, is invented. The issue text has the same wrong name, so the plan copied it and did not check it (AGENTS.md rule 2).",
+   "evidence": "grep -rn CLAIM_EXEMPTIONS in the repo finds only _CONTROL_PLANE_CLAIM_EXEMPTIONS in tests/core/test_k8s_local_path_placement.py (lines 14, 32, 274, 288, 303). grep -n 'CONTROL_PLANE' src/devops_cli/config/constants.py finds only CONST_K8S_CONTROL_PLANE_LABEL (line 3465).",
+   "gate": "pending"
+  },
+  {
+   "type": "missing_path",
+   "severity": "blocker",
+   "where": "proposal.md, tasks.md",
+   "problem": "Every file path in the plan is wrong. The values files are under k8s/, and the test is under tests/core/. The stage comment on the issue warned that these paths do not exist, and a person was asked to check them. The merged plan still has them. The Reads/Changes lines and the verify command (uv run devops ci test tests/test_k8s_local_path_placement.py) point at a missing file.",
+   "evidence": "ls tests/test_k8s_local_path_placement.py: No such file or directory. git ls-files shows k8s/monitoring/grafana-values.yaml, k8s/monitoring/prometheus-values.yaml, k8s/logging/loki-values.yaml. The test is tests/core/test_k8s_local_path_placement.py. The stage bot comment said: 'These paths of the plan are no file on the default branch... A person checks that the plan names them right.'",
+   "gate": "paths",
+   "paths": [
+    "monitoring/grafana-values.yaml",
+    "monitoring/prometheus-values.yaml",
+    "logging/loki-values.yaml",
+    "tests/test_k8s_local_path_placement.py"
+   ]
+  },
+  {
+   "type": "task_order",
+   "severity": "blocker",
+   "where": "tasks.md, design.md",
+   "problem": "The task order breaks the test, and the design claims the opposite. Group 1 adds the affinity while the three exemptions stay. test_every_exemption_names_a_pod_on_a_claim_that_stays_on_any_node fails for an exempt pod that already has the affinity. So the check in task 1.2 ('verify ... passes') cannot pass. The design reason 'adding affinity first keeps the test green at every step' is false. The affinity and the exemption removal must go in the same step.",
+   "evidence": "tests/core/test_k8s_local_path_placement.py lines 292-304: the test asserts that no exemption 'keeps_off_the_control_plane(pods[exempt])'. The docstring says: 'A stale entry, for a pod that has gone or that has the affinity, would hide a later change.'",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The failing-test-first tasks do not work. Task 1.1 says to add an assertion that reads the values files. This copies a check that the existing tests already do through CHART_CLAIMS. Task 2.1 says the test 'passes' and also 'verify ... fails on the base'. The two statements contradict each other. No task has a real red step. The real red step is to remove the three exemptions. The test then fails at once, because the three values files have no affinity. Then add the affinity to turn the test green.",
+   "evidence": "tasks.md 2.1: 'it now checks the affinity ... and passes because the previous group added it, and verify that ... fails on the base'. grep -n affinity on k8s/monitoring/grafana-values.yaml and k8s/logging/loki-values.yaml finds nothing. In k8s/monitoring/prometheus-values.yaml the only affinity (line 57) is under alertmanager, not server.",
+   "gate": "kind"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "proposal.md, PR body",
+   "problem": "The plan does not deliver acceptance criterion 1 of the issue: the volumes are on worker nodes with reclaim policy Retain. It leaves this as an 'operational step' with no task, no gate and no check. The README says a pod with the affinity cannot start while its volume is still on the control-plane node. Argo CD tracks main with selfHeal, so a merge before the move leaves Grafana, Prometheus and Loki Pending. The plan has no step that checks the volumes are moved before the change merges. It has no Feasibility evidence of the cluster state either.",
+   "evidence": "k8s/README.md line 337: 'with the affinity their pods cannot start. Move each volume as below, then remove its exemption and add the affinity to its values in one pull request.' The proposal Feasibility lists only 'read file' checks. The PR body says the move is done 'before this code change is deployed'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The docs tasks 1.3 and 2.3 are vague and wrong ('Change no document, run devops docs generate --sync-readme'). k8s/README.md line 337 names the three exemptions and says they are in _CONTROL_PLANE_CLAIM_EXEMPTIONS. It becomes false after the change (AGENTS.md rule 8) and needs an edit. The plan has no task for it. The README also gives the wrong test path. The stage job first listed a README task, and it was dropped. The tasks.md also has a 'Workflow follow-up' section about tuicr, which is not a task group.",
+   "evidence": "k8s/README.md line 337 names Grafana, Prometheus server and Loki as exempt. tasks.md ends with '## Workflow follow-up - Pending a person: review the diff in tuicr'.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section says the test 'currently passes' and lists 'checks to run' without a recorded result. It holds no command output as evidence. It claims 'The three values files and the constants file are named in the issue and the README', but neither names the paths in the form the plan uses. The Modified Capabilities entry uses 'ADDED Requirements' in a spec for a capability that is not shown to exist in openspec/specs.",
+   "evidence": "proposal.md Feasibility lists 'First check / Second check / Third check' as future reads. The third check (read constants.py for the three entries) would have found the constant missing.",
+   "gate": "pending"
+  }
+ ]
+}

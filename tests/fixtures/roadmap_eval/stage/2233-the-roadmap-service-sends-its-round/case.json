@@ -1,0 +1,97 @@
+{
+ "issue": 2233,
+ "pull": 2984,
+ "title": "feat(telemetry): the roadmap Service sends its round pause and its GraphQL points left as gauges",
+ "change": "2233-the-roadmap-service-sends-its-round",
+ "merge_commit": "cbd1cf3ae005610aab70a91fc279df722323692e",
+ "base_commit": "1969ab06e1adbff97476e21776f2eb1acfb5c78d",
+ "verdict": "reject",
+ "scores": {
+  "premise_ok": 1,
+  "fidelity": 2,
+  "task_quality": 2,
+  "rule_compliance": 2,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "PR #2984 is merged. The plan for #2233 rests on a premise that main does not support. The plan says the Service logs its pause end time and its GraphQL points left at points in src/devops_cli/roadmap/run.py. Main has no such points: roadmap/run.py has no match for pause, remaining or graphql. The code that made them (service_pause_until, log_round_spend, the board GraphQL budget read) was deleted by #2399. An archived change for #814 already recorded that these two gauges were \"Not built\" for this exact reason, and the plan cites that archive as support. AGENTS.md rule 2 says to return the item with evidence and write no compensating code. Both test paths in the plan are also wrong, and Reads lines say \"none\" in every group. Do not implement from this plan. Issue #2233 is still open (status/planned); it needs a return or re-scope.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md",
+   "problem": "The Feasibility section confirms the premise from the #814 archive. That archive says the opposite: it did NOT build these gauges, because #2399 moved the roadmap to labels and the Service no longer does a per-round GraphQL budget read. Its pause value (service_pause_until) was also deleted. The plan quotes the archive for the pause value but leaves out its conclusion. No proof exists that a per-round closing GraphQL budget read still happens in the Service.",
+   "evidence": "openspec/changes/archive/2026-10-28-814-github-request-metrics/tasks.md: 'Not built: the gauge devops_cli_service_paused_until_seconds. The Service does not run (#1562), and #1647 and #2399 change why it pauses.' Its proposal.md: 'The gauge of the GraphQL points left and the spend by repository of each Service round ... #2399 moves the roadmap state to labels and milestones, and no roadmap job reads or writes the board after it.' The 2399 archive proposal lists as deleted: 'the GraphQL budget probe and spend line of the store, log_round_spend, service_pause_until'. git grep -n 'service_pause_until' origin/main -- src tests returns nothing.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "tasks.md",
+   "problem": "Group 2 asks for emit() calls 'where the Service logs the round pause end time' and 'where the Service logs the GraphQL budget' in src/devops_cli/roadmap/run.py. run.py has neither point. The only pause log is MESSAGES.serve.rounds_paused in RoundPause.after in src/devops_cli/server/service.py (a different file and class, which holds the pause time as a datetime in self._until). No code logs GraphQL points left after a round. The variables paused_until and remaining_points do not exist. An implementer would have to invent a new GraphQL read per round, which is new code and not what the issue asked for, or would stop.",
+   "evidence": "git show origin/main:src/devops_cli/roadmap/run.py | grep -n -i 'pause\\|remaining\\|graphql' returns no match. git grep -n 'rounds_paused' origin/main -- src finds the log in server/service.py:383 (RoundPause.after). The remaining GraphQL budget readers (project_read.graphql_budget_args, owner_lookup.py:42 on failure, projects.py:846 for the board probe) are not part of any Service round.",
+   "gate": "pending"
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Both test paths in the plan are wrong. Groups 1 and 3 and the Feasibility section name tests/test_telemetry_instruments.py; Group 2 and Feasibility name tests/test_roadmap_run.py. Neither file exists, so the verify commands cannot run as written.",
+   "evidence": "ls tests/test_telemetry_instruments.py tests/test_roadmap_run.py on origin/main: both missing. The real files are tests/telemetry/test_telemetry_instruments.py and tests/roadmap/test_roadmap_run.py (git ls-tree origin/main). The same stale path 'tests/test_telemetry_instruments.py' appears in docs/TELEMETRY.md line 46, which the plan copies.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_telemetry_instruments.py",
+    "tests/test_roadmap_run.py"
+   ]
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Every group says 'Reads: none'. Each group needs reads: Group 1 needs instruments.py and the instruments test; Group 2 needs server/service.py (RoundPause) or the real place, and the run tests; Group 3 needs docs/TELEMETRY.md. The stage job computed token sizes of about 2.7k per group from this empty list, so the 40000-token check says nothing.",
+   "evidence": "tasks.md lines: 'Reads: none. Changes: ...' in all three groups. The stage comment lists each group at 2720-2755 tokens.",
+   "gate": "none"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 3.1 asks to verify a 'no code test' by showing that uv run devops ci test tests/test_telemetry_instruments.py fails on the base. No test is written that checks the TELEMETRY.md table, so that run cannot fail for the reason given. The failing-first rule is not met for the doc group. The proposal also leaves the existing TELEMETRY.md text unfixed: line 38 says 'The roadmap Service sends none' (gauges), which the change makes false. AGENTS.md rule 8 requires fixing that sentence in the same PR.",
+   "evidence": "tasks.md 3.1: 'No code test; ... and verify that `uv run devops ci test tests/test_telemetry_instruments.py` fails on the base'. docs/TELEMETRY.md:38-39: 'The roadmap Service sends none, because its token cannot read traffic.'",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Tasks 1.3 and 2.3 start with 'Change no document, run ... docs generate --sync-readme', which is self-contradictory text. Task 3.3 starts with a bare path. These are template residue, not instructions.",
+   "evidence": "tasks.md: '1.3 Change no document, run `uv run devops docs generate --sync-readme`'; '3.3 docs/TELEMETRY.md, run `uv run devops docs generate --sync-readme`'.",
+   "gate": "none"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "design.md",
+   "problem": "The design says 'Use the existing emit() ... path' and that the Service context provides attributes. The Service's own metrics (queue depth, job suspended, budget limit and spent) go through GLOBAL_METRICS.set_gauge on the Service /metrics, and service.py/run.py use no emit(). The plan does not weigh these two paths, and the repository has a check against one gauge name on two paths (test_no_gauge_reaches_prometheus_through_two_paths). The rejected-alternatives list names no evidence for the choice.",
+   "evidence": "git grep -n 'emit(' origin/main -- src/devops_cli/server/service.py src/devops_cli/roadmap/run.py returns nothing; run.py:998 uses GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, ...); tests/telemetry/test_telemetry_instruments.py:253 test_no_gauge_reaches_prometheus_through_two_paths.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "PR-level",
+   "problem": "The plan merged and the issue stays open with status/planned, so the pipeline will treat it as implementable. The state needs a return per rule 2 ('devops roadmap return ... --comment evidence'). The PR itself is fine: the title is a Conventional Commit with no '!', the body says 'Plans #2233', and all check runs passed. The spec delta targets the existing capability metric-instruments with ADDED requirements, which is valid.",
+   "evidence": "Issue #2233 state open, labels include status/planned, roadmap record stage.pr=2984. git log: cbd1cf3a docs(openspec): plan #2233 ... (#2984). Check runs: all success or skipped. openspec/specs/metric-instruments/spec.md exists on main.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 3",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'List the two gauges in TELEMETRY.md' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

@@ -1,0 +1,85 @@
+{
+ "issue": 2166,
+ "pull": 2981,
+ "title": "refactor(security): the unused run_subprocess re-import in security/ruff.py and the private _prepare_cmd alias go, and a ci row fails on a new noqa F401 re-import in src",
+ "change": "2166-the-unused-run-subprocess-re-import",
+ "merge_commit": "739854ee402a3a2b8f96782fcefe9f790ee16486",
+ "base_commit": "2bb15d5239501ecb0c5934685684c484b82c193a",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 1,
+  "fidelity": 2,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "PR #2981 is merged. It plans issue #2166. The issue is still open and has the label status/blocked. The plan copies the issue premise and checks none of it. Part of that premise was already false when the plan was made. Commit a1950694 (#2827, closes #1332, merged 2026-10-30) removed the run_subprocess re-import in security/ruff.py and all 14 other `noqa: F401` re-imports. Two days later the plan still tells the implementer to remove line 23 of ruff.py and to set the ceiling at 14. On main, `ruff check --select F401 --ignore-noqa src` reports 0 findings. Only the `_prepare_cmd` alias is still real (8 references on main). The implement job (issue comment) stopped at group 1. The plan also tells the implementer to write pytest tests that run ruff and rg, and docs/TESTING.md forbids such tests. The proposal's title, Feasibility section and delta spec need a rewrite before another implement attempt. The PR itself is fine: Conventional Commit title with no \"!\", body says \"Plans #2166\", no closing keyword, all 20 check runs green or skipped.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md",
+   "problem": "The premise is stale. The plan says ruff.py has a `run_subprocess` re-import to remove and says 15 F401 findings exist. This was no longer true when the plan was written. #1332 (PR #2827, merged 2026-10-30) removed all 15 sites. Task group 1 therefore removes nothing. Its text (\"line 23\") makes an implementer remove a different, used import. The issue comment of the implement job says the agent \"incorrectly removed one that was actually used\" and stopped at group 1.",
+   "evidence": "git log origin/main --grep 1332 shows a1950694 'test(security): migrate security and crypto tests to edge fakes (#1332) (#2827)' dated 2026-10-30, an ancestor of the plan commit 739854ee (2026-11-01). `git show 82703bfb^:src/devops_cli/security/ruff.py | grep -n 'run_subprocess\\|noqa'` prints nothing. `git grep 'noqa: F401' origin/main -- src` prints nothing. `uv run ruff check --select F401 --ignore-noqa src` prints 'All checks passed!'.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The Feasibility section holds no evidence from a real run. Each bullet says 'confirmed by the issue body', 'stated to report 15 findings' or 'the context shows'. The last bullet lists commands to run later. AGENTS.md rule 2 and openspec/config.yaml require command output. A real run of the ruff command would have shown 0 findings, not 15.",
+   "evidence": "proposal.md Feasibility: 'The command ... is stated to report 15 findings at b170358e' and 'First checks the implementation runs: rg -n ... uv run ruff check ... to confirm the count is 15 before removal.' The count on main is 0.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The ceiling of 14 is wrong. The 14 sites that #1332 owned are gone, so the ceiling should be 0. A count-and-compare ceiling needs home-grown parsing and message code in ci.py. A plain `ruff check --select F401 --ignore-noqa src` row, which fails on any finding, covers the need with no counting. The plan hides extra code the issue does not need now.",
+   "evidence": "design.md 'Set the ceiling at 14'. tasks.md 3.2 'counts the findings, and fails with a message naming the new sites when the count exceeds 14'. Issue #1332 state: closed. Ruff reports 0 findings on main. The issue itself says the ceiling 'goes to zero with #1332'.",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Tasks 1.1 and 2.1 ask for pytest tests that run `uv run ruff check` or `rg -n '_prepare_cmd'`. docs/TESTING.md says a check of committed files is a row of `devops ci`, not a pytest test. Tests start no real programs. The plan's own design.md quotes this rule to reject a pytest invariant, then the tasks break it. Task 3.1 also writes a temporary file into src/ from a test. The failed implement attempt left files named test_ruff_unused_import.py and tmp_test_ruff_import.py, and mypy --strict failed on them.",
+   "evidence": "docs/TESTING.md line 65: 'A check of committed files or of tool configuration is a row of `devops ci`, not a pytest test.' tasks.md 1.1: 'Write a test that runs uv run ruff check --select F401 ...'. 2.1: 'Write a test that asserts rg -n ... prints nothing'. Issue comment: 'uv run mypy --strict -- test_ruff_unused_import.py tmp_test_ruff_import.py exited with status 1.'",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The failing-test-first step for the alias removal has no usable test. A better first step is a test that uses the public name `prepare_tool_cmd` in the fake, which fails to import until the fake changes. Or the F401 ci row can be the check. Task 2.2 lists only the lines of test_process.py and gives no lines for tests/support/fakes/process.py. It names one import, but the file uses `_prepare_cmd` at lines 23, 272 and 361.",
+   "evidence": "git grep -n _prepare_cmd origin/main -- src tests shows src/devops_cli/core/process.py:482, tests/core/test_process.py:583,585,592,598 and tests/support/fakes/process.py:23,272,361.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The documentation tasks 1.3, 2.3 and 3.3 are self-contradictory: 'Change no document, run `devops docs generate --sync-readme`'. Group 3 adds a ci row but its Changes line names only src/devops_cli/commands/ci.py. It leaves out the tests that list the rows (tests/commands/test_ci.py reads get_check_specs) and the docs that list the check rows.",
+   "evidence": "tasks.md 1.3, 2.3, 3.3 and 'Changes: `src/devops_cli/commands/ci.py`'. git grep get_check_specs origin/main -- tests lists tests/commands/test_ci.py:486, 2474.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/ci-gate-admission/spec.md",
+   "problem": "The delta is added to the wrong capability. openspec/specs/ci-gate-admission describes gate slots for heavy checks. A lint row does not belong there. The scenario 'finding count becomes 15' and 'ceiling of 14' are also stale. The messages in Why and tasks 3.1 vs 3.2 do not match (the row 'names the new sites').",
+   "evidence": "openspec/specs/ci-gate-admission/spec.md Purpose: 'How `devops ci` limits the CPU-heavy gates that run at the same time on one host'. spec.md in the PR: 'ceiling of 14'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "Wording: What Changes says 'Remove the unused run_subprocess import' and the Why says the alias 'violate docs/TESTING.md'. Verb agreement is wrong, and the text states a fact that is false on main. Issue #2166 is still open with status/blocked, so the plan should be revised (or the issue narrowed to the alias and a zero-ceiling row) before another implement run.",
+   "evidence": "proposal.md Why: 'The unused run_subprocess re-import in security/ruff.py and the private _prepare_cmd alias in core/process.py violate docs/TESTING.md.' Issue labels: status/blocked.",
+   "gate": "none"
+  }
+ ]
+}

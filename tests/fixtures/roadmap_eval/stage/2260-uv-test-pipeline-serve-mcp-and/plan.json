@@ -1,0 +1,250 @@
+{
+ "summary": "add dry-run plans to 14 commands",
+ "pull_request_body": "This change adds dry-run request plans, local previews, and no-external-request classes to 14 commands: uv lock, uv python-install, uv run, uv sync, test load, test profile-memory, test run, test sandbox, mcp export-schemas, mcp serve, mcp tools, serve, pipeline, and ci fail-to-pass. Each request-plan command builds its PlannedRequest list from the same argument builder as the real run and prints it with render_request_plan. The local-preview command prints the change and writes nothing. The mark-only command runs normally under devops --dry-run. Echo-only previews are removed. All 14 paths are removed from tests/fixtures/dry_run_gaps.json and the ratchet test passes.",
+ "why": "Issue #2260 (part of #886) found 14 commands that do not obey the dry-run rule (#412). A dry run must make no external request and must return the requests the real run would make. These 14 commands either print a generic line, fail with No such option, or print an echo of arguments. None shows the requests.",
+ "what_changes": [
+  "Add --dry-run with a PlannedRequest list to 12 request-plan commands (uv lock, uv python-install, uv run, uv sync, test load, test profile-memory, test run, test sandbox, mcp serve, serve, pipeline, ci fail-to-pass).",
+  "Add --dry-run local preview to mcp export-schemas: print the change, write nothing.",
+  "Give mcp tools the no-external-request class so devops --dry-run runs it normally.",
+  "Remove echo-only previews (render_dry_run_result or @dry_run_command) from commands that gain a new dry run.",
+  "Remove all 14 paths from tests/fixtures/dry_run_gaps.json.",
+  "Write tests that verify no external request is made and the plan matches the real run's calls."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue cites devops_cli.dry_run.requests.PlannedRequest and render_request_plan (#741) as existing. The CHANGELOG shows 15+ prior deliveries of the same pattern (config, devcontainer, telemetry, vault, cloudflare, docker, scan, review, tf, argo, k8s, pr, gh, ai).",
+  "tests/fixtures/dry_run_gaps.json (shown in context) lists all 14 command paths, confirming they are tracked.",
+  "tests/conftest.py (shown in context) provides the network guard, process guard, and dry-run state reset that the new tests will use.",
+  "The issue evidence names specific source locations: commands.test_cmd:run_test_cmd:162, http.broker:HttpClientBroker.arequest:141, docker.engine:DockerEngineService.client:416. The implementation must verify each row against the code before changing it.",
+  "First checks the implementation runs: (1) uv run devops ci fail-to-pass --dry-run to confirm the current echo-only output; (2) uv run devops uv lock --dry-run to confirm the missing option; (3) uv run devops mcp tools --dry-run to confirm the generic line; (4) uv run pytest tests/test_roadmap_dry_runs.py to confirm the ratchet test currently passes with the 14 gaps present."
+ ],
+ "existing_tool": "The repository already provides devops_cli.dry_run.requests.PlannedRequest, render_request_plan, the dry-run class decorator, and the ratchet test (sub-issue 00). The test guards in tests/conftest.py and the plan-equality pattern in tests/test_roadmap_dry_runs.py cover the verification need. No new dependency is necessary.",
+ "decisions": [
+  {
+   "decision": "Pass-through commands (uv run, pipeline) list the delegated argv, stdin, env, condition, and repeat as their plan.",
+   "reason": "The proposed design in the issue confirms this. The plan uses the same argument builder as the real run, so it cannot drift. The CHANGELOG shows the same pattern for 15+ prior command groups."
+  },
+  {
+   "decision": "Server commands (serve, mcp serve) list the bind and start requests, not client calls.",
+   "reason": "A server makes requests only when a client calls it. The dry run lists what the server would bind and start. This matches the issue's note."
+  },
+  {
+   "decision": "mcp tools gets the no-external-request class rather than a request plan.",
+   "reason": "The issue table marks it as mark-only: it makes no external request and needs only the no-external-request class."
+  },
+  {
+   "decision": "mcp export-schemas gets a local preview rather than a request plan.",
+   "reason": "The issue table marks it as local preview: it changes local state, makes no external request, and has no --dry-run today."
+  },
+  {
+   "decision": "Echo-only previews are removed with no shim.",
+   "reason": "The issue states: Remove an echo-only preview when the command gets its new dry run, with no shim."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Keep echo-only previews alongside the new request plans.",
+   "evidence": "The issue states: Remove an echo-only preview when the command gets its new dry run, with no shim. The CHANGELOG shows prior deliveries removed echo-only previews in the same step."
+  },
+  {
+   "alternative": "Give pass-through commands a different design than a request plan.",
+   "evidence": "The proposed design in the issue answers: Yes. It lists the delegated argv, stdin, env, condition and repeat. It uses the same argument builder as the real run. Sources: CHANGELOG.md:1390, tests/test_roadmap_dry_runs.py."
+  },
+  {
+   "alternative": "Split the 14 commands into separate issues.",
+   "evidence": "The issue states: These groups each have fewer than 5 commands that need work, so they join here. The proposed design confirms: Fits in one pull request."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "command-dry-run-class",
+   "purpose": null,
+   "added": [
+    {
+     "name": "request-plan-commands-list-planned-requests",
+     "text": "A command with the request-plan class SHALL list its ordered PlannedRequest items under --dry-run and make no external request.",
+     "scenarios": [
+      {
+       "name": "dry-run prints plan",
+       "when": "a user runs devops <command> --dry-run or devops --dry-run <command> for a request-plan command",
+       "then": "the output contains the ordered PlannedRequest items with argv, stdin, env placeholders, condition, and repeat, and no external request is made"
+      },
+      {
+       "name": "plan matches real run",
+       "when": "a test runs the real command against a fake runner or client that records each call",
+       "then": "the recorded calls match the PlannedRequest list in order and content"
+      }
+     ]
+    },
+    {
+     "name": "local-preview-commands-print-change",
+     "text": "A command with the no-external-request class that changes local state SHALL print the change and write nothing under --dry-run.",
+     "scenarios": [
+      {
+       "name": "preview prints and writes nothing",
+       "when": "a user runs devops mcp export-schemas --dry-run with the writer patched to fail",
+       "then": "the output prints the change and no file is written"
+      }
+     ]
+    },
+    {
+     "name": "mark-only-commands-run-normally",
+     "text": "A command with the no-external-request class that makes no external request SHALL run normally under devops --dry-run.",
+     "scenarios": [
+      {
+       "name": "mark-only runs under dry-run",
+       "when": "a user runs devops --dry-run mcp tools with the process runner and HTTP clients patched to fail",
+       "then": "the command runs normally and returns its result"
+      }
+     ]
+    },
+    {
+     "name": "plan-built-from-same-builder",
+     "text": "The PlannedRequest list of a request-plan command SHALL be built from the same argument builder that the real run uses.",
+     "scenarios": [
+      {
+       "name": "no drift between plan and run",
+       "when": "a test compares the PlannedRequest list with the calls recorded by a fake runner",
+       "then": "the argv, stdin, env, condition, and repeat of each PlannedRequest match the recorded calls exactly"
+      }
+     ]
+    },
+    {
+     "name": "echo-only-previews-removed",
+     "text": "A command that gains a request-plan or local-preview dry run SHALL have its echo-only preview removed.",
+     "scenarios": [
+      {
+       "name": "no echo-only preview remains",
+       "when": "the source of a command that gained a request-plan dry run is inspected",
+       "then": "no render_dry_run_result call or @dry_run_command decorator remains for that command"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "uv lock and uv sync dry-run request plans",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/uv_cmd.py",
+    "tests/test_dry_run_uv.py"
+   ],
+   "creates": [],
+   "test": "Write a failing test in tests/test_dry_run_uv.py that calls devops uv lock --dry-run and devops uv sync --dry-run with the process runner and HTTP clients patched to fail. Assert the output contains the PlannedRequest list with argv, stdin, env placeholders, condition, and repeat. Assert no external request was made. Assert the plan matches the calls recorded by a fake runner",
+   "implementation": "In src/devops_cli/commands/uv_cmd.py, add --dry-run to the uv lock and uv sync commands. Build the PlannedRequest list from the same argument builder the real run uses. Print it with render_request_plan. Give both commands the request-plan class. Remove any echo-only preview (render_dry_run_result or @dry_run_command) if present",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_dry_run_uv.py -v",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "uv python-install and uv run dry-run request plans",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/uv_cmd.py",
+    "tests/test_dry_run_uv.py"
+   ],
+   "creates": [],
+   "test": "Write a failing test in tests/test_dry_run_uv.py that calls devops uv python-install --dry-run and devops uv run --dry-run with the process runner and HTTP clients patched to fail. Assert the output contains the PlannedRequest list. For uv run, assert the plan lists the delegated argv, stdin, env, condition, and repeat. Assert no external request was made",
+   "implementation": "In src/devops_cli/commands/uv_cmd.py, add --dry-run to the uv python-install and uv run commands. Build the PlannedRequest list from the same argument builder the real run uses. For uv run, the plan lists the delegated command's argv, stdin, env with placeholders, condition, and repeat. Print with render_request_plan. Give both commands the request-plan class",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_dry_run_uv.py -v",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "test load and test profile-memory dry-run request plans",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/test_cmd.py",
+    "tests/test_dry_run_test_cmd.py"
+   ],
+   "creates": [],
+   "test": "Write a failing test in tests/test_dry_run_test_cmd.py that calls devops test load --dry-run and devops test profile-memory --dry-run with the process runner and HTTP clients patched to fail. Assert the output contains the PlannedRequest list with the k6 or HTTP request argv. Assert no external request was made. Assert the plan matches the calls recorded by a fake client",
+   "implementation": "In src/devops_cli/commands/test_cmd.py, replace the echo-only --dry-run of test load and test profile-memory with a request-plan dry run. Build the PlannedRequest list from the same argument builder the real run uses. Print with render_request_plan. Give both commands the request-plan class. Remove the echo-only preview",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_dry_run_test_cmd.py -v",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "test run and test sandbox dry-run request plans",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/test_cmd.py",
+    "tests/test_dry_run_test_cmd.py"
+   ],
+   "creates": [],
+   "test": "Write a failing test in tests/test_dry_run_test_cmd.py that calls devops test run --dry-run and devops test sandbox --dry-run with the process runner and Docker client patched to fail. Assert the output contains the PlannedRequest list. Assert no external request was made. Assert the plan matches the calls recorded by a fake runner or Docker client",
+   "implementation": "In src/devops_cli/commands/test_cmd.py, replace the echo-only --dry-run of test run and test sandbox with a request-plan dry run. Build the PlannedRequest list from the same argument builder the real run uses. Print with render_request_plan. Give both commands the request-plan class. Remove the echo-only preview",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_dry_run_test_cmd.py -v",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "mcp export-schemas local preview and mcp tools mark-only",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/mcp_cmd.py",
+    "tests/test_dry_run_mcp.py"
+   ],
+   "creates": [],
+   "test": "Write a failing test in tests/test_dry_run_mcp.py. For mcp export-schemas: call devops mcp export-schemas --dry-run with the writer patched to fail. Assert the output prints the change and no file is written. For mcp tools: call devops --dry-run mcp tools with the process runner and HTTP clients patched to fail. Assert the command runs normally and returns its result",
+   "implementation": "In src/devops_cli/commands/mcp_cmd.py, add --dry-run to mcp export-schemas as a local preview: print the change, write nothing. Give it the no-external-request class. Give mcp tools the no-external-request class so devops --dry-run runs it normally",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_dry_run_mcp.py -v",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "mcp serve and serve dry-run request plans",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/mcp_cmd.py",
+    "src/devops_cli/commands/serve_cmd.py",
+    "tests/test_dry_run_serve.py"
+   ],
+   "creates": [],
+   "test": "Write a failing test in tests/test_dry_run_serve.py. For mcp serve: call devops mcp serve --dry-run with the process runner and HTTP clients patched to fail. Assert the output lists the bind and start requests. Assert no socket is opened. For serve: call devops serve --dry-run with the same guards. Assert the output lists the uvicorn bind and start requests. Assert no socket is opened",
+   "implementation": "In src/devops_cli/commands/mcp_cmd.py, add --dry-run to mcp serve. The plan lists what the server would bind and start. In src/devops_cli/commands/serve_cmd.py, add --dry-run to serve. The plan lists the uvicorn.run bind and start requests. Print both with render_request_plan. Give both commands the request-plan class",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_dry_run_serve.py -v",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "pipeline and ci fail-to-pass dry-run request plans",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/pipeline_cmd.py",
+    "src/devops_cli/commands/ci_cmd.py",
+    "tests/test_dry_run_pipeline_ci.py"
+   ],
+   "creates": [],
+   "test": "Write a failing test in tests/test_dry_run_pipeline_ci.py. For pipeline: call devops pipeline --dry-run with the process runner patched to fail. Assert the output lists the delegated stage argv, stdin, env, condition, and repeat. For ci fail-to-pass: call devops ci fail-to-pass --dry-run with the process runner and git patched to fail. Assert the output lists the git worktree and pytest requests. Assert no external request was made",
+   "implementation": "In src/devops_cli/commands/pipeline_cmd.py, replace the echo-only --dry-run with a request-plan dry run. Build the PlannedRequest list from the same argument builder the real run uses. In src/devops_cli/commands/ci_cmd.py, replace the echo-only --dry-run of ci fail-to-pass with a request-plan dry run. Build the PlannedRequest list from the same argument builder. Print both with render_request_plan. Give both commands the request-plan class. Remove the echo-only previews",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_dry_run_pipeline_ci.py -v",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Remove 14 paths from dry_run_gaps.json and verify ratchet test",
+   "reads": [],
+   "changes": [
+    "tests/fixtures/dry_run_gaps.json"
+   ],
+   "creates": [],
+   "test": "Write a failing test that asserts the 14 command paths are absent from tests/fixtures/dry_run_gaps.json. Run the existing ratchet test and confirm it passes with the 14 paths removed",
+   "implementation": "Remove the 14 paths from tests/fixtures/dry_run_gaps.json: ci fail-to-pass, mcp export-schemas, mcp serve, mcp tools, pipeline, serve, test load, test profile-memory, test run, test sandbox, uv lock, uv python-install, uv run, uv sync",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_roadmap_dry_runs.py -v",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

@@ -1,0 +1,112 @@
+{
+ "issue": 2946,
+ "pull": 2958,
+ "title": "fix(roadmap): the alternatives check must search before any verdict for items that can have an open alternative",
+ "change": "2946-the-alternatives-check-must-search-before",
+ "merge_commit": "44d59d6ee5d3197fd864a6467bf1698dfadaff21",
+ "base_commit": "7c5928332b31c332ec63917770cad8b056de9f1c",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "PR #2958 is merged (head 228a2c9e, merge commit 44d59d6e). Its checks are green, the title is a valid Conventional Commit, the body says \"Plans #2946\", and `openspec validate --strict` passes. The issue is open, not a tracker, and not superseded. The plan has real defects. Every test path is wrong. Every Reads line says \"none\". The plan has no mechanism for the \"one more turn\" retry. It never says how to detect the stack-trace skip class with no model call. It does not reconcile the new rule with the existing refusal of a not-applicable verdict after a search. Task 3.2 asks for work that already exists. It leaves the stale README step 14 and the model prompt unfixed. The Feasibility section only cites the issue's own claims. An implementer would hit several open decisions and would have to rediscover the files.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Every task names `tests/test_roadmap_alternatives.py`. That file does not exist. The real file is `tests/roadmap/test_roadmap_alternatives.py`. All 9 verify commands `uv run devops ci test tests/test_roadmap_alternatives.py` point at a missing path. A first run would fail for the wrong reason, not the red test the plan wants. The stage job's own comment on the issue warned: 'These paths of the plan are no file on the default branch, and no group creates them: tests/test_roadmap_alternatives.py'. The proposal Impact line repeats the wrong path.",
+   "evidence": "`ls tests | grep -i altern` prints nothing. `ls tests/roadmap` lists test_roadmap_alternatives.py (47923 bytes). Stage comment on #2946 quotes the missing path.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_roadmap_alternatives.py"
+   ]
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "All three groups say 'Reads: none'. The implementer must read `src/devops_cli/roadmap/alternatives.py` (866 lines, about 33 KB) and the 48 KB existing test file, and probably `refine_investigation.py` (`investigate`), `ai/common_tools.py` and `ai/tasks/roadmap_alternatives.md`. The staged token counts (about 4.4k per group) are wrong because of this. The real input is roughly 20k tokens or more. It likely still fits the 40k budget, but the plan hides the files and gives no starting point.",
+   "evidence": "`wc -c`: alternatives.py 33428, tests/roadmap/test_roadmap_alternatives.py 47923, roadmap_alternatives.md 2312. Stage comment lists 4477/4466/4411 tokens.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 2.2 says 'In the model reply handler ... give the model one additional turn'. No such handler exists, and nothing retries today. `_check_one` calls `investigate()` once. A refused reply (`_refusal` via `validate_reply`) becomes a `CheckFailure` at once. `investigate` (shared with refine) builds a pydantic-ai Agent with no output validator for this. The plan does not say where to add the retry: a pydantic-ai output validator or ModelRetry, a second `investigate` call, or a change to the shared `investigate`. This is the core of the issue and the plan leaves the design open. The issue's claim that a not-applicable-after-a-tool reply 'is rejected today' with a retry turn is not what the code does.",
+   "evidence": "alternatives.py `_check_one` lines 677-706: one `investigate(...)` call, then `validate_reply`; `_refusal` returns a reason string that becomes `CheckFailure(item, refusal)`. refine_investigation.py `investigate` lines 231-272 has no search-before-verdict hook.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The plan does not reconcile the new rule with the current refusal. `_refusal` rejects `not-applicable` when any query or fact read ran. The new rule requires a search before any verdict for non-skip items. So a non-skip item can never receive `not-applicable` (no search is rejected by the new rule, a search is rejected by the old one). That may be intended, but the plan does not say so, does not say whether `_refusal` changes, and the prompt tells the model 'For not-applicable, make no search'. The implementer must guess.",
+   "evidence": "alternatives.py `_refusal` lines 517-530: `if reply.verdict is Verdict.NOT_APPLICABLE and (tools.queries or tools.fact_reads): return ...`. src/devops_cli/ai/tasks/roadmap_alternatives.md: '`not-applicable` when the issue asks for no tool or library ... For `not-applicable`, make no search.'",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.2 asks for `classify_skip_class(item)` but never says how to detect the classes. The Conventional Commit type must come from the title prefix, and the plan does not say so (an Item has `title`, `labels`, `body` and no type field). The class 'fix of an internal defect with a stack trace and no new capability' has no deterministic definition. 'No new capability' cannot be tested without a model call, and no model call is allowed for skip classes. The plan does not say what text marks a stack trace, how to treat a `fix` without a trace, or what the class name strings are. The table test row 'fix-with-stack-trace' has no defined input. The issue is vague here, and the plan copies the vagueness instead of choosing a rule or returning the item.",
+   "evidence": "store.py `class Item` fields: number, title, url, body, state, labels, milestone, author_association, sub_issues, updated_at, status ... No type field. tasks.md 1.1-1.2 and spec.md 'a fix of an internal defect with a stack trace and no new capability'. Grep for 'Traceback' or 'stack trace' in src/devops_cli/roadmap/*.py finds no existing helper.",
+   "gate": "none"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 3.2 says 'Ensure the search path in the alternatives check increments the Firecrawl counter'. It already does: `firecrawl_search` emits `FIRECRAWL_SEARCHES_TOTAL` on success. Task 3.1 says the test must fail on base. A replay test of an existing counter will pass on base, so the fail-first step cannot hold. The group is a test of existing behavior, not a code change. The spec requirement 'firecrawl-counter-replay' is a test acceptance item, not a system requirement, and it adds nothing to the code.",
+   "evidence": "src/devops_cli/ai/common_tools.py line 33 and the body: `emit(FIRECRAWL_SEARCHES_TOTAL, 1, {\"result\": CONST_FIRECRAWL_RESULT_OK})`. alternatives.py `search_web` calls `cited_web_search`, which calls `firecrawl_search`.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Documents that become wrong are not updated. Tasks 1.3, 2.3 and 3.3 say 'Change no document', and run `docs generate --sync-readme`. But `k8s/README.md` step 14 describes the alternatives row (verdicts, 'not-applicable', the checks) and will be stale. The module docstring of alternatives.py, the prompt `roadmap_alternatives.md` ('For not-applicable, make no search'), and new output strings in `lang/en/messages.py` (the skip-class reason and the no-search refusal) also need changes. AGENTS.md rule 8 requires fixing a document your change makes wrong. The three 'Change no document' tasks are filler and contradict that.",
+   "evidence": "k8s/README.md step 14 (line 610): 'Each written check adds 1 to devops_cli_roadmap_alternatives_total by verdict ...'. alternatives.py uses MESSAGES.roadmap.alternatives_reason_* strings. tasks.md 1.3/2.3/3.3.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The Feasibility section holds no evidence from the real system. It cites docs/TELEMETRY.md:81 and k8s/README.md:609, which only define the counter. It then repeats the issue's own numbers ('about 34 checks', 'about 4 searches') as if confirmed. It does not read the code (for example `_refusal` and `investigate`) to confirm that a retry turn can be built, and it does not query the metric or the three cited comments (#886, #1082, #1329). The last two Feasibility bullets are tasks, not evidence. AGENTS.md rule 2 requires the premise to be checked against the real system.",
+   "evidence": "proposal.md '## Feasibility': bullets 1-6. The line refs exist (TELEMETRY.md:81 and k8s/README.md:609) but support only the counter definition.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "'Existing Tool Considered' states that no tool covers the need, with no search or named candidate. Rule 3 asks to name the tool or library considered. pydantic-ai already offers output validators and `ModelRetry` for a retry turn; the plan does not consider it. The cost line lists items, not tokens or elapsed time.",
+   "evidence": "proposal.md 'Existing Tool Considered': 'No open, maintained tool or library covers the need ... The written cost is the tokens to build, keep and fix ... plus the elapsed time'. No numbers. Code uses `from pydantic_ai import Tool` and `Agent(... retries=...)` in refine_investigation.py.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "tasks.md",
+   "problem": "Each group is a long single run of 3 tasks, and the name `SKIP_CLASSES` is public. CONTRIBUTING.md asks for a module-level table named `_<NAME>` in the one module that reads it. The 'Workflow follow-up' section lists a tuicr step that is not a checkbox task. Small points only.",
+   "evidence": "CONTRIBUTING.md line 127: 'Constant | `_<NAME>` in the one module that reads it.' tasks.md 'Workflow follow-up'.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 3",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Verify Firecrawl counter rises in replay' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

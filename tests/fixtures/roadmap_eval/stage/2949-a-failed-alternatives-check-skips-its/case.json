@@ -1,0 +1,107 @@
+{
+ "issue": 2949,
+ "pull": 2976,
+ "title": "fix(roadmap): a failed alternatives check skips its item and does not fail the round",
+ "change": "2949-a-failed-alternatives-check-skips-its",
+ "merge_commit": "8d4a217a923392bacbf2a0bf4b9f5ae8be67f113",
+ "base_commit": "22f953d15df962a9a2e2bf785c2667ce10525971",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The PR is merged and issue #2949 is open, so the premise holds: the row fails on any item failure (k8s/README.md:610). The plan has real defects that an implementer would hit. It names a file that does not exist (rows.py), it names a wrong test path, and it describes the wrong mechanism (try/except on a path that already returns failures). It leaves two existing spec requirements in place that say the opposite of the new behavior. Task 4.2 would make a round with zero selected items fail. The title is a Conventional Commit without \"!\", the body says \"Plans #2949\" (correct), and all 20 check runs are green or skipped. No private data and no edit to a release file. The proposal has all required sections, but its Feasibility section holds doc quotes and no check of the code.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Group 4 changes src/devops_cli/roadmap/rows.py. That file does not exist. The row is the function _run_alternatives_adapter in src/devops_cli/roadmap/run.py (line about 595), and it calls raise_for_failed_checks. The stage job itself warned about the path in its comment on the issue. The proposal Impact section repeats the wrong path. The CLI path src/devops_cli/commands/roadmap.py:345 also calls raise_for_failed_checks, and no task covers it.",
+   "evidence": "find . -name rows.py in the repo finds no roadmap/rows.py. grep: src/devops_cli/roadmap/run.py:608 `raise_for_failed_checks(plan)` inside `_run_alternatives_adapter`; src/devops_cli/commands/roadmap.py:345 `job.raise_for_failed_checks(plan)`. Stage comment on #2949: 'These paths of the plan are no file on the default branch, and no group creates them: src/devops_cli/roadmap/rows.py.'",
+   "gate": "paths",
+   "paths": [
+    "src/devops_cli/roadmap/rows.py"
+   ]
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Every verify command uses `tests/test_roadmap_alternatives.py`. The tracked test file is `tests/roadmap/test_roadmap_alternatives.py`. With the wrong path, the `-k` runs find no file, so a 'fails on the base' check proves nothing and the 'passes' check cannot pass. The same path error affects all five groups.",
+   "evidence": "git ls-files tests | grep -i altern -> tests/roadmap/test_roadmap_alternatives.py (only that file). The paths in tasks.md lines 7, 8, 15, 16, 23, 24, 31, 32, 39, 40 use tests/test_roadmap_alternatives.py. Group Changes lines also omit any test file.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_roadmap_alternatives.py"
+   ]
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/roadmap-alternatives/spec.md",
+   "problem": "The delta only ADDS requirements. The base spec already holds requirements and scenarios that say the opposite: the row SHALL fail the round when the check of any item failed. After archive, the spec would contradict itself. The delta must MODIFY or REMOVE those requirements.",
+   "evidence": "openspec/specs/roadmap-alternatives/spec.md line 68: 'It SHALL skip that item ... write the checks of the other items, and then fail with an error that names each skipped item'; lines 78-80 scenario 'A model call fails ... THEN the run writes the second item, then fails with an error that names the first'; line 174 'SHALL fail the round, once the other checks are written, when the check of any item failed'; lines 193-195 scenario 'A failed check ... the row fails, naming the first'. The delta spec.md has only '## ADDED Requirements'. The base spec also has 'The recheck window is a setting' (line 141); a retry_days requirement is missing from the delta.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 2.2 says to wrap each item's check in try/except and build a new AlternativeFailure. The code already does this work. _check_one catches AIClientError and InvestigationStopped and returns a CheckFailure; plan_alternatives collects them. UnexpectedModelBehavior is returned as InvestigationStopped, not raised. The real change is different: record the failure in the job record (AlternativesRecordKey in store.py, written with store.set_marks), skip recorded items in select_items, and change raise_for_failed_checks. A new AlternativeFailure dataclass duplicates CheckFailure. The plan does not name CheckFailure, AlternativesRecordKey, select_items or set_marks. An implementer reading only the plan builds a second failure path (AGENTS.md rule 11 and the 'fixes use libraries, not home-grown' direction).",
+   "evidence": "src/devops_cli/roadmap/alternatives.py:388 `class CheckFailure`, :677-707 `_check_one` returns CheckFailure on AIClientError and InvestigationStopped, :736-741 loop collects failures, :783-796 `raise_for_failed_checks`. src/devops_cli/roadmap/store.py:165 `class AlternativesRecordKey` holds only CHECKED_AT, BODY_HASH, VERDICT, TOOL. docs/ERRORS.md and archive 2398 design.md:39 say the run 'returns InvestigationStopped with the class of pydantic-ai's error'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 4.2 says: if the count of checked items is zero, raise the row failure. A round with no selected item (every item current, or every item in its retry delay, or the check off) also has a count of zero. Under this rule such a round would fail and be suspended after 3 rounds. The issue says the row fails only when items were tried and none could be checked. The plan leaves this case open.",
+   "evidence": "tasks.md line 32: 'After the loop, if the count is zero, raise the row failure error that triggers the suspension counter.' alternatives.py:733-734 returns an AlternativesPlan with no checks and no failures when `selection.selected` is empty; the off case returns off_reason with no failures. Issue #2949: 'The row fails ... only when no item could be checked in the round.'",
+   "gate": "none"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.2 adds the key retry_days with 'a default of 3' but names no file for it. The config model is AlternativesConfig in src/devops_cli/config/settings.py with defaults in src/devops_cli/config/defaults.py (DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS is the model). Group 1 says 'Changes: alternatives.py' only. docs/CONFIGURATION.md line 271 lists the fields and is generated. The task also says a dataclass field of type datetime is written into the job record, but the job record holds flat string marks.",
+   "evidence": "src/devops_cli/config/settings.py:948-963 class AlternativesConfig (limit, recheck_days); defaults.py:724 `DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30`; docs/CONFIGURATION.md:271 `limit=5 recheck_days=30`.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "All five groups state 'Reads: none'. The implementer must read alternatives.py (866 lines), run.py, store.py and the base spec, and the plan lists none of them. The rule asks for a Reads line the implement step can load. Group 5 task 5.1 asks for a test that matches a sentence in k8s/README.md, a change-detector test of prose, and the 'Change no document ... docs generate' task repeats in every group. The stop-reason task (2.2) says to use 'bounded_text from the #2875 pattern and readable provider text from #2922' without naming a function: the existing code already forms reasons through texts.alternatives_reason_stopped and InvestigationStopped.reason, and body_error_text (agent_run.py) is the #2922 helper.",
+   "evidence": "tasks.md lines 5, 13, 21, 29, 37 'Reads: none.'; tasks.md line 39 'Write a test that reads k8s/README.md and asserts the alternatives row section states ...'; src/devops_cli/lang/en/messages.py:2007 `alternatives_reason_stopped`; src/devops_cli/roadmap/agent_run.py `bounded_text`, `body_error_text`.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section holds quotes from docs (k8s/README.md:610, ERRORS.md:125) and one line that promises tests. It holds no check of the code. A check of the code would have found that rows.py does not exist, that failures are already collected, and that the base spec contradicts the change. Another open plan (2946, same file alternatives.py) changes the same module and is not named in the proposal.",
+   "evidence": "proposal.md lines 34-39 cite only documents; line 39 'First checks the implementation runs: `uv run devops ci test tests/test_roadmap_alternatives.py`'. openspec/changes/2946-the-alternatives-check-must-search-before/tasks.md edits `src/devops_cli/roadmap/alternatives.py` too.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "tasks.md",
+   "problem": "The tasks.md ends with a section 'Workflow follow-up' that holds a pending step ('Pending a person: review the diff in tuicr'). openspec/config.yaml says artifacts read as merged. Other staged plans carry the same section, so this comes from the stage job template.",
+   "evidence": "tasks.md lines 43-45; openspec/changes/2946-.../tasks.md:27 has the same heading.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 5",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Update documentation for the new behavior' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind"
+  }
+ ]
+}

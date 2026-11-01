@@ -1,0 +1,141 @@
+{
+ "summary": "Split unworkable scope into new issues",
+ "pull_request_body": "This change updates the roadmap refine prompt and orchestrator to split unworkable scope into separate issues. When refine finds parts of an issue that cannot be implemented as written or have unresolved questions, it removes those parts from the core proposal and lists them in a split_issues field. The orchestrator creates each new issue via the existing intake path. The remaining workable scope proceeds toward Ready. Links are recorded between the original issue and each new issue. This prevents workable subsets from being delayed behind blocked parts.",
+ "why": "Issue #2423 reports that when `devops roadmap refine` finds unworkable parts or unresolved questions in an issue, it blocks the whole item or sends it to a person. Workable subsets remain delayed behind the blocked parts. The change lets refine remove unworkable scope into new issues so the workable scope can proceed.",
+ "what_changes": [
+  "The refine prompt gains instructions to identify unworkable scope and propose it as separate issues in a split_issues field.",
+  "The refine orchestrator reads split_issues from the model response and creates a new issue for each entry via the existing intake path.",
+  "The orchestrator records a link between the original issue and each newly created issue.",
+  "The remaining workable scope of the original issue proceeds toward Ready status.",
+  "Tests cover the scope-splitting behavior end to end."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The refine prompt file `src/devops_cli/ai/tasks/roadmap_refine_proposal.md` is present in the context and shows the current instructions. It has no scope-splitting instructions, confirming the gap described in #2423.",
+  "The `roadmap-refine` capability exists in the spec list, so new requirements are added to it.",
+  "CONTEXT.md confirms that intake is the single entry point for turning a candidate into an item, and that a candidate is never a duplicate of the issue it is split from. This validates the design of reusing intake for split-off issues.",
+  "The exact orchestrator file path is not shown in the context. The implementation step must confirm it by searching for the refine command handler, likely under `src/devops_cli/roadmap/`. First check: `grep -r 'roadmap refine' src/devops_cli/ --include='*.py' -l`.",
+  "First check the prompt file for the absence of split instructions: `grep -c 'split_issues' src/devops_cli/ai/tasks/roadmap_refine_proposal.md` should return 0.",
+  "First check that the intake path is callable from the orchestrator: `grep -r 'def intake' src/devops_cli/roadmap/ --include='*.py'`."
+ ],
+ "existing_tool": "The devops-cli's own `roadmap intake` command and roadmap store handle issue creation and board updates. The change extends the existing refine prompt and orchestrator. No new external dependency is added. The written cost is the prompt edit, the orchestrator branch for split_issues, and the link-recording call, all within the existing codebase.",
+ "decisions": [
+  {
+   "decision": "The model proposes split_issues as a structured field in its response, and the orchestrator creates the issues.",
+   "reason": "The model identifies which parts are unworkable. The orchestrator performs the side effect of issue creation. This keeps the model read-only and the orchestrator as the single writer, matching the existing pattern."
+  },
+  {
+   "decision": "Reuse the existing intake path to create split-off issues.",
+   "reason": "CONTEXT.md states intake is the single entry point for turning a candidate into an item. A candidate is never a duplicate of the issue it is split from. Reusing intake avoids a second creation path."
+  },
+  {
+   "decision": "Record links as a comment on the original issue naming each new issue number.",
+   "reason": "The issue body already holds the job record. A comment is the existing mechanism for cross-references and is visible to a person without changing the issue body structure."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Send the whole issue to a person (NextStep.PERSON) when any part is unworkable.",
+   "evidence": "This is the current behavior described in #2423. It delays workable subsets behind blocked parts, which is the problem the issue solves."
+  },
+  {
+   "alternative": "Let the model create issues directly via a tool call.",
+   "evidence": "The existing pattern keeps the model read-only and the orchestrator as the writer. A tool call from the model would add a second write path and complicate the rate-limit pacing that `devops gh` enforces."
+  },
+  {
+   "alternative": "Close the original issue and open a new one with only the workable scope.",
+   "evidence": "This loses the history and job record of the original issue. The issue body holds the job record per ADR 0016. Keeping the original issue and splitting off the unworkable parts preserves that record."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-refine",
+   "purpose": null,
+   "added": [
+    {
+     "name": "scope-splitting-on-unworkable-parts",
+     "text": "When refine identifies parts of an issue that cannot be implemented as written or have unresolved questions, it SHALL remove those parts from the core proposal and list them in a split_issues array, each entry holding a title and a body.",
+     "scenarios": [
+      {
+       "name": "unworkable part removed from proposal",
+       "when": "refine identifies a part of the issue that cannot be implemented as written",
+       "then": "the proposal excludes that part and the split_issues array contains an entry with a title and body for that part"
+      },
+      {
+       "name": "workable scope proceeds toward Ready",
+       "when": "refine splits unworkable scope from an issue that also has workable scope",
+       "then": "the remaining proposal covers only the workable scope and is eligible for Ready status"
+      }
+     ]
+    },
+    {
+     "name": "split-issue-creation-via-intake",
+     "text": "The orchestrator SHALL create a new issue on the roadmap for each entry in the split_issues array, using the existing intake path.",
+     "scenarios": [
+      {
+       "name": "one issue per split entry",
+       "when": "the refine response contains a split_issues array with two entries",
+       "then": "the orchestrator calls intake twice and two new issues appear on the roadmap with the titles and bodies from the entries"
+      }
+     ]
+    },
+    {
+     "name": "split-issue-linking",
+     "text": "The orchestrator SHALL record a link between the original issue and each newly created issue by adding a comment on the original issue that names each new issue number.",
+     "scenarios": [
+      {
+       "name": "link recorded on original issue",
+       "when": "the orchestrator creates a new issue from a split_issues entry",
+       "then": "a comment on the original issue names the new issue number as a cross-reference"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add scope-splitting instructions to the refine prompt",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/ai/tasks/roadmap_refine_proposal.md"
+   ],
+   "creates": [],
+   "test": "Write a test that reads the refine prompt file and asserts it contains the words 'split_issues', 'unworkable', and instructions to list each removed part with a title and body",
+   "implementation": "Add a section to the prompt after the existing instructions. The section instructs the model: when the issue contains parts that cannot be implemented as written or have unresolved questions, remove those parts from the core proposal. List each removed part in a split_issues array. Each entry has a title and a body that states the problem and the acceptance criteria for that part. The remaining proposal covers only the workable scope",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_roadmap_refine_prompt.py -k scope_splitting",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Process split_issues in the refine orchestrator",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/roadmap/refine.py"
+   ],
+   "creates": [],
+   "test": "Write a test that mocks the model response with a split_issues list of two entries. Assert the orchestrator calls the intake function once per entry with the correct title and body. Assert a comment is added to the original issue naming each new issue number",
+   "implementation": "After the model response is parsed, check for the split_issues field. For each entry, call the existing intake function with the entry title and body. Collect the new issue numbers. Add a comment on the original issue that lists each new issue number as a link. The original issue's remaining scope proceeds toward Ready as normal",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_roadmap_refine_orchestrator.py -k split_issues",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Add integration test for the full scope-splitting flow",
+   "reads": [],
+   "changes": [
+    "tests/test_roadmap_refine_split.py"
+   ],
+   "creates": [],
+   "test": "Write a test that simulates a refine run on an issue with mixed workable and unworkable scope. Assert the original issue proceeds toward Ready. Assert two new issues appear with the correct titles and bodies. Assert links are recorded on the original issue",
+   "implementation": "The test doubles the model response and the GitHub API. It sets up an issue with one workable part and two unworkable parts. It runs the refine orchestrator. It asserts the original issue status moves toward Ready, the two new issues exist with correct content, and the original issue has a comment linking to both new issues",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_roadmap_refine_split.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}
