@@ -2479,6 +2479,7 @@ class RoadmapMessages:
             "remote_heads": "the branches of origin",
             "fetch_default": "fetch the default branch, to read its plans",
             "default_plans": "the change folders of the default branch",
+            "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "model_change": "the analysis model plans the change of the item",
             "model_split": "the analysis model splits the task groups over the budget",
             "model_correction": "the analysis model corrects a change that fails its checks",
@@ -2495,6 +2496,7 @@ class RoadmapMessages:
     )
     stage_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
+            "tracked_files": "the filter names an item",
             "model_split": "a task group is over the budget",
             "model_correction": "the change fails its checks",
             "validate": "the openspec binary is on PATH",

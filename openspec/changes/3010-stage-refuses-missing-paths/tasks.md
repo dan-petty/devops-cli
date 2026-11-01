@@ -22,9 +22,9 @@ Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_change.p
 
 Reads: `src/devops_cli/roadmap/request_plan.py`. Changes: `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_dry_runs.py`.
 
-- [ ] 3.1 Write a failing test in `tests/roadmap/test_roadmap_dry_runs.py` that the stage plan lists one `git ls-files -z` read, once for the round
+- [x] 3.1 Write a failing test in `tests/roadmap/test_roadmap_dry_runs.py` that the stage plan lists one `git ls-files -z` read, once for the round
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py` fails on the base
-- [ ] 3.2 Add the read to `stage_requests`
+- [x] 3.2 Add the read to `stage_requests`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py`
 
 ## 4. The prompt and the documents
