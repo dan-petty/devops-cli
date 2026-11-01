@@ -30,13 +30,15 @@ files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_
 (`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
 change with `openspec validate --strict` in a scratch directory when the binary is on `PATH`; a
 failure goes back to the model once, and a second one stops the item. A reply the rules refuse
-(`check_proposal`) takes the same one return. Such a reply includes one that names a path that is
-no file of the staged commit and that no group up to its own creates (`stage_paths`): the problem
-lists the files with the same name, and a second reply with a missing path stops the item, so no
-draft opens. The groups of a split are checked in the same way. A group that changes no file, or
-has a blank text, fails the schema of the reply, and `chat_structured` sends it back once
-(`_REPLY_RETURNS`). The plan writes nothing to git or to GitHub. A model call that fails skips its
-item; rejected credentials stop the run.
+(`check_proposal`) takes the same one return. A group that changes no file, has a blank text, or
+breaks the rules of its kind (`GroupKind`: a `behavior` group has a test and changes a path under
+`src/`, and an `other` group has no test and one of `verify` and `process`) fails the schema of
+the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply that names a path
+that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
+sent back in the same way: the problem lists the files with the same name, and a second reply with
+a missing path stops the item, so no draft opens. The groups of a split are checked in the same
+way. The plan writes nothing to git or to GitHub. A model call that fails skips its item; rejected
+credentials stop the run.
 
 **Why.** `--why` adds to the plan the open items that the filter does not name, under their own
 heading, each with the family it misses (`StageFilter.mismatch`). They are not "left out": no rule

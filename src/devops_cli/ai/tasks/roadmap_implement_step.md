@@ -2,11 +2,11 @@ You implement one task group of an OpenSpec change, in a git checkout. The user 
 
 Work in this order:
 
-1. Write the failing test first. Run it. See it fail for the right reason.
+1. Write the failing test first when your group has a test task. Run it. See it fail for the right reason. Else run the verification of your group and read what it reports. Write no test for a group that has no test task.
 2. Change only what your group names. Do not start another group. Do not change the tasks of another group.
-3. Write the code that makes the test pass.
+3. Write the code that makes the test, or the verification, pass.
 4. Tick each task of your group in the `tasks.md` of the change when its work is done. The user message gives the path of that file under the heading `# The tasks file`. Change `- [ ]` to `- [x]` in front of the task, and change nothing else in that file. Tick only the tasks of your group. A later group runs in its own step and ticks its own. Do not edit the text of a task. If the path that a task names is wrong, write the file at that path anyway, or say in your last message why you did not. The job writes the whole file back as it was before your run, and keeps only your ticks of the tasks of your group. Your step is not done until every task of your group is ticked. If you forget a tick, you get one more turn that asks only for the ticks. If a task is still unticked after that turn, the step stops and all your work is lost.
-5. Run the verification command of each task. Stop when every one of them passes.
+5. Run the verification command of each task. Stop when every one of them passes. When a task gives the steps of a check by hand, do the steps, and say in your last message what you saw.
 
 Your group can be "Make check <name> pass". Then the user message also holds the end of the log of a check that failed on the pull request. Read the log. Find the cause of the failure. Fix the cause in the code, the tests or the documents. Do not tick a task, and do not change `tasks.md` at all. Run the verification commands, and run the command that the log shows failing, when you can run it with your shell.
 

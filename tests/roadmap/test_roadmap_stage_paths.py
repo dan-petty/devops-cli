@@ -25,6 +25,7 @@ TREE = StagedTree(
 def _group(**update: object) -> StageGroup:
     """The group of the sample proposal, made light: it reads and changes files that TREE holds."""
     base = {
+        "kind": "behavior",
         "reads": ["src/devops_cli/sample.py"],
         "changes": ["src/devops_cli/sample.py"],
         "creates": [],
@@ -33,11 +34,10 @@ def _group(**update: object) -> StageGroup:
         "documentation": "Change no document",
         "verify": "uv run devops ci test tests/test_sample.py",
     }
-    return (
-        make_stage_proposal()
-        .groups[0]
-        .model_validate({"title": "Keep the last comment", **base, **update})
-    )
+    fields = {"title": "Keep the last comment", **base, **update}
+    if not any(str(path).startswith("src/") for path in fields["changes"]):
+        fields = {**fields, "kind": update.get("kind", "other"), "test": update.get("test")}
+    return make_stage_proposal().groups[0].model_validate(fields)
 
 
 def _problems(*groups: StageGroup, tree: StagedTree = TREE) -> list[str]:
@@ -260,6 +260,8 @@ PLAN_2260 = [
         title="Remove 14 paths from dry_run_gaps.json and verify ratchet test",
         reads=[],
         changes=["tests/fixtures/dry_run_gaps.json"],
+        kind="other",
+        test=None,
         verify="uv run pytest tests/test_roadmap_dry_runs.py -v",
     ),
 ]

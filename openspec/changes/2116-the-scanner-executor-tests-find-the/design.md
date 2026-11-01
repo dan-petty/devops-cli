@@ -2,10 +2,11 @@
 
 ## Decisions
 
-- **Create stand-in files on PATH in the fixture, the same mechanism scanner_fake uses internally, rather than using scanner_fake directly.**: The test uses tool_executor_fake (a plain ToolExecutorFake) in most cases and needs only the PATH stand-ins so that shutil.which finds the tool. scanner_fake carries recorded answers that this test does not need. The design of #1982 confirms this: a test that needs a scanner missing gives it a PATH without the program.
-- **Keep the fixture autouse and scoped to this test file.**: The fixture is local to tests/test_scanner_tool_executor.py and is not shared. Making it autouse keeps every test in the file covered without changing each test's signature.
+- **The fixture writes its own stand-ins on PATH, the mechanism that `ScannerFake.script` uses.** The tests of this file give the scanners `tool_executor_fake`, which starts nothing. They need only that each tool of `_REVIEW_SCANS` is findable, so that the review pipeline and the canary can name its program. The fixture keeps the old PATH after its directory, so git and the interpreter stay findable, as before.
+- **The stand-in is a one-line script in the fixture.** The module `tests/support/fakes/scanners.py` keeps `_STAND_IN` private. Nothing runs the stand-in of this file. A copy costs less than a new public name in the shared fake.
+- **The fixture stays autouse and local to the file.** Every test of the file needs the tools findable, and no other file shares the fixture.
 
 ## Rejected alternatives
 
-- **Use scanner_fake directly in the test file.**: The test uses tool_executor_fake (a plain ToolExecutorFake) in most cases. scanner_fake is a ToolExecutorFake that carries recorded answers for Semgrep, Gitleaks, Bandit and osv-scanner. The test needs only the PATH stand-ins, not the recorded answers. Using scanner_fake would change the executor the test scripts and break the test's assertions on tool_executor_fake.requests.
-- **Keep the shutil.which patch and add a noqa or exception to the convention.**: docs/TESTING.md states: A test doubles only edges. Everything inside the process runs for real. Patching a stdlib or SDK object itself, such as subprocess.run or time.sleep, is a fallback for stdlib edges only. The stand-in-on-PATH mechanism is the established pattern since #1982 and requires no exception.
+- **Use `scanner_fake` itself.** A prototype with `scanner_fake.script(tool, ToolAnswer())` for each missing tool fails: `assert ('ran', [], False) == ('coverage_gap', [], True)`. The fixture `scanner_fake` replaces `DirectToolExecutor.run` and sets a PATH of its own, and the tests that pass `tool_executor_fake` do not expect that.
+- **Keep the `shutil.which` patch.** `docs/TESTING.md` makes a patch aimed at a stdlib name a fallback for edges that have no fake. The stand-in on PATH is the established mechanism since #1982, so no exception is needed.

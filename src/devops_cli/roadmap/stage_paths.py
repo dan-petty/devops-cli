@@ -119,10 +119,10 @@ def _named(group: StageGroup, tree: StagedTree) -> Iterator[tuple[_Place, str]]:
     """Each path that `group` names, with the place."""
     yield from ((_Place.READS, path) for path in group.reads)
     yield from ((_Place.CHANGES, path) for path in group.changes)
-    for text in (group.test, group.implementation, group.documentation):
-        for span in code_spans(text):
+    for text in (group.test, group.implementation, group.documentation, group.process):
+        for span in code_spans(text or ""):
             yield from ((_Place.TASK, path) for path in tree.paths_in(span))
-    yield from ((_Place.VERIFY, path) for path in tree.paths_in(group.verify))
+    yield from ((_Place.VERIFY, path) for path in tree.paths_in(group.verify or ""))
 
 
 def _problem(number: int, place: _Place, path: str, tree: StagedTree) -> str:

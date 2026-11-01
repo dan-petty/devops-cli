@@ -1,29 +1,22 @@
 # Tasks
 
-## 1. Remove unused re-import in security/ruff.py
+## 1. Remove the `_prepare_cmd` alias
 
-Reads: none. Changes: `src/devops_cli/security/ruff.py`.
+Reads: `src/devops_cli/core/process.py` lines 470 to 482, `tests/core/test_process.py` lines 575 to 600, `tests/support/fakes/process.py` lines 18 to 26, 240 to 275 and 355 to 365. Changes: `src/devops_cli/core/process.py`, `tests/core/test_process.py`, `tests/support/fakes/process.py`.
 
-- [ ] 1.1 Write a test that runs uv run ruff check --select F401 src/devops_cli/security/ruff.py and asserts exit code 0 with no findings, and verify that `uv run ruff check --select F401 src/devops_cli/security/ruff.py` fails on the base
-- [ ] 1.2 Remove the run_subprocess import line (line 23) from src/devops_cli/security/ruff.py. The module does not use the name and no test patches it, and verify that `uv run ruff check --select F401 src/devops_cli/security/ruff.py` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+This group keeps behavior, so it adds no test. The repeatable check is `git grep -n "_prepare_cmd" -- src tests`. It prints 8 lines on the base and nothing when the group is done.
 
-## 2. Remove _prepare_cmd alias and update tests
+- [ ] 1.1 Run `git grep -n "_prepare_cmd" -- src tests` and note the 8 lines. In `tests/support/fakes/process.py`, import `prepare_tool_cmd` at the top in place of `_prepare_cmd`, call it in the two places that call `_prepare_cmd(cmd)`, and make the method `prepare_cmd` use the top-level import and not a local one. Verify with `uv run devops ci test tests/core/test_process_contract.py tests/core/test_process_hardening.py`
+- [ ] 1.2 In `tests/core/test_process.py`, import and call `prepare_tool_cmd` in `test_uv_preview_flags_injection`, with the same expected values. Verify with `uv run devops ci test tests/core/test_process.py`
+- [ ] 1.3 Delete the line `_prepare_cmd = prepare_tool_cmd` and its blank lines from `src/devops_cli/core/process.py`. Verify that `git grep -n "_prepare_cmd" -- src tests` prints nothing and that `uv run devops ci test tests/core/test_process.py tests/core/test_process_contract.py tests/core/test_process_hardening.py tests/commands/test_ci.py` passes. The full suite, which holds the 128 files that use the process fake, runs in CI
 
-Reads: none. Changes: `src/devops_cli/core/process.py`, `tests/support/fakes/process.py`, `tests/core/test_process.py`.
+## 2. Set the `src noqa: F401` ceiling to 0
 
-- [ ] 2.1 Write a test that asserts rg -n '_prepare_cmd' src tests prints nothing, and verify that `uv run devops ci test tests/core/test_process.py` fails on the base
-- [ ] 2.2 Remove the line _prepare_cmd = prepare_tool_cmd from src/devops_cli/core/process.py (line 482). In tests/support/fakes/process.py, change the import of _prepare_cmd to prepare_tool_cmd. In tests/core/test_process.py, change all references from _prepare_cmd to prepare_tool_cmd (lines 583, 585, 592, 598), and verify that `uv run devops ci test tests/core/test_process.py` passes
-- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+Reads: `tests/invariants/test_architectural_invariants.py` lines 176 to 196 and 2505 to 2525. Changes: `tests/invariants/test_architectural_invariants.py`.
 
-## 3. Add F401 re-import ceiling CI row
+This group changes a test constant and no behavior, so it adds no test. The repeatable check is the probe in 2.1 to 2.4. It shows that a new unused `# noqa: F401` import in `src/` passes the ratchet at 15 and fails it at 0.
 
-Reads: none. Changes: `src/devops_cli/commands/ci.py`.
-
-- [ ] 3.1 Write a test that adds a # noqa: F401 import to a temporary file in src/, runs the new CI row, and asserts it fails. Remove the import and assert the row passes at the ceiling of 14, and verify that `uv run devops ci` fails on the base
-- [ ] 3.2 Add a new row to devops ci that runs ruff check --select F401 --ignore-noqa src, counts the findings, and fails with a message naming the new sites when the count exceeds 14. The row runs on the stock runner with no install step, and verify that `uv run devops ci` passes
-- [ ] 3.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-
-## Workflow follow-up
-
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- [ ] 2.1 Confirm the count: `git grep -n "noqa: F401" -- src` prints nothing, and `uv run ruff check --select F401 --ignore-noqa src` prints `All checks passed!`
+- [ ] 2.2 Probe the base. Write the line `import os  # noqa: F401` to the new file `src/devops_cli/f401_probe.py`. Run `uv run devops ci test tests/invariants/test_architectural_invariants.py -k suppressions_stay_under_their_ceilings`. It passes, which is the gap. Delete the probe file
+- [ ] 2.3 In `DEFAULT_SUPPRESSION_CEILINGS`, change `"src noqa: F401": 15` to `"src noqa: F401": 0`
+- [ ] 2.4 Repeat the probe of 2.2. The run now fails with `src noqa: F401: 1 > ceiling 0`. Delete the probe file, and verify with `git status --short` that no file under `src/` is changed and with `uv run devops ci test tests/invariants/test_architectural_invariants.py` that the file passes. Put the output of 2.2 and 2.4 in a comment on the pull request
