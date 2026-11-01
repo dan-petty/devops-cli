@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/step_files.py`, `tests/support/implement_step.py`. Changes: `src/devops_cli/roadmap/implement_strays.py` (new), `tests/roadmap/test_roadmap_implement_strays.py` (new).
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_implement_strays.py` for the scenarios of "A step removes the stray files of the agent" that `stray_files` decides: a root file, a path of the `Changes:` line, a path in a task, the change folder, a new test file next to a named test file, a test file in another directory, and a path with `./`
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_implement_strays.py` for the scenarios of "A step removes the stray files of the agent" that `stray_files` decides: a root file, a path of the `Changes:` line, a path in a task, the change folder, a new test file next to a named test file, a test file in another directory, and a path with `./`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_strays.py` fails on the base
-- [ ] 1.2 Add `stray_files` in `src/devops_cli/roadmap/implement_strays.py`
+- [x] 1.2 Add `stray_files` in `src/devops_cli/roadmap/implement_strays.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_strays.py` passes
 
 ## 2. Remove the stray files before the exit checks
