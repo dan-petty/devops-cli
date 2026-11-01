@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import os
+import tempfile
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
 import typer
@@ -65,6 +68,81 @@ def test_a_devops_error_ends_the_command_with_one_line_and_its_exit_status(
         _MESSAGE in result.output,
         "Traceback" in result.output,
     ) == (7, SystemExit, 1, True, False)
+
+
+def test_command_stops_with_one_error_line_when_working_directory_deleted() -> None:
+    """A command run from a deleted working directory stops with one error line and exit status 1."""
+    # Create a simple app with a command that records if it was executed
+    app = new_typer()
+
+    execution_recorded = False
+
+    @app.command("test-command")
+    def test_command() -> None:
+        nonlocal execution_recorded
+        execution_recorded = True
+
+    # Use temporary directory to simulate deleted working directory
+    with tempfile.TemporaryDirectory() as tmp_path:
+        gone_dir = Path(tmp_path) / "gone"
+        gone_dir.mkdir()
+
+        # Change into the directory
+        original_cwd = os.getcwd()
+        os.chdir(gone_dir)
+
+        # Remove the directory (simulating deleted working directory)
+        os.chdir(original_cwd)
+        gone_dir.rmdir()
+
+        try:
+            # Run the command from the deleted directory
+            runner = CliRunner()
+            result = runner.invoke(app, ["test-command"])
+
+            # Should exit with status 1 and show error message
+            assert result.exit_code == 1
+            assert "The working directory does not exist" in result.output
+            assert "Traceback" not in result.output
+            # Command body should not have run
+            assert execution_recorded is False
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_command_help_works_when_working_directory_deleted() -> None:
+    """A command help works when the working directory no longer exists."""
+    # Create a simple app with a command that records if it was executed
+    app = new_typer()
+
+    @app.command("test-command")
+    def test_command() -> None:
+        pass  # This should not be called
+
+    # Use temporary directory to simulate deleted working directory
+    with tempfile.TemporaryDirectory() as tmp_path:
+        gone_dir = Path(tmp_path) / "gone"
+        gone_dir.mkdir()
+
+        # Change into the directory
+        original_cwd = os.getcwd()
+        os.chdir(gone_dir)
+
+        # Remove the directory (simulating deleted working directory)
+        os.chdir(original_cwd)
+        gone_dir.rmdir()
+
+        try:
+            # Run help command from the deleted directory
+            runner = CliRunner()
+            result = runner.invoke(app, ["test-command", "--help"])
+
+            # Should exit with status 0 and show help
+            assert result.exit_code == 0
+            assert "Usage:" in result.output
+            assert "test-command" in result.output
+        finally:
+            os.chdir(original_cwd)
 
 
 def _apps(app: typer.Typer) -> Iterator[typer.Typer]:

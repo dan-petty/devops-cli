@@ -4,11 +4,11 @@
 
 Reads: `src/devops_cli/telemetry/tracer.py` (lines 627-660, `_resolve_git_dir` and `_detect_vcs_metadata`; lines 855-870, where the client reads them), `tests/telemetry/test_telemetry.py` (the `collector` fixture and `test_span_vcs_and_k8s_attributes_detection`). Changes: `src/devops_cli/telemetry/tracer.py`, `tests/telemetry/test_telemetry.py`.
 
-- [ ] 1.1 In `tests/telemetry/test_telemetry.py`, write the tests first. They use the public interface only: no patch of a devops-cli name and no import of a private name. Annotate every test with `-> None`, because `mypy --strict` covers `tests/`. Call `reset_tracer()` before and after each test, because it clears the cache of `_detect_vcs_metadata`.
+- [x] 1.1 In `tests/telemetry/test_telemetry.py`, write the tests first. They use the public interface only: no patch of a devops-cli name and no import of a private name. Annotate every test with `-> None`, because `mypy --strict` covers `tests/`. Call `reset_tracer()` before and after each test, because it clears the cache of `_detect_vcs_metadata`.
   - Test A: make `tmp_path / "gone"`, change into it with `monkeypatch.chdir`, remove it with `rmdir`, start `OTelTelemetryClient(endpoint=collector, enabled=True).span(...)`, and assert that no attribute key starts with `vcs.`.
   - Test B: build `tmp_path / ".git"` with a `HEAD` file `ref: refs/heads/feat/example`, and a branch file `refs/heads/feat/example` that holds a 40-character revision. Change into `tmp_path` and start a span. Assert `vcs.ref.name`, `vcs.branch`, `vcs.revision_id` and `vcs.commit`.
   - Run `uv run devops ci test tests/telemetry/test_telemetry.py`. Test A must fail on the base with `FileNotFoundError` from `Path.cwd()`. Test B passes on the base: it pins the behavior that must not change.
-- [ ] 1.2 In `_resolve_git_dir`, return `None` when `(start_dir or Path.cwd()).resolve()` raises `OSError`. Leave the walk over the parent directories as it is. Verify that `uv run devops ci test tests/telemetry/test_telemetry.py` passes.
+- [x] 1.2 In `_resolve_git_dir`, return `None` when `(start_dir or Path.cwd()).resolve()` raises `OSError`. Leave the walk over the parent directories as it is. Verify that `uv run devops ci test tests/telemetry/test_telemetry.py` passes.
 
 ## 2. A command run from a deleted working directory stops with one error line
 

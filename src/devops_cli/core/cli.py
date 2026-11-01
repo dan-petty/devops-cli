@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import os
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -210,6 +211,16 @@ class OTelTyper(typer.Typer):
 
             @functools.wraps(f)
             def traced_fn(*f_args: Any, **f_kwargs: Any) -> Any:
+                # Check if the working directory still exists before running any command
+                try:
+                    os.getcwd()
+                except FileNotFoundError:
+                    # The working directory no longer exists - stop with one error line
+                    raise DevOpsCLIError(
+                        "The working directory does not exist. Change to a directory that exists and run the command again.",
+                        exit_code=1,
+                    ) from None
+
                 with _report_devops_error():
                     return _execute_traced_cli_command(f, f_args, f_kwargs, cmd_name)
 
