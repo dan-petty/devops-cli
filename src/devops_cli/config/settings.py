@@ -184,15 +184,6 @@ def _is_list_annotation(annotation: Any) -> bool:
     return False
 
 
-def _validation_error_key(exc: ValidationError, prefix: tuple[str, ...] = ()) -> str:
-    """Extract the dotted key for the first validation error."""
-    errors = exc.errors(include_url=False, include_input=False)
-    if not errors:
-        return ""
-    loc = prefix + tuple(str(p) for p in errors[0].get("loc", ()))
-    return ".".join(loc)
-
-
 def _format_validation_error(exc: ValidationError, prefix: tuple[str, ...] = ()) -> str:
     """Format the first validation error as '<dotted.key>: <reason>'."""
     errors = exc.errors(include_url=False, include_input=False)
