@@ -2233,6 +2233,8 @@ class RoadmapMessages:
     eval_implement_dry_step: str = "- {name}: issue #{issue}, group {group}, base {sha}"
     eval_implement_dry_requests: str = "The model requests of a run:"
     eval_implement_model_target: str = "{model} for group {group} of item #{issue} (fixture {name})"
+    eval_implement_modes: str = "{first} and {second} cannot be used together."
+    eval_implement_needs_check: str = "--run-commands needs --check-only."
     implement_dry_run_reason: str = "Dry run: no request was made and nothing ran."
     implement_model_request: str = "model request"
     implement_model_target: str = "{model} for group {group} of item #{item}"

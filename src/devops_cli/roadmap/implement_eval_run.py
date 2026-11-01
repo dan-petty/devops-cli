@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
+    CONST_ROADMAP_EVAL_IMPLEMENT_REPORTS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
 )
 from devops_cli.core.process import run_subprocess
@@ -203,6 +204,36 @@ def _result_diff(clone: Path, start: str) -> str:
         check=True,
     )
     return done.stdout
+
+
+# ── The model and the report folder ───────────────────────────────────────────────────────
+
+
+def eval_model(name: str | None) -> tuple[Any, int, str]:
+    """The model of a run, the window of its task, and its name. `name` replaces the model of the
+    task `ai.tasks.implement`; the provider and the gateway stay those of the task."""
+    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.config.settings import load_settings
+
+    settings = load_settings()
+    if name is not None:
+        tasks = settings.ai.tasks
+        swapped = tasks.model_copy(
+            update={"implement": tasks.implement.model_copy(update={"model": name})}
+        )
+        settings = settings.model_copy(
+            update={"ai": settings.ai.model_copy(update={"tasks": swapped})}
+        )
+    task = settings.ai.for_task("implement")
+    return get_task_model("implement", settings=settings), task.context_window, task.model
+
+
+def report_directory() -> Path:
+    """The folder of the JSON reports, under the data directory."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    return resolve_data_path(load_settings().data.dir) / CONST_ROADMAP_EVAL_IMPLEMENT_REPORTS
 
 
 # ── A run ─────────────────────────────────────────────────────────────────────────────────

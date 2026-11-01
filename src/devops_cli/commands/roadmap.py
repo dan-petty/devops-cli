@@ -30,6 +30,7 @@ from typing import Annotated, NoReturn
 
 import typer
 
+from devops_cli.commands.roadmap_eval import app as eval_app
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
@@ -66,6 +67,7 @@ from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.store import RoadmapStore
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
+app.add_typer(eval_app, name="eval", help=HELP.roadmap.eval_app)
 
 RepoOption = Annotated[str | None, typer.Option("--repo", "-R", help=HELP.roadmap.repo)]
 RefOption = Annotated[str | None, typer.Option("--ref", help=HELP.roadmap.ref)]

@@ -40,9 +40,9 @@ Reads: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/clone
 
 Reads: `src/devops_cli/commands/roadmap.py`. Changes: `src/devops_cli/commands/roadmap_eval.py` (new), `src/devops_cli/commands/roadmap_eval_implement.py` (new), `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/commands/test_roadmap_eval_implement.py` (new).
 
-- [ ] 5.1 Write failing CLI tests in `tests/commands/test_roadmap_eval_implement.py` for `--dry-run`, `--fixture` with an unknown name, `--check-only` with a matching and a mismatching result, `--json`, and a live run with the model fake
+- [x] 5.1 Write failing CLI tests in `tests/commands/test_roadmap_eval_implement.py` for `--dry-run`, `--fixture` with an unknown name, `--check-only` with a matching and a mismatching result, `--json`, and a live run with the model fake
   - Verification: `uv run devops ci test tests/commands/test_roadmap_eval_implement.py` fails on the base
-- [ ] 5.2 Add the group `eval`, the command and its help
+- [x] 5.2 Add the group `eval`, the command and its help
   - Verification: `uv run devops ci test tests/commands/test_roadmap_eval_implement.py tests/invariants/test_dry_run_class_ratchet.py` passes
 
 ## 6. The fixtures
