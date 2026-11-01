@@ -15,6 +15,7 @@ from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
 from devops_cli.exceptions.roadmap import RoadmapImplementError
+from devops_cli.roadmap.implement_shell_policy import fill_prompt
 from devops_cli.roadmap.implement_step import FixRequest, build_step_inputs, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.step_files import parse_task_groups
@@ -154,7 +155,7 @@ def test_a_hostile_agents_md_is_data_and_never_changes_the_instructions(
     inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
     assert (
-        inputs.instructions == load_task_prompt("roadmap_implement_step.md"),
+        inputs.instructions == fill_prompt(load_task_prompt("roadmap_implement_step.md")),
         inputs.message.startswith(f"# {RULES_HEADING}\n\n{hostile.strip()}"),
         "these instructions win" in inputs.instructions,
     ) == (True, True, True)

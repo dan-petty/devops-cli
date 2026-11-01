@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from typing import Any
 
 import pytest
 
@@ -142,6 +143,10 @@ def test_an_address_is_classed_without_the_punctuation_prose_leaves_after_it(
         ("2130706433", "127.0.0.1"),
         ("127.1", "127.0.0.1"),
         ("0x7f.0.0.1", "127.0.0.1"),
+        ("0177.0.0.1", "127.0.0.1"),
+        ("127.0.1", "127.0.0.1"),
+        ("http://0177.0.0.1/", "127.0.0.1"),
+        ("http://127.0.1/", "127.0.0.1"),
         ("example.com", None),
         ("localhost", None),
         ("555-0100", None),
@@ -152,12 +157,16 @@ def test_a_network_target_names_the_address_a_resolver_would_dial(
 ) -> None:
     """A URL or `host:port` names its host, prose punctuation is not part of it, and the legacy
     numeric spellings `inet_aton` reads (`2130706433`, `127.1`, `0x7f.0.0.1`) name the address a
-    resolver dials. A name names no address, and nothing is looked up (#1174)."""
+    resolver dials. A name names no address, and no DNS query is made: only a call with
+    `AI_NUMERICHOST` reaches the resolver (#1174, #2152)."""
+    real_getaddrinfo = socket.getaddrinfo
 
-    def _no_lookup(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("no lookup may be made")
+    def _numeric_only(host: object, *args: Any, **kwargs: Any) -> Any:
+        if not kwargs.get("flags", 0) & socket.AI_NUMERICHOST:
+            raise AssertionError("no lookup may be made")
+        return real_getaddrinfo(host, *args, **kwargs)
 
-    monkeypatch.setattr(socket, "getaddrinfo", _no_lookup)
+    monkeypatch.setattr(socket, "getaddrinfo", _numeric_only)
     expected = None if address is None else ipaddress.ip_address(address)
     assert network_target_address(target) == expected
 

@@ -17,6 +17,7 @@ import httpx2
 import typer
 
 from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service, is_not_found_error
+from devops_cli.argo.credentials import argocd_api_request
 from devops_cli.argo.helm_records import (
     HelmRelease,
     RetirementPlan,
@@ -235,12 +236,15 @@ def cd_apps_list(
         rows: list[list[str]] = []
         try:
             with _argocd_client(settings) as client:
-                resp = client.get(
-                    f"{base}/api/v1/applications",
-                    headers=headers,
-                    timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+                resp = argocd_api_request(
+                    settings,
+                    headers,
+                    lambda sent: client.get(
+                        f"{base}/api/v1/applications",
+                        headers=sent,
+                        timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+                    ),
                 )
-                resp.raise_for_status()
             data = resp.json()
             items = (data.get("items") or []) if isinstance(data, dict) else []
         except Exception as exc:
@@ -298,13 +302,16 @@ def cd_apps_sync(
     base, headers = _argocd(settings)
 
     with _argocd_client(settings) as c:
-        resp = c.post(
-            f"{base}/api/v1/applications/{name}/sync",
-            headers=headers,
-            json=build_sync_request_body(prune=prune, force=force),
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+        argocd_api_request(
+            settings,
+            headers,
+            lambda sent: c.post(
+                f"{base}/api/v1/applications/{name}/sync",
+                headers=sent,
+                json=build_sync_request_body(prune=prune, force=force),
+                timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+            ),
         )
-        resp.raise_for_status()
     print_success(MESSAGES.argo.sync_triggered.format(name=name))
 
 
@@ -345,12 +352,15 @@ def cd_apps_status(
         base, headers = _argocd(settings)
         try:
             with _argocd_client(settings) as client:
-                resp = client.get(
-                    f"{base}/api/v1/applications/{name}",
-                    headers=headers,
-                    timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+                resp = argocd_api_request(
+                    settings,
+                    headers,
+                    lambda sent: client.get(
+                        f"{base}/api/v1/applications/{name}",
+                        headers=sent,
+                        timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+                    ),
                 )
-                resp.raise_for_status()
             item = resp.json()
             app_info = ArgoCDApp.from_api_item(item)
         except Exception as exc:

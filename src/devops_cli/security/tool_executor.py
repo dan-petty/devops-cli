@@ -193,8 +193,10 @@ class ToolRequest(_Frozen):
 
     `config_files` and `ruleset_files` are files outside the sandbox that the tool reads. One file
     names a ruleset, such as a rule pack or the metadata file of a database. The executor binds
-    each of these files read-only and digests its content into the record. `read_only_binds` are
-    the other paths that the tool needs read-only, such as its install directory and a database.
+    each of these files read-only and digests its content into the record. A ruleset file at or
+    below one of `read_only_binds`, such as the database file of osv-scanner, is digested at any
+    size. Every other file over 50 MiB stops the run. `read_only_binds` are the other paths that
+    the tool needs read-only, such as its install directory and a database.
     `writable_dirs` are the directories that the tool writes and that stay after the run, such as
     the cache of mypy. The sandbox binds each one read-write. The direct executor needs neither.
 
@@ -350,33 +352,46 @@ def _resolved_targets(request: ToolRequest) -> tuple[Path, ...]:
     return tuple(sorted((root / target).resolve() for target in request.targets))
 
 
-def _is_small_regular_file(path: Path) -> bool:
-    """Whether `path` is a regular file that is not larger than the cap, so a read of it is bounded.
+def _is_readable_file(path: Path, max_size: int | None) -> bool:
+    """Whether `path` is a regular file that is not larger than `max_size`, so a read of it ends.
 
-    A device or a pipe has no end to read to, and a large file fills the memory.
+    A device or a pipe has no end to read to. `max_size` is None for a file that has no size
+    limit.
     """
     try:
         info = path.stat()
     except OSError:
         return False
-    return stat.S_ISREG(info.st_mode) and info.st_size <= DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
+    return stat.S_ISREG(info.st_mode) and (max_size is None or info.st_size <= max_size)
 
 
-def _files_digest(files: Sequence[Path], *, required: bool = True) -> str:
+def _is_below(path: Path, directories: Sequence[Path]) -> bool:
+    """Whether the file that `path` leads to lies at or below one of `directories`."""
+    resolved = path.resolve()
+    return any(resolved.is_relative_to(directory.resolve()) for directory in directories)
+
+
+def _files_digest(
+    files: Sequence[Path], *, required: bool = True, unlimited_below: Sequence[Path] = ()
+) -> str:
     """A digest of the content of `files`. It does not depend on their paths or their order.
 
-    A file that is missing, is no regular file or is too large raises `SandboxValidationError`,
-    unless the digest is not `required`. Then the digest is `unavailable`.
+    A file at or below one of `unlimited_below` has no size limit: these are the data directories
+    of the tool, such as a database that devops-cli or the user fetched, and not the reviewed
+    tree. Every other file has the limit `DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES`. A file that is
+    missing, is no regular file or is over its limit raises `SandboxValidationError`, unless the
+    digest is not `required`. Then the digest is `unavailable`.
     """
     contents: list[str] = []
     for path in files:
-        content = file_digest(path) if _is_small_regular_file(path) else None
+        max_size = None if _is_below(path, unlimited_below) else DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
+        content = file_digest(path) if _is_readable_file(path, max_size) else None
         if content is None:
             if not required:
                 return CONST_TOOL_DIGEST_UNAVAILABLE
             raise SandboxValidationError(
-                f"The file {path} cannot be read as a regular file of at most "
-                f"{DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES} bytes",
+                f"The file {path} cannot be read as a regular file"
+                + ("" if max_size is None else f" of at most {max_size} bytes"),
                 path=str(path),
             )
         contents.append(content)
@@ -506,8 +521,9 @@ def record_tool_run(
     direct executor gives the network of the host. Such an executor cannot run a network profile,
     so a request that selects one raises `SandboxError`. A checkout that git cannot read raises
     `SandboxError`, unless `require_commit` is false. Then the record holds no commit. A config
-    file or a ruleset file that cannot be read as a regular file raises `SandboxValidationError`,
-    unless `require_files` is false. Then its digest is `unavailable`.
+    file or a ruleset file that cannot be read as a regular file within its size limit raises
+    `SandboxValidationError`, unless `require_files` is false. Then its digest is `unavailable`.
+    A ruleset file below one of `read_only_binds` has no size limit.
     """
     if network is not None and request.network is not None:
         raise SandboxError(
@@ -524,7 +540,11 @@ def record_tool_run(
         executor=executor,
         network=network or profile,
         config_digest=_files_digest(request.config_files, required=require_files),
-        ruleset_digest=_files_digest(request.ruleset_files, required=require_files),
+        ruleset_digest=_files_digest(
+            request.ruleset_files,
+            required=require_files,
+            unlimited_below=request.read_only_binds,
+        ),
         argv_template=_argv_template(request, targets),
         targets_digest=digest([str(target.relative_to(root)) for target in targets]),
         commit=_tree_commit(root, targets, required=require_commit),

@@ -29,10 +29,13 @@ from devops_cli.ai.review_schema import ReviewSessionPayload
 from devops_cli.ai.run_store import digest, file_digest
 from devops_cli.config.constants import (
     CONST_CANARY_WORKDIR_PREFIX,
+    CONST_OSV_DB_DIR_ENV,
+    CONST_OSV_DB_DIR_NAME,
     CONST_REVIEW_SARIF_FILENAME,
     CONST_REVIEW_SCAN_BANDIT_INI,
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
 )
+from devops_cli.config.defaults import DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 from devops_cli.exceptions.sandbox import SandboxValidationError
 from devops_cli.review.anchors import ToolAnchor
 from devops_cli.review.finding import Finding
@@ -81,6 +84,27 @@ def scanners_installed(monkeypatch: pytest.MonkeyPatch) -> None:
         return f"/opt/scanners/{cmd}" if cmd in installed else real_which(cmd, *args, **kwargs)
 
     monkeypatch.setattr(shutil, "which", which)
+
+
+@pytest.fixture(autouse=True)
+def osv_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An empty directory for the offline database of osv-scanner, so a database that the host
+    fetched before gives no case a ruleset file."""
+    cache = tmp_path / "osv-cache"
+    cache.mkdir()
+    monkeypatch.setenv(CONST_OSV_DB_DIR_ENV, str(cache))
+    return cache
+
+
+@pytest.fixture
+def osv_database(osv_cache: Path) -> Path:
+    """The offline database of osv-scanner, with the file of two ecosystems. Answers the
+    directory that osv-scanner reads."""
+    database = osv_cache / CONST_OSV_DB_DIR_NAME
+    for ecosystem in ("PyPI", "npm"):
+        (database / ecosystem).mkdir(parents=True)
+        (database / ecosystem / "all.zip").write_bytes(f"{ecosystem} advisories\n".encode())
+    return database
 
 
 @pytest.fixture
@@ -263,6 +287,63 @@ def test_each_review_scan_names_the_config_files_and_the_ruleset_files_its_tool_
         [path.name for path in request.config_files],
         sorted(path.name for path in request.ruleset_files),
     ) == (config, sorted(ruleset + (pack if tool == "semgrep" else [])))
+
+
+_OSV_SCAN = dict(_REVIEW_SCANS)["osv-scanner"]
+
+
+def test_osv_scanner_names_the_file_of_each_ecosystem_of_its_database_as_ruleset_files(
+    tree: Path, osv_database: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """The ruleset of osv-scanner is its offline database: one `all.zip` for each ecosystem
+    (#2130)."""
+    request = _request_of(_OSV_SCAN, tree, tool_executor_fake)
+
+    assert request.ruleset_files == (
+        osv_database / "PyPI" / "all.zip",
+        osv_database / "npm" / "all.zip",
+    )
+
+
+def test_the_ruleset_digest_of_osv_scanner_follows_the_content_of_its_database(
+    tree: Path, osv_database: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """The same database gives the same digest, and a changed database gives another (#2130)."""
+    first = _run_of(_OSV_SCAN, tree, tool_executor_fake).ruleset_digest
+    same = _run_of(_OSV_SCAN, tree, tool_executor_fake).ruleset_digest
+    (osv_database / "PyPI" / "all.zip").write_bytes(b"PyPI advisories, one more\n")
+    changed = _run_of(_OSV_SCAN, tree, tool_executor_fake).ruleset_digest
+
+    assert first == same
+    assert changed != first
+
+
+def test_osv_scanner_with_no_database_file_names_no_ruleset_file(
+    tree: Path, osv_cache: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """A database directory that holds no `all.zip` gives no ruleset file (#2130)."""
+    (osv_cache / CONST_OSV_DB_DIR_NAME / "PyPI").mkdir(parents=True)
+
+    request = _request_of(_OSV_SCAN, tree, tool_executor_fake)
+
+    assert request.ruleset_files == ()
+    assert _run_of(_OSV_SCAN, tree, tool_executor_fake).ruleset_digest == digest([])
+
+
+def test_a_database_file_of_osv_scanner_over_the_size_cap_still_gets_a_digest(
+    tree: Path, osv_database: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """The npm database is larger than the cap on the files a run reads into memory. The record
+    reads it as a stream, so the scan still runs (#2130)."""
+    npm = osv_database / "npm" / "all.zip"
+    with npm.open("wb") as handle:
+        handle.truncate(DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES + 1)
+
+    run = _run_of(_OSV_SCAN, tree, tool_executor_fake)
+
+    assert run.ruleset_digest == digest(
+        sorted([file_digest(osv_database / "PyPI" / "all.zip"), file_digest(npm)])
+    )
 
 
 def test_ruff_names_every_config_file_it_may_read_from_the_nearest_directory_up_to_the_tree(

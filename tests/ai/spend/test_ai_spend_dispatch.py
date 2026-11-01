@@ -13,6 +13,7 @@ import pytest
 import devops_cli.ai.spend as spend_mod
 from devops_cli.ai import context_budget
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse, RequestPriority
+from devops_cli.ai.client.models import CallSampling
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.spend.models import SpendRecord
 from devops_cli.config.settings import AIConfig
@@ -148,6 +149,7 @@ def _cut_reply(
     *,
     enable_thinking: bool = True,
     priority: RequestPriority | str | None = None,
+    sampling: CallSampling | None = None,
 ) -> LLMResponse:
     return LLMResponse(
         "partial", prompt_tokens=12, completion_tokens=8, total_tokens=20, finish_reason="length"
