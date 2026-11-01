@@ -471,6 +471,8 @@ _DEFAULT_WINDOW: Final[int] = 8192
 # A reply that fails its schema goes back to the model once, with the violations; a second one
 # stops the item.
 _REPLY_RETURNS: Final[int] = 1
+# The model calls of one item at most: the plan, one return of a refused reply, and one split.
+CALLS_PER_ITEM_MAX: Final[int] = 3
 
 
 @dataclass(frozen=True)

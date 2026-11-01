@@ -9,12 +9,10 @@ from typing import Any
 
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.stage import CALLS_PER_ITEM_MAX
 from devops_cli.roadmap.stage_eval_cases import GateName, StageCase
 from devops_cli.roadmap.stage_eval_gates import DefectStatus, ReplayReport
 from devops_cli.roadmap.stage_eval_score import DefectScore, StageScore, pending_reference
-
-# The model calls of one case: the plan, one return of a refused reply, and one split.
-CALLS_PER_CASE_MAX = 3
 
 
 def _percent(value: float | None) -> str:
@@ -159,7 +157,7 @@ def planned_calls(cases: Sequence[StageCase], gateway: str) -> list[PlannedReque
             method="POST",
             target=f"{gateway}/chat/completions",
             stdin=texts.stage_eval_dry_run_case.format(name=case.name),
-            repeat=texts.stage_eval_dry_run_repeat.format(count=CALLS_PER_CASE_MAX),
+            repeat=texts.stage_eval_dry_run_repeat.format(count=CALLS_PER_ITEM_MAX),
         )
         for case in cases
     ]

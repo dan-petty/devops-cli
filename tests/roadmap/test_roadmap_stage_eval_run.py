@@ -6,11 +6,15 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.ai.client.models import AIClientError, AICredentialsError
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AICredentialsError,
+    StructuredOutputValidationError,
+)
 from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap.stage import StagedChange, plan_item
 from devops_cli.roadmap.stage_change import StageProposal
@@ -140,6 +144,20 @@ def test_a_failed_model_call_ends_the_case_failed_with_no_first_reply(
     assert (run.outcome, run.reason, run.first) == (Outcome.FAILED, "AIClientError", None)
 
 
+def test_a_model_that_breaks_the_schema_twice_has_no_first_reply_and_scores_as_neither(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    model_fake.answer(StructuredOutputValidationError("no answer fits the schema", violations=2))
+
+    run = run_case(case, _client(model_fake), stage_repo.clone)
+    score = score_runs("m", [case], [run])
+
+    assert (run.outcome, run.first) == (Outcome.FAILED, None)
+    row = next(r for r in score.rows if r.type is DefectType.MISSING_PATH)
+    assert (row.cases, row.avoided, row.caught, row.rate) == (1, 0, 0, 0.0)
+
+
 def test_rejected_credentials_stop_the_run(
     cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
 ) -> None:
@@ -266,15 +284,33 @@ def test_a_type_with_no_gate_has_a_count_and_no_rate(cases: list[StageCase]) -> 
     assert rows[DefectType.OTHER].gate is GateName.NONE
 
 
-def test_the_total_is_the_share_of_avoided_defects_over_the_scored_types(
+def test_the_kind_row_has_a_count_and_no_rate_because_the_client_enforces_the_schema(
     cases: list[StageCase],
 ) -> None:
     kind = [c for c in cases if DefectType.CONTRIVED_TEST in c.defect_types()][:2]
     clean: dict[GateName, list[str]] = {GateName.PATHS: [], GateName.KIND: []}
-    broken = {GateName.PATHS: [], GateName.KIND: ["a group breaks the schema"]}
 
-    score = score_runs("m", kind, [_run(kind[0].name, clean), _run(kind[1].name, broken)])
+    score = score_runs("m", kind, [_run(c.name, clean) for c in kind])
 
-    assert score.scored[1] >= 2
-    assert cast("float", score.total) == score.scored[0] / score.scored[1]
+    row = next(r for r in score.rows if r.type is DefectType.CONTRIVED_TEST)
+    assert (row.gate, row.cases, row.avoided, row.caught, row.rate) == (
+        GateName.KIND,
+        2,
+        None,
+        None,
+        None,
+    )
+
+
+def test_the_total_is_the_share_of_avoided_defects_over_the_scored_types(
+    cases: list[StageCase],
+) -> None:
+    paths = [c for c in cases if DefectType.MISSING_PATH in c.defect_types()][:2]
+    clean: dict[GateName, list[str]] = {GateName.PATHS: [], GateName.KIND: []}
+    refused = {GateName.PATHS: ["a path is missing"], GateName.KIND: []}
+
+    score = score_runs("m", paths, [_run(paths[0].name, clean), _run(paths[1].name, refused)])
+
+    assert score.scored == (1, 2)
+    assert score.total == 0.5
     assert score_runs("m", [], []).total is None

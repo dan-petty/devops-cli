@@ -5,7 +5,9 @@ defect of that type, and how the model did on them. The model *avoided* the defe
 reply of the model passes the gate. The gate *caught* it when the first reply fails the gate, so
 the job sent the reply back. A reply that never came counts as neither. The score of the run is
 the share of avoided defects over the cases of the types that a gate catches. A type with no gate
-yet is listed with its count and has no rate: a reviewer judges it.
+yet is listed with its count and has no rate: a reviewer judges it. The `kind` gate is listed the
+same way: the client enforces the schema of a reply inside one call, so the first reply cannot fail
+that gate and a rate would stay near 100 percent. Only the replay measures it.
 
 A change to the stage prompt or to the checks states this score before and after in its pull
 request (docs/ROADMAP_WORKFLOW.md).
@@ -20,11 +22,15 @@ from devops_cli.roadmap.stage_eval_cases import DefectType, GateName, StageCase
 from devops_cli.roadmap.stage_eval_gates import PENDING_GATES, gate_for
 from devops_cli.roadmap.stage_eval_run import CaseRun, Outcome
 
+# The gates that a live run cannot measure, as the client sends a broken reply back unseen.
+_UNMEASURED = frozenset({GateName.PENDING, GateName.NONE, GateName.KIND})
+
 
 @dataclass(frozen=True)
 class DefectScore:
     """The score of one type of defect. `gate` is the gate that catches it, `pending` when the
-    gate is planned, or `none`. `avoided` and `caught` are None when no gate judges the type."""
+    gate is planned, or `none`. `avoided` and `caught` are None when the run cannot judge the
+    type: no gate exists, or the gate is `kind`."""
 
     type: DefectType
     gate: GateName
@@ -67,7 +73,7 @@ def _first_problems(run: CaseRun | None, gate: GateName) -> list[str] | None:
     """The problems of `gate` in the first reply of the run, or None when no reply came."""
     if run is None or run.first is None:
         return None
-    return run.first.get(gate, [])
+    return run.first.get(gate)
 
 
 def _row(
@@ -75,7 +81,7 @@ def _row(
 ) -> DefectScore:
     known = [case for case in cases if defect_type in case.defect_types()]
     gate = gate_for(defect_type)
-    if gate in (GateName.PENDING, GateName.NONE):
+    if gate in _UNMEASURED:
         return DefectScore(defect_type, gate, len(known), None, None)
     seen = [_first_problems(runs.get(case.name), gate) for case in known]
     return DefectScore(

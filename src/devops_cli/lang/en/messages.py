@@ -2923,9 +2923,6 @@ class RoadmapMessages:
         "number of its issue."
     )
     stage_eval_over_budget: str = "A task group is over the step budget."
-    stage_eval_schema_failed: str = (
-        "The model broke the schema of the reply twice, so the run saw no reply."
-    )
     stage_eval_no_value: str = "-"
     stage_eval_replay_title: str = (
         "# Stage golden set, replay through the gates: {cases} case(s), {good} good"

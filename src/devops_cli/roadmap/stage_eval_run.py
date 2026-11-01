@@ -8,7 +8,8 @@ reply is judged by the gates again, against the tree of the checkout, so the sco
 model did before the gates sent a reply back.
 
 The client sends a reply that breaks the schema back to the model inside one call, so the run
-cannot see it. A run that ends on a schema failure counts as a `kind` problem of the first reply.
+cannot see it. A case whose model breaks the schema twice ends `failed` with no first reply: the
+score counts it as neither avoided nor caught.
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ from pydantic import BaseModel
 from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
-    StructuredOutputValidationError,
 )
 from devops_cli.exceptions import RoadmapStageError, ToolExecutionError
 from devops_cli.lang import MESSAGES
@@ -155,17 +155,10 @@ def run_case(
             raise
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
             outcome, reason = _ended(exc)
-            if isinstance(exc, StructuredOutputValidationError) and not recorder.replies:
-                return CaseRun(case.name, outcome, reason, recorder.calls, _schema_failure())
         first = (
             _first_reply_problems(case, recorder.replies[0], source) if recorder.replies else None
         )
     return CaseRun(case.name, outcome, reason, recorder.calls, first)
-
-
-def _schema_failure() -> dict[GateName, list[str]]:
-    """The problems of a first reply that the schema refused twice: the `kind` gate fails."""
-    return {GateName.PATHS: [], GateName.KIND: [MESSAGES.roadmap.stage_eval_schema_failed]}
 
 
 def run_cases(
