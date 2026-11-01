@@ -207,6 +207,16 @@ CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 # The pre-commit stage of the hooks that run on `git push`.
 CONST_PRE_COMMIT_PRE_PUSH_STAGE: Final[str] = "pre-push"
+# The pre-commit stage of the hooks that run on `git commit`.
+CONST_PRE_COMMIT_COMMIT_STAGE: Final[str] = "pre-commit"
+# The variable that names the directory of the hook environments, and its folder in the cache
+# directory of the data directory.
+CONST_PRE_COMMIT_HOME_ENV: Final[str] = "PRE_COMMIT_HOME"
+CONST_PRE_COMMIT_HOME_DIR: Final[str] = "pre-commit"
+# The file in the cache directory that holds the configuration of the hooks as the default branch
+# has it. The implement job runs every hook stage with it, so an edit of the agent to
+# `.pre-commit-config.yaml` skips no hook (#3043).
+CONST_PRE_COMMIT_TRUSTED_CONFIG_FILE: Final[str] = "pre-commit-trusted-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
@@ -1641,7 +1651,8 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # binding.gyp, starts the interpreter of npm_config_python and of PYTHON.
     # npm reads `npm_config_script-shell` as `npm_config_script_shell`, so `[_-]` matches both.
     # npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: callers set
-    # them, and a caller names a file that it controls.
+    # them, and a caller names a file that it controls. npm_config_cache stays accepted for the
+    # same reason (#2747): `devops install-tools` sets it, and npm writes its log below it.
     "UV_PYTHON",
     "UV_PYTHON_INSTALL_DIR",
     "UV_PROJECT_ENVIRONMENT",
@@ -1659,10 +1670,14 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # connection to SSLKEYLOGFILE, and curl writes a QUIC log to the directory of QLOGDIR.
     # node(1): Node.js writes coverage data to the directory of NODE_V8_COVERAGE and its warnings
     # to the file of NODE_REDIRECT_WARNINGS. The LD_ keys of the loader are the pattern above.
+    # pytest writes a JUnit file at the path of `--junitxml=<path>` in PYTEST_ADDOPTS, and npm
+    # writes its debug log into the directory of npm_config_logs_dir (#2747).
     "SSLKEYLOGFILE",
     "QLOGDIR",
     "NODE_V8_COVERAGE",
     "NODE_REDIRECT_WARNINGS",
+    "PYTEST_ADDOPTS",
+    "NPM_CONFIG_LOGS[_-]DIR",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",
@@ -3040,6 +3055,20 @@ CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
 # gives the count of the rest.
 CONST_ROADMAP_IMPLEMENT_REASON_TESTS: Final[int] = 10
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
+# The most characters of the output of a hook stage that a step keeps (#3043). The stop comment and
+# the message of a repair turn cut a reason to the limit above, so the output leaves room for the
+# line that names the stage. The output keeps its end, where pre-commit prints the failed hooks.
+CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS: Final[int] = 3000
+# The rows of `devops ci` that the scoped checks of the implement job run over the final tree of an
+# item, with `--check`, before its push (#3043). The `pre-push` stage of the hooks and the tests of
+# the changed files are the other two scoped checks. A test holds that each name is a row.
+CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS: Final[tuple[str, ...]] = ("constructs", "docs", "openspec")
+# The most test modules that the scoped `tests` check runs (#3043). A change to a module that most
+# tests import, such as the constants or the messages, selects hundreds of modules (333 of 725 for
+# one item). On 2 CPUs, as in a Job, 12 test modules of the roadmap ran in 88 s, about 7 s each: 30
+# modules take about 3.5 minutes, far inside the time limit of a command. Above the limit the check
+# runs only the test modules that the item changed, and the required checks of CI run the rest.
+CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES: Final[int] = 30
 # The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
 # of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
 # multiple of the limit: the masking of secrets is slower than linear, and the message of an error
@@ -4618,6 +4647,8 @@ CONST_OSV_OFFLINE_DB_TTL_SECONDS: Final[float] = 86400.0  # 24 hours TTL
 # databases` wrote `osv-scalibr/PyPI/all.zip` there on 2026-10-24 (#2096).
 CONST_OSV_DB_DIR_ENV: Final[str] = "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY"
 CONST_OSV_DB_DIR_NAME: Final[str] = "osv-scalibr"
+# The offline database file of one ecosystem, in a directory of its own below `osv-scalibr` (#2130).
+CONST_OSV_DB_FILE_NAME: Final[str] = "all.zip"
 CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
     "uv.lock",
     "poetry.lock",

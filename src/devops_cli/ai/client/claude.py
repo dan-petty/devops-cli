@@ -13,6 +13,7 @@ import httpx2
 from devops_cli.ai.client.base import BaseLLMProviderMixin, _clean_http_error_body
 from devops_cli.ai.client.models import (
     AIClientError,
+    CallSampling,
     LLMResponse,
     origin_label,
     provider_finish_reason,
@@ -106,8 +107,12 @@ def _build_anthropic_kwargs(
     completion_limit: int | None,
     *,
     enable_thinking: bool = True,
+    sampling: CallSampling | None = None,
 ) -> dict[str, Any]:
-    """Construct Messages API parameters with dynamic capabilities and sampling parity."""
+    """Construct Messages API parameters with dynamic capabilities and sampling parity.
+
+    A per-call `temperature` or `top_p` replaces the configured one under the same gate. The
+    Messages API takes no seed, so a per-call seed is not sent."""
     model_name = getattr(config, "model", "") or ""
     clean_model = model_name.replace(":thinking", "").strip()
     caps = _get_model_capabilities(sdk_client, clean_model)
@@ -142,10 +147,11 @@ def _build_anthropic_kwargs(
     )
     extra_body: dict[str, Any] = {}
     if send_sampling:
-        if getattr(config, "temperature", None) is not None:
-            extra_body["temperature"] = float(config.temperature)
-        if getattr(config, "top_p", None) is not None:
-            extra_body["top_p"] = float(config.top_p)
+        chosen = (sampling or CallSampling()).over(config)
+        if chosen.temperature is not None:
+            extra_body["temperature"] = float(chosen.temperature)
+        if chosen.top_p is not None:
+            extra_body["top_p"] = float(chosen.top_p)
     if extra_body:
         kwargs["extra_body"] = extra_body
 
@@ -310,6 +316,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         sdk_client = self._anthropic_client
         kwargs = _build_anthropic_kwargs(
@@ -319,6 +326,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
             messages,
             self._completion_limit(),
             enable_thinking=enable_thinking,
+            sampling=sampling,
         )
         start_time = time.monotonic()
         with _map_anthropic_errors(

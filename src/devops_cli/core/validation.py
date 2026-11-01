@@ -6,6 +6,7 @@ import functools
 import ipaddress
 import logging
 import re
+import socket
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -190,64 +191,21 @@ _CLOUD_METADATA_DNS_NAMES: frozenset[dns.name.Name] = frozenset(
 )
 
 
-def _parse_part(part: str) -> int | None:
-    """Parse one numeric address component as octal, hex, or decimal."""
-    if not part:
-        return None
-    try:
-        if (
-            part.startswith("0")
-            and len(part) > 1
-            and not part.startswith(("0x", "0X", "0o", "0O", "0b", "0B"))
-        ):
-            n = int(part, 8)
-        else:
-            n = int(part, 0)
-    except ValueError:
-        return None
-    return n if n >= 0 else None
-
-
-def _combine_ipv4_parts(nums: list[int]) -> int | None:
-    """Combine 1 to 4 numeric parts into a 32-bit integer according to inet_aton rules."""
-    count = len(nums)
-    if count == 1:
-        return nums[0] if nums[0] <= 0xFFFFFFFF else None
-    if count == 2:
-        return ((nums[0] << 24) | nums[1]) if nums[0] <= 0xFF and nums[1] <= 0xFFFFFF else None
-    if count == 3:
-        valid = nums[0] <= 0xFF and nums[1] <= 0xFF and nums[2] <= 0xFFFF
-        return ((nums[0] << 24) | (nums[1] << 16) | nums[2]) if valid else None
-    if count == 4:
-        valid = all(n <= 0xFF for n in nums)
-        return ((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]) if valid else None
-    return None
-
-
-def _parse_legacy_ipv4(host: str) -> ipaddress.IPv4Address | None:
-    """Parse legacy inet_aton forms (integers, octal, hex, multi-part) without socket.inet_aton."""
-    parts = host.split(".")
-    if not (1 <= len(parts) <= 4):
-        return None
-    nums: list[int] = []
-    for p in parts:
-        parsed = _parse_part(p)
-        if parsed is None:
-            return None
-        nums.append(parsed)
-    val = _combine_ipv4_parts(nums)
-    return ipaddress.IPv4Address(val) if val is not None else None
-
-
 def parse_numeric_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    """Parse an IPv4 or IPv6 literal, including legacy inet_aton forms, without getaddrinfo."""
+    """Parse an IPv4 or IPv6 literal, or a legacy IPv4 spelling such as `0177.0.0.1` or `127.1`.
+
+    `ipaddress` reads a literal, an IPv6 zone ID included. The C library reads a legacy spelling
+    through `getaddrinfo` with `AI_NUMERICHOST`, by the rules of the resolver, and makes no DNS
+    query (#2152).
+    """
     try:
         return ipaddress.ip_address(host)
     except ValueError:
         pass
     try:
-        return _parse_legacy_ipv4(host)
-    except OSError, ValueError:
+        answers = socket.getaddrinfo(host, None, flags=socket.AI_NUMERICHOST)
+        return ipaddress.ip_address(answers[0][4][0])
+    except OSError, UnicodeError:
         return None
 
 

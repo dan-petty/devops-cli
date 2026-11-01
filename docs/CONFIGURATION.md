@@ -198,7 +198,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `hardware_cost_usd` | `float` | `0.0` | `DEVOPS_CLI_AI_HARDWARE_COST_USD` | Cost in USD of the local AI hardware, which `devops ai cost` compares with the savings |
 | `reasoning_effort` | `Union` | - | `DEVOPS_CLI_AI_REASONING_EFFORT` | AI reasoning effort level (low | medium | high) |
 | `supports_reasoning` | `bool` | `False` | - | - |
-| `use_model_sampling` | `bool` | `False` | - | Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p. |
+| `use_model_sampling` | `bool` | `False` | - | Leave sampling parameters to the model. When true, requests carry neither temperature, top_p nor seed. |
 | `temperature` | `float` | `0.1` | - | - |
 | `top_p` | `float` | `0.95` | - | - |
 | `context_window` | `int` | `32768` | - | - |
@@ -270,7 +270,7 @@ roadmap configuration settings.
 |---|---|---|---|---|
 | `alternatives` | `AlternativesConfig` | `limit=5 recheck_days=30 retry_days=3` | - | - |
 | `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 step_tokens=40000` | - | - |
-| `implement` | `RoadmapImplementConfig` | `in_runner=False` | - | - |
+| `implement` | `RoadmapImplementConfig` | `in_runner=False repair_rounds=3` | - | - |
 
 ## Firecrawl Configuration (`firecrawl`)
 

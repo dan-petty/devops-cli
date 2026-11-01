@@ -48,7 +48,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
@@ -75,13 +75,21 @@ from devops_cli.exceptions import (
     RoadmapImplementError,
 )
 from devops_cli.git.worktree_add import add_worktree
+from devops_cli.github.check_verdict import PRCheckItem
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
 from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
+from devops_cli.roadmap.implement_hooks import install_hook_environments, trusted_config
 from devops_cli.roadmap.implement_pull import WatchKind, failed_log, mark_ready, watch_pull
+from devops_cli.roadmap.implement_scoped_ci import (
+    ScopedResult,
+    plan_tests,
+    run_scoped_checks,
+    scoped_checks,
+)
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
@@ -99,6 +107,17 @@ from devops_cli.security.sanitizer import mask_secrets
 
 _TIMEOUT = CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS
 _WHY_HEADINGS = frozenset({"why"})
+
+
+class _Mark(NamedTuple):
+    """How many outcomes, scoped runs and notes the item had at one moment (#3043)."""
+
+    outcomes: int
+    scoped: int
+    notes: int
+
+
+_NOTHING_YET = _Mark(0, 0, 0)
 
 
 class _StopError(Exception):
@@ -249,6 +268,10 @@ class _ItemRun:
     step: str = ""
     change: str = ""
     outcomes: list[StepOutcome] = field(default_factory=list)
+    # Every run of a scoped check (#3043), in order, the failed runs too, and the notes that say why
+    # the tests check was narrower than the changed files.
+    scoped: list[ScopedResult] = field(default_factory=list)
+    scoped_notes: list[str] = field(default_factory=list)
     # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
     pull: int | None = field(init=False)
 
@@ -348,6 +371,22 @@ class _ItemRun:
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
         self._sync(push_on_conflict=False)
+        self._install_hooks()
+
+    def _hooks_config(self) -> Path | None:
+        """The configuration of the hooks as the default branch has it, or None when it has none.
+        Every hook run reads this copy, never the file of the checkout, which the agent can edit
+        (#3043)."""
+        return trusted_config(self.path, f"origin/{self.default}")
+
+    def _install_hooks(self) -> None:
+        """Fetch the hook environments before the first model request, so that no network failure
+        wastes a step. A failure stops the item with nothing to push (#3043)."""
+        self.step = MESSAGES.roadmap.implement_step_names["hooks"]
+        config = self._hooks_config()
+        failure = install_hook_environments(self.path, config) if config else None
+        if failure is not None:
+            raise _StopError(self.step, failure, push=False)
 
     def _sync(self, *, push_on_conflict: bool = True) -> None:
         """Fetch the default branch and rebase onto it. A conflict aborts the rebase, which puts the
@@ -396,17 +435,22 @@ class _ItemRun:
                 source=self.path,
                 model=self.model,
                 window=self.window,
+                hooks=self._hooks_config(),
             )
             self.outcomes.append(outcome)
             if outcome.status is StepStatus.STOPPED:
                 raise _stopped_by(self.step, outcome)
             self._record(group=str(group.number), sha=outcome.commit)
 
-    def _finish_change(self) -> None:
-        names = MESSAGES.roadmap.implement_step_names
-        self.step = names["docs"]
+    def _generate_docs(self) -> None:
+        """Generate the documents and commit what changed."""
+        self.step = MESSAGES.roadmap.implement_step_names["docs"]
         self._program([BIN_UV, "run", BIN_DEVOPS, "docs", "generate", "--sync-readme"])
         self._commit_if_changed(f"docs: regenerate the documentation (#{self.number})")
+
+    def _finish_change(self) -> None:
+        names = MESSAGES.roadmap.implement_step_names
+        self._generate_docs()
         change = self._active_change()
         if change is None:
             return
@@ -420,10 +464,60 @@ class _ItemRun:
         tip yet: its first push publishes the branch. The number of the pull request."""
         self.step = MESSAGES.roadmap.implement_step_names["push"]
         self._sync()
+        self._scoped_checks()
+        self.step = MESSAGES.roadmap.implement_step_names["push"]
         if self.pull is None:
             return self._publish()
         self._push_with_lease()
         return self.pull
+
+    def _scoped_run(self) -> ScopedResult | None:
+        """Run the scoped checks for the paths the item changed, and keep their results for the
+        comment. The first failed result, or None when every check passed."""
+        listed = self._git(
+            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
+        )
+        changed = [name for name in listed.split("\0") if name]
+        tests = plan_tests(self.path, changed)
+        if tests.note and tests.note not in self.scoped_notes:
+            self.scoped_notes.append(tests.note)
+        checks = scoped_checks(self.default, tests.paths, config=self._hooks_config())
+        results = run_scoped_checks(self.path, checks)
+        self.scoped.extend(results)
+        return next((result for result in results if not result.passed), None)
+
+    def _scoped_checks(self) -> None:
+        """Run the checks a person runs before a push (#3043), and give a failed check to a fix
+        step, at most `roadmap.implement.repair_rounds` times. The documents are generated again
+        after each fix, because a fix can change a command or an option. The job pushes only a head
+        that passed them, so any stop in this phase pushes nothing, an error or a command that ran
+        out of time too. Raises `_StopError`."""
+        try:
+            self._scoped_rounds()
+        except _StopError as stop:
+            stop.push = False
+            raise
+        except AICredentialsError, GitHubUnauthenticatedError:
+            raise
+        except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
+            raise _error_stop(self.step, exc, push=False) from exc
+
+    def _scoped_rounds(self) -> None:
+        """The runs of the scoped checks, and the fix step after each failed run."""
+        names = MESSAGES.roadmap.implement_step_names
+        budget = load_settings().roadmap.implement.repair_rounds
+        for used in range(budget + 1):
+            self.step = names["scoped"]
+            failed = self._scoped_run()
+            if failed is None:
+                return
+            if used == budget:
+                reason = MESSAGES.roadmap.implement_stop_scoped_failed.format(
+                    name=failed.name, rounds=budget, command=failed.command, output=failed.log
+                )
+                raise _StopError(self.step, reason)
+            self._fix(failed.name, failed.log)
+            self._generate_docs()
 
     def _push_with_lease(self) -> None:
         remote = self._git("rev-parse", f"origin/{self.branch}")
@@ -494,11 +588,44 @@ class _ItemRun:
         )
         client = get_github_session().client
         client.update_pull(self.repo, pull, title=self._delivery_title(), body=body)
-        lines = "\n".join(self._outcome_line(o) for o in self.outcomes)
+        self._comment(pull, _NOTHING_YET)
+
+    def _mark(self) -> _Mark:
+        """How many outcomes, scoped runs and notes there are now, for `_comment`."""
+        return _Mark(len(self.outcomes), len(self.scoped), len(self.scoped_notes))
+
+    def _comment(self, pull: int, since: _Mark) -> None:
+        """Comment on the pull request with the steps, the scoped runs and the notes that came
+        after `since`: the repair rounds are in the trace (#3043)."""
+        texts = MESSAGES.roadmap
+        lines = [
+            *(self._outcome_line(outcome) for outcome in self.outcomes[since.outcomes :]),
+            *self._scoped_lines(since),
+        ]
         comment = texts.implement_pull_comment.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=lines or "-"
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines="\n".join(lines) or "-"
         )
-        client.comment_on_pull(self.repo, pull, comment)
+        get_github_session().client.comment_on_pull(self.repo, pull, comment)
+
+    def _scoped_lines(self, since: _Mark) -> list[str]:
+        """One line for each run of a scoped check after `since`: its name, its result and its
+        seconds. Then one line for each note on the tests check."""
+        texts = MESSAGES.roadmap
+        runs = [
+            texts.implement_pull_comment_scoped.format(
+                name=result.name,
+                result=texts.implement_scoped_passed
+                if result.passed
+                else texts.implement_scoped_failed,
+                seconds=result.seconds,
+            )
+            for result in self.scoped[since.scoped :]
+        ]
+        notes = [
+            texts.implement_pull_comment_scoped_note.format(note=note)
+            for note in self.scoped_notes[since.notes :]
+        ]
+        return [*runs, *notes]
 
     def _outcome_line(self, outcome: StepOutcome) -> str:
         texts = MESSAGES.roadmap
@@ -508,20 +635,33 @@ class _ItemRun:
             title=outcome.title,
             status=outcome.status.value,
             requests=outcome.requests,
+            rounds=outcome.repair_rounds,
             commit=commit if outcome.commit else "",
         )
 
     def _checks(self, pull: int) -> None:
-        """Watch the checks. A failed check gets one fix step; a second failure stops the item."""
+        """Watch the checks. A failed check gets a fix step, a push and a new watch, at most
+        `roadmap.implement.repair_rounds` times (#3043). A check that still fails after the last
+        round stops the item."""
         self.step = MESSAGES.roadmap.implement_step_names["checks"]
+        budget = load_settings().roadmap.implement.repair_rounds
         watch = watch_pull(self.repo, pull, self._head())
-        if watch.kind is WatchKind.FAILED and watch.check is not None:
-            self._fix(watch.check.name, failed_log(self.repo, watch.check))
-            self._push()
-            self.step = MESSAGES.roadmap.implement_step_names["checks"]
+        for _round in range(budget):
+            if watch.kind is not WatchKind.FAILED or watch.check is None:
+                break
+            self._repair_after_push(pull, watch.check)
             watch = watch_pull(self.repo, pull, self._head())
         if watch.kind is not WatchKind.READY:
             raise _StopError(self.step, watch.reason)
+
+    def _repair_after_push(self, pull: int, check: PRCheckItem) -> None:
+        """One repair round for the failed check `check` of the pull request: a fix step, the push
+        (with the scoped checks), and a comment that shows the round."""
+        since = self._mark()
+        self._fix(check.name, failed_log(self.repo, check))
+        self._push()
+        self._comment(pull, since)
+        self.step = MESSAGES.roadmap.implement_step_names["checks"]
 
     def _fix(self, check: str, log: str) -> None:
         self.step = MESSAGES.roadmap.implement_step_fix
@@ -532,6 +672,7 @@ class _ItemRun:
             source=self.path,
             model=self.model,
             window=self.window,
+            hooks=self._hooks_config(),
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
@@ -636,6 +777,14 @@ class _ItemRun:
         return ""
 
 
+def _error_stop(step: str, exc: Exception, *, push: bool = True) -> _StopError:
+    """The stop that an error ends the run with: its class and its message, secrets masked."""
+    reason = MESSAGES.roadmap.implement_stop_error.format(
+        error=type(exc).__name__, message=mask_secrets(str(exc))
+    )
+    return _StopError(step, reason, push=push)
+
+
 def _implement_item(
     store: RoadmapStore,
     repo: str,
@@ -659,11 +808,7 @@ def _implement_item(
         except AICredentialsError, GitHubUnauthenticatedError:
             raise
         except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
-            texts = MESSAGES.roadmap
-            reason = texts.implement_stop_error.format(
-                error=type(exc).__name__, message=mask_secrets(str(exc))
-            )
-            return run.end_stopped(_StopError(run.step, reason))
+            return run.end_stopped(_error_stop(run.step, exc))
     return _Ended.READY
 
 
