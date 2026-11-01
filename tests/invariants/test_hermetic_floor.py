@@ -468,6 +468,65 @@ def test_a_config_write_outside_the_run_fails_at_the_write_naming_the_test(
     assert _tree(outside) == {**before, "notes.txt": "notes\n"}
 
 
+def test_a_spend_ledger_write_outside_the_run_fails_at_the_write_naming_the_test(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test that opens a spend ledger for writing outside its run's temporary directory
+    fails at that operation, naming itself, also when it catches the failure, and so does
+    a SpendLedger instantiation pointing outside. A spend ledger under tmp_path stays
+    writable (#2192)."""
+    outside = pytester.path / "outside"
+    outside.mkdir(parents=True)
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        f"""
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        from devops_cli.ai.spend.ledger import SpendLedger
+
+        OUTSIDE = Path({str(outside)!r})
+
+        def test_opens_spend_ledger_for_writing():
+            SpendLedger(OUTSIDE / "spend.db")
+
+        def test_direct_sqlite3_connect_outside():
+            sqlite3.connect(str(OUTSIDE / "spend.db"))
+
+        def test_direct_file_write_outside():
+            (OUTSIDE / "spend.db").write_text("corrupted\\n", encoding="utf-8")
+
+        def test_catches_the_failure():
+            try:
+                SpendLedger(OUTSIDE / "spend.db")
+            except Exception:
+                pass
+
+        def test_writes_spend_ledger_under_tmp_path(tmp_path):
+            SpendLedger(tmp_path / "spend.db")
+
+        def test_writes_another_db_outside():
+            conn = sqlite3.connect(str(OUTSIDE / "other.db"))
+            conn.close()
+        """,
+    )
+    result.assert_outcomes(passed=2, failed=4, errors=4)
+    output = result.stdout.str()
+    refused = [
+        line for line in output.splitlines() if "spend ledger write outside the run's" in line
+    ]
+    failing = {
+        "test_opens_spend_ledger_for_writing",
+        "test_direct_sqlite3_connect_outside",
+        "test_direct_file_write_outside",
+        "test_catches_the_failure",
+    }
+    named = {test for test in failing for line in refused if f"::{test} (call)" in line}
+    assert named == failing
+
+
 def test_test_modules_repeat_no_floor_resets() -> None:
     """None of the 15 autouse fixtures repeating floor resets remain in test modules (#2173)."""
     import ast

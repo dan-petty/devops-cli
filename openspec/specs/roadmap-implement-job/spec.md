@@ -378,6 +378,17 @@ The job SHALL take no Item that holds `owner/agent` or `owner/human`, `--item` i
 - **WHEN** a Staged Item holds `owner/service`
 - **THEN** the plan selects it
 
+### Requirement: The plan lists the items that matched no filter when asked
+`implement --plan` SHALL list, under "Matched no filter" and only with `--why`, each open item that the filter does not name. Each line SHALL name the family that the item misses, the values the filter takes, and the value the item has. The section SHALL not be part of "Left out". Without `--why`, the output SHALL not change.
+
+#### Scenario: Why
+- **WHEN** the default filter is in force and a Planned item holds `effort/medium`
+- **THEN** `implement --plan --why` lists the item under "Matched no filter" with the family `effort`
+
+#### Scenario: No why
+- **WHEN** the same plan runs without `--why`
+- **THEN** the output has no section "Matched no filter"
+
 ### Requirement: A workstation starts the runner Job for one Item
 `devops roadmap implement --item <n> --confirm` with `roadmap.implement.in_runner` false SHALL start the runner Job through the code of `devops k8s run-job --template runner`, with the args `roadmap implement --repo <repo> --item <n> --confirm`. The repository SHALL be `--repo` or the origin of the checkout. The command SHALL follow the log and exit with the exit code of the container, or with `--no-wait` print the name of the Job.
 

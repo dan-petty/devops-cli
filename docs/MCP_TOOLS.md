@@ -670,7 +670,6 @@ Audit OS Keyring token health, backend status, and zero-plaintext secret complia
 |---|---|---|---|---|
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `config_output`
 

@@ -82,7 +82,7 @@ runner = CliRunner()
     ("app_instance", "args"),
     COMMAND_SPECS,
 )
-def test_subcommand_apps_help_and_dryrun(app_instance, args: list[str]) -> None:
+def test_subcommand_apps_help_and_dryrun(app_instance, args: list[str], keyring_store: Any) -> None:
     """Validate that every subcommand app accepts --help or --dry-run with exit code 0."""
     result = runner.invoke(app_instance, args)
     assert result.exit_code == 0, f"Command {' '.join(args)} failed with output:\n{result.output}"

@@ -10,8 +10,11 @@ import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
+
+if TYPE_CHECKING:
+    from devops_cli.ai.spend.ledger import SpendLedger
 
 import httpx2
 import pytest
@@ -40,6 +43,11 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.roadmap.refine import RefinementProposal
 from devops_cli.telemetry.tracer import get_tracer
 from tests.llm_stream_fakes import make_anthropic_model_info_payload, route_client
+
+
+@pytest.fixture(autouse=True)
+def _isolate_spend_for_structured_tests(spend_ledger: SpendLedger) -> None:
+    """Isolate spend records for structured client tests (#2192)."""
 
 
 class DemoReport(BaseModel):

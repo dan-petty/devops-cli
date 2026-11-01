@@ -32,6 +32,10 @@ change is ticked. A run takes at most `--limit` items,
 the highest priority first. `--item` takes the one item it names and does not apply the filter or
 the limit.
 
+**Why.** `--why` adds to the plan the open items that the filter does not name, under their own
+heading, each with the family it misses (`StageFilter.mismatch`). `devops roadmap explain` gives the
+reason of one issue for this job and for the stage job (#2911).
+
 **Retry.** A person clears a stop with the comment `implement: retry`, made after the comment
 of the job that told of the stop. Only a comment of the owner, a member or a collaborator counts
 (`retry_asked`). The row `implement` of the Service reads it for an item that it set Blocked
@@ -78,8 +82,10 @@ from devops_cli.roadmap.refine import inspect_checkout
 from devops_cli.roadmap.stage import (
     LeftOut,
     StageFilter,
+    named_items,
     parse_filters,
-    priority_order,
+    unmatched_items,
+    walk_named,
 )
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
@@ -133,7 +139,10 @@ class ImplementTarget:
 @dataclass(frozen=True)
 class ImplementPlan:
     """What a run does: the items to implement, and the items the filter names that the job leaves
-    out, each with its reason. A dry run holds the requests of a run and nothing else."""
+    out, each with its reason. `unmatched` holds the open items that the filter does not name, only
+    when the plan was asked for them (`--why`). `beyond` holds the numbers of the items that pass
+    every rule but come after the limit (`walk_named`). A dry run holds the requests of a run and
+    nothing else."""
 
     repo: str
     selected: tuple[ImplementTarget, ...] = ()
@@ -141,6 +150,8 @@ class ImplementPlan:
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
     write_requests: tuple[PlannedRequest, ...] = ()
+    unmatched: tuple[LeftOut, ...] = ()
+    beyond: tuple[int, ...] = ()
 
 
 class RecordedBranch(NamedTuple):
@@ -318,9 +329,9 @@ def _named(judge: _Judge, store: RoadmapStore, number: int) -> ImplementPlanPart
     """The selection of `--item`: the item when the job may take it, else why not."""
     item = store.item(number)
     if item is None:
-        return (), (LeftOut(number, MESSAGES.roadmap.implement_left_not_item),)
+        return (), (LeftOut(number, MESSAGES.roadmap.item_left_not_item),)
     if item.state is not GitHubState.OPEN:
-        return (), (_left(item, MESSAGES.roadmap.implement_left_closed),)
+        return (), (_left(item, MESSAGES.roadmap.item_left_closed),)
     verdict = judge.judge(item)
     if isinstance(verdict, str):
         return (), (_left(item, verdict),)
@@ -336,11 +347,16 @@ def plan_implement(
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     planned: PlannedChanges | None = None,
+    why: bool = False,
+    probe: int | None = None,
+    remote_heads: str | None = None,
 ) -> ImplementPlan:
     """Plans a run without a write to git or to GitHub: up to `limit` Staged or Planned items that
     `filters` name, and the named items that the job leaves out. `source` is the clone of the
     repository. `planned` is the plans on the default branch when the caller read them already
-    (the Service reads them once for a round, #2920)."""
+    (the Service reads them once for a round, #2920). With `why`, the plan also lists the open
+    items that the filter does not name. `probe` is the issue that `walk_named` judges also after
+    the limit (#2911). `remote_heads` is the heads of `origin` when the caller read them already."""
     checkout = Path(source)
     inspect_checkout(checkout, repo)
     client = get_github_session().client
@@ -348,7 +364,7 @@ def plan_implement(
         store,
         repo=repo,
         source=checkout,
-        remote_heads=read_remote_heads(checkout),
+        remote_heads=read_remote_heads(checkout) if remote_heads is None else remote_heads,
         planned=(
             read_planned_changes(checkout, operation=GIT_OPERATION) if planned is None else planned
         ),
@@ -357,25 +373,14 @@ def plan_implement(
     if item_number is not None:
         selected, left_out = _named(judge, store, item_number)
         return ImplementPlan(repo, selected, left_out)
-    named = sorted(
-        (
-            item
-            for item in store.items()
-            if item.state is GitHubState.OPEN and filters.matches(item)
-        ),
-        key=priority_order,
+    walked = walk_named(named_items(store, filters), judge.judge, limit, probe=probe)
+    return ImplementPlan(
+        repo,
+        walked.taken,
+        walked.left_out,
+        unmatched=unmatched_items(store, filters) if why else (),
+        beyond=walked.beyond,
     )
-    selected_list: list[ImplementTarget] = []
-    left_list: list[LeftOut] = []
-    for item in named:
-        if len(selected_list) >= limit:
-            break
-        verdict = judge.judge(item)
-        if isinstance(verdict, str):
-            left_list.append(_left(item, verdict))
-        else:
-            selected_list.append(verdict)
-    return ImplementPlan(repo, tuple(selected_list), tuple(left_list))
 
 
 def dry_run_implement(
@@ -407,9 +412,14 @@ def render_implement_plan(plan: ImplementPlan) -> str:
         texts.implement_job_left_line.format(number=x.number, title=x.title, reason=x.reason)
         for x in plan.left_out
     ]
+    unmatched = [
+        texts.implement_job_left_line.format(number=x.number, title=x.title, reason=x.reason)
+        for x in plan.unmatched
+    ]
     for heading, rows in (
         (texts.implement_job_heading_ready, ready),
         (texts.implement_job_heading_left, left),
+        (texts.item_heading_unmatched, unmatched),
     ):
         if rows:
             lines += ["", heading, *rows]

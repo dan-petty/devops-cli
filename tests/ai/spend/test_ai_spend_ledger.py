@@ -156,7 +156,9 @@ def test_spend_ledger_reset(tmp_path: Path) -> None:
     assert (count_before, count_after) == (1, 0)
 
 
-def test_track_request_spend_graceful_error_handling(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_track_request_spend_graceful_error_handling(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
     """Verify track_request_spend traps any database exceptions and never crashes the caller."""
 
     def fail_record(*args: object, **kwargs: object) -> None:

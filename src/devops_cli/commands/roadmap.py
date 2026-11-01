@@ -1,7 +1,7 @@
 """`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
 refine readies items, stage makes a Ready item Staged, implement takes a Staged or Planned item
-to a ready pull request, return sends an item back to New, and claim and release say who works
-on an item.
+to a ready pull request, return sends an item back to New, claim and release say who works
+on an item, and explain says why the stage job and the implement job take an item or leave it out.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
@@ -9,7 +9,8 @@ and their fields, and no command reads or writes a project board (ADR 0016). Int
 `release` write GitHub state only with `--confirm`; `stage` and `implement` also write git, only to
 the staged branch of an item and never to the default branch. `implement --confirm` runs steps only
 in a runner pod. Outside one, `implement --item <n> --confirm` starts the runner Job for the item
-(#2913). A person plans the milestones; no command sets one.
+(#2913). `explain` reads GitHub and git, calls no model and writes nothing. A person plans the
+milestones; no command sets one.
 
 Every job's `--dry-run` makes no request at all (#412, #1125): it returns the job's result type
 marked as a dry run and prints the requests a run makes, each with its exact `gh` command.
@@ -359,6 +360,7 @@ def stage_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.stage_dry_run)] = False,
     plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.stage_plan)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.stage_confirm)] = False,
+    why: Annotated[bool, typer.Option("--why", help=HELP.roadmap.stage_why)] = False,
 ) -> None:
     """Make Ready items Staged: a branch, an OpenSpec change in budgeted task groups, and a draft."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
@@ -394,6 +396,7 @@ def stage_cmd(
             item_number=item,
             limit=limit,
             step_tokens=step_tokens,
+            why=why,
         )
     write_stdout(render_stage_plan(plan) + "\n")
     failures = list(plan.failed)
@@ -583,6 +586,7 @@ def _implement_job(
     dry_run: bool,
     plan_only: bool,
     confirm: bool,
+    why: bool,
     context: str | None = None,
     wait: bool = True,
 ) -> None:
@@ -635,7 +639,13 @@ def _implement_job(
         _, store = _open_store(target)
         clone = source or model_clone(target)
         plan = plan_implement(
-            store, repo=target, source=clone, filters=parsed, item_number=item, limit=limit
+            store,
+            repo=target,
+            source=clone,
+            filters=parsed,
+            item_number=item,
+            limit=limit,
+            why=why,
         )
     write_stdout(render_implement_plan(plan) + "\n")
     if not confirm:
@@ -693,6 +703,7 @@ def implement_cmd(
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.implement_confirm)
     ] = False,
+    why: Annotated[bool, typer.Option("--why", help=HELP.roadmap.implement_why)] = False,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
@@ -711,16 +722,63 @@ def implement_cmd(
             dry_run=dry_run,
             plan_only=plan_only,
             confirm=confirm,
+            why=why,
             context=context,
             wait=wait,
         )
         return
-    if filters or plan_only or confirm:
+    if filters or plan_only or confirm or why:
         _refuse(MESSAGES.roadmap.implement_step_job_options)
     from devops_cli.output.serialization import resolve_format
 
     fmt = resolve_format(output_format, json_output=json_output)
     _implement_step(repo, source, item, group, fmt, dry_run=dry_run)
+
+
+@app.command("explain", help=HELP.roadmap.explain)
+@dry_run_class("request-plan")
+def explain_cmd(
+    item: Annotated[int, typer.Argument(min=1, help=HELP.roadmap.explain_arg)],
+    repo: RepoOption = None,
+    source: Annotated[
+        Path | None, typer.Option("--source", help=HELP.roadmap.explain_source)
+    ] = None,
+    filters: Annotated[
+        list[str] | None, typer.Option("--filter", help=HELP.roadmap.explain_filter)
+    ] = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.explain_limit)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.explain_dry_run)] = False,
+) -> None:
+    """Say whether the stage job and the implement job take an issue, and why not."""
+    from devops_cli.roadmap.explain import explain_item, render_explanation
+    from devops_cli.roadmap.implement import parse_implement_filters
+    from devops_cli.roadmap.request_plan import explain_requests
+    from devops_cli.roadmap.run import model_clone
+    from devops_cli.roadmap.stage import parse_filters
+
+    target = _target(repo)
+    if dry_run or is_dry_run():
+        reads, writes = explain_requests(target, item=item)
+        render_dry_run("explain", target, reads, writes)
+        return
+    with _exit_on_failure("Could not read the options"):
+        stage_filters = parse_filters(filters or ())
+        implement_filters = parse_implement_filters(filters or ())
+    with _exit_on_failure("Could not explain the issue"):
+        _, store = _open_store(target)
+        explained = explain_item(
+            store,
+            repo=target,
+            source=source or model_clone(target),
+            number=item,
+            stage_filters=stage_filters,
+            implement_filters=implement_filters,
+            stage_limit=limit,
+            implement_limit=limit,
+        )
+    write_stdout(render_explanation(explained) + "\n")
 
 
 def _resolve_comment(comment: str, comment_file: Path | None) -> str:

@@ -279,7 +279,7 @@ class _ItemRun:
         """The item as it is now: a field write refuses an item read before an earlier write."""
         held = self.store.item(self.number)
         if held is None:
-            raise RoadmapImplementError(MESSAGES.roadmap.implement_left_not_item)
+            raise RoadmapImplementError(MESSAGES.roadmap.item_left_not_item)
         return held
 
     def _spend(self) -> str:

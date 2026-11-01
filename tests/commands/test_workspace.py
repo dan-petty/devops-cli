@@ -134,9 +134,9 @@ def test_workspace_edge_cases_and_clean(tmp_path: Path) -> None:
         )
         assert res_open_err.exit_code != 0
 
-        # Clean with dry-run
-        res_clean_dry = runner.invoke(workspace_app, ["clean", "--dry-run", "--older-than", "5"])
-        assert res_clean_dry.exit_code == 0
+        # Clean with older-than
+        res_clean = runner.invoke(workspace_app, ["clean", "--older-than", "5"])
+        assert res_clean.exit_code == 0
 
         # Clean when no artifacts
         mock_empty_summary = CleanupSummary(freed_bytes=0, pruned_files=[], pruned_dirs=[])

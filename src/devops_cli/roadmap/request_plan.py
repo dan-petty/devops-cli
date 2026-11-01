@@ -688,6 +688,21 @@ def implement_requests(
     return tuple(reads), tuple(writes)
 
 
+def explain_requests(
+    repo: str, *, item: int
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap explain` reads, in order (#2911). It makes no write and no model call.
+    It reads what the plan of the implement job reads, which covers the clone, the issues, the
+    branches and the change folders, and the open issue that a stage item depends on. The
+    command reads the heads of `origin` and the plans once and gives them to both jobs, so the list
+    holds each read once."""
+    reads, _ = implement_requests(repo, item=item)
+    blockers = within(
+        StoreRequests(repo).issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"]
+    )
+    return (*reads, *blockers), ()
+
+
 def render_dry_run(
     job: str,
     repo: str,
@@ -711,6 +726,7 @@ def render_dry_run(
 __all__ = [
     "StoreRequests",
     "alternatives_requests",
+    "explain_requests",
     "implement_requests",
     "is_page_repeat",
     "milestones_close_requests",

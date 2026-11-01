@@ -113,6 +113,46 @@ def test_a_left_out_item_is_reported_with_its_reason(
     assert "- #1 wip: no type: The title has no Conventional Commit type" in result.output
 
 
+def test_why_lists_the_items_that_matched_no_filter_apart_from_the_left_out_items(
+    cli: Cli, roadmap_store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    seed_stageable(roadmap_store)
+
+    result = _stage(cli, stage_repo, "--plan", "--filter", "priority=p0-critical", "--why")
+
+    assert result.exit_code == 0, result.output
+    assert "## Matched no filter" in result.output
+    assert (
+        "- #1 fix(roadmap): the job drops a comment: The filter takes priority p0-critical. "
+        "The item has priority p1-high." in " ".join(result.output.split())
+    )
+    assert "## Left out" not in result.output
+
+
+def test_without_why_the_plan_has_no_section_for_the_items_that_matched_no_filter(
+    cli: Cli, roadmap_store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    seed_stageable(roadmap_store)
+
+    result = _stage(cli, stage_repo, "--plan", "--filter", "priority=p0-critical")
+
+    assert result.exit_code == 0, result.output
+    assert "Matched no filter" not in result.output
+    assert "No item to stage." in result.output
+
+
+def test_the_items_that_matched_no_filter_are_not_counted_as_skipped() -> None:
+    from devops_cli.roadmap.stage import LeftOut, StageApplied, StagePlan, stage_results
+
+    plan = StagePlan(
+        STAGE_REPO,
+        left_out=(LeftOut(1, "reason"),),
+        unmatched=(LeftOut(2, "The filter takes effort low. The item has effort high."),),
+    )
+
+    assert set(stage_results(plan, StageApplied())) == {1}
+
+
 def test_a_failed_item_makes_the_command_exit_1_after_the_others(
     cli: Cli,
     roadmap_store: InMemoryRoadmapStore,

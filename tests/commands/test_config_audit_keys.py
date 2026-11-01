@@ -57,10 +57,10 @@ def global_config_with_a_secret(write_global_config: Callable[[bytes], Path]) ->
 
 
 def test_config_audit_keys_dry_run() -> None:
-    """Verify dry-run execution of config audit-keys command."""
-    result = runner.invoke(app, ["audit-keys", "--dry-run"])
+    """Verify dry-run execution of config audit-keys command runs audit normally."""
+    result = runner.invoke(app, ["audit-keys"], env={"DEVOPS_CLI_DRY_RUN": "true"})
     assert result.exit_code == 0
-    assert "COMPLIANT_DRY_RUN" in result.output or "audit_keyring_and_secrets" in result.output
+    assert "Keyring & Secret Health Audit" in result.output
 
 
 def test_config_audit_keys_json_output() -> None:

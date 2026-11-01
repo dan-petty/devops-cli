@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
+
+if TYPE_CHECKING:
+    from devops_cli.ai.spend.ledger import SpendLedger
 
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse, ReplyRejectedError
 from devops_cli.config.defaults import DEFAULT_AI_MAX_RETRIES, DEFAULT_HTTP_TIMEOUT_SECONDS
@@ -97,7 +101,11 @@ def test_llm_client_chat_exhausts_retries_and_raises(
     ],
 )
 def test_a_reply_the_validator_refuses_comes_back_on_the_error(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, content: str, rejection: type[Exception]
+    monkeypatch: pytest.MonkeyPatch,
+    public_dns: str,
+    content: str,
+    rejection: type[Exception],
+    spend_ledger: SpendLedger,
 ) -> None:
     """Verify a reply the caller's validator refuses raises ReplyRejectedError carrying it, with
     the message callers already match, while an empty reply or an error payload, which no

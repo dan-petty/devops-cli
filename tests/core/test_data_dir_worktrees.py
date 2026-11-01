@@ -983,30 +983,31 @@ def test_a_project_in_a_home_directory_kept_in_git_keeps_its_own_data(
     )
 
 
-def test_workspace_clean_dry_run_names_and_checks_what_it_would_prune(
+def test_workspace_clean_in_dry_run_prunes_as_no_external_request(
     repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify `devops workspace clean --dry-run` names the data directory and the entries it would
-    prune, keeping them, and refuses a data directory the real run refuses."""
+    """Verify `devops --dry-run workspace clean` executes as no-external-request,
+    and refuses a data directory the real run refuses."""
+    from devops_cli.main import app
+
     main, linked = repo_with_worktree
     stale = _stale(main / "shared-data" / "logs" / "old.log")
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "shared-data")
     monkeypatch.chdir(linked)
     runner = CliRunner()
 
-    planned = runner.invoke(workspace_app, ["clean", "--dry-run"])
+    planned = runner.invoke(app, ["--dry-run", "workspace", "clean"])
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", ".git")
-    refused = runner.invoke(workspace_app, ["clean", "--dry-run"])
+    refused = runner.invoke(app, ["--dry-run", "workspace", "clean"])
     output = "".join(planned.output.split())
 
     assert (
         planned.exit_code,
         str((main / "shared-data").resolve()) in output,
-        "logs/old.log" in output,
-        stale.exists(),
+        not stale.exists(),
         refused.exit_code,
         "notadedicateddatadirectory" in "".join(refused.output.split()),
-    ) == (0, True, True, True, 1, True)
+    ) == (0, True, True, 1, True)
 
 
 def test_the_library_drift_report_is_saved_in_the_shared_analysis_directory(
