@@ -15,7 +15,7 @@ The project already has a HEAD resolver: `tag_digest` in `src/devops_cli/docker/
 - `resolve_image` and `resolve_image_pins` call `tag_digest` with the HTTP client of `new_http_client` at the public egress level. `inspect_command` goes. A dry run opens no client and sends no request.
 - The dry-run message names the HEAD request, not the buildx command. The help text of the command and the documents that name `docker buildx imagetools inspect` change with it.
 - The fake `ImagetoolsFake`, its recording, its record and its contract suite go. The tests double the registry at the HTTP edge with the existing `RegistryFake` and `stub_web`.
-- `tools.lock` and the steps of the `image-pins` job do not change. Only the comment of the job changes.
+- `tools.lock` and the steps of the `image-pins` job do not change. Only the comment and the paths filter of the job change.
 - The change fits one pull request.
 - Spec delta: the command, its message and its resolver are observable, so the change carries a delta in `k8s-image-pins`. It modifies two requirements.
 
@@ -33,7 +33,7 @@ None.
 
 - Code: `src/devops_cli/docker/registry.py`, `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/commands/k8s/image_pins.py`, `src/devops_cli/lang/en/messages.py`.
 - Tests: `tests/docker/test_registry_tag_digest.py`, `tests/k8s/test_image_pins.py`. Deleted: `tests/support/fakes/imagetools.py`, `tests/support/imagetools_recording.py`, `tests/k8s/test_imagetools_contract.py`, `tests/fixtures/imagetools_runs/recorded_runs.json`.
-- Documents: `docs/SDLC.md`, `docs/TESTING.md`, `k8s/README.md`, the comment of the `image-pins` job in `.github/workflows/ci.yml`, and the generated `README.md`, `docs/CLI_REFERENCE.md` and `docs/commands/k8s.md`.
+- Documents: `docs/SDLC.md`, `docs/TESTING.md`, `k8s/README.md`, the comment and the paths filter of the `image-pins` job in `.github/workflows/ci.yml` (the filter gets `src/devops_cli/docker/registry.py`, where the resolver now lives), and the generated `README.md`, `docs/CLI_REFERENCE.md` and `docs/commands/k8s.md`.
 - Callers and tests that must keep passing: `check_pins` in `src/devops_cli/argo/image_pins.py` (`tests/argo/test_image_pins.py`), and the pin tests of the `image-pins` job in `tests/invariants/test_workflow_contracts.py`.
 
 ## Acceptance
