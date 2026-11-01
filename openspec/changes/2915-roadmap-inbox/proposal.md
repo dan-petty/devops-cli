@@ -1,0 +1,78 @@
+# Proposal
+
+## Why
+
+Issue #2915, part W7 of the tracker #2908. What waits for a person is spread over many places: plan pull requests to merge (G1), implementation pull requests to merge (G2), the release pull request (G3), stopped items, old claims, and repository state such as labels that are not synced. On 2026-10-31 the owner could not tell whether three pull requests (#2857 to #2859) were drafts in progress or finished.
+
+No command shows the whole list. A person must open the pull request list, the issue list and the labels page, and then guess which pull request belongs to a job.
+
+## What Changes
+
+- New command `devops roadmap inbox`. It prints, in this order, the lines that wait for a person:
+  1. ready plan pull requests of the jobs (G1),
+  2. ready implementation pull requests of the jobs (G2),
+  3. the open release pull request (G3),
+  4. items in `status/blocked`, each with its cause,
+  5. old claims: an `owner/*` label with no activity for `CONST_ROADMAP_INBOX_CLAIM_DAYS` days (7),
+  6. repository state that a person owns: labels that `.github/labels.yml` declares and the repository lacks or holds with another color or description.
+- Each line has the number, the age and the one command or action that clears it.
+- A second list, "Pull requests of people and agents", holds every other open pull request, so a person's own pull requests are apart from the jobs'. A draft is shown as a draft, with the command that moves it on.
+- A pull request belongs to a job when the job record of an open item names it: `implement.pr` makes it an implementation pull request, `stage.pr` a plan pull request. The release pull request is the open pull request whose head branch starts with `release-please--branches--`. A draft of a job is not listed: it waits for its checks, not for a person.
+- The command is read-only and calls no model. Its dry-run class is `request-plan`: `--dry-run` makes no request and lists the reads of a run.
+- The store gets three reads: `open_items`, `open_pulls` and `repository_labels`. `Item` gets `updated_at`. `StoreRequests` gets the matching plan entries, so the dry run lists the same requests the run sends.
+- `docs/ROADMAP_WORKFLOW.md` names the command and drops #2915 from "Planned changes".
+- Observable behavior changes (a command and its output), so the change carries a spec delta. The delta only adds a capability; it modifies and removes no requirement.
+- The change fits one pull request.
+
+### Requests, and the budget
+
+A run sends only reads:
+
+| Read | Pages or requests |
+| :--- | :--- |
+| Open issues and pull requests (`issues?state=open`) | one page for each 100, now 2 |
+| Open pull requests (`pulls?state=open`) | one page for each 100, now 1 |
+| Repository labels (`labels`) | one page for each 100, now 1 |
+| `.github/labels.yml` on the default branch | 1 |
+| Newest commit that changed `.github/labels.yml` | 1, only when the labels differ |
+
+Today a run sends 5 requests, or 6 when the labels differ. The number grows with the open issues and pull requests, and not with the closed ones. The old design read every issue, which is about 30 pages. If the Service ran the inbox at each 10-minute round of one repository, it would send about 36 requests an hour, which is 7 percent of `service.github_requests_per_hour` (500). This change does not run it in the Service. The metrics of W10 (#2919) decide that.
+
+### Out of scope
+
+- **A Grafana panel.** The data path is not trivial: the panel needs the counts as metrics, and those are W10 (#2919). The command prints the list now; W10 adds the metrics from the same function.
+- **The image digest not yet rolled.** The read needs the registry and the Argo CD Application, which means a call to the cluster that the Service budget does not count and a workstation may not have. `devops argo cd apps status devops` already reads both and exits 1 when the pin is old. The inbox leaves the digest out and says so in the command help.
+- **Branch commits for a claim.** The activity of a claim is the newest update of its issue or of its open pull request. A commit date for a branch with no pull request needs one more request for each claim. The workflow opens a draft pull request with the first push, so the gap is short.
+
+## Capabilities
+
+### New Capabilities
+
+- `roadmap-inbox`: the command that lists what waits for a person, with the age and the clearing step of each line.
+
+### Modified Capabilities
+
+None.
+
+## Impact
+
+- Code: `src/devops_cli/roadmap/inbox.py` (new), `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/github_store.py`, `src/devops_cli/roadmap/memory_store.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/roadmap/title_labels.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`.
+- Documents: `docs/ROADMAP_WORKFLOW.md`; `README.md` and the command reference under `docs/` are regenerated by `devops docs generate --sync-readme`.
+- Tests: `tests/roadmap/test_roadmap_inbox.py` (new), `tests/roadmap/test_roadmap_inbox_command.py` (new), `tests/roadmap/test_roadmap_store_contract.py`, `tests/roadmap/test_roadmap_github_store.py`.
+
+## Feasibility
+
+Checked on 2026-10-31 and 2026-11-01 against the real system:
+
+- Pull requests carry what the list needs. `devops gh api "repos/dan-petty/devops-cli/pulls?state=open&per_page=1"` returns `draft`, `user.login`, `head.ref`, `html_url`, `created_at` and `updated_at`. One listing of 100 pull requests holds all open ones (3 today).
+- A job pull request is known from the job record. `StageRecordKey.PR` and `ImplementRecordKey.PR` hold the number of the pull request (`roadmap/store.py`). The stage job records `stage.pr` when it opens the draft, and the implement job records `implement.pr`. A staged item keeps one pull request through both jobs, so `implement.pr` wins over `stage.pr`.
+- The release pull request has a fixed branch. The closed release pull requests of this repository (`pulls?state=closed`) all have the head branch `release-please--branches--main--components--devops-cli`, the form that release-please gives (`release-please--branches--<branch>`). The inbox matches the prefix.
+- The branch form gives the issue of a person's pull request. `issue_of_branch` in `src/devops_cli/git/branch_form.py` reads `<type>/<issue>-<slug>`. The inbox uses it for the activity of a claim.
+- The label diff exists. `diff_labels` in `src/devops_cli/github/labels.py` partitions the declared labels into create, update and unchanged. The repository has 91 labels, so one page reads them.
+- Open issues are cheap to read, closed ones are not. The repository reports 137 open issues and pull requests (`open_issues_count`). The listing `state=all` that the store caches is about 30 pages. So the inbox reads `state=open`.
+- The dry-run rule. `tests/invariants/test_dry_run_class_ratchet.py` needs a class on every command. The inbox reads GitHub, so its class is `request-plan` and it declares `--dry-run`, as `claim` and `explain` do.
+- The premise holds. No part of the item needs code that works around a missing tool.
+
+## Existing Tool Considered
+
+`gh pr list`, `gh issue list` and `gh-dash` (adopted for the pull request views) list pull requests and issues. None knows which pull request is a job's, which gate it waits at, or what a claim record says, so none gives the list in the order of the gates with one clearing step for each line. The change reuses `RoadmapStore`, `diff_labels`, `declared_label_specs`, `issue_of_branch`, `format_duration`, `StoreRequests` and `render_dry_run`. It builds `inbox.py` (about 200 lines) and three store reads. The written cost is about 80 000 tokens to build and review, and the tests keep the rest. It deletes no code.
