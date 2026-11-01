@@ -1,21 +1,21 @@
 # Tasks
 
-## 1. Add EmbeddingsError guard for empty Ollama URL list
+## 1. The embedder raises an EmbeddingsError for an empty Ollama URL list
 
-Reads: none. Changes: `src/devops_cli/ai/rag/embeddings.py`, `tests/ai/rag/test_embeddings.py`.
+Reads: `src/devops_cli/ai/rag/embeddings.py` (lines 160-190, 862-877, 1021-1050), `src/devops_cli/lang/en/errors.py` (lines 284-300), `tests/ai/rag/test_rag_embeddings.py` (lines 1-37, 79-97, 612-625). Changes: `src/devops_cli/ai/rag/embeddings.py`, `src/devops_cli/lang/en/errors.py`, `tests/ai/rag/test_rag_embeddings.py`.
 
-- [ ] 1.1 Write a test that constructs EmbeddingsEngine with ai.provider set to ollama and ai.ollama_urls set to an empty list. Call embed_texts with one text. Assert that EmbeddingsError is raised and its message contains the embedding_no_provider text. Assert that ZeroDivisionError is not raised, and verify that `uv run devops ci test tests/ai/rag/test_embeddings.py` fails on the base
-- [ ] 1.2 In _embed_ollama, after urls = self._get_ollama_urls(), add a guard: if urls is empty, raise EmbeddingsError with ERRORS.rag.embedding_no_provider formatted with self.model and self.ai_config.provider, and details with model and provider. This guard sits before any batch computation, and verify that `uv run devops ci test tests/ai/rag/test_embeddings.py` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 1.1 Write the failing test `test_ollama_provider_with_no_url_raises_embeddings_error_naming_the_setting` in `tests/ai/rag/test_rag_embeddings.py`, after `test_no_provider_configured_raises_and_caches_nothing`, in the same shape. Build `EmbeddingsEngine(AIConfig(provider="ollama", ollama_urls=[]), valkey_client=mock_valkey)` with the `_MockValkey` of the file, and call `embed_texts(["hello world"])`. Assert that it raises `EmbeddingsError` with the message `Embedding model {engine.model} has no Ollama URL: ai.provider is 'ollama' and ai.ollama_urls is empty. Set ai.ollama_urls`, the details `{"model": engine.model, "provider": "ollama"}`, an empty cache (`engine._cache.size == 0`) and an empty `mock_valkey.store`. And verify that `uv run devops ci test tests/ai/rag/test_rag_embeddings.py -k no_url_raises_embeddings_error` fails on the base: the call raises `ZeroDivisionError`, which `pytest.raises(EmbeddingsError)` does not catch
+- [ ] 1.2 Add `embedding_no_ollama_urls` to `RAGErrorMessages` in `src/devops_cli/lang/en/errors.py`, after `embedding_no_provider`, with the text of 1.1. In `_embed_ollama` of `src/devops_cli/ai/rag/embeddings.py`, after `urls = self._get_ollama_urls()`, raise `EmbeddingsError(ERRORS.rag.embedding_no_ollama_urls.format(model=self.model, provider=self.ai_config.provider), details={"model": self.model, "provider": self.ai_config.provider})` when `urls` is empty, before any batch work. Leave `_dispatch_embed` and `embedding_no_provider` as they are. And verify that `uv run devops ci test tests/ai/rag/test_rag_embeddings.py tests/lang/test_language_catalogs.py` passes, with the other tests of the file that use `ollama_urls=[]` still green because they replace `_dispatch_embed`
 
-## 2. Replace intake handoff with gh issue create
+## 2. The hardening audit files its finding without a model
 
-Reads: none. Changes: `.github/workflows/defect-pr-hardening-audit.yml`, `tests/workflows/test_defect_pr_hardening_audit.py`.
+Reads: `.github/workflows/defect-pr-hardening-audit.yml`, `tests/invariants/test_workflow_contracts.py` (lines 1-45, 374-456). Changes: `.github/workflows/defect-pr-hardening-audit.yml`, `tests/invariants/test_workflow_contracts.py`.
 
-- [ ] 2.1 Write a test that reads the workflow YAML file. Parse the handoff step. Assert that the step's run block contains gh issue create. Assert that the step's run block does not contain devops roadmap intake, and verify that `uv run devops ci test tests/workflows/test_defect_pr_hardening_audit.py` fails on the base
-- [ ] 2.2 In the handoff step of .github/workflows/defect-pr-hardening-audit.yml, replace the uv run devops roadmap intake command with gh issue create. Pass the title, the body file, and a label for priority. Keep the existing INTAKE_BODY heredoc and the sed substitution. Remove the uv run prefix since gh is a runner binary, and verify that `uv run devops ci test tests/workflows/test_defect_pr_hardening_audit.py` passes
-- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 2.1 The verification of the group is `uv run devops ci test tests/invariants/test_workflow_contracts.py` and `uv run devops ci actionlint`. Both must pass after the group. A third check, `! git grep -n "roadmap intake" -- .github/workflows/defect-pr-hardening-audit.yml`, must print nothing. Make 2.2 and 2.3 in one commit, because the contract test fails between them
+- [ ] 2.2 In the step "Hand unhardened defect finding to intake" of `.github/workflows/defect-pr-hardening-audit.yml`, replace the last line (`uv run devops roadmap intake ... --confirm`) with `uv run devops gh issues create --repo "$GITHUB_REPOSITORY" --title "fix(hardening): defect PR #${PR_NUMBER} missing declared surface hardening" --body "$(cat "$INTAKE_BODY")" --label source/agent`. Keep the heredoc and the `sed` line. Add a comment above the command: the runner has no model, so `devops roadmap intake` cannot run there; the issue has no `priority/*` label, so the next intake round places it. Set no priority and no milestone
+- [ ] 2.3 In `tests/invariants/test_workflow_contracts.py`, change `assert_audit_workflow_contract`: the failure path must run `devops gh issues create` with `source/agent`, and must not run `devops roadmap intake` or pass a `priority/` label. Change `mutated3` of `test_defect_pr_hardening_audit_workflow_mutation` to replace `gh issues create` with `create_repository_issue` and expect an `AssertionError` that matches the new message. Add a `mutated4` that puts `devops roadmap intake` back in the step and expects an `AssertionError` that matches `no model`
+- [ ] 2.4 Run the three checks of 2.1 and confirm that they pass
 
 ## Workflow follow-up
 
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- Pending a person: after the merge, the first merged defect pull request that adds no guardrail shows an issue filed by the step "Hand unhardened defect finding to intake" in its run of the audit. No test can run a GitHub runner.
