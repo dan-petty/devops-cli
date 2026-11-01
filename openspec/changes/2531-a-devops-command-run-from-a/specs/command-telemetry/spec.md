@@ -1,22 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: Deleted CWD returns no git directory
-_resolve_git_dir SHALL return None when Path.cwd() raises OSError because the working directory no longer exists.
+### Requirement: A span starts without VCS attributes when the working directory is gone
+The telemetry client SHALL start a span, with no `vcs.*` attribute and no exception, when the working directory of the process no longer exists. When the working directory exists and lies inside a git repository, the span SHALL hold the branch and the revision of that repository in its `vcs.*` attributes.
 
-#### Scenario: CWD deleted before call
-- **WHEN** Path.cwd() raises FileNotFoundError because the process working directory was removed
-- **THEN** _resolve_git_dir returns None and no exception propagates to the caller
+#### Scenario: The working directory was removed
+- **WHEN** the working directory of the process is removed and a client starts a span
+- **THEN** the span starts and holds no `vcs.ref.name`, `vcs.branch`, `vcs.revision_id` and `vcs.commit` attribute
 
-### Requirement: Command completes without traceback from deleted CWD
-A devops command run from a deleted working directory SHALL complete without an unhandled FileNotFoundError traceback from the telemetry setup.
-
-#### Scenario: gh api from deleted directory
-- **WHEN** a devops gh api command runs after its working directory has been deleted
-- **THEN** the command exits with a clean result or a single error line, not a traceback
-
-### Requirement: Normal resolution unaffected
-_resolve_git_dir SHALL return the correct git directory when the working directory exists and contains a .git entry.
-
-#### Scenario: CWD inside a git repository
-- **WHEN** the process working directory exists and is inside a git repository
-- **THEN** _resolve_git_dir returns the path to the .git directory
+#### Scenario: The working directory is inside a git repository
+- **WHEN** the working directory holds a `.git` directory whose `HEAD` names a branch and whose branch file holds a revision, and a client starts a span
+- **THEN** the span holds that branch in `vcs.ref.name` and `vcs.branch`, and that revision in `vcs.revision_id` and `vcs.commit`
