@@ -13,7 +13,6 @@ import typer
 from pydantic import TypeAdapter
 
 from devops_cli.config.constants import (
-    CONST_CONFIG_UNSET_COMMAND,
     CONST_GH_CLI,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_SECRET_FILE_MAX_BYTES,
@@ -54,7 +53,9 @@ from devops_cli.config.settings import (
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -122,6 +123,7 @@ def _gh_auth_status() -> bool:
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def show(
     output_format: Annotated[
         str,
@@ -175,6 +177,7 @@ def show(
 
 
 @app.command("get")
+@dry_run_class("no-external-request")
 def get_value(
     key: Annotated[str, typer.Argument(help=HELP.config.key)],
 ) -> None:
@@ -253,6 +256,7 @@ def _secret_from_file(key: str, value: str | None, source: BinaryIO) -> str:
 
 
 @app.command("set")
+@dry_run_class("no-external-request")
 def set_value(
     key: Annotated[str, typer.Argument(help=HELP.config.key)],
     value: Annotated[str | None, typer.Argument(help=HELP.config.value)] = None,
@@ -260,6 +264,10 @@ def set_value(
         typer.FileBinaryRead | None,
         typer.Option("--from-file", metavar="PATH", help=HELP.config.from_file),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden.
 
@@ -274,6 +282,12 @@ def set_value(
         if from_file is None
         else _secret_from_file(key, value, from_file)
     )
+    if dry_run or is_dry_run():
+        if key in _SECRET_FIELDS:
+            print_info(f"Would store secret '{key}' in keyring.", prefix=False)
+        else:
+            print_info(f"Would set {key} = {value}", prefix=False)
+        return
     settings = load_settings()
     try:
         dotted_set(settings, key, value)
@@ -297,12 +311,9 @@ def set_value(
 
 
 @app.command("unset")
+@dry_run_class("no-external-request")
 def unset_value(
     key: Annotated[str, typer.Argument(help=HELP.config.key)],
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.config.unset_dry_run),
-    ] = False,
 ) -> None:
     """Remove a key from the config file, also a key that stops the settings from loading.
 
@@ -314,16 +325,7 @@ def unset_value(
     stays. Store a credential before you remove it, with `devops config set <key>`, or with
     `--from-file <path>` for a multi-line one.
     """
-    preview = dry_run or is_dry_run()
-    removal = remove_config_key(key, dry_run=preview)
-    if preview:
-        render_dry_run_result(
-            command=CONST_CONFIG_UNSET_COMMAND,
-            action="remove_config_key",
-            target=removal.path,
-            details={"key": removal.key, "line": removal.line, "diff": removal.diff.splitlines()},
-        )
-        return
+    removal = remove_config_key(key, dry_run=False)
     print_success(
         MESSAGES.config.unset_success.format(key=removal.key, path=removal.path, line=removal.line),
         prefix=False,
@@ -363,8 +365,34 @@ def _validate_wizard_service_url(url: str, purpose: str, *, allow_private: bool)
 
 
 @app.command()
-def init() -> None:  # noqa: C901
+@dry_run_class("request-plan")
+def init(  # noqa: C901
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Interactive first-time setup wizard."""
+    if dry_run or is_dry_run():
+        plans = [
+            PlannedRequest(
+                method="gh",
+                target="auth status",
+                argv=("gh", "auth", "status"),
+            ),
+        ]
+        if json_output:
+            emit_serialized(
+                {"dry_run": True, "requests": [r.__dict__ for r in plans]},
+                "json",
+            )
+            return
+        render_request_plan("devops config init", plans)
+        return
     settings = load_settings()
     print_info("[bold]devops-cli setup wizard[/bold]\n", prefix=False)
 
@@ -501,6 +529,7 @@ def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[objec
 @app.command("output")
 @app.command("env")
 @app.command("env-vars")
+@dry_run_class("no-external-request")
 def output_env_vars(  # noqa: C901
     export: Annotated[
         bool,
@@ -602,6 +631,7 @@ def output_env_vars(  # noqa: C901
 
 
 @app.command("auth-headless")
+@dry_run_class("no-external-request")
 def auth_headless(
     key: Annotated[str, typer.Argument(help=HELP.config.secret_key)],
     token: Annotated[str, typer.Argument(help=HELP.config.secret_token)],
@@ -626,6 +656,7 @@ def auth_headless(
 
 
 @app.command("audit-stream")
+@dry_run_class("no-external-request")
 def audit_stream(
     destination: Annotated[str, typer.Argument(help=HELP.config.destination)],
 ) -> None:
@@ -697,6 +728,7 @@ def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> tuple[list[str], 
 
 
 @app.command("audit-keys")
+@dry_run_class("no-external-request")
 def audit_keys_cmd(
     output_format: Annotated[
         str,
@@ -706,25 +738,8 @@ def audit_keys_cmd(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. The audit scans each config file that the settings merge: the global config file and the project config file. It also scans config.yaml and .devops/config.yaml in the current directory. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit. The alert of a leak names two commands. `devops config set <key>` stores a credential in the keyring. Add `--from-file <path>` for a multi-line credential, such as a PEM key. `DEVOPS_CLI_CONFIG=<file> devops config unset <key>` removes the value from the file of the leak."""
-    if dry_run:
-        render_dry_run_result(
-            command="devops config audit-keys",
-            action="audit_keyring_and_secrets",
-            details={
-                "backend": "OS Keyring / SecretService",
-                "zero_plaintext_compliance": "VERIFIED",
-                "keys_checked": ["grafana.token", "argocd.token", "ai.api_key"],
-                "status": "COMPLIANT_DRY_RUN",
-            },
-        )
-        return
-
     backend = backend_info()
     backend_name = backend.name
     backend_priority = backend.priority

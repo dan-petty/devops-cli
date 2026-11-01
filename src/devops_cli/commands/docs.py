@@ -17,7 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DOCS_FORMAT,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_text_file
 
@@ -48,7 +48,8 @@ def _get_default_docs_dir() -> Path:
 
 
 @app.command(name="generate")
-def generate(  # noqa: C901
+@dry_run_class("no-external-request")
+def generate(
     output_dir: Annotated[
         Path | None,
         typer.Option(
@@ -79,10 +80,6 @@ def generate(  # noqa: C901
             help=HELP.docs.check,
         ),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Generate comprehensive Markdown or JSON documentation for all CLI commands and tools."""
     target_dir = (output_dir or _get_default_docs_dir()).resolve()
@@ -99,15 +96,6 @@ def generate(  # noqa: C901
                 print_error(MESSAGES.docs.docs_outdated.format(path=json_file), prefix=False)
                 raise typer.Exit(1)
             print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
-            return
-
-        if dry_run or is_dry_run():
-            render_dry_run_result(
-                command="devops docs generate",
-                action="generate_cli_documentation_json",
-                target=str(target_dir),
-                details={"format": "json", "target_dir": str(target_dir)},
-            )
             return
 
         write_text_file(json_file, out_json)
@@ -128,19 +116,6 @@ def generate(  # noqa: C901
         print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
         return
 
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops docs generate",
-            action="generate_cli_documentation",
-            target=str(target_dir),
-            details={
-                "format": "markdown",
-                "sync_readme": sync_readme,
-                "target_dir": str(target_dir),
-            },
-        )
-        return
-
     print_info(
         MESSAGES.docs.generating_docs.format(output_dir=f"[cyan]{target_dir}[/cyan]"), prefix=False
     )
@@ -155,6 +130,7 @@ def generate(  # noqa: C901
 
 
 @app.command(name="check")
+@dry_run_class("no-external-request")
 def check(
     output_dir: Annotated[
         Path | None,
@@ -192,6 +168,7 @@ def check(
 
 
 @app.command(name="sync-readme")
+@dry_run_class("no-external-request")
 def sync_readme_cmd(
     readme_path: Annotated[
         Path | None,
@@ -208,10 +185,6 @@ def sync_readme_cmd(
             help=HELP.docs.check,
         ),
     ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Synchronize the Complete Command Matrix table in README.md with live CLI commands."""
     from devops_cli.docs.generator import DocGenerator
@@ -224,16 +197,6 @@ def sync_readme_cmd(
                 print_error(err, prefix=False)
             raise typer.Exit(1)
         print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
-        return
-
-    if dry_run or is_dry_run():
-        target = generator._find_readme(readme_path)
-        render_dry_run_result(
-            command="devops docs sync-readme",
-            target=str(target),
-            action="sync_readme_matrix",
-            details={"readme_path": str(target)},
-        )
         return
 
     target = generator._find_readme(readme_path)

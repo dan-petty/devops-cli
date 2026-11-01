@@ -127,9 +127,7 @@ devops config set ai.allow_private_network true
 devops config set ai.tasks.embedding.ollama_urls http://192.0.2.10:11434
 devops config set github.default_org my-org
 
-# Remove a key from the config file, also a key that stops the settings from loading;
-# --dry-run prints the change and writes nothing
-devops config unset ai.vllm_url --dry-run
+# Remove a key from the config file, also a key that stops the settings from loading
 devops config unset ai.vllm_url
 
 # Get specific configuration values

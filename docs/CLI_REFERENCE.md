@@ -593,6 +593,7 @@ devops workspace add [OPTIONS] <repo_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops workspace remove`
 
@@ -613,6 +614,7 @@ devops workspace remove [OPTIONS] <repo_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops workspace generate`
 
@@ -628,6 +630,7 @@ devops workspace generate [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 | `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops workspace open`
 
@@ -660,7 +663,6 @@ devops workspace clean [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--older-than`, `-d` | `integer` | `7` | Prune artifacts older than N days. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -714,21 +716,15 @@ devops openspec check
 **Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written.**
 
 ```bash
-devops openspec regenerate [OPTIONS]
+devops openspec regenerate
 ```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops openspec archive`
 
 **Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation.**
 
 ```bash
-devops openspec archive [OPTIONS] <change>
+devops openspec archive <change>
 ```
 
 **Arguments:**
@@ -736,12 +732,6 @@ devops openspec archive [OPTIONS] <change>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -2714,6 +2704,7 @@ devops config set [OPTIONS] <key> <value>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--from-file` | `filename` | - | Read the credential from this file, or from stdin to its end when the path is -. Every line and the last newline stay as the input has them, and the value never shows in the output. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops config unset`
 
@@ -2730,7 +2721,7 @@ stays. Store a credential before you remove it, with `devops config set <key>`, 
 `--from-file <path>` for a multi-line one.
 
 ```bash
-devops config unset [OPTIONS] <key>
+devops config unset <key>
 ```
 
 **Arguments:**
@@ -2739,19 +2730,20 @@ devops config unset [OPTIONS] <key>
 |---|---|---|---|
 | `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
 
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Print the change, with the lines of its unified diff, and write nothing. |
-
 ### `devops config init`
 
 **Interactive first-time setup wizard.**
 
 ```bash
-devops config init
+devops config init [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops config env-vars`
 
@@ -2844,7 +2836,6 @@ devops config audit-keys [OPTIONS]
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -6442,7 +6433,6 @@ devops docs generate [OPTIONS]
 | `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
 | `--sync-readme` / `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docs check`
 
@@ -6473,7 +6463,6 @@ devops docs sync-readme [OPTIONS]
 |---|---|---|---|
 | `--readme-path`, `-r` | `path` | - | Path to README.md file (default: workspace root README.md). |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

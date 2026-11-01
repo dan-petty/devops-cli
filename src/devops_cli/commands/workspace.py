@@ -18,7 +18,8 @@ from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.paths import is_forbidden_system_path
 from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run import render_dry_run_result
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.exceptions import SecurityError
 from devops_cli.git.operations import iter_workspace_repos
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -138,11 +139,13 @@ def sync_from_repos(
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def add(
     repo_path: Annotated[Path, typer.Argument(help=HELP.workspace.add)],
     workspace_file: Annotated[
         Path | None, typer.Option("--workspace", "-w", help=HELP.options.workspace_file)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Add a folder to the VS Code workspace file."""
     settings = load_settings()
@@ -166,6 +169,10 @@ def add(
         print_warning(ERRORS.workspace.already_present.format(path=folder_str))
         raise typer.Exit(0)
 
+    if dry_run or is_dry_run():
+        print_info(f"Would add folder '{folder_str}' to workspace {ws_file}", prefix=False)
+        return
+
     data["folders"].append({"path": folder_str})
     _save(ws_file, data)
     print_success(MESSAGES.workspace.added_folder.format(path=folder_str))
@@ -177,11 +184,13 @@ def add(
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def remove(
     repo_path: Annotated[Path, typer.Argument(help=HELP.workspace.remove)],
     workspace_file: Annotated[
         Path | None, typer.Option("--workspace", "-w", help=HELP.options.workspace_file)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Remove a folder from the VS Code workspace file."""
     settings = load_settings()
@@ -196,6 +205,10 @@ def remove(
         print_warning(ERRORS.workspace.not_present.format(path=folder_str))
         raise typer.Exit(0)
 
+    if dry_run or is_dry_run():
+        print_info(f"Would remove folder '{folder_str}' from workspace {ws_file}", prefix=False)
+        return
+
     _save(ws_file, data)
     print_success(MESSAGES.workspace.removed_folder.format(path=folder_str))
 
@@ -206,6 +219,7 @@ def remove(
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def generate(
     base_dir: Annotated[
         Path | None, typer.Option("--base-dir", "-d", help=HELP.options.base_dir)
@@ -213,6 +227,7 @@ def generate(
     workspace_file: Annotated[
         Path | None, typer.Option("--workspace", "-w", help=HELP.options.workspace_file)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Regenerate the workspace file from all repos in the repos directory."""
     settings = load_settings()
@@ -224,6 +239,13 @@ def generate(
         raise typer.Exit(0)
 
     data = _workspace_data_from_repos(root)
+    if dry_run or is_dry_run():
+        print_info(
+            f"Would generate workspace {ws_file} with {len(data['folders'])} folders",
+            prefix=False,
+        )
+        return
+
     _save(ws_file, data)
     msg = MESSAGES.workspace.generated_with_count.format(
         ws_file=str(ws_file), count=len(data["folders"])
@@ -237,6 +259,7 @@ def generate(
 
 
 @app.command("open")
+@dry_run_class("no-external-request")
 def open_workspace(
     workspace_file: Annotated[
         Path | None, typer.Option("--workspace", "-w", help=HELP.options.workspace_file)
@@ -261,15 +284,12 @@ def open_workspace(
 
 
 @app.command("clean")
+@dry_run_class("no-external-request")
 def clean_workspace(
     older_than_days: Annotated[
         int,
         typer.Option("--older-than", "-d", help=HELP.workspace.older_than),
     ] = DEFAULT_CLEAN_WORKSPACE_DAYS,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory.
 
@@ -282,27 +302,11 @@ def clean_workspace(
     except SecurityError as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
-    if not dry_run:
-        print_muted(
-            MESSAGES.workspace.pruning_stale.format(days=older_than_days, data_dir=data_dir)
-        )
+    print_muted(MESSAGES.workspace.pruning_stale.format(days=older_than_days, data_dir=data_dir))
     summary = cleanup_data_tier(
         older_than_seconds=float(older_than_days * 86400),
-        dry_run=dry_run,
+        dry_run=False,
     )
-    if dry_run:
-        render_dry_run_result(
-            command=f"devops workspace clean --older-than {older_than_days}",
-            action="cleanup_data_tier",
-            details={
-                "older_than_days": older_than_days,
-                "data_dir": str(data_dir),
-                "pruned_files": summary.pruned_files,
-                "pruned_dirs": summary.pruned_dirs,
-                "freed_bytes": summary.freed_bytes,
-            },
-        )
-        return
 
     if not summary.pruned_files and not summary.pruned_dirs:
         print_info(MESSAGES.workspace.data_tier_clean)

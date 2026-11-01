@@ -23,6 +23,7 @@ devops workspace add [OPTIONS] <repo_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -45,6 +46,7 @@ devops workspace remove [OPTIONS] <repo_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -62,6 +64,7 @@ devops workspace generate [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 | `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -98,6 +101,5 @@ devops workspace clean [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--older-than`, `-d` | `integer` | `7` | Prune artifacts older than N days. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

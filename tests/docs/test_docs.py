@@ -405,21 +405,27 @@ def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) 
         == "Details: <details><summary>Click</summary>text</details> with \\<placeholder\\>"
     )
 
-    # Dry-run execution
+    # Dry-run execution runs commands normally as no-external-request
     set_dry_run(True)
     try:
-        res_dry = runner.invoke(docs_app, ["generate", "--output-dir", str(tmp_path)])
+        res_dry = runner.invoke(
+            docs_app, ["generate", "--output-dir", str(tmp_path), "--no-sync-readme"]
+        )
         assert res_dry.exit_code == 0
-        assert not (tmp_path / "CLI_REFERENCE.md").exists()
+        assert (tmp_path / "CLI_REFERENCE.md").exists()
 
         res_json_dry = runner.invoke(
             docs_app,
             ["generate", "--format", "json", "--output-dir", str(tmp_path)],
         )
         assert res_json_dry.exit_code == 0
+        assert (tmp_path / "cli_schema.json").exists()
 
         readme = tmp_path / "README.md"
-        readme.write_text("# Readme\n", encoding="utf-8")
+        readme.write_text(
+            "# Readme\n<!-- COMMAND_MATRIX_START -->\n<!-- COMMAND_MATRIX_END -->\n",
+            encoding="utf-8",
+        )
         res_sync_dry = runner.invoke(docs_app, ["sync-readme", "--readme-path", str(readme)])
         assert res_sync_dry.exit_code == 0
     finally:
