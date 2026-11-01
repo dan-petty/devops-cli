@@ -443,6 +443,7 @@ devops devcontainer init [OPTIONS] <repo_path>
 | `--minikube` / `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
 | `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to `<project_name>-home`). |
 | `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops devcontainer update`
 
@@ -463,6 +464,7 @@ devops devcontainer update [OPTIONS] <repo_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--python` | `string` | `3.14` | Python version for base template. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops devcontainer validate`
 
@@ -478,7 +480,6 @@ devops devcontainer validate [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer. |
 | `--config`, `-c` | `path` | - | Direct path to devcontainer.json. |
-| `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation. |
 
 ### `devops devcontainer list`
 
@@ -493,15 +494,21 @@ devops devcontainer list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops devcontainer unlock-keyring`
 
 **Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in.**
 
 ```bash
-devops devcontainer unlock-keyring
+devops devcontainer unlock-keyring [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops devcontainer post-create`
 
@@ -518,6 +525,7 @@ devops devcontainer post-create [OPTIONS]
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--skip-tools` | `boolean` | - | Skip bootstrapping missing DevOps tool binaries. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops devcontainer post-start`
 
@@ -533,6 +541,7 @@ devops devcontainer post-start [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops devcontainer run-lifecycle`
 
@@ -551,6 +560,7 @@ devops devcontainer run-lifecycle [OPTIONS]
 | `--post-start` | `boolean` | - | Execute post-start lifecycle tasks. |
 | `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops devcontainer bootstrap-k8s`
 
@@ -567,6 +577,7 @@ devops devcontainer bootstrap-k8s [OPTIONS]
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--stack`, `-s` | `string` | `infra` | Kubernetes stack to deploy: infra | llm | logging | devops | gitea | chat | all. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -682,6 +693,8 @@ devops install-tools [OPTIONS] COMMAND [ARGS]...
 | `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
 | `--only-missing` | `boolean` | - | Only install tools that are not linked at their locked version. |
 | `--check` | `boolean` | - | Install nothing: report each tool not linked at its locked version, and exit 1 if any. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops install-tools status`
 

@@ -34,12 +34,12 @@ def test_global_dry_run_non_declaring_command_prints_generic_preview(monkeypatch
 
     monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
 
-    result = runner.invoke(main_module.app, ["--dry-run", "install-tools"])
+    result = runner.invoke(main_module.app, ["--dry-run", "serve"])
 
     assert (
         result.exit_code,
         not called,
-        "Would run delegated command: devops install-tools" in result.output,
+        "Would run delegated command: devops serve" in result.output,
     ) == (0, True, True)
 
 
@@ -54,12 +54,12 @@ def test_global_dry_run_non_declaring_command_with_options_prints_generic_previe
 
     monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
 
-    result = runner.invoke(main_module.app, ["--dry-run", "install-tools", "--tool", "kubectl"])
+    result = runner.invoke(main_module.app, ["--dry-run", "serve", "--port", "8080"])
 
     assert (
         result.exit_code,
         not called,
-        "Would run delegated command: devops install-tools --tool kubectl" in result.output,
+        "Would run delegated command: devops serve --port 8080" in result.output,
     ) == (0, True, True)
 
 
