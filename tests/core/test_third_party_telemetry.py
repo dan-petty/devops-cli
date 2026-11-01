@@ -174,7 +174,6 @@ def test_devcontainer_disables_telemetry() -> None:
         env.get("CHECKPOINT_DISABLE"),
         env.get("DOTNET_CLI_TELEMETRY_OPTOUT"),
         env.get("ANONYMIZED_TELEMETRY"),
-        env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
         env.get("DISABLE_TELEMETRY"),
         env.get("GOTELEMETRY"),
         env.get("PIP_DISABLE_PIP_VERSION_CHECK"),
@@ -192,7 +191,6 @@ def test_devcontainer_disables_telemetry() -> None:
         "1",
         "false",
         "1",
-        "1",
         "off",
         "1",
         "false",
@@ -201,6 +199,7 @@ def test_devcontainer_disables_telemetry() -> None:
         "false",
     )
     assert actual_env == expected_env
+    assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in env
 
     vscode_settings = data.get("customizations", {}).get("vscode", {}).get("settings", {})
     actual_settings = (
@@ -227,7 +226,6 @@ def test_devcontainer_image_disables_telemetry() -> None:
         env.get("CHECKPOINT_DISABLE"),
         env.get("DOTNET_CLI_TELEMETRY_OPTOUT"),
         env.get("ANONYMIZED_TELEMETRY"),
-        env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
         env.get("DISABLE_TELEMETRY"),
         env.get("GOTELEMETRY"),
         env.get("PIP_DISABLE_PIP_VERSION_CHECK"),
@@ -245,7 +243,6 @@ def test_devcontainer_image_disables_telemetry() -> None:
         "1",
         "false",
         "1",
-        "1",
         "off",
         "1",
         "false",
@@ -254,6 +251,7 @@ def test_devcontainer_image_disables_telemetry() -> None:
         "false",
     )
     assert actual_env == expected_env
+    assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in env
 
 
 def _rendered_devcontainer_template() -> dict[str, Any]:
@@ -270,6 +268,12 @@ def _rendered_devcontainer_template() -> dict[str, Any]:
         )
     )
     return rendered
+
+
+def test_a_rendered_devcontainer_template_omits_claude_code_nonessential_traffic() -> None:
+    """The devcontainer template omits CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC so remote sessions work."""
+    env = _rendered_devcontainer_template()["containerEnv"]
+    assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in env
 
 
 @pytest.mark.parametrize(
