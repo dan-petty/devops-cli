@@ -51,16 +51,28 @@ Kind: documents. Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `k8
 - [x] 5.3 Regenerate the generated documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
-## 6. Fail-to-pass and archive
+## 6. Keep the scoped checks bounded, the hooks trusted and every stop safe
+
+Kind: behavior. Reads: `src/devops_cli/core/test_selection.py`, `src/devops_cli/roadmap/implement_run.py`, `tests/core/test_roadmap_implement_checks.py`. Changes: `src/devops_cli/roadmap/implement_scoped_ci.py`, `src/devops_cli/roadmap/implement_hooks.py`, `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`, `tests/roadmap/test_roadmap_implement_scoped_ci.py`, `tests/roadmap/test_roadmap_implement_hooks.py`, `tests/roadmap/test_roadmap_implement_step_hooks.py`, `tests/roadmap/test_roadmap_implement_job_scoped.py`, `tests/core/test_roadmap_implement_checks.py`.
+
+- [x] 6.1 Write failing tests for the scenarios of the review: a shared module keeps only the changed test modules, a change that no test covers runs no test command, a configuration that the agent edits changes no hook run, a hook stage that runs out of time stops the step and a fix step with no push, an error in the scoped checks pushes nothing, and a failed check after the push gets bounded rounds with a comment for each
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_scoped_ci.py tests/roadmap/test_roadmap_implement_hooks.py tests/roadmap/test_roadmap_implement_step_hooks.py tests/roadmap/test_roadmap_implement_job_scoped.py tests/core/test_roadmap_implement_checks.py` fails on the code before this group
+- [x] 6.2 Add `plan_tests` and the limit `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES`, the notes of the comment, and the trusted configuration (`trusted_config`, `--config` on every run, `hooks` on the step); make a hook run that runs out of time a failure that no repair fixes; stop with no push on any error of the scoped phase; loop the post-push rounds with a comment for each
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_scoped_ci.py tests/roadmap/test_roadmap_implement_hooks.py tests/roadmap/test_roadmap_implement_step_hooks.py tests/roadmap/test_roadmap_implement_job_scoped.py tests/core/test_roadmap_implement_checks.py`
+- [x] 6.3 Record the measured time of the bounded tests check in the proposal, `docs/ROADMAP_WORKFLOW.md` and `k8s/README.md`, and fix the sentence of ADR 0014 on the pre-push hook
+  - Verification: `! git grep -n -e "2 to 3 minutes" -e "10 s to 90 s" -e "no-fallback" -- docs/ROADMAP_WORKFLOW.md k8s/README.md` prints nothing
+- [x] 6.4 Regenerate the generated documents
+  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
+
+## 7. Fail-to-pass and archive
 
 Kind: other.
 
-- [x] 6.1 Run the fail-to-pass check on the new tests
+- [x] 7.1 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] 6.2 Archive the change
+- [ ] 7.2 Archive the change
   - Verification: `uv run devops openspec archive 3043-runner-hooks-and-scoped-ci` and `uv run devops openspec check`
 
 ## Workflow follow-up
 
-- The fix of a failed check after the push stays at one round. Repair rounds after the push are the work of #3053.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

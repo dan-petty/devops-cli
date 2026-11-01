@@ -144,15 +144,15 @@ The step SHALL return a `StepOutcome` with the status (done or stopped), the rea
 ## ADDED Requirements
 
 ### Requirement: The hooks of the repository are an exit check
-After the static checks, the step SHALL run the `pre-commit` stage of the hooks of the repository over the staged changes, with `pre-commit run --hook-stage pre-commit`. The child SHALL hold no GitHub token and SHALL have `PRE_COMMIT_HOME` under the data directory. The step SHALL install no git hook. The step SHALL run no hook when the commit at the start of the step holds no `.pre-commit-config.yaml`; a file that the agent removes SHALL NOT change that.
+After the static checks, the step SHALL run the `pre-commit` stage of the hooks over the staged changes. The child SHALL hold no GitHub token and SHALL have `PRE_COMMIT_HOME` under the data directory. The step SHALL install no git hook. The stage SHALL read the configuration that the job gives the step, a copy of the default branch, with `--config`. The step SHALL run no hook when the job gives it none.
 
 #### Scenario: No hook configuration
 - **WHEN** the repository holds no `.pre-commit-config.yaml` and the checks pass
 - **THEN** the step reports done and runs no `pre-commit` command
 
-#### Scenario: A configuration that the agent removes
-- **WHEN** the commit holds the configuration and the agent deletes the file
-- **THEN** the step still runs the stage, which fails, and the agent gets a repair turn
+#### Scenario: A configuration that the agent edits
+- **WHEN** the agent writes `repos: []` to `.pre-commit-config.yaml`
+- **THEN** every call of the stage names the copy of the configuration of the default branch with `--config`
 
 #### Scenario: No git hook
 - **WHEN** a step ends done
@@ -172,3 +172,7 @@ When a hook changes a file, the step SHALL stage the changed files and run the s
 #### Scenario: A broken environment
 - **WHEN** the `pre-commit` stage exits 3
 - **THEN** the step reports stopped with the output as the reason, and the model gets no extra turn
+
+#### Scenario: A stage that runs out of time
+- **WHEN** the `pre-commit` stage runs out of time
+- **THEN** the step reports stopped with a reason that says the command ran out of time, the model gets no extra turn, and the checkout is reset
