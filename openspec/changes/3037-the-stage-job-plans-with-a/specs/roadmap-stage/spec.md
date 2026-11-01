@@ -20,11 +20,19 @@ The planner of the stage job SHALL plan with an agent that has exactly these too
 - **THEN** it names each tool of the toolbox
 
 ### Requirement: A plan run has a budget
-A plan run of the toolbox SHALL stop when it makes more than 30 tool calls or uses more than 50000 output tokens. The item SHALL then fail with a reason that names the limit that was hit. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
+A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000 output tokens. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit, or that calls a tool that is gone, SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
 
 #### Scenario: The tool call limit
-- **WHEN** the model calls a tool 31 times in one plan run
+- **WHEN** one reply of the model in a plan run holds 31 parallel tool calls
 - **THEN** the item fails, and the reason names `tool_calls_limit`
+
+#### Scenario: The tools are gone near the limit
+- **WHEN** the model has made 27 tool calls, one in each turn
+- **THEN** the next request offers no tool, and a valid plan in the reply stages the item
+
+#### Scenario: A tool call after the tools are gone
+- **WHEN** the model calls a tool in a request that offers no tool
+- **THEN** the item fails, and the reason names the retry error of that tool
 
 #### Scenario: The output token limit
 - **WHEN** the replies of the model in one plan run hold more than 50000 output tokens
