@@ -59,7 +59,7 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 ### Which change gets a test
 
 - A change that adds or changes what the code does gets a test. Write it first, and see it fail on the base. A fix pull request cites its `devops ci fail-to-pass --base <ref>` run.
-- Every other change gets no test: a document, a manifest, a workflow, a deletion or a refactor that keeps behavior, an edit of tests only, or data. It names one command that can run again and gives the same answer, such as `uv run devops ci docs`, `openspec validate --strict`, a `git grep` that must print nothing, or `devops k8s image-pins`. When no command exists, it gives the steps of a repeatable manual check.
+- Every other change gets no test: a document, a manifest, a workflow, a deletion or a refactor that keeps behavior, an edit of tests only, or data. It names one command that can run again and gives the same answer, such as `uv run devops ci docs`, `openspec validate --strict`, `! git grep -n <name> src/ tests/` (a command that exits 0 when it finds nothing), or `devops k8s image-pins`. When no command exists, it gives the steps of a repeatable manual check.
 - A task group of a plan has the same two kinds, `behavior` and `other` (`GroupKind`). The stage job refuses a `test` on an `other` group, and refuses a `behavior` group that changes no path under `src/`. A test compares the prompts of the job with these kinds.
 
 ### Doubles

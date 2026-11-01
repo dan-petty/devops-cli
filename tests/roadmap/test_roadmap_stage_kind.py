@@ -201,6 +201,7 @@ def test_the_stage_prompt_states_the_rules_that_the_validator_checks() -> None:
 
     assert "path under `src/`" in prompt
     assert "no `test`" in prompt
+    assert "`! git grep -n <name> src/ tests/`" in prompt
 
 
 def test_the_implement_prompt_writes_the_test_first_only_for_a_group_with_a_test_task() -> None:

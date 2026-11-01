@@ -30,7 +30,7 @@ rules:
     - >-
       Write the tasks of the one pull request in "## <n>. <Group title>" groups. The pull request that closes the issue leaves no task unticked.
     - >-
-      Give each group a kind. A `behavior` group adds or changes what the code does: order its tasks as failing test, then implementation, and name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`. Every other group (documents, manifests, workflows, a deletion or a refactor that keeps behavior, test-only edits, data) has no test: it gives its work with a verification command that can run again, such as `uv run devops ci docs`, `openspec validate --strict` or a `git grep` that must print nothing, or the steps of a repeatable manual check. A documentation task comes last, in a group that changes a document.
+      Give each group a kind. A `behavior` group adds or changes what the code does: order its tasks as failing test, then implementation, and name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`. Every other group (documents, manifests, workflows, a deletion or a refactor that keeps behavior, test-only edits, data) has no test: it gives its work with a verification command that can run again, such as `uv run devops ci docs`, `openspec validate --strict` or `! git grep -n <name> src/ tests/` (a command that exits 0 when it finds nothing), or the steps of a repeatable manual check. A documentation task comes last, in a group that changes a document.
     - >-
       Delete obsolete code and its tests in the group that replaces them.
     - >-

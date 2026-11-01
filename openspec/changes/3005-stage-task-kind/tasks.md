@@ -23,9 +23,9 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/ai/tas
 
 ## 4. The documents state the rule
 
-Reads: `AGENTS.md`, `docs/TESTING.md`. Changes: `AGENTS.md`, `src/devops_cli/templates/AGENTS.md.j2`, `docs/TESTING.md`, `k8s/README.md`, `openspec/config.yaml`, `src/devops_cli/roadmap/stage.py`.
+Reads: `AGENTS.md`, `docs/TESTING.md`. Changes: `AGENTS.md`, `src/devops_cli/templates/AGENTS.md.j2`, `CONTRIBUTING.md`, `docs/TESTING.md`, `k8s/README.md`, `openspec/config.yaml`, `src/devops_cli/roadmap/stage.py`.
 
-- [x] 4.1 Change rule 4 of `AGENTS.md` and of its template, the section on tests of `docs/TESTING.md`, step 15 of `k8s/README.md`, the task rules of `openspec/config.yaml` and the docstring of `stage.py` to the rule: a test for new behavior, and a command or a repeatable process for any other change. And verify that `uv run devops ci test tests/invariants/test_agents_md_claims.py tests/invariants/test_change_folders.py` passes
+- [x] 4.1 Change rule 4 of `AGENTS.md` and of its template, the first rule and the inner loop of `CONTRIBUTING.md`, the section on tests of `docs/TESTING.md`, step 15 of `k8s/README.md`, the task rules of `openspec/config.yaml` and the docstring of `stage.py` to the rule: a test for new behavior, and a command or a repeatable process for any other change. And verify that `uv run devops ci test tests/invariants/test_agents_md_claims.py tests/invariants/test_change_folders.py` passes
 - [x] 4.2 Regenerate the documents with `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## Workflow follow-up
