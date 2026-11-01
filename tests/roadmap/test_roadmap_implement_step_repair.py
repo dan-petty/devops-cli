@@ -146,8 +146,9 @@ def test_a_step_with_an_unused_import_ends_done_after_the_extra_turn_removes_it(
 
 
 def test_a_step_that_still_fails_after_the_extra_turn_stops_and_the_model_gets_no_third_turn(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     _lint_fails_on_an_unused_import(programs)
     head = git(checkout, "rev-parse", "HEAD")
     work = tool_calls(*NOT_TICKED, TICK)
@@ -251,8 +252,9 @@ def test_a_failure_and_an_unticked_task_get_one_extra_turn_that_holds_both(
 
 
 def test_the_ticks_that_stay_missing_after_the_extra_turn_stop_the_step_with_no_third_turn(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     _lint_fails_on_an_unused_import(programs)
     script = ModelScript(
         tool_calls(*NOT_TICKED), say("Done."), tool_calls(REPAIR), say("Fixed, no ticks.")

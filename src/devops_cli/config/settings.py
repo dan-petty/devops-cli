@@ -89,6 +89,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+    DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -882,6 +883,11 @@ class RoadmapImplementConfig(BaseModel):
     in_runner: Annotated[bool, Variable()] = Field(
         description="Whether this process is the pod of a runner Job. Only then does `devops roadmap implement --confirm` run a step. The step's shell is no security boundary: the runner is the sandbox, with a narrow token and no other credential. The Service pod and a workstation keep this false",
         default=False,
+    )
+    repair_rounds: Annotated[int, Variable()] = Field(
+        description="The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project, and one for each time that tasks stay unticked. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn",
+        default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
+        ge=0,
     )
 
 

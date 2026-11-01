@@ -303,6 +303,7 @@ def test_the_exit_checks_format_first_run_each_command_once_then_the_static_chec
             "uv run devops docs check",
             f"uv run ruff check -- {py}",
             f"uv run mypy --strict -- {py}",
+            "uv run pre-commit run --hook-stage pre-commit",
         ],
         {checkout},
     )
@@ -355,8 +356,9 @@ def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
 
 
 def test_a_task_left_unticked_after_the_extra_turn_stops_the_step(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(
         tool_calls(write_call("src/sample.py", SHOUT_CODE)), say("Done."), say("No ticks.")
@@ -963,8 +965,9 @@ def test_an_extra_turn_that_edits_the_text_of_another_group_is_undone(
 
 
 def test_a_step_gets_no_third_turn_when_the_extra_turn_ticks_nothing(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     script = ModelScript(tool_calls(*WORK), say(FORGOT), say("I forgot again."))
 
     outcome = _step(store, checkout, script)
@@ -995,9 +998,10 @@ def test_a_failed_verification_command_stops_the_step_with_no_extra_turn(
 
 
 def test_a_failed_static_check_gets_one_extra_turn_for_it_and_none_for_the_ticks(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
 ) -> None:
     """The turn for the failure lists the unticked tasks too (#2795), so no turn for them follows."""
+    config(roadmap={"implement": {"repair_rounds": 1}})
     programs.answer(
         lambda call: command_text(call).startswith("uv run mypy"),
         ProcessAnswer(returncode=1, stdout="error: bad type\n"),
