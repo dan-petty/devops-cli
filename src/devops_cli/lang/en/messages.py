@@ -2581,6 +2581,34 @@ class RoadmapMessages:
     stage_group_new: str = " (new)"
     stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
+    stage_kind_no_test: str = (
+        "The group '{title}' has the kind behavior, and it has no test. "
+        "Give it the failing test to write first."
+    )
+    stage_kind_no_verify: str = (
+        "The group '{title}' has the kind behavior, and it has no verify. "
+        "Give it the command that runs its test."
+    )
+    stage_kind_behavior_process: str = (
+        "The group '{title}' has the kind behavior, and it has a process. "
+        "Its test is its check, so set process to null."
+    )
+    stage_kind_no_source: str = (
+        "The group '{title}' has the kind behavior, and it changes no path under src/. "
+        "Use the kind other, or add the path of the code that it changes."
+    )
+    stage_kind_other_test: str = (
+        "The group '{title}' has the kind other, and it has a test. "
+        "A group of this kind has no test, so set test to null."
+    )
+    stage_kind_no_check: str = (
+        "The group '{title}' has the kind other, and it has neither verify nor process. "
+        "Give it the command or the steps that prove it."
+    )
+    stage_kind_two_checks: str = (
+        "The group '{title}' has the kind other, and it has both verify and process. "
+        "Keep one of them."
+    )
     stage_title_lead: str = "plan #{number} "
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"

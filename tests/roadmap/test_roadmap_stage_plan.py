@@ -534,6 +534,19 @@ def test_a_group_with_no_changed_file_goes_back_to_the_model_with_the_violation(
 
 
 @pytest.mark.usefixtures("openspec")
+def test_an_other_group_with_a_test_goes_back_to_the_model_with_the_problem(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_reply_without(kind="other"), make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 2
+    assert "has the kind other, and it has a test" in model_fake.sent[1].messages[-1].content
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
 def test_a_reply_with_a_blank_documentation_that_stays_blank_stops_the_item_after_one_return(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:

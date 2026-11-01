@@ -4,8 +4,8 @@
 
 Reads: `src/devops_cli/roadmap/stage_change.py`, `tests/support/builders.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_kind.py` (new), `tests/roadmap/test_roadmap_stage_plan.py`, `tests/support/builders.py`.
 
-- [ ] 1.1 Write the tests of the kinds in `tests/roadmap/test_roadmap_stage_kind.py`: a `test` on an `other` group, a `behavior` group with no `test`, a `behavior` group that changes no path under `src/`, and an `other` group with no `verify` and no `process` or with both, each refused with the problem text. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py` fails on the base
-- [ ] 1.2 Add `GroupKind` and the fields `kind`, `process` to `StageGroup`. Make `test`, `verify` and `documentation` nullable. Add one `model_validator` that lists every problem of the group, with the messages in `messages.py`. Give the builders a `kind`. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py tests/roadmap/test_roadmap_stage_plan.py` passes
+- [x] 1.1 Write the tests of the kinds in `tests/roadmap/test_roadmap_stage_kind.py`: a `test` on an `other` group, a `behavior` group with no `test`, a `behavior` group that changes no path under `src/`, and an `other` group with no `verify` and no `process` or with both, each refused with the problem text. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py` fails on the base
+- [x] 1.2 Add `GroupKind` and the fields `kind`, `process` to `StageGroup`. Make `test`, `verify` and `documentation` nullable. Add one `model_validator` that lists every problem of the group, with the messages in `messages.py`. Give the builders a `kind`. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py tests/roadmap/test_roadmap_stage_plan.py` passes
 
 ## 2. A group renders the tasks of its kind
 

@@ -137,6 +137,7 @@ _STAGE_PROPOSAL: dict[str, Any] = {
     "groups": [
         {
             "title": "Keep the last comment",
+            "kind": "behavior",
             "reads": ["src/devops_cli/sample.py"],
             "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
             "creates": ["tests/test_sample.py"],
