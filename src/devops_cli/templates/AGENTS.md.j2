@@ -11,7 +11,7 @@ It runs on Python `{{ requires_python }}`{% if entry_point %}, and its entry poi
 1. **One issue, one pull request.** Work on a topic branch. Topic PRs target the default branch. The PR title is a Conventional Commit, and the PR body closes its one issue (`Closes #<issue>`).
 2. **Check the premise first.** Confirm it against the real system: upstream documents, library source or command output. If the item cannot be built as written, write no compensating code: comment the evidence on the issue and stop. Close issues as rejected if their functionality has been superseded by newer issues or code changes.
 3. **Use an open tool or library before you build one.**
-4. **Write the failing test first.** A fix pull request shows that its new tests fail on the base with `devops ci fail-to-pass --base <ref>`.
+4. **Write the failing test first for new behavior.** Prove any other change with a command. A fix pull request shows that its new tests fail on the base with `devops ci fail-to-pass --base <ref>`.
 5. **Run the checks before each push:** {% for command in check_commands %}`{{ command }}`{% if not loop.last %}, {% endif %}{% endfor %}. Push only when they pass. Never lower a threshold unless the owner allows it.
 6. **Open every pull request as a draft.** Agents open every pull request with `devops pr create`, which always opens a draft. Watch it with `devops pr monitor <pr_number>`, and mark it ready with `devops pr ready <pr_number>` after the checks pass. Reply to each review comment in its thread. Copilot reviews a pull request only when a person requests it.
 7. **Use `devops gh` and `devops pr`, not bare `gh`.** They pace each request against the rate limit.

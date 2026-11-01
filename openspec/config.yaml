@@ -30,11 +30,11 @@ rules:
     - >-
       Write the tasks of the one pull request in "## <n>. <Group title>" groups. The pull request that closes the issue leaves no task unticked.
     - >-
-      Within each group order tasks as failing test, implementation, then documentation, and name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`.
+      Give each group a kind. A `behavior` group adds or changes what the code does: order its tasks as failing test, then implementation, and name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`. Every other group (documents, manifests, workflows, a deletion or a refactor that keeps behavior, test-only edits, data) has no test: it gives its work with a verification command that can run again, such as `uv run devops ci docs`, `openspec validate --strict` or a `git grep` that must print nothing, or the steps of a repeatable manual check. A documentation task comes last, in a group that changes a document.
     - >-
       Delete obsolete code and its tests in the group that replaces them.
     - >-
-      Every group regenerates the documentation its code changes with `devops docs generate --sync-readme`. No group edits CHANGELOG.md: the pull request title is the changelog line.
+      A group that changes a document, a command, an option or a message regenerates the documentation with `devops docs generate --sync-readme`. No group edits CHANGELOG.md: the pull request title is the changelog line.
     - >-
       Work the item will not do is a plain bullet, with no checkbox, naming its follow-up issue under "## Workflow follow-up". A check only a person can run is a plain bullet starting "Pending a person:". A change that alters code may end with the plain bullet "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)."
 
@@ -42,4 +42,4 @@ operations:
   apply:
     guidance:
       - >-
-        Implement test-first on a topic branch as AGENTS.md requires. Tick a task in the commit that completes it. Push through the pre-push hook, and mark the pull request ready only after its required checks pass. Do not run sync. The pull request that closes the issue archives its own change as its last commit. Run `uv run devops openspec archive <change>` after every task is ticked. It archives the change, then validates every spec and change.
+        Implement on a topic branch as AGENTS.md requires: test-first for a group of new behavior, and the verification of the group for any other group. Tick a task in the commit that completes it. Push through the pre-push hook, and mark the pull request ready only after its required checks pass. Do not run sync. The pull request that closes the issue archives its own change as its last commit. Run `uv run devops openspec archive <change>` after every task is ticked. It archives the change, then validates every spec and change.

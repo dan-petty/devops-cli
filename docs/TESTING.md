@@ -56,6 +56,12 @@ _Avoid_: golden file, golden
 
 Every new test follows these rules. Some of them name a path, fixture or check that does not exist yet; each such name is marked *(target)*, and [Until the migration ends](#until-the-migration-ends) says what exists today and what a new test does meanwhile.
 
+### Which change gets a test
+
+- A change that adds or changes what the code does gets a test. Write it first, and see it fail on the base. A fix pull request cites its `devops ci fail-to-pass --base <ref>` run.
+- Every other change gets no test: a document, a manifest, a workflow, a deletion or a refactor that keeps behavior, an edit of tests only, or data. It names one command that can run again and gives the same answer, such as `uv run devops ci docs`, `openspec validate --strict`, a `git grep` that must print nothing, or `devops k8s image-pins`. When no command exists, it gives the steps of a repeatable manual check.
+- A task group of a plan has the same two kinds, `behavior` and `other` (`GroupKind`). The stage job refuses a `test` on an `other` group, and refuses a `behavior` group that changes no path under `src/`. A test compares the prompts of the job with these kinds.
+
 ### Doubles
 
 - A test doubles only edges. Everything inside the process runs for real.
