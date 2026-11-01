@@ -4,6 +4,7 @@ reference."""
 from __future__ import annotations
 
 import socket
+from typing import Any
 
 import pytest
 
@@ -321,10 +322,14 @@ def test_example_targets_are_omitted_when_examples_are_excluded() -> None:
 
 
 def test_reference_extraction_makes_no_dns_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Extraction reads the text only: it never resolves a name."""
+    """Extraction reads the text only: it never resolves a name. Only a call with
+    `AI_NUMERICHOST`, which makes no DNS query, reaches the resolver (#2152)."""
+    real_getaddrinfo = socket.getaddrinfo
 
-    def exploding_getaddrinfo(*args: object, **kwargs: object) -> None:
-        raise AssertionError("DNS lookup attempted during reference extraction!")
+    def exploding_getaddrinfo(host: object, *args: Any, **kwargs: Any) -> Any:
+        if not kwargs.get("flags", 0) & socket.AI_NUMERICHOST:
+            raise AssertionError("DNS lookup attempted during reference extraction!")
+        return real_getaddrinfo(host, *args, **kwargs)
 
     monkeypatch.setattr(socket, "getaddrinfo", exploding_getaddrinfo)
     content = """
