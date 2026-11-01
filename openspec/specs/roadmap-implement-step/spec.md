@@ -13,18 +13,18 @@ What `devops roadmap implement` reads, runs, checks, commits and reports when it
 - **THEN** the step reports done, the checkout holds one new commit titled `The first group (#7)`, that commit holds the three files, and the tasks of group 1 are ticked in the commit
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the agent made no commit, no test that existed at the start is lost, each verification command passes, the static checks pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A failed static check, and a task left unticked after the first four checks, first get the extra turn of their own requirements.
+The exit checks SHALL run in this order: the agent made no commit, no test that existed at the start is lost, each verification command passes, the static checks pass, the hooks of the repository pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A failed static check, a failed hook, and a task left unticked after the first five checks, first get the extra turns of their own requirements.
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
 - **THEN** the step reports stopped, the reason names the command and its exit status, the checkout holds no new commit, and the written files are gone
 
 #### Scenario: A static check fails
-- **WHEN** the verification command exits 0 and `ruff check` exits 1 on the changed file, in the first turn and in the extra turn
+- **WHEN** the verification command exits 0 and `ruff check` exits 1 on the changed file, in the first turn and in every extra turn
 - **THEN** the step reports stopped with the reason that `ruff check` failed, makes no commit and resets the checkout
 
 #### Scenario: A task stays unticked
-- **WHEN** the model ends its run and leaves a task of the group unticked, the verification command and the static checks exit 0, and the extra turn leaves the task unticked
+- **WHEN** the model ends its run and leaves a task of the group unticked, the verification command and the static checks exit 0, and every extra turn leaves the task unticked
 - **THEN** the step reports stopped, the reason names the unticked task, and the checkout is reset
 
 #### Scenario: A task stays unticked and a verification command fails
@@ -37,7 +37,7 @@ The exit checks SHALL run in this order: the agent made no commit, no test that 
 
 #### Scenario: A task that the agent removes
 - **WHEN** the model removes a task of group 1 from the `tasks.md` and ticks the others
-- **THEN** the step ticks no task of group 1, gives the extra turn, and stops with the reason that names the first unticked task when the turn changes nothing
+- **THEN** the step ticks no task of group 1, gives the extra turn, and stops with the reason that names the first unticked task when the turns change nothing
 
 #### Scenario: A task that the agent moves
 - **WHEN** the model swaps the texts of two tasks of group 1 and ticks them
@@ -49,7 +49,7 @@ The exit checks SHALL run in this order: the agent made no commit, no test that 
 
 #### Scenario: A tasks file that is gone
 - **WHEN** the model removes the `tasks.md` of the change
-- **THEN** the step writes the file from before the run, gives the extra turn for the unticked tasks, and stops with the reason that names the first unticked task when the turn changes nothing
+- **THEN** the step writes the file from before the run, gives the extra turn for the unticked tasks, and stops with the reason that names the first unticked task when the turns change nothing
 
 #### Scenario: A verification command outside the allowlist
 - **WHEN** a Verification line of the group names `curl http://example.com`
@@ -184,7 +184,7 @@ The step SHALL read the item once and SHALL write no issue, comment, label or mi
 - **THEN** the command exits 0, it prints the read of issue 7 and the model requests, the model gets no request, and the roadmap store sees no read
 
 ### Requirement: The outcome is a structured report
-The step SHALL return a `StepOutcome` with the status (done or stopped), the reason, the last message of the agent, the commit, and the requests, the tool calls and the tokens that the run spent. The command SHALL print it as a table, or as JSON with `--format json`, and SHALL exit 1 when the status is stopped. The step SHALL record the spend of the run as one record of the spend ledger.
+The step SHALL return a `StepOutcome` with the status (done or stopped), the reason, the last message of the agent, the commit, the repair rounds used, and the requests, the tool calls and the tokens that the run spent. The command SHALL print it as a table, or as JSON with `--format json`, and SHALL exit 1 when the status is stopped. The step SHALL record the spend of the run as one record of the spend ledger.
 
 #### Scenario: A stopped step as JSON
 - **WHEN** a step stops on a failed verification and the command runs with `--format json`
@@ -198,6 +198,10 @@ The step SHALL return a `StepOutcome` with the status (done or stopped), the rea
 - **WHEN** a step ends after three tool calls in two replies
 - **THEN** the outcome holds `tool_calls` 3
 
+#### Scenario: The repair rounds
+- **WHEN** a step ends after one extra turn
+- **THEN** the outcome holds `repair_rounds` 1 and the table shows the count
+
 ### Requirement: A fix step makes a failed check pass
 The step SHALL accept a fix request: the name of a failed check and its log. The group of a fix step SHALL be "Make check `<name>` pass", with the verification commands of every group of the change. The inputs SHALL hold the log cut to `CONST_ROADMAP_IMPLEMENT_LOG_CHARS` characters from its end. The exit checks SHALL be those of a group, except that no task is ticked and `tasks.md` SHALL be as it was. A done fix step SHALL commit as `Make check <name> pass (#N)`.
 
@@ -209,16 +213,16 @@ The step SHALL accept a fix request: the name of a failed check and its log. The
 - **WHEN** the model of a fix step ticks or edits a task in `tasks.md`, and changes a source file
 - **THEN** the step reports done, and the commit holds the source file and `tasks.md` as it was
 
-### Requirement: A step asks once for the missing ticks
-When the agent ends its run, the check of the tasks passes, each verification command passes, the static checks pass, and a task of the group is unticked, the step SHALL run one more model turn. The turn SHALL continue the same conversation under the same `UsageLimits`. Its message SHALL name the path of the `tasks.md` and list the unticked tasks, and SHALL ask only for their ticks. A step SHALL get one extra turn at most, whichever check asks for it, and none for the ticks of a fix step.
+### Requirement: A step asks for the missing ticks within the repair rounds
+When the agent ends its run, the other exit checks pass, and a task of the group is unticked, the step SHALL run one more turn in the same conversation under the same `UsageLimits`, while a repair round is left. Its message SHALL name the path of the `tasks.md`, list the unticked tasks, and ask only for their ticks. A step SHALL get at most `roadmap.implement.repair_rounds` extra turns in all, and none for the ticks of a fix step.
 
 #### Scenario: The agent forgot the ticks
 - **WHEN** the model writes a test file and a source file, ends its run with the tasks of group 1 unticked, the verification command and the static checks exit 0, and the model ticks the tasks in the extra turn
 - **THEN** the step reports done, the extra turn got the list of the unticked tasks, the new commit holds the test file, the source file and the ticked `tasks.md`, and the verification command ran twice
 
 #### Scenario: The turn ticks nothing
-- **WHEN** the model ends the extra turn and leaves the task unticked
-- **THEN** the step reports stopped with the reason that names the unticked task, and the model got no third turn
+- **WHEN** the model ends every extra turn and leaves the task unticked, and `repair_rounds` is 2
+- **THEN** the step reports stopped with the reason that names the unticked task, and the model got two extra turns and no third
 
 #### Scenario: A fix step
 - **WHEN** a fix step ends with a changed file and no ticks
@@ -577,16 +581,16 @@ When a model call fails with a `ModelHTTPError` of the status 400 inside an open
 - **WHEN** the model request of the extra turn for the ticks fails once with a 400 inside a stream
 - **THEN** the request is sent again, and the extra turn ends with the ticks
 
-### Requirement: A step asks once for a fix of a failed static check
-When the agent ends its run, each verification command passes, and `ruff check` or `mypy --strict` fails, the step SHALL run one more turn in the same conversation under the same `UsageLimits`. Its message SHALL hold the text of the failure and the unticked tasks, if any. The step SHALL mask secrets in the text with `mask_secrets` first, then cut it to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters. The step SHALL run the turn at most once. Every exit check SHALL run again after it.
+### Requirement: A step asks for a fix of a failed check within the repair rounds
+When the agent ends its run, each verification command passes, and `ruff check`, `mypy --strict` or a hook fails, the step SHALL run one more turn in the same conversation under the same `UsageLimits`, while a repair round is left. Its message SHALL hold the failure text, masked and cut to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters, and the unticked tasks. Every exit check SHALL run again after each turn. With no round left the step SHALL stop with the last failure.
 
 #### Scenario: An unused import
 - **WHEN** the model ticks the tasks and ends its run, `ruff check` exits 1 for an unused import in a changed file, and the model removes the import in the extra turn
-- **THEN** the step reports done, the extra turn got the text of the failure, the commit holds the file without the import, and `ruff check` ran twice
+- **THEN** the step reports done, the extra turn got the text of the failure, the commit holds the file without the import, `ruff check` ran twice, and `repair_rounds` is 1
 
 #### Scenario: The failure stays
-- **WHEN** `ruff check` still exits 1 after the extra turn
-- **THEN** the step reports stopped with the reason that names `ruff check` and its exit status, the model got no third turn, and the checkout is reset
+- **WHEN** `ruff check` still exits 1 after every round, and `repair_rounds` is 3
+- **THEN** the step reports stopped with the reason that names `ruff check` and its exit status, the model got three extra turns and no fourth, and the checkout is reset
 
 #### Scenario: A failed type check
 - **WHEN** `mypy --strict` exits 1 after the first turn, and the model fixes the file in the extra turn
@@ -594,11 +598,11 @@ When the agent ends its run, each verification command passes, and `ruff check` 
 
 #### Scenario: A failure and an unticked task
 - **WHEN** `ruff check` exits 1 after the first turn, and a task of the group is unticked
-- **THEN** the message of the extra turn holds the text of the failure and the unticked task, and the model gets one extra turn
+- **THEN** the message of the extra turn holds the text of the failure and the unticked task
 
 #### Scenario: The ticks stay missing
 - **WHEN** the extra turn fixes the static failure and leaves a task unticked
-- **THEN** the step reports stopped with the reason that names the unticked task, and the model gets no third turn
+- **THEN** the next turn asks only for the ticks, and the step stops with the reason that names the unticked task when no round is left
 
 #### Scenario: A failed verification command
 - **WHEN** a verification command exits 1
@@ -606,15 +610,27 @@ When the agent ends its run, each verification command passes, and `ruff check` 
 
 #### Scenario: A failure after the turn for the ticks
 - **WHEN** the extra turn for the ticks ends and `ruff check` exits 1
-- **THEN** the step reports stopped with the reason that names `ruff check`, and the model gets no second extra turn
+- **THEN** the model gets another turn that holds the text of the failure, while a round is left
+
+#### Scenario: No round
+- **WHEN** `repair_rounds` is 0 and `ruff check` exits 1
+- **THEN** the model gets no extra turn and the step reports stopped with the reason that names `ruff check`
 
 #### Scenario: A fix step
 - **WHEN** a fix step ends with a changed file and `ruff check` exits 1
-- **THEN** the model gets one extra turn that holds the text of the failure and no list of ticks
+- **THEN** the model gets an extra turn that holds the text of the failure and no list of ticks
 
 #### Scenario: The extra turn shares the budget
 - **WHEN** the first turn used all but one of the model requests and the extra turn needs two
 - **THEN** the step reports stopped with a reason that starts with `UsageLimitExceeded: `
+
+#### Scenario: A hook fails
+- **WHEN** the `pre-commit` stage exits 1 for a `pytest.raises` with no `match` in a changed test, and the model adds the `match` in the extra turn
+- **THEN** the step reports done, the message of the extra turn holds the output of the hook, and the commit holds the fixed test
+
+#### Scenario: A hook that the agent cannot fix
+- **WHEN** the `pre-commit` stage exits 1 after every turn, and `repair_rounds` is 3
+- **THEN** the step reports stopped with the reason that holds the output of the hook, the model got three extra turns, `repair_rounds` is 3, and the checkout is reset
 
 ### Requirement: The turn for a failed static check changes only the files of the step
 The turn for a failed static check SHALL change no file except `tasks.md` and the files that the step had changed before the turn. The step SHALL check this with git, and SHALL stop with a reason that names the other paths when the turn changed any.
@@ -821,3 +837,33 @@ The step SHALL run `mypy` on the changed Python files under the paths of the typ
 #### Scenario: The step and the gate agree
 - **WHEN** the step type-checks a file under each path of the gate
 - **THEN** the command line of the step is the command line of the row `typecheck` with the files in place of the paths
+
+### Requirement: The hooks of the repository are an exit check
+After the static checks, the step SHALL run the `pre-commit` stage of the hooks of the repository over the staged changes, with `pre-commit run --hook-stage pre-commit`. The child SHALL hold no GitHub token and SHALL have `PRE_COMMIT_HOME` under the data directory. The step SHALL install no git hook. The step SHALL run no hook when the commit at the start of the step holds no `.pre-commit-config.yaml`; a file that the agent removes SHALL NOT change that.
+
+#### Scenario: No hook configuration
+- **WHEN** the repository holds no `.pre-commit-config.yaml` and the checks pass
+- **THEN** the step reports done and runs no `pre-commit` command
+
+#### Scenario: A configuration that the agent removes
+- **WHEN** the commit holds the configuration and the agent deletes the file
+- **THEN** the step still runs the stage, which fails, and the agent gets a repair turn
+
+#### Scenario: No git hook
+- **WHEN** a step ends done
+- **THEN** the checkout holds no `pre-commit` or `pre-push` file in its git hooks directory, and the child that ran the hooks got no variable that matches `*TOKEN*`
+
+### Requirement: A hook that fixes a file runs again, and exit 1 is the only repairable failure
+When a hook changes a file, the step SHALL stage the changed files and run the stage once more. Exit code 1 of the second run SHALL be a failure that the agent may repair, with the output of the hooks as its text. Any other non-zero exit code SHALL stop the step with the output.
+
+#### Scenario: A hook changes a file
+- **WHEN** a hook adds the missing newline at the end of a changed file and exits 1, and the second run exits 0
+- **THEN** the step reports done, the commit holds the file with the newline, and the model got no extra turn
+
+#### Scenario: A hook fails
+- **WHEN** the `pre-commit` stage exits 1 on both runs
+- **THEN** the failure goes to the extra turn with the output of the hooks, and the turn may change only the files that the step changed
+
+#### Scenario: A broken environment
+- **WHEN** the `pre-commit` stage exits 3
+- **THEN** the step reports stopped with the output as the reason, and the model gets no extra turn
