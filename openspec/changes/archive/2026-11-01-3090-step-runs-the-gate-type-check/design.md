@@ -6,6 +6,7 @@
 - **Keep the module out of `commands/ci.py`.** The step must not import a Typer command module. The `ci` package already holds the gate helpers (`fail_to_pass`, `cache`), and `config.defaults` and `config.commands` hold the constants that the module needs.
 - **A path test, not a glob.** `typecheck_files` keeps a changed `.py` path when `PurePosixPath(path).is_relative_to(root)` holds for one root of `TYPECHECK_PATHS`. Git gives the paths relative to the checkout with `/`, so no normalisation is needed.
 - **No `mypy` run when the file set is empty.** A step that changes only test files runs `ruff check` and `ruff format` and no `mypy`. Mypy with no file would check the whole project, or fail.
+- **Followed imports are reported as in the gate.** A changed file under `src/` that imports a test helper with old errors makes `mypy` report them, in the step and in the gate. No file under `src/` imports from `tests/`, so the risk is theoretical. The step adds no `--follow-imports=silent`, because it would make the step differ from the gate.
 - **`ruff` stays on every changed file.** The pre-commit hooks run `ruff-check` and `ruff-format` on every staged Python file, so the step does the same. A lint error in a test file that the agent changed is its own error.
 - **The step passes the options of the gate.** The step now passes `--python-version 3.14` too. The `pyproject.toml` sets the same value, so the result does not change, and the command line equals the one of the gate.
 
