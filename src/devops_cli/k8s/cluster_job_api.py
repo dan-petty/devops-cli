@@ -25,7 +25,7 @@ from devops_cli.k8s.cluster_job import (
     image_digest,
     job_name,
 )
-from devops_cli.k8s.service import KubernetesService
+from devops_cli.k8s.service import KubernetesService, read_pod_log_text
 from devops_cli.lang import MESSAGES
 
 _BATCH = ("batch", "v1")
@@ -114,7 +114,8 @@ class ClusterJobs:
         )
 
     def log_tail(self, name: str, lines: int) -> str:
-        """The last `lines` lines of the log of Job `name`'s pod, or "" when the Job has no pod."""
+        """The last `lines` lines of the log of Job `name`'s pod as text, or "" when the Job has no
+        pod. The text is what the pod wrote, decoded as UTF-8 (`read_pod_log_text`)."""
         core = self._service.core_api()
         try:
             pods = core.list_namespaced_pod(
@@ -122,12 +123,11 @@ class ClusterJobs:
             )
             if not pods.items:
                 return ""
-            log = core.read_namespaced_pod_log(
-                pods.items[0].metadata.name, JOB_NAMESPACE, tail_lines=lines
+            return read_pod_log_text(
+                core, pods.items[0].metadata.name, JOB_NAMESPACE, tail_lines=lines
             )
         except api_error_type() as error:
             raise self._refused("read the log of a Job", error) from error
-        return str(log)
 
     def cronjob(self, template: JobTemplate) -> dict[str, Any]:
         """The CronJob of `template`, as the API returns it.

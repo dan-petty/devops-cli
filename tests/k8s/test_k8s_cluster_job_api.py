@@ -213,5 +213,25 @@ def test_the_log_tail_is_read_from_the_pod_of_the_job(kube: FakeCluster) -> None
     ) == ("line 1\nline 2\n", "batch.kubernetes.io/job-name=job-x", ("job-x-1", "devops", 40))
 
 
+@pytest.mark.parametrize(
+    "written",
+    ["\N{CHECK MARK} Took 1 item(s).\nline 2\n", b"\xe2\x9c\x93 Took 1 item(s).\nline 2\n"],
+)
+def test_the_log_tail_is_the_text_the_pod_wrote_with_real_line_breaks(
+    kube: FakeCluster, written: str | bytes
+) -> None:
+    kube.core.answers["list_namespaced_pod"] = [pod("job-x-1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = written
+
+    assert ClusterJobs().log_tail("job-x", 40) == "\N{CHECK MARK} Took 1 item(s).\nline 2\n"
+
+
+def test_the_log_tail_replaces_a_byte_that_is_not_utf_8(kube: FakeCluster) -> None:
+    kube.core.answers["list_namespaced_pod"] = [pod("job-x-1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = b"ok \xff done\n"
+
+    assert ClusterJobs().log_tail("job-x", 40) == "ok \N{REPLACEMENT CHARACTER} done\n"
+
+
 def test_a_job_with_no_pod_has_an_empty_log_tail(kube: FakeCluster) -> None:
     assert ClusterJobs().log_tail("job-x", 40) == ""

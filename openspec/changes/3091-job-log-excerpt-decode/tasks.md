@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/k8s/service.py`, `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/k8s/doctor.py`, `tests/support/fakes/kubernetes.py`. Changes: `src/devops_cli/k8s/service.py`, `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/k8s/doctor.py`, `tests/support/fakes/kubernetes.py`, `tests/k8s/test_k8s_cluster_job_api.py`, `tests/k8s/test_k8s_pod_log_text.py` (new), `tests/k8s/test_k8s_doctor.py`.
 
-- [ ] 1.1 Let the pod log of `FakeCoreV1` be `bytes`, and answer as the real client does for a plain read and a raw read. Write failing tests: `log_tail` of a `bytes` log with a check mark gives the character and real line breaks, and of a `str` log gives it unchanged; the doctor snapshot of a `bytes` log holds one entry for each line, with the check mark and a masked token; the real client reads a loopback log as text
+- [x] 1.1 Let the pod log of `FakeCoreV1` be `bytes`, and answer as the real client does for a plain read and a raw read. Write failing tests: `log_tail` of a `bytes` log with a check mark gives the character and real line breaks, and of a `str` log gives it unchanged; the doctor snapshot of a `bytes` log holds one entry for each line, with the check mark and a masked token; the real client reads a loopback log as text
   - Verification: `uv run devops ci test tests/k8s/test_k8s_cluster_job_api.py tests/k8s/test_k8s_pod_log_text.py tests/k8s/test_k8s_doctor.py` fails on the base for the `bytes` and doctor tests
-- [ ] 1.2 Add `read_pod_log_text` to `k8s/service.py`, call it in `log_tail` and in the doctor, and delete `str(log)`
+- [x] 1.2 Add `read_pod_log_text` to `k8s/service.py`, call it in `log_tail` and in the doctor, and delete `str(log)`
   - Verification: `uv run devops ci test tests/k8s/test_k8s_cluster_job_api.py tests/k8s/test_k8s_pod_log_text.py tests/k8s/test_k8s_doctor.py` passes
 
 ## 2. Show the excerpt in a fenced block (behavior)
