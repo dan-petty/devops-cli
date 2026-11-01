@@ -26,7 +26,9 @@ def test_acquire_ollama_slot_distributes_least_loaded() -> None:
     """Verify slots are leased from the least-loaded candidate node first."""
     candidates = ["http://example.com:11434", "http://example.com:11435"]
 
-    with acquire_ollama_slot(candidates, max_parallel=1, timeout=2.0) as url1:
+    with acquire_ollama_slot(
+        candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS
+    ) as url1:
         # First node acquired
         assert url1 == "http://example.com:11434"
         assert (
@@ -35,7 +37,9 @@ def test_acquire_ollama_slot_distributes_least_loaded() -> None:
         ) == (1, 0)
 
         # Second lease must pick the empty node
-        with acquire_ollama_slot(candidates, max_parallel=1, timeout=2.0) as url2:
+        with acquire_ollama_slot(
+            candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS
+        ) as url2:
             assert url2 == "http://example.com:11435"
             assert (get_ollama_active_leases(url1), get_ollama_active_leases(url2)) == (1, 1)
 
@@ -50,7 +54,7 @@ def test_acquire_ollama_slot_timeout_when_all_full() -> None:
     """Verify AIClientError is raised when all candidate nodes are fully utilized beyond timeout."""
     candidates = ["http://example.com:11434"]
 
-    with acquire_ollama_slot(candidates, max_parallel=1, timeout=1.0):
+    with acquire_ollama_slot(candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS):
         with pytest.raises(AIClientError, match="Timed out after"):
             with acquire_ollama_slot(candidates, max_parallel=1, timeout=0.1):
                 pass
@@ -64,11 +68,20 @@ def test_concurrent_slot_leasing_across_threads() -> None:
         "http://example.com:11436",
     ]
     barrier = threading.Barrier(3)
+    held_count = 0
+    held_lock = threading.Lock()
 
     def _worker(worker_id: int) -> str:
-        with acquire_ollama_slot(candidates, max_parallel=1, timeout=3.0) as leased_url:
-            if worker_id < 3:
-                barrier.wait(timeout=3.0)
+        nonlocal held_count
+        with acquire_ollama_slot(
+            candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS
+        ) as leased_url:
+            with held_lock:
+                should_wait = held_count < 3
+                if should_wait:
+                    held_count += 1
+            if should_wait:
+                barrier.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             return str(leased_url)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
