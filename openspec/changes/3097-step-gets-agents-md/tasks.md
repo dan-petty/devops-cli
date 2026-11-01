@@ -45,4 +45,5 @@ Reads: `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py`. Ch
 
 ## Workflow follow-up
 
+- Pending a person: run `devops roadmap eval implement` on the 14 fixtures, on the base and on the branch, with one model, and state both totals in the pull request. The design gives the result of one fixture.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

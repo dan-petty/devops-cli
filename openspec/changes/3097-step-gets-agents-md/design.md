@@ -55,3 +55,14 @@ A checkout with no `AGENTS.md`, or a route whose document is missing, adds no se
 | #2531 group 2 | `tests/` | 9,000 | 13,330 | 4,330 |
 
 `AGENTS.md` adds about 1,700 tokens to each. Each routed document adds 2,500 to 2,900 tokens. The largest group is 20,700 tokens, half of `roadmap.stage.step_tokens` (40,000), and the window check of the step (128,000 minus 40,000) holds with a wide margin. A group that names tests, source, roadmap code and a manifest adds about 14,000 tokens.
+
+## Score of the implement eval
+
+`docs/ROADMAP_WORKFLOW.md` asks a change of the implement prompt for the score of `devops roadmap eval implement` on the base and on the branch. A run of the 14 fixtures takes about two hours on each side, so this change ran one fixture, `2531-cwd-guard-first-plan`, on the model `devops-coder`:
+
+| Side | Status | Properties passed | Requests | Input tokens |
+| :--- | :--- | :--- | ---: | ---: |
+| Base | stopped (`ruff check` on a new test file) | 2 of 4 decided: `tests_kept`, `no_scratch` | 74 | 2,644,579 |
+| Branch | stopped (`mypy --strict` on a test file) | 2 of 4 decided: `tests_kept`, `tasks_ticked` | 49 | 1,257,569 |
+
+A first base run ended after 11 requests with the known Ollama tool-call parse error (`ollama/ollama` 18563) and is not counted. One run on one fixture does not show a gain or a loss. The rules reach the agent in the first request (the tests show it). A person decides whether to run the other fixtures.
