@@ -4,9 +4,9 @@
 
 Reads: none. Changes: `tests/test_models_argo.py`.
 
-- [ ] 1.1 Write three tests: (1) ArgoCDApp.from_api_item with spec.source.repoURL set and spec.sources absent returns that URL; (2) ArgoCDApp.from_api_item with spec.sources as a non-empty list and spec.source absent returns spec.sources[0].repoURL; (3) ArgoCDApp.from_api_item with neither field returns empty string. Repeat the same three for ArgoResourceState.from_manifest, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
-- [ ] 1.2 Add the test functions to tests/test_models_argo.py. Each test builds a minimal dict payload and asserts the repo_url field of the returned model, and verify that `uv run devops ci test tests/test_models_argo.py` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 1.1 Write three tests: (1) ArgoCDApp.from_api_item with spec.source.repoURL set and spec.sources absent returns that URL; (2) ArgoCDApp.from_api_item with spec.sources as a non-empty list and spec.source absent returns spec.sources[0].repoURL; (3) ArgoCDApp.from_api_item with neither field returns empty string. Repeat the same three for ArgoResourceState.from_manifest, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
+- [x] 1.2 Add the test functions to tests/test_models_argo.py. Each test builds a minimal dict payload and asserts the repo_url field of the returned model, and verify that `uv run devops ci test tests/test_models_argo.py` passes
+- [x] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 2. Add spec.sources fallback to ArgoCDApp and ArgoResourceState
 
