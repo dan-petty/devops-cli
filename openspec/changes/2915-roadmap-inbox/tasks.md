@@ -2,10 +2,10 @@
 
 ## 1. The store reads and their plan
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_store_contract.py` and `tests/roadmap/test_roadmap_github_store.py` for `open_items` (open items only, `updated_at` set), `open_pulls` (draft, author, head branch, times) and `repository_labels`, on both adapters; and in `tests/roadmap/test_roadmap_inbox.py` for the plan entries of `StoreRequests`
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_github_store.py`
-- [ ] 1.2 Add `Item.updated_at`, the models `OpenPull` and `RepositoryLabel`, and the three reads to `RoadmapStore`, `GitHubRoadmapStore` and `InMemoryRoadmapStore` (with `seed_pull` and `seed_label`); add `StoreRequests.open_items`, `open_pulls` and `repository_labels`; add `declared_label_specs` to `title_labels.py`
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_github_store.py tests/roadmap/test_roadmap_dry_runs.py`
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_store_contract.py` for `open_items` (open items only, `updated_at` set, and no read of every issue), `open_pulls` (draft, head branch, update time) and `repository_labels`, on both adapters; and in `tests/roadmap/test_roadmap_inbox_requests.py` for the plan entries of `StoreRequests` and `inbox_requests`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_inbox_requests.py`
+- [x] 1.2 Add `Item.updated_at`, the models `OpenPull` and `RepositoryLabel`, and the three reads to `RoadmapStore`, `GitHubRoadmapStore` and `InMemoryRoadmapStore` (with `seed_pull` and `seed_label`); add `StoreRequests.open_items`, `open_pulls` and `repository_labels` and `inbox_requests`; add `declared_label_specs` to `title_labels.py`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_github_store.py tests/roadmap/test_roadmap_inbox_requests.py tests/roadmap/test_roadmap_dry_runs.py`
 
 ## 2. The inbox
 

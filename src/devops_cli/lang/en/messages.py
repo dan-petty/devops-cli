@@ -2628,6 +2628,8 @@ class RoadmapMessages:
             "workflow_run": "the workflow run {subject} cites",
             "commit": "the commit {subject} cites",
             "path_change": "the newest commit on the default branch that changed {subject}",
+            "open_pulls": "the open pull requests",
+            "repository_labels": "the labels of the repository",
             "visibility": "whether the repository is private",
             "web_search": "a Firecrawl web search for {subject}",
             "repository_facts": "the repository {subject}",
@@ -2657,6 +2659,7 @@ class RoadmapMessages:
             "posted": "the change posts a comment",
             "check_on": "the repository is public and a Firecrawl key is set",
             "issues_unread": "the run has not read every issue yet",
+            "labels_differ": "the labels of the repository differ from .github/labels.yml",
             "still_waiting": "no comment follows refine's last comment on the waiting item",
             "capped": (
                 "the cap on refine's comments leaves the item alone, and no earlier round "

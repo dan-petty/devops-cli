@@ -24,6 +24,7 @@ from dataclasses import dataclass, replace
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
+    CONST_ROADMAP_LABELS_PATH,
     CONST_URL_GITHUB_API_BASE,
 )
 from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
@@ -160,6 +161,18 @@ class StoreRequests:
 
     def backlog(self) -> Requests:
         return self._issues("milestone=none&state=open")
+
+    def open_items(self) -> Requests:
+        """The listing of the open issues, which `open_items` reads (#2915)."""
+        return self._issues("state=open")
+
+    def open_pulls(self) -> Requests:
+        """The listing of the open pull requests (#2915)."""
+        return self.listing(gh.pulls_endpoint(self.repo), "open_pulls")
+
+    def repository_labels(self) -> Requests:
+        """The listing of the labels of the repository (#2915)."""
+        return self.listing(gh.labels_endpoint(self.repo), "repository_labels")
 
     def candidates(self) -> Requests:
         return self.every_issue()
@@ -703,6 +716,25 @@ def explain_requests(
     return (*reads, *blockers), ()
 
 
+def inbox_requests(
+    repo: str,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap inbox` reads, in order (#2915). It reads the open issues, the open
+    pull requests, the labels of the repository and `.github/labels.yml` on the default branch,
+    and the newest commit that changed that file only when the labels differ. It reads the
+    listing of every issue never, makes no write and calls no model."""
+    store = StoreRequests(repo)
+    differ = MESSAGES.roadmap.plan_conditions["labels_differ"]
+    reads = [
+        *store.open_items(),
+        *store.open_pulls(),
+        *store.repository_labels(),
+        *store.file(CONST_ROADMAP_LABELS_PATH, None),
+        *within(store.path_change(CONST_ROADMAP_LABELS_PATH), differ),
+    ]
+    return tuple(reads), ()
+
+
 def render_dry_run(
     job: str,
     repo: str,
@@ -728,6 +760,7 @@ __all__ = [
     "alternatives_requests",
     "explain_requests",
     "implement_requests",
+    "inbox_requests",
     "is_page_repeat",
     "milestones_close_requests",
     "milestones_edit_requests",

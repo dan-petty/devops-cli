@@ -1,7 +1,8 @@
 """The in-memory roadmap store: the roadmap held in process, with no I/O, for tests.
 
 It keeps the promises the GitHub adapter keeps, so the contract suite runs against it. A test
-seeds milestones with `seed_milestone` and issues with `seed_issue`, and acts as a person with
+seeds milestones with `seed_milestone`, issues with `seed_issue`, pull requests with `seed_pull`
+and labels with `seed_label`, and acts as a person with
 `as_actor`: a person's writes change labels and record changes under their name, but never
 touch the job record. Each issue keeps its body as GitHub does, the record block included, and
 every read takes the block out with the same rules as the GitHub adapter.
@@ -45,7 +46,9 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     Milestone,
+    OpenPull,
     RepositoryFacts,
+    RepositoryLabel,
     RoadmapStore,
     already_closed,
     as_utc,
@@ -102,6 +105,9 @@ class _Roadmap:
     is_private: bool = False
     # The repositories `seed_repository` made, by full name.
     repositories: dict[str, RepositoryFacts] = field(default_factory=dict)
+    # The head branch and draft state of each pull request `seed_pull` made, by number.
+    pulls: dict[int, tuple[str, bool]] = field(default_factory=dict)
+    labels: list[RepositoryLabel] = field(default_factory=list)
 
 
 class InMemoryRoadmapStore(RoadmapStore):
@@ -164,6 +170,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
         sub_issues: int = 0,
         parent: int | None = None,
+        updated_at: datetime | None = None,
     ) -> int:
         """Open an issue (or a pull request) as GitHub would, returning its number.
 
@@ -173,7 +180,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         the repository, the owner's unless given, since GitHub gives one for every issue.
         `sub_issues` is how many sub-issues GitHub records for it, and `parent` is the issue
         that has it as a sub-issue. The issue is created now by the store's clock, and closed
-        now when seeded closed. `body` is kept as given, so a test can seed a record block.
+        now when seeded closed, and last changed at `updated_at` when that is given. `body` is
+        kept as given, so a test can seed a record block.
         """
         if milestone is not None:
             require_milestone(self._roadmap.milestones.values(), milestone, "roadmap.issue.seed")
@@ -194,12 +202,33 @@ class InMemoryRoadmapStore(RoadmapStore):
             pull_request=pull_request,
             author_association=author_association,
             created_at=now,
-            updated_at=now,
+            updated_at=as_utc(updated_at) if updated_at is not None else now,
             closed_at=now if state is GitHubState.CLOSED else None,
             sub_issues=sub_issues,
             parent=parent,
         )
         return number
+
+    def seed_pull(
+        self,
+        title: str,
+        *,
+        head_ref: str,
+        draft: bool = False,
+        state: GitHubState = GitHubState.OPEN,
+        updated_at: datetime | None = None,
+    ) -> int:
+        """Open a pull request on the branch `head_ref`, a draft when `draft`, returning its
+        number. It is an issue that is a pull request, so it shares the numbers of the issues."""
+        number = self.seed_issue(title, state=state, pull_request=True, updated_at=updated_at)
+        self._roadmap.pulls[number] = (head_ref, draft)
+        return number
+
+    def seed_label(self, name: str, color: str, description: str = "") -> None:
+        """Add a label to the repository, as a person does on GitHub."""
+        self._roadmap.labels.append(
+            RepositoryLabel(name=name, color=color, description=description)
+        )
 
     def seed_file(self, path: str, text: str, *, ref: str | None = None) -> None:
         """Commit `text` at `path` on `ref`, or on the default branch when `ref` is None."""
@@ -447,6 +476,33 @@ class InMemoryRoadmapStore(RoadmapStore):
             for item in self.items()
             if item.state is GitHubState.OPEN and item.milestone is None
         ]
+
+    def open_items(self) -> list[Item]:
+        """The open Items."""
+        return [item for item in self.items() if item.state is GitHubState.OPEN]
+
+    def open_pulls(self) -> list[OpenPull]:
+        """The open pull requests that `seed_pull` made."""
+        pulls = (
+            (self._roadmap.issues[number], head_ref, draft)
+            for number, (head_ref, draft) in self._roadmap.pulls.items()
+        )
+        return [
+            OpenPull(
+                number=issue.number,
+                title=issue.title,
+                url=issue.url,
+                head_ref=head_ref,
+                draft=draft,
+                updated_at=issue.updated_at or self._roadmap.clock(),
+            )
+            for issue, head_ref, draft in pulls
+            if issue.state is GitHubState.OPEN
+        ]
+
+    def repository_labels(self) -> list[RepositoryLabel]:
+        """The labels that `seed_label` made."""
+        return list(self._roadmap.labels)
 
     def candidates(self) -> list[Candidate]:
         """The open issues of the repository that hold no Priority."""

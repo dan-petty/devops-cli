@@ -65,7 +65,9 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     Milestone,
+    OpenPull,
     RepositoryFacts,
+    RepositoryLabel,
     RoadmapStore,
     already_closed,
     as_utc,
@@ -201,6 +203,34 @@ class _IssuePayload(BaseModel):
         )
 
 
+class _PullPayload(BaseModel):
+    number: int
+    title: str
+    html_url: str
+    draft: bool = False
+    head_ref: str = Field(validation_alias=AliasPath("head", "ref"))
+    updated_at: datetime
+
+    def pull(self) -> OpenPull:
+        return OpenPull(
+            number=self.number,
+            title=self.title,
+            url=self.html_url,
+            head_ref=self.head_ref,
+            draft=self.draft,
+            updated_at=self.updated_at,
+        )
+
+
+class _LabelPayload(BaseModel):
+    name: str
+    color: str = ""
+    description: str | None = None
+
+    def label(self) -> RepositoryLabel:
+        return RepositoryLabel(name=self.name, color=self.color, description=self.description or "")
+
+
 class _EventPayload(BaseModel):
     event: str
     created_at: datetime
@@ -301,6 +331,8 @@ class _ReleasePayload(BaseModel):
 
 _MILESTONE = TypeAdapter(_MilestonePayload)
 _ISSUE = TypeAdapter(_IssuePayload)
+_PULL = TypeAdapter(_PullPayload)
+_LABEL = TypeAdapter(_LabelPayload)
 _EVENT = TypeAdapter(_EventPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
@@ -342,6 +374,16 @@ def repository_file_args(repo: str, path: str, *, ref: str | None) -> list[str]:
 def milestones_endpoint(repo: str) -> str:
     """The REST listing of every milestone of `repo`, open and closed."""
     return f"repos/{repo}/milestones?state=all"
+
+
+def pulls_endpoint(repo: str) -> str:
+    """The REST listing of the open pull requests of `repo`."""
+    return f"repos/{repo}/pulls?state=open"
+
+
+def labels_endpoint(repo: str) -> str:
+    """The REST listing of the labels of `repo`."""
+    return f"repos/{repo}/labels"
 
 
 def issues_endpoint(repo: str, query: str = "state=all") -> str:
@@ -567,6 +609,21 @@ class GitHubRoadmapStore(RoadmapStore):
     def backlog(self) -> list[Item]:
         """The open Items in no milestone."""
         return select_items(self._read_issues("milestone=none&state=open"))
+
+    def open_items(self) -> list[Item]:
+        """The open Items, from the listing of open issues: one page for each 100 open issues
+        and pull requests, and no read of the closed ones."""
+        return select_items(self._read_issues("state=open"))
+
+    def open_pulls(self) -> list[OpenPull]:
+        """The open pull requests, one page for each 100."""
+        listing = self._listing(pulls_endpoint(self._repo), _PULL, "pull requests")
+        return [pull.pull() for pull in listing]
+
+    def repository_labels(self) -> list[RepositoryLabel]:
+        """The labels of the repository, one page for each 100."""
+        listing = self._listing(labels_endpoint(self._repo), _LABEL, "labels")
+        return [label.label() for label in listing]
 
     def candidates(self) -> list[Candidate]:
         """The open issues of the repository that hold no Priority."""

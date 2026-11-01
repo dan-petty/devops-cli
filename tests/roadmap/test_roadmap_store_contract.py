@@ -34,12 +34,14 @@ from devops_cli.roadmap.store import (
     IssueComment,
     Item,
     ItemField,
+    OpenPull,
     RefineRecordKey,
     RepositoryFacts,
+    RepositoryLabel,
     RoadmapStore,
 )
 from tests.roadmap_github_fake import GitHubFake
-from tests.support.fakes.github import GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 
 REPO = "example/roadmap"
 RECORD = "<!-- devops-roadmap-record"
@@ -59,7 +61,20 @@ class World(Protocol):
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        updated_at: datetime | None = None,
     ) -> int: ...
+
+    def seed_pull(
+        self,
+        title: str,
+        *,
+        head_ref: str,
+        draft: bool = False,
+        state: GitHubState = GitHubState.OPEN,
+        updated_at: datetime | None = None,
+    ) -> int: ...
+
+    def seed_label(self, name: str, color: str, description: str | None = None) -> None: ...
 
     def person_adds(self, number: int, label: str) -> None: ...
 
@@ -86,6 +101,7 @@ class MemoryWorld:
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        updated_at: datetime | None = None,
     ) -> int:
         return self._roadmap.seed_issue(
             title,
@@ -94,7 +110,24 @@ class MemoryWorld:
             state=state,
             pull_request=pull_request,
             author_association=author_association,
+            updated_at=updated_at,
         )
+
+    def seed_pull(
+        self,
+        title: str,
+        *,
+        head_ref: str,
+        draft: bool = False,
+        state: GitHubState = GitHubState.OPEN,
+        updated_at: datetime | None = None,
+    ) -> int:
+        return self._roadmap.seed_pull(
+            title, head_ref=head_ref, draft=draft, state=state, updated_at=updated_at
+        )
+
+    def seed_label(self, name: str, color: str, description: str | None = None) -> None:
+        self._roadmap.seed_label(name, color, description or "")
 
     def person_adds(self, number: int, label: str) -> None:
         self._roadmap.as_actor("alice").add_label(number, label)
@@ -127,6 +160,7 @@ class GitHubWorld:
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        updated_at: datetime | None = None,
     ) -> int:
         number = len(self.github.issues) + 1
         self.github.seed_issue(
@@ -137,8 +171,27 @@ class GitHubWorld:
             state=state.value,
             pull_request=pull_request,
             author_association=author_association,
+            updated_at=updated_at,
         )
         return number
+
+    def seed_pull(
+        self,
+        title: str,
+        *,
+        head_ref: str,
+        draft: bool = False,
+        state: GitHubState = GitHubState.OPEN,
+        updated_at: datetime | None = None,
+    ) -> int:
+        number = len(self.github.issues) + 1
+        self.github.seed_pull(
+            number, title, head_ref=head_ref, draft=draft, state=state.value, updated_at=updated_at
+        )
+        return number
+
+    def seed_label(self, name: str, color: str, description: str | None = None) -> None:
+        self.github.seed_label(name, color, description)
 
     def person_adds(self, number: int, label: str) -> None:
         self.github.issues[number]["labels"].append({"name": label})
@@ -966,3 +1019,55 @@ def test_add_sub_issue_links_child_to_parent_with_cached_issues(world: World) ->
     parent_record = next(i for i in world.store.issues() if i.number == parent)
     child_record = next(i for i in world.store.issues() if i.number == child)
     assert (parent_record.sub_issues, child_record.parent) == (1, parent)
+
+
+# ── The reads of the inbox (#2915) ────────────────────────────────────────────
+
+MOMENT = datetime(2026, 10, 20, 8, 30, tzinfo=UTC)
+
+
+def test_open_items_are_the_open_items_with_the_time_of_their_last_update(world: World) -> None:
+    """A closed item, a candidate and a pull request are not in the listing of open items."""
+    open_item = world.seed("open", labels=("priority/p2-medium",), updated_at=MOMENT)
+    world.seed("closed", labels=("priority/p3-low",), state=GitHubState.CLOSED)
+    world.seed("candidate", labels=("type/bug",))
+    world.seed("a pull request", labels=("priority/p1-high",), pull_request=True)
+    assert [(item.number, item.updated_at) for item in world.store.open_items()] == [
+        (open_item, MOMENT)
+    ]
+
+
+def test_open_pulls_are_the_open_pull_requests_with_their_branch_and_draft_state(
+    world: World,
+) -> None:
+    ready = world.seed_pull("ready", head_ref="feat/7-ready", updated_at=MOMENT)
+    draft = world.seed_pull("draft", head_ref="fix/8-draft", draft=True)
+    world.seed_pull("merged", head_ref="fix/9-merged", state=GitHubState.CLOSED)
+    world.seed("an issue")
+    pulls = world.store.open_pulls()
+    assert [(p.number, p.title, p.head_ref, p.draft) for p in pulls] == [
+        (ready, "ready", "feat/7-ready", False),
+        (draft, "draft", "fix/8-draft", True),
+    ]
+    assert (pulls[0].updated_at, pulls[0].url.endswith(f"/pull/{ready}")) == (MOMENT, True)
+    assert all(isinstance(pull, OpenPull) for pull in pulls)
+
+
+def test_repository_labels_are_the_labels_with_a_missing_description_as_empty(
+    world: World,
+) -> None:
+    world.seed_label("type/bug", "D73A4A", "A defect")
+    world.seed_label("scope/ci", "0E8A16")
+    assert world.store.repository_labels() == [
+        RepositoryLabel(name="type/bug", color="D73A4A", description="A defect"),
+        RepositoryLabel(name="scope/ci", color="0E8A16", description=""),
+    ]
+
+
+def test_the_github_store_reads_open_issues_and_never_the_listing_of_every_issue() -> None:
+    """The inbox reads `state=open`: the listing of every issue is about thirty pages."""
+    world = GitHubWorld()
+    world.seed("open", labels=("priority/p2-medium",))
+    world.store.open_items()
+    read = [call[0] for call in world.github.calls if call[0].startswith(API)]
+    assert [path.split("/issues?", 1)[1].split("&")[0] for path in read] == ["state=open"]
