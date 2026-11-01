@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is a program of the table `SHELL_PROGRAMS`: `git`, `uv`, `ruff`, `mypy`, and the read-only programs `grep`, `cat`, `ls`, `head`, `tail` and `find`. The command SHALL hold none of the operators that start a second command, a read-only program SHALL hold no redirect to a file other than `/dev/null`, and `find` SHALL hold none of `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf` and `-fls`, and no word with `$`. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, and SHALL add a hint. A refused argument SHALL give a refusal that names the program and the argument and says what to do instead, and it SHALL count as a refused command. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
+The shell tool SHALL run a command only when its first word is a program of `SHELL_PROGRAMS` and it holds no operator that starts a second command, no redirect to a file in a read-only program, and no refused argument or `$` word in `find`. Any other command SHALL come back as a refusal with a hint, and the run SHALL go on. A refused argument SHALL count as a refused command. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run

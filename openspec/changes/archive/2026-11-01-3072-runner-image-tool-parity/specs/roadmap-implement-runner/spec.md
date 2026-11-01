@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The runner stage holds the tools of a step
-The `runner` stage of `Dockerfile` SHALL be built from the `builder` stage and SHALL run `uv sync --locked`, so that the dev dependencies of `uv.lock` are in the venv. It SHALL install `git`, `curl` and `jq` with apt, and SHALL install promtool with `devops install-tools`. It SHALL hold no tool whose newest release fails the image scan. It SHALL put the pinned OpenSpec, gh and the Node runtime of the builder stage on the stage's `PATH`, SHALL run as user 1000, and SHALL set `ENTRYPOINT ["devops"]`. It SHALL come before the `service` stage, so that a build with no `--target` builds the Service image. The `service` stage SHALL hold none of the added tools.
+The `runner` stage of `Dockerfile` SHALL build from the `builder` stage, run `uv sync --locked`, install `git`, `curl` and `jq` with apt, and install promtool with `devops install-tools`. It SHALL put the pinned OpenSpec, gh and Node of the builder stage on `PATH`, run as user 1000, and set `ENTRYPOINT ["devops"]`. It SHALL come before the `service` stage, which SHALL hold none of the added tools.
 
 #### Scenario: The stage is read offline
 - **WHEN** a test reads the stages of `Dockerfile`
