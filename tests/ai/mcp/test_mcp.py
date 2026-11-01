@@ -820,7 +820,7 @@ def test_mcp_serve_dry_run_refuses_what_the_start_refuses(cli: Any) -> None:
     """A bad transport and a remote `sse` host end the dry run as they end the start."""
     with patch("devops_cli.commands.mcp.run_mcp_server", side_effect=AssertionError("no server")):
         bad = cli(["mcp", "serve", "--transport", "grpc", "--dry-run"])
-        remote = cli(["mcp", "serve", "--transport", "sse", "--host", "0.0.0.0", "--dry-run"])
+        remote = cli(["mcp", "serve", "--transport", "sse", "--host", "192.0.2.10", "--dry-run"])
 
     assert (bad.exit_code, remote.exit_code) == (1, 1)
     assert _plan_lines(remote.output) == []
