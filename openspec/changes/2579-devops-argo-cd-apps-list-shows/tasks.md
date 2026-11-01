@@ -1,21 +1,14 @@
 # Tasks
 
-## 1. Add tests for multi-source repo fallback
+## 1. The Repo column shows the first source of an Application with several sources
 
-Reads: none. Changes: `tests/test_models_argo.py`.
+Kind: behavior. Reads: `src/devops_cli/models/argo.py` (lines 1 to 50), `src/devops_cli/commands/argo.py` (lines 215 to 270), `tests/commands/test_argo.py` (lines 90 to 135 and 350 to 400). Changes: `src/devops_cli/models/argo.py`, `src/devops_cli/commands/argo.py`, `tests/commands/test_argo.py`, `docs/commands/argo.md`, `docs/CLI_REFERENCE.md`, `docs/MCP_TOOLS.md`.
 
-- [ ] 1.1 Write three tests: (1) ArgoCDApp.from_api_item with spec.source.repoURL set and spec.sources absent returns that URL; (2) ArgoCDApp.from_api_item with spec.sources as a non-empty list and spec.source absent returns spec.sources[0].repoURL; (3) ArgoCDApp.from_api_item with neither field returns empty string. Repeat the same three for ArgoResourceState.from_manifest, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
-- [ ] 1.2 Add the test functions to tests/test_models_argo.py. Each test builds a minimal dict payload and asserts the repo_url field of the returned model, and verify that `uv run devops ci test tests/test_models_argo.py` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-
-## 2. Add spec.sources fallback to ArgoCDApp and ArgoResourceState
-
-Reads: none. Changes: `src/devops_cli/models/argo.py`.
-
-- [ ] 2.1 The tests from the previous group are the failing tests that this group makes pass, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
-- [ ] 2.2 In ArgoCDApp.from_api_item, after reading source from spec.get('source', {}), add: if not source.get('repoURL'): sources = spec.get('sources'); if isinstance(sources, list) and sources: source = sources[0] if isinstance(sources[0], dict) else {}. In ArgoResourceState.from_manifest, apply the same fallback after _section(spec, 'source'), and verify that `uv run devops ci test tests/test_models_argo.py` passes
-- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-
-## Workflow follow-up
-
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- [ ] 1.1 Write the failing tests first in `tests/commands/test_argo.py`, which already holds `test_argocd_app_from_api_item` and the render tests of `apps list` (the model has no test file of its own, and a new test joins the file that tests the behaviour). Each docstring cites #2579. The tests:
+  - a parametrized test next to `test_argocd_app_from_api_item` that gives `ArgoCDApp.from_api_item` an item with this `spec` and checks `repo_url`: `source` only gives its `repoURL`; `sources` of two entries (a chart repository, then a git repository with `ref: values`) and no `source` gives the first `repoURL`; `source` and `sources` both set gives the first `repoURL` of `sources`; neither gives `""`; `sources: []` with a `source` gives the `repoURL` of the `source`; `sources: "x"` and no `source`, and `sources: [None]` and no `source`, give `""` and raise nothing
+  - a test next to `test_argo_cd_apps_list_and_status_render`, in the style of that test (`fake_get` over `httpx2.Client.get`, `load_settings` patched), that serves one single-source and one multi-source Application, runs `argo_app` with `["cd", "apps", "list"]` and `env={"COLUMNS": "250"}` (the width that `tests/support/cli.py` uses, so that the table does not wrap a URL), and asserts that the output holds the `repoURL` of the single source and the first `repoURL` of the multi-source Application, and not its second one
+  - a test that runs `["cd", "apps", "list", "--help"]` with the same `env`, joins the words of the output (`" ".join(result.output.split())`), and asserts that it holds `Repo column shows the first source`
+  - Verify that `uv run devops ci test tests/commands/test_argo.py` fails on the base for the right reason: the rows with `sources`, the table test and the help test fail with an empty Repo value or a missing sentence. The rows with `source` only, with neither field, with `sources: []` and with a malformed value pass on the base, as guards
+- [ ] 1.2 In `ArgoCDApp.from_api_item` of `src/devops_cli/models/argo.py`, read the first entry of `spec.sources` when `spec.sources` is a non-empty list, and else `spec.source`. When the chosen value is not a dict, use an empty dict, as the code does for `source` now. Change nothing else, and leave `ArgoResourceState.from_manifest` as it is (see the proposal). Verify that `uv run devops ci test tests/commands/test_argo.py tests/argo/test_argo_crd.py` passes, except the help test, which task 1.3 makes pass
+- [ ] 1.3 Change the docstring of `cd_apps_list` in `src/devops_cli/commands/argo.py` to the first line `List all ArgoCD applications.`, a blank line, and the line `The Repo column shows the first source of an Application with several sources.` Keep each line under 100 characters. Do not change `HELP.argo.apps_list` in `src/devops_cli/lang/en/help.py`: nothing reads it. Verify that `uv run devops ci test tests/commands/test_argo.py tests/commands/test_argo_dry_run.py tests/commands/test_all_commands_help_dryrun.py tests/ai/mcp/test_fastmcp_contracts.py` passes
+- [ ] 1.4 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes and that `git diff --stat` lists only the three documents of the Changes line, with the new sentence

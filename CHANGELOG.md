@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.37.2](https://github.com/dan-petty/devops-cli/compare/v0.37.1...v0.37.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* **roadmap:** a stage group has a kind with its own tasks ([#3035](https://github.com/dan-petty/devops-cli/issues/3035)) ([deb2f9e](https://github.com/dan-petty/devops-cli/commit/deb2f9eb7e85d9f0e40433a43bb25ff553f27077)), closes [#3005](https://github.com/dan-petty/devops-cli/issues/3005)
+* **roadmap:** refuse plans that name missing paths ([#3036](https://github.com/dan-petty/devops-cli/issues/3036)) ([334f0ea](https://github.com/dan-petty/devops-cli/commit/334f0eadb64fa796fa5f659a5bbfc4964c3d3455)), closes [#3010](https://github.com/dan-petty/devops-cli/issues/3010)
+
 ## [0.37.1](https://github.com/dan-petty/devops-cli/compare/v0.37.0...v0.37.1) (2026-11-01)
 
 
