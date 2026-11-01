@@ -2,37 +2,45 @@
 
 ## Why
 
-Issue #2600 asks whether the two product readers (devops scan complexity and the inspection hotspots) should take their complexity figure from Ruff at run time, or keep the hand-written McCabe port with a stated reason. The decision is to keep the port: Ruff is a dev dependency, its JSON output has no structured complexity field, and the port is 90 lines of pure Python already tested to match Ruff's C901.
+Issue #2600 asks one question. Should `devops scan complexity` and the inspection hotspots read their complexity figure from Ruff at run time, or keep the McCabe port in `src/devops_cli/core/code_metrics.py` with a stated reason?
+
+The answer is: keep the port. Ruff is a development dependency only. Ruff gives the figure only inside a message string, and only for a function above `max-complexity`. The port is one standard-library module, and a test holds it equal to Ruff.
+
+The module docstring does not state this reason yet. This change adds it, so the next reader does not ask the same question again.
 
 ## What Changes
 
-- Record the decision to keep the McCabe port with the stated reason in the module docstring of core/code_metrics.py
-- Add a spec requirement that documents the single-source complexity behavior of devops scan complexity and the inspection hotspots
-- Verify the existing 12-sample test holds the port equal to Ruff's C901
+- `src/devops_cli/core/code_metrics.py`: the module docstring gets a short paragraph. It says why the module does not call Ruff. The code does not change.
+- The change has no spec delta (`skip_specs: true`). No `devops` command, option or message changes, and the figures that the two readers report stay the same.
 - The change fits one pull request.
+- The change deletes no code. The port stays, so the second acceptance criterion of the issue (the port goes) does not apply.
 
-## Capabilities
+## Acceptance
 
-### New Capabilities
-
-- `code-complexity-metrics`: single-source-complexity
-
-### Modified Capabilities
-
-None.
-
-## Impact
-
-- Code: `src/devops_cli/core/code_metrics.py`
+| Criterion of the issue | Delivered by |
+| :--- | :--- |
+| The two readers get their complexity from one source that matches `ruff check --select C901`, and a test holds it. | Already true on `origin/main`. Both readers call `measure_tree`, and `tests/core/test_code_metrics.py` holds the match (see Feasibility). Group 1 keeps these tests green and states the reason in the module. |
+| If the port goes, `core/code_metrics.py` and its samples go with it. | Does not apply. The decision is to keep the port. |
 
 ## Feasibility
 
-- The premise is confirmed: pyproject.toml lists ruff in [dependency-groups] dev, not in [project] dependencies, so Ruff is not a runtime dependency.
-- src/devops_cli/core/code_metrics.py exists at 119 lines with the mccabe_complexity function and the FunctionComplexity dataclass.
-- tests/test_code_metrics.py holds 12 parametrized samples that compare the port to Ruff's C901.
-- The two readers (security/complexity.py and ai/inspection.py) import from core/code_metrics.py, as stated in the issue body.
-- First check the implementation runs: uv run devops ci test tests/test_code_metrics.py confirms all 12 samples pass and the port matches Ruff's C901.
+All checks ran on `origin/main` with Ruff 0.16.8.
+
+- Ruff is not a runtime dependency. A script that loads `pyproject.toml` printed `[] ['ruff==0.16.8']`: no `ruff` in `[project] dependencies`, and `ruff==0.16.8` in `[dependency-groups] dev`.
+- Ruff has no structured complexity field. `ruff check --isolated --select C901 --config 'lint.mccabe.max-complexity=0' --output-format json x.py` on a function `f` with one `if` printed one entry with `"message": "`f` is too complex (2 > 0)"`. The keys are `cell`, `code`, `end_location`, `filename`, `fix`, `location`, `message`, `name`, `noqa_row`, `severity` and `url`. The number is only in `message`.
+- Ruff reports only the functions above `max-complexity`. A figure for every function needs `max-complexity=0`, a Ruff process per scan, and a parse of the message string.
+- Product code reads the figure in two places only. `git grep -n "code_metrics" src` prints `src/devops_cli/ai/inspection.py:28` and `src/devops_cli/security/complexity.py:15`. Both import from `devops_cli.core.code_metrics`, and both call `measure_tree`.
+- The module has 119 lines, of which 89 are code. `wc -l` and `grep -v '^\s*#\|^\s*$' | wc -l` printed 119 and 89. This matches the "about 90 lines" of the issue.
+- The test holds the match with Ruff. `tests/core/test_code_metrics.py` has one test with 12 parameters (not `tests/test_code_metrics.py`, which the issue names by its old path). A scratch script wrote each of the 11 sample sources to a file and ran the Ruff command above on it. For each function, the figure of Ruff equalled the figure of `measure_tree`. It printed `diffs 0`.
+- Other product code already runs Ruff as a subprocess (`_default_ruff_block_checker` in `src/devops_cli/review/analysis.py` runs `ruff check` with `F,UP`). That code finds `ruff` on `PATH` and does not make Ruff a declared runtime dependency. It does not change the decision: the complexity scan runs for every user of `devops`, and it must not need a tool that is only a dev dependency.
+- Nothing newer changed the question. `git log origin/main` for the module and its test shows #2830 (test move), #2602 (nesting removed, #1876) and #1975. No open change folder other than this one names `code_metrics` or `scan complexity`.
+- `CONST_COMPLEXITY_SOURCE` in `src/devops_cli/config/constants.py` is `"mccabe (ruff C901)"`. It is the `source` field of the findings and it stays true.
 
 ## Existing Tool Considered
 
-Ruff C901 computes the same standard McCabe count. It is a dev dependency only (pyproject.toml [dependency-groups] dev). Its JSON output embeds the complexity number in a diagnostic message string, not a structured field. The port costs about 90 lines of Python and 12 test samples to build, keep and fix. No internal code is deleted.
+Ruff `C901` counts the same standard McCabe figure, and CI already enforces it at 10 with `ruff check`. The change does not use it at run time for these reasons.
+
+- Ruff as a runtime dependency adds a native binary to every install of `devops`, for a metric that 89 lines of standard-library Python compute.
+- Ruff as a subprocess needs Ruff on `PATH` where `devops scan` runs, one process per scan, and a parse of a message string, because JSON output has no number field.
+
+The written cost of the port is: about 89 lines of code in `src/devops_cli/core/code_metrics.py`, and 12 test samples in `tests/core/test_code_metrics.py`. The test compares the port to the values of Ruff, so a change of Ruff counting fails the test. The cost to write this change is one docstring paragraph. The change deletes no internal code.

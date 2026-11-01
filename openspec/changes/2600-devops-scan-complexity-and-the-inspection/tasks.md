@@ -1,13 +1,15 @@
 # Tasks
 
-## 1. Record the keep-port decision and verify the test
+## 1. State why the port stays
 
-Reads: none. Changes: `src/devops_cli/core/code_metrics.py`.
+Reads: `src/devops_cli/core/code_metrics.py`. Changes: `src/devops_cli/core/code_metrics.py`.
 
-- [ ] 1.1 The existing test in tests/test_code_metrics.py passes with all 12 parametrized samples, confirming the port matches Ruff's C901. No new test is needed because no behavior changes, and verify that `uv run devops ci test tests/test_code_metrics.py` fails on the base
-- [ ] 1.2 Add one line to the module docstring of src/devops_cli/core/code_metrics.py after the existing first paragraph: 'Decision #2600: kept as the single source. Ruff is a dev dependency with no structured complexity field in its JSON output.', and verify that `uv run devops ci test tests/test_code_metrics.py` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 1.1 Run the tests that hold the port and its two readers, and check that they pass before the edit. They are the check for this group, because no behavior changes
+  - Verification: `uv run devops ci test tests/core/test_code_metrics.py tests/core/test_scan_complexity.py tests/ai/test_ai_inspection.py tests/security/test_review_ruff_mypy_evidence.py`
+- [ ] 1.2 Add a paragraph to the module docstring of `src/devops_cli/core/code_metrics.py`, after the first paragraph. It says that the module does not call Ruff: Ruff is a development dependency, and `ruff check` gives the figure only in a message string, only for a function above `max-complexity`. It says that `tests/core/test_code_metrics.py` holds the module equal to Ruff
+  - Verification: `git grep -n "development dependency" src/devops_cli/core/code_metrics.py` prints the new line, and the command of task 1.1 passes again
 
-## Workflow follow-up
+## 2. Archive
 
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- [ ] 2.1 Archive the change
+  - Verification: `uv run devops openspec archive 2600-devops-scan-complexity-and-the-inspection`
