@@ -1,45 +1,36 @@
 # Tasks
 
-## 1. Delete thinking_detected from streaming.py
+## 1. Delete the two dead reasoning properties
 
-Reads: none. Changes: `src/devops_cli/ai/client/streaming.py`.
+Reads: `src/devops_cli/ai/client/streaming.py` (lines 140-210), `src/devops_cli/ai/thinking_stream.py` (lines 325-395). Changes: the same two files.
 
-- [ ] 1.1 Write a test that asserts StreamingTokenProcessor has no thinking_detected attribute. The test fails before the deletion and passes after, and verify that `! git grep -n -w thinking_detected src/ tests/ docs/` fails on the base
-- [ ] 1.2 Delete the thinking_detected property from StreamingTokenProcessor. Remove any import or constant that only this property uses. Remove any test that only calls thinking_detected, and verify that `! git grep -n -w thinking_detected src/ tests/ docs/` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 1.1 Run `git grep -n -w thinking_detected -- src tests docs` and `git grep -n -w unique_thinking -- src tests docs`. On the base each prints only its definition line. This pair of commands is the check of the group: after the deletion both print nothing
+- [ ] 1.2 Delete the `thinking_detected` property from `StreamingTokenProcessor` in `src/devops_cli/ai/client/streaming.py`. Keep `has_reasoning`, which other code reads
+- [ ] 1.3 Delete the `unique_thinking` property from `ThinkingStreamProcessor` in `src/devops_cli/ai/thinking_stream.py`. Keep the import of `unique_lines`, which line 390 uses
+- [ ] 1.4 Run the two `git grep` commands of task 1.1 (both print nothing), then `uv run devops ci test tests/ai/client/test_ai_streaming.py tests/ai/test_thinking.py` (it passes)
 
-## 2. Delete _get_ollama_semaphore from unified.py
+## 2. Delete the dead Ollama semaphore code
 
-Reads: none. Changes: `src/devops_cli/ai/client/unified.py`.
+Reads: `src/devops_cli/ai/client/unified.py` (lines 1-30 and 155-175), `src/devops_cli/ai/client/network.py` (lines 40-50, 310-330 and 575-595). Changes: the same two files.
 
-- [ ] 2.1 Write a test that asserts LLMClient has no _get_ollama_semaphore attribute. The test fails before the deletion and passes after, and verify that `! git grep -n -w _get_ollama_semaphore src/ tests/ docs/` fails on the base
-- [ ] 2.2 Delete the _get_ollama_semaphore classmethod from LLMClient. Remove any import or constant that only this method uses. Remove any test that only calls _get_ollama_semaphore, and verify that `! git grep -n -w _get_ollama_semaphore src/ tests/ docs/` passes
-- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 2.1 Run `git grep -n -w -e _get_ollama_semaphore -e get_ollama_semaphore -e ollama_semaphores -e ollama_sem_lock -- src tests docs`. On the base it prints the definitions and the uses in `src/devops_cli/ai/client/unified.py` and `src/devops_cli/ai/client/network.py` only, and no line of `tests/` or `docs/`. After the deletion it prints nothing
+- [ ] 2.2 Delete `LLMClient._get_ollama_semaphore` and the `import threading` line from `src/devops_cli/ai/client/unified.py`
+- [ ] 2.3 Delete `get_ollama_semaphore`, `ollama_semaphores` and `ollama_sem_lock` from `src/devops_cli/ai/client/network.py`, and the `with ollama_sem_lock:` block in `reset_ollama_slots`. Keep `import threading` in `src/devops_cli/ai/client/network.py`, which other code uses
+- [ ] 2.4 Run the `git grep` command of task 2.1 (it prints nothing), `uv run devops ci lint` (no unused import), and `uv run devops ci test tests/ai/client` (it passes)
 
-## 3. Delete unique_thinking from thinking_stream.py
+## 3. Delete the dead settings helper
 
-Reads: none. Changes: `src/devops_cli/ai/thinking_stream.py`.
+Reads: `src/devops_cli/config/settings.py` (lines 175-215 only; the file is 77 KB). Changes: the same file.
 
-- [ ] 3.1 Write a test that asserts ThinkingStreamProcessor has no unique_thinking attribute. The test fails before the deletion and passes after, and verify that `! git grep -n -w unique_thinking src/ tests/ docs/` fails on the base
-- [ ] 3.2 Delete the unique_thinking property from ThinkingStreamProcessor. Remove any import or constant that only this property uses. Remove any test that only calls unique_thinking, and verify that `! git grep -n -w unique_thinking src/ tests/ docs/` passes
-- [ ] 3.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 3.1 Run `git grep -n -w _validation_error_key -- src tests docs`. On the base it prints only the definition line (`src/devops_cli/config/settings.py:187`). After the deletion it prints nothing
+- [ ] 3.2 Delete the `_validation_error_key` function from `src/devops_cli/config/settings.py`. Keep `_format_validation_error` and the import of `ValidationError`, which other code uses
+- [ ] 3.3 Run the `git grep` command of task 3.1 (it prints nothing), then `uv run devops ci test tests/config/test_settings.py` (it passes)
 
-## 4. Delete _validation_error_key from settings.py
+## 4. Delete the dead dashboard property and run the gate
 
-Reads: none. Changes: `src/devops_cli/config/settings.py`.
+Reads: `src/devops_cli/grafana/schema.py`. Changes: the same file.
 
-- [ ] 4.1 Write a test that asserts the settings module has no _validation_error_key name. The test fails before the deletion and passes after, and verify that `! git grep -n -w _validation_error_key src/ tests/ docs/` fails on the base
-- [ ] 4.2 Delete the _validation_error_key function from settings.py. Remove any import or constant that only this function uses. Remove any test that only calls _validation_error_key, and verify that `! git grep -n -w _validation_error_key src/ tests/ docs/` passes
-- [ ] 4.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-
-## 5. Delete grid_width from schema.py and run CI
-
-Reads: none. Changes: `src/devops_cli/grafana/schema.py`.
-
-- [ ] 5.1 Write a test that asserts Dashboard has no grid_width attribute. The test fails before the deletion and passes after, and verify that `uv run devops ci` fails on the base
-- [ ] 5.2 Delete the grid_width property from Dashboard. Remove any import or constant that only this property uses. Remove any test that only calls grid_width, and verify that `uv run devops ci` passes
-- [ ] 5.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-
-## Workflow follow-up
-
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- [ ] 4.1 Run `git grep -n -w grid_width -- src tests docs`. On the base it prints only the definition line (`src/devops_cli/grafana/schema.py:145`). After the deletion it prints nothing
+- [ ] 4.2 Delete the `grid_width` property from `Dashboard` in `src/devops_cli/grafana/schema.py`, and the import of `CONST_GRAFANA_DASHBOARD_GRID_WIDTH` that only it uses. Keep the constant in `src/devops_cli/config/constants.py`, which `src/devops_cli/grafana/builders.py` and `src/devops_cli/grafana/linter.py` use
+- [ ] 4.3 Run the `git grep` command of task 4.1 (it prints nothing), then `uv run devops ci test tests/grafana` (it passes)
+- [ ] 4.4 Run `git grep -n -w -e thinking_detected -e _get_ollama_semaphore -e unique_thinking -e _validation_error_key -e grid_width -- src tests docs` (it prints nothing), then `uv run devops ci` (exit code 0, and the coverage is at or above `fail_under` in `pyproject.toml`)

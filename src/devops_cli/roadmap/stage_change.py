@@ -17,6 +17,7 @@ import textwrap
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
+from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Final, Self
@@ -58,6 +59,7 @@ _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
     {"close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"}
 )
 _TESTS_DIRECTORY: Final[str] = "tests/"
+_SOURCE_DIRECTORY: Final[str] = "src/"
 _DOCUMENT_SUFFIX: Final[str] = ".md"
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
@@ -103,6 +105,17 @@ def _sentence(text: str) -> str:
 Sentence = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_sentence)]
 
 
+def _one_line(text: str) -> str:
+    """The text on one line, so that a task of `tasks.md` stays one list item."""
+    return " ".join(text.split())
+
+
+# The steps of a manual check: at least one character, and on one line in `tasks.md`.
+Process = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_one_line)
+]
+
+
 class _Reply(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -146,18 +159,35 @@ class StageRejection(_Reply):
     evidence: str
 
 
+class GroupKind(StrEnum):
+    """What a task group does. `behavior` adds or changes what the code does: its work starts with
+    a failing test. `other` is a document, a manifest, a workflow, a deletion or a refactor that
+    keeps behavior, a test-only edit or data: it has no test, and a command or a process proves
+    it (#3005)."""
+
+    BEHAVIOR = "behavior"
+    OTHER = "other"
+
+
 class StageGroup(_Reply):
     """One task group of the change: the work of one implementation step. A group changes at
-    least one file. `creates` lists the paths of `changes` that the step makes."""
+    least one file. `creates` lists the paths of `changes` that the step makes.
+
+    The `kind` sets the tasks. A `behavior` group has a `test` and a `verify` that runs it, and
+    changes a path under `src/`. An `other` group has no `test`, and one of `verify` (a command
+    that gives the same answer on each run) and `process` (the steps of a manual check).
+    `documentation` is None when the group changes no document."""
 
     title: Text
+    kind: GroupKind
     reads: list[RepositoryPath] = Field(default_factory=list)
     changes: list[RepositoryPath] = Field(min_length=1)
     creates: list[RepositoryPath] = Field(default_factory=list)
-    test: Sentence
+    test: Sentence | None = None
     implementation: Sentence
-    documentation: Sentence
-    verify: Text
+    documentation: Sentence | None = None
+    verify: Text | None = None
+    process: Process | None = None
 
     @model_validator(mode="after")
     def _creates_are_changes(self) -> Self:
@@ -165,6 +195,43 @@ class StageGroup(_Reply):
             if path not in self.changes:
                 raise ValueError(MESSAGES.roadmap.stage_bad_creates.format(path=path))
         return self
+
+    @model_validator(mode="after")
+    def _kind_rules(self) -> Self:
+        problems = (
+            _behavior_problems(self) if self.kind is GroupKind.BEHAVIOR else _other_problems(self)
+        )
+        if problems:
+            raise ValueError(" ".join(problems))
+        return self
+
+
+def _behavior_problems(group: StageGroup) -> list[str]:
+    """What breaks the rules of a `behavior` group: no test, no command for it, a process, or no
+    path under `src/`."""
+    texts = MESSAGES.roadmap
+    found = (
+        (group.test is None, texts.stage_kind_no_test),
+        (group.verify is None, texts.stage_kind_no_verify),
+        (group.process is not None, texts.stage_kind_behavior_process),
+        (
+            not any(path.startswith(_SOURCE_DIRECTORY) for path in group.changes),
+            texts.stage_kind_no_source,
+        ),
+    )
+    return [text.format(title=group.title) for broken, text in found if broken]
+
+
+def _other_problems(group: StageGroup) -> list[str]:
+    """What breaks the rules of an `other` group: a test, or not exactly one of `verify` and
+    `process`."""
+    texts = MESSAGES.roadmap
+    found = (
+        (group.test is not None, texts.stage_kind_other_test),
+        (group.verify is None and group.process is None, texts.stage_kind_no_check),
+        (group.verify is not None and group.process is not None, texts.stage_kind_two_checks),
+    )
+    return [text.format(title=group.title) for broken, text in found if broken]
 
 
 class StageProposal(_Reply):
@@ -339,20 +406,41 @@ def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
     return ", ".join(f"`{p}`{mark if p in created else ''}" for p in paths)
 
 
+def _task_texts(group: StageGroup) -> list[str]:
+    """The tasks of `group` in order, with no number. A `behavior` group starts with its failing
+    test. An `other` group has no test: its work comes first, with the check that proves it. A
+    group that changes a document ends with the task that regenerates the documents."""
+    texts = MESSAGES.roadmap
+    if group.kind is GroupKind.BEHAVIOR:
+        tasks = [
+            texts.stage_task_test.format(test=group.test, verify=group.verify),
+            texts.stage_task_pass.format(work=group.implementation, verify=group.verify),
+        ]
+    elif group.process is not None:
+        tasks = [texts.stage_task_process.format(work=group.implementation, process=group.process)]
+    else:
+        tasks = [texts.stage_task_pass.format(work=group.implementation, verify=group.verify)]
+    if group.documentation is not None:
+        tasks.append(
+            texts.stage_task_documents.format(
+                work=group.documentation, command=_REGENERATE_DOCUMENTS
+            )
+        )
+    return tasks
+
+
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its files, and its three tasks."""
+    """The group as `tasks.md` holds it, numbered `index`: its files, and the tasks of its kind."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
         reads=_paths(group.reads) or texts.stage_group_no_reads,
         changes=_paths(group.changes, group.creates),
     )
-    return (
-        f"## {index}. {group.title}\n\n{files}\n\n"
-        f"- [ ] {index}.1 {group.test}, and verify that `{group.verify}` fails on the base\n"
-        f"- [ ] {index}.2 {group.implementation}, and verify that `{group.verify}` passes\n"
-        f"- [ ] {index}.3 {group.documentation}, "
-        f"run `{_REGENERATE_DOCUMENTS}`, and verify that `uv run devops ci docs` passes\n"
+    tasks = "".join(
+        f"- [ ] {index}.{number} {task}\n"
+        for number, task in enumerate(_task_texts(group), start=1)
     )
+    return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
 
 
 def _tasks_file(groups: Sequence[StageGroup]) -> str:

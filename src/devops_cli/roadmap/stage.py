@@ -30,8 +30,10 @@ files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_
 (`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
 change with `openspec validate --strict` in a scratch directory when the binary is on `PATH`; a
 failure goes back to the model once, and a second one stops the item. A reply the rules refuse
-(`check_proposal`) takes the same one return. A group that changes no file, or has a blank text,
-fails the schema of the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). The
+(`check_proposal`) takes the same one return. A group that changes no file, has a blank text, or
+breaks the rules of its kind (`GroupKind`: a `behavior` group has a test and changes a path under
+`src/`, and an `other` group has no test and one of `verify` and `process`) fails the schema of
+the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). The
 comment on the item names each changed path that is no file on the default branch and that no group
 creates (`missing_paths`); it never stops the item. The plan writes nothing to git or to GitHub. A
 model call that fails skips its item; rejected credentials stop the run.
