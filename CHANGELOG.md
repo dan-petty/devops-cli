@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.37.4](https://github.com/dan-petty/devops-cli/compare/v0.37.3...v0.37.4) (2026-11-01)
+
+
+### Bug Fixes
+
+* **roadmap:** type-check in the step as the gate does ([#3100](https://github.com/dan-petty/devops-cli/issues/3100)) ([6e8b4ca](https://github.com/dan-petty/devops-cli/commit/6e8b4ca26471218436ecb9c174be88fb878ebd85)), closes [#3090](https://github.com/dan-petty/devops-cli/issues/3090)
+
+
+### Code Refactoring
+
+* **cli:** delete five unused definitions from src ([#3086](https://github.com/dan-petty/devops-cli/issues/3086)) ([3e23dd9](https://github.com/dan-petty/devops-cli/commit/3e23dd9a80042f97ca88789d0a8dc6613a9942f4))
+
 ## [0.37.3](https://github.com/dan-petty/devops-cli/compare/v0.37.2...v0.37.3) (2026-11-01)
 
 
