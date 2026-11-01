@@ -19,7 +19,7 @@ The four commands `uv lock`, `uv python-install`, `uv run` and `uv sync` SHALL c
 The command `pipeline` SHALL carry the `request-plan` dry-run class. Under `--dry-run` it SHALL start no process, print one `dagger call` request built by `build_dagger_cmd`, and print no simulated result.
 
 #### Scenario: Dry run on pipeline
-- **WHEN** a user runs `devops pipeline ./ci --function build --dry-run` or `devops --dry-run pipeline ./ci --function build`
+- **WHEN** a user runs `devops pipeline <dir> --function build --dry-run` or `devops --dry-run pipeline <dir> --function build`, where `<dir>` is a directory that exists
 - **THEN** no process starts and the plan prints one request that starts with `dagger call -m` and names the function `build`
 
 ### Requirement: test-request-plans
@@ -82,7 +82,7 @@ The command `ci fail-to-pass`, and the paths `format fail-to-pass` and `lint fai
 
 #### Scenario: Dry run on ci fail-to-pass
 - **WHEN** a user runs `devops ci fail-to-pass --base main --dry-run` with the process fake patched to fail on any call
-- **THEN** the plan prints the merge base, the two revision checks, the diff, the worktree add, the archive, the pytest replay, the worktree remove and the worktree prune requests in that order, and no process starts
+- **THEN** the plan prints the merge base, the two revision checks, the diff, the untracked-file listing (`git ls-files --others`), the worktree add, the archive, the pytest replay, the worktree remove and the worktree prune requests in that order, and no process starts
 
 #### Scenario: The plan matches the replay
 - **WHEN** a test runs the replay against a process fake that records each call
