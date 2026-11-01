@@ -37,3 +37,10 @@ The command SHALL resolve each pinned image once with a HEAD request of its mani
 #### Scenario: A dry run
 - **WHEN** a person runs `devops k8s image-pins --dry-run`
 - **THEN** no request reaches a registry and the output names `HEAD https://<registry>/v2/<repository>/manifests/<reference>`
+
+### Requirement: The CI job checks a pull request that changes the pins
+The `image-pins` job of `ci.yml` SHALL run `devops k8s image-pins` on a pull request that changes `k8s/`, the command's modules, the registry module `src/devops_cli/docker/registry.py` or `ci.yml`, with read-only permissions and the pinned helm, and SHALL skip the check on any other pull request.
+
+#### Scenario: The job's steps
+- **WHEN** `ci.yml` is read
+- **THEN** the job `image-pins` has a paths filter on `k8s/**`, `src/devops_cli/**/image_pins.py`, `src/devops_cli/docker/registry.py` and `.github/workflows/ci.yml`, the permissions `contents: read` and `pull-requests: read`, and runs `uv run devops k8s image-pins` only when the filter matches
