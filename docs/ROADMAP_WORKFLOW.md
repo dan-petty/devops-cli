@@ -159,6 +159,37 @@ stateDiagram-v2
     closed: closed, no status label
 ```
 
+## The shell of a step
+
+The agent of a step has a shell that runs only the programs of the first table. The access column is the most that a program does by itself. The shell refuses a command that chains a second command, and it refuses `find` with an argument that runs a program or writes a file. Any program that is not in the first table gets a refusal, and the refusal names what to run instead. Each refusal counts against the retry limit of the tool. The tables below are the text of `SHELL_PROGRAMS` and `SHELL_REFUSALS` in `src/devops_cli/roadmap/implement_shell_policy.py`, which the shell, the refusal hint and the prompt of the step also read. A test fails when this document differs from them.
+
+| Program | Access | Use |
+| :--- | :--- | :--- |
+| `git` | write | Read and change the repository. |
+| `uv` | network | Run the commands of the project: `uv run ...`. |
+| `ruff` | write | Check the style of Python files. |
+| `mypy` | write | Check the types of Python files. |
+| `grep` | read | Search the text of files. |
+| `cat` | read | Print files. |
+| `ls` | read | List a directory. |
+| `head` | read | Print the start of a file. |
+| `tail` | read | Print the end of a file. |
+| `find` | read | List paths. The arguments `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf` and `-fls` are refused. |
+
+The programs that the shell refuses, and what to run instead:
+
+| Program | Instead |
+| :--- | :--- |
+| `python` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
+| `python3` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
+| `pytest` | `uv run pytest` |
+| `pip` | nothing. The lockfile gives the dependencies |
+| `pip3` | nothing. The lockfile gives the dependencies |
+| `rg` | the tool `grep`, or `grep` in the shell |
+| `cd` | nothing. Every command runs in the checkout |
+
+The runner image holds the tools that the gate and the hooks need, listed in `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py`. The shell can start only the programs above. The checks of a group run them through `uv run`.
+
 ## Measure the stage job
 
 The stage job has a golden set: the 37 plans of 2026-11-01, each with the defects a review found in it, and 3 good plans. It lives in `tests/fixtures/roadmap_eval/stage/`, one folder for each plan. A change of the stage prompt or of the checks needs a measure, and this set gives it.

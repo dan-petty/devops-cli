@@ -6,6 +6,7 @@ They read only committed files, so they need no network, no image build and no s
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import yaml
@@ -236,3 +237,12 @@ def test_the_smoke_test_of_the_runner_image_is_the_same_in_ci_and_in_the_release
             if "--entrypoint" in line and line.endswith('"$IMAGE" --version')
         ],
     ) == (True, True, True, True, True, True, [])
+
+
+def test_the_documented_size_bound_of_the_runner_image_is_the_bound_of_the_smoke_test() -> None:
+    """Verify that `k8s/README.md` states the byte bound that the smoke test enforces (#3072)."""
+    run = _step(_workflow("ci.yml")["jobs"]["runner-image"], RUNNER_STEPS[1])["run"]
+    (bound,) = re.findall(r'"\$size" -gt (\d+)', run)
+    readme = (REPO_ROOT / "k8s" / "README.md").read_text(encoding="utf-8")
+
+    assert f"more than {bound} bytes" in readme

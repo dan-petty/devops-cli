@@ -52,38 +52,6 @@ BIN_UV: str = "uv"
 BIN_ZIZMOR: str = "zizmor"
 
 
-# The programs that a `devops roadmap implement` step (#2664) may start. The shell tool of the
-# agent takes the first list: the project's own build tools, and not `devops` or `openspec`,
-# which can write to GitHub or to the change. The step runs the verification commands of a group
-# under the second list, which adds those two.
-IMPLEMENT_SHELL_PROGRAMS: tuple[str, ...] = (BIN_GIT, BIN_UV, BIN_RUFF, BIN_MYPY)
-IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (*IMPLEMENT_SHELL_PROGRAMS, BIN_OPENSPEC, BIN_DEVOPS)
-
-# What a step agent runs in place of a program that its shell refuses (#2773). The key is the
-# program that the model asks for, as the shell reads the first word. The value is the text of the
-# replacement, which reads after "Instead of `<program>`:" in the refusal, and in a table of the
-# prompt `roadmap_implement_step.md`. The first sentence of a value is the replacement itself. A test fails when the table, the prompt and
-# `IMPLEMENT_SHELL_PROGRAMS` disagree.
-PYTHON_REPLACEMENT: str = (
-    "`uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies"
-)
-IMPLEMENT_SHELL_REPLACEMENTS: dict[str, str] = {
-    "python": PYTHON_REPLACEMENT,
-    "python3": PYTHON_REPLACEMENT,
-    "pytest": "`uv run pytest`",
-    "pip": "nothing. The lockfile gives the dependencies",
-    "pip3": "nothing. The lockfile gives the dependencies",
-    "cat": "the tool `read_file`",
-    "head": "the tool `read_file`",
-    "tail": "the tool `read_file`",
-    "ls": "the tool `list_files`",
-    "find": "the tool `list_files`",
-    "grep": "the tool `grep`",
-    "rg": "the tool `grep`",
-    "cd": "nothing. Every command runs in the checkout",
-}
-
-
 # ── Command Argument List Builders ───────────────────────────────────────────
 
 
