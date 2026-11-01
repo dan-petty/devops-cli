@@ -2189,6 +2189,18 @@ class RoadmapMessages:
     )
     eval_implement_lost_form: str = "allow_lost_tests holds {entry}, which is not path::name."
     eval_implement_unknown: str = "No fixture is named {names}. The fixtures are: {known}."
+    # The details of the properties.
+    eval_implement_more: str = " and {count} more"
+    eval_implement_lost_tests: str = "Lost tests: {names}."
+    eval_implement_outside: str = "Paths outside the group: {names}."
+    eval_implement_scratch: str = "Scratch files: {names}."
+    eval_implement_unticked: str = "Tasks not ticked: {names}."
+    eval_implement_group_gone: str = "The result has no group {group}."
+    eval_implement_hunk: str = "A hunk of {path} does not match the plan."
+    eval_implement_cut: str = "The diff is cut."
+    eval_implement_unparsed: str = "The diff does not parse: {reason}"
+    eval_implement_no_commands: str = "There is no command to run."
+    eval_implement_no_tree: str = "The step stopped, so it left no tree: {reason}"
     implement_dry_run_reason: str = "Dry run: no request was made and nothing ran."
     implement_model_request: str = "model request"
     implement_model_target: str = "{model} for group {group} of item #{item}"

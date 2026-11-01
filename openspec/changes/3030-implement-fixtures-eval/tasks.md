@@ -22,9 +22,9 @@ Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/exceptions/roadma
 
 Reads: `src/devops_cli/roadmap/implement_test_names.py`, `src/devops_cli/roadmap/implement_step.py`. Changes: `pyproject.toml`, `uv.lock`, `src/devops_cli/roadmap/implement_eval_properties.py` (new), `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_eval_properties.py` (new).
 
-- [ ] 3.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_properties.py` for the scenarios of "Four properties come from a diff and the plan" and "Two properties run commands in the tree of the result"
+- [x] 3.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_properties.py` for the scenarios of "Four properties come from a diff and the plan" and "Two properties run commands in the tree of the result"
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_properties.py` fails on the base
-- [ ] 3.2 Add the dependency `unidiff` and the module `implement_eval_properties.py`
+- [x] 3.2 Add the dependency `unidiff` and the module `implement_eval_properties.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_properties.py` passes
 
 ## 4. Run a fixture in a scratch clone, and report

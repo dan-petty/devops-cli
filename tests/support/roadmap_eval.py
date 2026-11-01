@@ -99,16 +99,18 @@ def write_fixture(
     case: Mapping[str, Any] | None = None,
     diffs: Mapping[str, str] | None = None,
     folder: str = "sample",
+    tasks: str = TASKS,
 ) -> Path:
-    """Write a fixture folder under `root`: the case, the issue body, the plan, and the diffs by
-    file name (the good and the scratch diff when none are given). Returns the folder."""
+    """Write a fixture folder under `root`: the case, the issue body, the plan with the `tasks.md`
+    `tasks`, and the diffs by file name (the good and the scratch diff when none are given).
+    Returns the folder."""
     given = {"good.diff": good_diff(), "scratch.diff": scratch_diff()} if diffs is None else diffs
     base = root / folder
     (base / "plan").mkdir(parents=True)
     (base / "results").mkdir()
     (base / "case.json").write_text(json.dumps(case or case_data()), encoding="utf-8")
     (base / "issue.md").write_text(BODY, encoding="utf-8")
-    for name, text in PLAN.items():
+    for name, text in (PLAN | {"tasks.md": tasks}).items():
         (base / "plan" / name).write_text(text, encoding="utf-8")
     for name, text in given.items():
         (base / "results" / name).write_text(text, encoding="utf-8")
