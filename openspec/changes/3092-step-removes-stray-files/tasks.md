@@ -29,11 +29,22 @@ Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_
 - [x] 3.3 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
-## 4. Fail-to-pass and archive
+## 4. Review fixes: keep the files of the project directories, remove a nested repository
 
-- [x] 4.1 Run the fail-to-pass check on the new tests
+Reads: `src/devops_cli/roadmap/implement_strays.py`. Changes: `src/devops_cli/roadmap/implement_strays.py`, `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_implement_strays.py`, `tests/roadmap/test_roadmap_implement_prompt.py`.
+
+- [x] 4.1 Write failing tests: `stray_files` keeps an unnamed file under `src/`, `tests/`, `docs/` and `openspec/` and lists a directory entry; a replay keeps `tests/data.json`, `tests/conftest.py` and `src/helper.py`; a replay removes a nested git repository
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_strays.py` fails on the commit before the fix
+- [x] 4.2 Keep the files of the four directories, remove a directory entry with `shutil.rmtree`, and change the prompt and the help text
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_strays.py tests/roadmap/test_roadmap_implement_prompt.py tests/roadmap/test_roadmap_implement_step.py`
+- [x] 4.3 Regenerate the command documents
+  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
+
+## 5. Fail-to-pass and archive
+
+- [x] 5.1 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [x] 4.2 Archive the change
+- [ ] 5.2 Archive the change
   - Verification: `uv run devops openspec archive 3092-step-removes-stray-files` and `uv run devops openspec check`
 
 ## Workflow follow-up

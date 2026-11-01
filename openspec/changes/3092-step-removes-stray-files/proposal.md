@@ -14,7 +14,8 @@ The step stages the whole checkout with `git add -A`, lists the staged files as 
 ## What Changes
 
 - A new module `src/devops_cli/roadmap/implement_strays.py` holds `stray_files`. It takes the untracked files of the checkout and the group, and returns the ones that the group does not allow.
-- A file is a stray file when it is untracked and git does not ignore it, and it is none of: a path that the group names in a code span (its `Changes:` line and its tasks), a file under the change folder of the item, or a new `test_*.py` file under `tests/` in the directory of a test file that the group names.
+- A file is a stray file when it is untracked and git does not ignore it, and it is none of: a path that the group names in a code span (its `Changes:` line and its tasks), a file under the change folder of the item, or a file under `src/`, `tests/`, `docs/` or `openspec/`. So the step deletes an unnamed file in the checkout root or in another directory, and keeps an unnamed fixture, `conftest.py`, helper module or test file in the four project directories. A stray scratch file in these directories goes to `ruff` and `mypy` as before: the plan cannot list every helper that the code needs, and a deleted helper breaks the commit without a sign. This is a stated limit of the change. The issue lists the 4 incidents of 2026-11-01, and all four files were in the checkout root.
+- A directory in the list of git is a stray file at any place. Git lists a directory only when it holds a nested git repository, and the step removes it with its files.
 - Before the exit checks stage the checkout, the step lists the untracked files (`git ls-files --others --exclude-standard -z`) and deletes each stray file. It does the same after the extra turn, before it compares the checkout with the tree of the first turn. So `git add -A` stages only the allowed files, and `ruff` and `mypy` get only the changed tracked files and the files of the group.
 - The names go to the log of the tool calls (one line in the Job log), to `StepOutcome.removed`, and to the message of the extra turn, which says why the step removed them. A fix step has no stray rule: its group names no file.
 - The prompt keeps its rule and says that the step deletes a stray file.
@@ -23,6 +24,8 @@ The step stages the whole checkout with `git add -A`, lists the staged files as 
 - The table of the command shows the removed files. The help text of `devops roadmap implement` says the same.
 - Observable behavior changes (a file is deleted, and a message and a table row appear), so the change carries a spec delta.
 - The change fits one pull request.
+
+The rule for a kept test file differs from the issue, which keeps a "new test file in a mirrored test path of the group". The change keeps every unnamed file in `tests/`, so a mirrored path is kept too, and so is a fixture or a `conftest.py`.
 
 The change does not build repair rounds (#3053) or a check of the mypy path (#3090).
 

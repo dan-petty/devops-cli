@@ -26,4 +26,4 @@ def test_the_prompt_says_that_the_step_deletes_a_file_that_the_group_does_not_na
     """The step removes a stray file before its checks (#3092), and the prompt says so."""
     prompt = load_task_prompt(PROMPT)
 
-    assert "The step deletes every new file that your group does not name" in prompt
+    assert "The step deletes a new file that your group does not name" in prompt

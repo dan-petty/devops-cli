@@ -56,9 +56,12 @@ def _strays(*names: str) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "name", ["tmp_test_x.py", "test_cwd_issue.py", "scripts/probe.py", "tests/sub/test_other.py"]
+    "name",
+    ["tmp_test_x.py", "test_cwd_issue.py", "scripts/probe.py", "sub/", "tests/sub/", "src/x/"],
 )
-def test_a_file_that_the_group_does_not_name_is_a_stray_file(name: str) -> None:
+def test_a_file_outside_the_project_directories_or_a_directory_is_a_stray_file(
+    name: str,
+) -> None:
     assert _strays(name) == [name]
 
 
@@ -71,17 +74,19 @@ def test_a_file_that_the_group_does_not_name_is_a_stray_file(name: str) -> None:
         f"{CHANGE}/notes.md",
         f"{CHANGE}/specs/sample/spec.md",
         "tests/test_sample_more.py",
+        "tests/sub/test_other.py",
+        "tests/conftest.py",
+        "tests/fixtures/data.json",
+        "src/new_module.py",
+        "src/test_more.py",
+        "docs/new.md",
+        "openspec/specs/x/spec.md",
     ],
 )
-def test_a_file_that_the_group_allows_is_kept(name: str) -> None:
+def test_a_file_that_the_group_allows_or_that_sits_in_a_project_directory_is_kept(
+    name: str,
+) -> None:
     assert _strays(name) == []
-
-
-def test_a_test_file_is_kept_only_in_the_directory_of_a_named_test_file() -> None:
-    assert _strays("tests/test_more.py", "tests/conftest.py", "src/test_more.py") == [
-        "tests/conftest.py",
-        "src/test_more.py",
-    ]
 
 
 def test_the_stray_files_come_back_in_the_order_git_listed_them() -> None:
@@ -249,6 +254,40 @@ def test_a_file_that_git_ignores_is_not_a_stray_file(
     assert (outcome.status, outcome.removed) == (StepStatus.DONE, ())
     assert (scratch / "probe.py").exists()
     assert ".data/agent/scratch/probe.py" not in _committed(checkout)
+
+
+def test_a_fixture_a_conftest_and_an_unnamed_module_are_kept_and_the_step_ends_done(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    extra = [
+        write_call("tests/data.json", "{}\n"),
+        write_call("tests/conftest.py", "\n"),
+        write_call("src/helper.py", "HELPER = 1\n"),
+    ]
+    script = ModelScript(tool_calls(*the_whole_group(), *extra), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.removed) == (StepStatus.DONE, ())
+    assert {"tests/data.json", "tests/conftest.py", "src/helper.py"} <= set(_committed(checkout))
+
+
+def test_a_nested_git_repository_is_removed_with_its_files(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    def agent_makes_a_repository() -> None:
+        git(checkout, "init", "-q", "sub")
+        (checkout / "sub" / "a.txt").write_text("a\n", encoding="utf-8")
+
+    script = ModelScript(
+        tool_calls(*the_whole_group()), say("Done."), effects={2: agent_makes_a_repository}
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.removed) == (StepStatus.DONE, ("sub/",))
+    assert not (checkout / "sub").exists()
+    assert git(checkout, "status", "--porcelain") == ""
 
 
 def test_a_fix_step_keeps_the_new_file_that_it_writes(

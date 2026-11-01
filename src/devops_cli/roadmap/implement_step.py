@@ -915,7 +915,8 @@ def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
 def _remove_strays(source: Path, inputs: StepInputs, log: ToolCallLog) -> None:
     """Delete the stray files of the group (#3092) and record their names in `log`: the untracked
     files that git does not ignore (`git ls-files --others --exclude-standard`) and that the group
-    does not allow (`stray_files`). It runs before the checks stage the checkout, so no stray file
+    does not allow (`stray_files`): a file outside `src/`, `tests/`, `docs/` and `openspec/`, or a
+    nested git repository. It runs before the checks stage the checkout, so no stray file
     reaches `ruff`, `mypy` or the commit. The group of a fix step names no file, so a fix step
     keeps its new files."""
     if inputs.fix is not None:
@@ -924,8 +925,18 @@ def _remove_strays(source: Path, inputs: StepInputs, log: ToolCallLog) -> None:
     change = inputs.change.relative_to(source).as_posix()
     strays = stray_files([name for name in listed.split("\0") if name], inputs.group, change)
     for name in strays:
-        (source / name).unlink()
+        _delete(source / name)
     log.removed_strays(strays)
+
+
+def _delete(path: Path) -> None:
+    """Delete an untracked file, a symbolic link, or a nested git repository that git lists as one
+    directory. The path comes from git and is inside the checkout. A symbolic link is unlinked and
+    its target stays."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
 
 def _stage(source: Path) -> list[str]:

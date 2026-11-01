@@ -9,7 +9,12 @@ stray file is an untracked file that git does not ignore (`git ls-files --others
 - a path that it names in a code span: its `Changes:` line, where the plan marks a created path
   with `(new)`, and its tasks;
 - a file under the change folder of the item;
-- a new `test_*.py` file under `tests/`, in the directory of a test file that the group names.
+- a file under `src/`, `tests/`, `docs/` or `openspec/`. The plan may leave out a fixture, a
+  `conftest.py` or a helper module that the code needs, and a deleted file would break the commit
+  without a sign. These files go to the normal checks, which fail on a real defect.
+
+A directory in the list is a stray file at any place: git lists a directory only when it holds a
+nested git repository.
 
 This module only decides. The step lists the files, deletes the stray ones and reports them.
 """
@@ -22,25 +27,12 @@ from pathlib import PurePosixPath
 
 from devops_cli.roadmap.step_files import TaskGroup, code_spans
 
-_TESTS = "tests"
-_TEST_FILE = "test_*.py"
+_PROJECT_DIRECTORIES = frozenset({"src", "tests", "docs", "openspec"})
 
 
 def _named(group: TaskGroup) -> frozenset[str]:
     """The code spans of the text of `group`, as normalised paths."""
     return frozenset(posixpath.normpath(span) for span in code_spans(group.text))
-
-
-def _in_named_test_directory(path: PurePosixPath, named: frozenset[str]) -> bool:
-    """Whether `path` is a test file under `tests/` whose directory holds a test file that the
-    group names."""
-    if path.parts[:1] != (_TESTS,) or not path.match(_TEST_FILE):
-        return False
-    return any(
-        PurePosixPath(name).parent == path.parent and PurePosixPath(name).parts[:1] == (_TESTS,)
-        for name in named
-        if name.endswith(".py")
-    )
 
 
 def stray_files(untracked: Iterable[str], group: TaskGroup, change: str) -> list[str]:
@@ -54,7 +46,7 @@ def stray_files(untracked: Iterable[str], group: TaskGroup, change: str) -> list
         path = PurePosixPath(posixpath.normpath(name))
         if str(path) in named or path.is_relative_to(folder):
             continue
-        if _in_named_test_directory(path, named):
+        if not name.endswith("/") and next(iter(path.parts), "") in _PROJECT_DIRECTORIES:
             continue
         strays.append(name)
     return strays
