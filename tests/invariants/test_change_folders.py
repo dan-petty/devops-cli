@@ -10,6 +10,7 @@ would count as a plan.
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,8 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGE_NAME_RE,
     CONST_OPENSPEC_CHANGES_DIR,
 )
+from devops_cli.roadmap.stage_change import GroupKind, render_change
+from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
 ARCHIVE_DIR_NAME = "archive"
@@ -261,3 +264,19 @@ def test_a_file_in_a_change_folder_is_matched_by_the_folder_grammar(tmp_path: Pa
         re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, "openspec/changes/archive/2026-10-22-1-a/x"),
         re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, "openspec/changes/1900-widget/"),
     ) == (sorted(paths), None, None)
+
+
+def test_the_tasks_of_a_stage_group_of_each_kind_make_a_plan(tmp_path: Path) -> None:
+    """The stage job writes a `tasks.md` that passes, also for groups with no test task (#3005)."""
+    behavior = make_stage_proposal().groups[0]
+    other = behavior.model_copy(
+        update={"kind": GroupKind.OTHER, "test": None, "documentation": None, "creates": []}
+    )
+    process = other.model_copy(update={"verify": None, "process": "Read the report."})
+    proposal = make_stage_proposal(groups=[behavior, other, process])
+    root = "openspec/changes/1900-widget-export"
+    files = render_change("1900-widget-export", proposal, [], created=date(2026, 11, 1))
+
+    folder = _folder(tmp_path, tasks=files[f"{root}/tasks.md"])
+
+    assert folder_problems(folder) == []

@@ -8,7 +8,7 @@ Thank you for your interest in contributing to DevOps CLI! This document outline
 
 These rules apply to every contributor. [`AGENTS.md`](AGENTS.md) sends agents here.
 
-- **Test-First Implementation (TDD)**: All features, fixes, and refactorings **must** have tests written first. Tests serve as the executable documentation of public interfaces, edge cases, and architectural boundaries.
+- **Test-First Implementation (TDD)**: New behavior **must** have a failing test written first. Tests serve as the executable documentation of public interfaces, edge cases, and architectural boundaries. Every other change (a document, a manifest, a workflow, a deletion or a refactor that keeps behavior, an edit of tests only, or data) gets no test. It names a command that proves it. See [`docs/TESTING.md`](docs/TESTING.md), section "Which change gets a test".
 - **Complexity and Nesting Caps**:
   - Ruff caps cyclomatic complexity at 10 (`C901`) in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. `devops scan complexity` reports the same McCabe count and does not gate.
   - Ruff caps nesting at 4 nested blocks in a function (`PLR1702`, `max-nested-blocks = 4` in `pyproject.toml`). It counts `if`, `for`, `while`, `with` and `try` blocks, and not `match` blocks. `PLR1702` is a preview rule, so `pyproject.toml` turns on lint preview with `explicit-preview-rules`, and `tests/test_ruff_complexity_cap.py` checks the cap, the preview settings and the formatter's stable style.
@@ -52,7 +52,7 @@ uv run pre-commit install
 ## 3. Test-First Development Cycle (Inner Loop)
 
 1. **Write Specification via Tests**:
-   Write the tests first, as [`docs/TESTING.md`](docs/TESTING.md) describes, and run the file you changed:
+   For new behavior, write the failing test first, as [`docs/TESTING.md`](docs/TESTING.md) describes, and run the file you changed. For any other change, run the command that proves it (for example `uv run devops ci docs`):
    ```bash
    uv run devops ci test <test-file>
    ```
