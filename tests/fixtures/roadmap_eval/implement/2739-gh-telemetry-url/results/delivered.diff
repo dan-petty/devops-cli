@@ -1,0 +1,108 @@
+diff --git a/openspec/changes/2739-the-subprocess-environment-guard-accepts-gh/tasks.md b/openspec/changes/2739-the-subprocess-environment-guard-accepts-gh/tasks.md
+--- a/openspec/changes/2739-the-subprocess-environment-guard-accepts-gh/tasks.md
++++ b/openspec/changes/2739-the-subprocess-environment-guard-accepts-gh/tasks.md
+@@ -4,9 +4,9 @@
+ 
+ Reads: none. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/core/process.py`, `tests/test_process_env.py`.
+ 
+-- [ ] 1.1 Write a test that build_subprocess_env raises SecurityError when env contains GH_TELEMETRY_ENDPOINT_URL set to https://example.com. Write a test that build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY set to log, and the key is present in the returned dict. Write a test that build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY_SAMPLE_RATE set to 0.5, and the key is present. Write a test that with isolate_env=True and os.environ containing GH_TELEMETRY_ENDPOINT_URL, the key is absent from the returned dict, and verify that `uv run devops ci test tests/test_process_env.py` fails on the base
+-- [ ] 1.2 Add CONST_DATA_EGRESS_ENV_VARS: Final[frozenset[str]] = frozenset({"GH_TELEMETRY_ENDPOINT_URL"}) to src/devops_cli/config/constants.py. Import CONST_DATA_EGRESS_ENV_VARS in src/devops_cli/core/process.py. Extend _is_env_override_refused to return True when key.upper() is in CONST_DATA_EGRESS_ENV_VARS, in addition to the existing CONST_CODE_LOADING_ENV_PATTERNS check, and verify that `uv run devops ci test tests/test_process_env.py` passes
+-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++- [x] 1.1 Write a test that build_subprocess_env raises SecurityError when env contains GH_TELEMETRY_ENDPOINT_URL set to https://example.com. Write a test that build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY set to log, and the key is present in the returned dict. Write a test that build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY_SAMPLE_RATE set to 0.5, and the key is present. Write a test that with isolate_env=True and os.environ containing GH_TELEMETRY_ENDPOINT_URL, the key is absent from the returned dict, and verify that `uv run devops ci test tests/test_process_env.py` fails on the base
++- [x] 1.2 Add CONST_DATA_EGRESS_ENV_VARS: Final[frozenset[str]] = frozenset({"GH_TELEMETRY_ENDPOINT_URL"}) to src/devops_cli/config/constants.py. Import CONST_DATA_EGRESS_ENV_VARS in src/devops_cli/core/process.py. Extend _is_env_override_refused to return True when key.upper() is in CONST_DATA_EGRESS_ENV_VARS, in addition to the existing CONST_CODE_LOADING_ENV_PATTERNS check, and verify that `uv run devops ci test tests/test_process_env.py` passes
++- [x] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+ 
+ ## Workflow follow-up
+ 
+diff --git a/src/devops_cli/config/constants.py b/src/devops_cli/config/constants.py
+index d52a61f5..ae23e079 100644
+--- a/src/devops_cli/config/constants.py
++++ b/src/devops_cli/config/constants.py
+@@ -1109,6 +1109,11 @@ CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
+ `GIT_TERMINAL_PROMPT`, a tool request sets the author and the committer, and `commit_snapshot`
+ sets their dates (git(1), #2146). None runs a program or writes a file. The guard refuses each
+ other `GIT_` key, also one that git adds later."""
++
++# Keys that send data egress to an arbitrary network destination, which should be refused.
++CONST_DATA_EGRESS_ENV_VARS: Final[frozenset[str]] = frozenset({"GH_TELEMETRY_ENDPOINT_URL"})
++"""Environment variables that send data egress to a network destination. These are refused
++from caller overrides because they can redirect telemetry to arbitrary destinations."""
+ CONST_GIT_GLOBAL_CONFIG_ENV: Final[frozenset[str]] = frozenset({"GIT_CONFIG_GLOBAL"})
+ """The ambient key that a `git config --global` call names in `extra_allowed_env`, so that it
+ writes the global file that the environment names, as it does in a shell (#2483)."""
+diff --git a/src/devops_cli/core/process.py b/src/devops_cli/core/process.py
+index 3afcb1cc..8ce29bfc 100644
+--- a/src/devops_cli/core/process.py
++++ b/src/devops_cli/core/process.py
+@@ -19,6 +19,7 @@ from typing import Any, Protocol
+ 
+ from devops_cli.config.constants import (
+     CONST_CODE_LOADING_ENV_PATTERNS,
++    CONST_DATA_EGRESS_ENV_VARS,
+     CONST_EXIT_COMMAND_NOT_FOUND,
+     CONST_GH_AUTH_ENV_VAR,
+     CONST_GH_AUTH_SUBCOMMAND,
+@@ -146,9 +147,10 @@ def _is_env_var_denied(
+ def _is_env_override_refused(key: str) -> bool:
+     """Whether a caller may not set `key`: a pattern of `CONST_CODE_LOADING_ENV_PATTERNS` matches
+     it, and it is not a git key that `CONST_GIT_ACCEPTED_ENV` names."""
+-    return key.upper() not in CONST_GIT_ACCEPTED_ENV and _is_env_var_denied(
+-        key, CONST_CODE_LOADING_ENV_PATTERNS
+-    )
++    return (
++        key.upper() not in CONST_GIT_ACCEPTED_ENV
++        and _is_env_var_denied(key, CONST_CODE_LOADING_ENV_PATTERNS)
++    ) or key.upper() in CONST_DATA_EGRESS_ENV_VARS
+ 
+ 
+ def _is_env_var_allowed(
+diff --git a/tests/core/test_subprocess_env_telemetry.py b/tests/core/test_subprocess_env_telemetry.py
+new file mode 100644
+index 00000000..4bd10836
+--- /dev/null
++++ b/tests/core/test_subprocess_env_telemetry.py
+@@ -0,0 +1,44 @@
++"""Tests for GH_TELEMETRY_ENDPOINT_URL environment variable handling."""
++
++import pytest
++
++from devops_cli.core.process import build_subprocess_env
++from devops_cli.exceptions import SecurityError
++
++
++def test_build_subprocess_env_refuses_gh_telemetry_endpoint_url_override() -> None:
++    """Verify build_subprocess_env raises SecurityError when env contains GH_TELEMETRY_ENDPOINT_URL."""
++    with pytest.raises(SecurityError, match="GH_TELEMETRY_ENDPOINT_URL"):
++        build_subprocess_env(env={"GH_TELEMETRY_ENDPOINT_URL": "https://example.com"})
++
++
++def test_build_subprocess_env_accepts_gh_telemetry_override() -> None:
++    """Verify build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY set to log."""
++    env = build_subprocess_env(env={"GH_TELEMETRY": "log"})
++    assert env.get("GH_TELEMETRY") == "log"
++
++
++def test_build_subprocess_env_accepts_gh_telemetry_sample_rate_override() -> None:
++    """Verify build_subprocess_env does not raise SecurityError when env contains GH_TELEMETRY_SAMPLE_RATE set to 0.5."""
++    env = build_subprocess_env(env={"GH_TELEMETRY_SAMPLE_RATE": "0.5"})
++    assert env.get("GH_TELEMETRY_SAMPLE_RATE") == "0.5"
++
++
++def test_build_subprocess_env_ambient_excludes_telemetry_endpoint_url() -> None:
++    """Verify that with isolate_env=True and os.environ containing GH_TELEMETRY_ENDPOINT_URL,
++    the key is absent from the returned dict."""
++    import os
++
++    # Set the environment variable in current process
++    original_value = os.environ.get("GH_TELEMETRY_ENDPOINT_URL")
++    os.environ["GH_TELEMETRY_ENDPOINT_URL"] = "https://example.com"
++
++    try:
++        env = build_subprocess_env()
++        assert "GH_TELEMETRY_ENDPOINT_URL" not in env
++    finally:
++        # Restore original value or unset
++        if original_value is not None:
++            os.environ["GH_TELEMETRY_ENDPOINT_URL"] = original_value
++        else:
++            os.environ.pop("GH_TELEMETRY_ENDPOINT_URL", None)

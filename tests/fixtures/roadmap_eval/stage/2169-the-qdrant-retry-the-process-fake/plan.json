@@ -1,0 +1,215 @@
+{
+ "summary": "replace real test sleeps with clock",
+ "pull_request_body": "This change removes real-time waits from the test suite and the Qdrant retry. The Qdrant retry in src/devops_cli/ai/rag/qdrant.py now uses tenacity's sleep parameter supplied by the clock seam instead of calling time.sleep directly. The process fake's delay in tests/support/fakes/process.py advances the clock fixture's time instead of sleeping, and a delay longer than the timeout raises the timeout error at once. Twenty-four test bodies that called time.sleep or asyncio.sleep with a positive time now wait for an event or run on the clock fixture. This makes tests deterministic and independent of host load, per the convention in docs/TESTING.md that waiting goes through the sleep and clock parameters the libraries take.",
+ "why": "Issue #2169 identifies that 24 test bodies, the Qdrant retry, and the process fake wait in real wall-clock time, making tests slow and load-dependent. docs/TESTING.md requires that waiting goes through the clock fixture or an event, and that no test bounds or spends wall-clock time it does not need.",
+ "what_changes": [
+  "The Qdrant retry in src/devops_cli/ai/rag/qdrant.py uses tenacity's sleep parameter supplied by the clock seam instead of time.sleep.",
+  "The process fake's delay in tests/support/fakes/process.py advances the clock fixture's time instead of calling time.sleep or asyncio.sleep.",
+  "Twenty-four test bodies replace time.sleep and asyncio.sleep calls with event waits or the clock fixture."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The context confirms _record_retry exists at src/devops_cli/ai/rag/qdrant.py:128, called at line 339. The issue cites line 157 at commit b170358e; the function is present in both.",
+  "The context shows tests/support/fakes/clock.py is referenced by .ast-grep/rules/test-elapsed-upper-bound.yml and its rule test, confirming the clock fixture exists.",
+  "The context shows tests/support/waits.py is referenced in docs/TESTING.md for thread handoff waits.",
+  "First checks: run `rg -n 'time\\.sleep' src/devops_cli/ai/rag/qdrant.py tests/support/fakes/process.py` to confirm the current state, then `uv run devops ci test tests/test_rag_multi_project_indexer.py` to confirm the test passes before the change."
+ ],
+ "existing_tool": "tenacity (already in the project) provides the retry with a sleep parameter. tests/support/fakes/clock.py provides the clock fixture. tests/support/waits.py provides THREAD_HANDOFF_BOUND_SECONDS and wait_until for event-based waits.",
+ "decisions": [
+  {
+   "decision": "Use tenacity's sleep parameter for the Qdrant retry",
+   "reason": "The project already uses tenacity, and docs/TESTING.md says waiting goes through the sleep and clock parameters the libraries take."
+  },
+  {
+   "decision": "The process fake's delay advances the clock fixture's time",
+   "reason": "This makes the fake consistent with the clock convention and removes real-time waits from tests that script slow commands."
+  },
+  {
+   "decision": "A delay longer than the timeout raises the timeout error at once",
+   "reason": "This matches the real behavior where a timeout fires before the delay completes, and removes the need for a real wait."
+  },
+  {
+   "decision": "Test bodies use event waits or the clock fixture",
+   "reason": "docs/TESTING.md requires that a test shows its behaviour without the clock: it waits for the event, or asserts on the waits of the clock fixture."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Keep time.sleep in the Qdrant retry and patch it in tests",
+   "evidence": "docs/TESTING.md says a direct time.sleep is a fallback for stdlib edges only, and the project already uses tenacity which has a sleep parameter."
+  },
+  {
+   "alternative": "Use freezegun for the clock",
+   "evidence": "docs/TESTING.md says freezegun is not used because it is unmaintained and its frozen monotonic clock hangs asyncio and tenacity."
+  },
+  {
+   "alternative": "Add a deadline to each test body",
+   "evidence": "docs/TESTING.md says no test bounds elapsed wall-clock time from above, and a loaded machine stretches the time."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "rag-lookup-pause",
+   "purpose": null,
+   "added": [
+    {
+     "name": "qdrant-retry-wait-uses-clock-seam",
+     "text": "The Qdrant retry SHALL wait between attempts through the sleep parameter of tenacity, supplied by the clock seam, and SHALL NOT call time.sleep directly.",
+     "scenarios": [
+      {
+       "name": "retry records waits on the clock fixture",
+       "when": "a Qdrant operation fails and the retry runs on the clock fixture",
+       "then": "the clock fixture records the wait durations and no real wall-clock time is spent"
+      },
+      {
+       "name": "retry backoff sequence is recorded in order",
+       "when": "three retry attempts occur with the default backoff of 0.5 times the attempt number",
+       "then": "the clock fixture records waits of 0.5, 1.0, and 1.5 seconds in that order"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Qdrant retry uses tenacity sleep parameter",
+   "reads": [
+    "src/devops_cli/ai/rag/qdrant.py",
+    "tests/test_rag_multi_project_indexer.py",
+    "tests/support/fakes/clock.py"
+   ],
+   "changes": [
+    "src/devops_cli/ai/rag/qdrant.py",
+    "tests/test_rag_multi_project_indexer.py"
+   ],
+   "creates": [],
+   "test": "Write a test in tests/test_rag_multi_project_indexer.py that runs the retry on the clock fixture and asserts the recorded waits match the expected backoff sequence of 0.5, 1.0, 1.5 seconds for three attempts.",
+   "implementation": "Replace the time.sleep(0.5 * attempt) in _record_retry with tenacity's sleep parameter. The retry loop passes a sleep function that calls the clock seam's sleep. Remove the time import if no longer needed in the module.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_rag_multi_project_indexer.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Process fake delay advances clock",
+   "reads": [
+    "tests/support/fakes/process.py",
+    "tests/support/fakes/clock.py"
+   ],
+   "changes": [
+    "tests/support/fakes/process.py"
+   ],
+   "creates": [],
+   "test": "Write a test that scripts a ProcessAnswer with a delay of 2.0 and a timeout of 5.0, runs it through ProcessFake.run, and asserts the clock advanced by 2.0 and no real time was spent. Write a second test where the delay is 10.0 and the timeout is 5.0, and asserts the timeout error is raised at once with no sleep.",
+   "implementation": "In ProcessFake.run and run_async, replace the time.sleep and asyncio.sleep calls for the delay with a call to the clock fixture's advance method. When the delay exceeds the timeout, raise the timeout error immediately without any sleep.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_ai_review_pool.py tests/test_memory_profiler.py tests/test_server_service.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Test bodies batch 1: ai client and argo",
+   "reads": [
+    "tests/test_ai_client_network.py",
+    "tests/test_ai_client_security.py",
+    "tests/test_ai_review_pool.py",
+    "tests/test_argo_gitops.py",
+    "tests/support/waits.py",
+    "tests/support/fakes/clock.py"
+   ],
+   "changes": [
+    "tests/test_ai_client_network.py",
+    "tests/test_ai_client_security.py",
+    "tests/test_ai_review_pool.py",
+    "tests/test_argo_gitops.py"
+   ],
+   "creates": [],
+   "test": "For each of the four files, write or update the test to wait for the event that the code under test signals, or to run on the clock fixture and assert the recorded waits. Remove the time.sleep and asyncio.sleep calls.",
+   "implementation": "In tests/test_ai_client_network.py:251, replace time.sleep with a wait on the event the code signals. In tests/test_ai_client_security.py:296, replace time.sleep with the clock fixture. In tests/test_ai_review_pool.py:52,106,119, replace asyncio.sleep and time.sleep with the clock fixture or an event wait. In tests/test_argo_gitops.py:87,223, replace time.sleep with an event wait via tests/support/waits.py.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_ai_client_network.py tests/test_ai_client_security.py tests/test_ai_review_pool.py tests/test_argo_gitops.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Test bodies batch 2: devcontainer, github, http, k8s",
+   "reads": [
+    "tests/test_devcontainer.py",
+    "tests/test_github_session.py",
+    "tests/test_http_egress.py",
+    "tests/test_k8s_service.py",
+    "tests/support/waits.py",
+    "tests/support/fakes/clock.py"
+   ],
+   "changes": [
+    "tests/test_devcontainer.py",
+    "tests/test_github_session.py",
+    "tests/test_http_egress.py",
+    "tests/test_k8s_service.py"
+   ],
+   "creates": [],
+   "test": "For each of the four files, write or update the test to wait for the event that the code under test signals, or to run on the clock fixture and assert the recorded waits. Remove the time.sleep and asyncio.sleep calls.",
+   "implementation": "In tests/test_devcontainer.py:1978, replace time.sleep with an event wait. In tests/test_github_session.py:443, replace time.sleep with the clock fixture. In tests/test_http_egress.py:435,460, replace time.sleep and asyncio.sleep with the clock fixture. In tests/test_k8s_service.py:516, replace time.sleep with an event wait via tests/support/waits.py.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_devcontainer.py tests/test_github_session.py tests/test_http_egress.py tests/test_k8s_service.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Test bodies batch 3: ollama, pydantic, rag, response",
+   "reads": [
+    "tests/test_ollama_dynamic_leasing.py",
+    "tests/test_pydantic_agent.py",
+    "tests/test_rag_investigator.py",
+    "tests/test_rag_query_telemetry.py",
+    "tests/support/waits.py",
+    "tests/support/fakes/clock.py"
+   ],
+   "changes": [
+    "tests/test_ollama_dynamic_leasing.py",
+    "tests/test_pydantic_agent.py",
+    "tests/test_rag_investigator.py",
+    "tests/test_rag_query_telemetry.py"
+   ],
+   "creates": [],
+   "test": "For each of the four files, write or update the test to wait for the event that the code under test signals, or to run on the clock fixture and assert the recorded waits. Remove the time.sleep calls.",
+   "implementation": "In tests/test_ollama_dynamic_leasing.py:61, replace time.sleep with the clock fixture. In tests/test_pydantic_agent.py:497, replace time.sleep with an event wait. In tests/test_rag_investigator.py:177, replace time.sleep with the clock fixture. In tests/test_rag_query_telemetry.py:279, replace time.sleep with an event wait via tests/support/waits.py.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_ollama_dynamic_leasing.py tests/test_pydantic_agent.py tests/test_rag_investigator.py tests/test_rag_query_telemetry.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Test bodies batch 4: cache, review, telemetry, watchers",
+   "reads": [
+    "tests/test_response_cache.py",
+    "tests/test_review_adjudication.py",
+    "tests/test_telemetry.py",
+    "tests/test_telemetry_collector_export.py",
+    "tests/test_watchers.py",
+    "tests/test_memory_profiler.py",
+    "tests/test_server_service.py",
+    "tests/support/waits.py",
+    "tests/support/fakes/clock.py"
+   ],
+   "changes": [
+    "tests/test_response_cache.py",
+    "tests/test_review_adjudication.py",
+    "tests/test_telemetry.py",
+    "tests/test_telemetry_collector_export.py",
+    "tests/test_watchers.py",
+    "tests/test_memory_profiler.py",
+    "tests/test_server_service.py"
+   ],
+   "creates": [],
+   "test": "For each of the seven files, write or update the test to wait for the event that the code under test signals, or to run on the clock fixture and assert the recorded waits. Remove the time.sleep and asyncio.sleep calls.",
+   "implementation": "In tests/test_response_cache.py:147, replace time.sleep with the clock fixture. In tests/test_review_adjudication.py:301, replace time.sleep with an event wait. In tests/test_telemetry.py:678, replace time.sleep with the clock fixture. In tests/test_telemetry_collector_export.py:172, replace time.sleep with an event wait via tests/support/waits.py. In tests/test_watchers.py:68, replace time.sleep with the clock fixture. In tests/test_memory_profiler.py:182, replace asyncio.sleep with the clock fixture. In tests/test_server_service.py:500, replace asyncio.sleep with an event wait.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_response_cache.py tests/test_review_adjudication.py tests/test_telemetry.py tests/test_telemetry_collector_export.py tests/test_watchers.py tests/test_memory_profiler.py tests/test_server_service.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

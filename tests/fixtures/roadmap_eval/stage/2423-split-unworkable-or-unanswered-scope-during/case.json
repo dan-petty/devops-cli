@@ -1,0 +1,115 @@
+{
+ "issue": 2423,
+ "pull": 2989,
+ "title": "feat(roadmap): split unworkable or unanswered scope during refine into separate issues",
+ "change": "2423-split-unworkable-or-unanswered-scope-during",
+ "merge_commit": "c6b6ab7cc1777c8f71e56ab37221df6072a56962",
+ "base_commit": "4e5ccd0e8406d9f0d4b9c973066375516bc5033b",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 2,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The PR is merged and its change folder is on origin/main. Title, \"Plans #2423\" body and all 20 checks are fine. The issue is open, status/planned, no tracker, no duplicate. The plan itself has major defects. It ignores the existing `split_offs` / `fits_one_pr` / `NextStep.SPLIT` mechanism of refine. It adds a `split_issues` field only to a prompt and never to the strict reply schema or the `RefinementProposal` model, so the model output would be rejected. Its Feasibility holds no evidence, and it defers the file check to the implementer. Test paths are wrong, the Reads lines say \"none\" for a 2152-line file, and the plan makes a link by comment where intake already links by sub-issue. An implementer would hit these defects in group 1 or 2.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "proposal.md / design.md / tasks.md",
+   "problem": "The plan ignores the split mechanism that refine already has. `RefinementProposal` has `fits_one_pr` and `split_offs`; `next_step_of` returns `NextStep.SPLIT` with the split_offs lines; `step_comment` and `render_proposal_section` print them; `apply_refine` counts `split_count`. The plan adds a second field `split_issues` and never says how it relates to `split_offs`, `needs_split` or `NextStep.SPLIT`. It does not say which one it replaces. This also breaks the project rule to remove the old path, not add a second one.",
+   "evidence": "src/devops_cli/roadmap/refine.py:204-205 `fits_one_pr: bool = True` / `split_offs: list[str]`; :982-983 `if not proposal.fits_one_pr: return NextStep.SPLIT, tuple(proposal.split_offs), ()`; :1274-1278 `Needs splitting into ... items:`; :2052-2053 `if r.needs_split: split_count += 1`. grep for `split_offs` in proposal.md, design.md, tasks.md: no match.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md (groups 1 and 2)",
+   "problem": "The plan adds `split_issues` only to the prompt `roadmap_refine_proposal.md`. The reply keys are defined in `roadmap_refine_reply.md` and in the pydantic model `RefinementProposal`, which has `extra=\"forbid\"`, and the reply text says 'these keys and no other'. A model reply with `split_issues` would fail validation, and no task changes the model, the reply schema, validation (`validate_proposal`) or the rendered section. The orchestrator task 2.2 reads a field that cannot exist.",
+   "evidence": "src/devops_cli/roadmap/refine.py:198-200 `class RefinementProposal(BaseModel): model_config = ConfigDict(extra=\"forbid\")`; src/devops_cli/ai/tasks/roadmap_refine_reply.md:13-14 defines `fits_one_pr` and `split_offs`, and says 'The reply has these keys and no other'. tasks.md Changes lines name only roadmap_refine_proposal.md and refine.py.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md (Feasibility)",
+   "problem": "Feasibility has no evidence. It says the orchestrator path 'is not shown in the context' and gives the implementer grep commands to run later. It does not check that refine.py exists, that intake can be called from apply, or what intake needs. AGENTS.md rule 2 asks for a premise check with evidence before the plan. The checks were available: refine.py and intake_candidate exist.",
+   "evidence": "proposal.md: 'The exact orchestrator file path is not shown in the context. The implementation step must confirm it by searching ... First check: grep -r ...'. Real: src/devops_cli/roadmap/refine.py (2152 lines) and `intake_candidate(store, candidate, *, repo, model, ref, confirm)` at src/devops_cli/roadmap/intake.py:1338.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md (group 2) / design.md",
+   "problem": "The plan says 'call the existing intake function with the entry title and body' but does not see the cost. `intake_candidate` needs an `IntakeModel` (a model call per candidate), a `NewCandidate`, `repo` and `confirm`. `apply_refine(store, plan)` has none of these. Refine also has a plan/apply split and a dry-run with `requests` and `write_requests`, and the repo rule is that dry-run makes zero requests and returns the would-be requests. The plan does not say how split issues appear in the plan, in the dry-run or in the idempotent re-run. A re-run of refine on the same issue could file the same split issues again. This is a hidden refactor of apply_refine, not a small branch.",
+   "evidence": "src/devops_cli/roadmap/intake.py:1338-1345 signature with `model: IntakeModel`, `confirm`; src/devops_cli/roadmap/refine.py:2013 `def apply_refine(store: RoadmapStore, plan: RefinePlan)`; refine.py:307-318 `RefinePlan` has `dry_run`, `requests`, `write_requests`. tasks.md 2.2 says only 'call the existing intake function'.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "design.md / specs/roadmap-refine/spec.md (split-issue-linking)",
+   "problem": "The link is a comment on the original issue. Intake already links a candidate to its source issue: `NewCandidate.source` names the parent, and apply_intake calls `store.add_sub_issue(parent, number)`. CONTEXT.md also says a candidate is never a duplicate of the issue it is split from. The plan cites CONTEXT.md for this and then ignores the sub-issue link and adds a hand-made comment path. That is a second link path, and the design does not reject the sub-issue option.",
+   "evidence": "src/devops_cli/roadmap/intake.py:184-196 `NewCandidate.source`; :692-722 `source_parent_number`; :1272 `store.add_sub_issue(decision.parent, number)`. design.md decision 3: 'Record links as a comment on the original issue'. The Rejected alternatives list does not mention sub-issues.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md (all groups)",
+   "problem": "Every Reads line says 'none', but the work needs files. Group 2 must read refine.py (about 90 KB, about 22k tokens) and the tests in tests/roadmap/test_roadmap_refine.py (about 136 KB, about 34k tokens). The stage job counted only about 3.3k tokens per group because Reads is empty, so the 40000-token check did not test the real input. The group reads for group 2 could exceed the budget if the implementer reads both whole files. Changes lines also omit the test files that the tasks create.",
+   "evidence": "tasks.md: 'Reads: none. Changes: `src/devops_cli/roadmap/refine.py`.' wc -c: src/devops_cli/roadmap/refine.py 89959; tests/roadmap/test_roadmap_refine.py 136501. Stage comment on #2423: 'Process split_issues in the refine orchestrator: 3264 tokens'.",
+   "gate": "none"
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md (1.1, 1.2, 2.1, 2.2, 3.1, 3.2)",
+   "problem": "The test paths are wrong. The plan names tests/test_roadmap_refine_prompt.py, tests/test_roadmap_refine_orchestrator.py and tests/test_roadmap_refine_split.py at the root of tests/. Refine tests live in tests/roadmap/test_roadmap_refine.py. The first two names appear in no Impact or Changes line, and the stage comment already warned about tests/test_roadmap_refine_split.py. Verify commands use `uv run pytest ...`, not `uv run devops ci test <path>` as openspec/config.yaml asks. Test 1.1 asserts that a prompt file contains words. TESTING.md says a check of committed files is a row of `devops ci`, not a pytest test, and prompt text is a snapshot.",
+   "evidence": "ls tests | grep refine and ls tests/test_roadmap_refine*: none found; ls tests/roadmap shows test_roadmap_refine.py and test_roadmap_refine_investigation.py. openspec/config.yaml line 33: 'such as `uv run devops ci test tests/test_<feature>.py`'. docs/TESTING.md: 'A check of committed files ... is a row of `devops ci`, not a pytest test'; tests/roadmap/__snapshots__/test_roadmap_refine.ambr exists.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_roadmap_refine_prompt.py",
+    "tests/test_roadmap_refine_orchestrator.py",
+    "tests/test_roadmap_refine_split.py"
+   ]
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md (x.3 tasks) / group 3",
+   "problem": "Task x.3 says 'Change no document, run `devops docs generate --sync-readme`' which contradicts itself. Group 3 is a separate integration-test group that tests the same behaviour as groups 1 and 2 and repeats the same assertions as test 2.1. The tests should come with each code change, not in a last group. The doubling adds work and lets the failing-test-first order break. Group 3 also says to double 'the GitHub API', while TESTING.md says GitHub is faked through the GitHub session and a test patches no devops module.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`'; 2.1 and 3.2 both assert the intake calls and the comment on the original issue. docs/TESTING.md Doubles section: 'GitHub's API, through the GitHub session'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "proposal.md (Impact / Existing Tool Considered)",
+   "problem": "Impact lists the code, prompt and one test file only. It omits roadmap_refine_reply.md, the model class, docs (ROADMAP_WORKFLOW.md rows for Refine and the status/ready rule about 'a split'), the messages for the step comment, and the snapshot. Existing Tool Considered repeats the issue text and gives no cost in tokens or time, as AGENTS.md rule 3 asks when code is built.",
+   "evidence": "proposal.md Impact: Code refine.py; Documents roadmap_refine_proposal.md; Tests tests/test_roadmap_refine_split.py. docs/ROADMAP_WORKFLOW.md:44 'Refine finds the proposal not ready: a gap, an open question, a split or a block'. proposal.md Existing Tool Considered: 'The written cost is the prompt edit, the orchestrator branch ..., and the link-recording call' (no token or time figure).",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/roadmap-refine/spec.md",
+   "problem": "The spec says refine 'SHALL ... list them in a split_issues array' and that the remaining proposal is 'eligible for Ready'. It does not say what happens to NextStep and `needs_split` when the split happens, or when the split-off part has an open question that is unresolved (what status the new issue gets). Several decisions are left to the implementer. The issue's Key question on the original status is answered only with '(proposed)'.",
+   "evidence": "spec.md Requirement scope-splitting-on-unworkable-parts; src/devops_cli/roadmap/refine.py:211-229 NextStep values READY, PERSON, SPLIT, BLOCKED, EDIT, NONE; issue #2423 refine section: 'What status does the original issue receive ... (proposed)'.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 3",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Add integration test for the full scope-splitting flow' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  }
+ ]
+}

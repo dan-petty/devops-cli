@@ -1,0 +1,38 @@
+diff --git a/tmp_test_reproduction.py b/tmp_test_reproduction.py
+new file mode 100644
+index 00000000..44e4c73f
+--- /dev/null
++++ b/tmp_test_reproduction.py
+@@ -0,0 +1,31 @@
++#!/usr/bin/env python3
++"""Test script to reproduce GH_TELEMETRY_ENDPOINT_URL security issue."""
++
++from devops_cli.core.process import build_subprocess_env
++
++# Test that currently passes (GH_TELEMETRY_ENDPOINT_URL is accepted)
++try:
++    result = build_subprocess_env(env={"GH_TELEMETRY_ENDPOINT_URL": "https://example.com"})
++    print("GH_TELEMETRY_ENDPOINT_URL was accepted:", "GH_TELEMETRY_ENDPOINT_URL" in result)
++    if "GH_TELEMETRY_ENDPOINT_URL" in result:
++        print(f"Value: {result['GH_TELEMETRY_ENDPOINT_URL']}")
++except Exception as e:
++    print(f"Error: {e}")
++
++# Test that should pass (other GH_TELEMETRY keys are accepted)
++try:
++    result = build_subprocess_env(env={"GH_TELEMETRY": "log"})
++    print("GH_TELEMETRY was accepted:", "GH_TELEMETRY" in result)
++    if "GH_TELEMETRY" in result:
++        print(f"Value: {result['GH_TELEMETRY']}")
++except Exception as e:
++    print(f"Error: {e}")
++
++# Test that should pass (GH_TELEMETRY_SAMPLE_RATE is accepted)
++try:
++    result = build_subprocess_env(env={"GH_TELEMETRY_SAMPLE_RATE": "0.5"})
++    print("GH_TELEMETRY_SAMPLE_RATE was accepted:", "GH_TELEMETRY_SAMPLE_RATE" in result)
++    if "GH_TELEMETRY_SAMPLE_RATE" in result:
++        print(f"Value: {result['GH_TELEMETRY_SAMPLE_RATE']}")
++except Exception as e:
++    print(f"Error: {e}")
+\ No newline at end of file

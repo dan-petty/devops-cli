@@ -1,0 +1,78 @@
+{
+ "summary": "refuse LESS in subprocess env guard",
+ "pull_request_body": "build_subprocess_env accepts LESS, which less(1) reads as options. An option starting with +! runs a shell command. Git and gh use less as their default pager, so a caller override of LESS is a code-execution path for their children. A probe with less 668 confirmed execution via git --paginate and gh help reference. This change adds LESS to CONST_CODE_LOADING_ENV_PATTERNS so that _is_env_override_refused raises SecurityError for any caller override of LESS, in upper or lower case, with or without isolation. The existing refusal of LESSOPEN and LESSCLOSE is unchanged. The fix is one key added to a constant and one test case. No project code sets or reads LESS for a child process, so no caller breaks.",
+ "why": "#2735 reports that build_subprocess_env in src/devops_cli/core/process.py refuses LESSOPEN and LESSCLOSE but accepts LESS. The less(1) pager reads options from LESS, and the +! option runs a shell command. Git and gh use less as their default pager, so a caller override of LESS is a code-execution path. A probe with less 668 confirmed that LESS=+! made git --paginate and gh help reference run a marker program.",
+ "what_changes": [
+  "Add \"LESS\" to CONST_CODE_LOADING_ENV_PATTERNS in src/devops_cli/config/constants.py so that _is_env_override_refused raises SecurityError for any caller override of LESS.",
+  "Add a test case asserting that build_subprocess_env raises SecurityError for a LESS override, with and without isolation, and that LESSOPEN refusal is unchanged."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed against the inputs. src/devops_cli/core/process.py imports CONST_CODE_LOADING_ENV_PATTERNS from devops_cli.config.constants and passes it to _is_env_var_denied inside _is_env_override_refused. The issue body states the constant already holds LESSOPEN and LESSCLOSE from #2205 and #2483, and that LESS is absent, so it passes through. The reproduction command uv run python -c 'from devops_cli.core.process import build_subprocess_env as b; print(b(env={\"LESS\": \"+!x\\n\"})[\"LESS\"])' returns the key unchanged, confirming the gap.",
+  "First check after the fix: run uv run python -c 'from devops_cli.core.process import build_subprocess_env as b; b(env={\"LESS\": \"+!x\\n\"})' and confirm it raises SecurityError. Second check: run the new test case in the test file and confirm it passes. Third check: run the existing LESSOPEN and LESSCLOSE test cases and confirm they still pass."
+ ],
+ "existing_tool": "No open, maintained tool or library covers this need. The project builds its own environment guard in src/devops_cli/core/process.py. The written cost is one key added to a constant in src/devops_cli/config/constants.py and one test case in the existing test file. No internal code is deleted.",
+ "decisions": [
+  {
+   "decision": "Add LESS to CONST_CODE_LOADING_ENV_PATTERNS rather than to DEFAULT_DENIED_ENV_PATTERNS",
+   "reason": "CONST_CODE_LOADING_ENV_PATTERNS is the list that _is_env_override_refused checks for caller overrides. DEFAULT_DENIED_ENV_PATTERNS filters ambient environment variables. LESS is a caller-override risk, so it belongs in the override list, consistent with LESSOPEN and LESSCLOSE."
+  },
+  {
+   "decision": "Refuse LESS unconditionally, in upper and lower case, with and without isolation",
+   "reason": "_is_env_override_refused upper-cases the key before matching, so a single entry \"LESS\" covers both cases. The check runs before the isolate_env branch, so it applies regardless of isolation. This matches the behavior of LESSOPEN and LESSCLOSE."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Accept LESS and document the risk in SECURITY.md",
+   "evidence": "The project standard in ARCHITECTURE.md and the #2483 spec is to refuse keys that make a child run a program. Accepting LESS leaves a known code-execution path open. A probe with less 668 confirmed execution via git --paginate and gh help reference."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "subprocess-environment",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Refuse LESS override",
+     "text": "build_subprocess_env SHALL raise SecurityError when a caller overrides the key LESS, in upper or lower case, regardless of the isolate_env setting.",
+     "scenarios": [
+      {
+       "name": "Caller sets LESS to a command string",
+       "when": "A caller calls build_subprocess_env with env={\"LESS\": \"+!x\\n\"}",
+       "then": "The call raises SecurityError with the message \"Prohibited dangerous environment variable override: 'LESS'\""
+      },
+      {
+       "name": "Caller sets LESS with isolation disabled",
+       "when": "A caller calls build_subprocess_env with env={\"LESS\": \"+!x\\n\"} and isolate_env=False",
+       "then": "The call raises SecurityError with the message \"Prohibited dangerous environment variable override: 'LESS'\""
+      },
+      {
+       "name": "Caller sets LESSOPEN after the fix",
+       "when": "A caller calls build_subprocess_env with env={\"LESSOPEN\": \"|x %s\"}",
+       "then": "The call raises SecurityError as before"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add LESS to the denied patterns and test it",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/config/constants.py",
+    "tests/core/test_process.py"
+   ],
+   "creates": [],
+   "test": "Write a test that calls build_subprocess_env with env={\"LESS\": \"+!x\\n\"} and asserts SecurityError is raised with the message \"Prohibited dangerous environment variable override: 'LESS'\". Add a second case with isolate_env=False. Add a third case asserting env={\"LESSOPEN\": \"|x %s\"} still raises SecurityError",
+   "implementation": "Add the string \"LESS\" to the tuple CONST_CODE_LOADING_ENV_PATTERNS in src/devops_cli/config/constants.py, beside the existing entries LESSOPEN and LESSCLOSE",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/core/test_process.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

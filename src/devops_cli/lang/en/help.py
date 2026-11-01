@@ -1232,6 +1232,37 @@ class RoadmapCommandHelp:
     intake_eval_dry_run: str = (
         "Make no request: list the cases and the analysis call that a run makes for each."
     )
+    eval_app: str = (
+        "Score the plan and implement jobs on a golden set. Each command runs a job's real code "
+        "on committed cases with a chosen model. It is on demand and no part of devops ci."
+    )
+    eval_stage: str = (
+        "Score the stage job on its golden set, the plans of 2026-11-01 with their known "
+        "defects. For each case the job plans from the issue text, with the checks it runs in "
+        "a Job. The command prints, for each type of defect that a gate catches, how often "
+        "the first reply of the model avoids it, and a total score. It stores the report as "
+        "JSON under the data directory. It calls the model through the gateway, one call per "
+        "case at least. With --replay it calls no model: it runs the recorded plans through the "
+        "gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. "
+        "A change to the stage prompt or to the checks states this score before and after."
+    )
+    eval_stage_case: str = (
+        "Run only this case, by folder name or issue number. Repeat the option for more cases."
+    )
+    eval_stage_model: str = "Model for the analysis task. Without it, the configured model."
+    eval_stage_limit: str = "Run at most this many cases, the first ones of the set."
+    eval_stage_json: str = "Print the report as JSON in place of the table."
+    eval_stage_dry_run: str = (
+        "Make no request: list the cases and the model calls that a run makes."
+    )
+    eval_stage_replay: str = (
+        "Make no model call. Run the recorded plans through the gates and report which known "
+        "defects each gate catches."
+    )
+    eval_stage_cases: str = "Folder of the cases. Default: tests/fixtures/roadmap_eval/stage."
+    eval_stage_source: str = (
+        "Repository that holds the staging commits of the cases. Default: this checkout."
+    )
     run: str = (
         "Run the roadmap jobs that are due, in order: metrics, then intake, refine and "
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at "
@@ -1503,6 +1534,46 @@ class RoadmapCommandHelp:
     )
     explain_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
+    )
+    eval_implement: str = (
+        "Run one step of each fixture of the implement job in a scratch clone of this "
+        "repository at the base commit of the fixture, with the chosen model, through the same "
+        "step that the Job runs. Then evaluate six properties of the result: the tests it names "
+        "pass, no test is deleted or renamed, the diff touches only the paths of the Changes "
+        "line of the group, the verification commands of the group pass, no scratch file is in "
+        "the diff, and the tasks of the group are ticked. The report lists the properties, the "
+        "tokens, the model requests, the tool calls and the wall time of each fixture, and "
+        "the property that failed first. A run writes a JSON report under eval/implement of the "
+        "data directory. The command reads no GitHub state, writes none and pushes nothing. "
+        "A change to the implement prompt or tool set states the score before and after."
+    )
+    eval_implement_fixture: str = (
+        "Run only the fixture with this name. Repeat the option. Without it, run every fixture."
+    )
+    eval_implement_fixtures: str = (
+        "Folder of the fixtures. Without it, the command uses tests/fixtures/roadmap_eval/"
+        "implement of this checkout."
+    )
+    eval_implement_source: str = (
+        "Path to the clone of the repository to clone from. It must hold the base commit of "
+        "each fixture. Without it, the command uses this checkout."
+    )
+    eval_implement_model: str = (
+        "Model for the step, in place of the model of the task ai.tasks.implement."
+    )
+    eval_implement_json: str = "Print the report as JSON."
+    eval_implement_dry_run: str = (
+        "Make no request: list the fixtures and the model requests of the steps. Nothing is "
+        "cloned and no model runs."
+    )
+    eval_implement_check_only: str = (
+        "Make no model call: evaluate the four properties that a diff decides on each recorded "
+        "result of each fixture, and exit 1 when a result fails other properties than its "
+        "record says. This is the offline mode."
+    )
+    eval_implement_run_commands: str = (
+        "With --check-only: clone the base, apply each recorded diff and run the two properties "
+        "that run commands."
     )
     inbox: str = (
         "List what waits for a person, each line with its number, its age and the one command or "

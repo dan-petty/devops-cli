@@ -1,0 +1,80 @@
+{
+ "issue": 2462,
+ "pull": 2990,
+ "title": "fix(ai): devops ai cost report shows a stored serving backend that urlsplit cannot read, and stops with no ValueError",
+ "change": "2462-devops-ai-cost-report-shows-a",
+ "merge_commit": "80da9bbb74e9ba1d574ebe5ca91fe33676a5809b",
+ "base_commit": "c6b6ab7cc1777c8f71e56ab37221df6072a56962",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The PR is merged (2026-11-01T10:21:46Z) as 80da9bbb. The premise is right. On main, line 246 of src/devops_cli/ai/spend/pricing.py calls urlsplit(clean) with no guard, and urlsplit('http://[::1') raises ValueError('Invalid IPv6 URL'). The one-line fix is the right size and fits one PR. The folder passes OpenSpec validation, the title is a valid Conventional Commit, the body says \"Plans #2462\", and all CI checks passed. The plan has real defects. It names a test file that does not exist (tests/test_pricing.py). It gives verify commands in the wrong form (uv run pytest) instead of `uv run devops ci test`. It has no test for the spec scenarios that cover the CLI. Feasibility holds claims, not command output. The first implement run on #2462 stopped at group 1, and the issue is now status/blocked, so the plan needs edits before a retry.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md and proposal.md (Impact, group 1 Changes line, task 1.1)",
+   "problem": "The plan names tests/test_pricing.py as the test file. That file does not exist. The pricing tests are in tests/ai/spend/test_ai_spend_pricing.py. An implementer would create a new file in the wrong place, or edit a file that is not there. Stage already warned: 'These paths of the plan are no file on the default branch ... tests/test_pricing.py'.",
+   "evidence": "git ls-tree origin/main shows tests/ai/spend/test_ai_spend_pricing.py (it holds test_is_local_configured_cluster_and_gateway at line 667 and test_a_gateway_call_is_local_by_the_backend_that_served_it at line 703). No tests/test_pricing.py exists. Stage comment on #2462 lists tests/test_pricing.py as an unknown path.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_pricing.py"
+   ]
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md tasks 1.1 and 1.2; proposal.md Feasibility",
+   "problem": "Verify commands use `uv run pytest tests/test_pricing.py -x`. openspec/config.yaml asks for `uv run devops ci test <path>`, and docs/TESTING.md owns that command. The implement job could not run raw test commands: its shell refused cd, python and uv. The job stopped at group 1 after it wrote a scratch tmp_test.py to the repo root. The plan gave it no usable verify command.",
+   "evidence": "openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'. Implement comment on #2462: 'Refused commands: cd 3, python 2, uv 1' and 'Stopped at group 1'. Issue labels now include status/blocked.",
+   "gate": "pending"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "tasks.md task 1.1 and specs/ai-spend-pricing/spec.md",
+   "problem": "The three spec scenarios say `devops ai cost report --by backend` exits 0 and shows `unknown`. The tasks test only _is_single_server_local and is_local. No task asserts the command or the table label. A guard test alone would not prove the scenarios. The plan also gives no test names, so the Feasibility check `-k unparseable` selects nothing unless the implementer picks that word.",
+   "evidence": "src/devops_cli/commands/ai_cost.py _served_by_label (line 212) returns CONST_AI_BACKEND_HOST_UNKNOWN when served_by_authority returns None. I ran served_by_authority('http://[::1') and it returned None. tests/ai/spend/test_ai_spend_cli.py already has a cli('ai','cost','report','--by','backend') test at line 323 that could take a legacy-row case. config.yaml says 'Write only scenarios a test under tests/ can assert'. Task 1.1 lists no CLI-level test.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md ## Feasibility",
+   "problem": "Feasibility is made of statements like 'The context shows ...'. It holds no command output. It never shows urlsplit('http://[::1') raising ValueError, or that the report path reaches this function. AGENTS.md rule 2 asks for evidence of the premise. The claims are true, but the section does not record the proof.",
+   "evidence": "python3 -c \"from urllib.parse import urlsplit; urlsplit('http://[::1')\" raises ValueError('Invalid IPv6 URL'). The proposal has no such output. The first and second 'checks' are only future test runs.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md group 1 header line",
+   "problem": "The group says 'Reads: none'. An implementer must read src/devops_cli/ai/spend/pricing.py (the _SettingsOnce class at line 173 and the functions at lines 226-298) and the existing test module to match its fixtures. The Reads line should name them so the step stays inside its budget.",
+   "evidence": "tasks.md: 'Reads: none. Changes: `src/devops_cli/ai/spend/pricing.py`, `tests/test_pricing.py`.' Task 1.1 uses _SettingsOnce, which is defined in pricing.py.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "nit",
+   "where": "specs/ai-spend-pricing/spec.md, scenario 'Valid local backend still detected'",
+   "problem": "The THEN clause says 'the backend column shows the resolved value'. That is vague. The test cannot assert a value that is not written. Name the expected label (localhost:11434).",
+   "evidence": "spec.md line: '**THEN** The row is classified as local and the backend column shows the resolved value'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "tasks.md task 1.3",
+   "problem": "The text 'Change no document, run `uv run devops docs generate --sync-readme`' is self-contradicting and has no failing-first meaning. Say that the generated docs are unchanged and run the check only.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'.",
+   "gate": "none"
+  }
+ ]
+}

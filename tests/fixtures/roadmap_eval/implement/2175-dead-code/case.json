@@ -1,0 +1,18 @@
+{
+  "name": "2175-dead-code",
+  "source": "The corrected plan of #2175 (pull request 3022), group 1: a deletion item. No run has used it yet.",
+  "issue": 2175,
+  "title": "refactor(cli): the five functions and properties that nothing calls and that #1910 does not list leave src",
+  "group": 1,
+  "change": "2175-the-five-functions-and-properties-that",
+  "base": "c22f018f003f1862f8024d3f138f2f31f4c4e2a2",
+  "changes": [
+    "src/devops_cli/ai/client/streaming.py",
+    "src/devops_cli/ai/thinking_stream.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/ai/client/test_ai_streaming.py tests/ai/test_thinking.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

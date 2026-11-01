@@ -1,0 +1,108 @@
+{
+ "summary": "Fix tunnel hosts and add guard test",
+ "pull_request_body": "The Cloudflare tunnel section of k8s/README.md names public hosts as *.homelab. and .homelab.. The live Ingress manifests use . with no homelab subdomain. A person who follows the section sets the Cloudflare Access application and DNS wildcard to a domain that no Ingress serves. This change rewrites the tunnel section hosts to the . form that the Ingress manifests use, and adds an offline test that extracts every host from that section and checks it against the Ingress manifests under k8s/. The test fails on the current text and passes after the fix, so the text cannot drift again.",
+ "why": "#2572: the Cloudflare tunnel section of k8s/README.md writes hosts as *.homelab.<domain>, but the 24 live Ingress hosts have the form <name>.<domain> with no homelab subdomain. A reader who follows the section configures Cloudflare Access and DNS for a domain that no Ingress serves.",
+ "what_changes": [
+  "Rewrite the Cloudflare tunnel section of k8s/README.md to use <name>.<domain> and *.<domain> instead of <name>.homelab.<domain> and *.homelab.<domain>",
+  "Add tests/test_k8s_readme_hosts.py that extracts host tokens from the tunnel section and asserts each matches an Ingress host in k8s/",
+  "The test fails on the current text and passes after the fix"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue cites lines 972, 989-991, 1004 and 1010 of k8s/README.md on origin/main. The context shows the README references hosts like argocd.<domain>, alloy.<domain>, chat.<domain>, qdrant.<domain>, ai.<domain>, and hooks.<domain> in other sections, confirming the <name>.<domain> form is the correct one.",
+  "The Ingress manifests live at k8s/ingress/ingress-routes.yaml and k8s/devops/roadmap-service/ingress.yaml. The issue confirms 24 Ingress hosts with no homelab subdomain.",
+  "The test naming pattern follows existing tests: tests/test_k8s_llm_gateway.py, tests/test_k8s_local_path_placement.py. The new test goes to tests/test_k8s_readme_hosts.py.",
+  "First checks the implementation runs: (1) uv run pytest tests/test_k8s_readme_hosts.py -x to confirm the test fails on the current text; (2) after the fix, the same command exits 0; (3) grep -n 'homelab\\.' k8s/README.md to confirm no homelab. host form remains in the tunnel section."
+ ],
+ "existing_tool": "None needed. The change is a documentation fix in k8s/README.md and a test over the repository's own Ingress manifests. The written cost is the tokens to edit the tunnel section, write one test file, and fix any test failure, plus the elapsed time of one pull request.",
+ "decisions": [
+  {
+   "decision": "Place the test at tests/test_k8s_readme_hosts.py",
+   "reason": "Follows the existing naming pattern of tests/test_k8s_llm_gateway.py and tests/test_k8s_local_path_placement.py. The project keeps all tests in tests/."
+  },
+  {
+   "decision": "Extract and match every host token against Ingress manifests, not just check for the homelab. substring",
+   "reason": "Catches any host that does not match an Ingress, not only the homelab. form. More robust against future drift where a different wrong subdomain is introduced."
+  },
+  {
+   "decision": "The test reads Ingress manifests from k8s/ rather than hardcoding the expected host list",
+   "reason": "If a new Ingress is added, the test still passes without editing the test. If a host is removed from Ingress, the test fails and names the stale README reference."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Place the test at k8s/tests/test_readme_hosts.py",
+   "evidence": "No existing test directory under k8s/. The project keeps all tests in tests/."
+  },
+  {
+   "alternative": "Assert only that the substring homelab. is absent from the tunnel section",
+   "evidence": "Simpler, but misses a host that uses a different wrong subdomain form. The issue asks for a guard against any drift, not just the current error."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "k8s-api-tunnel",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Tunnel section hosts match Ingress",
+     "text": "The Cloudflare tunnel section of k8s/README.md SHALL name each host in the form <name>.<domain> and the wildcard as *.<domain>, matching the Ingress manifests in k8s/.",
+     "scenarios": [
+      {
+       "name": "No homelab subdomain remains",
+       "when": "the text of the Cloudflare tunnel section is scanned for the substring homelab.",
+       "then": "no host pattern in that section contains the substring homelab."
+      }
+     ]
+    },
+    {
+     "name": "Offline test guards tunnel hosts",
+     "text": "An offline test SHALL verify that every host named in the Cloudflare tunnel section of k8s/README.md matches an Ingress host defined in k8s/.",
+     "scenarios": [
+      {
+       "name": "Test fails on broken text",
+       "when": "the test runs against the README before the host names are corrected",
+       "then": "the test exits with a non-zero code and names each host that does not match an Ingress."
+      },
+      {
+       "name": "Test passes on corrected text",
+       "when": "the test runs against the README after the host names are corrected",
+       "then": "the test exits with code 0."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Write failing test for tunnel section hosts",
+   "reads": [],
+   "changes": [
+    "tests/test_k8s_readme_hosts.py"
+   ],
+   "creates": [],
+   "test": "Write tests/test_k8s_readme_hosts.py. The test reads k8s/README.md, locates the Cloudflare tunnel section by its heading, extracts every host-like token (a string matching the pattern of optional asterisk, word characters, hyphens, dots, and the literal <domain>), reads all Ingress manifests under k8s/ to collect the set of host values, then asserts each README host is in the Ingress set or equals *.<domain>. It also asserts no host token contains the substring homelab. The test must fail on the current text because it contains homelab. subdomains",
+   "implementation": "Implement the test. Read k8s/README.md as text. Find the section between the Cloudflare tunnel heading and the next same-level heading. Use a regex to extract host-like tokens: tokens that end with <domain> and contain at least one dot before it. Read every YAML file under k8s/ that defines Ingress resources (k8s/ingress/ingress-routes.yaml, k8s/devops/roadmap-service/ingress.yaml, and any other Ingress manifest). Collect the set of host values from the spec.rules[].host fields. For each README host token, assert it is in the Ingress host set or equals *.<domain>. Assert no token contains the substring homelab. Use pytest.fail with a message naming each mismatched host",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_k8s_readme_hosts.py -x",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Fix tunnel section host names in README",
+   "reads": [],
+   "changes": [
+    "k8s/README.md"
+   ],
+   "creates": [],
+   "test": "The test tests/test_k8s_readme_hosts.py from the previous group must pass after the fix. Run uv run pytest tests/test_k8s_readme_hosts.py -x and confirm exit code 0",
+   "implementation": "In the Cloudflare tunnel section of k8s/README.md, replace every occurrence of *.homelab.<domain> with *.<domain>. Replace every occurrence of <name>.homelab.<domain> with <name>.<domain> for each named host (chat, grafana, ai, argocd, git, hooks, k8s, alloy, qdrant, prometheus). Verify each named host appears in k8s/ingress/ingress-routes.yaml or k8s/devops/roadmap-service/ingress.yaml. Remove any sentence that references the homelab subdomain as a DNS wildcard target",
+   "documentation": "k8s/README.md",
+   "verify": "uv run pytest tests/test_k8s_readme_hosts.py -x",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

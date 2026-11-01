@@ -1,0 +1,39 @@
+diff --git a/openspec/changes/2175-the-five-functions-and-properties-that/tasks.md b/openspec/changes/2175-the-five-functions-and-properties-that/tasks.md
+index 83fc2c29..d10418d8 100644
+--- a/openspec/changes/2175-the-five-functions-and-properties-that/tasks.md
++++ b/openspec/changes/2175-the-five-functions-and-properties-that/tasks.md
+@@ -12,9 +12,9 @@ Reads: none. Changes: `src/devops_cli/ai/client/streaming.py`.
+ 
+ Reads: none. Changes: `src/devops_cli/ai/client/unified.py`.
+ 
+-- [ ] 2.1 Write a test that asserts LLMClient has no _get_ollama_semaphore attribute. The test fails before the deletion and passes after, and verify that `! git grep -n -w _get_ollama_semaphore src/ tests/ docs/` fails on the base
+-- [ ] 2.2 Delete the _get_ollama_semaphore classmethod from LLMClient. Remove any import or constant that only this method uses. Remove any test that only calls _get_ollama_semaphore, and verify that `! git grep -n -w _get_ollama_semaphore src/ tests/ docs/` passes
+-- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++- [x] 2.1 Write a test that asserts LLMClient has no _get_ollama_semaphore attribute. The test fails before the deletion and passes after, and verify that `! git grep -n -w _get_ollama_semaphore src/ tests/ docs/` fails on the base
++- [x] 2.2 Delete the _get_ollama_semaphore classmethod from LLMClient. Remove any import or constant that only this method uses. Remove any test that only calls _get_ollama_semaphore, and verify that `! git grep -n -w _get_ollama_semaphore src/ tests/ docs/` passes
++- [x] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+ 
+ ## 3. Delete unique_thinking from thinking_stream.py
+ 
+diff --git a/test_get_ollama_semaphore.py b/test_get_ollama_semaphore.py
+new file mode 100644
+index 00000000..d22d473f
+--- /dev/null
++++ b/test_get_ollama_semaphore.py
+@@ -0,0 +1,16 @@
++"""Test for the _get_ollama_semaphore method deletion."""
++
++import unittest
++
++from devops_cli.ai.client.unified import LLMClient
++
++
++class TestGetOllamaSemaphoreDeletion(unittest.TestCase):
++    def test_llm_client_has_no_get_ollama_semaphore(self):
++        """Test that LLMClient no longer has _get_ollama_semaphore attribute."""
++        # This test should fail before deletion and pass after
++        self.assertFalse(hasattr(LLMClient, "_get_ollama_semaphore"))
++
++
++if __name__ == "__main__":
++    unittest.main()

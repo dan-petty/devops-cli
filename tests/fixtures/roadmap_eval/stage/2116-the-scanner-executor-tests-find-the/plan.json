@@ -1,0 +1,74 @@
+{
+ "summary": "use PATH stand-ins for scanner tests",
+ "pull_request_body": "Replace the autouse fixture scanners_installed in tests/test_scanner_tool_executor.py. It currently patches shutil.which to make review scanners look installed. Since #1982, the shared scanner_fake fixture makes scanners findable by putting executable stand-ins on PATH and patches no shutil or subprocess name. This change applies the same mechanism to the fixture in this test file, so no test in the file patches a shutil or subprocess name. The existing tests pass unchanged.",
+ "why": "#2116: tests/test_scanner_tool_executor.py has an autouse fixture scanners_installed that patches shutil.which. docs/TESTING.md says tests double only process edges through shared fakes. Since #1982, scanner_fake puts an executable stand-in for each recorded scanner first on PATH and patches no shutil or subprocess name. The fixture in this file violates that convention.",
+ "what_changes": [
+  "Replace the scanners_installed fixture in tests/test_scanner_tool_executor.py to create executable stand-in files in a temp directory and prepend that directory to PATH, instead of patching shutil.which.",
+  "Remove the shutil import if it is no longer used in the file."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed: tests/test_scanner_tool_executor.py:77 defines def scanners_installed(monkeypatch: pytest.MonkeyPatch) -> None: which patches shutil.which, as cited in the issue body and in openspec/changes/archive/2026-10-24-1982-scanner-fake-through-tool-executor/tasks.md:23.",
+  "The stand-in-on-PATH pattern is established in tests/support/fakes/scanners.py (ScannerFake.script writes an executable stand-in in bin_dir, and the fixture puts bin_dir first on PATH), as documented in the design of #1982.",
+  "First check: run grep -n 'shutil.which' tests/test_scanner_tool_executor.py to confirm the patch exists before the change.",
+  "Second check: run uv run pytest tests/test_scanner_tool_executor.py -x to confirm all tests pass after the change.",
+  "Third check: run grep -n 'monkeypatch.setattr.*shutil\\|monkeypatch.setattr.*subprocess' tests/test_scanner_tool_executor.py to confirm no shutil or subprocess name is patched."
+ ],
+ "existing_tool": "No external tool is needed. The stand-in-on-PATH pattern already exists in tests/support/fakes/scanners.py (ScannerFake.script). This change reuses the same mechanism in the test fixture. No internal code is deleted; the fixture body is rewritten in place.",
+ "decisions": [
+  {
+   "decision": "Create stand-in files on PATH in the fixture, the same mechanism scanner_fake uses internally, rather than using scanner_fake directly.",
+   "reason": "The test uses tool_executor_fake (a plain ToolExecutorFake) in most cases and needs only the PATH stand-ins so that shutil.which finds the tool. scanner_fake carries recorded answers that this test does not need. The design of #1982 confirms this: a test that needs a scanner missing gives it a PATH without the program."
+  },
+  {
+   "decision": "Keep the fixture autouse and scoped to this test file.",
+   "reason": "The fixture is local to tests/test_scanner_tool_executor.py and is not shared. Making it autouse keeps every test in the file covered without changing each test's signature."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Use scanner_fake directly in the test file.",
+   "evidence": "The test uses tool_executor_fake (a plain ToolExecutorFake) in most cases. scanner_fake is a ToolExecutorFake that carries recorded answers for Semgrep, Gitleaks, Bandit and osv-scanner. The test needs only the PATH stand-ins, not the recorded answers. Using scanner_fake would change the executor the test scripts and break the test's assertions on tool_executor_fake.requests."
+  },
+  {
+   "alternative": "Keep the shutil.which patch and add a noqa or exception to the convention.",
+   "evidence": "docs/TESTING.md states: A test doubles only edges. Everything inside the process runs for real. Patching a stdlib or SDK object itself, such as subprocess.run or time.sleep, is a fallback for stdlib edges only. The stand-in-on-PATH mechanism is the established pattern since #1982 and requires no exception."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "review-tool-runs",
+   "purpose": null,
+   "added": [
+    {
+     "name": "test-fixture-makes-scanner-findable-on-path",
+     "text": "A test fixture that makes a review scanner findable SHALL place an executable stand-in file in a directory on PATH. It SHALL NOT patch a shutil or subprocess name.",
+     "scenarios": [
+      {
+       "name": "stand-in on PATH",
+       "when": "a test fixture makes a scanner binary findable for the tool executor",
+       "then": "an executable file named after the scanner exists in a directory that is first on PATH, and no shutil.which or subprocess.run name is patched"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Replace shutil.which patch with PATH stand-ins",
+   "reads": [],
+   "changes": [
+    "tests/test_scanner_tool_executor.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts the fixture creates an executable file in a directory on PATH and does not patch shutil.which. The test fails with the old fixture (which patches shutil.which) and passes with the new one (which creates a file on PATH)",
+   "implementation": "Rewrite the scanners_installed fixture. Remove the monkeypatch.setattr call on shutil.which. Instead, create a bin_dir under tmp_path, write an executable stand-in file for each scanner name the test needs, set the executable bit on each file, and prepend bin_dir to PATH with monkeypatch.setenv. Remove the shutil import if no other code in the file uses it",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_scanner_tool_executor.py -x",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

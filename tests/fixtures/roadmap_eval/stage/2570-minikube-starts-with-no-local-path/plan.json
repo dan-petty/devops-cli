@@ -1,0 +1,58 @@
+{
+ "summary": "add local-path addon to minikube start",
+ "pull_request_body": "The devcontainer's minikube starts without the local-path StorageClass, so seven PVCs across the infra, gitea, monitoring and otel stacks stay Pending. This change adds --addons=storage-provisioner-rancher to the minikube start command in _start_minikube, so the class exists from the first start. The flag follows the pattern of --cni=calico added by #990. No new code is built; minikube's own addon provides the rancher local-path provisioner that the homelab runs.",
+ "why": "#2570: the devcontainer's minikube starts with no local-path StorageClass, so every PVC that names it stays Pending and the services that mount them cannot start.",
+ "what_changes": [
+  "Add --addons=storage-provisioner-rancher to the minikube start command in _start_minikube",
+  "Update k8s/README.md to state that devops devcontainer enables the addon automatically",
+  "Add a unit test that asserts the start command includes the addon flag"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue premise is confirmed by the start command in src/devops_cli/commands/k8s/cluster_runtime.py (_start_minikube), which passes --driver=docker --cni=calico but no --addons flag.",
+  "The k8s/README.md Prerequisites section states that devops devcontainer does not enable the storage-provisioner-rancher addon.",
+  "Seven PVC files in the repository name local-path: k8s/devops/roadmap-service/pvc.yaml, k8s/gitea/values.yaml, k8s/monitoring/grafana-values.yaml, k8s/monitoring/k8s-monitoring-values.yaml, k8s/monitoring/prometheus-values.yaml, k8s/monitoring/pyroscope-values.yaml, k8s/otel/tempo-values.yaml.",
+  "First check the implementation runs: uv run devops ci test tests/test_k8s_cluster_runtime.py to verify the start command includes the addon flag.",
+  "Second check: uv run devops ci test to run the full test suite and confirm no regression."
+ ],
+ "existing_tool": "minikube's storage-provisioner-rancher addon provides the local-path StorageClass with the rancher local-path provisioner. It is listed in minikube v1.39.0 addons list. No new code is built.",
+ "decisions": [],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "k8s-bootstrap",
+   "purpose": null,
+   "added": [
+    {
+     "name": "minikube start enables local-path storage",
+     "text": "The _start_minikube function SHALL pass --addons=storage-provisioner-rancher to the minikube start command, so the cluster has a StorageClass named local-path from the first start.",
+     "scenarios": [
+      {
+       "name": "Start command includes the addon flag",
+       "when": "_start_minikube constructs the argument list for the minikube start subprocess call",
+       "then": "the argument list includes the string --addons=storage-provisioner-rancher"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add storage-provisioner-rancher addon to minikube start",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/k8s/cluster_runtime.py",
+    "tests/test_k8s_cluster_runtime.py"
+   ],
+   "creates": [],
+   "test": "Write a test in tests/test_k8s_cluster_runtime.py that mocks subprocess.run, calls _start_minikube, and asserts the arguments list passed to minikube start includes --addons=storage-provisioner-rancher alongside --driver=docker and --cni=calico",
+   "implementation": "In _start_minikube in src/devops_cli/commands/k8s/cluster_runtime.py, add the string --addons=storage-provisioner-rancher to the list of arguments passed to the minikube start subprocess call, next to the existing --driver=docker and --cni=calico flags",
+   "documentation": "Update k8s/README.md Prerequisites: replace the sentence that says devops devcontainer does not enable the addon and the manual minikube addons enable instruction with a statement that devops devcontainer post-start enables the storage-provisioner-rancher addon automatically",
+   "verify": "uv run devops ci test tests/test_k8s_cluster_runtime.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

@@ -1,0 +1,74 @@
+{
+ "issue": 2656,
+ "pull": 2719,
+ "title": "fix(config): devops config unset stops with a TypeError for a key that a YAML merge key gives",
+ "change": "2656-devops-config-unset-stops-with-a",
+ "merge_commit": "a383c5f96016c4c3db017822f0bb97da226cb207",
+ "base_commit": "279b3d01a460f99179543366261ada360ea5b591",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 4,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The PR is merged (a383c5f9). Issue #2656 was a real, open bug. A person fixed it in #2828 (75147663) after the implement job stopped at group 1 many times. The proposal root cause is right: _find at round_trip.py line 161 indexes node.lc.key(dotted), which is None for a merged key. The plan has real defects. The Reads/Changes line of the one task group is the placeholder \"None.. None..\" (the group changes src/devops_cli/config/round_trip.py and a test). The named test file tests/test_round_trip.py did not exist at the base commit. Tasks 1.1 to 1.3 have text glitches. Task 1.3 contradicts itself. The design promises a hint that the task message omits. The plan skips a CLI-level test for the exit code that the spec requires. The PR title, body (\"Plans #2656\", no closing keyword) and the delta spec shape are fine.",
+ "notes": [
+  "The plan was staged before #2775, so its groups name no files. `changes` lists the paths that the tasks name."
+ ],
+ "defects": [
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The Reads and Changes line of group 1 is the placeholder 'Reads: None.. Changes: None..'. The group names no file to read and no file to change. The implement job reads this line to build its input. Its comments show a stop at group 1 five times, with 'The tasks of group 1 changed', a ruff format failure, a model HTTP 400 error, a discarded stray test file in tests/ and a failed Job. A person finished the fix by hand in #2828.",
+   "evidence": "tasks.md line 5: 'Reads: None.. Changes: None..'. The same line is still in openspec/changes/archive/2026-10-31-2656-devops-config-unset-stops-with-a/tasks.md. The issue comments show repeated 'devops roadmap implement ... Stopped at group 1' entries and a 'dan-petty implement: retry' comment after each. The #2828 commit is by Daniel Petty.",
+   "gate": "none"
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.1 and the Feasibility section name tests/test_round_trip.py as an existing test file, and the Feasibility section says to run it 'to confirm existing tests pass'. The file did not exist at the base commit. The nearby tests live in tests/config/test_config_key_removal.py and tests/test_config_save_round_trip.py. So 'uv run devops ci test tests/test_round_trip.py' cannot confirm existing tests. Also, the file is new, so the plan should say 'create' and not leave the implementer to guess the location.",
+   "evidence": "git show 'a383c5f9^:tests/test_round_trip.py' gives 'fatal: path ... does not exist'. git ls-tree of a383c5f9^ lists no tests/test_round_trip.py. git grep shows tests/test_config_save_round_trip.py and tests/config/test_unknown_config_keys.py (imports KeyPath from round_trip). Commit 75147663 added tests/test_round_trip.py (29 lines) as a new file.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_round_trip.py"
+   ]
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Text defects in the tasks. Task 1.1 has a stray '.,' before ', and verify' (the sentence ends with a full stop, then a comma and 'and verify'). Task 1.3 is self-contradictory: it says 'No documentation change needed' and then orders 'uv run devops docs generate --sync-readme' and a docs CI check. A task that needs no change should not carry a run command. The model implementer gets an ambiguous step. A task also says 'add a name: str parameter to _find' but does not say it is keyword-only, as the existing find signature is.",
+   "evidence": "tasks.md 1.1: \"... 'merge key'., and verify that ...\"; 1.3: 'No documentation change needed. ..., run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'. round_trip.py line 138: 'def find(text: str, dotted: str, *, name: str)'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "design.md",
+   "problem": "design.md says the error 'tells the user to remove the key from the anchor mapping directly'. The message in task 1.2 says only 'comes from a YAML merge key' and gives no instruction. The issue (and the audit) point to the anchor key a.b.api_key as the real place of the value. The plan and its design disagree, and the implementer must pick.",
+   "evidence": "design.md: 'A clear error names the file and tells the user to remove the key from the anchor mapping directly.' tasks.md 1.2: \"Cannot unset {name}: the key {dotted!r} comes from a YAML merge key.\" The merged code in 75147663 has the same short message.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/config-commands/spec.md",
+   "problem": "The delta spec requires exit code 1 with no traceback (CLI behavior) and exit 0 for a direct key. The tasks test only the library function find. No task tests the CLI exit code or the unchanged direct removal. The proposal 'Impact' is 'None' although a command output changes. The proposal also claims the 'cost' of the change is 'roughly 10 tokens', which is not a real cost estimate for tokens to build, keep and fix it (AGENTS.md rule 3). #2828 added the CLI test in tests/config/test_config_key_removal.py on its own.",
+   "evidence": "spec.md: 'SHALL exit with code 1 ... SHALL NOT print a Python traceback'. tasks.md has one test, on find(...). proposal.md '## Impact\\n\\nNone.' and 'Written cost: roughly 10 tokens of new code'. Commit 75147663 stat: 'tests/config/test_config_key_removal.py | 24 ++++'.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "The Feasibility section quotes the failing line but shows no run of the reproduction (the issue gives steps). It does not show that a ConfigurationError reaches exit code 1 in the CLI. The check is cheap but the evidence is a claim.",
+   "evidence": "proposal.md Feasibility: 'line 161 shows int(node.lc.key(dotted)[0]) + 1' (true: git show 'a383c5f9^:src/devops_cli/config/round_trip.py' line 161). No command output of the repro or of the exit code is recorded.",
+   "gate": "pending"
+  }
+ ]
+}

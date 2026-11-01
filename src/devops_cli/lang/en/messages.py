@@ -2164,11 +2164,75 @@ class RoadmapMessages:
             "reason": "Reason",
             "commit": "Commit",
             "requests": "Model requests",
+            "tool_calls": "Tool calls",
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
             "last_message": "Last message of the agent",
         }
     )
+    # `devops roadmap eval implement` (#3030): the fixtures.
+    eval_implement_no_fixtures: str = "No fixture folder at {path}."
+    eval_implement_unreadable: str = "Fixture {name}: cannot read {file}: {reason}"
+    eval_implement_invalid: str = "Fixture {name}: {problems}"
+    eval_implement_name: str = (
+        "Fixture {name}: the folder name must be the name in case.json, which is {given}."
+    )
+    eval_implement_no_group: str = "Fixture {name}: the plan has no group {group}."
+    eval_implement_path_unnamed: str = (
+        "Fixture {name}: `changes` lists {path}, and no code span of group {group} names it."
+    )
+    eval_implement_diff_missing: str = (
+        "Fixture {name}: the result {result} names the diff results/{file}, which is missing."
+    )
+    eval_implement_lost_form: str = "allow_lost_tests holds {entry}, which is not path::name."
+    eval_implement_unknown: str = "No fixture is named {names}. The fixtures are: {known}."
+    # The details of the properties.
+    eval_implement_more: str = " and {count} more"
+    eval_implement_lost_tests: str = "Lost tests: {names}."
+    eval_implement_weakened_tests: str = "Weakened tests: {names}."
+    eval_implement_outside: str = "Paths outside the group: {names}."
+    eval_implement_scratch: str = "Scratch files: {names}."
+    eval_implement_unticked: str = "Tasks not ticked: {names}."
+    eval_implement_group_gone: str = "The result has no group {group}."
+    eval_implement_hunk: str = "A hunk of {path} does not match the plan."
+    eval_implement_cut: str = "The diff is cut."
+    eval_implement_unparsed: str = "The diff does not parse: {reason}"
+    eval_implement_no_commands: str = "There is no command to run."
+    eval_implement_no_tree: str = "The step stopped, so it left no tree: {reason}"
+    # The report and the dry run.
+    eval_implement_no_commit: str = (
+        "Fixture {name}: this repository lacks the commit {sha}. Fetch the full history, then "
+        "run again."
+    )
+    eval_implement_apply_failed: str = "The recorded diff does not apply to the base: {reason}"
+    eval_implement_title: str = "Implement eval: {count} result(s), model {model}."
+    eval_implement_title_check: str = "Implement eval of recorded results: {count} result(s)."
+    eval_implement_running: str = "Running fixture {name} ({number} of {total})."
+    eval_implement_head: str = "{name} / {result}: {status} (issue #{issue}, group {group})"
+    eval_implement_reason: str = "  Reason: {reason}"
+    eval_implement_cost: str = (
+        "  Cost: {input_tokens} tokens in, {output_tokens} out, {requests} requests, "
+        "{tool_calls} tool calls, {seconds:.1f} s."
+    )
+    eval_implement_property: str = "  {status:<7} {prop}{detail}"
+    eval_implement_detail: str = ": {detail}"
+    eval_implement_first_failed: str = "  First failed property: {prop}"
+    eval_implement_as_recorded: str = "  As recorded: fails {fails}."
+    eval_implement_not_recorded: str = (
+        "  Not as recorded: expected to fail {expected}, failed {actual}."
+    )
+    eval_implement_nothing: str = "nothing"
+    eval_implement_totals: str = "Properties: {passed} passed, {failed} failed, {skipped} skipped."
+    eval_implement_differ: str = "{count} recorded result(s) differ from their record."
+    eval_implement_saved: str = "Report: {path}"
+    eval_implement_dry_title: str = (
+        "Dry run: no request was made, nothing was cloned and no model ran. The steps are:"
+    )
+    eval_implement_dry_step: str = "- {name}: issue #{issue}, group {group}, base {sha}"
+    eval_implement_dry_requests: str = "The model requests of a run:"
+    eval_implement_model_target: str = "{model} for group {group} of item #{issue} (fixture {name})"
+    eval_implement_modes: str = "{first} and {second} cannot be used together."
+    eval_implement_needs_check: str = "--run-commands needs --check-only."
     implement_dry_run_reason: str = "Dry run: no request was made and nothing ran."
     implement_model_request: str = "model request"
     implement_model_target: str = "{model} for group {group} of item #{item}"
@@ -2913,6 +2977,53 @@ class RoadmapMessages:
         "This checkout has no {path}. The evaluation reads the type labels from it, as intake "
         "reads them from the repository. Run the command in a checkout that has the file."
     )
+    stage_eval_bad_case: str = "The case {name} of the golden set is not valid: {reason}"
+    stage_eval_no_cases: str = (
+        "The golden set has no case in {path}. Run the command in a checkout that has the "
+        "folder, or pass --cases."
+    )
+    stage_eval_unknown_case: str = (
+        "The golden set has no case named {names}. Give the name of a case folder or the "
+        "number of its issue."
+    )
+    stage_eval_over_budget: str = "A task group is over the step budget."
+    stage_eval_no_value: str = "-"
+    stage_eval_replay_title: str = (
+        "# Stage golden set, replay through the gates: {cases} case(s), {good} good"
+    )
+    stage_eval_replay_header: str = "Gate   Issue  Defect type               Known  Caught  Missed"
+    stage_eval_replay_row: str = (
+        "{gate:<6} {reference:<6} {type:<24} {known:>5}  {caught:>6}  {missed:>6}"
+    )
+    stage_eval_replay_pending: str = (
+        "Defects that wait for a gate. They are listed and they fail nothing:"
+    )
+    stage_eval_replay_pending_row: str = "  {type:<24} {count:>4}  {reference}"
+    stage_eval_replay_unjudged: str = "Defects that no gate judges: {types}."
+    stage_eval_replay_good: str = "Good plans that every gate accepts: {good} of {cases}."
+    stage_eval_replay_ok: str = "Result: every gate refuses what it must refuse."
+    stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"
+    stage_eval_pending_gate: str = "{reference}"
+    stage_eval_score_title: str = (
+        "# Stage golden set: {cases} case(s), the analysis model {model} at {gateway}"
+    )
+    stage_eval_score_header: str = "Defect type               Gate     Cases  Avoided  Caught  Rate"
+    stage_eval_score_row: str = (
+        "{type:<24}  {gate:<7} {cases:>6}  {avoided:>7}  {caught:>6}  {rate:>4}"
+    )
+    stage_eval_score_total: str = (
+        "Score: the model avoided {avoided} of {cases} known defect(s) of the types that a "
+        "gate catches ({rate})."
+    )
+    stage_eval_score_ended: str = "Cases by end: {ended}."
+    stage_eval_dry_run: str = (
+        "Dry run: no request was made. A run plans {cases} case(s) with the analysis model at "
+        "{gateway}, one case at a time:"
+    )
+    stage_eval_dry_run_case: str = "plan of the case {name}"
+    stage_eval_dry_run_repeat: str = "up to {count} calls for each case"
+    stage_eval_stored: str = "Stored the report in {path}."
+    stage_eval_failed: str = "{failed} case(s) could not run. The score counts them as not avoided."
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "

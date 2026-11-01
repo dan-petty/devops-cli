@@ -1,0 +1,102 @@
+{
+ "issue": 2572,
+ "pull": 2999,
+ "title": "docs(k8s): the Cloudflare tunnel section of k8s/README.md names hosts as *.homelab.<domain>, but the Ingress hosts are <name>.<domain>",
+ "change": "2572-the-cloudflare-tunnel-section-of-k8s",
+ "merge_commit": "f8b65bd214937eaf68a3fbd9630dfebd5697fd30",
+ "base_commit": "89fcba203c7e7b6f4867780b2430f9fd7c607ac1",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The premise is true. The tunnel section of k8s/README.md uses homelab.<domain> hosts and the Ingress manifests do not. But the plan is merged (squash commit f8b65bd2) with defects an implementer will hit. The test it specifies still fails after the README fix, because k8s.<domain> and mattermost.<domain> have no Ingress in the files it reads. Two cited test files have the wrong path. The task verify steps contradict each other. The plan puts the test in a parallel flat file, but docs/TESTING.md names tests/invariants/test_k8s_manifests.py. The PR is a plan-only PR (\"Plans #2572\"), the title is a valid Conventional Commit, and all checks passed. The issue is still open and nobody has built the change yet, so a follow-up edit to the plan is possible.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Groups 1 and 2 leave the test failing after the README fix. The test would compare each README host to Ingress hosts read from spec.rules[].host in two files. After the planned rewrite the section still names k8s.<domain>, which is a TCP route with no Ingress, and mattermost.<domain>, which is set in k8s/mattermost/mattermost.yaml (ingress.host in Helm values), not in an Ingress manifest. Only the wildcard has an exemption. The step 2.1 pass check fails, and the implementer must add an ad hoc exemption or widen the manifest scan. The plan decides neither.",
+   "evidence": "Simulation on origin/main: after replacing .homelab. with ., the tokens in the section '## Cloudflare Wildcard Tunnel & Ingress Routing' are ['*.<domain>','ai','argocd','chat','git','grafana','k8s','mattermost'].<domain>. Against the host: values of k8s/ingress/ingress-routes.yaml and k8s/devops/roadmap-service/ingress.yaml the unmatched set is ['*.<domain>','k8s.<domain>','mattermost.<domain>']. k8s/mattermost/mattermost.yaml:25 'host: mattermost.example.com' sits under 'ingress:' in Helm values. README line 'devops config set k8s.tunnel_host k8s.<domain>' and k8s/cloudflared/networkpolicy.yaml:43 'the tunnel's k8s.<domain> TCP route'.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The named host list in task 2.2 does not match the README section. It lists hooks, alloy, qdrant and prometheus, which the section never names. It omits mattermost, which the section names. So the replacement list and the check ('Verify each named host appears in ingress-routes.yaml or roadmap-service/ingress.yaml') cannot be followed as written. The list also includes k8s, which neither file defines as an Ingress host.",
+   "evidence": "README lines 1156-1159 name chat, grafana, ai, argocd, git, mattermost (all with .homelab.<domain>). grep of 'host:' in the two named Ingress files has no k8s.* and no mattermost.* host. Task 2.2: 'for each named host (chat, grafana, ai, argocd, git, hooks, k8s, alloy, qdrant, prometheus)'.",
+   "gate": "pending"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The plan does not cover the line '- **Subdomain**: `*.homelab`' (Cloudflare dashboard step 1.2). It has no '.<domain>' suffix, so the token regex in 1.1 does not find it, and the replace rules in 2.2 only name '*.homelab.<domain>' and '<name>.homelab.<domain>'. After the plan the section can still tell a person to create a '*.homelab' public hostname, the exact error the issue reports.",
+   "evidence": "git show origin/main:k8s/README.md, section 1 'Cloudflare Dashboard Tunnel Configuration': '- **Subdomain**: `*.homelab`' and '- **Domain**: `<domain>`'. Task 1.1 token rule: 'a string matching ... optional asterisk, word characters, hyphens, dots, and the literal <domain>'.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The Ingress manifests write hosts with the literal example.com (and Traefik IngressRoute uses Host(`traefik.example.com`)). The README writes <domain>. The task never says to map example.com to <domain>, and never says where the 'homelab.' rule applies. Also 'homelab.example.com' is a real Ingress host (open-webui), so a rule 'no token contains homelab.' conflicts with the issue criterion 'unless an Ingress in k8s/ uses it'.",
+   "evidence": "k8s/ingress/ingress-routes.yaml:35 '- host: homelab.example.com' (backend open-webui); lines 25,59,133 'host: chat.example.com', 'ai.example.com', 'grafana.example.com'; line 499 'match: Host(`traefik.example.com`)'. Issue acceptance criteria: 'No homelab.<domain> host form remains in k8s/README.md unless an Ingress in k8s/ uses it.'",
+   "gate": "pending"
+  },
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The verify clauses contradict the order of work and read as garbled generator output. 1.2 says the test must pass, but the README is still broken in group 1. 2.1 says to verify the test 'fails on the base' as part of a step that confirms it passes. 1.3 says 'Change no document, run devops docs generate --sync-readme'. 2.3 starts with a bare path 'k8s/README.md, run ...'. The tasks use 'uv run pytest', not the documented 'uv run devops ci test <path>'.",
+   "evidence": "tasks.md 1.2: '... and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` passes'; 2.1: 'confirm exit code 0, and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` fails on the base'; openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'. No fail-to-pass step (`devops ci fail-to-pass`) is named either, though AGENTS.md rule 4 asks for one on a fix.",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The plan puts the test in a new flat file, tests/test_k8s_readme_hosts.py, and rejects other places with a false claim. docs/TESTING.md says a new invariant test goes into its subject's file, never a parallel file, and tests/invariants/test_k8s_manifests.py already exists on main. Also tests/k8s/ exists, so 'No existing test directory' and 'the project keeps all tests in tests/' do not hold for tests/k8s/. The two files cited as the naming pattern are not at tests/test_k8s_llm_gateway.py and tests/test_k8s_local_path_placement.py.",
+   "evidence": "git ls-tree origin/main: tests/invariants/test_k8s_manifests.py exists; tests/k8s/test_*.py exist; tests/ai/benchmark/test_k8s_llm_gateway.py and tests/core/test_k8s_local_path_placement.py are the real paths; tests/test_k8s_llm_gateway.py is absent. docs/TESTING.md line 86: 'A new invariant test goes into its subject's file, created if absent, never into a parallel file.' design.md: 'No existing test directory under k8s/.'",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section repeats the issue ('The issue confirms 24 Ingress hosts', 'The issue cites lines 972, 989-991...'). It records no own command output. Its 'first checks' are plans, not evidence. The cited lines are stale: the section now sits at lines 1139-1178. The plan does not address the issue's second solution bullet (check the Access and DNS steps against `devops cloudflare` and the tunnel manifests).",
+   "evidence": "proposal.md Feasibility bullets. git show origin/main:k8s/README.md: 'homelab.<domain>' on lines 1139, 1156-1159, 1172, 1178; none at 972-1010. Issue body: 'Check the Access application and DNS steps against the current Cloudflare setup that `devops cloudflare` and the tunnel manifests use.'",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The section boundary is ambiguous: 'locates the Cloudflare tunnel section by its heading ... next same-level heading'. The real heading is '## Cloudflare Wildcard Tunnel & Ingress Routing', and it has four '###' subsections. The plan names no heading text and no end marker.",
+   "evidence": "README: '## Cloudflare Wildcard Tunnel & Ingress Routing' ... '### 4. The Kubernetes API at `k8s.<domain>`' ... '## Directory Structure'. Task 1.1: 'locates the Cloudflare tunnel section by its heading'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "PR-level",
+   "problem": "The stage comment on the issue already said that tests/test_k8s_readme_hosts.py exists in no group as a creator path and 'A person checks that the plan names them right'. The PR merged with the paths and test home unchecked. Check state is fine: all required checks completed success, title 'docs(openspec): plan #2572 Fix tunnel hosts and add guard test' is a valid Conventional Commit with no '!', and the body says 'Plans #2572'.",
+   "evidence": "check-runs for bd043ae8: Tests & Coverage success, Semantic PR title success, Changed-Test Independence success. Commit f8b65bd2 is on origin/main.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1, 2",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Write failing test for tunnel section hosts' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  }
+ ]
+}

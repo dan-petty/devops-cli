@@ -589,6 +589,8 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("review", "verify"),
             ("roadmap", "alternatives"),
             ("roadmap", "claim"),
+            ("roadmap", "eval", "implement"),
+            ("roadmap", "eval", "stage"),
             ("roadmap", "explain"),
             ("roadmap", "implement"),
             ("roadmap", "inbox"),

@@ -1,0 +1,19 @@
+{
+  "name": "2576-argo-401-retry",
+  "source": "The corrected plan of #2576 (pull request 3080), group 1: a new helper with tests first. No run has used it yet.",
+  "issue": 2576,
+  "title": "fix(argo): a token that Argo CD refuses ends each argo API command in a traceback, and devops never mints a new one",
+  "group": 1,
+  "change": "2576-a-token-that-argo-cd-refuses",
+  "base": "2ae3772423fe264ad4fd2d9ee6681535015bface",
+  "changes": [
+    "src/devops_cli/argo/credentials.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/argo/test_argo_credentials.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/argo/test_argo_credentials.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

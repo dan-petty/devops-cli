@@ -1,0 +1,121 @@
+{
+ "summary": "add guardrails to hardening surfaces",
+ "pull_request_body": "Five defect PRs merged on 2026-10-28 changed code and tests but added no root-cause lesson to a declared hardening surface. The audit (devops pr hardening-report) found each one. This change adds one guardrail per defect class to the surface that best fits it. Four guardrails go to SECURITY.md: the frozen-lockfile rule for tool adapters (item 7), the userinfo exclusion for display strings (item 1), the one-time resolution rule for NetworkPolicy and scrape targets (item 2), and the automountServiceAccountToken rule for pods (item 5). One guardrail goes to CONTRIBUTING.md: the CVE check for pinned sub-chart versions. No code under src/ changes.",
+ "why": "#2526: five defect PRs merged on 2026-10-28 added no root-cause guardrail to a declared hardening surface. The audit workflow found each one, but its intake step crashed before filing the finding. This change adds the missing guardrails so the defect classes do not return.",
+ "what_changes": [
+  "Add a frozen-lockfile guardrail to SECURITY.md item 7 for tool adapter execution (#2446).",
+  "Add a CVE-check guardrail to CONTRIBUTING.md section 1 for pinned sub-chart versions (#2470).",
+  "Add a userinfo-exclusion guardrail to SECURITY.md item 1 for display strings (#2488).",
+  "Add a one-time-resolution guardrail to SECURITY.md item 2 for NetworkPolicy and scrape targets (#2521).",
+  "Add an automountServiceAccountToken guardrail to SECURITY.md item 5 for pods (#2522)."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The audit workflow .github/workflows/defect-pr-hardening-audit.yml confirms the premise: it runs `uv run devops pr hardening-report --pr <number> --fail-on-missing` and the five PRs are reported as unhardened.",
+  "SECURITY.md exists with numbered items 1 through 11. Items 1, 2, 5 and 7 hold the rules that the four guardrails extend.",
+  "CONTRIBUTING.md exists with sections 1 through 6. Section 1 holds the development philosophy and process rules that the Loki CVE guardrail extends.",
+  "The change adds sentences to existing numbered items and sections. It creates no file and changes no code under src/.",
+  "First checks the implementation runs: `grep -n 'frozen' SECURITY.md` to confirm item 7 context; `grep -n 'sub-chart\\|CVE' CONTRIBUTING.md` to confirm the dependency section context."
+ ],
+ "existing_tool": "No open, maintained tool or library covers the need of writing prose guardrails into project documents. The project writes its own guardrail text into its declared surfaces. The cost is the tokens to write, keep and fix five guardrail entries across two documents, and the elapsed time for a person to review each entry.",
+ "decisions": [
+  {
+   "decision": "Place each guardrail in the single surface that best fits its defect class.",
+   "reason": "Each surface has existing content that the guardrail extends, and the defect class matches the surface scope. Placing all five in one surface would dilute the relevance."
+  },
+  {
+   "decision": "Write guardrails as sentences in the existing numbered items and sections, not as new sections.",
+   "reason": "The items already hold rules of the same class. A new section would fragment the rule set and add no structure a reader needs."
+  },
+  {
+   "decision": "Create a new capability `hardening-surface-guardrails` for the spec delta.",
+   "reason": "No existing capability covers the declared hardening surfaces. The guardrails are project-level rules that constrain future code, which is observable behavior that a spec delta must record."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Write all five guardrails as Semgrep rules in src/devops_cli/review/rules/.",
+   "evidence": "The five defect classes are architectural and process lessons, not code patterns that a Semgrep rule can express. The rules directory holds code-pattern rules with passing tests."
+  },
+  {
+   "alternative": "Place all five guardrails in SECURITY.md.",
+   "evidence": "The Loki CVE pin (#2470) is a dependency-management process rule, not a security rule. CONTRIBUTING.md already holds process rules for contributors."
+  },
+  {
+   "alternative": "Set skip_specs to true because the change only edits documents.",
+   "evidence": "The guardrails are declared hardening surfaces that the audit workflow checks. Adding a guardrail changes what the audit reports, which is observable behavior. The change carries a spec delta."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "hardening-surface-guardrails",
+   "purpose": "The root-cause guardrails that each defect fix records in a declared hardening surface, so the defect class does not return.",
+   "added": [
+    {
+     "name": "guardrail_per_defect",
+     "text": "Each defect fix SHALL record its root-cause lesson in at least one declared hardening surface.",
+     "scenarios": [
+      {
+       "name": "guardrail_text_present_in_surface",
+       "when": "a test reads the declared hardening surfaces for a defect PR's guardrail",
+       "then": "the guardrail text is present in at least one surface, naming the defect class and the prevention rule"
+      }
+     ]
+    },
+    {
+     "name": "guardrail_names_defect_class",
+     "text": "Each guardrail entry SHALL name the defect class it prevents and the rule that prevents it.",
+     "scenarios": [
+      {
+       "name": "guardrail_text_is_specific",
+       "when": "a test reads a guardrail entry in its surface",
+       "then": "the entry contains the defect class name and the prevention rule text"
+      }
+     ]
+    },
+    {
+     "name": "guardrail_in_best_fit_surface",
+     "text": "Each guardrail SHALL appear in exactly one declared surface that best fits its defect class.",
+     "scenarios": [
+      {
+       "name": "single_surface_per_guardrail",
+       "when": "a test searches all declared surfaces for a guardrail's defect class name",
+       "then": "the defect class name appears in exactly one surface"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add four guardrails to SECURITY.md",
+   "reads": [],
+   "changes": [
+    "SECURITY.md"
+   ],
+   "creates": [],
+   "test": "A grep for each of the four guardrail phrases in SECURITY.md fails before the change and passes after: `grep -q 'frozen lockfile' SECURITY.md && grep -q 'userinfo' SECURITY.md && grep -q 'one time, through the egress check' SECURITY.md && grep -q 'automountServiceAccountToken' SECURITY.md`",
+   "implementation": "Add a sentence to item 7 (Review Tool Execution) stating that a scan command that runs a tool adapter MUST use the frozen lockfile (`--frozen`) so the audit is reproducible and not affected by lockfile drift. Add a sentence to item 1 (Zero Secret Leakage) stating that a display string that names a server MUST use only the origin (scheme, host, port) of the URL it called and MUST never include the userinfo component. Add a sentence to item 2 (Strict Egress and SSRF Protection) stating that a NetworkPolicy or scrape target that names a host MUST resolve it one time, through the egress check, at connect time and MUST NOT cache the resolution. Add a sentence to item 5 (Least Privilege Runtime) stating that a pod that does not call the Kubernetes API MUST set `automountServiceAccountToken: false` so it holds no service account token",
+   "documentation": "SECURITY.md",
+   "verify": "grep -q 'frozen lockfile' SECURITY.md && grep -q 'userinfo' SECURITY.md && grep -q 'one time, through the egress check' SECURITY.md && grep -q 'automountServiceAccountToken' SECURITY.md",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Add one guardrail to CONTRIBUTING.md",
+   "reads": [],
+   "changes": [
+    "CONTRIBUTING.md"
+   ],
+   "creates": [],
+   "test": "A grep for the CVE-check guardrail phrase in CONTRIBUTING.md fails before the change and passes after: `grep -q 'known CVE' CONTRIBUTING.md`",
+   "implementation": "Add a sentence to section 1 (Development Philosophy and Core Invariants) stating that a pull request that pins a Helm sub-chart version MUST check that version against known CVEs before merge, and MUST name the CVE identifier in the pull request body when a CVE is found and accepted",
+   "documentation": "CONTRIBUTING.md",
+   "verify": "grep -q 'known CVE' CONTRIBUTING.md",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

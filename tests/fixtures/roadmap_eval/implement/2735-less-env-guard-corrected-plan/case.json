@@ -1,0 +1,25 @@
+{
+  "name": "2735-less-env-guard-corrected-plan",
+  "source": "The corrected plan and the merged delivery of #2735 (pull request 2896). The plan names tests/core/test_subprocess_env_boundary.py, the file that the delivery changed.",
+  "issue": 2735,
+  "title": "fix(security): the subprocess environment guard accepts LESS, which makes less run a program",
+  "group": 1,
+  "change": "2735-the-subprocess-environment-guard-accepts-less",
+  "base": "980a9be379b44fc27fdf9768238050b3769b3e71",
+  "changes": [
+    "src/devops_cli/config/constants.py",
+    "tests/core/test_subprocess_env_boundary.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/core/test_subprocess_env_boundary.py"
+  ],
+  "allow_lost_tests": [],
+  "results": [
+    {
+      "name": "delivered",
+      "source": "The squash commit 1545b85a of pull request 2896, cut to the code, the tests and the ticks of group 1.",
+      "diff": "delivered.diff",
+      "fails": []
+    }
+  ]
+}

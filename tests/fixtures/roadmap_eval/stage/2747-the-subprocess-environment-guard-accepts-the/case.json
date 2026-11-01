@@ -1,0 +1,69 @@
+{
+ "issue": 2747,
+ "pull": 2870,
+ "title": "fix(security): the subprocess environment guard accepts the pytest and npm keys that make a child write a file",
+ "change": "2747-the-subprocess-environment-guard-accepts-the",
+ "merge_commit": "256e8e4b3aa6e8037f467b764532ac8359c7f1ae",
+ "base_commit": "4f3aa498a7eaed81c92a9ea80fd6bc95ad829917",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 3,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "PR #2870 is merged. It plans #2747 (add PYTEST_ADDOPTS and npm_config keys to the subprocess env guard). The format is right: proposal, design, tasks, one delta spec, failing test first, plan-only body \"Plans #2747\", and all checks green. The main design choice is wrong. The plan adds the pattern \"NPM_CONFIG_*\". That pattern refuses npm_config_cache, npm_config_userconfig, npm_config_globalconfig, npm_config_update_notifier and npm_config_loglevel. The production code in devops install-tools sets these keys on purpose, and an existing test says they must stay accepted. An implementer who follows the plan breaks `devops install-tools` (npm kind) and an existing test. The Feasibility section holds no run evidence and does not check the callers. The issue is still open, so the plan needs a fix before an implement job runs it again.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "ignores_existing_code",
+   "severity": "blocker",
+   "where": "tasks.md / design.md / specs/subprocess-environment/spec.md",
+   "problem": "The family pattern NPM_CONFIG_* refuses keys that devops install-tools sets on purpose. The plan breaks the npm installer and the existing test test_a_uv_or_npm_key_that_names_no_program_reaches_the_child. The plan has no task to handle this. The npm_config_cache scenario in the spec also conflicts with the production use of npm_config_cache.",
+   "evidence": "src/devops_cli/commands/install_tools.py lines 310-316 pass env={\"npm_config_cache\":..., \"npm_config_userconfig\":..., \"npm_config_globalconfig\":..., \"npm_config_update_notifier\":\"false\", \"npm_config_loglevel\":\"error\"} to _run_installer -> run_subprocess -> build_subprocess_env(env=env) (process.py:641), which raises SecurityError on a refused key. fnmatch check: all five keys match NPM_CONFIG_* (True). tests/core/test_subprocess_env_uv_npm.py:153-185 asserts that these same keys reach the child, and lists NPM_CONFIG_GITHUB and npm_config_git_tag_version as accepted too. tests/commands/test_install_tools.py:481-500 also expects npm_config_cache in the child env.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The design says nothing about the decision of #2673 and it leaves it unchanged. The guard comment in constants.py says npm_config_userconfig and npm_config_globalconfig \"stay accepted: callers set them\". The new pattern makes this comment wrong. The seven exact NPM_CONFIG_* entries already in the tuple (SCRIPT[_-]SHELL, NODE[_-]OPTIONS, GIT, EDITOR, INIT[_-]MODULE, SHELL, PYTHON) become dead. No task edits or removes them or the comment (AGENTS.md rule 8). The plan hides a design reversal inside 'two entries join the tuple'.",
+   "evidence": "src/devops_cli/config/constants.py:1642-1654: comment 'npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: callers set them, and a caller names a file that it controls.' followed by the seven NPM_CONFIG_* exact entries. proposal.md says 'No new code path is added; two entries join the existing tuple.'",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The Feasibility section claims 'The premise is confirmed', but it records no command output. It copies the issue text. It lists the repro command as a 'first check the implementation runs', so the plan did not run it. The issue says 'The fix issue must probe each key it claims', and no probe is recorded. The section does not check who sets npm_config_* or PYTEST_ADDOPTS in the repo. A grep of the callers would have shown the install_tools conflict. Under AGENTS.md rule 2, the item should have gone back to New with this evidence, or the design should have narrowed to the probed keys (npm_config_logs_dir, and only the cache key if the installer is changed).",
+   "evidence": "proposal.md Feasibility: 'The issue body states PYTEST_ADDOPTS, npm_config_logs_dir and npm_config_cache are not in that constant... The reproduction command in the issue body confirms the gap'. grep -rniE 'npm_config' src shows install_tools.py:311-315 and devcontainer.json.j2:70.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The count '6 test cases' does not match the plan. tasks.md 1.1 names 4 tests. The sentence was copied from the issue refine block, which named a different test path (tests/test_subprocess_env_boundary.py, a file that does not exist). The plan fixed the path but not the count.",
+   "evidence": "proposal.md 'plus 6 test cases in tests/core/test_subprocess_env_boundary.py'; tasks.md 1.1 lists PYTEST_ADDOPTS, npm_config_logs_dir, npm_config_cache, NPM_CONFIG_REGISTRY. ls: tests/test_subprocess_env_boundary.py does not exist; tests/core/test_subprocess_env_boundary.py exists.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The task group says 'Reads: none', but the implementer must read the constants.py tuple and its tests. Task 1.3 says 'Change no document, run devops docs generate --sync-readme': this is a contradiction, and a constants-only change has no document to sync. The task puts the new tests in tests/core/test_subprocess_env_boundary.py, but the existing family tests for uv and npm keys live in tests/core/test_subprocess_env_uv_npm.py, which is the better place and the file to update.",
+   "evidence": "tasks.md '## 1. ... Reads: none. Changes: ...' and '1.3 Change no document, run `uv run devops docs generate --sync-readme`'; tests/core/test_subprocess_env_uv_npm.py holds REFUSED_UV_NPM_KEYS.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "PR",
+   "problem": "The issue is still open and labeled status/blocked. The implement job stopped at group 1 with a ModelHTTPError (Ollama KeyError). So the failed run came from the model, not from this plan. A person who retries should fix the plan first, or the retry runs into the install_tools conflict.",
+   "evidence": "Issue 2747 labels: status/blocked; comment 'Stopped at group 1. ModelHTTPError: HTTP 400 ... Ollama_chatException - KeyError'. PR title 'docs(openspec): plan #2747 refuse pytest and npm env keys in guard' is a valid Conventional Commit with no '!'; body begins 'Plans #2747'; 21 check runs: success or skipped.",
+   "gate": "none"
+  }
+ ]
+}

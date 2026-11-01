@@ -1,0 +1,112 @@
+{
+ "issue": 2167,
+ "pull": 2982,
+ "title": "test(cli): the 49 test files that no child of #1307 names test through public interfaces over the shared fakes, with no internal patches or private imports",
+ "change": "2167-the-49-test-files-that-no",
+ "merge_commit": "2bb15d5239501ecb0c5934685684c484b82c193a",
+ "base_commit": "ebc0a94a1e562c15a590ab4346f93aa113fe5425",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "PR #2982 is merged and plans issue #2167 in 21 task groups. The issue is open and valid, and the PR form is correct: Conventional Commit title, \"Plans #2167\", all checks green. The plan content is not safe to build from. 36 of the 53 test paths it names do not exist on main, because #2830 moved the test files before the plan was staged. The plan names a fake module that does not exist. Its Feasibility section holds no evidence from real commands. Its tasks are one generic template, not file-specific work, and several of them cannot be done as written. An implementer must re-derive the file list and the work for each file, so the plan needs a rewrite before the implement job uses it.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "blocker",
+   "where": "tasks.md",
+   "problem": "36 of the 53 distinct test paths in tasks.md and proposal.md do not exist on origin/main. Commit 513bb31f (#2830, 'tests mirror package directories') moved them before the plan was staged. The plan copied the old flat paths from the issue table (audit at df8e2ee5). The stage job comment on the issue lists the missing paths and says 'A person checks that the plan names them right'. The PR merged without a fix. An implementer would try to edit files that are not there.",
+   "evidence": "git cat-file -e origin/main:<path> over the 53 paths: ok=13, 40 lines MISSING (incl. tests/k8s_fakes.py). Examples: tests/test_k8s_gpu_placement.py -> tests/commands/k8s/test_k8s_gpu_placement.py; tests/test_osv_scanner.py -> tests/security/test_osv_scanner.py; tests/test_telemetry_llm_content.py -> tests/telemetry/test_telemetry_llm_content.py; tests/test_ai_research_socratic.py -> tests/ai/research/test_ai_research_socratic.py; tests/test_review_pipeline_go.py -> tests/security/test_review_pipeline_go.py; tests/test_k8s_ipv6_and_proxy_boundaries.py -> tests/sandbox/...; tests/test_architectural_invariants.py -> tests/invariants/.... #2830 sits at position 129 of the main log, #2982 at position 19.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_review_pipeline_go.py",
+    "tests/test_k8s_ipv6_and_proxy_boundaries.py",
+    "tests/test_k8s_gpu_placement.py",
+    "tests/test_telemetry_llm_content.py",
+    "tests/test_osv_scanner.py",
+    "tests/test_ai_research_socratic.py",
+    "tests/test_architectural_invariants.py"
+   ]
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Groups 7, 8 and 9 tell the implementer to replace MagicMock with 'FakeCoreV1 and client from tests/k8s_fakes.py'. That file does not exist. FakeCoreV1 is in tests/support/fakes/kubernetes.py. The plan copied a path from a refine step that guessed it.",
+   "evidence": "ls tests/k8s_fakes.py -> No such file. grep -rn 'class FakeCoreV1' tests src -> tests/support/fakes/kubernetes.py:331. The issue's refine comment cites tests/k8s_fakes.py without checking it.",
+   "gate": "paths",
+   "paths": []
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The Feasibility section holds no evidence from commands. It says 'The context shows ...' four times. It lists grep commands for the implementer to run later. Rule 2 and openspec/config.yaml need real evidence, checked against the real system. The check would have found the 36 moved paths, the missing k8s_fakes.py and the wrong site counts.",
+   "evidence": "proposal.md Feasibility bullets: 'The context shows tests/ai/review/test_runner.py importing ...', 'First checks the implementation runs: (1) grep -rn ...'. No command output is quoted.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Site counts and file-specific claims are wrong on current main. Task 13.2 says to remove a patch from test_core_repo.py, but the file has none. Task 14.2 says 'Remove the 2 private imports' in tests/commands/test_pr.py, but the file has none; its one site is monkeypatch.setattr('devops_cli.commands.pr.set_delivered_status', ...). Task 12.2 says 3 patch sites in test_ci_repeat and the file has 4 monkeypatch/patch hits. Task 8.2 says 11 patch sites in gpu_placement and the file has 8. Counts came from the audit at df8e2ee5, not from a new check.",
+   "evidence": "git show origin/main:tests/core/test_core_repo.py: imports_priv=0 patch=0. git show origin/main:tests/commands/test_pr.py: imports_priv=0, line 137 is the only set_delivered_status patch. tests/commands/k8s/test_k8s_gpu_placement.py: patch hits=8. tests/commands/test_ci_repeat.py: patch hits=4.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Several tasks cannot be done as written. Task 20.2 and 21.2 say to rewrite tests that import _COMMAND_SPECS, _HELM_RELEASES_BY_STACK or _is_indexable_file 'to call the public devops command via the cli fixture'. Those tests read module data tables or call a pure helper. A CLI call does not replace them. Group 16 (tests/llm_stream_fakes.py) uses 'verify that devops ci test tests/llm_stream_fakes.py fails on the base', but this is a helper module, not a test file. Group 17 and 12/13 leave open 'or make _parse_drift_event public'. That choice contradicts the design's own rejected alternative 'make all private functions public'.",
+   "evidence": "tests/commands/test_cli_startup_imports.py:15 and test_cli_format_adoption.py:11 'from devops_cli.main import _COMMAND_SPECS'; tests/commands/k8s/test_stack_dashboards.py:30 imports _HELM_RELEASES_BY_STACK; tests/ai/rag/test_codebase_hygiene_and_shims.py:10 imports _is_indexable_file; tasks.md 17.2 'or make _parse_drift_event public if it is a genuine product function'; design.md 'Rejected alternatives: Make all private functions public'.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The task groups are one generic template with small file-specific edits. There is no failing test first, as docs/TESTING.md and rule 4 need. Task x.1 is a grep that returns zero matches, and a clause that the test command 'fails on the base'. A refactor of existing tests passes on the base, so that clause is false. Task x.3 'Change no document, run devops docs generate --sync-readme, and verify devops ci docs passes' is copied into all 21 groups and fits none of them. Each group says 'Reads: none', although the implementer must read each file it edits. Some groups also tell the implementer to do work that needs reading product code, for example removing 'private product code that exists only for a patch', without naming the code.",
+   "evidence": "tasks.md 1.1 '... returns zero matches ... and verify that `uv run devops ci test tests/ai/review/test_runner.py` fails on the base'; every group ends 'x.3 Change no document, run `uv run devops docs generate --sync-readme`'; every group begins 'Reads: none.'",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Two acceptance criteria of the issue have no task. (a) 'The pull request names each test it deletes and why' and the product-code removal rule (#1307 Q27) have no task or check. (b) The criterion about #1309 ceilings: #1309 is closed, but the plan neither checks whether ceilings exist nor lowers them. The plan also says nothing about the 'Dependencies: #2143', which is now closed.",
+   "evidence": "gh api issues/1309 -> state closed, 'ratchets hold internal patches, private imports ...'; issue #2167 acceptance criteria lines 3, 4, 5; grep of tasks.md for '1309', 'ceiling' and 'names each test' -> no match.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/test-public-interface/spec.md",
+   "problem": "The requirement says 'Tests in the 49-file set'. The set is not defined in the spec. After #2830 moved the files, it cannot be found from the spec text. The Purpose block sits in a delta spec. A spec that depends on a set of file names will go stale. A repository-wide ratchet or guard test would be a durable check.",
+   "evidence": "spec.md: 'Tests in the 49-file set SHALL exercise product behavior ...'; the file list exists only in proposal.md.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "design.md",
+   "problem": "design.md says 'Group the 49 files into 21 steps by domain. Each step must fit the 40000-token budget'. The stage comment reports about 9700 tokens of input per group, so the budget is met. But the groups need the product source that the tests call, and the plan lists none of it in Reads. The real input is larger than the stage figure.",
+   "evidence": "stage comment on #2167: 'AI review runner ...: 9751 tokens' (test file only); tasks.md 'Reads: none' in all 21 groups.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "PR-level",
+   "problem": "The PR is merged with the open stage warning that 36 plan paths do not exist. This shows that the stage-job path check did not block the merge. It is a process risk, not a defect in this plan.",
+   "evidence": "Stage comment: 'These paths of the plan are no file on the default branch, and no group creates them ... A person checks that the plan names them right.' PR merged 2026-11-01 with all 21 check runs green or skipped.",
+   "gate": "none"
+  }
+ ]
+}
