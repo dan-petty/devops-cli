@@ -479,7 +479,8 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def open_items(self) -> list[Item]:
         """The open Items."""
-        return [item for item in self.items() if item.state is GitHubState.OPEN]
+        issues = (self._read(issue) for issue in self._roadmap.issues.values())
+        return select_items(issue for issue in issues if issue.state is GitHubState.OPEN)
 
     def open_pulls(self) -> list[OpenPull]:
         """The open pull requests that `seed_pull` made."""

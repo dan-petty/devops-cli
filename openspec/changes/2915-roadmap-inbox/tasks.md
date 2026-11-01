@@ -9,9 +9,9 @@
 
 ## 2. The inbox
 
-- [ ] 2.1 Write failing tests in `tests/roadmap/test_roadmap_inbox.py` for the scenarios of "The inbox lists the gates of the jobs in order", "Each line has the number, the age and one clearing step", "Old claims are shown, never removed" and "Pull requests of people and agents are listed apart", with a fake repository
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_inbox.py` for the scenarios of "The inbox lists the gates of the jobs in order", "Each line has the number, the age and one clearing step", "Old claims are shown, never removed" and "Pull requests of people and agents are listed apart", with a fake repository
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py`
-- [ ] 2.2 Write `src/devops_cli/roadmap/inbox.py`: `read_inbox`, `inbox_requests` and `render_inbox`, with the constants `CONST_ROADMAP_INBOX_CLAIM_DAYS` and `CONST_ROADMAP_RELEASE_BRANCH_PREFIX` and the messages of the lines
+- [x] 2.2 Write `src/devops_cli/roadmap/inbox.py`: `read_inbox`, `inbox_requests` and `render_inbox`, with the constants `CONST_ROADMAP_INBOX_CLAIM_DAYS` and `CONST_ROADMAP_RELEASE_BRANCH_PREFIX` and the messages of the lines
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py`
 
 ## 3. The command

@@ -2583,6 +2583,59 @@ class RoadmapMessages:
         "`gh api rate_limit`; that read costs no quota.",
     )
     plan_modes_exclusive: str = "Pass one of {modes}, not more."
+    # `devops roadmap inbox` (#2915).
+    inbox_title: str = "Waiting for a person in {repo}. The age is the time since the last update."
+    inbox_empty: str = "Nothing waits for a person in {repo}."
+    inbox_footer: str = (
+        "Not listed: an image digest that is not rolled yet. "
+        "Run `devops argo cd apps status devops` to read it."
+    )
+    inbox_headings: dict[str, str] = field(
+        default_factory=lambda: {
+            "plan": "Ready plan pull requests of the jobs (G1)",
+            "implement": "Ready implementation pull requests of the jobs (G2)",
+            "release": "The release pull request (G3)",
+            "blocked": "Items in status/blocked",
+            "claim": "Claims with no activity for {days} days",
+            "labels": "Repository state that a person owns",
+            "person": "Pull requests of people and agents",
+        }
+    )
+    inbox_line: str = "  {number}  {age}  {subject}"
+    inbox_clear: str = "      Clear it: {clear}"
+    inbox_no_number: str = "-"
+    inbox_no_age: str = "-"
+    inbox_subjects: dict[str, str] = field(
+        default_factory=lambda: {
+            "pull": "{title}",
+            "draft": "{title} (draft)",
+            "stopped": "{title}: stopped at {step}",
+            "blocked_by": "{title}: waits for {blockers}",
+            "no_cause": "{title}: no cause is recorded",
+            "claim": "{title} (claimed by {owner})",
+            "labels": "{count} label(s) of {path} are missing or changed on GitHub: {names}",
+            "more_labels": "{names}, and {more} more",
+        }
+    )
+    inbox_clears: dict[str, str] = field(
+        default_factory=lambda: {
+            "plan": "Review it, then merge it (G1): {url}",
+            "implement": "Review it, then merge it (G2): {url}",
+            "release": "Review it, then merge it (G3): {url}",
+            "person_ready": "Review it, then merge it (G2): {url}",
+            "person_draft": (
+                "Wait for the checks with `devops pr monitor {number} --repo {repo}`, "
+                "then run `devops pr ready {number} --repo {repo}`."
+            ),
+            "stopped": "Fix the cause, then comment `{retry}` on #{number}.",
+            "blocked": (
+                "Fix the cause, then set the status by hand: `devops gh issues edit {number} "
+                "--repo {repo} --add-label status/ready --remove-label status/blocked`."
+            ),
+            "claim": "devops roadmap release {number} --repo {repo} --confirm",
+            "labels": "devops gh labels sync --repo {repo}",
+        }
+    )
     plan_repeat_page: str = "per page, while GitHub links a next one"
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
