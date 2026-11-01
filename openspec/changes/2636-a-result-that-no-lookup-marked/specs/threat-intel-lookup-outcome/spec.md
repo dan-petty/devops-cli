@@ -14,24 +14,13 @@ PackageLookupResult.status SHALL have no default value.
 - **WHEN** A producer constructs PackageLookupResult without setting status
 - **THEN** Pydantic raises a ValidationError
 
-### Requirement: NetworkIntelResult is removed
-NetworkIntelResult SHALL not exist in the models package, and devops_cli.models.__all__ SHALL not list it.
+### Requirement: No intel result model defaults to a clean status
+The models package SHALL NOT offer a result model whose fields default to a clean security status. NetworkIntelResult and PackageIntelResult SHALL NOT be importable from devops_cli.models and SHALL NOT be listed in devops_cli.models.__all__.
 
-#### Scenario: Import NetworkIntelResult
-- **WHEN** A consumer attempts to import NetworkIntelResult from devops_cli.models
+#### Scenario: Import a removed intel result model
+- **WHEN** A consumer attempts to import NetworkIntelResult or PackageIntelResult from devops_cli.models
 - **THEN** The import raises ImportError
 
-#### Scenario: Read the exports for NetworkIntelResult
+#### Scenario: Read the exports
 - **WHEN** A consumer reads devops_cli.models.__all__
-- **THEN** The list does not contain NetworkIntelResult
-
-### Requirement: PackageIntelResult is removed
-PackageIntelResult SHALL not exist in the models package, and devops_cli.models.__all__ SHALL not list it.
-
-#### Scenario: Import PackageIntelResult
-- **WHEN** A consumer attempts to import PackageIntelResult from devops_cli.models
-- **THEN** The import raises ImportError
-
-#### Scenario: Read the exports for PackageIntelResult
-- **WHEN** A consumer reads devops_cli.models.__all__
-- **THEN** The list does not contain PackageIntelResult
+- **THEN** The list contains neither NetworkIntelResult nor PackageIntelResult
