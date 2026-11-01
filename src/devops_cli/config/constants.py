@@ -3047,6 +3047,10 @@ CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
 # the message of a repair turn cut a reason to the limit above, so the output leaves room for the
 # line that names the stage. The output keeps its end, where pre-commit prints the failed hooks.
 CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS: Final[int] = 3000
+# The rows of `devops ci` that the scoped checks of the implement job run over the final tree of an
+# item, with `--check`, before its push (#3043). The `pre-push` stage of the hooks and the tests of
+# the changed files are the other two scoped checks. A test holds that each name is a row.
+CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS: Final[tuple[str, ...]] = ("constructs", "docs", "openspec")
 # The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
 # of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
 # multiple of the limit: the masking of secrets is slower than linear, and the message of an error

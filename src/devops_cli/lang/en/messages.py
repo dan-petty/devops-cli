@@ -2168,6 +2168,12 @@ class RoadmapMessages:
     implement_stop_hooks_failed: str = (
         "The hooks of the stage {stage} failed with the exit status {status}.\n{output}"
     )
+    implement_scoped_names: dict[str, str] = field(
+        default_factory=lambda: {"pre_push": "pre-push", "static": "static", "tests": "tests"}
+    )
+    implement_stop_scoped_failed: str = (
+        "The scoped check {name} still failed after {rounds} fix steps. It is {command}.\n{output}"
+    )
     implement_hook_turn: str = (
         "A hook of the project failed on your changes:\n\n{failure}\n\nThe hooks of the project "
         "check each commit. Fix what the hooks report. Change only the files that you "
@@ -2361,6 +2367,8 @@ class RoadmapMessages:
             "docs": "docs",
             "archive": "archive",
             "push": "push",
+            "hooks": "hooks",
+            "scoped": "scoped checks",
             "pull_request": "pull request",
             "checks": "checks",
             "ready": "ready",
@@ -2430,8 +2438,11 @@ class RoadmapMessages:
     )
     implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_line: str = (
-        "- {step} ({title}): {status}, {requests} model requests{commit}"
+        "- {step} ({title}): {status}, {requests} model requests, {rounds} repair rounds{commit}"
     )
+    implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
+    implement_scoped_passed: str = "passed"
+    implement_scoped_failed: str = "failed"
     implement_pull_comment_commit: str = ", commit `{commit}`"
     implement_pull_body: str = (
         "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"

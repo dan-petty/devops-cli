@@ -60,28 +60,40 @@ def hook_environment() -> dict[str, str]:
     return {CONST_PRE_COMMIT_HOME_ENV: str(cache / CONST_PRE_COMMIT_HOME_DIR)}
 
 
-def _output(stdout: str | None, stderr: str | None) -> str:
+def output_text(stdout: str | None, stderr: str | None) -> str:
     """What a child printed, masked, with its last characters."""
     text = mask_secrets(f"{stdout or ''}{stderr or ''}").strip()
     return text[-CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS:]
 
 
+def pre_commit_command(*args: str) -> list[str]:
+    """The command line of `pre-commit <args>`, started with `uv` from the environment of the
+    checkout. The child is no `git` or `gh` client, so it holds no token."""
+    return [BIN_UV, "run", BIN_PRE_COMMIT, *args]
+
+
 def _pre_commit(source: Path, *args: str) -> HookRun:
-    """Run `pre-commit <args>` in the checkout. It is a child of `uv`, so it holds no token."""
+    """Run `pre-commit <args>` in the checkout."""
     done = run_subprocess(
-        [BIN_UV, "run", BIN_PRE_COMMIT, *args],
+        pre_commit_command(*args),
         cwd=source,
         env=hook_environment(),
         quiet=True,
         timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     )
-    return HookRun(done.returncode, _output(done.stdout, done.stderr))
+    return HookRun(done.returncode, output_text(done.stdout, done.stderr))
+
+
+def stage_arguments(stage: str, *options: str) -> tuple[str, ...]:
+    """The arguments of `pre-commit` that run the hooks of `stage`, with `options` such as
+    `--from-ref` and `--to-ref`."""
+    return ("run", "--hook-stage", stage, *options)
 
 
 def stage_run(source: Path, stage: str, *options: str) -> HookRun:
     """One run of the hooks of `stage`, with `options` such as `--from-ref` and `--to-ref`. With no
     option, the run reads the staged changes of the checkout."""
-    return _pre_commit(source, "run", "--hook-stage", stage, *options)
+    return _pre_commit(source, *stage_arguments(stage, *options))
 
 
 def commit_stage(source: Path) -> HookRun | None:

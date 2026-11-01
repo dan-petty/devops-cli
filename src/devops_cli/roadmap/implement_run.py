@@ -81,7 +81,13 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
 from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
+from devops_cli.roadmap.implement_hooks import install_hook_environments
 from devops_cli.roadmap.implement_pull import WatchKind, failed_log, mark_ready, watch_pull
+from devops_cli.roadmap.implement_scoped_ci import (
+    ScopedResult,
+    run_scoped_checks,
+    scoped_checks,
+)
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
@@ -250,6 +256,8 @@ class _ItemRun:
     step: str = ""
     change: str = ""
     outcomes: list[StepOutcome] = field(default_factory=list)
+    # Every run of a scoped check (#3043), in order, the failed runs too.
+    scoped: list[ScopedResult] = field(default_factory=list)
     # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
     pull: int | None = field(init=False)
 
@@ -349,6 +357,15 @@ class _ItemRun:
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
         self._sync(push_on_conflict=False)
+        self._install_hooks()
+
+    def _install_hooks(self) -> None:
+        """Fetch the hook environments before the first model request, so that no network failure
+        wastes a step. A failure stops the item with nothing to push (#3043)."""
+        self.step = MESSAGES.roadmap.implement_step_names["hooks"]
+        failure = install_hook_environments(self.path)
+        if failure is not None:
+            raise _StopError(self.step, failure, push=False)
 
     def _sync(self, *, push_on_conflict: bool = True) -> None:
         """Fetch the default branch and rebase onto it. A conflict aborts the rebase, which puts the
@@ -403,11 +420,15 @@ class _ItemRun:
                 raise _stopped_by(self.step, outcome)
             self._record(group=str(group.number), sha=outcome.commit)
 
-    def _finish_change(self) -> None:
-        names = MESSAGES.roadmap.implement_step_names
-        self.step = names["docs"]
+    def _generate_docs(self) -> None:
+        """Generate the documents and commit what changed."""
+        self.step = MESSAGES.roadmap.implement_step_names["docs"]
         self._program([BIN_UV, "run", BIN_DEVOPS, "docs", "generate", "--sync-readme"])
         self._commit_if_changed(f"docs: regenerate the documentation (#{self.number})")
+
+    def _finish_change(self) -> None:
+        names = MESSAGES.roadmap.implement_step_names
+        self._generate_docs()
         change = self._active_change()
         if change is None:
             return
@@ -421,10 +442,47 @@ class _ItemRun:
         tip yet: its first push publishes the branch. The number of the pull request."""
         self.step = MESSAGES.roadmap.implement_step_names["push"]
         self._sync()
+        self._scoped_checks()
+        self.step = MESSAGES.roadmap.implement_step_names["push"]
         if self.pull is None:
             return self._publish()
         self._push_with_lease()
         return self.pull
+
+    def _scoped_run(self) -> ScopedResult | None:
+        """Run the scoped checks for the paths the item changed, and keep their results for the
+        comment. The first failed result, or None when every check passed."""
+        listed = self._git(
+            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
+        )
+        changed = [name for name in listed.split("\0") if name]
+        results = run_scoped_checks(self.path, scoped_checks(self.default, changed))
+        self.scoped.extend(results)
+        return next((result for result in results if not result.passed), None)
+
+    def _scoped_checks(self) -> None:
+        """Run the checks a person runs before a push (#3043), and give a failed check to a fix
+        step, at most `roadmap.implement.repair_rounds` times. The documents are generated again
+        after each fix, because a fix can change a command or an option. The job pushes only a head
+        that passed them, so any stop in this phase pushes nothing. Raises `_StopError`."""
+        names = MESSAGES.roadmap.implement_step_names
+        budget = load_settings().roadmap.implement.repair_rounds
+        try:
+            for used in range(budget + 1):
+                self.step = names["scoped"]
+                failed = self._scoped_run()
+                if failed is None:
+                    return
+                if used == budget:
+                    reason = MESSAGES.roadmap.implement_stop_scoped_failed.format(
+                        name=failed.name, rounds=budget, command=failed.command, output=failed.log
+                    )
+                    raise _StopError(self.step, reason)
+                self._fix(failed.name, failed.log)
+                self._generate_docs()
+        except _StopError as stop:
+            stop.push = False
+            raise
 
     def _push_with_lease(self) -> None:
         remote = self._git("rev-parse", f"origin/{self.branch}")
@@ -495,11 +553,25 @@ class _ItemRun:
         )
         client = get_github_session().client
         client.update_pull(self.repo, pull, title=self._delivery_title(), body=body)
-        lines = "\n".join(self._outcome_line(o) for o in self.outcomes)
+        lines = "\n".join([*(self._outcome_line(o) for o in self.outcomes), *self._scoped_lines()])
         comment = texts.implement_pull_comment.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=lines or "-"
         )
         client.comment_on_pull(self.repo, pull, comment)
+
+    def _scoped_lines(self) -> list[str]:
+        """One line for each run of a scoped check: its name, its result and its seconds."""
+        texts = MESSAGES.roadmap
+        return [
+            texts.implement_pull_comment_scoped.format(
+                name=result.name,
+                result=texts.implement_scoped_passed
+                if result.passed
+                else texts.implement_scoped_failed,
+                seconds=result.seconds,
+            )
+            for result in self.scoped
+        ]
 
     def _outcome_line(self, outcome: StepOutcome) -> str:
         texts = MESSAGES.roadmap
@@ -509,6 +581,7 @@ class _ItemRun:
             title=outcome.title,
             status=outcome.status.value,
             requests=outcome.requests,
+            rounds=outcome.repair_rounds,
             commit=commit if outcome.commit else "",
         )
 
