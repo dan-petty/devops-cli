@@ -296,6 +296,10 @@ class RAGErrorMessages:
         "is not ollama, openai, copilot or gateway, and no Ollama URLs are set. "
         "Set ai.tasks.embedding.provider"
     )
+    embedding_no_ollama_urls: str = (
+        "Embedding model {model} has no Ollama URL: ai.provider is '{provider}' and "
+        "ai.ollama_urls is empty. Set ai.ollama_urls"
+    )
     batch_failed: str = "Failed to embed batch from '{first_file}' to '{last_file}': {error}"
 
 
