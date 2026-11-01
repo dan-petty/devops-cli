@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A later round reports the Job that ended
-A round SHALL read the Job of each item whose record holds `implement.job` and no `implement.job_state`. For a Job that ended (Complete or Failed), it SHALL comment on the item, with the marker of the implement job, the state and the last lines of the pod's log, and record `implement.job_state` as `succeeded` or `failed`. The round SHALL decode the log as UTF-8 text with real line breaks, mask secrets in the decoded text, and show it in a fenced block whose fence is longer than any run of backticks in the text. A Job that no longer exists SHALL be recorded as `gone`. A log that the API refuses SHALL not block the report.
+A round SHALL read the Job of each item whose record holds `implement.job` and no `implement.job_state`. For a Job that ended (Complete or Failed), it SHALL comment on the item, with the marker of the implement job, the state and the last lines of the pod's log, decoded and masked of secrets, in a fenced block, and record `implement.job_state` as `succeeded` or `failed`. A Job that no longer exists SHALL be recorded as `gone`. A log that the API refuses SHALL not block the report.
 
 #### Scenario: A Job that succeeded
 - **WHEN** the Job of an item has the condition Complete and the item is In Review
