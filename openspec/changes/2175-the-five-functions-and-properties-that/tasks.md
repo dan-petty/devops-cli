@@ -4,9 +4,9 @@
 
 Reads: none. Changes: `src/devops_cli/ai/client/streaming.py`.
 
-- [ ] 1.1 Write a test that asserts StreamingTokenProcessor has no thinking_detected attribute. The test fails before the deletion and passes after, and verify that `! git grep -n -w thinking_detected src/ tests/ docs/` fails on the base
-- [ ] 1.2 Delete the thinking_detected property from StreamingTokenProcessor. Remove any import or constant that only this property uses. Remove any test that only calls thinking_detected, and verify that `! git grep -n -w thinking_detected src/ tests/ docs/` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 1.1 Write a test that asserts StreamingTokenProcessor has no thinking_detected attribute. The test fails before the deletion and passes after, and verify that `! git grep -n -w thinking_detected src/ tests/ docs/` fails on the base
+- [x] 1.2 Delete the thinking_detected property from StreamingTokenProcessor. Remove any import or constant that only this property uses. Remove any test that only calls thinking_detected, and verify that `! git grep -n -w thinking_detected src/ tests/ docs/` passes
+- [x] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 2. Delete _get_ollama_semaphore from unified.py
 
