@@ -156,31 +156,6 @@ class WorkloadSandboxRunner:
             except Exception:
                 self.exclude_home_dir = setting_default("sandbox.exclude_home_dir")
 
-    def build_dry_run_details(self) -> dict[str, Any]:
-        """Construct structured summary for dry-run inspection."""
-        ws_resolved = self._validate_workspace_dir()
-        user_str = (
-            f"{os.getuid()}:{os.getgid()}"
-            if self.config.rootless and hasattr(os, "getuid")
-            else "root"
-        )
-        return {
-            "image": self.config.image,
-            "command": self.config.command,
-            "workspace_dir": str(ws_resolved),
-            "read_only": self.config.read_only,
-            "memory_limit": self.config.memory_limit,
-            "cpu_limit": self.config.cpu_limit,
-            "network_mode": self.config.network_mode,
-            "network_config": self.config.network_config.model_dump(),
-            "declared_controls": self.declared_controls(),
-            "seccomp_profile": (
-                str(profile.path) if (profile := self.config.policy.seccomp_profile) else None
-            ),
-            "user": user_str,
-            "note": "A rootless engine runs as container root (the host user).",
-        }
-
     def _validate_workspace_dir(self) -> Path:
         """Resolve the workspace through the shared sandbox workspace check."""
         try:

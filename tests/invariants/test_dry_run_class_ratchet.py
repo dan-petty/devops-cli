@@ -224,35 +224,24 @@ def test_mcp_exposure_table_no_external_request_read_only() -> None:
     assert mismatches == []
 
 
-def test_lazy_proxy_dry_run_no_external_request_execution(monkeypatch) -> None:
+def test_lazy_proxy_dry_run_no_external_request_execution(monkeypatch, capsys) -> None:
     """Criterion 5: devops --dry-run runs a no-external-request command and prints preview for unclassified."""
+    from devops_cli.core.cli import _handle_lazy_proxy_dry_run
+
     delegated_calls: list[tuple[str, str, list[str]]] = []
 
     def _fake_delegate(module_path: str, command_name: str, args: list[str]) -> None:
         delegated_calls.append((module_path, command_name, args))
 
     monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
+    stub = "tests.support.dry_run_stub:app"
 
     # 1. Unclassified command prints generic preview and does NOT execute
-    res_unclassified = runner.invoke(main_module.app, ["--dry-run", "serve"])
-    assert res_unclassified.exit_code == 0
-    assert "Would run delegated command: devops serve" in res_unclassified.output
+    _handle_lazy_proxy_dry_run(stub, "stub", ["plain"])
+    assert "Would run delegated command: devops stub plain" in capsys.readouterr().out
     assert len(delegated_calls) == 0
 
     # 2. Command with no-external-request class executes normally without --dry-run
-    from devops_cli.commands import serve
-
-    original_class = getattr(serve.serve, "_dry_run_class", None)
-    serve.serve._dry_run_class = "no-external-request"
-    try:
-        res_no_ext = runner.invoke(main_module.app, ["--dry-run", "serve"])
-        assert res_no_ext.exit_code == 0
-        assert "Would run delegated command" not in res_no_ext.output
-        assert len(delegated_calls) == 1
-        assert delegated_calls[0][1] == "serve"
-        assert "--dry-run" not in delegated_calls[0][2]
-    finally:
-        if original_class is None:
-            delattr(serve.serve, "_dry_run_class")
-        else:
-            serve.serve._dry_run_class = original_class
+    _handle_lazy_proxy_dry_run(stub, "stub", ["marked"])
+    assert "Would run delegated command" not in capsys.readouterr().out
+    assert delegated_calls == [("tests.support.dry_run_stub", "stub", ["marked"])]

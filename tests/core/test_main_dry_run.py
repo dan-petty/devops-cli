@@ -25,42 +25,31 @@ def test_global_dry_run_unknown_option_exits_2(monkeypatch) -> None:
     assert (result.exit_code, called, "No such option" in result.output) == (2, False, True)
 
 
-def test_global_dry_run_non_declaring_command_prints_generic_preview(monkeypatch) -> None:
-    called = False
-
-    def _fake_delegate(module_path: str, command_name: str, args: list[str]) -> None:
-        nonlocal called
-        called = True
-
-    monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
-
-    result = runner.invoke(main_module.app, ["--dry-run", "serve"])
-
-    assert (
-        result.exit_code,
-        not called,
-        "Would run delegated command: devops serve" in result.output,
-    ) == (0, True, True)
+_STUB = "tests.support.dry_run_stub:app"
 
 
-def test_global_dry_run_non_declaring_command_with_options_prints_generic_preview(
-    monkeypatch,
+@pytest.mark.parametrize(
+    ("args", "printed"),
+    [
+        (["plain"], "Would run delegated command: devops stub plain"),
+        (["plain", "--port", "8080"], "Would run delegated command: devops stub plain --port 8080"),
+    ],
+)
+def test_global_dry_run_non_declaring_command_prints_generic_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    args: list[str],
+    printed: str,
 ) -> None:
-    called = False
+    """A command with no class and no `--dry-run` is not run; the proxy prints the generic line."""
+    from devops_cli.core.cli import _handle_lazy_proxy_dry_run
 
-    def _fake_delegate(module_path: str, command_name: str, args: list[str]) -> None:
-        nonlocal called
-        called = True
+    called: list[list[str]] = []
+    monkeypatch.setattr(main_module, "_delegate", lambda _m, _c, a: called.append(a))
 
-    monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
+    _handle_lazy_proxy_dry_run(_STUB, "stub", args)
 
-    result = runner.invoke(main_module.app, ["--dry-run", "serve", "--port", "8080"])
-
-    assert (
-        result.exit_code,
-        not called,
-        "Would run delegated command: devops serve --port 8080" in result.output,
-    ) == (0, True, True)
+    assert (called, printed in " ".join(capsys.readouterr().out.split())) == ([], True)
 
 
 def test_global_dry_run_declaring_group_with_own_options_executes_preview() -> None:

@@ -1452,6 +1452,7 @@ class ArgoMessages:
 
 @dataclass(frozen=True)
 class CIMessages:
+    fail_to_pass_dry_run_heading: str = "devops ci fail-to-pass"
     ci_dry_run_heading: str = (
         "Dry run: no request was made. CI would make these requests, in order:"
     )
@@ -1704,6 +1705,12 @@ class GrafanaMessages:
 
 @dataclass(frozen=True)
 class MCPMessages:
+    serve_dry_run_heading: str = "devops mcp serve"
+    serve_dry_run_note: str = (
+        "The server makes no outbound request when it starts. A tool makes its requests only "
+        "when a client calls it."
+    )
+    export_dry_run: str = "Would write {count} tool schema(s) and instructions.md to {directory}"
     starting_sse: str = "Starting FastMCP server (SSE) on http://{host}:{port}..."
     starting_stdio: str = "Starting FastMCP server (stdio) — devops-cli\n"
     table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
@@ -1714,6 +1721,15 @@ class MCPMessages:
 
 @dataclass(frozen=True)
 class ServeMessages:
+    dry_run_heading: str = "devops serve"
+    dry_run_note: str = (
+        "The server makes no outbound request when it starts. A route makes its requests only "
+        "when a client calls it."
+    )
+    service_dry_run_note: str = (
+        "With --service, the start first loads the settings and the credentials and reports "
+        "an error in them. The dry run reads neither."
+    )
     starting_service: str = "Starting DevOps CLI REST & OpenAPI Service v{version}"
     listening_on: str = "  [cyan]•[/cyan] Listening on: [bold]http://{host}:{port}[/bold]"
     swagger_ui: str = "  [cyan]•[/cyan] Swagger UI:  [link=http://{host}:{port}/docs]http://{host}:{port}/docs[/link]"
@@ -1794,6 +1810,11 @@ class ServeMessages:
 
 @dataclass(frozen=True)
 class PipelineMessages:
+    dry_run_heading: str = "devops pipeline"
+    dry_run_note: str = (
+        "The requests that the Dagger pipeline makes come from its own code, so the plan does "
+        "not list them."
+    )
     executing: str = "Executing Dagger pipeline from '{path}'..."
     success: str = "✓ Pipeline execution completed successfully ({name})."
     failed: str = "Pipeline execution failed with exit code {code}."
@@ -1804,6 +1825,20 @@ class PipelineMessages:
 
 @dataclass(frozen=True)
 class TestMessages:
+    run_dry_run_heading: str = "devops test run"
+    sandbox_dry_run_heading: str = "devops test sandbox"
+    profile_memory_dry_run: str = (
+        "Would profile {target} for {iterations} iterations, with a peak limit of {max_peak_mb} MB, "
+        "{leak_rule}, and write the report to {output}"
+    )
+    profile_memory_fail_on_leak: str = "failing on a socket leak"
+    profile_memory_ignore_leak: str = "ignoring a socket leak"
+    profile_memory_no_report: str = "no file (the report goes to the terminal only)"
+    load_dry_run_heading: str = "devops test load"
+    load_dry_run_note: str = (
+        "The requests that k6 sends to the services come from the script, so the plan does not "
+        "list them."
+    )
     starting_load_test: str = (
         "Starting k6 load test with {vus} VUs for {duration} ({script_path})..."
     )

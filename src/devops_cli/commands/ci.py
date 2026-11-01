@@ -2512,6 +2512,7 @@ def _print_job_time_report(report: JobTimeReport, *, workflow: str, branch: str)
 
 
 @app.command(name="fail-to-pass", help=HELP.ci.fail_to_pass)
+@dry_run_class("request-plan")
 def fail_to_pass(
     base: Annotated[
         str, typer.Option("--base", "-b", help=HELP.options.base_branch)
@@ -2521,10 +2522,12 @@ def fail_to_pass(
 ) -> None:
     """Replay changed tests against the merge-base tree to prove a fix's tests fail on base (#844)."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops ci fail-to-pass",
-            action="replay_tests_on_base",
-            details={"base": base, "head": head},
+        from devops_cli.ci.fail_to_pass import plan_fail_to_pass
+
+        render_request_plan(
+            MESSAGES.ci.fail_to_pass_dry_run_heading,
+            plan_fail_to_pass(base, head),
+            [MESSAGES.dry_run.placeholders_note],
         )
         return
     if not _verify_python_314_environment():

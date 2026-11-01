@@ -303,7 +303,7 @@ k8s/. |
 | [**uv**](docs/commands/uv.md) | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
-|  | `devops uv run` | Run an arbitrary command using `uv run`. |
+|  | `devops uv run [OPTIONS]` | Run an arbitrary command using `uv run`. |
 | [**scan**](docs/commands/scan.md) | `devops scan trivy [OPTIONS] <target>` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
 |  | `devops scan secrets [OPTIONS] <target>` | Run Gitleaks secret pre-filter scan across workspace or targets. |
 |  | `devops scan workflows [OPTIONS] <target>` | Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions

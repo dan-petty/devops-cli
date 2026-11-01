@@ -14,13 +14,32 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TRANSPORT,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_table, render_table, write_stderr
 
 app = new_typer(name="mcp", help=HELP.mcp.app)
 
 
+def server_args(transport: str, host: str, port: int, allow_remote: bool) -> dict[str, Any]:
+    """The arguments of `run_mcp_server`, as the start and its dry run use them."""
+    return {"transport": transport, "host": host, "port": port, "allow_remote": allow_remote}
+
+
+def plan_serve(args: dict[str, Any]) -> list[PlannedRequest]:
+    """The bind (`sse` only) and the start of the MCP server. A start makes no outbound
+    request: the tools make requests only when a client calls them."""
+    requests: list[PlannedRequest] = []
+    if args["transport"] == "sse":
+        requests.append(PlannedRequest(method="BIND", target=f"tcp {args['host']}:{args['port']}"))
+    requests.append(PlannedRequest(method="START", target=f"mcp server ({args['transport']})"))
+    return requests
+
+
 @app.command("serve", help=HELP.mcp.serve)
+@dry_run_class("request-plan")
 def serve_cmd(
     transport: Annotated[
         str,
@@ -53,11 +72,26 @@ def serve_cmd(
             help=HELP.mcp.allow_remote,
         ),
     ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Launch FastMCP server to expose devops-cli tools to MCP clients."""
     if transport not in {"stdio", "sse"}:
         print_error(ERRORS.mcp.invalid_transport.format(transport=transport))
         raise typer.Exit(1)
+
+    args = server_args(transport, host, port, allow_remote)
+    if dry_run or is_dry_run():
+        from devops_cli.ai.mcp.server import check_sse_bind
+
+        try:
+            check_sse_bind(transport, host, allow_remote=allow_remote)
+        except ValueError as exc:
+            print_error(str(exc))
+            raise typer.Exit(1) from exc
+        render_request_plan(
+            MESSAGES.mcp.serve_dry_run_heading, plan_serve(args), [MESSAGES.mcp.serve_dry_run_note]
+        )
+        return
 
     if transport == "sse":
         print_info(MESSAGES.mcp.starting_sse.format(host=host, port=port))
@@ -67,13 +101,14 @@ def serve_cmd(
 
     try:
         runner_fn = getattr(sys.modules[__name__], "run_mcp_server")
-        runner_fn(transport=transport, host=host, port=port, allow_remote=allow_remote)
+        runner_fn(**args)
     except ValueError as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
 
 
 @app.command("tools", help=HELP.mcp.tools)
+@dry_run_class("no-external-request")
 def tools_cmd() -> None:
     """List all registered FastMCP tools and descriptions."""
     lister_fn = getattr(sys.modules[__name__], "list_mcp_tools")
@@ -87,6 +122,7 @@ def tools_cmd() -> None:
 
 
 @app.command("export-schemas", help=HELP.mcp.export_schemas)
+@dry_run_class("no-external-request")
 def export_schemas_cmd(
     output_dir: Annotated[
         Path | None,
@@ -97,6 +133,7 @@ def export_schemas_cmd(
             help=HELP.mcp.output_dir,
         ),
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Export tool JSON schemas and instructions for MCP clients and Antigravity IDE."""
     import asyncio
@@ -105,11 +142,16 @@ def export_schemas_cmd(
     from devops_cli.ai.mcp.server import mcp
 
     out_dir = output_dir or (Path.home() / ".gemini" / "antigravity-ide" / "mcp" / "devops-cli")
-    out_dir.mkdir(parents=True, exist_ok=True)
     # The registry, not the client-facing listing: exported schemas document the whole
     # catalogue, and `mcp.list_tools()` runs the domain gate, which would cut the export
     # to the eager domains alone.
     tools = asyncio.run(mcp._list_tools())
+    if dry_run or is_dry_run():
+        print_info(
+            MESSAGES.mcp.export_dry_run.format(count=len(tools), directory=out_dir), prefix=False
+        )
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     count = 0
     for t in tools:

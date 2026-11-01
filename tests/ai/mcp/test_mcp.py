@@ -748,3 +748,94 @@ def test_the_mcp_uv_audit_tool_takes_a_directory_and_runs_the_uv_audit_adapter_t
             ]
         ),
     )
+
+
+# =============================================================================
+# Dry runs (#2260)
+# =============================================================================
+
+
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    import re
+
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_mcp_export_schemas_dry_run_writes_nothing(
+    tmp_path: Path, cli: Any, flag_first: bool
+) -> None:
+    """A dry run names the directory and the tool count, and creates nothing."""
+    out_dir = tmp_path / "schemas"
+    argv = ["mcp", "export-schemas", "--output-dir", str(out_dir)]
+    with (
+        patch.object(Path, "mkdir", side_effect=AssertionError("no directory")),
+        patch.object(Path, "write_text", side_effect=AssertionError("no file")),
+    ):
+        result = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+
+    output = " ".join(result.output.split())
+    assert result.exit_code == 0, result.output
+    assert "Would write" in output
+    assert str(out_dir) in output
+    count = int(output.split("Would write ", 1)[1].split()[0])
+    assert count == len(asyncio.run(mcp._list_tools()))
+    assert not out_dir.exists()
+
+
+def test_mcp_tools_runs_under_the_dry_run_flag(cli: Any) -> None:
+    """`mcp tools` only reads the registry, so `devops --dry-run` runs it."""
+    result = cli(["--dry-run", "mcp", "tools"])
+
+    assert result.exit_code == 0, result.output
+    assert "review_path" in result.output
+    assert cli(["mcp", "tools", "--dry-run"]).exit_code == 2
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["--transport", "stdio"], ["START mcp server (stdio)"]),
+        (
+            ["--transport", "sse", "--host", "::1", "--port", "9090"],
+            ["BIND tcp ::1:9090", "START mcp server (sse)"],
+        ),
+    ],
+)
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_mcp_serve_dry_run_lists_the_bind_and_the_start(
+    cli: Any, argv: list[str], expected: list[str], flag_first: bool
+) -> None:
+    """A dry run starts no server and lists what the start would bind and start."""
+    full = ["mcp", "serve", *argv]
+    with patch("devops_cli.commands.mcp.run_mcp_server", side_effect=AssertionError("no server")):
+        result = cli(["--dry-run", *full] if flag_first else [*full, "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert _plan_lines(result.output) == expected
+
+
+def test_mcp_serve_dry_run_refuses_what_the_start_refuses(cli: Any) -> None:
+    """A bad transport and a remote `sse` host end the dry run as they end the start."""
+    with patch("devops_cli.commands.mcp.run_mcp_server", side_effect=AssertionError("no server")):
+        bad = cli(["mcp", "serve", "--transport", "grpc", "--dry-run"])
+        remote = cli(["mcp", "serve", "--transport", "sse", "--host", "0.0.0.0", "--dry-run"])
+
+    assert (bad.exit_code, remote.exit_code) == (1, 1)
+    assert _plan_lines(remote.output) == []
+
+
+def test_mcp_serve_starts_what_its_plan_lists(cli: Any) -> None:
+    """The start receives the host, the port and the transport of the plan."""
+    argv = ["mcp", "serve", "--transport", "sse", "--host", "::1", "--port", "9090"]
+    planned = _plan_lines(cli([*argv, "--dry-run"]).output)
+    with patch("devops_cli.commands.mcp.run_mcp_server") as start:
+        result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    kwargs = start.call_args.kwargs
+    assert planned == [
+        f"BIND tcp {kwargs['host']}:{kwargs['port']}",
+        f"START mcp server ({kwargs['transport']})",
+    ]

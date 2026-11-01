@@ -23,5 +23,6 @@ devops serve [OPTIONS]
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
 | `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
 | `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and per-repository status, triage and model lanes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

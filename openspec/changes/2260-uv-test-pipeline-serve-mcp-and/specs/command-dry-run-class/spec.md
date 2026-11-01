@@ -78,7 +78,7 @@ The commands `mcp serve` and `serve` SHALL carry the `request-plan` dry-run clas
 - **THEN** the plan prints a bind request for `127.0.0.1:9000` and a start request that names 2 workers
 
 ### Requirement: ci-fail-to-pass-request-plans
-The command `ci fail-to-pass`, and the paths `format fail-to-pass` and `lint fail-to-pass` that share its callback, SHALL carry the `request-plan` dry-run class. Under `--dry-run` the command SHALL start no process, git call included. It SHALL print the ordered requests of the replay, built by the argument builders that the replay uses, with the placeholders `<merge-base>`, `<tree>` and `<changed test files>`.
+The command `ci fail-to-pass`, and the paths `format fail-to-pass` and `lint fail-to-pass` that share its callback, SHALL carry the `request-plan` dry-run class. Under `--dry-run` the command SHALL start no process, git call included. It SHALL print the ordered requests of the replay, built by the argument builders that the replay uses, with the placeholders `<merge-base>`, `<temp-dir>` and `<changed test files>`.
 
 #### Scenario: Dry run on ci fail-to-pass
 - **WHEN** a user runs `devops ci fail-to-pass --base main --dry-run` with the process fake patched to fail on any call

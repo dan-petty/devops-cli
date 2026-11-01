@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -406,3 +407,62 @@ def test_serve_service_mode_builds_the_app_after_the_server_applies_its_logging(
         [[]],
         ["No webhook secret configured for managed repository: example-org/repo2"],
     )
+
+
+# =============================================================================
+# Dry runs (#2260)
+# =============================================================================
+
+
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    import re
+
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_serve_dry_run_lists_the_bind_and_the_start(cli: Any, flag_first: bool) -> None:
+    """A dry run builds no app, starts no server, and lists the bind and the start."""
+    argv = ["serve", "--host", "127.0.0.1", "--port", "9000", "--workers", "2"]
+    with (
+        patch("uvicorn.run", side_effect=AssertionError("no server")),
+        patch("devops_cli.server.app.create_app", side_effect=AssertionError("no app")),
+    ):
+        result = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert _plan_lines(result.output) == [
+        "BIND tcp 127.0.0.1:9000",
+        "START uvicorn rest app (host=127.0.0.1 port=9000 workers=2 log_level=info)",
+    ]
+
+
+def test_serve_service_dry_run_reads_no_settings(cli: Any) -> None:
+    """`serve --service --dry-run` loads no settings and reads no credential."""
+    with (
+        patch("uvicorn.run", side_effect=AssertionError("no server")),
+        patch(
+            "devops_cli.config.settings.load_settings", side_effect=AssertionError("no settings")
+        ),
+        patch("keyring.get_password", side_effect=AssertionError("no credential")),
+    ):
+        result = cli(["serve", "--service", "--port", "9000", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert _plan_lines(result.output) == [
+        "BIND tcp 127.0.0.1:9000",
+        "START uvicorn service app (host=127.0.0.1 port=9000)",
+    ]
+
+
+def test_serve_starts_what_its_plan_lists(cli: Any) -> None:
+    """The start passes uvicorn the options of the plan."""
+    argv = ["serve", "--host", "::1", "--port", "9000", "--workers", "2"]
+    planned = _plan_lines(cli([*argv, "--dry-run"]).output)
+    with patch("uvicorn.run") as start:
+        result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    options = " ".join(f"{name}={value}" for name, value in start.call_args.kwargs.items())
+    assert planned == ["BIND tcp ::1:9000", f"START uvicorn rest app ({options})"]

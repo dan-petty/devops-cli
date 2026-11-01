@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 
@@ -15,6 +15,9 @@ from devops_cli.config.defaults import (
     DEFAULT_SERVER_WORKERS,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -36,7 +39,30 @@ app = new_typer(
 # =============================================================================
 
 
+def uvicorn_options(
+    *, host: str, port: int, reload: bool, workers: int, log_level: str, service: bool
+) -> dict[str, Any]:
+    """The options that `devops serve` passes to `uvicorn.run`, besides the app. The start and
+    its dry run both use them."""
+    if service:
+        return {"host": host, "port": port}
+    if reload:
+        return {"host": host, "port": port, "reload": True, "log_level": log_level.lower()}
+    return {"host": host, "port": port, "workers": workers, "log_level": log_level.lower()}
+
+
+def plan_serve(options: dict[str, Any], *, service: bool) -> list[PlannedRequest]:
+    """The bind and the start of the server. A start makes no outbound request."""
+    app_name = "service" if service else "rest"
+    settings = " ".join(f"{name}={value}" for name, value in options.items())
+    return [
+        PlannedRequest(method="BIND", target=f"tcp {options['host']}:{options['port']}"),
+        PlannedRequest(method="START", target=f"uvicorn {app_name} app ({settings})"),
+    ]
+
+
 @app.callback(invoke_without_command=True)
+@dry_run_class("request-plan")
 def serve(
     ctx: typer.Context,
     host: str = typer.Option(
@@ -80,9 +106,22 @@ def serve(
         "-s",
         help=HELP.serve.service,
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help=HELP.options.dry_run),
 ) -> None:
     """Start the asynchronous FastAPI REST service and OpenAPI engine."""
     if ctx.invoked_subcommand is not None:
+        return
+
+    options = uvicorn_options(
+        host=host, port=port, reload=reload, workers=workers, log_level=log_level, service=service
+    )
+    if dry_run or is_dry_run():
+        notes = [MESSAGES.serve.dry_run_note]
+        if service:
+            notes.append(MESSAGES.serve.service_dry_run_note)
+        render_request_plan(
+            MESSAGES.serve.dry_run_heading, plan_serve(options, service=service), notes
+        )
         return
 
     import uvicorn
@@ -119,9 +158,8 @@ def serve(
                 state_dir=state_dir,
             ),
             factory=True,
-            host=host,
-            port=port,
             log_config=service_log_config(log_level),
+            **options,
         )
         return
 
@@ -166,19 +204,6 @@ def serve(
 
     if reload:
         # In reload mode, pass module string
-        uvicorn.run(
-            "devops_cli.server.app:create_app",
-            factory=True,
-            host=host,
-            port=port,
-            reload=True,
-            log_level=log_level.lower(),
-        )
+        uvicorn.run("devops_cli.server.app:create_app", factory=True, **options)
     else:
-        uvicorn.run(
-            fastapi_app,
-            host=host,
-            port=port,
-            workers=workers,
-            log_level=log_level.lower(),
-        )
+        uvicorn.run(fastapi_app, **options)
