@@ -43,10 +43,7 @@ def test_repomap_skips_symlinks_and_verifies_containment(tmp_path: Path) -> None
     outside_target.write_text("def leak() -> None:\n    pass\n", encoding="utf-8")
 
     symlink_file = src_dir / "symlink_leak.py"
-    try:
-        symlink_file.symlink_to(outside_target)
-    except OSError:
-        pytest.skip("Symlinks not supported in this filesystem")
+    symlink_file.symlink_to(outside_target)
 
     nodes = generate_repo_map(root_dir=tmp_path)
     paths = [n.path for n in nodes]

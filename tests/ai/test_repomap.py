@@ -161,11 +161,8 @@ def test_polyglot_to_file_node_circular_symlink(
     """Verify _polyglot_to_file_node traps circular symlinks and logs warning."""
     link_a = tmp_path / "link_a.ts"
     link_b = tmp_path / "link_b.ts"
-    try:
-        link_a.symlink_to(link_b)
-        link_b.symlink_to(link_a)
-    except OSError:
-        pytest.skip("Symlink creation not supported on platform")
+    link_a.symlink_to(link_b)
+    link_b.symlink_to(link_a)
 
     with caplog.at_level(logging.WARNING):
         node = _polyglot_to_file_node(link_a, tmp_path)
@@ -188,10 +185,7 @@ def test_polyglot_to_file_node_escaped_symlink(
     target_file.write_text("export const SECRET = 42;", encoding="utf-8")
 
     symlink_file = base_dir / "escaped.ts"
-    try:
-        symlink_file.symlink_to(target_file)
-    except OSError:
-        pytest.skip("Symlink creation not supported on platform")
+    symlink_file.symlink_to(target_file)
 
     with caplog.at_level(logging.WARNING):
         node = _polyglot_to_file_node(symlink_file, base_dir)
@@ -343,10 +337,7 @@ def test_generate_repo_map_escaped_file(tmp_path: Path) -> None:
 
     inside_dir = tmp_path / "inside"
     inside_dir.mkdir()
-    try:
-        (inside_dir / "link.py").symlink_to(secret_file)
-    except OSError:
-        pytest.skip("Symlink creation not supported on platform")
+    (inside_dir / "link.py").symlink_to(secret_file)
 
     nodes = generate_repo_map(root_dir=inside_dir, max_files=10)
     assert len(nodes) == 0

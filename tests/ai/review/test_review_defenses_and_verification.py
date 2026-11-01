@@ -29,10 +29,7 @@ def test_list_repo_files_symlink_traversal_prevention(tmp_path: Path) -> None:
 
     # Create symlink inside repo pointing to outside file
     symlink_file = repo_dir / "symlink_escape.txt"
-    try:
-        symlink_file.symlink_to(secret_file)
-    except OSError:
-        pytest.skip("Symlinks not supported in environment")
+    symlink_file.symlink_to(secret_file)
 
     files = list_repo_files(repo_dir)
     assert real_file.resolve() in [f.resolve() for f in files]
