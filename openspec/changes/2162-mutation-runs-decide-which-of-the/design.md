@@ -8,7 +8,7 @@
 - **Leave a file out with `PYTEST_ADDOPTS="--deselect=<file>"`.** `pytest.main` reads it in the mutmut process (see Feasibility in `proposal.md`). The `[tool.mutmut]` table in `pyproject.toml` stays unchanged.
 - **Decide the files of a group one by one, in the order of the task.** When two files check the same thing, each has no own mutant while the other is in the suite. If both were deleted, the check would be lost. So the run for a file also leaves out every file that an earlier step of the same group marked for deletion.
 - **Keep the record in the change folder.** `mutation-report.md` is archived with the folder under `openspec/changes/archive/`. A pull request comment would not travel with the repository.
-- **A file with no own mutant is deleted.** The project is before 1.0 and keeps no old path ([AGENTS.md](../../../AGENTS.md)). A test moves only to hold the line coverage (group 10).
+- **A file with no own mutant is deleted, after its guard tests move out.** The project is before 1.0 and keeps no old path ([AGENTS.md](../../../AGENTS.md)). A test moves only to hold the line coverage (group 10).
 
 ## Method
 
@@ -18,17 +18,18 @@ For each file F of a group, in the order of the group:
 2. **Whole suite.** Run the mutants of those functions: add `__mutmut_*` to each name and pass the names to `uv run mutmut run`. Leave out the files that earlier steps of the group marked for deletion (`PYTEST_ADDOPTS`, as in step 4). Save `uv run mutmut results --all true` to `.data/agent/scratch/2162/<file>-whole.txt`. The mutants with status `killed` are the killed set K. Write the count of K in the report.
 3. **Functions that only F runs.** A function whose tests all sit in F, or in files already marked for deletion, has no test without F. Its mutants are the file's own. Do not rerun them: pytest ends with exit status 5 when it selects no test, and mutmut then stops.
 4. **Without the file.** Run the mutants of K again, with `PYTEST_ADDOPTS="--deselect=<F> --deselect=<earlier file> ..."`. An explicit mutant name runs again. Read `uv run mutmut results --all true`. A mutant of K with status `survived` is not killed without F. It is the file's own mutant. Write the names in the report.
-5. **Verdict.** No own mutant: the verdict is `delete`, and the file joins the exempt check below. One or more own mutants: the verdict is `keep`, and the report names the mutants.
+5. **Verdict.** No own mutant: the verdict is `delete`. One or more own mutants: the verdict is `keep`, and the report names the mutants.
+6. **Guard check, before `git rm`.** A mutation count does not see a guard test: a guard test can kill no mutant of its own and still protect the project. So the exempt rule below works for each test, not for each file. For a file with verdict `delete`, run `grep -nEi 'traversal|SecurityError|mask_secrets|sandbox|egress|symlink|inject' <F>`. This is the guard pattern. For each test that holds a match, move the test to the covering file of the row, with the code it needs, and add the row `| <test name> | <F> | <covering file> |` to the table `## Moved guard tests` in the report. When the same command prints nothing for `<F>`, remove `<F>` with `git rm`. The report states that `<F>` is no contract suite and no invariant test.
 
 The report has one row per file: `| path | functions | mutants killed (whole suite) | own mutants | verdict |`. The own mutants of a kept file are listed under the table.
 
-**Exempt files.** A contract suite (its name holds `contract`), an invariant test (it sits in `tests/invariants/`) and a test of a security guard are never deleted. A security guard is a check that refuses or masks unsafe input, such as egress, secret, sandbox or injection checks ([SECURITY.md](../../../SECURITY.md)). The report states, for each file with verdict `delete`, that it is none of the three. The files in `tests/security/` of this change test the parse and report of a scanner, not a guard, but the group reads the file before it says so.
+**Exempt files and tests.** A contract suite (its name holds `contract`) and an invariant test (it sits in `tests/invariants/`) are never deleted, as files. A test of a security guard is never deleted, as a test. A security guard is a check that refuses or masks unsafe input, such as egress, secret, sandbox, path traversal or injection checks ([SECURITY.md](../../../SECURITY.md)). A file with a guard test is not deleted whole: the guard test moves (step 6). Two files are known to hold guard tests. `tests/ai/review/test_review_defenses_and_verification.py` holds the symlink and path traversal tests, the vault path test and the `mask_secrets` tests. `tests/ai/personas/test_custom_personas.py` holds `test_load_custom_repo_persona_traversal`. Other files can hold more, and the guard pattern finds them. The files in `tests/security/` of this change test the parse and report of a scanner, not a guard, but the group reads the file before it says so.
 
 **Stop rule.** If the stats run of group 1 does not end in one command, or one `uv run mutmut run` of a group does not end inside 14400 s after it is split by file, the premise fails. Write no workaround. Return the item with `uv run devops roadmap return 2162 --comment "<numbers>" --confirm`.
 
 ## Files and covering files
 
-The covering file of a row is where a case moves if group 10 needs it. Paths are the paths on `main` today.
+The covering file of a row is where a case moves if group 10 needs it, and where a guard test of the file moves (Method, step 6). Paths are the paths on `main` today.
 
 | File | Tests | Covering file (issue) |
 | :--- | ---: | :--- |
