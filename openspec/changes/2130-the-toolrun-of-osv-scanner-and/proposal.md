@@ -7,21 +7,23 @@ Issue #2130: the ToolRun of an osv-scanner run records no digest of its advisory
 - The ToolRun of an osv-scanner run changes when its database changes, and stays the same when it does not.
 - The ToolRun of a Ruff run changes when the Ruff configuration of the target changes.
 
-The check on `origin/main` shows that only the first result is missing. The second result exists (see Acceptance).
+The check on `origin/main` shows that the first result is missing. The second result exists for the config files that Ruff finds by name, and not for a base file named by `extend` (see Acceptance).
 
 ## What Changes
 
 - `OsvScanner` names the `all.zip` file of each ecosystem in its offline database as ruleset files, as `TrivyScanner` names its metadata file. The `ruleset_digest` of the ToolRun then follows the content of the database.
 - The record digests a ruleset file below a read-only bind of the request (the data directory of the tool) as a stream, whatever its size. A file that is not below a bind, and every config file, keep the 50 MiB limit. `file_digest` in `src/devops_cli/ai/run_store.py` reads a file as a stream, with the same result.
 - `docs/SELF_IMPROVEMENT.md` says what the osv-scanner ruleset digest covers.
-- Ruff gets no change: its `config_digest` already follows the config files.
+- Ruff gets no code change: its `config_digest` already follows the config files that Ruff finds by name. The `extend` limit is written down and left to a person.
 - The change has a spec delta in `review-tool-runs`: the ToolRun record in `review.md` and in the SARIF export is observable.
 - The change fits one pull request.
 
 ## Acceptance
 
 - Criterion 1, the osv-scanner digest follows the database: group 1 lets the record digest a large database file, and group 2 names the database files in the request.
-- Criterion 2, the Ruff digest follows the Ruff configuration: already met on `main`. `RuffScanner.config_names` lists `.ruff.toml`, `ruff.toml` and `pyproject.toml`, and the test `test_a_changed_config_file_of_the_tree_changes_the_config_digest` pins it. Group 3 runs that test again and writes the one gap into the document: a Ruff config that uses `extend` has a base file that the digest does not cover. No criterion asks for that file, so the plan adds no code for it.
+- Criterion 2, the Ruff digest follows the Ruff configuration: met on `main` for the files that Ruff finds by name, and pending a person for a base file named by `extend`.
+  - Met: `RuffScanner.config_names` lists `.ruff.toml`, `ruff.toml` and `pyproject.toml`, and the test `test_a_changed_config_file_of_the_tree_changes_the_config_digest` pins it. Group 3 runs that test again.
+  - Pending a person: a Ruff config that uses `extend` has a base file that is part of the resolved configuration, and the digest does not cover it. A change of that base file leaves the `config_digest` the same. The plan adds no code for it, because it needs a reader of the `extend` chain in devops-cli, and the choice is a decision of a person (see `design.md`). Group 3 writes the limit into `docs/SELF_IMPROVEMENT.md`.
 
 ## Feasibility
 
