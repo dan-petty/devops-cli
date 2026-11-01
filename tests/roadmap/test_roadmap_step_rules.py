@@ -175,3 +175,21 @@ def test_a_routed_document_that_the_checkout_lacks_adds_no_section(tmp_path: Pat
     assert _headings(rules_sections(tmp_path, _group("tests/test_sample.py"))) == [
         f"# {RULES_HEADING}"
     ]
+
+
+def test_an_agents_md_over_the_cap_is_cut_to_the_cap(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("Rule. " * 40_000, encoding="utf-8")
+
+    [section] = rules_sections(tmp_path, _group())
+
+    assert (
+        count_tokens(section)
+        <= CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS + count_tokens(RULES_HEADING) + 8,
+        TRUNCATED in section,
+    ) == (True, True)
+
+
+def test_an_agents_md_under_the_cap_is_not_cut() -> None:
+    [section, *_] = rules_sections(REPO_ROOT, _group())
+
+    assert TRUNCATED not in section

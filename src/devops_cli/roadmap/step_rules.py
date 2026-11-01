@@ -130,12 +130,16 @@ def routes_for(group: TaskGroup) -> list[Route]:
 
 def rules_sections(source: Path, group: TaskGroup) -> list[str]:
     """The sections of the rules for `group`, each under its heading: `AGENTS.md` of the checkout
-    first, then the routed sections of each document the checkout holds. A checkout with no
-    `AGENTS.md` has no rules, and gives no section."""
+    first, then the routed sections of each document the checkout holds. A text is cut to
+    `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens, so a large file in a branch cannot fill the
+    window. A checkout with no `AGENTS.md` has no rules, and gives no section."""
     agents = source / CONST_AGENTS_MD_FILENAME
     if not agents.is_file():
         return []
-    sections = [f"# {RULES_HEADING}\n\n{agents.read_text(encoding='utf-8').strip()}"]
+    rules = truncate_to_token_limit(
+        agents.read_text(encoding="utf-8").strip(), CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+    )
+    sections = [f"# {RULES_HEADING}\n\n{rules}"]
     for route in routes_for(group):
         text = route_text(source, route)
         if text:

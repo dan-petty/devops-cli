@@ -745,6 +745,7 @@ DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 37
 # recorded draft sends no request; a draft that waits for its checks costs two requests a round.
 DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
+# `AGENTS.md` of the repository and the sections of the documents it routes the group to, the
 # item, the change folder and the packed files of one task group. It leaves most of a 128k
 # window for tool output and the model's turns (#2654).
 DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = 40000

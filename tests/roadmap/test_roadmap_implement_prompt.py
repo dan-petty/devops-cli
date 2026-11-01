@@ -96,3 +96,28 @@ def test_the_scratch_directory_is_the_same_in_the_prompt_and_in_agents_md() -> N
 )
 def test_the_prompt_keeps_the_facts_of_the_runner(kept: str) -> None:
     assert kept in load_task_prompt(PROMPT)
+
+
+def test_the_instructions_of_the_runner_win_over_a_rule_that_conflicts_with_them() -> None:
+    """AGENTS.md describes the work of a person and of the job: branches, commits, pull requests,
+    the archive and the full check. The agent does none of it, so the prompt says which text wins."""
+    prompt = load_task_prompt(PROMPT)
+
+    assert "these instructions win and you ignore that rule" in prompt
+
+
+def test_the_prompt_lists_the_work_that_the_job_does_in_place_of_the_agent() -> None:
+    prompt = load_task_prompt(PROMPT)
+
+    assert [
+        work
+        for work in (
+            "commit",
+            "push",
+            "archive",
+            "pull request",
+            "devops roadmap return",
+            "devops ci",
+        )
+        if work not in prompt.split("Follow them")[1].split("Work in this order")[0]
+    ] == []

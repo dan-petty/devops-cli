@@ -127,7 +127,7 @@ The mark that says who works on an item now: one label of `owner/service`, `owne
 _Avoid_: lock, assignment
 
 **Step**:
-The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the item, the change folder and the packed files of the group.
+The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the `AGENTS.md` of the repository and the routed sections of its documents, the item, the change folder and the packed files of the group.
 _Avoid_: chunk, phase
 
 **Implementing**:
