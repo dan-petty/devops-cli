@@ -2,7 +2,7 @@
 
 ## Decisions
 
-- **Keep the McCabe port in `src/devops_cli/core/code_metrics.py` as the one source of complexity for the two readers.** Ruff is a development dependency, not a runtime dependency. Its JSON output has no field for the figure; the figure is only in the `message` string. The port is one module of the standard library, and `tests/core/test_code_metrics.py` holds it equal to Ruff on 12 samples.
+- **Keep the McCabe port in `src/devops_cli/core/code_metrics.py` as the one source of complexity for the two readers.** Ruff is a development dependency, not a runtime dependency. Its JSON output has no field for the figure; the figure is only in the `message` string. The port is one module of the standard library, and `tests/core/test_code_metrics.py` holds 12 figures that were taken from `ruff check --select C901` with `max-complexity=0`. The test does not run Ruff, so a later change of Ruff counting does not fail it.
 - **State the reason in the module docstring.** The docstring is the place a reader of the code sees first. This design and the archive keep the longer record.
 
 ## Rejected alternatives
