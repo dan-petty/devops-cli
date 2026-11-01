@@ -2996,6 +2996,9 @@ CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER: Final[str] = "License :: "
 CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
 # The longest body, in tokens, that reaches the model with an item.
 CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 4096
+# The class of error that the job records for a reply it refused (#2949): a refusal raises no
+# exception, so it has no class of its own.
+CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR: Final[str] = "RefusedReply"
 # The budget of one step of `devops roadmap implement` (#2664): the model requests and tool calls
 # of its run, the characters of one tool result, and the tokens of the window that the inputs
 # leave to the turns of the run. The window is `ai.tasks.implement.context_window`.

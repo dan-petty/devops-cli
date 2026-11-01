@@ -24,6 +24,14 @@ The check of `devops roadmap alternatives`: which open items it takes and in wha
 - **WHEN** one item is In Progress, one is Blocked, and one was opened by an account with no write access
 - **THEN** the run checks none of them
 
+#### Scenario: An item whose check failed lately
+- **WHEN** item 5 has no check, its last check failed 1 day ago, and `roadmap.alternatives.retry_days` is 3
+- **THEN** the run does not check item 5
+
+#### Scenario: An item whose check failed long ago
+- **WHEN** item 5 has no check, its last check failed 4 days ago, and `roadmap.alternatives.retry_days` is 3
+- **THEN** the run checks item 5 in the order of an item with no check
+
 ### Requirement: One item can be named
 `--item` SHALL check the one item it names whenever it is open, whoever opened it and whatever its Status, and SHALL check no other item.
 
@@ -65,30 +73,34 @@ The job SHALL set `maintained` from the facts that a tool read, and the model SH
 - **THEN** the check records the tool as not maintained
 
 ### Requirement: The job refuses a reply with a source no tool returned
-The job SHALL refuse a reply whose `sources` or `tool_url` cite a URL that no tool returned in this run, and a `covers` or `partly` verdict with no tool, or with a tool whose facts no tool read. It SHALL skip that item and write nothing for it, write the checks of the other items, and then fail with an error that names each skipped item and its reason.
+The job SHALL refuse a reply whose `sources` or `tool_url` cite a URL that no tool returned in this run, and a `covers` or `partly` verdict with no tool, or with a tool whose facts no tool read. It SHALL skip that item and write no check for it, write the checks of the other items, record the failure of the skipped item, and then fail with an error that names each skipped item and its reason only when it wrote no check.
 
 #### Scenario: A made-up URL
-- **WHEN** a reply cites `https://example.com/invented` and no tool returned that URL
-- **THEN** the item is skipped, nothing is written for it, the other items are written, and the error names the item
+- **WHEN** a reply cites `https://example.com/invented` and no tool returned that URL, and the check of another item succeeds
+- **THEN** the item is skipped, no check is written for it, the other item is written, and the run does not fail
 
 #### Scenario: Not-applicable after a tool ran
 - **WHEN** a reply gives the verdict `not-applicable` and the run made a search or a fact read
-- **THEN** the item is skipped with a named reason and nothing is written for it
+- **THEN** the item is skipped with a named reason and no check is written for it
 
 #### Scenario: A model call fails
 - **WHEN** the model call of one item fails and the call of another item succeeds
-- **THEN** the run writes the second item, then fails with an error that names the first
+- **THEN** the run writes the second item and does not fail
 
 #### Scenario: Rejected credentials
 - **WHEN** the model refuses the key on the first item
 - **THEN** the run stops at that item and writes nothing
+
+#### Scenario: Every check fails
+- **WHEN** the model call of each item fails
+- **THEN** the run writes no check, and then fails with an error that names each item and its reason
 
 ### Requirement: A check writes a comment, a block and a record
 With `--confirm`, a check SHALL post one comment with the marker `devops roadmap alternatives`, replace the block `devops-roadmap-alternatives:start` to `:end` in the body, or add it at the end, and record `alternatives.checked_at`, `alternatives.body_hash`, `alternatives.verdict` and `alternatives.tool` in the job record. The check SHALL NOT change a label and SHALL NOT close the issue.
 
 #### Scenario: A marker with no partner
 - **WHEN** the body holds the start marker of the block with no end marker, or the end marker with no start marker before it
-- **THEN** the item is skipped with a named reason, nothing is written for it, and the person's text is not changed
+- **THEN** the item is skipped with a named reason, no comment and no block is written for it, and the person's text is not changed
 
 #### Scenario: Refine ignores the job's writes
 - **WHEN** the job has written its block and its comment on an item that refine left waiting on a person
@@ -172,7 +184,7 @@ The job SHALL add 1 to the counter `devops_cli_roadmap_alternatives_total` with 
 - **THEN** the job writes no check and counts none
 
 ### Requirement: The Service runs the check twice a day
-The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_ROWS`, after `refine`. The row SHALL be due on a first run and every `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` (719) after its last success, and SHALL be due by no webhook hint. It SHALL check at most `roadmap.alternatives.limit` items in a round, and SHALL fail the round, once the other checks are written, when the check of any item failed. `devops roadmap run --dry-run` SHALL list the row when it is due.
+The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_ROWS`, after `refine`. The row SHALL be due on a first run and every `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` (719) after its last success, and SHALL be due by no webhook hint. It SHALL check at most `roadmap.alternatives.limit` items in a round, and SHALL fail the round only when it tried items and checked none. `devops roadmap run --dry-run` SHALL list the row when it is due.
 
 #### Scenario: A first run
 - **WHEN** a round runs on a roadmap whose `schedule.json` holds no success of the row
@@ -192,8 +204,92 @@ The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_RO
 
 #### Scenario: A failed check
 - **WHEN** the model call for one item fails and the call for another succeeds
-- **THEN** the check of the second item is written and the row fails, naming the first
+- **THEN** the check of the second item is written, the failure of the first is recorded, and the row succeeds
+
+#### Scenario: Every check fails
+- **WHEN** the model call for each of 2 items fails
+- **THEN** the failure of each item is recorded and the row fails, naming both
+
+#### Scenario: A round with no item to check
+- **WHEN** every eligible item has a current check or a failure inside its delay
+- **THEN** the row makes no model call and succeeds
 
 #### Scenario: A dry run lists the row
 - **WHEN** `devops roadmap run --dry-run` runs on a roadmap whose rows are all due
 - **THEN** its `Due:` line ends with `alternatives`, after `refine`
+
+### Requirement: A failed check is recorded and tried again later
+`devops roadmap alternatives --confirm` and the row SHALL record each failed check, whether a failed model call, a stopped run or a refused reply, in the job record of its item with `alternatives.failed_at` (the time of the failure) and `alternatives.failed_error` (the class of the error). A written check SHALL clear both keys. The reason of a stopped run SHALL hold the class of the error and its masked message, and the job record SHALL hold no text of the model.
+
+#### Scenario: One of five checks fails
+- **WHEN** the row runs on 5 items without a check and the model call of one item fails
+- **THEN** the round succeeds, 4 checks are written, and the job record of the failed item holds the time of the round and the class `AIClientError`, and the item has no comment and no block
+
+#### Scenario: A stopped run
+- **WHEN** the run of an item stops with `UsageLimitExceeded`
+- **THEN** the job record holds the class `UsageLimitExceeded`, and the reason in the report names the class and the message of the stop
+
+#### Scenario: A retry after the delay
+- **WHEN** the check of an item failed 4 days ago with `roadmap.alternatives.retry_days` at 3, and the next round checks it successfully
+- **THEN** a check is written for the item and `alternatives.failed_at` and `alternatives.failed_error` are cleared
+
+#### Scenario: A retry before the delay
+- **WHEN** the check of an item failed 1 day ago with `roadmap.alternatives.retry_days` at 3, and a round runs
+- **THEN** the round makes no model call for the item and its job record is unchanged
+
+#### Scenario: A plan that is not applied
+- **WHEN** a run only plans the checks and one check fails
+- **THEN** the job record of the item is unchanged
+
+### Requirement: The retry delay is a setting
+The setting `roadmap.alternatives.retry_days` SHALL be an integer of at least 1, default 3, and and the selection SHALL NOT take an item whose last check failed less than that many days ago, unless `--item` names it.
+
+#### Scenario: The default
+- **WHEN** the setting is not set
+- **THEN** it is 3, and a value of 0 is refused
+
+#### Scenario: A longer delay
+- **WHEN** the setting is 7 and the check of an item failed 4 days ago
+- **THEN** the run does not check the item
+
+### Requirement: A skip-class item is not-applicable with no model call
+The check SHALL give the verdict `not-applicable`, with no model call and no search, to an item whose title has the Conventional Commit type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and to an item whose title has the type `fix` and whose body holds the text `Traceback (most recent call last)`. The comment and the block of the body SHALL name the class: the type, or `fix-with-stack-trace`. An item of any other type, and an item with no type, SHALL NOT be a skip class.
+
+#### Scenario: Each type is a skip class
+- **WHEN** the check runs on six items whose titles have the types `test`, `docs`, `refactor`, `chore`, `ci` and `perf`
+- **THEN** each check has the verdict `not-applicable`, each comment names the type, and the model received no request and no search ran
+
+#### Scenario: The base rule of one agent run holds for non-skip items only
+- **WHEN** the check runs on a skip-class item
+- **THEN** no agent run happens for it, and the rule "The check of one item SHALL be one agent run" of the requirement "The agent finds facts with three tools only" holds for an item that is not a skip class
+
+#### Scenario: A fix with a stack trace
+- **WHEN** the check runs on an item titled `fix(roadmap): a crash` whose body holds `Traceback (most recent call last)`
+- **THEN** the check has the verdict `not-applicable`, the comment names `fix-with-stack-trace`, and the model received no request
+
+#### Scenario: A fix with no stack trace
+- **WHEN** the check runs on an item titled `fix(roadmap): a crash` whose body holds no traceback
+- **THEN** the model receives a request for the item
+
+#### Scenario: A type that is no skip class
+- **WHEN** the check runs on items whose titles have the types `feat`, `build` and `style`, and on an item whose title has no type
+- **THEN** the model receives a request for each of them
+
+#### Scenario: A skip class with an unpaired marker
+- **WHEN** the body of a skip-class item holds the start marker of the block with no end marker
+- **THEN** the item is skipped with a named reason and nothing is written for it
+
+### Requirement: A non-skip item needs a search before any verdict
+For an item that is no skip class, the check SHALL refuse a reply that follows no `search_web` call, and SHALL give the model one more turn to search. A second reply that follows no search SHALL end as a failed check: the job skips the item with a named reason and writes nothing for it. The check SHALL refuse a reply with the verdict `not-applicable` from the model, because the job sets that verdict for a skip class only.
+
+#### Scenario: A reply with no search gets one more turn
+- **WHEN** the model answers a `feat` item with the verdict `none` and no search, then searches, then answers with the verdict `none`
+- **THEN** the model received three requests, the check is written with the query of the search, and the counter `devops_cli_firecrawl_searches_total` has a point
+
+#### Scenario: Two replies with no search
+- **WHEN** the model answers a `feat` item twice with a verdict and no search
+- **THEN** the model received two requests, the item is skipped with the reason that the reply gives a verdict with no search, and nothing is written for it
+
+#### Scenario: A not-applicable reply from the model
+- **WHEN** the model searches for a `feat` item and then answers with the verdict `not-applicable`
+- **THEN** the item is skipped with the reason that the job sets `not-applicable` for a skip class only, and nothing is written for it
