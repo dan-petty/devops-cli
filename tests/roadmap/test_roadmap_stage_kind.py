@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.roadmap.stage_change import StageGroup
+from devops_cli.roadmap.stage_change import StageGroup, group_text
 
 BEHAVIOR: dict[str, Any] = {
     "title": "Keep the last comment",
@@ -92,3 +92,93 @@ def test_a_group_that_breaks_two_rules_names_both_in_one_problem() -> None:
 
     assert "has a test" in problem
     assert "has neither verify nor process" in problem
+
+
+# ── The tasks of a kind ───────────────────────────────────────────────────────
+
+# The plans of #2162 (a report, a deletion of test files, a run of CI) as the new kinds hold them.
+REPORT: dict[str, Any] = {
+    **OTHER,
+    "title": "Write the mutation report",
+    "changes": ["openspec/changes/2162-x/mutation-report.md"],
+    "creates": ["openspec/changes/2162-x/mutation-report.md"],
+    "implementation": "Run `uv run devops ci mutate` and write one row for each test file",
+    "verify": None,
+    "process": "Open the report.\nCheck that a row names each of the 18 test files.",
+}
+DELETION_OF_FILES: dict[str, Any] = {
+    **OTHER,
+    "title": "Delete the files with no unique mutant",
+    "changes": ["tests/test_review_history.py"],
+    "implementation": "Delete each test file with no unique mutant in the report",
+    "verify": "uv run devops ci test tests/commands",
+}
+
+
+def _task_lines(*groups: dict[str, Any]) -> list[str]:
+    """The task lines that `group_text` writes for `groups`, numbered from group 1."""
+    text = "\n".join(
+        group_text(index, StageGroup.model_validate(group))
+        for index, group in enumerate(groups, start=1)
+    )
+    return [line for line in text.splitlines() if line.startswith("- [ ] ")]
+
+
+def test_a_deletion_that_keeps_behavior_renders_one_task_with_its_command_and_no_test() -> None:
+    assert _task_lines(OTHER) == [
+        "- [ ] 1.1 Delete `thinking_detected` from `StreamingTokenProcessor`, and verify that "
+        "`! git grep -n -w thinking_detected src/ tests/ docs/` passes"
+    ]
+
+
+def test_the_groups_of_the_mutation_report_plan_render_with_no_contrived_test() -> None:
+    lines = _task_lines(REPORT, DELETION_OF_FILES)
+
+    assert lines == [
+        "- [ ] 1.1 Run `uv run devops ci mutate` and write one row for each test file, and run "
+        "this check by hand: Open the report. Check that a row names each of the 18 test files.",
+        "- [ ] 2.1 Delete each test file with no unique mutant in the report, and verify that "
+        "`uv run devops ci test tests/commands` passes",
+    ]
+
+
+@pytest.mark.parametrize("group", [OTHER, REPORT, DELETION_OF_FILES])
+def test_an_other_group_renders_no_test_and_no_failure_on_the_base(group: dict[str, Any]) -> None:
+    text = group_text(1, StageGroup.model_validate(group))
+
+    assert "fails on the base" not in text
+    assert "test that" not in text
+
+
+def test_a_behavior_group_renders_its_failing_test_first_and_then_its_implementation() -> None:
+    assert _task_lines(BEHAVIOR) == [
+        "- [ ] 1.1 Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`, and "
+        "verify that `uv run devops ci test tests/test_sample.py` fails on the base",
+        "- [ ] 1.2 Keep the last comment in `src/devops_cli/sample.py`, and verify that "
+        "`uv run devops ci test tests/test_sample.py` passes",
+    ]
+
+
+def test_a_group_with_no_documentation_renders_no_documentation_task() -> None:
+    text = group_text(1, StageGroup.model_validate(BEHAVIOR))
+
+    assert "docs generate" not in text
+    assert "Change no document" not in text
+
+
+@pytest.mark.parametrize(
+    ("group", "number"), [(BEHAVIOR, 3), (OTHER, 2)], ids=["behavior", "other"]
+)
+def test_a_group_with_documentation_renders_the_documentation_task_after_its_work(
+    group: dict[str, Any], number: int
+) -> None:
+    documented = {**group, "documentation": "Document the change in `docs/TESTING.md`"}
+
+    lines = _task_lines(documented)
+
+    assert len(lines) == number
+    assert lines[-1] == (
+        f"- [ ] 1.{number} Document the change in `docs/TESTING.md`, run "
+        "`uv run devops docs generate --sync-readme`, and verify that "
+        "`uv run devops ci docs` passes"
+    )

@@ -9,10 +9,10 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `tests/support/builders.py`. Ch
 
 ## 2. A group renders the tasks of its kind
 
-Reads: `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_kind.py`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/__snapshots__/test_roadmap_stage_plan.ambr`.
+Reads: `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_kind.py`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/__snapshots__/test_roadmap_stage_plan.ambr`, `tests/invariants/test_change_folders.py`, `tests/support/builders.py`.
 
-- [ ] 2.1 Write the tests of `group_text` for each kind: the groups of the plans of #2175 (a deletion with a `git grep`) and #2162 (a report, a deletion of files, a full run of CI) render with no test task and no words "fails on the base", a `process` renders its steps, a `behavior` group keeps its failing test, and a group with no `documentation` renders no documentation task. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py` fails on the base
-- [ ] 2.2 Write `group_text` by kind and render the documentation task only when `documentation` is set. Update the snapshot. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py tests/roadmap/test_roadmap_stage_plan.py tests/roadmap/test_roadmap_stage_measure.py tests/invariants/test_change_folders.py` passes
+- [x] 2.1 Write the tests of `group_text` for each kind: the groups of the plans of #2175 (a deletion with a `git grep`) and #2162 (a report, a deletion of files, a full run of CI) render with no test task and no words "fails on the base", a `process` renders its steps, a `behavior` group keeps its failing test, and a group with no `documentation` renders no documentation task. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py` fails on the base
+- [x] 2.2 Write `group_text` by kind and render the documentation task only when `documentation` is set. Update the snapshot. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py tests/roadmap/test_roadmap_stage_plan.py tests/roadmap/test_roadmap_stage_measure.py tests/invariants/test_change_folders.py` passes
 
 ## 3. The prompts follow the kind
 

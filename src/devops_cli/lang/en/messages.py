@@ -2581,6 +2581,12 @@ class RoadmapMessages:
     stage_group_new: str = " (new)"
     stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
+    stage_task_test: str = "{test}, and verify that `{verify}` fails on the base"
+    stage_task_pass: str = "{work}, and verify that `{verify}` passes"
+    stage_task_process: str = "{work}, and run this check by hand: {process}"
+    stage_task_documents: str = (
+        "{work}, run `{command}`, and verify that `uv run devops ci docs` passes"
+    )
     stage_kind_no_test: str = (
         "The group '{title}' has the kind behavior, and it has no test. "
         "Give it the failing test to write first."

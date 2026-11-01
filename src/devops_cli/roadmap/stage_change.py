@@ -406,20 +406,41 @@ def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
     return ", ".join(f"`{p}`{mark if p in created else ''}" for p in paths)
 
 
+def _task_texts(group: StageGroup) -> list[str]:
+    """The tasks of `group` in order, with no number. A `behavior` group starts with its failing
+    test. An `other` group has no test: its work comes first, with the check that proves it. A
+    group that changes a document ends with the task that regenerates the documents."""
+    texts = MESSAGES.roadmap
+    if group.kind is GroupKind.BEHAVIOR:
+        tasks = [
+            texts.stage_task_test.format(test=group.test, verify=group.verify),
+            texts.stage_task_pass.format(work=group.implementation, verify=group.verify),
+        ]
+    elif group.process is not None:
+        tasks = [texts.stage_task_process.format(work=group.implementation, process=group.process)]
+    else:
+        tasks = [texts.stage_task_pass.format(work=group.implementation, verify=group.verify)]
+    if group.documentation is not None:
+        tasks.append(
+            texts.stage_task_documents.format(
+                work=group.documentation, command=_REGENERATE_DOCUMENTS
+            )
+        )
+    return tasks
+
+
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its files, and its three tasks."""
+    """The group as `tasks.md` holds it, numbered `index`: its files, and the tasks of its kind."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
         reads=_paths(group.reads) or texts.stage_group_no_reads,
         changes=_paths(group.changes, group.creates),
     )
-    return (
-        f"## {index}. {group.title}\n\n{files}\n\n"
-        f"- [ ] {index}.1 {group.test}, and verify that `{group.verify}` fails on the base\n"
-        f"- [ ] {index}.2 {group.implementation}, and verify that `{group.verify}` passes\n"
-        f"- [ ] {index}.3 {group.documentation}, "
-        f"run `{_REGENERATE_DOCUMENTS}`, and verify that `uv run devops ci docs` passes\n"
+    tasks = "".join(
+        f"- [ ] {index}.{number} {task}\n"
+        for number, task in enumerate(_task_texts(group), start=1)
     )
+    return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
 
 
 def _tasks_file(groups: Sequence[StageGroup]) -> str:

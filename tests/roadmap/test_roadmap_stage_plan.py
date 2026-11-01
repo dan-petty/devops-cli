@@ -419,7 +419,7 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
     group = _group(
         test="Write the test.",
         implementation="Keep the last comment. .",
-        documentation="Change no document.",
+        documentation="Document the fix in `docs/TESTING.md`.",
     )
 
     tasks = _tasks_of(group).partition("## Workflow follow-up")[0]
@@ -431,7 +431,8 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
         "fails on the base",
         "- [ ] 1.2 Keep the last comment, and verify that "
         "`uv run devops ci test tests/test_sample.py` passes",
-        "- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and "
+        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, run "
+        "`uv run devops docs generate --sync-readme`, and "
         "verify that `uv run devops ci docs` passes",
     ]
 
