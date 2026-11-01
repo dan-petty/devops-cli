@@ -2571,6 +2571,21 @@ class RoadmapMessages:
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
+    stage_problem_path: str = (
+        "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
+        "group up to group {group} creates it. {hint} Name a file that exists, or make the group "
+        "that creates it list it in `creates`."
+    )
+    stage_path_same_name: str = "These files have the same name: {names}."
+    stage_path_no_same_name: str = "No file has this name."
+    stage_path_places: dict[str, str] = field(
+        default_factory=lambda: {
+            "reads": "`reads`",
+            "changes": "`changes`",
+            "task": "a task",
+            "verify": "`verify`",
+        }
+    )
     stage_impact_line: str = "{kind}: {paths}"
     stage_impact_code: str = "Code"
     stage_impact_documents: str = "Documents"

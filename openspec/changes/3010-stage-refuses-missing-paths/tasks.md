@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/step_files.py`. Changes: `src/devops_cli/roadmap/stage_paths.py` (new), `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_paths.py` (new).
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_stage_paths.py` for the scenarios of "The plan names files that exist at the staged commit": a moved test file, a created path of the same and of an earlier group, a path in a task code span and in `verify`, a folder, a glob, a location suffix, and the words that are no path; and a replay of the groups of the plans of #2260, #2162 and #2116
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_stage_paths.py` for the scenarios of "The plan names files that exist at the staged commit": a moved test file, a created path of the same and of an earlier group, a path in a task code span and in `verify`, a folder, a glob, a location suffix, and the words that are no path; and a replay of the groups of the plans of #2260, #2162 and #2116
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` fails on the base
-- [ ] 1.2 Add `StagedTree` and `path_problems` in `src/devops_cli/roadmap/stage_paths.py`, `code_spans` in `src/devops_cli/roadmap/step_files.py`, and the problem messages
+- [x] 1.2 Add `StagedTree` and `path_problems` in `src/devops_cli/roadmap/stage_paths.py`, `code_spans` in `src/devops_cli/roadmap/step_files.py`, and the problem messages
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` passes
 
 ## 2. Return a plan with a missing path, and stop at the second
