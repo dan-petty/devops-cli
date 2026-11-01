@@ -38,6 +38,15 @@ class ArgoCDApp(BaseModel):
         source = spec.get("source", {})
         if not isinstance(source, dict):
             source = {}
+
+        # Fallback to spec.sources[0].repoURL if spec.source.repoURL is not set
+        if not source.get("repoURL"):
+            sources = spec.get("sources")
+            if isinstance(sources, list) and sources:
+                first_source = sources[0]
+                if isinstance(first_source, dict):
+                    source = first_source
+
         return cls(
             name=str(meta.get("name", "")),
             project=str(spec.get("project", "")),
@@ -154,6 +163,18 @@ class ArgoResourceState(BaseModel):
         spec = _section(manifest, "spec")
         status = _section(manifest, "status")
         sync = _section(status, "sync")
+
+        # Get source section
+        source = _section(spec, "source")
+
+        # Fallback to spec.sources[0].repoURL if spec.source.repoURL is not set
+        if not source.get("repoURL"):
+            sources = spec.get("sources")
+            if isinstance(sources, list) and sources:
+                first_source = sources[0]
+                if isinstance(first_source, dict):
+                    source = first_source
+
         return cls(
             name=str(meta.get("name", "")),
             namespace=str(meta.get("namespace", "")),
@@ -162,7 +183,7 @@ class ArgoResourceState(BaseModel):
             sync_status=str(sync.get("status", "Unknown")),
             health_status=str(_section(status, "health").get("status", "Unknown")),
             revision=str(sync.get("revision", ""))[:8],
-            repo_url=str(_section(spec, "source").get("repoURL", "")),
+            repo_url=str(source.get("repoURL", "")),
             created_at=str(meta.get("creationTimestamp", "")),
         )
 
