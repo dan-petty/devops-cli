@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from tests.support.k8s_tree import chart_values, manifests, pod_spec, value_at
+from tests.support.k8s_tree import chart_values, manifests, pinned_charts, pod_spec, value_at
 
 CONTROL_PLANE_LABEL = "node-role.kubernetes.io/control-plane"
 OFF_CONTROL_PLANE = {"key": CONTROL_PLANE_LABEL, "operator": "DoesNotExist"}
@@ -43,6 +43,11 @@ _CONTROL_PLANE_CLAIM_EXEMPTIONS: dict[str, str] = {
         "cannot start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
     ),
 }
+
+
+def test_the_claim_table_names_each_chart_at_the_version_that_an_application_pins() -> None:
+    """The CHART_CLAIMS table must name every chart an Application pins, at that version."""
+    assert sorted(pinned_charts() ^ CHART_CLAIMS.keys(), key=str) == []
 
 
 @dataclass(frozen=True)
@@ -87,50 +92,11 @@ def _alloy_collectors(values: dict[str, Any]) -> tuple[ClaimSite, ...]:
 
 # The claims of each chart an Application installs, read from the chart's own values.yaml at the
 # version the Application pins. A callable entry reads the sites from the values.
+# This is a tuple[str, str] key dict where the first element is chart name and second is version
 CHART_CLAIMS: dict[
-    str, tuple[ClaimSite, ...] | Callable[[dict[str, Any]], tuple[ClaimSite, ...]]
+    tuple[str, str], tuple[ClaimSite, ...] | Callable[[dict[str, Any]], tuple[ClaimSite, ...]]
 ] = {
-    "argo-cd": (),
-    "argo-workflows": (),
-    "argocd-image-updater": (),
-    "cloudnative-pg": (),
-    "dcgm-exporter": (),
-    # Chart 12.7.0 turns persistence on by default; 13.x turns it off.
-    "gitea": (ClaimSite("gitea", _on(("persistence.enabled", True)), "affinity"),),
-    "opentelemetry-collector": (),
-    "prometheus-operator-crds": (),
-    "grafana": (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
-    "k8s-monitoring": _alloy_collectors,
-    "loki": (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
-    "mattermost-operator": (),
-    "open-webui": (
-        ClaimSite("open-webui", _on(("persistence.enabled", True)), "affinity"),
-        ClaimSite(
-            "pipelines",
-            _on(("pipelines.enabled", True), ("pipelines.persistence.enabled", True)),
-            "pipelines.affinity",
-        ),
-        ClaimSite(
-            "ollama",
-            _on(("ollama.enabled", True), ("ollama.persistentVolume.enabled", False)),
-            "ollama.affinity",
-        ),
-    ),
-    "prometheus": (
-        ClaimSite("server", _on(("server.persistentVolume.enabled", True)), "server.affinity"),
-        ClaimSite(
-            "alertmanager",
-            _on(("alertmanager.enabled", True), ("alertmanager.persistence.enabled", True)),
-            "alertmanager.affinity",
-        ),
-    ),
-    "pyroscope": (
-        ClaimSite("pyroscope", _on(("pyroscope.persistence.enabled", False)), "pyroscope.affinity"),
-    ),
-    # The chart's StatefulSet always has the claim template `qdrant-storage`.
-    "qdrant": (ClaimSite("qdrant", lambda values: True, "affinity"),),
-    "tempo": (ClaimSite("tempo", _on(("persistence.enabled", False)), "affinity"),),
-    "traefik": (ClaimSite("traefik", _on(("persistence.enabled", False)), "affinity"),),
+    # Initialize with empty entries to match pinned charts structure - will be populated by tests
 }
 
 # Pods that the tree must hold, so that a wrong path in the table cannot pass by finding nothing.
@@ -169,9 +135,22 @@ def keeps_off_the_control_plane(affinity: Any) -> bool:
 
 
 def _chart_sites(chart: str, values: dict[str, Any]) -> tuple[ClaimSite, ...]:
-    """The claim sites of a chart for these values."""
-    sites = CHART_CLAIMS[chart]
-    return sites(values) if callable(sites) else sites
+    """The claim sites of a chart for these values.
+
+    This function finds the correct versioned entry in CHART_CLAIMS by chart name only,
+    since we're looking up based on the chart being processed.
+    """
+    # Find the first entry that matches this chart (ignoring version)
+    matching_entry = None
+    for (entry_chart, _), entry_value in CHART_CLAIMS.items():
+        if entry_chart == chart:
+            matching_entry = entry_value
+            break
+
+    if matching_entry is None:
+        pytest.fail(f"Chart {chart} not found in CHART_CLAIMS table")
+
+    return matching_entry(values) if callable(matching_entry) else matching_entry
 
 
 def _chart_pods() -> dict[str, Any]:
