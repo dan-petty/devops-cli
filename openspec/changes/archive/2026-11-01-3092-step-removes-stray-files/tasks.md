@@ -31,9 +31,9 @@ Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_
 
 ## 4. Fail-to-pass and archive
 
-- [ ] 4.1 Run the fail-to-pass check on the new tests
+- [x] 4.1 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] 4.2 Archive the change
+- [x] 4.2 Archive the change
   - Verification: `uv run devops openspec archive 3092-step-removes-stray-files` and `uv run devops openspec check`
 
 ## Workflow follow-up
