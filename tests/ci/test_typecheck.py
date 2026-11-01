@@ -42,3 +42,19 @@ def test_a_changed_python_file_below_a_path_of_the_gate_is_checked(root: str) ->
 
 def test_a_test_file_and_a_document_are_not_checked() -> None:
     assert typecheck_files(["tests/x.py", "docs/y.md", "z.py", "openspec/changes/a/tasks.md"]) == []
+
+
+def test_the_live_stop_paths_of_3090_keep_the_source_files_and_drop_the_test_files() -> None:
+    stops = [
+        "tests/security/test_scanner_tool_executor.py",
+        "tests/support/fakes/process.py",
+        "tests/core/test_process.py",
+    ]
+    sources = [
+        "src/devops_cli/github/app_installation.py",
+        "src/devops_cli/lang/en/errors.py",
+        "src/devops_cli/core/process.py",
+    ]
+
+    assert typecheck_files(stops) == []
+    assert typecheck_files([*stops, *sources]) == sources
