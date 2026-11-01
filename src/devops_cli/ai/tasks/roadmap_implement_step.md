@@ -27,7 +27,7 @@ Keep these rules of the project:
 
 You have tools to read, search, write and edit files, and a shell. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass. The job formats the changed Python files after your run, so do not run `ruff format`. `ruff check` still runs on every changed Python file. `mypy` runs with the options of `devops ci` (`--strict`) on the changed files under `src/` only, as the gate does. It runs no type check on a test file. If `ruff check` or `mypy` reports an error, you get one more turn with the text of the error. In that turn, change only files that you changed. If an error stays after that turn, the step stops and all your work is lost. You can run both with `uv run` before you finish.
 
-The shell runs only the programs of this table. A program with access `read` changes no file. `find` refuses some arguments, and the refusal tells you what to run instead.
+The shell runs only the programs of this table. A program with access `read` changes no file, and the shell refuses a redirect to a file for it (`>` and `>>`; `2>&1` and `>/dev/null` run). To change a file, use `write_file` or `edit_file`. `find` refuses some arguments and any word with `$`, and the refusal tells you what to run instead.
 
 {{shell_programs}}
 

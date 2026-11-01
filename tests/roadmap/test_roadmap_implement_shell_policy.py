@@ -126,6 +126,74 @@ def test_a_command_with_no_refused_argument_passes_the_argument_check(command: s
     assert refused_argument(command) is None
 
 
+REDIRECTS = [
+    ("grep -rn x src > out.txt", ">"),
+    ("cat a >> b", ">>"),
+    ("ls > f", ">"),
+    ("head -n 5 README.md >f", ">"),
+    ("tail README.md 2> err.txt", ">"),
+    ("ls >&f", ">&"),
+]
+
+
+@pytest.mark.parametrize(("command", "operator"), REDIRECTS)
+def test_a_read_only_program_with_a_redirect_to_a_file_is_refused(
+    command: str, operator: str
+) -> None:
+    found = refused_argument(command)
+
+    assert found is not None
+    assert (found[0].access, found[1]) == (ShellAccess.READ, operator)
+    assert "write_file" in found[0].argument_instead
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -rn x src 2>&1",
+        "ls src >/dev/null",
+        "ls src 2>/dev/null",
+        "cat a >&2",
+        "grep -e '->' src",
+        "cat < README.md",
+    ],
+)
+def test_a_redirect_to_a_stream_or_to_the_null_device_passes_the_argument_check(
+    command: str,
+) -> None:
+    assert refused_argument(command) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "find . -ex${U}ec echo RAN {} +",
+        "find . -fpr${U}int out.txt",
+        "find . -name a -del${U}ete",
+        "find . -name a -del$IFS",
+        "find . $X",
+    ],
+)
+def test_find_with_a_shell_expansion_is_refused(command: str) -> None:
+    found = refused_argument(command)
+
+    assert found is not None
+    assert (found[0].name, "$" in found[1]) == ("find", True)
+
+
+def test_find_with_a_redirect_to_a_file_is_refused() -> None:
+    found = refused_argument("find . -name a > out.txt")
+
+    assert found is not None
+    assert (found[0].name, found[1]) == ("find", ">")
+
+
+def test_a_program_that_writes_may_redirect() -> None:
+    assert (
+        refused_argument("uv run devops ci test tests/a.py > .data/agent/scratch/out.txt") is None
+    )
+
+
 # ── The guard ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -200,6 +268,27 @@ def test_a_read_only_program_reaches_the_process_edge_and_returns_its_output(
     (answer,) = script.tool_answers()
     assert "not in the allowed list" not in answer
     assert [text for text in started if command in text] != []
+
+
+@pytest.mark.parametrize(
+    "command", ["grep -rn x src > out.txt", "cat a >> b", "ls > f", "find . -ex${U}ec echo {} +"]
+)
+def test_a_redirect_or_an_expansion_gives_a_refusal_and_starts_no_process(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    started: list[str],
+    command: str,
+) -> None:
+    script = ModelScript(tool_call("shell", command=command), say("Done."))
+
+    _step(store, checkout, script)
+
+    (answer,) = script.tool_answers()
+    assert ("does not allow" in answer, [text for text in started if command in text]) == (
+        True,
+        [],
+    )
 
 
 # ── The prompt and the documents read the table ───────────────────────────────────────────

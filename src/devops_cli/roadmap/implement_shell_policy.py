@@ -9,8 +9,9 @@ prompt of the step and `docs/ROADMAP_WORKFLOW.md` all read these two tables, and
 one of them differs.
 
 The shell of the harness reads the first word of a command only. `refused_argument` reads the
-words of a command that starts a program of the table, so the read-only `find` can refuse the
-arguments that run a program or change a file.
+words of a command that starts a program of the table. A program with access `read` changes no
+file, so it refuses a redirect to a file. `find` also refuses the arguments that run a program or
+change a file, and refuses a word with `$`, because the shell expands `-ex${U}ec` after the check.
 """
 
 from __future__ import annotations
@@ -60,6 +61,9 @@ class ShellRefusal:
     instead: str
 
 
+_READ_INSTEAD = (
+    "This program only reads. To change a file, use the tools `write_file` and `edit_file`."
+)
 _FIND_INSTEAD = (
     "Use `find` to list paths only. To change a file, use the tools `write_file` and `edit_file`."
 )
@@ -71,11 +75,17 @@ SHELL_PROGRAMS: tuple[ShellProgram, ...] = (
     ShellProgram(BIN_UV, ShellAccess.NETWORK, "Run the commands of the project: `uv run ...`."),
     ShellProgram(BIN_RUFF, ShellAccess.WRITE, "Check the style of Python files."),
     ShellProgram(BIN_MYPY, ShellAccess.WRITE, "Check the types of Python files."),
-    ShellProgram("grep", ShellAccess.READ, "Search the text of files."),
-    ShellProgram("cat", ShellAccess.READ, "Print files."),
-    ShellProgram("ls", ShellAccess.READ, "List a directory."),
-    ShellProgram("head", ShellAccess.READ, "Print the start of a file."),
-    ShellProgram("tail", ShellAccess.READ, "Print the end of a file."),
+    ShellProgram(
+        "grep", ShellAccess.READ, "Search the text of files.", argument_instead=_READ_INSTEAD
+    ),
+    ShellProgram("cat", ShellAccess.READ, "Print files.", argument_instead=_READ_INSTEAD),
+    ShellProgram("ls", ShellAccess.READ, "List a directory.", argument_instead=_READ_INSTEAD),
+    ShellProgram(
+        "head", ShellAccess.READ, "Print the start of a file.", argument_instead=_READ_INSTEAD
+    ),
+    ShellProgram(
+        "tail", ShellAccess.READ, "Print the end of a file.", argument_instead=_READ_INSTEAD
+    ),
     ShellProgram(
         BIN_FIND,
         ShellAccess.READ,
@@ -121,21 +131,57 @@ PROGRAMS_PLACEHOLDER = "{{shell_programs}}"
 REFUSALS_PLACEHOLDER = "{{shell_refusals}}"
 
 
-def refused_argument(command: str) -> tuple[ShellProgram, str] | None:
-    """The program and the argument that make the shell refuse `command`, or None. A command that
-    `shlex` cannot read, or whose first word is not a program of the table, has none: the shell
-    handles those."""
+# The tokens of a redirect that writes a file. A target of `/dev/null` is allowed, and so is a
+# copy of a stream (`2>&1`, `>&2`).
+_FILE_REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
+_NULL_DEVICE = "/dev/null"
+
+
+def _words(command: str) -> list[str] | None:
+    """The words of `command`, with a redirect operator as a word of its own, or None when the text
+    cannot be read."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
     try:
-        words = shlex.split(command)
+        return list(lexer)
     except ValueError:
         return None
+
+
+def _file_redirect(words: list[str]) -> str | None:
+    """The first redirect of `words` that writes a file, or None."""
+    for word, target in zip(words, [*words[1:], ""], strict=True):
+        if word in _FILE_REDIRECTS and target != _NULL_DEVICE:
+            return word
+        if word == ">&" and target != _NULL_DEVICE and not (target.isdigit() or target == "-"):
+            return word
+    return None
+
+
+def _refused_word(program: ShellProgram, words: list[str]) -> str | None:
+    """The first word of `words` that `program` refuses, or None."""
+    if program.access is ShellAccess.READ and (redirect := _file_redirect(words)) is not None:
+        return redirect
+    if not program.refused_arguments:
+        return None
+    return next(
+        (w for w in words[1:] if w in program.refused_arguments or "$" in w),
+        None,
+    )
+
+
+def refused_argument(command: str) -> tuple[ShellProgram, str] | None:
+    """The program and the word that make the shell refuse `command`, or None. A command that
+    `shlex` cannot read, or whose first word is not a program of the table, has none: the shell
+    handles those."""
+    words = _words(command)
     if not words:
         return None
     program = next((p for p in SHELL_PROGRAMS if p.name == words[0]), None)
     if program is None:
         return None
-    argument = next((word for word in words[1:] if word in program.refused_arguments), None)
-    return None if argument is None else (program, argument)
+    word = _refused_word(program, words)
+    return None if word is None else (program, word)
 
 
 def programs_table() -> str:
