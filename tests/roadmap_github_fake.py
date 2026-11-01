@@ -18,6 +18,7 @@ import json
 import subprocess
 import time
 from collections.abc import Callable, Iterable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -64,6 +65,8 @@ class GitHubFake:
         self.events = list(events)
         self.commits = set(commits)
         self.issues: dict[int, dict[str, Any]] = {}
+        self.pulls: dict[int, dict[str, Any]] = {}
+        self.label_catalog: list[dict[str, Any]] = []
         self.comments: dict[int, list[str]] = {}
         self.repositories: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
         self.calls: list[list[str]] = []
@@ -85,6 +88,7 @@ class GitHubFake:
         parent_repo: str | None = None,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        updated_at: datetime | None = None,
     ) -> None:
         """Issue `number` with `labels` and `body`, which may hold a record block. It has
         `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`. It is
@@ -109,6 +113,7 @@ class GitHubFake:
             "node_id": f"I_{number}",
             "author_association": author_association,
             "created_at": "2026-10-01T00:00:00Z",
+            "updated_at": _wire(updated_at or datetime(2026, 10, 2, tzinfo=UTC)),
             "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},
         }
         if pull_request:
@@ -116,6 +121,33 @@ class GitHubFake:
                 "url": f"https://api.github.com/repos/{self.repo}/pulls/{number}",
                 "html_url": f"https://github.com/{self.repo}/pull/{number}",
             }
+
+    def seed_pull(
+        self,
+        number: int,
+        title: str = "",
+        *,
+        head_ref: str,
+        draft: bool = False,
+        state: str = "open",
+        updated_at: datetime | None = None,
+    ) -> None:
+        """Pull request `number` on branch `head_ref`: its issue, and its entry in the pull
+        request listing."""
+        self.seed_issue(number, title, state=state, pull_request=True, updated_at=updated_at)
+        self.pulls[number] = {
+            "number": number,
+            "title": title or f"Pull request {number}",
+            "html_url": f"https://github.com/{self.repo}/pull/{number}",
+            "state": state,
+            "draft": draft,
+            "head": {"ref": head_ref, "sha": "0" * 40},
+            "updated_at": self.issues[number]["updated_at"],
+        }
+
+    def seed_label(self, name: str, color: str, description: str | None = "") -> None:
+        """A label of the repository; GitHub gives a missing description as null."""
+        self.label_catalog.append({"name": name, "color": color, "description": description})
 
     def seed_repository(
         self, repository: dict[str, Any], release: dict[str, Any] | None = None
@@ -300,10 +332,26 @@ class GitHubFake:
             return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
         if parts[0] == "milestones":
             return self.milestones if page == 1 else []
+        if parts[0] in ("pulls", "labels"):
+            return self._catalog(parts[0], query, page)
         if parts == ["issues"]:
             labels = [arg.split("=", 1)[1] for arg in args if arg.startswith("labels[]=")]
             return self._issues(method, query, fields | {"labels": json.dumps(labels)}, page)
         return self._issue_route(method, int(parts[1]), parts[2:], fields, page, stdin)
+
+    def _catalog(self, kind: str, query: dict[str, str], page: int) -> list[dict[str, Any]]:
+        """A page of the pull request listing, the open ones by default, or of the labels."""
+        listed = (
+            list(self.label_catalog)
+            if kind == "labels"
+            else [
+                pull
+                for pull in self.pulls.values()
+                if query.get("state", "open") in ("all", pull["state"])
+            ]
+        )
+        per_page = int(query.get("per_page", "30"))
+        return listed[(page - 1) * per_page : page * per_page]
 
     def _issues(self, method: str, query: dict[str, str], fields: dict[str, str], page: int) -> Any:
         if method == "POST":
@@ -385,3 +433,8 @@ class GitHubFake:
         if milestone == "none":
             return held is None
         return held is not None and str(held["number"]) == milestone
+
+
+def _wire(moment: datetime) -> str:
+    """A moment as GitHub writes it in a payload."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

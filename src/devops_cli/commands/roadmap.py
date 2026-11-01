@@ -1,7 +1,8 @@
 """`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
 refine readies items, stage makes a Ready item Staged, implement takes a Staged or Planned item
 to a ready pull request, return sends an item back to New, claim and release say who works
-on an item, and explain says why the stage job and the implement job take an item or leave it out.
+on an item, explain says why the stage job and the implement job take an item or leave it out, and
+inbox lists what waits for a person.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
@@ -9,7 +10,8 @@ and their fields, and no command reads or writes a project board (ADR 0016). Int
 `release` write GitHub state only with `--confirm`; `stage` and `implement` also write git, only to
 the staged branch of an item and never to the default branch. `implement --confirm` runs steps only
 in a runner pod. Outside one, `implement --item <n> --confirm` starts the runner Job for the item
-(#2913). `explain` reads GitHub and git, calls no model and writes nothing. A person plans the
+(#2913). `explain` reads GitHub and git, and `inbox` reads GitHub only. Both call no model and
+write nothing. A person plans the
 milestones; no command sets one.
 
 Every job's `--dry-run` makes no request at all (#412, #1125): it returns the job's result type
@@ -779,6 +781,29 @@ def explain_cmd(
             implement_limit=limit,
         )
     write_stdout(render_explanation(explained) + "\n")
+
+
+@app.command("inbox", help=HELP.roadmap.inbox)
+@dry_run_class("request-plan")
+def inbox_cmd(
+    repo: RepoOption = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.inbox_dry_run)] = False,
+) -> None:
+    """List what waits for a person, each line with its age and the step that clears it."""
+    from datetime import UTC, datetime
+
+    from devops_cli.roadmap.inbox import read_inbox, render_inbox
+    from devops_cli.roadmap.request_plan import inbox_requests
+
+    target = _target(repo)
+    if dry_run or is_dry_run():
+        reads, writes = inbox_requests(target)
+        render_dry_run("inbox", target, reads, writes)
+        return
+    with _exit_on_failure("Could not read the inbox"):
+        _, store = _open_store(target)
+        inbox = read_inbox(store, repo=target, now=datetime.now(UTC))
+    write_stdout(render_inbox(inbox, repo=target) + "\n")
 
 
 def _resolve_comment(comment: str, comment_file: Path | None) -> str:

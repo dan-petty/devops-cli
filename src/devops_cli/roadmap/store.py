@@ -253,7 +253,8 @@ class Item(BaseModel):
     judge an Item by its text without a read of each issue. `author_association` is the
     author's relation to the repository, as on `IssueRecord`: a refine round refines only an
     Item that the owner, a member or a collaborator opened (#2478). `sub_issues` is how many
-    sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker.
+    sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker. `updated_at` is
+    when the issue last changed, as on `IssueRecord`.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -268,6 +269,7 @@ class Item(BaseModel):
     milestone: str | None = None
     author_association: str | None = None
     sub_issues: int = 0
+    updated_at: datetime | None = None
     status: str | None = None
     priority: str | None = None
     value: str | None = None
@@ -377,6 +379,32 @@ class RepositoryFacts(BaseModel):
     stars: int = 0
     latest_release: str | None = None
     released_at: datetime | None = None
+
+
+class OpenPull(BaseModel):
+    """An open pull request of this repository, as the pull request listing gives it (#2915):
+    its branch, whether it is a draft, and when it last changed. A push, a comment and a label
+    each move `updated_at`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int
+    title: str
+    url: str
+    head_ref: str
+    draft: bool = False
+    updated_at: datetime
+
+
+class RepositoryLabel(BaseModel):
+    """A label that the repository holds on GitHub: its name, color and description (#2915). A
+    label with no description has an empty one."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    color: str = ""
+    description: str = ""
 
 
 class Evidence(BaseModel):
@@ -701,6 +729,16 @@ class RoadmapStore(Protocol):
 
     def backlog(self) -> list[Item]:
         """The open Items in no milestone."""
+
+    def open_items(self) -> list[Item]:
+        """The open Items, in every milestone or none. It reads the open issues only, so its cost
+        does not grow with the closed ones (#2915)."""
+
+    def open_pulls(self) -> list[OpenPull]:
+        """The open pull requests, with their branches and draft state (#2915)."""
+
+    def repository_labels(self) -> list[RepositoryLabel]:
+        """The labels the repository holds on GitHub (#2915)."""
 
     def candidates(self) -> list[Candidate]:
         """The open issues of the repository that hold no Priority."""
