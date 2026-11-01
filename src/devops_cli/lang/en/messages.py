@@ -2424,10 +2424,6 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
-    stage_comment_missing: str = (
-        "\n\nThese paths of the plan are no file on the default branch, and no group creates "
-        "them: {paths}. A person checks that the plan names them right."
-    )
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."

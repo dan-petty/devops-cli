@@ -3,7 +3,8 @@ change it renders, and the measure of each task group against the step budget.
 
 The reply is one `StageProposal`. `check_proposal` finds what the rules of `openspec/config.yaml`
 ask and a schema cannot say: a Purpose on a new capability, a MODIFIED requirement only on a
-capability that exists, and a spec delta only when the change is observable. `render_change`
+capability that exists, a spec delta only when the change is observable, and a path that is a file
+of the staged commit or that a group creates (`stage_paths`). `render_change`
 turns the reply into the files of `openspec/changes/<issue>-<slug>/`. `measure_groups` counts the
 inputs of one implementation step for each group with tiktoken. It counts the files that the tasks
 of the group name, each packed as the step packs it (`step_files`), so a group costs what its step
@@ -33,11 +34,11 @@ from pydantic import (
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
 from devops_cli.core.paths import safe_resolve_subpath
-from devops_cli.exceptions import SecurityError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.refine import sanitize_text
+from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 
 # The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming): the part
@@ -214,9 +215,10 @@ def _spec_problems(spec: StageSpec, known: Collection[str]) -> list[str]:
     return problems
 
 
-def check_proposal(proposal: StageProposal, known: Collection[str]) -> list[str]:
-    """What the rules of `openspec/config.yaml` find wrong in `proposal`, one sentence each.
-    `known` holds the names of the capabilities under `openspec/specs/`."""
+def check_proposal(proposal: StageProposal, known: Collection[str], tree: StagedTree) -> list[str]:
+    """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
+    `proposal`, one sentence each. `known` holds the names of the capabilities under
+    `openspec/specs/`, and `tree` the files that exist when the change is written."""
     texts = MESSAGES.roadmap
     problems: list[str] = []
     if proposal.skip_specs and proposal.specs:
@@ -225,6 +227,7 @@ def check_proposal(proposal: StageProposal, known: Collection[str]) -> list[str]
         problems.append(texts.stage_problem_no_specs)
     for spec in proposal.specs:
         problems.extend(_spec_problems(spec, known))
+    problems.extend(path_problems(proposal.groups, tree))
     return problems
 
 
@@ -431,15 +434,6 @@ class MeasuredGroup:
     tokens: int
 
 
-def _file_at(root: Path, path: str) -> Path | None:
-    """The file at `path` under `root`, or None when `path` leaves `root` or holds no file."""
-    try:
-        found = safe_resolve_subpath(root, path)
-    except SecurityError:
-        return None
-    return found if found.is_file() else None
-
-
 def _read_tokens(root: Path, text: str) -> int:
     """The tokens of the files that the step of the group `text` reads under `root`: the files
     that its tasks name, each packed as the step packs it (`step_files`). The step ignores a file
@@ -449,14 +443,6 @@ def _read_tokens(root: Path, text: str) -> int:
         for group in parse_task_groups(text)
         for path in named_files(root, group)
     )
-
-
-def missing_paths(root: Path, groups: Sequence[StageGroup]) -> tuple[str, ...]:
-    """The paths that the groups change, each once, that hold no file under `root` and that no
-    group creates: a person checks them, as a new file the model did not mark looks the same."""
-    created = {path for group in groups for path in group.creates}
-    changed = dict.fromkeys(path for group in groups for path in group.changes)
-    return tuple(path for path in changed if path not in created and _file_at(root, path) is None)
 
 
 def measure_groups(

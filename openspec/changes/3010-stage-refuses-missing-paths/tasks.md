@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/step_fi
 
 Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_apply.py`, `tests/support/roadmap_stage.py`.
 
-- [ ] 2.1 Write failing tests in `tests/roadmap/test_roadmap_stage_plan.py` for a first reply with a missing path (the model gets the problem with the same-name file and the second reply is staged), a second reply with the same path (the item fails and no draft opens), and a split reply with a missing path; change `tests/roadmap/test_roadmap_stage_apply.py` so the comment holds no line about a missing path
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_stage_plan.py` for a first reply with a missing path (the model gets the problem with the same-name file and the second reply is staged), a second reply with the same path (the item fails and no draft opens), and a split reply with a missing path; change `tests/roadmap/test_roadmap_stage_apply.py` so the comment holds no line about a missing path
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py tests/roadmap/test_roadmap_stage_apply.py` fails on the base
-- [ ] 2.2 Pass the tree to `check_proposal`, read it once in `plan_stage`, check the groups again after a split, and delete `missing_paths`, `StagedChange.missing`, `_notes` and `stage_comment_missing`; make `heavy_group` commit its files
+- [x] 2.2 Pass the tree to `check_proposal`, read it once in `plan_stage`, check the groups again after a split, and delete `missing_paths`, `StagedChange.missing`, `_notes` and `stage_comment_missing`; make `heavy_group` commit its files
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py tests/roadmap/test_roadmap_stage_apply.py tests/roadmap/test_roadmap_stage_measure.py tests/roadmap/test_roadmap_stage_job.py`
 
 ## 3. List the read in the dry run
