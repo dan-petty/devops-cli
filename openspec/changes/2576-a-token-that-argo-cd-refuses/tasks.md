@@ -43,4 +43,4 @@ Reads: `src/devops_cli/commands/argo.py` (lines 217-262, `cd_apps_list`, and lin
 
 ## Workflow follow-up
 
-- Not done: `devops argo fleet sync`, `devops argo sync` and `devops argo gitops sync` read the same stored token (`src/devops_cli/argo/fleet.py` line 52 and `src/devops_cli/argo/gitops.py` line 394) and do not retry on HTTP 401. The issue names the `devops argo cd apps` commands only. These three report an error as a failed target or a failed result, with no traceback. They need a follow-up issue that applies `argocd_api_request` to them.
+- Not done: `devops argo fleet sync` (and `devops argo sync --fleet`, which calls it) and `devops argo gitops sync` read the same stored token (`src/devops_cli/argo/fleet.py` line 52 and `src/devops_cli/argo/gitops.py` line 394) and do not retry on HTTP 401. The issue names the `devops argo cd apps` commands only. These callers report an error as a failed target or a failed result, with no traceback. They need a follow-up issue that applies `argocd_api_request` to them. `devops argo sync <name>` without `--fleet` runs `cd_apps_sync` and gets the retry from group 2.
