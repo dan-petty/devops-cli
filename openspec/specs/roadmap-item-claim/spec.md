@@ -78,7 +78,7 @@ The `implement` row of the Service SHALL set `owner/service` in the write that r
 - **THEN** the Item keeps `owner/human`
 
 ### Requirement: A claim of a person or an agent ends the Job at the next group boundary
-The implement job SHALL read the Item before each unticked task group, when a step stops, and before the push. When the Item holds `owner/agent` or `owner/human`, the job SHALL end the Item at once: it SHALL push nothing, open no pull request, comment the owner and the boundary, and change neither the Status nor the owner. The round that reports the Job SHALL NOT set such an Item Blocked and SHALL NOT record `implement.stopped`.
+The implement job SHALL read the Item before each unticked task group, when a step stops, and before the push. When the Item holds `owner/agent` or `owner/human`, the job SHALL end the Item at once: it SHALL push nothing, open no pull request, comment the owner and the boundary, and change neither the Status nor the owner. The round that reports the Job SHALL NOT set such an Item Ready and SHALL NOT record `implement.stopped`.
 
 #### Scenario: A person claims while group 1 runs
 - **WHEN** the Item holds `owner/human` when group 1 ends, and the change has a group 2

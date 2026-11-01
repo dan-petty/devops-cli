@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The Service sets the Status from the job record
-One function SHALL derive the Status of an item: In Progress while a Job holds it, else Blocked while the record holds `implement.stopped`, else Planned when its plan is on the default branch, else Ready. The rows `implement`, `stage` and `stage_ready` SHALL write it with the family replace of the store, and only for an open item that holds Ready or Planned. The runner Job and `devops pr ready` SHALL set In Review. Only a clear rule of the row `implement` SHALL take an item out of Blocked.
+One function SHALL derive the Status of an item: In Progress while a Job holds it, else Blocked while the record holds `implement.stopped`, else Planned when its plan is on the default branch, else Ready. The rows `implement`, `stage` and `stage_ready` SHALL write that Status with the family replace of the store. They SHALL write only an open item that holds Ready or Planned. The runner Job and `devops pr ready` SHALL set In Review, the stop path SHALL set Blocked, and only a clear rule of the row `implement` SHALL take a Blocked item out of Blocked.
 
 #### Scenario: A round from staging to a closed issue
 - **WHEN** an item is staged, its plan is merged, a Job is made for it, the Job marks its pull request ready, and the issue closes
