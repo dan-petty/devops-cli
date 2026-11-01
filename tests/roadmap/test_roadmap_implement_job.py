@@ -420,7 +420,7 @@ def test_a_retry_clears_the_stop_before_the_first_step(job_world: JobWorld) -> N
 # ── The stops ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_a_step_that_stops_returns_the_item_to_ready_with_a_comment_and_a_record(
+def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
     job_world: JobWorld,
 ) -> None:
     script = ModelScript(
@@ -436,7 +436,7 @@ def test_a_step_that_stops_returns_the_item_to_ready_with_a_comment_and_a_record
     assert (applied.ready, applied.stopped, status, record.get("implement.stopped")) == (
         (),
         (1,),
-        "Ready",
+        "Blocked",
         "group 2",
     )
     assert len(comments) == 1
@@ -478,7 +478,7 @@ def test_the_stop_comment_holds_the_masked_diff_of_the_discarded_work_in_one_fen
     text_after = [
         token.content
         for token in tokens[tokens.index(fences[0]) :]
-        if token.type == "inline" and "Ready again" in token.content
+        if token.type == "inline" and "The item is Blocked" in token.content
     ]
     assert (TOKEN in comment, len(fences), text_after != []) == (False, 1, True)
     assert fences[0].info == "diff"
@@ -597,7 +597,7 @@ def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobW
     status, record = _item(job_world)
     assert (applied.stopped, status, record.get("implement.stopped"), script.seen) == (
         (1,),
-        "Ready",
+        "Blocked",
         "rebase",
         [],
     )
@@ -619,7 +619,7 @@ def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed
     applied = job_world.run(two_groups())
 
     status, record = _item(job_world)
-    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Ready", "push")
+    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Blocked", "push")
     assert job_world.origin_log() == [
         "fix(roadmap): plan",
         "The first group (#1)",
@@ -640,7 +640,7 @@ def test_a_step_that_stops_does_not_stop_the_next_item(job_world: JobWorld) -> N
     applied = job_world.run(script, limit=2)
 
     assert (second, applied.stopped, applied.failed) == (2, (1, 2), ())
-    assert [_item(job_world, n)[0] for n in (1, 2)] == ["Ready", "Ready"]
+    assert [_item(job_world, n)[0] for n in (1, 2)] == ["Blocked", "Blocked"]
 
 
 def test_a_commit_the_agent_cannot_make_without_a_change_stops_at_the_group(

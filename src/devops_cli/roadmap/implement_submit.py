@@ -9,9 +9,9 @@ that no round reported. When the Job has ended, the round comments the state and
 log of its pod on the item, and records `implement.job_state` as `succeeded` or `failed`. A Job
 that no longer exists is recorded as `gone`. A Job that leaves its item In Progress, or Ready and
 not stopped, is a stop that the runner could not write, such as a pod killed for its memory: the
-round sets the item to Ready and records `implement.stopped` as `job`, or the next round would
-create the same Job again. A person's comment `implement: retry` clears it, as it clears the stop
-of the job.
+round sets the item to Blocked and records `implement.stopped` as `job`, or the next round would
+create the same Job again. A clear rule of the Service takes the item out of Blocked
+(`stop_clear.py`), as it does for the stop of the job.
 
 **Wait.** A Job of the repository that has not ended blocks the round, whether or not an item
 records it, and a person's `devops roadmap implement --item` starts such a Job too (#2913). The API
@@ -23,6 +23,12 @@ is not seen. A hard lock needs an object on the server, such as a Lease.
 creates one Job for the first of them, from CronJob `devops-cli-runner`, with the item's
 arguments and a token for the one repository (`service.github_app.token_repository`). The record
 of the item then names the Job.
+
+**Clear.** After the report, the round clears the stop of each item that the Service set Blocked
+when a person asked for a retry, or when the digest in the CronJob template differs from the
+digest of the Job that stopped it (`stop_clear.py`, #2912). A cleared item is eligible in the same
+round, so the plan below can take it. `implement.job_digest` is the digest in the template at the
+time of the create, recorded with the Job.
 
 **Status.** After it reports the Jobs, and again after it creates one, the round sets the Status
 label of each item from the record and the plans on the default branch (`status_sync.py`, #2920):
@@ -36,6 +42,7 @@ from __future__ import annotations
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from devops_cli.config.constants import (
@@ -52,7 +59,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, job_name, repository_label
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
@@ -64,7 +71,8 @@ from devops_cli.roadmap.implement import (
 )
 from devops_cli.roadmap.planned import read_planned_changes
 from devops_cli.roadmap.stage import StageFailure
-from devops_cli.roadmap.status_sync import sync_statuses
+from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_statuses
+from devops_cli.roadmap.stop_clear import clear_stops
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -75,13 +83,14 @@ _GONE = "gone"
 class SubmitResult:
     """What a round did: the Jobs it reported, whether a running Job held it, the Job it created,
     and the item it left because an agent or a person claimed it after the plan (#2910), and the
-    items whose Status it could not set."""
+    items whose Status it could not set, and the items whose stop it cleared (#2912)."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
     created: str | None = None
     left: int | None = None
     status_failed: tuple[StageFailure, ...] = ()
+    cleared: tuple[int, ...] = ()
 
 
 def _record(item: Item, key: ImplementRecordKey) -> str | None:
@@ -119,11 +128,12 @@ def _fresh(store: RoadmapStore, number: int) -> Item:
     return held
 
 
-def _comment(name: str, state: str, log: str, *, stopped: bool) -> str:
+def _comment(name: str, state: str, log: str, *, stopped: bool, digest: str | None) -> str:
     texts = MESSAGES.roadmap
+    shown = texts.implement_job_report_digest.format(digest=digest) if digest else ""
     if state == _GONE:
         body = texts.implement_job_report_gone.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, name=name
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, name=name, digest=shown
         )
     else:
         quoted = (
@@ -131,7 +141,11 @@ def _comment(name: str, state: str, log: str, *, stopped: bool) -> str:
             or texts.implement_job_report_no_log
         )
         body = texts.implement_job_report.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, name=name, state=state, log=quoted
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+            name=name,
+            state=state,
+            digest=shown,
+            log=quoted,
         )
     return body + (texts.implement_job_report_stopped if stopped else "")
 
@@ -153,13 +167,14 @@ def _report(
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
     stops = _settles_as_stop(item)
-    store.comment(item.number, _comment(name, state, log, stopped=stops))
+    digest = _record(item, ImplementRecordKey.JOB_DIGEST)
+    store.comment(item.number, _comment(name, state, log, stopped=stops, digest=digest))
     service_release(store, item.number, {ImplementRecordKey.JOB_STATE: state})
     if stops:
         store.set_field(
             _fresh(store, item.number),
             ItemField.STATUS,
-            CONST_ROADMAP_STATUS_READY,
+            derive_status(StatusFacts(stopped=True)),
             marks={ImplementRecordKey.STOPPED: CONST_ROADMAP_IMPLEMENT_JOB_STEP},
         )
 
@@ -188,7 +203,12 @@ def _create(
     None, with nothing written, when an agent or a person claimed the item since the plan."""
     number = target.item.number
     name = job_name(template=RUNNER_TEMPLATE)
-    marks = {ImplementRecordKey.JOB: name, ImplementRecordKey.JOB_STATE: None}
+    cronjob = jobs.cronjob(RUNNER_TEMPLATE)
+    marks = {
+        ImplementRecordKey.JOB: name,
+        ImplementRecordKey.JOB_STATE: None,
+        ImplementRecordKey.JOB_DIGEST: image_digest(cronjob, RUNNER_TEMPLATE),
+    }
     if not service_claim(store, number, marks):
         return None
     try:
@@ -198,6 +218,7 @@ def _create(
             env={setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo},
             labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
             name=name,
+            cronjob=cronjob,
         )
     except ClusterJobError:
         service_release(store, number, {ImplementRecordKey.JOB: None})
@@ -225,9 +246,15 @@ def run_implement_round(
     held = {job.name: job for job in api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})}
     reported = _report_ended(store, api, held)
     planned = read_planned_changes(Path(source), operation=GIT_OPERATION)
-    failed = sync_statuses(store, repo=repo, planned=planned).failed
+    swept = sync_statuses(store, repo=repo, planned=planned).failed
+    stops = clear_stops(
+        store, planned=planned, digest=partial(api.template_digest, RUNNER_TEMPLATE)
+    )
+    failed = (*swept, *stops.failed)
     if any(job.state is JobState.RUNNING for job in held.values()):
-        return SubmitResult(reported=reported, waiting=True, status_failed=failed)
+        return SubmitResult(
+            reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
+        )
     plan = plan_implement(
         store,
         repo=repo,
@@ -237,17 +264,20 @@ def run_implement_round(
         planned=planned,
     )
     if not plan.selected:
-        return SubmitResult(reported=reported, status_failed=failed)
+        return SubmitResult(reported=reported, status_failed=failed, cleared=stops.cleared)
     if _runs(api, label):
-        return SubmitResult(reported=reported, waiting=True, status_failed=failed)
+        return SubmitResult(
+            reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
+        )
     number = plan.selected[0].item.number
     created = _create(store, api, repo, plan.selected[0], label)
-    failed = sync_statuses(store, repo=repo, planned=planned).failed
+    failed = (*stops.failed, *sync_statuses(store, repo=repo, planned=planned).failed)
     return SubmitResult(
         reported=reported,
         created=created,
         left=number if created is None else None,
         status_failed=failed,
+        cleared=stops.cleared,
     )
 
 

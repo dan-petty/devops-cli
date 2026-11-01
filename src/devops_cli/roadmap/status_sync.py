@@ -5,7 +5,9 @@ Progress while a runner Job holds it. `derive_status` is the one function that m
 item to that Status. The rows `stage`, `implement` and `stage_ready` all call it, so the label and
 the record cannot drift, and a drift is repaired in the next round of any of them. The runner Job
 sets In Review when it marks its pull request ready (`implement_run.py`), as `devops pr ready` does
-(`pull_status.py`). The stop path of #2912 sets Blocked. The function derives none of the three.
+(`pull_status.py`). The function derives Blocked from a stop on record (`implement.stopped`): the stop
+path of the runner and of the Job report call it, so one function names the Status of a stop. It
+derives no In Review.
 
 **What the Service writes.** `sync_status` writes the derived Status with the family replace of the
 store (`set_field`). It writes only an open item that holds Ready or Planned, and only when the
@@ -28,6 +30,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_STATUS_BLOCKED,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_PLANNED,
     CONST_ROADMAP_STATUS_READY,
@@ -52,17 +55,21 @@ _WRITTEN_FROM = frozenset({CONST_ROADMAP_STATUS_READY, CONST_ROADMAP_STATUS_PLAN
 @dataclass(frozen=True)
 class StatusFacts:
     """What decides the Status of an item: its plan is on the default branch, a runner Job holds
-    it."""
+    it, a stop is on record."""
 
     plan_merged: bool = False
     job_active: bool = False
+    stopped: bool = False
 
 
 def derive_status(facts: StatusFacts) -> str:
-    """The Status of an item with `facts`: In Progress while a Job holds it, else Planned when the
-    plan is merged, else Ready. The one function that rows and filters use."""
+    """The Status of an item with `facts`: In Progress while a Job holds it, else Blocked while a
+    stop is on record, else Planned when the plan is merged, else Ready. The one function that rows
+    and filters use."""
     if facts.job_active:
         return CONST_ROADMAP_STATUS_IN_PROGRESS
+    if facts.stopped:
+        return CONST_ROADMAP_STATUS_BLOCKED
     return CONST_ROADMAP_STATUS_PLANNED if facts.plan_merged else CONST_ROADMAP_STATUS_READY
 
 
@@ -89,8 +96,12 @@ def owns_status(item: Item) -> bool:
 
 def facts_of(item: Item, *, plan_merged: bool) -> StatusFacts:
     """The facts of `item`. `plan_merged` comes from the caller, which knows the default branch or
-    the stage pull request."""
-    return StatusFacts(plan_merged=plan_merged, job_active=job_holds(item))
+    the stage pull request. A stop is on record while `implement.stopped` holds a step."""
+    return StatusFacts(
+        plan_merged=plan_merged,
+        job_active=job_holds(item),
+        stopped=bool(item.job_record.get(ImplementRecordKey.STOPPED)),
+    )
 
 
 def sync_status(store: RoadmapStore, item: Item, facts: StatusFacts) -> str | None:

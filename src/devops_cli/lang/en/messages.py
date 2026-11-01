@@ -2305,8 +2305,9 @@ class RoadmapMessages:
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
         "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
-        "{last}{diff}\n\nThe item is Ready again, and the job will not run it. Fix the cause. "
-        "Then comment `implement: retry`.{note}"
+        "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
+        "Then comment `implement: retry`. The Service also clears the stop one time when a new "
+        "runner image rolls out.{note}"
     )
     implement_comment_last_none: str = "none."
     implement_comment_diff: str = (
@@ -2315,15 +2316,29 @@ class RoadmapMessages:
     )
     implement_comment_diff_cut: str = " The diff is cut to {limit} characters."
     implement_job_report: str = (
-        "{marker}\nThe runner Job {name} ended: {state}.\n\nThe last lines of its log:\n\n{log}"
+        "{marker}\nThe runner Job {name} ended: {state}.{digest}\n\n"
+        "The last lines of its log:\n\n{log}"
     )
     implement_job_report_gone: str = (
-        "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log."
+        "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log.{digest}"
     )
+    implement_job_report_digest: str = "\nImage digest: {digest}"
     implement_job_report_no_log: str = "    (no log: the Job has no pod)"
     implement_job_report_stopped: str = (
-        "\n\nThe Job left this item without a result. The item is Ready again, and the job "
-        "will not run it. Fix the cause. Then comment `implement: retry`."
+        "\n\nThe Job left this item without a result. The item is Blocked, and the job "
+        "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
+        "clears the stop one time when a new runner image rolls out."
+    )
+    stop_clear_retry: str = (
+        "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: a person commented "
+        "`implement: retry`. The item is {status} again, and the Service takes it in the next "
+        "round."
+    )
+    stop_clear_digest: str = (
+        "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: the runner image changed "
+        "since the stop, from {old} to {new}. The item is {status} again, and the Service takes "
+        "it in the next round. The Service clears a stop one time for each runner image. A new "
+        "stop on this image waits for a comment `implement: retry`."
     )
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"

@@ -195,7 +195,8 @@ class ImplementRecordKey(StrEnum):
     passed, the commit the job ended on, the branch and the pull request it works on (#2714), the
     step that stopped the item, and the spend of its steps as JSON. A person clears
     `implement.stopped` with a comment. The Service records the runner Job it made for the item
-    and, once the Job ended, its state (#2667)."""
+    and, once the Job ended, its state (#2667), and the digest of the runner image that the template
+    named when it made the Job (#2912): the digest of the stop that the Job leaves."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -205,6 +206,7 @@ class ImplementRecordKey(StrEnum):
     SPEND = "implement.spend"
     JOB = "implement.job"
     JOB_STATE = "implement.job_state"
+    JOB_DIGEST = "implement.job_digest"
 
 
 JobRecord = dict[

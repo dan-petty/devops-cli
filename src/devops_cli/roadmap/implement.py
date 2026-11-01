@@ -37,7 +37,10 @@ heading, each with the family it misses (`StageFilter.mismatch`). `devops roadma
 reason of one issue for this job and for the stage job (#2911).
 
 **Retry.** A person clears a stop with the comment `implement: retry`, made after the comment
-of the job that told of the stop. Only a comment of the owner, a member or a collaborator counts.
+of the job that told of the stop. Only a comment of the owner, a member or a collaborator counts
+(`retry_asked`). The row `implement` of the Service reads it for an item that it set Blocked
+(`stop_clear.py`); this judge reads it for an item that holds Ready or Planned and a stop on record,
+such as an item that a person set back by hand.
 """
 
 from __future__ import annotations
@@ -183,7 +186,7 @@ class _Planned(NamedTuple):
     folder: str
 
 
-def _retry_asked(comments: Sequence[IssueComment]) -> bool:
+def retry_asked(comments: Sequence[IssueComment]) -> bool:
     """Whether a trusted commenter asked for a retry after the last comment of the job."""
     marked = [
         index
@@ -242,7 +245,7 @@ class _Judge:
         if item.author_association not in CONST_ROADMAP_TRUSTED_AUTHORS:
             return texts.implement_left_author.format(association=item.author_association)
         stopped = item.job_record.get(ImplementRecordKey.STOPPED)
-        if stopped and not _retry_asked(self._store.comments_on(item.number)):
+        if stopped and not retry_asked(self._store.comments_on(item.number)):
             return texts.implement_left_stopped.format(stopped=stopped)
         retry = bool(stopped)
         if isinstance(route, _Planned):

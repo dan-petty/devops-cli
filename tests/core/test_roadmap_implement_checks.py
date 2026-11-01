@@ -70,7 +70,7 @@ def test_a_conflict_on_the_rebase_after_the_fix_pushes_the_fix_commit(job_world:
     assert (applied.ready, applied.stopped, status, record.get("implement.stopped")) == (
         (),
         (1,),
-        "Ready",
+        "Blocked",
         "push",
     )
     assert job_world.origin_log()[-1] == f"Make check {CHECK} pass (#1)"
@@ -89,7 +89,7 @@ def test_a_check_that_fails_twice_stops_the_item_and_leaves_the_draft(
     assert (applied.ready, applied.stopped, status, record.get("implement.stopped")) == (
         (),
         (1,),
-        "Ready",
+        "Blocked",
         "checks",
     )
     assert len(script.seen) == 6

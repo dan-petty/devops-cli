@@ -22,6 +22,7 @@ from devops_cli.k8s.cluster_job import (
     JOB_POD_SELECTOR_LABEL,
     JobTemplate,
     build_job,
+    image_digest,
     job_name,
 )
 from devops_cli.k8s.service import KubernetesService
@@ -70,30 +71,33 @@ class ClusterJobs:
         env: Mapping[str, str] | None = None,
         labels: Mapping[str, str] | None = None,
         name: str | None = None,
+        cronjob: dict[str, Any] | None = None,
     ) -> str:
         """Create a Job from the template's CronJob and return its name: `name`, else a new one.
-        A caller that records the Job before it creates it chooses the name with `job_name`.
+        A caller that records the Job before it creates it chooses the name with `job_name`. A
+        caller that records the digest of the image passes the `cronjob` that it read with
+        `cronjob()`, so the record and the Job come from one read.
 
         Raises ClusterJobError when the CronJob is missing or the API refuses a call.
         """
-        custom = self._service.custom_objects_api()
-        try:
-            cronjob = custom.get_namespaced_custom_object(
-                *_BATCH, JOB_NAMESPACE, "cronjobs", template.cronjob
-            )
-        except api_error_type() as error:
-            if getattr(error, "status", None) == _NOT_FOUND:
-                raise ClusterJobError(
-                    MESSAGES.k8s.job_cronjob_missing.format(cronjob=template.cronjob)
-                ) from error
-            raise self._refused("read CronJob", error) from error
+        cronjob = cronjob or self.cronjob(template)
         name = name or job_name(template=template)
         job = build_job(cronjob, args, name, template=template, env=env, labels=labels)
         try:
-            custom.create_namespaced_custom_object(*_BATCH, JOB_NAMESPACE, "jobs", job)
+            self._service.custom_objects_api().create_namespaced_custom_object(
+                *_BATCH, JOB_NAMESPACE, "jobs", job
+            )
         except api_error_type() as error:
             raise self._refused("create Job", error) from error
         return name
+
+    def template_digest(self, template: JobTemplate) -> str | None:
+        """The digest of the image in the template's CronJob, as `image_digest` reads it.
+
+        Raises ClusterJobError when the CronJob is missing, has no such container, or the API
+        refuses the read.
+        """
+        return image_digest(self.cronjob(template), template)
 
     def list_jobs(self, labels: Mapping[str, str]) -> tuple[ClusterJob, ...]:
         """The Jobs that carry every one of `labels`, selected by the API server."""
@@ -124,6 +128,24 @@ class ClusterJobs:
         except api_error_type() as error:
             raise self._refused("read the log of a Job", error) from error
         return str(log)
+
+    def cronjob(self, template: JobTemplate) -> dict[str, Any]:
+        """The CronJob of `template`, as the API returns it.
+
+        Raises ClusterJobError when the CronJob is missing or the API refuses the read.
+        """
+        try:
+            return dict(
+                self._service.custom_objects_api().get_namespaced_custom_object(
+                    *_BATCH, JOB_NAMESPACE, "cronjobs", template.cronjob
+                )
+            )
+        except api_error_type() as error:
+            if getattr(error, "status", None) == _NOT_FOUND:
+                raise ClusterJobError(
+                    MESSAGES.k8s.job_cronjob_missing.format(cronjob=template.cronjob)
+                ) from error
+            raise self._refused("read CronJob", error) from error
 
     @staticmethod
     def _refused(action: str, error: Exception) -> ClusterJobError:

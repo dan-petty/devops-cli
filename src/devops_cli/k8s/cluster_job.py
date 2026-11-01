@@ -86,6 +86,28 @@ def _with_env(container: dict[str, Any], env: Mapping[str, str] | None) -> None:
     container["env"] = [*kept, *({"name": name, "value": value} for name, value in env.items())]
 
 
+def template_container(pod_spec: dict[str, Any], template: JobTemplate) -> dict[str, Any]:
+    """The container of `pod_spec` that the template names. Raises ClusterJobError when the pod
+    spec has none."""
+    for container in pod_spec["containers"]:
+        if container.get("name") == template.container:
+            found: dict[str, Any] = container
+            return found
+    raise ClusterJobError(
+        f"CronJob {JOB_NAMESPACE}/{template.cronjob} has no container {template.container}"
+    )
+
+
+def image_digest(cronjob: dict[str, Any], template: JobTemplate) -> str | None:
+    """The digest in the image of the template's container in `cronjob`: the text after the `@`,
+    as `sha256:<hex>`, or None when the image names no digest. Image Updater writes the digest
+    there, and a Job made from `cronjob` runs it. Raises ClusterJobError when the CronJob has no
+    such container."""
+    pod_spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    image = str(template_container(pod_spec, template).get("image", ""))
+    return image.partition("@")[2] or None
+
+
 def build_job(
     cronjob: dict[str, Any],
     args: list[str],
@@ -104,14 +126,7 @@ def build_job(
     spec = copy.deepcopy(job_template["spec"])
     pod_template = spec["template"]
     pod_template["metadata"] = _labelled(pod_template.get("metadata"), labels)
-    container = next(
-        (c for c in pod_template["spec"]["containers"] if c.get("name") == template.container),
-        None,
-    )
-    if container is None:
-        raise ClusterJobError(
-            f"CronJob {JOB_NAMESPACE}/{template.cronjob} has no container {template.container}"
-        )
+    container = template_container(pod_template["spec"], template)
     container["args"] = list(args)
     _with_env(container, env)
     metadata = _labelled(job_template.get("metadata"), labels)

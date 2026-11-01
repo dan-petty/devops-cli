@@ -4,7 +4,8 @@ is ready for review (#2717).
 `devops pr create` sets In Progress and `devops pr ready` sets In Review on the open issue of
 this repository that the pull request closes, when that issue is an Item. A Status moves forward
 only: In Review never goes back to In Progress, and a Blocked item stays Blocked, because a
-person set that. A pull request that closes no item changes nothing. A closed issue loses its
+person or a stop of the implement job set that, and only a person or a clear rule of the Service
+(`stop_clear.py`) takes it out. A pull request that closes no item changes nothing. A closed issue loses its
 `status/*` labels in `.github/workflows/clear-status.yml`.
 """
 
