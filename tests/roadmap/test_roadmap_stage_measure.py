@@ -9,7 +9,6 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.roadmap.implement_step import _files_section
 from devops_cli.roadmap.stage_change import StageGroup, group_text, measure_groups
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
-from devops_cli.roadmap.step_rules import RULES_HEADING, route_heading
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import heavy_group
 
@@ -76,6 +75,8 @@ def test_the_measure_counts_agents_md_and_the_routed_sections_that_the_step_read
 ) -> None:
     """The default group names `src/devops_cli/sample.py` and `tests/test_sample.py`, so the step
     reads `AGENTS.md` and the testing sections (#3097)."""
+    from devops_cli.roadmap.step_rules import RULES_HEADING, route_heading
+
     clone = stage_repo.clone
     group = make_stage_proposal().groups[0]
     (before,) = measure_groups(clone, [group], shared=[SHARED])

@@ -12,7 +12,6 @@ import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.roadmap.step_files import code_spans
-from devops_cli.roadmap.step_rules import RULES_HEADING
 from tests.support.paths import REPO_ROOT
 
 PROMPT = "roadmap_implement_step.md"
@@ -62,6 +61,8 @@ def test_the_prompt_leaves_the_rules_of_agents_md_to_that_file() -> None:
 
 
 def test_the_prompt_names_the_section_that_holds_the_rules() -> None:
+    from devops_cli.roadmap.step_rules import RULES_HEADING
+
     prompt = load_task_prompt(PROMPT)
 
     assert f'"{RULES_HEADING}"' in prompt
