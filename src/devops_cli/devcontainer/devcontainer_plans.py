@@ -5,6 +5,7 @@ A dry run makes zero external requests and returns ordered PlannedRequest items.
 
 from __future__ import annotations
 
+import os
 import platform
 from pathlib import Path
 from typing import Final
@@ -189,10 +190,42 @@ def plan_run_lifecycle(
     return requests
 
 
+def _gh_hosts_file() -> Path:
+    """Return the file gh keeps per-host login state in."""
+    config_home = os.getenv("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(os.getenv("GH_CONFIG_DIR") or Path(config_home) / "gh") / "hosts.yml"
+
+
+def _gh_plaintext_token_hosts() -> list[str]:
+    """Return the hosts gh keeps a plaintext token for instead of using the keyring.
+
+    gh falls back to hosts.yml whenever the keyring is locked or unreachable at login, and
+    a token there wins over the keyring, so a fallback stays in effect until moved.
+    """
+    import yaml
+
+    try:
+        hosts = yaml.safe_load(_gh_hosts_file().read_text(encoding="utf-8"))
+    except OSError, yaml.YAMLError:
+        return []
+    if not isinstance(hosts, dict):
+        return []
+
+    found: list[str] = []
+    for host, entry in hosts.items():
+        if not isinstance(entry, dict):
+            continue
+        users = entry.get("users")
+        user_entries = users.values() if isinstance(users, dict) else []
+        if entry.get("oauth_token") or any(
+            isinstance(user, dict) and user.get("oauth_token") for user in user_entries
+        ):
+            found.append(str(host))
+    return found
+
+
 def plan_unlock_keyring() -> list[PlannedRequest]:
     """Plan gnome-keyring unlock and gh credential migration."""
-    from devops_cli.commands.devcontainer import _gh_plaintext_token_hosts
-
     hosts = _gh_plaintext_token_hosts() or ["<host>"]
     requests: list[PlannedRequest] = [
         PlannedRequest(

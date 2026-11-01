@@ -46,6 +46,10 @@ from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.serialization import strip_json_comments
 from devops_cli.core.templating import render_json_template
+from devops_cli.devcontainer.devcontainer_plans import (
+    _gh_hosts_file,
+    _gh_plaintext_token_hosts,
+)
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import render_request_plan
@@ -1217,40 +1221,6 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
         "run `devops devcontainer unlock-keyring` to unlock the keyring"
     )
     return actions
-
-
-def _gh_hosts_file() -> Path:
-    """Return the file gh keeps per-host login state in."""
-    config_home = os.getenv("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(os.getenv("GH_CONFIG_DIR") or Path(config_home) / "gh") / "hosts.yml"
-
-
-def _gh_plaintext_token_hosts() -> list[str]:
-    """Return the hosts gh keeps a plaintext token for instead of using the keyring.
-
-    gh falls back to hosts.yml whenever the keyring is locked or unreachable at login, and
-    a token there wins over the keyring, so a fallback stays in effect until moved.
-    """
-    import yaml
-
-    try:
-        hosts = yaml.safe_load(_gh_hosts_file().read_text(encoding="utf-8"))
-    except OSError, yaml.YAMLError:
-        return []
-    if not isinstance(hosts, dict):
-        return []
-
-    found: list[str] = []
-    for host, entry in hosts.items():
-        if not isinstance(entry, dict):
-            continue
-        users = entry.get("users")
-        user_entries = users.values() if isinstance(users, dict) else []
-        if entry.get("oauth_token") or any(
-            isinstance(user, dict) and user.get("oauth_token") for user in user_entries
-        ):
-            found.append(str(host))
-    return found
 
 
 def _gh_plaintext_token_warnings() -> list[str]:
