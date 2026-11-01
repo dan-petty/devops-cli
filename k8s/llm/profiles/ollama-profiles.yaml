@@ -15,7 +15,9 @@
 # Context lengths were measured on the tiers (#2822). ollama-48gib runs 262144, the native limit
 # of qwen3-coder:30b and qwen3.8:27b: with q8_0 KV cache, qwen3-coder:30b takes 37 GB of the
 # 48 GiB at that length, 100% on the GPUs, and read a 142000-token prompt in 84 s. ollama-16gib
-# runs 131072, the native limit of gpt-oss:20b, which takes 13 GB with q4_0 KV cache. The 70B
+# runs 131072, the native limit of gpt-oss:20b, which takes 13 GB with q4_0 KV cache (#2822).
+# Every tier now sets q8_0 so that every embedding vector is the same (#2396). The q8_0 cache
+# of that model is larger by up to 1.5 GiB (an estimate, not a measurement). The 70B
 # models of ollama-64gib stay at 160000: their KV cache already fills that tier. ollama-48gib-slow
 # stays at 128000: Pascal GPUs read a long prompt too slowly to gain from more.
 #
@@ -123,7 +125,7 @@ spec:
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
-              value: q4_0
+              value: q8_0
             - name: OLLAMA_NO_CLOUD
               value: "1"
           ports:
