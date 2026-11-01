@@ -45,9 +45,9 @@ Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `README.
 
 ## 6. Fail-to-pass and archive
 
-- [ ] 6.1 Run the fail-to-pass check on the new tests
+- [x] 6.1 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] 6.2 Archive the change
+- [x] 6.2 Archive the change
   - Verification: `uv run devops openspec archive 3028-stage-golden-set-eval` and `uv run devops openspec check`
 
 ## Workflow follow-up
