@@ -50,6 +50,17 @@ Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `README.
 - [x] 6.2 Archive the change
   - Verification: `uv run devops openspec archive 3028-stage-golden-set-eval` and `uv run devops openspec check`
 
+## 7. Fixes of the review
+
+Reads: `src/devops_cli/roadmap/stage_eval_gates.py`, `src/devops_cli/roadmap/stage_eval_score.py`, `src/devops_cli/roadmap/stage_eval_run.py`. Changes: the same modules, `src/devops_cli/roadmap/stage_eval_cases.py`, `src/devops_cli/roadmap/stage_eval_render.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/lang/en/messages.py`, `docs/ROADMAP_WORKFLOW.md`, `tests/fixtures/roadmap_eval/stage/`, and the tests of the golden set.
+
+- [x] 7.1 Write failing tests: a model that breaks the schema twice scores as neither avoided nor caught, the `kind` row has no rate, the replay fails when a spec rule refuses a good plan, the capabilities of the facts decide a modified capability, and a `kind` defect must hold the message of the schema
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_run.py tests/roadmap/test_roadmap_stage_eval_gates.py` fails on the base
+- [x] 7.2 Leave the `kind` gate out of the live score, run `check_proposal` as the `paths` gate with the capabilities of the case, add the `message` of a defect, and drop the false `kind` defect of the case 2745
+  - Verification: `uv run devops ci test tests/roadmap` passes
+- [x] 7.3 Add a test that a plan fails the schema of the reply if and only if a defect names the gate `kind`, and rename the constant of the render module to the one in `stage.py`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_cases.py` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

@@ -15,7 +15,7 @@ The set SHALL hold one folder under `tests/fixtures/roadmap_eval/stage/` for eac
 - **THEN** loading fails with an error that names the case
 
 ### Requirement: The replay fails when a gate stops refusing a known-bad plan
-`devops roadmap eval stage --replay` SHALL run the recorded plan of each case through the gates `paths` and `kind`, with no model call and no read of git. It SHALL exit 1 when a gate no longer refuses a defect that names it, when a gate does not name a path that the defect lists, or when a gate refuses a `good` plan. Otherwise it SHALL exit 0.
+`devops roadmap eval stage --replay` SHALL run the recorded plan of each case through the gates `paths` and `kind`, with no model call and no read of git. The gate `paths` SHALL be `check_proposal`, with the capabilities of the case. It SHALL exit 1 when a gate no longer refuses a defect that names it, when a gate does not name a path or give the message that the defect lists, or when a gate refuses a `good` plan. Otherwise it SHALL exit 0.
 
 #### Scenario: Every gate refuses what it must
 - **WHEN** the replay runs on the set
@@ -41,7 +41,7 @@ A defect with the gate `pending` SHALL be listed with its type and the issue of 
 - **THEN** the replay exits 1 and says that the case file must name the gate
 
 ### Requirement: The live run scores the first reply of the model
-`devops roadmap eval stage` SHALL plan each case with the stage planner, the model of the `analysis` task or `--model`, and a checkout of the commit of the case. It SHALL judge the first reply with the gates, and print for each defect type that a gate catches the cases that have it, how many the model avoided, how many a gate caught, and the rate, with a total. It SHALL show no rate for a type that no gate judges. It SHALL store the report as JSON under the data directory.
+`devops roadmap eval stage` SHALL plan each case with the stage planner, the model of the `analysis` task or `--model`, and a checkout of the commit of the case. It SHALL judge the first reply with the gates, and print for each scored defect type the cases that have it, how many the model avoided, how many a gate caught, and the rate, with a total. It SHALL show no rate for a type that no gate judges, nor for the gate `kind`. It SHALL store the report as JSON under the data directory.
 
 #### Scenario: A reply with a missing path
 - **WHEN** the first reply of the model names a file that the checkout lacks, and the second reply is right
@@ -49,7 +49,15 @@ A defect with the gate `pending` SHALL be listed with its type and the issue of 
 
 #### Scenario: A reply that passes
 - **WHEN** the first reply of the model passes both gates
-- **THEN** the case counts as avoided for each type of its known defects that a gate catches
+- **THEN** the case counts as avoided for each type of its known defects that the live run scores
+
+#### Scenario: The kind gate
+- **WHEN** the score is printed
+- **THEN** the `kind` row shows its count and no rate, since the client sends a reply that breaks the schema back unseen
+
+#### Scenario: The model breaks the schema twice
+- **WHEN** the model breaks the schema of the reply on both tries
+- **THEN** the case ends `failed` and counts as neither avoided nor caught
 
 #### Scenario: A model call fails
 - **WHEN** the model call fails for a case

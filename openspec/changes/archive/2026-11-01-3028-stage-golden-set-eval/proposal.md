@@ -40,7 +40,7 @@ None.
 - `devops gh api repos/dan-petty/devops-cli/issues/3028` and `.../3027` give the scope and the order: #3028 and #3030 are the baseline, and both add a subcommand to one `devops roadmap eval` group.
 - The evaluation of 2026-11-01 holds 37 reviews (35 merged, 2 open then). `git log origin/main --grep "(#<pr>)$"` finds the merge commit of every one of the 37 pull requests. `git show <merge>:<file>` gives its change folder, and `git ls-tree -r <merge>^` gives the tree it was staged on. Both commits are in the history of this repository.
 - The review file is ignored by git on the owner workstation, so the fixtures are derived from it and from `git show`. No fixture is a copy of that file.
-- Run on the recorded plans, the path gate (`path_problems`, #3010) refuses 25 of the 37 and the kind rule (`StageGroup`, #3005) refuses 25 of the 37. The two sets agree with the counts in the review and in #3005 (50 groups in 22 plans). The 3 `good` plans pass both.
+- Run on the recorded plans, the path gate (`path_problems`, #3010) refuses 25 of the 37 and the kind rule (`StageGroup`, #3005) refuses 24 of the 37. The two sets agree with the counts in the review and in #3005 (50 groups in 22 plans). The 3 `good` plans pass both.
 - A reduced tree gives the same answer as the full tree. For every case the builder checked that `path_problems` returns the same sentences on the tracked files kept in `facts.json` as on the full `git ls-tree` of the commit. So a replay needs no deep clone.
 - `_Planner` in `stage.py` takes a client, a checkout, a commit and a budget. `collect_context` reads files with `git show <sha>:<path>`, so a detached worktree of the staging commit is enough. The live run reuses the planner and its checks.
 
