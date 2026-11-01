@@ -24,12 +24,14 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
     SHOUT_CODE,
+    TASKS,
     TEST_BODY,
     WINDOW,
     command_text,
     git,
     git_for_real,
     is_clean_at,
+    make_checkout,
     programs_run,
     the_whole_group,
     write_call,
@@ -246,9 +248,13 @@ def test_a_step_with_no_python_file_runs_no_formatter(
 
 
 def test_a_file_named_like_an_option_is_a_path_for_each_tool(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
 ) -> None:
     name = "--config=exclude.py"
+    named = TASKS.replace(
+        "Add `shout` to `src/sample.py`", f"Add `shout` to `src/sample.py` and `{name}`"
+    )
+    checkout = make_checkout(tmp_path / "named", named)
     script = ModelScript(tool_calls(*the_whole_group(), write_call(name, "x = 1\n")), say("Done."))
 
     outcome = _step(store, checkout, script)

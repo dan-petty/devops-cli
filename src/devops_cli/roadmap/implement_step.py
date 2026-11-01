@@ -103,6 +103,7 @@ from devops_cli.roadmap.agent_run import (
 )
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
+from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.step_files import (
@@ -339,8 +340,8 @@ class StepOutcome(BaseModel):
     (#2758), or the first exit check that failed. `commit` is the commit of a done step. `diff` is
     the diff of the work that a stopped step discarded, with secrets masked and cut to
     `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, and `diff_cut` says that it was cut (#2721).
-    `tool_calls` counts the tool calls of the replies (#3030). `planned_requests` are the requests
-    a dry run lists."""
+    `tool_calls` counts the tool calls of the replies (#3030). `removed` lists the stray files that
+    the step deleted (#3092). `planned_requests` are the requests a dry run lists."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -357,6 +358,7 @@ class StepOutcome(BaseModel):
     tool_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    removed: tuple[str, ...] = ()
     dry_run: bool = False
     planned_requests: tuple[str, ...] = ()
 
@@ -910,6 +912,33 @@ def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
     return None
 
 
+def _remove_strays(source: Path, inputs: StepInputs, log: ToolCallLog) -> None:
+    """Delete the stray files of the group (#3092) and record their names in `log`: the untracked
+    files that git does not ignore (`git ls-files --others --exclude-standard`) and that the group
+    does not allow (`stray_files`): a file outside `src/`, `tests/`, `docs/` and `openspec/`, or a
+    nested git repository. It runs before the checks stage the checkout, so no stray file
+    reaches `ruff`, `mypy` or the commit. The group of a fix step names no file, so a fix step
+    keeps its new files."""
+    if inputs.fix is not None:
+        return
+    listed = _git_output(source, "ls-files", "--others", "--exclude-standard", "-z")
+    change = inputs.change.relative_to(source).as_posix()
+    strays = stray_files([name for name in listed.split("\0") if name], inputs.group, change)
+    for name in strays:
+        _delete(source / name)
+    log.removed_strays(strays)
+
+
+def _delete(path: Path) -> None:
+    """Delete an untracked file, a symbolic link, or a nested git repository that git lists as one
+    directory. The path comes from git and is inside the checkout. A symbolic link is unlinked and
+    its target stays."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
 def _stage(source: Path) -> list[str]:
     """Stage every change of the checkout, and list the paths that the commit would add or
     change."""
@@ -928,15 +957,19 @@ class _Failure:
     repair_paths: frozenset[str] | None = None
 
 
-def _exit_failure(source: Path, inputs: StepInputs, start: str) -> _Failure | None:
+def _exit_failure(
+    source: Path, inputs: StepInputs, start: str, log: ToolCallLog
+) -> _Failure | None:
     """The first exit check that fails, or None when every one passes. The step makes the only
     commit, so a checkout that left `start` fails the first check. The `tasks.md` is written
     back first, whatever the run did to it. The ticks are judged last, by
-    `_unticked_failure`, as a step with a task unticked gets a turn for them first."""
+    `_unticked_failure`, as a step with a task unticked gets a turn for them first. The stray files
+    of the agent are deleted before the checkout is staged (#3092)."""
     head = _head(source)
     if head != start:
         return _Failure(MESSAGES.roadmap.implement_stop_head_moved.format(start=start, head=head))
     _restore_tasks(inputs)
+    _remove_strays(source, inputs, log)
     changed = _stage(source)
     if not changed:
         return _Failure(MESSAGES.roadmap.implement_stop_no_change)
@@ -1053,17 +1086,23 @@ def _unticked_fields(source: Path, inputs: StepInputs) -> dict[str, str]:
     return {"path": tasks_md, "tasks": tasks}
 
 
-def _extra_ask(source: Path, inputs: StepInputs, failure: _Failure | None) -> _Ask | None:
+def _extra_ask(
+    source: Path, inputs: StepInputs, failure: _Failure | None, log: ToolCallLog
+) -> _Ask | None:
     """The extra turn that the result of the exit checks earns, or None. A step gets one extra turn
     at most: a failed static check gets the turn that fixes it, and the message lists the unticked
     tasks too, so no turn for the ticks follows. A step whose checks passed gets the turn for the
-    ticks when a task is unticked. No other failure gets a turn."""
+    ticks when a task is unticked. No other failure gets a turn. The message names the stray files
+    that the step deleted, and why (#3092)."""
     texts = MESSAGES.roadmap
+    removed = texts.implement_removed_note.format(paths=log.removed_text()) if log.removed else ""
     unticked = bool(_unticked(inputs))
     if failure is None:
         if not unticked:
             return None
-        message = texts.implement_tick_turn.format(**_unticked_fields(source, inputs))
+        message = texts.implement_tick_turn.format(
+            **_unticked_fields(source, inputs), removed=removed
+        )
         return _Ask(message, frozenset(), texts.implement_stop_tick_turn_changed)
     if failure.repair_paths is None:
         return None
@@ -1071,6 +1110,7 @@ def _extra_ask(source: Path, inputs: StepInputs, failure: _Failure | None) -> _A
     message = texts.implement_repair_turn.format(
         failure=mask_secrets(failure.reason)[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
         ticks=ticks if unticked else "",
+        removed=removed,
     )
     return _Ask(message, failure.repair_paths, texts.implement_stop_repair_turn_changed)
 
@@ -1088,12 +1128,16 @@ def _extra_turn(
     """The one extra turn of a step (#2721, #2795): the same conversation and the same limits as
     the first turn, and the message of `ask`. The turn and the first together, and why the step
     stops, if it does. The turn may change only the files that `ask` names and the `tasks.md`.
-    Every exit check runs again after it, and the first that fails stops the step."""
+    Every exit check runs again after it, and the first that fails stops the step. The stray files
+    of the turn are deleted first, so they are no change that `ask` does not allow (#3092)."""
     tree = _tree(source)
     run = first.then(_turn(agent, model, log, ask.message, first.conversation))
-    reason = run.reason or _foreign_change(source, inputs, tree, ask)
+    reason = run.reason
     if not reason:
-        failure = _exit_failure(source, inputs, start)
+        _remove_strays(source, inputs, log)
+        reason = _foreign_change(source, inputs, tree, ask) or ""
+    if not reason:
+        failure = _exit_failure(source, inputs, start, log)
         reason = failure.reason if failure else ""
     return run, reason
 
@@ -1106,8 +1150,8 @@ def _attempt(
         log = ToolCallLog(source)
         agent = build_agent(model, source, inputs.instructions, window, Path(home), log)
         run = _turn(agent, model, log, inputs.message)
-        failure = _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start)
-        ask = _extra_ask(source, inputs, failure)
+        failure = _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start, log)
+        ask = _extra_ask(source, inputs, failure, log)
         if ask is None:
             reason = failure.reason if failure else ""
         else:
@@ -1122,6 +1166,7 @@ def _attempt(
         tool_calls=run.tool_calls,
         input_tokens=run.input_tokens,
         output_tokens=run.output_tokens,
+        removed=tuple(log.removed),
     )
     reason = reason or _unticked_failure(inputs) or ""
     commit = ""
@@ -1236,6 +1281,8 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
         labels["output_tokens"]: str(outcome.output_tokens),
         labels["last_message"]: escape_text(outcome.last_message),
     }
+    if outcome.removed:
+        rows[labels["removed"]] = escape_text(", ".join(outcome.removed))
     title = texts.implement_title.format(
         item=outcome.item, group=outcome.group, title=outcome.title
     )
