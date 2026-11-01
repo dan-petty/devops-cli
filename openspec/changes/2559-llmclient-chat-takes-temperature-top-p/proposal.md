@@ -11,9 +11,9 @@ Issue #2559: `LLMClient.chat` and `LLMClient.chat_messages` take `**kwargs` and 
 - A per-call `temperature` or `top_p` replaces the configured one. A parameter that the caller omits keeps the configured value. `AIConfig` has no seed, so no seed is sent unless the caller passes one.
 - The gate that exists today decides whether sampling is sent at all, and it also gates a per-call value: `use_model_sampling` and, for the OpenAI-compatible driver, a reasoning model send no sampling. The seed follows the same gate.
 - Claude takes no seed. Its request carries the per-call `temperature` and `top_p` in `extra_body` under the sampling gate that exists today, and never a seed.
-- The reply cache key holds the per-call `temperature` and `top_p` in place of the configured ones. It adds `seed` only when a seed is sent.
+- The reply cache key holds the per-call `temperature` and `top_p` in place of the configured ones, and adds `seed` when a caller passes one. Under `use_model_sampling` it holds none of the three. A driver that drops a value (Claude drops the seed) still hashes it, which costs one extra miss and never a wrong hit.
 - The description of `use_model_sampling` says that the request also omits the seed. The generated configuration document follows.
-- The change carries a spec delta in `ai-model-sampling`, because the request body of the model client and a setting description are observable. It modifies two requirements and adds three.
+- The change carries a spec delta in `ai-model-sampling`, because the request body of the model client and a setting description are observable. It modifies two requirements and adds four.
 - Out of scope: `chat_messages_stream` and the streamed drivers, which no caller gives a per-call value, and the `gen_ai.request.temperature` span attribute, which still reads the config.
 - The change fits one pull request. It has four groups: the OpenAI-compatible request with the cache key and the TypeError, the Ollama request, the Claude request, and the setting description.
 
@@ -22,7 +22,7 @@ Issue #2559: `LLMClient.chat` and `LLMClient.chat_messages` take `**kwargs` and 
 The criteria of #2559 (the refine block of the issue), and the group that delivers each:
 
 - The request body carries the `temperature`, `top_p` and `seed` that the caller passes: group 1 for the gateway, `openai` and `copilot` providers, group 2 for Ollama, group 3 for Claude (temperature and top_p only).
-- The cache key holds the per-call `temperature`, `top_p` and `seed`: group 1.
+- The cache key holds the per-call `temperature`, `top_p` and `seed`: group 1 for the gateway, `openai` and `copilot` providers, group 2 for the Ollama case with `supports_reasoning`.
 - A caller that omits a parameter gets the configured `temperature` and `top_p`: group 1, and the same test for each provider in groups 2 and 3.
 - An unknown keyword raises `TypeError`: group 1.
 - The request omits `seed` for a provider that does not support it (Claude): group 3.
