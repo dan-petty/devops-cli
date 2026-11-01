@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/implement_step.py`. Changes: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_step.py`.
 
-- [ ] 1.1 Write a failing test in `tests/roadmap/test_roadmap_implement_step.py` that a step whose scripted model makes three tool calls in two replies reports `tool_calls` 3 in the outcome, in its JSON and in its table
+- [x] 1.1 Write a failing test in `tests/roadmap/test_roadmap_implement_step.py` that a step whose scripted model makes three tool calls in two replies reports `tool_calls` 3 in the outcome, in its JSON and in its table
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step.py` fails on the base
-- [ ] 1.2 Add `tool_calls` to the turn and to `StepOutcome`, add the row to the table, add the protocol `ItemReader` for the `store` parameter of `build_step_inputs`, `run_step` and `run_fix_step`, and make `commands_failure` public
+- [x] 1.2 Add `tool_calls` to the turn and to `StepOutcome`, add the row to the table, add the protocol `ItemReader` for the `store` parameter of `build_step_inputs`, `run_step` and `run_fix_step`, and make `commands_failure` public
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step.py tests/roadmap/test_roadmap_implement_job.py`
 
 ## 2. Load and validate the fixtures

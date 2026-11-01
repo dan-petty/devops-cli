@@ -2164,6 +2164,7 @@ class RoadmapMessages:
             "reason": "Reason",
             "commit": "Commit",
             "requests": "Model requests",
+            "tool_calls": "Tool calls",
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
             "last_message": "Last message of the agent",

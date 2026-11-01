@@ -101,6 +101,7 @@ def test_a_done_step_prints_a_table_with_its_commit(
 
     commit = git(implement_checkout, "rev-parse", "HEAD")
     assert (result.exit_code, "done" in result.output, commit in result.output) == (0, True, True)
+    assert "Tool calls" in result.output
 
 
 def test_a_stopped_step_exits_1_and_prints_its_reason_as_json(
