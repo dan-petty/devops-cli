@@ -38,6 +38,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig, Settings
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from devops_cli.k8s.gpu_matrix import (
     get_gateway_routing_entries,
     get_service_aliases,
@@ -102,9 +103,27 @@ def _load_service(path: Path, name: str) -> dict[str, Any]:
     )
 
 
-def _gateway_config() -> dict[str, Any]:
-    """Return the LiteLLM configuration the gateway ConfigMap carries."""
+# The groups that call a provider outside the cluster (#3113). Every other group is an Ollama tier.
+HOSTED_GROUPS = ("gemini-3.8-flash", "claude-sonnet-5-5", "claude-haiku-5-5")
+HOSTED_SECRET = "llm-gateway-secrets"
+
+
+def _full_gateway_config() -> dict[str, Any]:
+    """Return the LiteLLM configuration the gateway ConfigMap carries, hosted groups included."""
     return dict(yaml.safe_load(GATEWAY_CONFIG.read_text(encoding="utf-8")))
+
+
+def _gateway_config() -> dict[str, Any]:
+    """Return the LiteLLM configuration of the in-cluster backends: the hosted groups, which
+    have no `api_base`, are left out of its `model_list` (`_hosted_models` returns them)."""
+    config = _full_gateway_config()
+    config["model_list"] = [m for m in config["model_list"] if m["model_name"] not in HOSTED_GROUPS]
+    return config
+
+
+def _hosted_models() -> list[dict[str, Any]]:
+    """Return the `model_list` entries of the hosted groups, in configuration order."""
+    return [m for m in _full_gateway_config()["model_list"] if m["model_name"] in HOSTED_GROUPS]
 
 
 def _rendered_gateway(directory: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -1168,6 +1187,21 @@ class TestK8sLLMGatewayManifests:
 _DNS_PEER = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}}
 _DNS_PORTS = frozenset({("UDP", 53, None), ("TCP", 53, None)})
 _OLLAMA_PEER = {"podSelector": {"matchLabels": {"llm.devops.io/provider": "ollama"}}}
+# The hosted groups call their providers over HTTPS. A NetworkPolicy cannot name a host, so the
+# rule admits public addresses on 443: every private range and the metadata range stay out (#3113).
+_HOSTED_PEER = {
+    "ipBlock": {
+        "cidr": "0.0.0.0/0",
+        "except": [
+            "10.0.0.0/8",
+            "100.64.0.0/10",
+            "169.254.0.0/16",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+        ],
+    }
+}
+_HOSTED_PORTS = frozenset({("TCP", 443, None)})
 
 EgressPort = tuple[str, object, object]
 BackendTarget = tuple[dict[str, str], int]
@@ -1247,6 +1281,10 @@ def _peer_violation(
     """Return how a peer admits more than a backend or DNS on these ports, or None."""
     if peer == _DNS_PEER:
         return None if ports == _DNS_PORTS else f"the DNS peer admits {sorted(map(str, ports))}"
+    if peer == _HOSTED_PEER:
+        return (
+            None if ports == _HOSTED_PORTS else f"the hosted peer admits {sorted(map(str, ports))}"
+        )
     labels = _pod_labels(peer)
     if not labels:
         return f"{peer} is not a same-namespace podSelector with matchLabels alone"
@@ -1276,7 +1314,8 @@ def _egress_violations(
     The policy must select the gateway's pods and enforce Egress. Each rule needs a non-empty
     `to` and `ports`. A peer is the kube-system DNS peer on UDP and TCP 53, or a same-namespace
     podSelector whose labels are a subset of some backend Service's selector, on those
-    backends' targetPorts alone. No ipBlock passes.
+    backends' targetPorts alone, or the one public-address ipBlock on TCP 443 for the hosted
+    models, with its private ranges excluded. No other ipBlock passes.
     """
     spec = policy["spec"]
     selected = (spec.get("podSelector") or {}).get("matchLabels") or {}
@@ -1294,6 +1333,11 @@ def _egress_violations(
 def _ollama_rule(spec: dict[str, Any]) -> dict[str, Any]:
     """Return the egress rule that admits the Ollama tiers."""
     return next(rule for rule in spec["egress"] if _OLLAMA_PEER in rule["to"])
+
+
+def _hosted_rule(spec: dict[str, Any]) -> dict[str, Any]:
+    """Return the egress rule that admits the hosted providers."""
+    return next(rule for rule in spec["egress"] if _HOSTED_PEER in rule["to"])
 
 
 @pytest.fixture(scope="module")
@@ -1355,6 +1399,22 @@ def test_gateway_egress_admits_nothing_else(
             id="valkey-port-on-the-ollama-rule",
         ),
         pytest.param(lambda spec: spec["policyTypes"].remove("Egress"), id="egress-not-enforced"),
+        pytest.param(
+            lambda spec: _hosted_rule(spec)["ports"].append({"protocol": "TCP", "port": 80}),
+            id="hosted-rule-on-port-80",
+        ),
+        pytest.param(
+            lambda spec: _hosted_rule(spec)["to"][0]["ipBlock"]["except"].pop(),
+            id="hosted-rule-admits-a-private-range",
+        ),
+        pytest.param(
+            lambda spec: _hosted_rule(spec)["to"][0]["ipBlock"].pop("except"),
+            id="hosted-rule-without-exclusions",
+        ),
+        pytest.param(
+            lambda spec: _hosted_rule(spec)["to"].append({"podSelector": {}}),
+            id="any-pod-on-the-hosted-rule",
+        ),
     ],
 )
 def test_each_widening_edit_is_a_violation(
@@ -1857,3 +1917,145 @@ def test_a_changed_gateway_config_changes_only_the_config_map_name_in_the_pod_te
         old_configmap["metadata"]["name"] == new_configmap["metadata"]["name"],
         yaml.safe_load(new_configmap["data"]["config.yaml"])["router_settings"]["cooldown_time"],
     ) == (False, True, False, 60)
+
+
+# ── The hosted model groups call a provider with a key from the gateway Secret (#3113) ──────────
+
+
+def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> list[str]:
+    """Return every way the hosted groups of `config` break their rules.
+
+    A hosted group names a gemini or anthropic backend with no `api_base`, and reads its key from
+    an environment variable of the gateway Deployment. The variable is an optional key of the
+    gateway Secret, which `CLUSTER_SECRETS` writes without requiring it, so the gateway starts
+    without the key. A group sets its window and, where the cost map of the pinned image lacks the
+    model, its prices. A Claude group drops the sampling parameters that its API refuses. No pool, fallback or routing group names a hosted group, so a prompt leaves
+    the cluster only when its caller names the group.
+    """
+    entries = [m for m in config["model_list"] if m["model_name"] in HOSTED_GROUPS]
+    env = {
+        v["name"]: v["valueFrom"]["secretKeyRef"]
+        for v in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+        if "secretKeyRef" in v.get("valueFrom", {})
+    }
+    secret = next(s for s in CLUSTER_SECRETS if s.ref == f"llm/{HOSTED_SECRET}")
+    optional_keys = {entry.key for entry in secret.entries if not entry.required}
+    router = config["router_settings"]
+    chains = [*router.get("fallbacks", []), *router.get("context_window_fallbacks", [])]
+    routed = {
+        name for link in chains for key, targets in link.items() for name in (key, *targets)
+    } | {name for group in router.get("routing_groups", []) for name in group["models"]}
+    listed = [m["model_name"] for m in entries]
+    problems = [
+        f"{name} is listed {listed.count(name)} times"
+        for name in HOSTED_GROUPS
+        if listed.count(name) != 1
+    ]
+    problems += [
+        f"{name} is in a pool or a fallback" for name in sorted(routed & set(HOSTED_GROUPS))
+    ]
+    for model in entries:
+        params, info = model["litellm_params"], model.get("model_info") or {}
+        name = model["model_name"]
+        variable = str(params.get("api_key", "")).removeprefix("os.environ/")
+        reference = env.get(variable)
+        if params["model"].partition("/")[0] not in {"gemini", "anthropic"}:
+            problems.append(f"{name} calls a provider that is not gemini or anthropic")
+        if "api_base" in params:
+            problems.append(f"{name} sets an api_base")
+        if not str(params.get("api_key", "")).startswith("os.environ/") or reference is None:
+            problems.append(f"{name} reads its key from no Deployment variable of the Secret")
+        elif (
+            reference["name"] != HOSTED_SECRET
+            or reference["key"] not in optional_keys
+            or reference.get("optional") is not True
+        ):
+            problems.append(f"{name} does not read an optional key of {HOSTED_SECRET}")
+        if not info.get("max_input_tokens"):
+            problems.append(f"{name} sets no window")
+        if params["model"].startswith("anthropic/") and not (
+            info.get("input_cost_per_token") and info.get("output_cost_per_token")
+        ):
+            problems.append(f"{name} sets no prices, and the cost map of the image lacks it")
+        if params["model"].startswith("anthropic/") and set(
+            params.get("additional_drop_params") or ()
+        ) != {"temperature", "top_p", "top_k"}:
+            problems.append(f"{name} does not drop the sampling parameters that the API refuses")
+    return problems
+
+
+def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() -> None:
+    """The hosted groups follow their rules (#3113)."""
+    deployment = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
+    assert _hosted_violations(_full_gateway_config(), deployment) == []
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        pytest.param(
+            lambda config, deployment: config["router_settings"]["fallbacks"].append(
+                {"devops-review": ["claude-haiku-5-5"]}
+            ),
+            "claude-haiku-5-5 is in a pool or a fallback",
+            id="fallback-to-a-hosted-group",
+        ),
+        pytest.param(
+            lambda config, deployment: config["router_settings"]["routing_groups"][0][
+                "models"
+            ].append("gemini-3.8-flash"),
+            "gemini-3.8-flash is in a pool or a fallback",
+            id="routing-group-with-a-hosted-group",
+        ),
+        pytest.param(
+            lambda config, deployment: deployment["spec"]["template"]["spec"]["containers"][0][
+                "env"
+            ].remove(
+                next(
+                    v
+                    for v in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+                    if v["name"] == "GEMINI_API_KEY"
+                )
+            ),
+            "gemini-3.8-flash reads its key from no Deployment variable of the Secret",
+            id="key-variable-missing",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                v
+                for v in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+                if v["name"] == "ANTHROPIC_API_KEY"
+            )["valueFrom"]["secretKeyRef"].pop("optional"),
+            "claude-sonnet-5-5 does not read an optional key of llm-gateway-secrets",
+            id="required-key-stops-the-gateway-without-it",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "claude-sonnet-5-5"
+            )["litellm_params"].update(api_base="http://example.com"),
+            "claude-sonnet-5-5 sets an api_base",
+            id="api-base-on-a-hosted-group",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "claude-haiku-5-5"
+            )["model_info"].pop("output_cost_per_token"),
+            "claude-haiku-5-5 sets no prices, and the cost map of the image lacks it",
+            id="claude-prices-missing",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "claude-sonnet-5-5"
+            )["litellm_params"].pop("additional_drop_params"),
+            "claude-sonnet-5-5 does not drop the sampling parameters that the API refuses",
+            id="sampling-parameters-reach-the-api",
+        ),
+    ],
+)
+def test_each_edit_that_breaks_a_hosted_rule_is_a_violation(
+    edit: Callable[[dict[str, Any], dict[str, Any]], None], expected: str
+) -> None:
+    config = copy.deepcopy(_full_gateway_config())
+    deployment = copy.deepcopy(_load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment"))
+    edit(config, deployment)
+    assert expected in _hosted_violations(config, deployment)

@@ -1891,6 +1891,19 @@ class RoadmapMessages:
         "{marker}\nStatus set to Ready at {sha} (see proposed design in issue body)."
     )
     refine_step_comment: str = "{marker}\n{status}{step}\n\n{details}"
+    # Deferred parts (#2423): the first line of a new issue, the sentence of the Ready comment,
+    # the detail of an item that a part keeps waiting, and the warning of a round that filed
+    # only some parts.
+    refine_deferred_split_from: str = "Split from #{number}."
+    refine_deferred_comment: str = "Moved to new items: {items}."
+    refine_deferred_refused: str = (
+        'Intake cannot file the deferred part "{title}". Decide the part, or take it out of '
+        "the item."
+    )
+    refine_deferred_incomplete: str = (
+        "Refine filed {filed} of the {count} deferred parts of #{number} and left the item as it "
+        "was. The next round files the rest."
+    )
     refine_back_to_new: str = "Status set back to New at {sha}. "
     # The comment that gives an item its next step, by the step's value (#1758).
     refine_step_comments: dict[str, str] = field(
@@ -2823,6 +2836,7 @@ class RoadmapMessages:
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
             "number": "<number>",
+            "deferred_part": "<deferred part>",
             "milestone": "<milestone>",
             "labels": "<the labels, the field's family replaced>",
             "record": "<the body, its job record block written>",
@@ -2901,6 +2915,7 @@ class RoadmapMessages:
                 "the cap on refine's comments leaves the item alone, and no earlier round "
                 "recorded its newest comment"
             ),
+            "deferred": "the proposal defers a part of the item",
         }
     )
     plan_repeat: dict[str, str] = field(
