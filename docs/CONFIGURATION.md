@@ -268,7 +268,7 @@ roadmap configuration settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `alternatives` | `AlternativesConfig` | `limit=5 recheck_days=30` | - | - |
+| `alternatives` | `AlternativesConfig` | `limit=5 recheck_days=30 retry_days=3` | - | - |
 | `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 step_tokens=40000` | - | - |
 | `implement` | `RoadmapImplementConfig` | `in_runner=False` | - | - |
 

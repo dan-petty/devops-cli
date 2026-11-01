@@ -1999,10 +1999,12 @@ class RoadmapMessages:
     alternatives_skipped_line: str = "- #{number} {title}: skipped, {reason}"
     alternatives_applied: str = "Checked {count} item(s) for open alternatives."
     alternatives_failed: str = (
-        "the check failed for {count} item(s), and the others were written: {items}"
+        "the check failed for each of the {count} item(s) it tried, and no check was written: "
+        "{items}"
     )
     alternatives_failed_item: str = "#{number} ({reason})"
     alternatives_reason_stopped: str = "the model's run stopped ({reason})"
+    alternatives_reason_stopped_message: str = "the model's run stopped ({reason}: {message})"
     alternatives_reason_error: str = "the model call failed ({error})"
     alternatives_reason_url: str = "the reply cites a URL that no tool returned: {url}"
     alternatives_reason_no_facts: str = "the reply names a tool whose facts no tool read: {url}"

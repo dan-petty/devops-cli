@@ -136,6 +136,35 @@ def _mark_checked(
     )
 
 
+def _mark_failed(
+    store: InMemoryRoadmapStore, number: int, *, days: int, error: str = "AIClientError"
+) -> None:
+    """Record a failed check of item `number` made `days` days before `NOW`."""
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            AlternativesRecordKey.FAILED_AT: _days_ago(days).isoformat(),
+            AlternativesRecordKey.FAILED_ERROR: error,
+        },
+    )
+
+
+def _recorded(store: RoadmapStore, number: int, key: AlternativesRecordKey) -> str | None:
+    item = store.item(number)
+    assert item is not None
+    return item.job_record.get(key)
+
+
+def _failure_record(store: RoadmapStore, number: int) -> tuple[str | None, str | None]:
+    """The time and the class of the error of the last failed check of item `number`."""
+    return (
+        _recorded(store, number, AlternativesRecordKey.FAILED_AT),
+        _recorded(store, number, AlternativesRecordKey.FAILED_ERROR),
+    )
+
+
 def _covers(**changes: Any) -> AlternativesReply:
     reply = AlternativesReply(
         verdict=Verdict.COVERS,
@@ -203,7 +232,9 @@ def test_unchecked_items_come_before_stale_items_and_the_limit_caps_the_run(
     _mark_checked(store, stale, days=40)
     _mark_checked(store, fresh, days=2)
 
-    selection = select_items(store, item_number=None, limit=3, recheck_days=30, now=NOW)
+    selection = select_items(
+        store, item_number=None, limit=3, recheck_days=30, retry_days=3, now=NOW
+    )
 
     assert (
         [item.number for item in selection.selected],
@@ -217,7 +248,9 @@ def test_stale_items_are_taken_oldest_check_first(store: InMemoryRoadmapStore) -
     _mark_checked(store, newer, days=35)
     _mark_checked(store, older, days=90)
 
-    selection = select_items(store, item_number=None, limit=5, recheck_days=30, now=NOW)
+    selection = select_items(
+        store, item_number=None, limit=5, recheck_days=30, retry_days=3, now=NOW
+    )
 
     assert [item.number for item in selection.selected] == [older, newer]
 
@@ -232,7 +265,9 @@ def test_an_item_whose_text_changed_is_checked_again_and_the_jobs_own_text_chang
     marked = f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nVerdict: none.\n{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
     store.write_issue_body(own, f"The same text.\n\n{marked}")
 
-    selection = select_items(store, item_number=None, limit=5, recheck_days=30, now=NOW)
+    selection = select_items(
+        store, item_number=None, limit=5, recheck_days=30, retry_days=3, now=NOW
+    )
 
     assert (
         [item.number for item in selection.selected],
@@ -249,7 +284,9 @@ def test_started_blocked_closed_and_untrusted_items_are_left_out(
     store.close(_item(store, "Closed"), CloseReason.COMPLETED)
     ready = _item(store, "Ready", status="Ready")
 
-    selection = select_items(store, item_number=None, limit=9, recheck_days=30, now=NOW)
+    selection = select_items(
+        store, item_number=None, limit=9, recheck_days=30, retry_days=3, now=NOW
+    )
 
     assert [item.number for item in selection.selected] == [ready]
 
@@ -259,8 +296,10 @@ def test_an_item_that_is_named_is_checked_whoever_opened_it(store: InMemoryRoadm
     other = _item(store, "Other")
     _mark_checked(store, untrusted, days=2)
 
-    selection = select_items(store, item_number=untrusted, limit=1, recheck_days=30, now=NOW)
-    missing = select_items(store, item_number=99, limit=1, recheck_days=30, now=NOW)
+    selection = select_items(
+        store, item_number=untrusted, limit=1, recheck_days=30, retry_days=3, now=NOW
+    )
+    missing = select_items(store, item_number=99, limit=1, recheck_days=30, retry_days=3, now=NOW)
 
     assert (
         [item.number for item in selection.selected],
@@ -273,7 +312,12 @@ def test_a_closed_item_that_is_named_is_not_checked(store: InMemoryRoadmapStore)
     number = _item(store)
     store.close(number, CloseReason.NOT_PLANNED)
 
-    assert select_items(store, item_number=number, limit=1, recheck_days=30, now=NOW).selected == []
+    assert (
+        select_items(
+            store, item_number=number, limit=1, recheck_days=30, retry_days=3, now=NOW
+        ).selected
+        == []
+    )
 
 
 def test_the_recheck_window_is_a_setting(
@@ -291,6 +335,52 @@ def test_the_recheck_window_is_a_setting(
         [c.item.number for c in default_window.checks],
         [c.item.number for c in short_window.checks],
     ) == ([], [number])
+
+
+def test_retry_delay_an_item_whose_check_failed_lately_is_left_out_until_the_delay_ends(
+    store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    first = _item(store, "First unchecked")
+    lately = _item(store, "Failed lately")
+    long_ago = _item(store, "Failed long ago")
+    garbled = _item(store, "Garbled failure time")
+    _mark_failed(store, lately, days=1)
+    _mark_failed(store, long_ago, days=4)
+    item = store.item(garbled)
+    assert item is not None
+    store.set_marks(item, {AlternativesRecordKey.FAILED_AT: "yesterday"})
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
+        selection = select_items(
+            store, item_number=None, limit=9, recheck_days=30, retry_days=3, now=NOW
+        )
+    named = select_items(store, item_number=lately, limit=1, recheck_days=30, retry_days=3, now=NOW)
+    longer = select_items(store, item_number=None, limit=9, recheck_days=30, retry_days=7, now=NOW)
+
+    assert (
+        [i.number for i in selection.selected],
+        [i.number for i in selection.current],
+        [i.number for i in named.selected],
+        [i.number for i in longer.selected],
+        any(f"#{garbled} is not a time" in r.getMessage() for r in caplog.records),
+    ) == ([first, long_ago, garbled], [], [lately], [first, garbled], True)
+
+
+def test_retry_delay_the_setting_defaults_to_three_and_is_at_least_one(
+    config: Callable[..., Any],
+) -> None:
+    from pydantic import ValidationError
+
+    from devops_cli.config.settings import AlternativesConfig, load_settings
+
+    config()
+    with pytest.raises(ValidationError) as raised:
+        AlternativesConfig(retry_days=0)
+    assert [error["loc"] for error in raised.value.errors()] == [("retry_days",)]
+    assert (AlternativesConfig().retry_days, load_settings().roadmap.alternatives.retry_days) == (
+        3,
+        3,
+    )
 
 
 # ── The tools of the run ──────────────────────────────────────────────────────
@@ -662,6 +752,8 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
         {
             "alternatives.body_hash": body_hash_of("The job needs a scanner."),
             "alternatives.checked_at": NOW.isoformat(),
+            "alternatives.failed_at": None,
+            "alternatives.failed_error": None,
             "alternatives.tool": TOOL_URL,
             "alternatives.verdict": "covers",
         },
@@ -952,17 +1044,15 @@ def test_a_refused_reply_skips_its_item_and_the_others_are_written(
 
     plan = _plan(store, script)
     written = apply_alternatives(store, plan)
+    raise_for_failed_checks(plan)
 
-    with pytest.raises(RoadmapAlternativesError) as error:
-        raise_for_failed_checks(plan)
     assert (
         [c.item.number for c in plan.checks],
         [(f.item.number, f.reason) for f in plan.failures],
         written,
         store.comments_on(refused),
-        error.value.failed_items,
-        f"#{refused} ({reason})" in str(error.value),
-    ) == ([kept], [(refused, reason)], 1, [], (refused,), True)
+        _failure_record(store, refused),
+    ) == ([kept], [(refused, reason)], 1, [], (NOW.isoformat(), "RefusedReply"))
 
 
 def test_a_failed_model_call_skips_its_item_and_names_the_error_class(
@@ -977,12 +1067,12 @@ def test_a_failed_model_call_skips_its_item_and_names_the_error_class(
     )
 
     plan = _plan(store, script)
+    raise_for_failed_checks(plan)
 
-    with pytest.raises(
-        RoadmapAlternativesError, match=rf"#{failing} \(the model call failed \(AIClientError\)\)"
-    ):
-        raise_for_failed_checks(plan)
-    assert [c.item.number for c in plan.checks] == [kept]
+    assert (
+        [c.item.number for c in plan.checks],
+        [(f.item.number, f.reason, f.error_class) for f in plan.failures],
+    ) == ([kept], [(failing, "the model call failed (AIClientError)", "AIClientError")])
 
 
 def test_a_run_that_spends_its_budget_skips_its_item(
@@ -992,9 +1082,48 @@ def test_a_run_that_spends_its_budget_skips_its_item(
     number = _item(store)
     plan = _plan(store, Script(call("search_web", query="q")))
 
-    assert [(f.item.number, f.reason) for f in plan.failures] == [
-        (number, "the model's run stopped (UsageLimitExceeded)")
-    ]
+    ((failure),) = plan.failures
+    assert (
+        failure.item.number,
+        failure.error_class,
+        failure.reason.startswith("the model's run stopped (UsageLimitExceeded: "),
+        len(failure.reason) > len("the model's run stopped (UsageLimitExceeded: )"),
+    ) == (number, "UsageLimitExceeded", True, True)
+
+
+@pytest.mark.parametrize(
+    ("message", "reason"),
+    [
+        pytest.param(
+            "The next request would exceed the limit.",
+            "the model's run stopped (UsageLimitExceeded: The next request would exceed the limit.)",
+            id="with-message",
+        ),
+        pytest.param("", "the model's run stopped (UsageLimitExceeded)", id="no-message"),
+    ],
+)
+def test_failure_record_the_reason_of_a_stopped_run_holds_its_message(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    monkeypatch: pytest.MonkeyPatch,
+    message: str,
+    reason: str,
+) -> None:
+    from devops_cli.roadmap.refine_investigation import InvestigationStopped
+
+    number = _item(store)
+    monkeypatch.setattr(
+        "devops_cli.roadmap.alternatives.investigate",
+        lambda *_args, **_kwargs: InvestigationStopped("UsageLimitExceeded", message),
+    )
+
+    plan = _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    apply_alternatives(store, plan)
+
+    assert (
+        [(f.item.number, f.reason) for f in plan.failures],
+        _failure_record(store, number),
+    ) == ([(number, reason)], (NOW.isoformat(), "UsageLimitExceeded"))
 
 
 def test_rejected_credentials_stop_the_run_at_the_first_item(
@@ -1138,7 +1267,7 @@ def test_the_command_previews_a_check_and_writes_it_with_confirm(
     ) == (0, True, [], 0, 1)
 
 
-def test_the_command_exits_1_after_it_reports_a_skipped_item(
+def test_total_failure_the_command_exits_1_when_its_only_item_fails(
     roadmap_store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     number = _item(roadmap_store)
@@ -1149,7 +1278,40 @@ def test_the_command_exits_1_after_it_reports_a_skipped_item(
 
     result = CliRunner().invoke(roadmap_app, ["alternatives", "--repo", REPO, "--confirm"])
 
-    assert (result.exit_code, f"#{number}" in result.output) == (1, True)
+    assert (
+        result.exit_code,
+        f"#{number}" in result.output,
+        _failure_record(roadmap_store, number),
+    ) == (
+        1,
+        True,
+        (_recorded(roadmap_store, number, AlternativesRecordKey.FAILED_AT), "RefusedReply"),
+    )
+
+
+def test_total_failure_the_command_exits_0_when_one_item_fails_and_one_is_checked(
+    roadmap_store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failing = _item(roadmap_store, "Failing")
+    kept = _item(roadmap_store, "Kept")
+    script = _by_item(
+        {
+            failing: [_READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
+            kept: AlternativesReply(verdict=Verdict.NONE),
+        }
+    )
+    monkeypatch.setattr(
+        "devops_cli.roadmap.alternatives.get_task_model", lambda _task: script.model()
+    )
+
+    result = CliRunner().invoke(roadmap_app, ["alternatives", "--repo", REPO, "--confirm"])
+
+    assert (
+        result.exit_code,
+        f"#{failing} Failing: skipped" in result.output,
+        len(roadmap_store.comments_on(kept)),
+        _failure_record(roadmap_store, failing)[1],
+    ) == (0, True, 1, "RefusedReply")
 
 
 @pytest.mark.parametrize(
@@ -1234,7 +1396,7 @@ def test_the_limit_setting_defaults_to_five_and_is_at_least_one(
     assert load_settings().roadmap.alternatives.limit == 5
 
 
-def test_a_failed_check_fails_the_row_once_the_others_are_written(
+def test_total_failure_a_failed_check_records_its_item_and_the_row_succeeds(
     store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from pydantic_ai.exceptions import ModelHTTPError
@@ -1248,10 +1410,55 @@ def test_a_failed_check_fails_the_row_once_the_others_are_written(
         ),
     )
 
-    with pytest.raises(RoadmapAlternativesError, match=rf"#{failing} "):
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert (
+        store.comments_on(failing),
+        len(store.comments_on(kept)),
+        _failure_record(store, failing)[1],
+        _failure_record(store, kept),
+    ) == ([], 1, "AIClientError", (None, None))
+
+
+def test_total_failure_a_round_in_which_every_check_fails_fails_the_row_and_records_each(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    first = _item(store, "First")
+    second = _item(store, "Second")
+    script = _by_item({first: ModelHTTPError(500, "m"), second: ModelHTTPError(503, "m")})
+    _answer_with(monkeypatch, script)
+
+    plan = _plan(store, script)
+    with pytest.raises(RoadmapAlternativesError) as direct:
+        raise_for_failed_checks(plan)
+    with pytest.raises(RoadmapAlternativesError) as row:
         _alternatives_row().runner(store=store, repo=REPO)
 
-    assert (store.comments_on(failing), len(store.comments_on(kept))) == ([], 1)
+    assert (
+        direct.value.failed_items,
+        row.value.failed_items,
+        "the check failed for each of the 2 item(s) it tried" in str(row.value),
+        _failure_record(store, first)[1],
+        _failure_record(store, second)[1],
+    ) == ((first, second), (first, second), True, "AIClientError", "AIClientError")
+
+
+def test_total_failure_a_round_with_no_item_to_check_makes_no_model_call_and_succeeds(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = _item(store, "Current")
+    delayed = _item(store, "Delayed")
+    _mark_checked(store, current, days=2)
+    _mark_failed(store, delayed, days=1)
+    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    _answer_with(monkeypatch, script)
+
+    plan = plan_alternatives(store, repo=REPO, now=NOW)
+    raise_for_failed_checks(plan)
+
+    assert (script.seen, plan.checks, plan.failures, plan.has_writes) == ([], [], [], False)
 
 
 def test_a_round_off_for_want_of_a_key_runs_the_row_and_checks_nothing(
@@ -1307,6 +1514,79 @@ def test_the_commands_limit_option_has_no_default_of_its_own(
         0,
         numbers[:1],
     )
+
+
+def test_failure_record_one_of_five_checks_fails_and_the_round_records_it_and_succeeds(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    numbers = [_item(store, f"Item {n}") for n in range(5)]
+    failing = numbers[2]
+    before = store.read_issue_body(failing)
+    script = _by_item(
+        {
+            n: ModelHTTPError(500, "m") if n == failing else AlternativesReply(verdict=Verdict.NONE)
+            for n in numbers
+        }
+    )
+    _answer_with(monkeypatch, script)
+    monkeypatch.setattr(
+        "devops_cli.roadmap.alternatives.datetime",
+        type("_FixedClock", (datetime,), {"now": classmethod(lambda cls, tz=None: NOW)}),
+    )
+
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert (
+        [n for n in numbers if store.comments_on(n)],
+        _failure_record(store, failing),
+        store.read_issue_body(failing),
+        _recorded(store, failing, AlternativesRecordKey.CHECKED_AT),
+    ) == ([n for n in numbers if n != failing], (NOW.isoformat(), "AIClientError"), before, None)
+
+
+def test_failure_record_a_plan_that_is_not_applied_changes_no_job_record(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    number = _item(store)
+
+    plan = _plan(store, Script(ModelHTTPError(500, "m")))
+
+    assert (plan.has_writes, store.job_writes(), _failure_record(store, number)) == (
+        True,
+        [],
+        (None, None),
+    )
+
+
+def test_failure_record_a_failed_item_is_tried_again_after_the_delay_and_its_check_clears_it(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    number = _item(store)
+    apply_alternatives(store, _plan(store, Script(ModelHTTPError(500, "m"))))
+    soon = Script(AlternativesReply(verdict=Verdict.NONE))
+    later = Script(AlternativesReply(verdict=Verdict.NONE))
+
+    early = _plan(store, soon, now=NOW + timedelta(days=1))
+    apply_alternatives(store, early)
+    recorded_early = _failure_record(store, number)
+    written = apply_alternatives(store, _plan(store, later, now=NOW + timedelta(days=4)))
+
+    assert (
+        soon.seen,
+        early.checks,
+        early.failures,
+        recorded_early,
+        written,
+        len(later.seen),
+        _failure_record(store, number),
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+    ) == ([], [], [], (NOW.isoformat(), "AIClientError"), 1, 1, (None, None), "none")
 
 
 # ── The metric ────────────────────────────────────────────────────────────────

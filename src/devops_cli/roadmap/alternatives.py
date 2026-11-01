@@ -4,20 +4,24 @@ maintained tool or library covers the item's need, in whole or in part.
 **Selection.** An open Item with Status New or Ready, whose author has write access, is taken.
 Items with no check come first, lowest number first, then items whose last check is older than
 `roadmap.alternatives.recheck_days` or whose text changed since, oldest check first. `--limit`
-caps a run. `--item` checks the one item it names whenever it is open.
+caps a run. An item whose last check failed less than `roadmap.alternatives.retry_days` ago is
+left out. `--item` checks the one item it names whenever it is open.
 
 **The run.** `investigate` of refine's investigation runs the agent with three tools: a Firecrawl
 web search, a GitHub repository read and a PyPI package read. The tools are the only sources. They
 keep the URLs they returned, the facts they read and the searches they ran, and the job writes
 those into the record: the model writes only the verdict, the URL of the tool, and what it covers
 and lacks. The job refuses a reply that cites a URL no tool returned, and sets `maintained` from
-the facts. A model call that fails skips its item; the others are written, and the run then fails
-naming each skipped item. Rejected credentials stop the run at the first item.
+the facts. A failed model call, a stopped run or a refused reply skips its item, and the others are
+written. The run fails, naming each skipped item, only when it tried items and checked none.
+Rejected credentials stop the run at the first item.
 
 **Writes.** With `--confirm` a check replaces the job's block in the body, records
 `alternatives.*` in the job record, and posts one comment that carries
 `CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. A comment
-after the job's last one reaches the next check as a reply.
+after the job's last one reaches the next check as a reply. A skipped item gets only
+`alternatives.failed_at` and `alternatives.failed_error` in its job record; a written check
+clears both.
 
 The check is off when the repository is private, its visibility cannot be read, or no Firecrawl
 key is set: a verdict `none` would then say that no tool exists when none was looked for.
@@ -51,6 +55,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
+    CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR,
     CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
@@ -387,10 +392,12 @@ class Check:
 @dataclass(frozen=True)
 class CheckFailure:
     """An item the job skipped, and why: a failed model call, a run that ended with no reply, or a
-    reply the job refused."""
+    reply the job refused. `error_class` and `failed_at` go to the item's job record."""
 
     item: Item
     reason: str
+    error_class: str
+    failed_at: datetime
 
 
 @dataclass(frozen=True)
@@ -416,8 +423,8 @@ class AlternativesPlan:
 
     @property
     def has_writes(self) -> bool:
-        """Whether a run with `--confirm` writes anything."""
-        return bool(self.checks) or bool(self.write_requests)
+        """Whether a run with `--confirm` writes anything: a check, or the record of a failure."""
+        return bool(self.checks) or bool(self.failures) or bool(self.write_requests)
 
 
 def body_hash_of(body: str) -> str:
@@ -429,19 +436,31 @@ def body_hash_of(body: str) -> str:
     return hash_text(extract_section_and_outside(outside)[0])
 
 
-def _checked_at(item: Item) -> datetime | None:
-    """When the job's last check of `item` ran, or None when it recorded none or the record is
-    not a time."""
-    recorded = item.job_record.get(AlternativesRecordKey.CHECKED_AT)
+def _recorded_time(item: Item, key: AlternativesRecordKey, name: str) -> datetime | None:
+    """The time that the job record of `item` holds at `key`, or None when it holds none or the
+    value is not a time."""
+    recorded = item.job_record.get(key)
     if not recorded:
         return None
     try:
         return datetime.fromisoformat(recorded)
     except ValueError:
         logger.warning(
-            "The check time recorded on #%d is not a time; the item is checked.", item.number
+            "The %s time recorded on #%d is not a time; the item is checked.", name, item.number
         )
         return None
+
+
+def _checked_at(item: Item) -> datetime | None:
+    """When the job's last check of `item` ran, or None when it recorded none or the record is
+    not a time."""
+    return _recorded_time(item, AlternativesRecordKey.CHECKED_AT, "check")
+
+
+def _in_retry_delay(item: Item, retry_days: int, now: datetime) -> bool:
+    """Whether the last check of `item` failed less than `retry_days` days before `now`."""
+    failed_at = _recorded_time(item, AlternativesRecordKey.FAILED_AT, "failure")
+    return failed_at is not None and now - failed_at < timedelta(days=retry_days)
 
 
 def _is_eligible(item: Item) -> bool:
@@ -464,10 +483,12 @@ def select_items(
     item_number: int | None,
     limit: int,
     recheck_days: int,
+    retry_days: int,
     now: datetime,
 ) -> Selection:
     """Up to `limit` items to check, in the order the module's docstring gives, and the eligible
-    items whose check is current. `item_number` names the one open item to check."""
+    items whose check is current. An item whose check failed less than `retry_days` days ago is in
+    neither list. `item_number` names the one open item to check, whatever its failure."""
     if item_number is not None:
         item = store.item(item_number)
         return Selection([item] if item and item.state is GitHubState.OPEN else [], [])
@@ -475,6 +496,8 @@ def select_items(
     due: list[tuple[datetime, Item]] = []
     current: list[Item] = []
     for item in filter(_is_eligible, store.items()):
+        if _in_retry_delay(item, retry_days, now):
+            continue
         checked_at = _checked_at(item)
         if checked_at is None:
             unchecked.append(item)
@@ -652,7 +675,7 @@ def validate_reply(
     """The check that `reply` makes, or the failure when the job refuses it."""
     refusal = _refusal(reply, tools) or _marker_problem(item.body)
     if refusal is not None:
-        return CheckFailure(item, refusal)
+        return CheckFailure(item, refusal, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
     allowed = tools.allowed_urls
     partial = Check(
         item=item,
@@ -674,6 +697,17 @@ def validate_reply(
     )
 
 
+def _stopped_reason(stopped: InvestigationStopped) -> str:
+    """The reason of a run that stopped: the class of the error and, when it has one, its masked
+    message (#2562, #2922)."""
+    texts = MESSAGES.roadmap
+    if not stopped.message:
+        return texts.alternatives_reason_stopped.format(reason=stopped.reason)
+    return texts.alternatives_reason_stopped_message.format(
+        reason=stopped.reason, message=stopped.message
+    )
+
+
 def _check_one(
     store: RoadmapStore, item: Item, *, key: str, model: Any, now: datetime
 ) -> Check | CheckFailure:
@@ -692,14 +726,15 @@ def _check_one(
             item.number,
             type(exc).__name__,
         )
-        return CheckFailure(item, texts.alternatives_reason_error.format(error=type(exc).__name__))
+        error = type(exc).__name__
+        return CheckFailure(item, texts.alternatives_reason_error.format(error=error), error, now)
     if isinstance(reply, InvestigationStopped):
         logger.warning(
             "The alternatives check of #%d was skipped: its run stopped (%s).",
             item.number,
             reply.reason,
         )
-        return CheckFailure(item, texts.alternatives_reason_stopped.format(reason=reply.reason))
+        return CheckFailure(item, _stopped_reason(reply), reply.reason, now)
     return validate_reply(item, reply, tools, now)
 
 
@@ -728,6 +763,7 @@ def plan_alternatives(
         item_number=item_number,
         limit=config.limit if limit is None else limit,
         recheck_days=config.recheck_days,
+        retry_days=config.retry_days,
         now=moment,
     )
     if not selection.selected:
@@ -757,7 +793,8 @@ def _unchanged_since_read(store: RoadmapStore, check: Check) -> bool:
 
 def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
     """Writes each check: the body block, the job record, then the comment, and counts it in
-    `devops_cli_roadmap_alternatives_total` by its verdict. Returns how many checks it wrote; a
+    `devops_cli_roadmap_alternatives_total` by its verdict. Then records each failure in the job
+    record of its item: the time and the class of the error. Returns how many checks it wrote; a
     check whose body a person changed since the read is left for the next run."""
     written = 0
     for check in plan.checks:
@@ -772,18 +809,29 @@ def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
                 AlternativesRecordKey.BODY_HASH: check.body_hash,
                 AlternativesRecordKey.VERDICT: check.verdict.value,
                 AlternativesRecordKey.TOOL: check.tool.url if check.tool else None,
+                AlternativesRecordKey.FAILED_AT: None,
+                AlternativesRecordKey.FAILED_ERROR: None,
             },
         )
         store.comment(number, check.comment)
         emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": check.verdict.value})
         written += 1
+    for failure in plan.failures:
+        store.set_marks(
+            failure.item,
+            {
+                AlternativesRecordKey.FAILED_AT: failure.failed_at.isoformat(),
+                AlternativesRecordKey.FAILED_ERROR: failure.error_class,
+            },
+        )
     return written
 
 
 def raise_for_failed_checks(plan: AlternativesPlan) -> None:
-    """Fail a run in which the check of any item failed, once the others are written. The error
-    names each skipped item with its reason, and holds no text of the model."""
-    if not plan.failures:
+    """Fail a run that tried items and checked none, once the failures are recorded (#2949). A run
+    that checked at least one item, or tried none, does not fail. The error names each skipped item
+    with its reason, and holds no text of the model."""
+    if plan.checks or not plan.failures:
         return
     texts = MESSAGES.roadmap
     items = ", ".join(

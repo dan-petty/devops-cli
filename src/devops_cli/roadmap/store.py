@@ -165,12 +165,15 @@ class Verdict(StrEnum):
 class AlternativesRecordKey(StrEnum):
     """What `devops roadmap alternatives` records in an Item's job record (#2650): when the check
     ran, the hash of the body it read outside its own block and the refine section, its verdict,
-    and the URL of the tool it found, if any."""
+    and the URL of the tool it found, if any. When the last check failed, the record holds the
+    time of the failure and the class of its error (#2949) until a check is written."""
 
     CHECKED_AT = "alternatives.checked_at"
     BODY_HASH = "alternatives.body_hash"
     VERDICT = "alternatives.verdict"
     TOOL = "alternatives.tool"
+    FAILED_AT = "alternatives.failed_at"
+    FAILED_ERROR = "alternatives.failed_error"
 
 
 class StageRecordKey(StrEnum):

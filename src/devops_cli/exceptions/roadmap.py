@@ -140,10 +140,11 @@ class RoadmapRefineError(DevOpsCLIError):
 
 
 class RoadmapAlternativesError(DevOpsCLIError):
-    """Raised after an alternatives run in which the check of one or more items failed.
+    """Raised after an alternatives run that tried items and checked none of them.
 
-    The job skipped each such item and wrote the others first (#2650). The message names each
-    skipped item with its reason, never the model's text.
+    The job recorded each failure in the job record of its item first (#2949). A run that checks
+    at least one item does not raise. The message names each skipped item with its reason, never
+    the model's text.
     """
 
     error_code = "ROADMAP_ALTERNATIVES_FAILED"

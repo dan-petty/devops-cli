@@ -1323,8 +1323,10 @@ class RoadmapCommandHelp:
         "opened: first the items with no check, lowest number first, then the items whose check "
         "is older than roadmap.alternatives.recheck_days or whose text changed since. "
         "The check is off, and the plan says why, for a private repository or with no Firecrawl "
-        "key. An item whose model call fails or whose reply cites a URL that no tool returned "
-        "is skipped and reported; the others are written, and the command then exits 1."
+        "key. An item whose model call fails, whose run stops or whose reply the job refuses is "
+        "skipped, reported and recorded in its job record, and the others are written. The run "
+        "takes that item again after roadmap.alternatives.retry_days. The command exits 1 only "
+        "when it tried items and checked none."
     )
     alternatives_item: str = (
         "Specific issue number to check instead of selecting. Alternatives checks it when it "
