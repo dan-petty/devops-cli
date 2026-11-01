@@ -95,25 +95,6 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **WHEN** the model gives a summary of 60 characters for item 2656
 - **THEN** the title after the colon has at most 60 characters, and the summary is cut at a word
 
-### Requirement: A staged item gets one comment and a record
-The job SHALL post one comment on the issue with the marker `<!-- devops roadmap stage -->` that names the branch, the pull request, the groups with their measures and the budget. The comment SHALL name each path of `changes` that is no file on the default branch and that no group creates. The job SHALL record `stage.branch`, `stage.pr`, `stage.sha` and `stage.groups` in the job record. The job SHALL NOT change the Status of the item.
-
-#### Scenario: The comment and the record
-- **WHEN** the job stages a Ready bug
-- **THEN** the issue gets one comment with the marker, the record holds the four keys, and the Status is still Ready
-
-#### Scenario: A title with no type
-- **WHEN** the title of the item has no Conventional Commit type
-- **THEN** the plan leaves the item out and says that its title has no type
-
-#### Scenario: A path that exists nowhere
-- **WHEN** a group changes `src/devops_cli/missing.py`, which is no file on the default branch and in no `creates`
-- **THEN** the comment names `src/devops_cli/missing.py`, and the job stages the item
-
-#### Scenario: A created path is not named
-- **WHEN** a group changes `tests/test_sample.py`, which is no file on the default branch and is in `creates`
-- **THEN** the comment holds no line about missing paths
-
 ### Requirement: The job measures each task group
 The job SHALL measure each task group with tiktoken. The measure SHALL be the tokens of the group's instructions, the item, the change folder and the files that the tasks of the group name in code spans, each packed as the implement step packs it: at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 40000, and `--step-tokens` SHALL override it for one run.
 
@@ -480,6 +461,46 @@ The job SHALL leave out an item that has sub-issues or the label `type/epic`, an
 #### Scenario: No why
 - **WHEN** the same plan runs without `--why`
 - **THEN** the output has no section "Matched no filter"
+
+### Requirement: The plan names files that exist at the staged commit
+The job SHALL check each path of the reply against the tracked files of the staged commit: the paths of `reads` and `changes`, the paths in the code spans of the tasks, and the paths in `verify`. A path SHALL pass when the commit holds it, or when `creates` of its group or of an earlier group lists it. A missing path SHALL go back to the model once, with the files of the commit that have the same file name. A second reply with a missing path SHALL stop the item and open no draft pull request.
+
+#### Scenario: A test file that moved
+- **WHEN** a group changes `tests/test_scanner_tool_executor.py` and the commit holds `tests/security/test_scanner_tool_executor.py`
+- **THEN** the job asks the model again, and the problem names the missing path and lists `tests/security/test_scanner_tool_executor.py`
+
+#### Scenario: The second reply has a missing path
+- **WHEN** the second reply still names `tests/test_scanner_tool_executor.py`
+- **THEN** the job stops the item with the problem, pushes no branch and opens no draft pull request
+
+#### Scenario: A path in a task or in a verify command
+- **WHEN** a code span of a task or the `verify` command of a group names a file that the commit lacks and no group up to it creates
+- **THEN** the problem names that file
+
+#### Scenario: A created path
+- **WHEN** a group changes `tests/test_new.py`, lists it in `creates`, and a later group reads it
+- **THEN** the job finds no missing path
+- **AND** when only a later group lists it in `creates`, the earlier group names a missing path
+
+#### Scenario: A word that is no path
+- **WHEN** a code span holds `status/blocked`, `--strict` or `uv run devops ci docs`
+- **THEN** the job finds no missing path
+
+#### Scenario: A name with no folder
+- **WHEN** a code span of a task or the `verify` command holds `ruff.toml` or `grep step_files.py`
+- **THEN** the job finds no missing path
+- **AND** a path of `reads` or `changes` with no folder is still checked
+
+### Requirement: The comment and the record of a staged item
+The job SHALL post one comment on the issue with the marker `<!-- devops roadmap stage -->` that names the branch, the pull request, the groups with their measures and the budget. The job SHALL record `stage.branch`, `stage.pr`, `stage.sha` and `stage.groups` in the job record. The job SHALL NOT change the Status of the item.
+
+#### Scenario: The comment and the record
+- **WHEN** the job stages a Ready bug
+- **THEN** the issue gets one comment with the marker, the record holds the four keys, and the Status is still Ready
+
+#### Scenario: A title with no type
+- **WHEN** the title of the item has no Conventional Commit type
+- **THEN** the plan leaves the item out and says that its title has no type
 
 ### Requirement: A task group has a kind
 A task group of the reply SHALL have a `kind`: `behavior` or `other`. A `behavior` group SHALL have a `test` and a `verify`, no `process`, and a path under `src/` in `changes`. An `other` group SHALL have no `test`, and exactly one of `verify` and `process`. The reply that breaks a rule SHALL fail the schema, and the problem text SHALL name each rule it breaks.

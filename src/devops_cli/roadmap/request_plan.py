@@ -455,8 +455,9 @@ def stage_requests(
     """What `devops roadmap stage` reads, in order, and the writes `--confirm` makes after them
     (#2654). The run updates its clone, reads every issue and the open issues that an item
     depends on, reads the branches of `origin` and the change folders of the default branch
-    (#2714), and for each item asks the model, and validates the change. The model is asked
-    again only when a task group is over the budget or the change fails its checks. Each run then
+    (#2714) and the tracked files of the clone (#3010), and for each item asks the model, and
+    validates the change. The model is asked again only when a task group is over the budget, a
+    path of the plan is no file, or the change fails its checks. Each run then
     fetches the staged branch of each closed item. The writes are the worktree, the commit and
     the push of each item, the draft pull request, the record and the comment, and the removal of
     the draft and the branch of a closed item. `limit` and `item` change no request: they change
@@ -493,6 +494,7 @@ def stage_requests(
             "openspec/changes/",
             "openspec/changes/archive/",
         ),
+        git("tracked_files", clone, "ls-files", "-z", when=cond["tracked_files"]),
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
         PlannedRequest("model", req["model_change"], repeat=each_item),
         PlannedRequest(

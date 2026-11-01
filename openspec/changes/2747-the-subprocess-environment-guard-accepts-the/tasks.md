@@ -1,13 +1,15 @@
 # Tasks
 
-## 1. Add PYTEST_ADDOPTS and NPM_CONFIG_* to the guard
+## 1. Refuse PYTEST_ADDOPTS and npm_config_logs_dir
 
-Reads: none. Changes: `src/devops_cli/config/constants.py`, `tests/core/test_subprocess_env_boundary.py`.
+Reads: `src/devops_cli/config/constants.py` (lines 1585 to 1720), `tests/core/test_subprocess_env_file_write.py`. Changes: `src/devops_cli/config/constants.py`, `tests/core/test_subprocess_env_file_write.py`.
 
-- [ ] 1.1 Write a test that calls build_subprocess_env with env={"PYTEST_ADDOPTS": "--junitxml=/tmp/x.xml"} and asserts SecurityError is raised. Write a test that calls build_subprocess_env with env={"npm_config_logs_dir": "/tmp/logs"} and asserts SecurityError is raised. Write a test that calls build_subprocess_env with env={"npm_config_cache": "/tmp/cache"} and asserts SecurityError is raised. Write a test that calls build_subprocess_env with env={"NPM_CONFIG_REGISTRY": "https://example.com"} and asserts SecurityError is raised, confirming the family pattern covers any member, and verify that `uv run devops ci test tests/core/test_subprocess_env_boundary.py` fails on the base
-- [ ] 1.2 Add the string "PYTEST_ADDOPTS" to the tuple CONST_CODE_LOADING_ENV_PATTERNS in src/devops_cli/config/constants.py, beside the existing entries. Add the string "NPM_CONFIG_*" to the same tuple. Add a comment noting that PYTEST_ADDOPTS lets pytest write a JUnit file or load a plugin, and NPM_CONFIG_* lets npm write a log or cache file into a caller-named directory, and verify that `uv run devops ci test tests/core/test_subprocess_env_boundary.py` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 1.1 In `tests/core/test_subprocess_env_file_write.py`, add `PYTEST_ADDOPTS`, `npm_config_logs_dir` and `npm_config_logs-dir` to `REFUSED_FILE_WRITE_KEYS` with the probe in the comment above it (pytest 9.1.1 wrote the JUnit file, npm 11.19.1 wrote its debug log). Add `EXAMPLE_PYTEST_ADDOPTS` and `npm_config_logs_dirs` to the override of `test_a_key_that_only_contains_a_file_write_name_reaches_the_child`. Verify that `uv run devops ci test tests/core/test_subprocess_env_file_write.py` fails on the base: the refusal cases of the three new keys fail with `DID NOT RAISE`. The test of the ambient environment already passes on the base, because neither key is in the ambient allowlist, and it stays as a pin.
+- [ ] 1.2 In `src/devops_cli/config/constants.py`, add `"PYTEST_ADDOPTS"` and `"NPM_CONFIG_LOGS[_-]DIR"` to `CONST_CODE_LOADING_ENV_PATTERNS`, in the block of the keys that make a child write a file (#2674). Extend the comment of the block with the two probes. In the comment of #2673, add `npm_config_cache` to the keys that stay accepted, with the reason that `devops install-tools` sets it. Verify that `uv run devops ci test tests/core/test_subprocess_env_file_write.py tests/core/test_subprocess_env_uv_npm.py tests/core/test_subprocess_env_boundary.py tests/commands/test_install_tools.py` passes. The last three files pin the keys that must stay accepted and the keys that stay refused.
 
-## Workflow follow-up
+## 2. Document the refused keys
 
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+Reads: `ARCHITECTURE.md` (the bullet "File-write child environment"). Changes: `ARCHITECTURE.md`.
+
+- [ ] 2.1 In `ARCHITECTURE.md`, add `PYTEST_ADDOPTS` and `npm_config_logs_dir` to the bullet "File-write child environment", with what the probes showed. Say that `npm_config_cache` stays accepted because `devops install-tools` sets it, that npm writes its log below the cache directory, and that a caller that takes the path from an untrusted source must check it first. Verify that `git grep -n 'PYTEST_ADDOPTS' -- ARCHITECTURE.md` prints the bullet (it prints nothing on the base).
+- [ ] 2.2 Verify that `uv run devops ci docs` passes. The change alters no command, option or message, so `uv run devops docs generate --sync-readme` has nothing to sync.
