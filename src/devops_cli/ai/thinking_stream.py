@@ -336,11 +336,6 @@ class ThinkingStreamProcessor:
         return self._fsm.thinking_content
 
     @property
-    def unique_thinking(self) -> str:
-        """Return accumulated thinking content with duplicate lines removed using a set."""
-        return unique_lines(self._fsm.thinking_content)
-
-    @property
     def in_think(self) -> bool:
         """Return True when parser is currently inside a thinking block."""
         return self._fsm.in_think

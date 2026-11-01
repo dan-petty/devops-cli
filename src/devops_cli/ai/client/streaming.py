@@ -157,11 +157,6 @@ class StreamingTokenProcessor:
             or self._fsm.discarded_thought_chars
         )
 
-    @property
-    def thinking_detected(self) -> bool:
-        """Return True if reasoning was detected."""
-        return self.has_reasoning
-
     def _record_bytes(self, chunk: str) -> None:
         self._total_bytes += len(chunk.encode("utf-8"))
         if self._total_bytes > self.max_stream_bytes:
