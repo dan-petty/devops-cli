@@ -17,6 +17,7 @@ from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     reset_tracer,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def test_shutdown_joins_all_worker_threads(
@@ -32,18 +33,26 @@ def test_shutdown_joins_all_worker_threads(
 
     def slow_send(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:
         started.set()
-        finish.wait(timeout=3.0)
+        finish.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         completed.set()
 
     monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", slow_send)
     client = OTelTelemetryClient(endpoint=f"http://127.0.0.1:{refusing_port}", enabled=True)
 
     client._send_payload("/v1/traces", {"resourceSpans": []})
-    assert started.wait(timeout=1.0)
+    assert started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
-    threading.Timer(1.2, finish.set).start()
-    client.shutdown()
+    shutdown_thread = threading.Thread(target=client.shutdown, name="test-otel-shutdown")
+    shutdown_thread.start()
 
+    try:
+        assert not completed.is_set()
+        assert shutdown_thread.is_alive()
+    finally:
+        finish.set()
+        shutdown_thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+
+    assert not shutdown_thread.is_alive()
     assert completed.is_set()
     assert client._executor is None
     otel_threads = [
