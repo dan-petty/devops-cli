@@ -417,11 +417,14 @@ def assert_audit_workflow_contract(workflow: dict[str, Any]) -> None:
         "Workflow must execute 'devops pr hardening-report' with '--fail-on-missing'"
     )
 
-    has_intake = any(
-        "devops roadmap intake" in run and "create_repository_issue" not in run for run in step_runs
+    files_issue = any(
+        "devops gh issues create" in run and "source/agent" in run for run in step_runs
     )
-    assert has_intake, (
-        "Workflow failure path must hand findings to intake via 'devops roadmap intake' (not create_repository_issue)"
+    assert files_issue, (
+        "Workflow failure path must file the finding with 'devops gh issues create' and the 'source/agent' label"
+    )
+    assert not any("devops roadmap intake" in run or "priority/" in run for run in step_runs), (
+        "Workflow failure path must not run 'devops roadmap intake' or set a priority/ label: the runner has no model"
     )
 
 
@@ -449,10 +452,17 @@ def test_defect_pr_hardening_audit_workflow_mutation() -> None:
 
     mutated3 = copy.deepcopy(workflow)
     for step in mutated3["jobs"]["audit-hardening"]["steps"]:
-        if "roadmap intake" in step.get("run", ""):
-            step["run"] = step["run"].replace("roadmap intake", "create_repository_issue")
-    with pytest.raises(AssertionError, match="intake"):
+        if "gh issues create" in step.get("run", ""):
+            step["run"] = step["run"].replace("gh issues create", "create_repository_issue")
+    with pytest.raises(AssertionError, match="gh issues create"):
         assert_audit_workflow_contract(mutated3)
+
+    mutated4 = copy.deepcopy(workflow)
+    for step in mutated4["jobs"]["audit-hardening"]["steps"]:
+        if "gh issues create" in step.get("run", ""):
+            step["run"] += "devops roadmap intake\n"
+    with pytest.raises(AssertionError, match="no model"):
+        assert_audit_workflow_contract(mutated4)
 
 
 # ── Every `devops` command the automation runs (#861) ─────────────────────────

@@ -96,6 +96,25 @@ def test_no_provider_configured_raises_and_caches_nothing() -> None:
     )
 
 
+def test_ollama_provider_with_no_url_raises_embeddings_error_naming_the_setting() -> None:
+    """With the Ollama provider and no Ollama URL, embedding raises an error that names the setting."""
+    mock_valkey = _MockValkey()
+    engine = EmbeddingsEngine(
+        AIConfig(provider="ollama", ollama_urls=[]), valkey_client=mock_valkey
+    )
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_texts(["hello world"])
+
+    assert (raised.value.message, raised.value.details, engine._cache.size, mock_valkey.store) == (
+        f"Embedding model {engine.model} has no Ollama URL: ai.provider is 'ollama' and "
+        "ai.ollama_urls is empty. Set ai.ollama_urls",
+        {"model": engine.model, "provider": "ollama"},
+        0,
+        {},
+    )
+
+
 def _ollama_engine(monkeypatch: pytest.MonkeyPatch, nodes: list[str]) -> EmbeddingsEngine:
     """An Ollama engine over `nodes`."""
     ai_cfg = AIConfig(provider="ollama", ollama_urls=nodes, allow_private_network=True)
