@@ -30,7 +30,7 @@ Reads: `src/devops_cli/config/settings.py` (lines 175-215 only; the file is 77 K
 
 Reads: `src/devops_cli/grafana/schema.py`. Changes: the same file.
 
-- [ ] 4.1 Run `git grep -n -w grid_width -- src tests docs`. On the base it prints only the definition line (`src/devops_cli/grafana/schema.py:145`). After the deletion it prints nothing
-- [ ] 4.2 Delete the `grid_width` property from `Dashboard` in `src/devops_cli/grafana/schema.py`, and the import of `CONST_GRAFANA_DASHBOARD_GRID_WIDTH` that only it uses. Keep the constant in `src/devops_cli/config/constants.py`, which `src/devops_cli/grafana/builders.py` and `src/devops_cli/grafana/linter.py` use
-- [ ] 4.3 Run the `git grep` command of task 4.1 (it prints nothing), then `uv run devops ci test tests/grafana` (it passes)
-- [ ] 4.4 Run `git grep -n -w -e thinking_detected -e _get_ollama_semaphore -e unique_thinking -e _validation_error_key -e grid_width -- src tests docs` (it prints nothing), then `uv run devops ci` (exit code 0, and the coverage is at or above `fail_under` in `pyproject.toml`)
+- [x] 4.1 Run `git grep -n -w grid_width -- src tests docs`. On the base it prints only the definition line (`src/devops_cli/grafana/schema.py:145`). After the deletion it prints nothing
+- [x] 4.2 Delete the `grid_width` property from `Dashboard` in `src/devops_cli/grafana/schema.py`, and the import of `CONST_GRAFANA_DASHBOARD_GRID_WIDTH` that only it uses. Keep the constant in `src/devops_cli/config/constants.py`, which `src/devops_cli/grafana/builders.py` and `src/devops_cli/grafana/linter.py` use
+- [x] 4.3 Run the `git grep` command of task 4.1 (it prints nothing), then `uv run devops ci test tests/grafana` (it passes)
+- [x] 4.4 Run `git grep -n -w -e thinking_detected -e _get_ollama_semaphore -e unique_thinking -e _validation_error_key -e grid_width -- src tests docs` (it prints nothing), then `uv run devops ci` (exit code 0, and the coverage is at or above `fail_under` in `pyproject.toml`)
