@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/implement
 
 Reads: `src/devops_cli/roadmap/step_rules.py`, `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_implement_step_rules.py` (new), `tests/roadmap/test_roadmap_stage_measure.py`.
 
-- [ ] 2.1 Write failing tests: the first request of a stub model holds `AGENTS.md` verbatim under its heading and the sections of `docs/TESTING.md` for a group with a test file; a manifest-only group has no `docs/TESTING.md`; the count against the window includes them; a fix step holds `AGENTS.md` and no routed section; the stage measure of a group equals the old measure plus the tokens of `rules_sections`, and the measure and the step message hold the same sections
+- [x] 2.1 Write failing tests: the first request of a stub model holds `AGENTS.md` verbatim under its heading and the sections of `docs/TESTING.md` for a group with a test file; a manifest-only group has no `docs/TESTING.md`; the count against the window includes them; a fix step holds `AGENTS.md` and no routed section; the stage measure of a group equals the old measure plus the tokens of `rules_sections`, and the measure and the step message hold the same sections
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_rules.py tests/roadmap/test_roadmap_stage_measure.py` fails on the base
-- [ ] 2.2 Add the sections to `build_step_inputs` and to `measure_groups`
+- [x] 2.2 Add the sections to `build_step_inputs` and to `measure_groups`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_rules.py tests/roadmap/test_roadmap_stage_measure.py tests/roadmap/test_roadmap_implement_step.py tests/roadmap/test_roadmap_stage_plan.py tests/roadmap/test_roadmap_stage_apply.py`
 
 ## 3. The prompt keeps the runner facts

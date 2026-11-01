@@ -3,7 +3,8 @@ context.
 
 A change is `openspec/changes/<issue>-<slug>/` in a checkout, and its `tasks.md` holds numbered
 groups (`## <n>. <title>`). A step reads one group and builds the inputs the model gets: the
-item's title, problem and acceptance criteria, the change's `proposal.md`, `design.md` and
+`AGENTS.md` of the checkout and the sections of the documents it routes the group to (`step_rules`),
+the item's title, problem and acceptance criteria, the change's `proposal.md`, `design.md` and
 `tasks.md`, the group, and the files the group names, packed. It counts their tokens before the
 first request and refuses a step that does not fit the window of `ai.tasks.implement`.
 
@@ -116,6 +117,7 @@ from devops_cli.roadmap.step_files import (
     parse_task_groups,
     section_text,
 )
+from devops_cli.roadmap.step_rules import rules_sections
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -272,6 +274,7 @@ def build_step_inputs(
         )
     chosen = _chosen_group(groups, group, fix, change)
     sections = [
+        *rules_sections(source, chosen),
         issue_inputs(held),
         *(f"# {name} of the change\n\n{text.strip()}" for name, text in documents.items()),
         f"# Your group\n\n{chosen.text}",

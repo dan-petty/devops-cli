@@ -2,7 +2,7 @@
 
 ## The message
 
-`build_step_inputs` adds one section, "Rules of the repository (AGENTS.md)", before the item, and then one section for each routed document, after the group. The first section is the text of `AGENTS.md` with no change. The step and the stage measure call one function, `step_rules.rules_sections(source, group)`, and get the same list of sections. So the measure cannot differ from the message.
+`build_step_inputs` adds the rules before the item: one section "Rules of the repository (AGENTS.md)", then one section for each routed document. The first section is the text of `AGENTS.md` with no change. The step and the stage measure call one function, `step_rules.rules_sections(source, group)`, and get the same list of sections. So the measure cannot differ from the message.
 
 ## The routes
 
