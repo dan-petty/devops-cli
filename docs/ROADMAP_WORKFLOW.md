@@ -100,7 +100,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
 | Implement | `implement.stopped`, `implement.spend` | The step that stopped the Item, and the spend of its steps |
-| Implement | `implement.job`, `implement.job_state` | The runner Job that the Service made, and its state after a round reported it |
+| Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
 
 ## The stop and retry path
 

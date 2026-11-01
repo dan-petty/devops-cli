@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/status_sync.py`, `src/devops_cli/roadmap/store.py`. Changes: `src/devops_cli/roadmap/status_sync.py`, `src/devops_cli/roadmap/store.py`, `tests/roadmap/test_roadmap_status_sync.py`.
 
-- [ ] 1.1 Write tests for `derive_status` with the new fact `stopped`, for `facts_of` on an item that holds `implement.stopped`, and for a sweep that turns a Ready item with a stop on record into Blocked and leaves a Blocked item alone. Verify that `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py` fails on the base
-- [ ] 1.2 Add the fact `stopped` to `StatusFacts`, the order In Progress, Blocked, Planned, Ready to `derive_status`, the fact to `facts_of`, and the record key `implement.job_digest` to `ImplementRecordKey`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py` passes
-- [ ] 1.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 1.1 Write tests for `derive_status` with the new fact `stopped`, for `facts_of` on an item that holds `implement.stopped`, and for a sweep that turns a Ready item with a stop on record into Blocked and leaves a Blocked item alone. Verify that `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py` fails on the base
+- [x] 1.2 Add the fact `stopped` to `StatusFacts`, the order In Progress, Blocked, Planned, Ready to `derive_status`, the fact to `facts_of`, and the record key `implement.job_digest` to `ImplementRecordKey`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_status_sync.py` passes
+- [x] 1.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 2. The Service records the digest of the runner image when it creates a Job
 

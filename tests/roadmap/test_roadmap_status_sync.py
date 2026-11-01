@@ -2,8 +2,9 @@
 
 One pure function derives the Status. The sweep writes it with the family replace of the store, and
 only for an open item that holds Ready or Planned with the label that a job last wrote. The roadmap
-is in memory. The runner Job and `devops pr ready` set In Review, and the stop path of #2912 sets
-Blocked, so the function does not derive them.
+is in memory. The function derives Blocked from a stop on record. The runner Job and
+`devops pr ready` set In Review, so the function does not derive it. A sweep never writes a Blocked
+item: only the clear rules of the row `implement` do (`stop_clear.py`).
 """
 
 from __future__ import annotations
@@ -80,6 +81,9 @@ def _pull(api: GitHubApiFake, *, draft: bool, state: str = "open") -> None:
         (StatusFacts(), "Ready"),
         (StatusFacts(plan_merged=True), "Planned"),
         (StatusFacts(plan_merged=True, job_active=True), "In Progress"),
+        (StatusFacts(stopped=True), "Blocked"),
+        (StatusFacts(plan_merged=True, stopped=True), "Blocked"),
+        (StatusFacts(plan_merged=True, job_active=True, stopped=True), "In Progress"),
     ],
 )
 def test_the_status_follows_the_facts_in_one_order(facts: StatusFacts, status: str) -> None:
@@ -110,6 +114,34 @@ def test_a_planned_item_whose_plan_is_gone_is_ready_again(store: InMemoryRoadmap
     sync_statuses(store, repo=STAGE_REPO, planned=NO_PLANS)
 
     assert _status(store, number) == "Ready"
+
+
+def test_a_ready_item_with_a_stop_on_record_becomes_blocked(store: InMemoryRoadmapStore) -> None:
+    number = _job_item(store, "Ready", implement_stopped="group 1")
+
+    synced = sync_statuses(store, repo=STAGE_REPO, planned=NO_PLANS)
+
+    assert (synced.changed, _status(store, number)) == ((number,), "Blocked")
+
+
+def test_a_planned_item_with_a_stop_on_record_becomes_blocked(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _job_item(store, "Planned", implement_stopped="job")
+
+    sync_statuses(store, repo=STAGE_REPO, planned=_plans(number))
+
+    assert _status(store, number) == "Blocked"
+
+
+def test_a_blocked_item_with_a_stop_on_record_is_not_written(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _job_item(store, "Blocked", implement_stopped="group 1")
+
+    synced = sync_statuses(store, repo=STAGE_REPO, planned=_plans(number))
+
+    assert (synced.changed, _status(store, number)) == ((), "Blocked")
 
 
 def test_an_item_that_a_job_holds_is_in_progress(store: InMemoryRoadmapStore) -> None:
@@ -294,3 +326,11 @@ def test_the_facts_of_an_item_that_a_job_holds(store: InMemoryRoadmapStore) -> N
     facts = facts_of(_item(store, number), plan_merged=True)
 
     assert facts == StatusFacts(plan_merged=True, job_active=True)
+
+
+def test_the_facts_of_an_item_with_a_stop_on_record(store: InMemoryRoadmapStore) -> None:
+    number = _job_item(store, "Ready", implement_stopped="group 2")
+
+    facts = facts_of(_item(store, number), plan_merged=False)
+
+    assert facts == StatusFacts(stopped=True)
