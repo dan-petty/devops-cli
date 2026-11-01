@@ -61,6 +61,7 @@ from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
+    DeferredPart,
     DesignOption,
     QuestionAnswer,
     RefinementProposal,
@@ -1751,6 +1752,7 @@ def test_refines_prompts_load_and_the_reply_prompt_names_every_field() -> None:
         *AcceptanceCriterion.model_fields,
         *QuestionAnswer.model_fields,
         *DesignOption.model_fields,
+        *DeferredPart.model_fields,
     ]
     assert (
         all(steps),

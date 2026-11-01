@@ -320,14 +320,20 @@ def refine_requests(
     open item a blocked item waits on is read for its state (#1758). A round without `--item`
     reads the newest commit of each path the block of a waiting item cites, when no reply ends
     the wait first (#2005). A round records on each item that the cap on refine's comments
-    leaves alone the time of its newest comment, once for each such comment (#2475). Refine
-    reads no repository file, so `ref` changes no request."""
+    leaves alone the time of its newest comment, once for each such comment (#2475). When a
+    proposal defers a part, the plan holds the intake requests of one new candidate and the
+    record of its number (#2423). Refine reads no repository file, so `ref` changes no request."""
+    from devops_cli.roadmap.intake_requests import planned_requests
+
     del ref
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
     cond, rep = texts.plan_conditions, texts.plan_repeat
     target_item = f"#{item}" if item is not None else _p("item")
     blockers = within(store.issue(_p("blocker")), repeat=rep["blocker"])
+    part_reads, part_writes = planned_requests([_p("deferred_part")], repo=repo, ref=None, new=True)
+    deferred_reads = within(part_reads, cond["deferred"])
+    deferred_writes = within([*part_writes, *store.set_marks(target_item)], cond["deferred"])
 
     if item is not None:
         reads = [
@@ -336,8 +342,10 @@ def refine_requests(
             *store.comments_on(target_item),
             *store.every_issue(),
             *blockers,
+            *deferred_reads,
         ]
         writes = [
+            *deferred_writes,
             *store.write_issue_body(target_item),
             *store.set_field(target_item, field_name="Status"),
             *within(store.comment(target_item), cond["posted"]),
@@ -354,6 +362,7 @@ def refine_requests(
                     *store.issue(target_item),
                     *store.comments_on(target_item),
                     *store.every_issue(),
+                    *deferred_reads,
                 ],
                 repeat=each_candidate,
             ),
@@ -367,6 +376,7 @@ def refine_requests(
         writes = [
             *within(
                 [
+                    *deferred_writes,
                     *store.write_issue_body(target_item),
                     *store.set_field(target_item, field_name="Status"),
                     *within(store.comment(target_item), cond["posted"]),

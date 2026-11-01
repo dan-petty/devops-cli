@@ -33,6 +33,8 @@ All code authored in or evaluated by DevOps CLI must strictly adhere to the foll
 
    The `--url` option of the `devops valkey` commands is an accepted case. A person types it, and no model gives the URL. So `valkey.password` goes to the host that the person names. Those commands are not MCP tools.
 
+12. **Hosted Models**: The LiteLLM gateway serves three groups that call a provider outside the cluster: `gemini-3.8-flash`, `claude-sonnet-5-5` and `claude-haiku-5-5` (#3113). A prompt sent to one of them leaves the cluster, and the provider bills each token. So no pool and no fallback names a hosted group, and a request reaches a provider only when its caller names the group. A test holds this. The provider keys are optional keys of the Secret `llm/llm-gateway-secrets`, from the keyring (`gemini.api_key`, `anthropic.api_key`). The gateway NetworkPolicy admits TCP 443 to public addresses for these calls and to no private range or metadata address, and a test fails on any other widening of it.
+
 ---
 
 ## Reporting a Vulnerability
