@@ -2162,6 +2162,17 @@ class RoadmapMessages:
         "The agent moved HEAD from {start} to {head}. A step makes the only commit."
     )
     implement_stop_commit_failed: str = "The commit failed.\n{output}"
+    implement_stop_hooks_install: str = (
+        "The hook environments of the project did not install.\n{output}"
+    )
+    implement_stop_hooks_failed: str = (
+        "The hooks of the stage {stage} failed with the exit status {status}.\n{output}"
+    )
+    implement_hook_turn: str = (
+        "A hook of the project failed on your changes:\n\n{failure}\n\nThe hooks of the project "
+        "check each commit. Fix what the hooks report. Change only the files that you "
+        "changed.{ticks}{removed} Then reply with one short message."
+    )
     implement_title: str = "Implement step: item #{item}, group {group} ({title})"
     implement_labels: dict[str, str] = field(
         default_factory=lambda: {

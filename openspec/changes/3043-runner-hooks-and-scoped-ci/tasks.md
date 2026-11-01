@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/core/process.py`, `.pre-commit-config.yaml`, `tests/support/implement_step.py`. Changes: `src/devops_cli/roadmap/implement_hooks.py` (new), `src/devops_cli/config/commands.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_hooks.py` (new).
 
-- [ ] 1.1 Write failing tests in `tests/roadmap/test_roadmap_implement_hooks.py` for the scenarios of "The hooks of the repository are an exit check" that the hook module decides: the argv of the stage run, `PRE_COMMIT_HOME` under the data directory, no token in the environment, a fixer that is staged and run again, exit 1 as a repairable failure, any other code as a stop, the output cut to a bound, and the argv of the install
+- [x] 1.1 Write failing tests in `tests/roadmap/test_roadmap_implement_hooks.py` for the scenarios of "The hooks of the repository are an exit check" that the hook module decides: the argv of the stage run, `PRE_COMMIT_HOME` under the data directory, no token in the environment, a fixer that is staged and run again, exit 1 as a repairable failure, any other code as a stop, the output cut to a bound, and the argv of the install
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_hooks.py` fails on the base
-- [ ] 1.2 Add `implement_hooks.py` with the stage run, the install, the environment, the constants, the program name `pre-commit` and the messages
+- [x] 1.2 Add `implement_hooks.py` with the stage run, the install, the environment, the constants, the program name `pre-commit` and the messages
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_hooks.py` passes
 
 ## 2. Give a failed hook and a failed check bounded repair rounds

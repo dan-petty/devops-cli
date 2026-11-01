@@ -207,6 +207,12 @@ CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 # The pre-commit stage of the hooks that run on `git push`.
 CONST_PRE_COMMIT_PRE_PUSH_STAGE: Final[str] = "pre-push"
+# The pre-commit stage of the hooks that run on `git commit`.
+CONST_PRE_COMMIT_COMMIT_STAGE: Final[str] = "pre-commit"
+# The variable that names the directory of the hook environments, and its folder in the cache
+# directory of the data directory.
+CONST_PRE_COMMIT_HOME_ENV: Final[str] = "PRE_COMMIT_HOME"
+CONST_PRE_COMMIT_HOME_DIR: Final[str] = "pre-commit"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
@@ -3037,6 +3043,10 @@ CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
 # gives the count of the rest.
 CONST_ROADMAP_IMPLEMENT_REASON_TESTS: Final[int] = 10
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
+# The most characters of the output of a hook stage that a step keeps (#3043). The stop comment and
+# the message of a repair turn cut a reason to the limit above, so the output leaves room for the
+# line that names the stage. The output keeps its end, where pre-commit prints the failed hooks.
+CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS: Final[int] = 3000
 # The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
 # of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
 # multiple of the limit: the masking of secrets is slower than linear, and the message of an error
