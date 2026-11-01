@@ -108,7 +108,6 @@ devops repos list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos update`
 
@@ -292,7 +291,6 @@ devops ssh list [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh audit`
 
@@ -309,7 +307,6 @@ devops ssh audit [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh status`
 
@@ -325,7 +322,6 @@ devops ssh status [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -346,6 +342,7 @@ devops branches update [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches sync`
 
@@ -360,6 +357,7 @@ devops branches sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches jira`
 
@@ -381,6 +379,7 @@ devops branches jira [OPTIONS] <ticket_id>
 |---|---|---|---|
 | `--slug`, `-s` | `string` | - | Short branch description. |
 | `--repo`, `-r` | `path` | - | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches list`
 
@@ -6542,7 +6541,7 @@ devops roadmap refine [OPTIONS]
 
 ### `devops roadmap alternatives`
 
-**Check open items for an open, maintained tool or library that already covers their need, in whole or in part. For each item, one agent run searches the web with Firecrawl and reads the facts of each candidate from GitHub and PyPI: its license, its last activity and whether it is archived. The verdict is covers, partly, none or not-applicable. With --confirm, a check posts one comment, replaces the block `devops-roadmap-alternatives` in the item's body, and records the check in the job record. It changes no label and closes no issue. A person decides what a tool means for the item. The run takes open New and Ready items that a person with write access opened: first the items with no check, lowest number first, then the items whose check is older than roadmap.alternatives.recheck_days or whose text changed since. The check is off, and the plan says why, for a private repository or with no Firecrawl key. An item whose model call fails or whose reply cites a URL that no tool returned is skipped and reported; the others are written, and the command then exits 1.**
+**Check open items for an open, maintained tool or library that already covers their need, in whole or in part. For each item, one agent run searches the web with Firecrawl and reads the facts of each candidate from GitHub and PyPI: its license, its last activity and whether it is archived. The verdict is covers, partly or none, and every other item must run a search before the check accepts a verdict: a reply with no search gets one more turn to search. An item of the type test, docs, refactor, chore, ci or perf, and a fix with a stack trace, get not-applicable with no model call. With --confirm, a check posts one comment, replaces the block `devops-roadmap-alternatives` in the item's body, and records the check in the job record. It changes no label and closes no issue. A person decides what a tool means for the item. The run takes open New and Ready items that a person with write access opened: first the items with no check, lowest number first, then the items whose check is older than roadmap.alternatives.recheck_days or whose text changed since. The check is off, and the plan says why, for a private repository or with no Firecrawl key. An item whose model call fails, whose run stops or whose reply the job refuses is skipped, reported and recorded in its job record, and the others are written. The run takes that item again after roadmap.alternatives.retry_days. The command exits 1 only when it tried items and checked none.**
 
 ```bash
 devops roadmap alternatives [OPTIONS]

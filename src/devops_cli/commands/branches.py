@@ -11,7 +11,11 @@ import typer
 from devops_cli.config.constants import CONST_GIT_DIR_NAME
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.git.git_plans import plan_repo_sync
 from devops_cli.git.operations import (
     create_branch,
     delete_merged_branches,
@@ -35,14 +39,20 @@ _JIRA_RE = re.compile(r"^([A-Z][A-Z0-9]+-\d+)$", re.IGNORECASE)
 
 @app.command("sync")
 @app.command()
+@dry_run_class("request-plan")
 def update(
     base_dir: Annotated[
         Path | None, typer.Option("--base-dir", "-d", help=HELP.options.base_dir)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Fetch and pull tracking branches across all repos."""
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
+
+    if dry_run or is_dry_run():
+        _plan_update(root)
+        return
 
     failed = False
     for repo_dir in iter_workspace_repos(root):
@@ -59,16 +69,35 @@ def update(
         raise typer.Exit(1)
 
 
+def _plan_update(root: Path) -> None:
+    """Print the fetches and pulls of `branches sync`, and make none. A repository whose plan
+    fails is reported as the run reports it, and the exit status is 1."""
+    requests: list[PlannedRequest] = []
+    failed = False
+    for repo_dir in iter_workspace_repos(root):
+        label = repo_label(repo_dir)
+        try:
+            requests.extend(plan_repo_sync(repo_dir, label))
+        except (DevOpsCLIError, OSError, ValueError) as exc:
+            failed = True
+            print_error(f"{label}: {exc}")
+    render_request_plan(MESSAGES.branches.sync_dry_run_heading, requests)
+    if failed:
+        raise typer.Exit(1)
+
+
 # =============================================================================
 # Command: devops branches jira
 # =============================================================================
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def jira(
     ticket_id: Annotated[str, typer.Argument(help=HELP.branches.ticket_id)],
     slug: Annotated[str | None, typer.Option("--slug", "-s", help=HELP.branches.slug)] = None,
     repo: Annotated[Path | None, typer.Option("--repo", "-r", help=HELP.options.repo)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]."""
     if not _JIRA_RE.fullmatch(ticket_id):
@@ -89,6 +118,10 @@ def jira(
     else:
         branch_name = f"feature/{ticket_upper}"
 
+    if dry_run or is_dry_run():
+        print_info(MESSAGES.branches.jira_dry_run.format(branch_name=branch_name), prefix=False)
+        return
+
     try:
         create_branch(repo_path, branch_name)
         ok_msg = MESSAGES.branches.created_branch.format(branch_name=branch_name)
@@ -104,6 +137,7 @@ def jira(
 
 
 @app.command("list")
+@dry_run_class("no-external-request")
 def list_all(
     base_dir: Annotated[
         Path | None, typer.Option("--base-dir", "-d", help=HELP.options.base_dir)
@@ -137,6 +171,7 @@ def list_all(
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def clean(
     base_dir: Annotated[
         Path | None, typer.Option("--base-dir", "-d", help=HELP.options.base_dir)
@@ -144,6 +179,7 @@ def clean(
     dry_run: Annotated[bool, typer.Option("--dry-run", "-n", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Delete local branches merged into main/master."""
+    dry_run = dry_run or is_dry_run()
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
     any_deleted = False

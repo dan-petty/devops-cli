@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The check takes the items that need one, in order
-`devops roadmap alternatives` SHALL take an open Item whose Status is New or Ready and whose author has write access to the repository (`CONST_ROADMAP_TRUSTED_AUTHORS`), and SHALL take no other item. It SHALL take the items with no check first, lowest number first, then the items whose last check is older than `roadmap.alternatives.recheck_days` (default 30) or whose body changed since the check, the oldest check first. It SHALL NOT take an item whose last check failed less than `roadmap.alternatives.retry_days` (default 3) days ago, and `--limit` (default 5) SHALL cap the run.
+`devops roadmap alternatives` SHALL take an open Item whose Status is New or Ready and whose author has write access to the repository (`CONST_ROADMAP_TRUSTED_AUTHORS`), and SHALL take no other item. It SHALL take the items with no check first, lowest number first, then the items whose last check is older than `roadmap.alternatives.recheck_days` (default 30) or whose body changed since the check, the oldest check first. `--limit` (default 5) SHALL cap the run.
 
 #### Scenario: Unchecked items come before stale items
 - **WHEN** item 4 was checked 40 days ago, items 7 and 9 have no check, item 6 was checked 2 days ago with an unchanged body, and the run has `--limit 3`
@@ -66,7 +66,7 @@ With `--confirm`, a check SHALL post one comment with the marker `devops roadmap
 - **THEN** the issue has one comment with the marker, its body has one block with the verdict and the tool, its job record has the four keys, its labels are unchanged and it is open
 
 ### Requirement: The Service runs the check twice a day
-The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_ROWS`, after `refine`. The row SHALL be due on a first run and every `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` (719) after its last success, and SHALL be due by no webhook hint. It SHALL check at most `roadmap.alternatives.limit` items in a round, and SHALL fail the round, once the failures are recorded, only when it tried at least one item and checked none. A round that selects no item SHALL NOT fail. `devops roadmap run --dry-run` SHALL list the row when it is due.
+The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_ROWS`, after `refine`. The row SHALL be due on a first run and every `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` (719) after its last success, and SHALL be due by no webhook hint. It SHALL check at most `roadmap.alternatives.limit` items in a round, and SHALL fail the round only when it tried items and checked none. `devops roadmap run --dry-run` SHALL list the row when it is due.
 
 #### Scenario: A first run
 - **WHEN** a round runs on a roadmap whose `schedule.json` holds no success of the row
@@ -126,7 +126,7 @@ The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_RO
 - **THEN** the job record of the item is unchanged
 
 ### Requirement: The retry delay is a setting
-The setting `roadmap.alternatives.retry_days` SHALL be an integer of at least 1, default 3, and SHALL decide how long after a failed check the item is left out of the selection.
+The setting `roadmap.alternatives.retry_days` SHALL be an integer of at least 1, default 3, and and the selection SHALL NOT take an item whose last check failed less than that many days ago, unless `--item` names it.
 
 #### Scenario: The default
 - **WHEN** the setting is not set

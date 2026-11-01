@@ -629,6 +629,8 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("tf", "lint"),
             ("tf", "status"),
             ("tf", "validate"),
+            ("tls", "ca"),
+            ("tls", "cert"),
             ("tls", "enable-k8s"),
             ("tls", "homelab"),
             ("tls", "verify"),

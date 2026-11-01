@@ -155,8 +155,9 @@ class RefineRecordKey(StrEnum):
 
 class Verdict(StrEnum):
     """What an alternatives check found (#2650): `COVERS` one tool covers the whole need,
-    `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item asks
-    for no tool. The job records it, and refine reads it (#2652)."""
+    `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item is in a
+    skip class, such as a `docs` item, and the job made no search (#2946). The model cannot give
+    `NOT_APPLICABLE`. The job records the verdict, and refine reads it (#2652)."""
 
     COVERS = "covers"
     PARTLY = "partly"
@@ -167,12 +168,15 @@ class Verdict(StrEnum):
 class AlternativesRecordKey(StrEnum):
     """What `devops roadmap alternatives` records in an Item's job record (#2650): when the check
     ran, the hash of the body it read outside its own block and the refine section, its verdict,
-    and the URL of the tool it found, if any."""
+    and the URL of the tool it found, if any. When the last check failed, the record holds the
+    time of the failure and the class of its error (#2949) until a check is written."""
 
     CHECKED_AT = "alternatives.checked_at"
     BODY_HASH = "alternatives.body_hash"
     VERDICT = "alternatives.verdict"
     TOOL = "alternatives.tool"
+    FAILED_AT = "alternatives.failed_at"
+    FAILED_ERROR = "alternatives.failed_error"
 
 
 class StageRecordKey(StrEnum):
