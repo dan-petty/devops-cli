@@ -2,13 +2,15 @@
 
 ## Decisions
 
-- **Catch OSError in _resolve_git_dir at the Path.cwd() call site**: This is the origin of the exception. The function already returns None when no git directory is found, so returning None on a deleted CWD is consistent with its contract. Catching it here protects all callers, not just _detect_vcs_metadata.
-- **Catch OSError rather than FileNotFoundError**: FileNotFoundError is a subclass of OSError. Path.cwd() can raise OSError for reasons other than a missing directory, such as a permission error on the getcwd syscall. The existing code in this file already catches OSError in _resolve_git_dir_from_file and _read_packed_refs, so OSError is the established pattern.
-- **Return None when the CWD is unavailable**: The function signature is Path | None, and it already returns None when no .git entry is found. A deleted CWD is another case of no git directory found. The caller _detect_vcs_metadata already handles None by returning an empty dict.
+- **Return `None` from `_resolve_git_dir` when `Path.cwd()` raises `OSError`.** The function returns `Path | None` and already returns `None` when it finds no `.git` entry. A removed directory is one more case of "no git directory". `_detect_vcs_metadata` already treats `None` as "no attributes". `OSError` is the established pattern in the same file (`_resolve_git_dir_from_file`, `_read_packed_refs`, `_read_ref_file`), and it covers `FileNotFoundError`.
+- **Stop a command at the exit seam when `os.getcwd()` raises `FileNotFoundError`.** `OTelTyper.command` wraps every command. The wrapper raises a `DevOpsCLIError` with the message "The working directory does not exist.", and `_report_devops_error` prints it as one line with exit status 1. This is the "one error line" case of the issue. Only `FileNotFoundError` is the case of the issue; another `OSError` of `os.getcwd()` is out of scope and propagates as before.
+- **Check in the command wrapper, not in `_report_devops_error`.** `_report_devops_error` also wraps group callbacks, and `devops gh --help` runs the callback of its group. A check there made `devops gh --help` fail in a scratch copy, where it works on `origin/main`.
+- **Keep both guards.** The seam covers every command. The guard in `_resolve_git_dir` covers a caller that starts a span outside a command, and meets the first requirement of the issue.
 
 ## Rejected alternatives
 
-- **Catch the exception in _detect_vcs_metadata**: This leaves _resolve_git_dir vulnerable for any other caller. The exception would still propagate if any other code calls _resolve_git_dir directly. The fix at the origin is more targeted.
-- **Catch the exception in the CLI entry point**: Too broad. It hides the specific cause and makes the telemetry path less testable in isolation. A targeted guard at the call site is simpler and more precise.
-- **Catch FileNotFoundError only**: Narrower than needed. A permission error on getcwd would still crash the command. OSError covers all OS-level failures from the getcwd syscall.
-- **Raise a custom exception for a deleted CWD**: Adds a new exception type for a case that is semantically identical to no git directory found. The existing None-return contract already covers this. Unnecessary complexity.
+- **Guard `_resolve_git_dir` only.** The command then fails at `settings.py:1313` (`_config_layers`, `os.getcwd()`). The scratch run is in the proposal.
+- **Guard each `Path.cwd()` and `os.getcwd()` call.** There are 47 calls in `src/` (`git grep -nE "os\.getcwd\(\)|Path\.cwd\(\)" -- src | wc -l`). Each needs its own fallback, and the next new call breaks the rule again.
+- **Catch the error in `_detect_vcs_metadata`.** `_resolve_git_dir` would still raise for any other caller.
+- **Change to a fallback directory such as the home directory.** Relative paths of the command would then point to a place the person did not choose, and the command would run with a wrong root.
+- **A custom exception class for a removed directory.** The message and the status are all the person needs, and `DevOpsCLIError` is raised directly in other places (`src/devops_cli/ai/inspection.py`).
