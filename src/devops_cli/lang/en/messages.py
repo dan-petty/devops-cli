@@ -1375,6 +1375,9 @@ class ToolMessages:
 @dataclass(frozen=True)
 class ArgoMessages:
     url_not_configured: str = "ArgoCD URL not configured. Run: devops config set argocd.url <url>"
+    token_refused_no_password: str = "Argo CD refused the stored token (argocd.token) with HTTP {status}, and no admin password (argocd.password) is stored to get a new token. Run: devops k8s sync-secrets"
+    new_token_refused: str = "Argo CD refused the new token from the admin session with HTTP {status}. Make sure that argocd.password is the admin password of {url}."
+    request_failed: str = "The Argo CD request to {url} failed with HTTP {status}."
     no_apps_found: str = "No ArgoCD applications found."
     app_not_found: str = "Application '{name}' not found."
     sync_triggered: str = "Sync triggered for '{name}'."
