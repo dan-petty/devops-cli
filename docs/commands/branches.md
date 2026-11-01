@@ -17,6 +17,7 @@ devops branches update [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -33,6 +34,7 @@ devops branches sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -56,6 +58,7 @@ devops branches jira [OPTIONS] <ticket_id>
 |---|---|---|---|
 | `--slug`, `-s` | `string` | - | Short branch description. |
 | `--repo`, `-r` | `path` | - | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

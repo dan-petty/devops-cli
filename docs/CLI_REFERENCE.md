@@ -108,7 +108,6 @@ devops repos list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos update`
 
@@ -292,7 +291,6 @@ devops ssh list [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh audit`
 
@@ -309,7 +307,6 @@ devops ssh audit [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh status`
 
@@ -325,7 +322,6 @@ devops ssh status [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -346,6 +342,7 @@ devops branches update [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches sync`
 
@@ -360,6 +357,7 @@ devops branches sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches jira`
 
@@ -381,6 +379,7 @@ devops branches jira [OPTIONS] <ticket_id>
 |---|---|---|---|
 | `--slug`, `-s` | `string` | - | Short branch description. |
 | `--repo`, `-r` | `path` | - | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches list`
 

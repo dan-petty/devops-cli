@@ -140,8 +140,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`tf_notify_plan`](#tf-notify-plan) | `true` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
 | [`tf_output`](#tf-output) | `true` | Read an output variable from the OpenTofu state. |
 | [`tf_plan`](#tf-plan) | `true` | Generate and show an OpenTofu execution plan. |
-| [`tls_ca`](#tls-ca) | `false` | Generate a self-signed Root Certificate Authority (CA) key pair. |
-| [`tls_cert`](#tls-cert) | `false` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 | [`tls_inspect`](#tls-inspect) | `true` | Inspect and display metadata of an X.509 certificate. |
 | [`valkey_flush`](#valkey-flush) | `false` | Flush and purge keys from current or all databases. |
 | [`valkey_get`](#valkey-get) | `true` | Retrieve string value stored at key. |
@@ -1672,7 +1670,6 @@ List all cloned repositories.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `base_dir` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `repos_sync`
 
@@ -2166,7 +2163,6 @@ List the managed SSH keys of the project prefix with their age and rotation stat
 | `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
 | `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `all_projects` | `boolean` | No | `False` | List the managed keys of all projects, not only the keys of the prefix. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ssh_status`
 
@@ -2180,7 +2176,6 @@ Show the active SSH key and days until rotation.
 |---|---|---|---|---|
 | `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
 | `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `telemetry_logfire`
 
@@ -2310,46 +2305,6 @@ Generate and show an OpenTofu execution plan.
 | `var_file` | `string` | No | - | Path to variable definitions file. |
 | `out` | `string` | No | - | Write generated plan to file. |
 | `destroy` | `boolean` | No | `False` | Generate a plan to destroy all resources. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-
-### `tls_ca`
-
-Generate a self-signed Root Certificate Authority (CA) key pair.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `output_dir` | `string` | No | `` | Directory to save certificate and key files. |
-| `common_name` | `string` | No | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.example.internal). |
-| `organization` | `string` | No | `Homelab DevOps` | Organization name. |
-| `country` | `string` | No | `US` | 2-letter country code. |
-| `validity_days` | `integer` | No | `3650` | Validity period in days. |
-| `key_size` | `integer` | No | `2048` | RSA key size in bits (2048 or 4096). |
-| `overwrite` | `boolean` | No | `False` | Overwrite existing files. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-
-### `tls_cert`
-
-Generate an X.509 TLS certificate signed by local CA or self-signed.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `common_name` | `string` | No | `homelab.local` | Common Name for the certificate (e.g. *.example.internal). |
-| `san` | `array[string]` | No | - | Subject Alternative Names (DNS names or IP addresses). |
-| `ca_cert` | `string` | No | - | Path to signing CA certificate (ca.crt). |
-| `ca_key` | `string` | No | - | Path to signing CA private key (ca.key). |
-| `output_dir` | `string` | No | `` | Directory to save certificate and key files. |
-| `validity_days` | `integer` | No | `365` | Validity period in days. |
-| `key_size` | `integer` | No | `2048` | RSA key size in bits (2048 or 4096). |
-| `organization` | `string` | No | `Homelab DevOps` | Organization name. |
-| `overwrite` | `boolean` | No | `False` | Overwrite existing files. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `tls_inspect`

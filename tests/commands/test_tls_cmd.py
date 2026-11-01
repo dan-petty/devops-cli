@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.tls import app
 from devops_cli.crypto.tls_certificates import generate_ca_certificate, generate_server_certificate
 from devops_cli.models.tls import CertificateInfo
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
 
@@ -26,22 +28,6 @@ def test_tls_ca_command_live(tmp_path: Path) -> None:
     assert "Generated Root Certificate Authority" in result.output
     assert (tmp_path / "ca.crt").exists()
     assert (tmp_path / "ca.key").exists()
-
-
-def test_tls_ca_command_dry_run(tmp_path: Path) -> None:
-    """devops tls ca --dry-run prints json payload without creating files."""
-    from devops_cli.dry_run import set_dry_run
-
-    out_dir = tmp_path / "dry_run_ca"
-    set_dry_run(True)
-    try:
-        result = runner.invoke(app, ["ca", "--output-dir", str(out_dir)])
-        assert result.exit_code == 0
-        assert "devops tls ca" in result.output
-        assert "generate_root_ca" in result.output
-        assert not out_dir.exists()
-    finally:
-        set_dry_run(False)
 
 
 def test_tls_cert_command_live(tmp_path: Path) -> None:
@@ -102,20 +88,6 @@ def test_tls_inspect_and_verify_command(tmp_path: Path) -> None:
     assert "Verified:" in verify_res.output
 
 
-def test_tls_enable_k8s_dry_run(tmp_path: Path) -> None:
-    """devops tls enable-k8s --dry-run prints plan without cluster calls."""
-    from devops_cli.dry_run import set_dry_run
-
-    set_dry_run(True)
-    try:
-        result = runner.invoke(app, ["enable-k8s", "--tls-dir", str(tmp_path)])
-        assert result.exit_code == 0
-        assert "devops tls enable-k8s" in result.output
-        assert "apply_k8s_tls_secrets" in result.output
-    finally:
-        set_dry_run(False)
-
-
 def test_tls_commands_mocked(tmp_path: Path) -> None:
     """Verify tls ca, cert, and inspect commands with mock crypto functions."""
     ca_cert = tmp_path / "ca.crt"
@@ -171,26 +143,8 @@ def test_tls_commands_mocked(tmp_path: Path) -> None:
         assert res_insp.exit_code == 0
 
 
-def test_tls_dry_runs_and_verification_failures(tmp_path: Path) -> None:
-    """Verify tls cert & homelab dry-runs, and verify errors."""
-    from devops_cli.dry_run import set_dry_run
-
-    # 1. Cert & homelab dry runs
-    set_dry_run(True)
-    try:
-        res_cert_dry = runner.invoke(
-            app, ["cert", "--common-name", "example.com", "--output-dir", str(tmp_path)]
-        )
-        assert res_cert_dry.exit_code == 0
-        assert "generate_tls_certificate" in res_cert_dry.output
-
-        res_homelab_dry = runner.invoke(app, ["homelab", "--output-dir", str(tmp_path)])
-        assert res_homelab_dry.exit_code == 0
-        assert "generate_homelab_tls_bundle" in res_homelab_dry.output
-    finally:
-        set_dry_run(False)
-
-    # 2. Verify command error branches
+def test_tls_verification_failures(tmp_path: Path) -> None:
+    """Verify the error branches of tls verify."""
     # Missing cert
     res_no_cert = runner.invoke(
         app, ["verify", "/nonexistent/cert.crt", "--ca-cert", "/nonexistent/ca.crt"]
@@ -308,14 +262,154 @@ def test_tls_enable_k8s_applies_the_rendered_secret_over_the_live_one(tmp_path: 
     )
 
 
-def test_tls_homelab_dry_run_default_ips_are_strings(tmp_path: Path) -> None:
-    """devops tls homelab --dry-run outputs default_ips as a list of strings (#1107)."""
-    result = runner.invoke(app, ["homelab", "--dry-run", "--output-dir", str(tmp_path)])
-    assert result.exit_code == 0
-    match = re.search(r"\{.*\}", result.output, re.DOTALL)
-    assert match is not None
-    data = json.loads(match.group(0))
-    default_ips = data["details"]["default_ips"]
-    assert isinstance(default_ips, list)
-    assert all(isinstance(ip, str) for ip in default_ips)
-    assert default_ips == ["127.0.0.1", "::1", "192.168.49.2"]
+# =============================================================================
+# Dry runs (#2258)
+# =============================================================================
+
+
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+def _squash(output: str) -> str:
+    """The output with each run of white space as one space."""
+    return " ".join(output.split())
+
+
+def test_tls_dry_run_classes() -> None:
+    """Each tls command carries the dry-run class of what it reaches."""
+    from devops_cli.commands import tls
+    from devops_cli.dry_run.decorator import get_dry_run_class
+
+    for callback in (
+        tls.cmd_ca,
+        tls.generate_cert_cmd,
+        tls.generate_homelab_cmd,
+        tls.inspect_cmd,
+        tls.verify_cmd,
+    ):
+        assert get_dry_run_class(callback) == "no-external-request"
+    assert get_dry_run_class(tls.enable_k8s_cmd) == "request-plan"
+
+
+def test_tls_inspect_and_verify_run_under_the_dry_run_flag(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake
+) -> None:
+    """A command that reads a local certificate runs normally under `devops --dry-run`."""
+    ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path)
+    srv_cert, _srv_key, _chain = generate_server_certificate(
+        common_name="example.com",
+        sans=["example.com"],
+        ca_cert_path=ca_cert,
+        ca_key_path=ca_key,
+        output_dir=tmp_path,
+    )
+
+    inspected = cli(["--dry-run", "tls", "inspect", str(srv_cert)])
+    verified = cli(["--dry-run", "tls", "verify", str(srv_cert), "--ca-cert", str(ca_cert)])
+
+    assert inspected.exit_code == 0, inspected.output
+    assert "Certificate Inspection" in inspected.output
+    assert verified.exit_code == 0, verified.output
+    assert "Verified:" in verified.output
+    assert process_fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("ca", "Would write the CA certificate {dir}/ca.crt and its key {dir}/ca.key"),
+        ("cert", "Would write the certificate {dir}/tls.crt for"),
+        ("homelab", "Would write the homelab bundle"),
+    ],
+)
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_tls_writers_preview_under_dry_run_and_write_nothing(
+    tmp_path: Path, cli: Any, command: str, expected: str, flag_first: bool
+) -> None:
+    """A dry run says which files it would write, and writes none."""
+    out_dir = tmp_path / "out"
+    argv = ["tls", command, "--output-dir", str(out_dir)]
+    argv = ["--dry-run", *argv] if flag_first else [*argv, "--dry-run"]
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert expected.format(dir=out_dir) in _squash(result.output)
+    assert not out_dir.exists()
+
+
+def _tls_dir(tmp_path: Path) -> Path:
+    tls_dir = tmp_path / "tls"
+    tls_dir.mkdir()
+    (tls_dir / "tls.crt").write_text("certificate", encoding="utf-8")
+    (tls_dir / "tls.key").write_text("key", encoding="utf-8")
+    return tls_dir
+
+
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_tls_enable_k8s_dry_run_lists_the_kubectl_requests(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake, flag_first: bool
+) -> None:
+    """A dry run starts no kubectl and lists the four requests of each namespace in order."""
+    tls_dir = _tls_dir(tmp_path)
+    argv = ["tls", "enable-k8s", "--tls-dir", str(tls_dir), "-n", "web", "-n", "db"]
+    argv = ["--dry-run", *argv] if flag_first else [*argv, "--dry-run"]
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    cert, key = tls_dir / "tls.crt", tls_dir / "tls.key"
+    expected: list[str] = []
+    for ns in ("web", "db"):
+        expected += [
+            f"kubectl get namespace {ns}",
+            f"kubectl create namespace {ns}  [only if the namespace does not exist]",
+            f"kubectl create secret tls homelab-tls --cert={cert} --key={key} -n {ns} "
+            "--dry-run=client -o yaml",
+            f"kubectl apply -f - -n {ns}  [only if the secret renders]",
+        ]
+    assert _plan_lines(result.output) == expected
+    assert "<output of the previous request>" in result.output
+    assert "homelab bundle" not in result.output
+
+
+def test_tls_enable_k8s_dry_run_with_a_context_and_no_bundle(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake
+) -> None:
+    """Each request names the context, and a missing bundle is a note, not a write."""
+    tls_dir = tmp_path / "empty"
+
+    result = cli(
+        ["tls", "enable-k8s", "--tls-dir", str(tls_dir), "-n", "web", "-c", "example", "--dry-run"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    assert all(
+        line.split("  [")[0].endswith("--context example") for line in _plan_lines(result.output)
+    )
+    assert f"the run writes the homelab bundle to {tls_dir}" in _squash(result.output)
+    assert not tls_dir.exists()
+
+
+def test_tls_enable_k8s_runs_the_requests_of_its_plan(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake
+) -> None:
+    """The real run starts the commands of the plan, in the same order, and applies the
+    rendered secret."""
+    tls_dir = _tls_dir(tmp_path)
+    argv = ["tls", "enable-k8s", "--tls-dir", str(tls_dir), "-n", "web"]
+    planned = [line.split("  [")[0] for line in _plan_lines(cli([*argv, "--dry-run"]).output)]
+    process_fake.answer(["kubectl", "get", "namespace"], ProcessAnswer(returncode=1))
+    process_fake.answer(
+        lambda call: "--dry-run=client" in call.argv, ProcessAnswer(stdout="kind: Secret\n")
+    )
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert [" ".join(call.argv) for call in process_fake.calls] == planned
+    assert process_fake.calls[-1].stdin == "kind: Secret\n"

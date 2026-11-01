@@ -30,10 +30,20 @@ def register_key_on_github(pub_key: str, title: str) -> None:
     """
     try:
         session = get_github_session()
-        for endpoint in CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES:
-            _add_key(session, endpoint, pub_key, title)
+        for endpoint, body in key_requests(pub_key, title):
+            _add_key(session, endpoint, body)
     except GitHubOperationError as exc:
         raise SSHRegistrationError(str(exc)) from exc
+
+
+def key_requests(pub_key: str, title: str) -> list[tuple[str, dict[str, str]]]:
+    """The endpoint and the body of each `POST` that registers a key, in order: the
+    authentication key, then the signing key. `register_key_on_github` sends them, and a dry
+    run lists them."""
+    return [
+        (endpoint, {"title": title, "key": pub_key})
+        for endpoint in CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES
+    ]
 
 
 def _key_body(key: str) -> str:
@@ -50,17 +60,17 @@ def _listed_key_bodies(entries: Iterable[Any]) -> set[str]:
     }
 
 
-def _add_key(session: GitHubSession, endpoint: str, pub_key: str, title: str) -> None:
+def _add_key(session: GitHubSession, endpoint: str, body: dict[str, str]) -> None:
     """Register the key at `endpoint`. GitHub answers 422 for a key it already holds, but also
     for one it rejects as invalid and one in use on another account, so a 422 counts as
     registered only when the session's listing at `endpoint` holds the key or can't be read."""
     try:
-        session.rest("POST", endpoint, body={"title": title, "key": pub_key})
+        session.rest("POST", endpoint, body=body)
     except GitHubNotFoundError as exc:
         raise _hidden_by_scope(endpoint, exc) from exc
     except GitHubOperationError as exc:
         if exc.details.get("status") != HTTPStatus.UNPROCESSABLE_ENTITY or not _session_lists_key(
-            session, endpoint, pub_key
+            session, endpoint, body["key"]
         ):
             raise
 

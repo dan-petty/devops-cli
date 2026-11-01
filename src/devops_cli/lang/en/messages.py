@@ -426,6 +426,8 @@ class BranchMessages:
     invalid_ticket_id: str = "Invalid ticket ID '{ticket_id}'. Expected format: PROJ-123"
     not_a_git_repo: str = "Not a git repository: {repo_path}"
     created_branch: str = "Created and checked out: {branch_name}"
+    jira_dry_run: str = "Would create the branch {branch_name}"
+    sync_dry_run_heading: str = "devops branches sync"
     no_merged_branches: str = "No merged branches to clean."
 
 
@@ -465,6 +467,12 @@ class RepoMessages:
     sync_done: str = "done {name}"
     sync_fail: str = "fail {name}: {exc}"
     table_title_cloned: str = "Cloned repositories — {root}"
+    sync_dry_run_heading: str = "devops repos sync"
+    clone_dry_run_heading: str = "devops repos clone"
+    clone_org_dry_run_heading: str = "devops repos clone-org"
+    workspace_dry_run_note: str = (
+        "Before the reload, the run writes the folders of the workspace to {path}."
+    )
     worktrees_dry_run_confirm: str = (
         "--dry-run makes no change, so it cannot be used with --confirm."
     )
@@ -1299,6 +1307,13 @@ class RAGMessages:
 
 @dataclass(frozen=True)
 class TLSMessages:
+    ca_dry_run: str = "Would write the CA certificate {cert} and its key {key}"
+    cert_dry_run: str = "Would write the certificate {cert} for {common_name}, signed by {signer}, and its key {key}"
+    homelab_dry_run: str = "Would write the homelab bundle (CA, server certificate, key and full chain) to {output_dir}"
+    enable_k8s_dry_run_heading: str = "devops tls enable-k8s"
+    enable_k8s_bundle_note: str = (
+        "Before the requests, the run writes the homelab bundle to {tls_dir}."
+    )
     cert_generated: str = "Generated leaf certificate: {cert}"
     generating_bundle: str = "[bold]Generating homelab TLS bundle...[/bold]"
     deploying_secret: str = (
@@ -1310,6 +1325,16 @@ class TLSMessages:
 @dataclass(frozen=True)
 class SSHMessages:
     key_generated: str = "Generated Ed25519 SSH keypair: {path}"
+    generate_dry_run: str = "Would write the key {key_path} and its public key {key_path}.pub"
+    register_dry_run_heading: str = "devops ssh register"
+    rotate_dry_run_heading: str = "devops ssh rotate"
+    rotate_dry_run_note: str = (
+        "Before the requests, the run writes the new key when it does not exist. When "
+        "GitHub refuses the key, the run deletes the new key."
+    )
+    key_placeholder_note: str = (
+        "The body of each POST holds the public key of the key file in place of <public key>."
+    )
     no_project_key: str = (
         "No managed SSH key with the prefix '{prefix}' exists in {key_dir}. "
         "Run 'devops ssh generate' to make one."

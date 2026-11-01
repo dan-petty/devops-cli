@@ -221,6 +221,21 @@ def _refuse_a_short_search(page: _IssueSearchPage, *, path: str) -> None:
     )
 
 
+def org_repos_path(org_name: str, *, include_private: bool = True) -> str:
+    """The listing of the repositories of an organization, as `get_org_repos` reads it."""
+    visibility = "all" if include_private else "public"
+    return f"/orgs/{quote(org_name, safe='')}/repos?type={visibility}&per_page={DEFAULT_GH_REST_PER_PAGE}"
+
+
+def own_repos_path(*, include_private: bool = True) -> str:
+    """The listing of the repositories that the session's own account owns, the fallback of
+    `get_org_repos` when the organization is the account's login."""
+    visibility = "all" if include_private else "public"
+    return (
+        f"/user/repos?affiliation=owner&visibility={visibility}&per_page={DEFAULT_GH_REST_PER_PAGE}"
+    )
+
+
 def _repo_path(repo: str, tail: str) -> str:
     """The REST path of `tail` under `repo`, with a character that is no part of a path encoded."""
     return f"/repos/{quote(repo, safe='/')}/{tail}"
@@ -245,15 +260,13 @@ class GitHubClient:
     ) -> list[RepoInfo]:
         """The repositories of an organization, or of the session's own account when GitHub says
         `org_name` is no organization and it is the account's login (the ones it owns)."""
-        visibility = "all" if include_private else "public"
-        per_page = f"per_page={DEFAULT_GH_REST_PER_PAGE}"
-        listed_from = f"/orgs/{quote(org_name, safe='')}/repos?type={visibility}&{per_page}"
+        listed_from = org_repos_path(org_name, include_private=include_private)
         try:
             listing = list(self._session.paginate(listed_from))
         except GitHubNotFoundError:
             if org_name != self._session.login:
                 raise
-            listed_from = f"/user/repos?affiliation=owner&visibility={visibility}&{per_page}"
+            listed_from = own_repos_path(include_private=include_private)
             listing = list(self._session.paginate(listed_from))
         repos = [_read_as(RepoInfo, item, path=listed_from) for item in listing]
         return [

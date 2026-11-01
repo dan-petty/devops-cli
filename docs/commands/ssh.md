@@ -78,7 +78,6 @@ devops ssh list [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -97,7 +96,6 @@ devops ssh audit [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -115,6 +113,5 @@ devops ssh status [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
