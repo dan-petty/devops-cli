@@ -1,0 +1,103 @@
+{
+ "issue": 2559,
+ "pull": 2997,
+ "title": "fix(ai): LLMClient.chat takes temperature, top_p and seed and sends none of them",
+ "change": "2559-llmclient-chat-takes-temperature-top-p",
+ "merge_commit": "cba71f952843355388a2c1c5eb52877f53b07f20",
+ "base_commit": "435e8a6f6141d6383e92287a25717c1cb9f95803",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 4,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The premise is real: LLMClient.chat and chat_messages take **kwargs and ignore temperature, top_p and seed, and review/analysis.py _chat_and_judge passes them. The PR is merged as cba71f95. Its title is a valid Conventional Commit, its body says \"Plans #2559\", and all 20 check runs are green or skipped. The task order is wrong, though. Group 1 cannot pass alone, because its test needs the payload code that Group 2 adds. The implement job did stop at group 1 (comment on #2559: UsageLimitExceeded, request_limit 80). The plan also leaves open three decisions that an implementer will hit: how per-call sampling interacts with use_model_sampling, where seed goes in each payload, and how the Claude sampling gate works. The delta spec adds requirements that overlap existing ones in openspec/specs/ai-model-sampling/spec.md. The plan has several wrong references: a test file that no task creates, a Claude builder that is not the one named, and a Group 3 whose files list omits the file it may edit. The PR is merged, so the fixes go in a follow-up edit to the change folder (openspec-update-change) before the implement job retries.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Group 1 cannot go green alone. Task 1.1 tests that the HTTP request body carries temperature 0.9 and seed 7, and 1.2 must make it pass. But Group 1 changes only unified.py. The code that writes temperature, top_p and seed into the payload (openai.py, ollama.py, claude.py) is Group 2. An implementer of Group 1 must edit the provider files too, or the step fails. The implement job hit this exact trap.",
+   "evidence": "tasks.md group 1: 'Changes: src/devops_cli/ai/client/unified.py, tests/ai/client/test_unified_sampling.py' and 1.2 'verify that uv run devops ci test tests/ai/client/test_unified_sampling.py passes'. Group 2 changes openai.py/ollama.py/claude.py. The #2559 implement comment says 'Stopped at group 1 ... UsageLimitExceeded ... request_limit of 80', and its discarded diff shows edits to claude.py and ollama.py made during group 1.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Seed placement is undefined. No code in src/devops_cli/ai/client/ handles seed today. Task 2.2 says to pass seed to 'the Ollama options dict' and 'the Claude message body' but never says where seed goes for the OpenAI-compatible payload (params['seed']) or Ollama (options.seed). The seed arguments in the plan have no existing code to extend, so each must be new code. The plan says 'config fallback' for temperature and top_p, but seed has no config field to fall back to, and 1.2 still says 'else the config value' for cache_opts.",
+   "evidence": "grep -rn seed src/devops_cli/ai/client/ returns nothing. 1.2: 'In cache_opts, use the per-call value when not None, else the config value' (cache_opts has no seed key, unified.py lines 782-806).",
+   "gate": "none"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The plan ignores the sampling guards, so two outcomes are possible. (a) OpenAI-compatible: _apply_sampling_and_limits returns early for reasoning models and skips temperature and top_p when use_model_sampling is true. (b) Ollama: the same use_model_sampling guard. (c) Claude: _build_anthropic_kwargs sends sampling only if send_sampling (capabilities, not adaptive thinking, not use_model_sampling). The plan says 'per-call value overrides config when not None' with no rule for these cases. The existing spec says use_model_sampling makes requests carry neither temperature nor top_p, so a per-call value either breaks that requirement or must be ignored. The cache_opts also nulls temperature and top_p under the same flags. The implementer must choose, and tests 2.1 and 3.1 will differ by the choice.",
+   "evidence": "openai.py lines 156-174: 'if self._supports_reasoning(): ... return' and 'if not getattr(self._config, \"use_model_sampling\", False):'. ollama.py lines 297-303 same guard. claude.py lines 138-148: 'send_sampling = (_capabilities_support_sampling(caps) and not use_adaptive and not getattr(config, \"use_model_sampling\", False))'. unified.py lines 784-798 null temperature/top_p when use_model_sampling or supports_reasoning. openspec/specs/ai-model-sampling/spec.md: 'Model-level sampling option ... requests SHALL omit temperature and top_p'.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The Claude steps name the wrong code. Task 2.2 says to change _claude_messages and 'the Claude message body'. The Claude request is built by the module function _build_anthropic_kwargs(config, sdk_client, system, messages, limit, ...), which reads config and sets extra_body. _claude_messages only calls it. The plan never names _build_anthropic_kwargs, never lists a new argument for it, and 2.1 tests 'the request body' for Claude although Claude uses the Anthropic SDK, not a raw httpx2 transport as 1.1 assumes ('fake httpx2 transport').",
+   "evidence": "claude.py lines 101-150 (_build_anthropic_kwargs, extra_body['temperature'] = float(config.temperature)) and lines 307-325 (_claude_messages calls _build_anthropic_kwargs(self._config, sdk_client, ...)).",
+   "gate": "pending"
+  },
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Group 3 contradicts Group 1 and its file list is wrong. 1.2 already adds per-call values to cache_opts, so the 'fails on the base' check of 3.1 can only fail before Group 1, and it passes at the start of Group 3. 3.2 then says 'Verify ... already uses the per-call values' and 'If ... generate_key does not include seed, add seed', but cache_opts is in unified.py, which Group 3 does not list under Changes (only the test file). response_cache.py generate_key hashes the options dict, so the real work is only to add a seed key to cache_opts in Group 1. Group 3 is a test-only group with a conditional code step.",
+   "evidence": "tasks.md group 3: 'Changes: tests/ai/client/test_cache_key_sampling.py' and 3.2 'If the cache key generation ... does not include seed, add seed to the options dict'. cache_opts at unified.py line 782 has no seed key.",
+   "gate": "pending"
+  },
+  {
+   "type": "missing_path",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "Feasibility names a test file that no task creates and that does not exist: tests/ai/client/test_claude_seed.py. The tasks use test_provider_sampling.py for the Claude seed test. The Feasibility 'First checks' lines are a list of commands, not evidence. The Feasibility cites 'line for chat()' with no line number.",
+   "evidence": "proposal.md: 'uv run devops ci test tests/ai/client/test_claude_seed.py'. git ls-tree origin/main shows no such file, and tasks.md never creates it.",
+   "gate": "paths",
+   "paths": []
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/ai-model-sampling/spec.md",
+   "problem": "The delta uses '## ADDED Requirements' on a capability that already exists, and it overlaps existing requirements. 'per-call-sampling-in-cache-key' repeats the meaning of the existing 'Reply cache key includes request sampling'. 'config-default-fallback' (request uses config) conflicts with the existing 'Model-level sampling option' (no temperature or top_p under use_model_sampling). proposal.md lists the capability as Modified but the spec file uses ADDED. A MODIFIED delta for the cache key requirement, and a stated exception for use_model_sampling, are needed so that the archived spec does not contradict itself.",
+   "evidence": "openspec/specs/ai-model-sampling/spec.md has '### Requirement: Reply cache key includes request sampling' (line 55) and '### Requirement: Model-level sampling option' (line 41). The plan's spec.md starts '## ADDED Requirements'.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Tests go in three new files under tests/ai/client/, but sampling tests already live in tests/ai/test_ai_model_sampling.py, and route_llm_clients in tests/llm_stream_fakes.py is the existing fake for 'a fake model at the HTTP edge'. The plan does not name this helper. 'Reads: none' on every group, although each group edits existing files the implementer must read. Tasks 1.3, 2.3 and 3.3 say 'Change no document, run docs generate --sync-readme' and are a no-op in each group. The streaming path (_dispatch_stream) is not covered or declared out of scope.",
+   "evidence": "ls tests/ai shows test_ai_model_sampling.py. tests/llm_stream_fakes.py line 229 defines route_llm_clients(monkeypatch, handler). The existing spec 'Streamed calls preserve sampling and trace headers' covers the stream path.",
+   "gate": "pending"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "nit",
+   "where": "tasks.md",
+   "problem": "Removing **kwargs from chat and chat_messages could break callers, and the plan has no task to list or check them (a grep of src for other keywords). A grep of src found no .chat( call with max_tokens, stream, timeout or similar keywords, so the risk is probably low, but the plan did not record it. The Feasibility also cites issue text '_run_model_job' as _chat_and_judge, which is correct on main (analysis.py line 1061), so no fix is needed there.",
+   "evidence": "grep over src for '.chat(' and '.chat_messages(' with those keywords returned nothing; analysis.py lines 1081-1084 pass temperature, top_p, seed.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 3",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Cache key includes per-call sampling values' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  }
+ ]
+}

@@ -1,0 +1,56 @@
+{
+ "issue": 2735,
+ "pull": 2858,
+ "title": "fix(security): the subprocess environment guard accepts LESS, which makes less run a program",
+ "change": "2735-the-subprocess-environment-guard-accepts-less",
+ "merge_commit": "c3354bbd9b16588286f4c8468afff13746a1df0a",
+ "base_commit": "ecbdcfc0abe8e0d5fed3624a433b68dd45d1075d",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 5,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The plan picks the right fix: add \"LESS\" to CONST_CODE_LOADING_ENV_PATTERNS. The issue is open, a P1 security bug, and not a duplicate. The plan names a test file, tests/test_process.py, that does not exist on main. The real test is tests/core/test_subprocess_env_boundary.py. The first implement run stopped at group 1 with edit_file retries. A later run delivered PR #2896, which closes #2735, and the PR is merged. The PR title and body are correct (Plans #2735, no closing keyword). All 21 check runs are green or skipped. The Feasibility section relies on the issue text and runs no probe. The Existing Tool Considered section gives no token or time cost.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Group 1 names a test file that does not exist. The Reads/Changes line and tasks 1.1 and 1.2 use tests/test_process.py, and the verify command is `uv run devops ci test tests/test_process.py`. The real test file for build_subprocess_env refusals is tests/core/test_subprocess_env_boundary.py. It has a parametrized table, REFUSED_OVERRIDE_KEYS, that already runs every key with isolate_env true and false and in upper and lower case. The correct test change is to add \"LESS\" to that table. The plan asks for three new hand-written cases instead, and the table makes them unnecessary. An implementer who follows the plan edits a missing file, and the verify command cannot run.",
+   "evidence": "git show c3354bbd:tests/test_process.py -> fatal: path 'tests/test_process.py' does not exist. git ls-tree lists tests/core/test_process.py, test_process_contract.py, test_process_hardening.py and test_subprocess_env_boundary.py, and no tests/test_process.py. In the boundary test file, line 189 has REFUSED_OVERRIDE_KEYS and lines 247-248 hold \"LESSOPEN\" and \"LESSCLOSE\". The test at lines 282-298 is parametrized over [True, False] for isolate_env and over each key in upper and lower case. The stage comment on #2735 warned: 'These paths of the plan are no file on the default branch, and no group creates them: tests/test_process.py. A person checks that the plan names them right.' Nobody fixed the path before merge. The implement comment on #2735 shows the first run 'Stopped at group 1' with 'Tool 'edit_file' exceeded max retries count of 5'. The agent then wrote a stray tmp_test_addition.py. The merged commit 1545b85a added the key to the existing table, plus two new tests in tests/core/test_subprocess_env_boundary.py.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_process.py"
+   ]
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section confirms the premise only by quoting the issue body. It says the reproduction command 'returns the key unchanged, confirming the gap', but it records no output or tool version. It does not cite the less(1) manual, and it records no probe of its own. AGENTS.md rule 2 asks for evidence from upstream documents, library source or command output. It also names the issue as the source of the constant contents ('The issue body states the constant already holds LESSOPEN and LESSCLOSE') instead of reading src/devops_cli/config/constants.py. The premise is true: constants.py lists LESSOPEN and LESSCLOSE and has no LESS, and process.py passes CONST_CODE_LOADING_ENV_PATTERNS to _is_env_var_denied.",
+   "evidence": "proposal.md Feasibility: 'The issue body states the constant already holds LESSOPEN and LESSCLOSE ... The reproduction command ... returns the key unchanged, confirming the gap.' It states no run output. git show c3354bbd:src/devops_cli/config/constants.py around line 1573 shows CONST_CODE_LOADING_ENV_PATTERNS with LESSOPEN and LESSCLOSE and no LESS. process.py lines 146-151 show _is_env_override_refused.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "Existing Tool Considered gives no cost in tokens or elapsed time. AGENTS.md rule 3 and openspec/config.yaml ask for 'the tokens to implement, maintain and fix it ... plus the elapsed time' when a change builds instead of using a tool. It also does not say what internal code the change deletes in plain terms; it only says 'No internal code is deleted'. The change is one key, so the cost is small, but the section does not state it.",
+   "evidence": "proposal.md: 'The written cost is one key added to a constant in src/devops_cli/config/constants.py and one test case in the existing test file. No internal code is deleted.' openspec/config.yaml line 12 asks for 'the tokens to implement, maintain and fix it until it matches the tool, plus the elapsed time'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.3 contradicts itself ('Change no document, run `uv run devops docs generate --sync-readme`'). The step adds no value: adding a key to a constant changes no generated README content. The proposal Impact lists only constants.py and the test file, but the delta spec adds a requirement to the subprocess-environment capability. The Impact does not name the spec change or the other existing refusal text. The existing refusal requirement at openspec/specs/subprocess-environment/spec.md line 77 lists the refused keys without LESS. The archived change did update that spec. Task 1.1 also mixes three test cases and a fail-on-base check into one checkbox.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'. openspec/specs/subprocess-environment/spec.md line 77 at c3354bbd: 'It SHALL refuse `EDITOR`, `VISUAL`, `PAGER`, `LESSOPEN`, `LESSCLOSE` and `MERGE_TOOLS_DIR` in the same way.'",
+   "gate": "none"
+  }
+ ]
+}

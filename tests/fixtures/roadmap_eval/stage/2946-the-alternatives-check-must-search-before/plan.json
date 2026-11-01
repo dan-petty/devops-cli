@@ -1,0 +1,163 @@
+{
+ "summary": "enforce search in alternatives check",
+ "pull_request_body": "The alternatives check lets the model decide whether to search for open tools. Over 14 days it searched about 4 times and returned not-applicable every time, including for a feature that integrates two products (#2946). This change adds a fixed rule that names the skip classes: Conventional Commit types test, docs, refactor, chore, ci, perf, and a fix of an internal defect with a stack trace and no new capability. For those, the verdict is not-applicable with the class as the reason, with no model call. Every other item must run at least one search before the check accepts any verdict. A reply with a verdict and no search is rejected, and the model gets one turn to search. A second answer without a search ends as a failed check. The classes live in one constant list with a table test.",
+ "why": "The alternatives check lets the model decide whether to search for open tools. Over 14 days it searched about 4 times and returned not-applicable every time, including for a feature that integrates two products (#2946). A fixed rule must name the skip classes, and every other item must run at least one search before the check accepts any verdict.",
+ "what_changes": [
+  "Add a SKIP_CLASSES constant list in the alternatives check module",
+  "Add a classification function that returns the skip class name or None",
+  "For skip-class items, return not-applicable with the class as reason, with no model call",
+  "For non-skip items, reject a verdict reply that has no search recorded",
+  "Give the model one additional turn to search after a rejected reply",
+  "End as a failed check on a second reply without a search",
+  "Add a table test covering each skip class with no model call",
+  "Add a scripted-model test for the search-before-verdict rule",
+  "Add a replay test that verifies the Firecrawl counter rises"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed by docs/TELEMETRY.md:81, which defines devops_cli_firecrawl_searches_total as a counter for Firecrawl web searches, and k8s/README.md:609, which describes the Firecrawl search behavior and its metric.",
+  "CONTEXT.md defines the Alternative term and the alternatives check verdicts: covers, partly, none, not-applicable.",
+  "AGENTS.md rule 3 states to use an open tool before building, which is the principle this check enforces.",
+  "The issue body cites devops_cli_roadmap_alternatives_total showing only not-applicable (about 34 checks) over 14 days, and devops_cli_firecrawl_searches_total showing about 4 searches in 7 days.",
+  "The first check the implementation runs is uv run devops ci test tests/test_roadmap_alternatives.py to verify the table test and the search-before-verdict test.",
+  "The second check is uv run devops ci to verify the full CI passes."
+ ],
+ "existing_tool": "No open, maintained tool or library covers the need to enforce a search-before-verdict rule inside the devops-cli alternatives check. The project builds this logic itself. The written cost is the tokens to build, keep and fix the constant list, the classification function, the search-enforcement guard, and the table and replay tests, plus the elapsed time to implement and debug them.",
+ "decisions": [
+  {
+   "decision": "A fixed rule names the skip classes, not the model",
+   "reason": "Over 14 days the model searched about 4 times and returned not-applicable every time. A fixed rule is deterministic and testable."
+  },
+  {
+   "decision": "The constant list lives in the alternatives check module",
+   "reason": "The issue body says the classes live in one constant list with a test. A constant in the same module as the check keeps the rule and its enforcement together."
+  },
+  {
+   "decision": "Reject a no-search reply and give the model one turn to search",
+   "reason": "The issue body records this mechanism. It gives the model a chance to search while still enforcing the rule."
+  },
+  {
+   "decision": "A second no-search reply ends as a failed check",
+   "reason": "The issue body says a second answer without a search ends as a failed check for that item."
+  },
+  {
+   "decision": "The verdict for skip-class items is not-applicable with the class name as the reason",
+   "reason": "The issue body records this. It is consistent with the existing not-applicable verdict in CONTEXT.md and gives a person a clear reason."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Let the model decide whether to search",
+   "evidence": "Over 14 days the model searched about 4 times and returned not-applicable every time (issue body, devops_cli_roadmap_alternatives_total). It is not reliable for this gate."
+  },
+  {
+   "alternative": "Store the skip classes in a separate configuration file",
+   "evidence": "The list is a fixed rule, not a user setting. A config file adds indirection without benefit."
+  },
+  {
+   "alternative": "Hardcode the skip classes in the model prompt",
+   "evidence": "The issue body says a fixed rule, not the model, names the classes. A prompt is not a fixed rule."
+  },
+  {
+   "alternative": "Hard-fail immediately on the first no-search reply",
+   "evidence": "The issue body says the model gets one turn to search. Hard-failing gives the model no chance to correct."
+  },
+  {
+   "alternative": "Warn and continue with the no-search verdict",
+   "evidence": "The issue body says the reply is rejected. Warning does not enforce the rule."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-alternatives",
+   "purpose": null,
+   "added": [
+    {
+     "name": "skip-class-classification",
+     "text": "The check SHALL classify an item as a skip class when its Conventional Commit type is one of test, docs, refactor, chore, ci, or perf, or when its body is a fix of an internal defect with a stack trace and no new capability. For a skip-class item, the verdict SHALL be not-applicable with the class name as the reason, and no model call SHALL be made.",
+     "scenarios": [
+      {
+       "name": "Each skip class produces not-applicable without a model call",
+       "when": "The check runs on an item whose type is test, docs, refactor, chore, ci, or perf",
+       "then": "The verdict is not-applicable, the comment names the class as the reason, and no model call is made"
+      },
+      {
+       "name": "A fix with stack trace and no new capability is a skip class",
+       "when": "The check runs on an item whose body is a fix of an internal defect with a stack trace and no new capability",
+       "then": "The verdict is not-applicable, the comment names the class as the reason, and no model call is made"
+      }
+     ]
+    },
+    {
+     "name": "search-before-verdict",
+     "text": "For a non-skip-class item, the check SHALL reject a model reply that gives a verdict with no search recorded. The check SHALL give the model one additional turn to perform a search. A second reply without a search SHALL end as a failed check for that item.",
+     "scenarios": [
+      {
+       "name": "A scripted model answers a feat item without a search",
+       "when": "The model returns a verdict with no search recorded for a feat item",
+       "then": "The check rejects the reply, gives the model one turn to search, and a second answer without a search ends as a failed check for that item"
+      }
+     ]
+    },
+    {
+     "name": "firecrawl-counter-replay",
+     "text": "The devops_cli_firecrawl_searches_total counter SHALL increase by at least 1 when the check runs on a non-skip-class item and the model performs a search.",
+     "scenarios": [
+      {
+       "name": "A replay of a feat item triggers a search",
+       "when": "The check runs on a feat item in a replay and the model performs a search",
+       "then": "devops_cli_firecrawl_searches_total increases by at least 1"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add skip-class constant and classification",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/roadmap/alternatives.py",
+    "tests/test_roadmap_alternatives.py"
+   ],
+   "creates": [],
+   "test": "Write a table test that covers each skip class: test, docs, refactor, chore, ci, perf, and fix-with-stack-trace. For each, assert the verdict is not-applicable, the comment names the class as the reason, and no model call is made",
+   "implementation": "Add a SKIP_CLASSES constant list in the alternatives module. Add a classify_skip_class function that takes an item and returns the class name or None. In the check entry point, call classify_skip_class before any model call. When it returns a class, write the not-applicable verdict with the class as reason and return without calling the model",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_roadmap_alternatives.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Enforce search-before-verdict for non-skip items",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/roadmap/alternatives.py",
+    "tests/test_roadmap_alternatives.py"
+   ],
+   "creates": [],
+   "test": "Write a test with a scripted model that answers a feat item with a verdict and no search. Assert the check rejects the reply. Assert the model gets one more turn. Assert a second answer without a search ends as a failed check for that item",
+   "implementation": "In the model reply handler, check whether a search was recorded for the item. If no search was recorded and this is the first reply, reject the reply and give the model one additional turn. If no search was recorded and this is the second reply, end the check as failed for that item",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_roadmap_alternatives.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Verify Firecrawl counter rises in replay",
+   "reads": [],
+   "changes": [
+    "tests/test_roadmap_alternatives.py"
+   ],
+   "creates": [],
+   "test": "Write a replay test that runs the check on a feat item. Assert that devops_cli_firecrawl_searches_total increases by at least 1 after the model performs a search",
+   "implementation": "Ensure the search path in the alternatives check increments the Firecrawl counter defined in docs/TELEMETRY.md. Verify the test asserts the counter delta is at least 1",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_roadmap_alternatives.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

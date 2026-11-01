@@ -1,0 +1,106 @@
+{
+ "summary": "enable branch coverage and upload xml",
+ "pull_request_body": "This change enables branch coverage in the coverage gate and keeps the XML report as a CI artifact. Branch coverage is off in [tool.coverage.run]. A guard like `if a or b: raise` counts as covered when one side runs. Setting `branch = true` makes coverage.py measure both sides. CI writes .data/coverage.xml for diff-cover and then discards it. A reviewer cannot see per-file figures without a new run. The Tests & Coverage job now uploads the file as an artifact with a 7-day retention. The fail_under change is dropped per the owner decision on #2356. The 85% floor and 90% changed-line gate stay as they are.",
+ "why": "#2163 reports that the coverage gate measures only lines, not branches, so a guard like `if a or b: raise` counts as covered when one side runs. CI also discards .data/coverage.xml after diff-cover reads it, so a reviewer cannot see per-file figures without a new run.",
+ "what_changes": [
+  "pyproject.toml sets `branch = true` in [tool.coverage.run] so coverage.py measures both sides of each conditional",
+  ".github/workflows/ci.yml adds an upload-artifact step to the Tests & Coverage job that keeps .data/coverage.xml with a 7-day retention"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "Confirmed: pyproject.toml line 229 shows `data_file = \".data/.coverage\"` in [tool.coverage.run] with no `branch` key, matching the issue's claim at pyproject.toml:197-202.",
+  "Confirmed: .github/workflows/ci.yml has no upload-artifact step for .data/coverage.xml; the job runs diff-cover and ends without keeping the file.",
+  "The Tests & Coverage job took 245-307 s in the last 8 runs (284.5 s average). Branch measurement adds time. The 300 s average limit is the hard bound; the PR also reports against the 240 s target from #2356.",
+  "First checks the implementation runs: `uv run devops ci test` to verify the suite passes with branch coverage on; `uv run devops ci --check --only lint,format,actionlint,zizmor` to verify the workflow passes actionlint and zizmor."
+ ],
+ "existing_tool": "coverage.py and pytest-cov, which the project already uses, measure branches when `branch = true` is set. `actions/upload-artifact` keeps the report. Nothing is built.",
+ "decisions": [
+  {
+   "decision": "Set `branch = true` in [tool.coverage.run] rather than passing `--branch` on the command line",
+   "reason": "The configuration file is the single source of truth for coverage settings. Both the local gate and CI read it, so one change covers both."
+  },
+  {
+   "decision": "Pin `actions/upload-artifact` by commit SHA",
+   "reason": "Every other action in ci.yml is pinned by SHA. This matches the existing pattern and prevents a silent version change."
+  },
+  {
+   "decision": "Set retention-days to 7",
+   "reason": "The artifact is for review of a recent run. A short retention keeps storage low while covering the review window."
+  },
+  {
+   "decision": "Do not change `fail_under`",
+   "reason": "The owner dropped the fail_under raise from this issue per the decision on #2356. The 85% floor and 90% changed-line gate stay as they are."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Raise `fail_under` to the measured total with branches on",
+   "evidence": "The owner struck this from the issue on 2026-10-27, deferring it to #2356 which sets a lower global floor of 85% and a gate on changed lines."
+  },
+  {
+   "alternative": "Build a custom artifact upload script",
+   "evidence": "`actions/upload-artifact` already uploads a file by path with a retention period. The project uses it for the SARIF report in the same workflow. Building a custom script adds tokens to build, keep and fix with no benefit."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "ci-coverage-reports",
+   "purpose": null,
+   "added": [
+    {
+     "name": "branch-coverage-measurement",
+     "text": "The coverage configuration SHALL set `branch = true` in `[tool.coverage.run]` so that coverage.py measures both sides of each conditional.",
+     "scenarios": [
+      {
+       "name": "branch key present in pyproject",
+       "when": "pyproject.toml is parsed and the [tool.coverage.run] table is read",
+       "then": "the table contains the key `branch` with the value `true`"
+      }
+     ]
+    },
+    {
+     "name": "coverage-xml-artifact-upload",
+     "text": "The `Tests & Coverage` job SHALL upload `.data/coverage.xml` as a CI artifact with a retention period of at most 14 days.",
+     "scenarios": [
+      {
+       "name": "upload step in workflow",
+       "when": "the `Tests & Coverage` job in .github/workflows/ci.yml is read",
+       "then": "it contains a step that uses `actions/upload-artifact` with `path` set to `.data/coverage.xml` and a `retention-days` input"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Enable branch coverage in pyproject.toml",
+   "reads": [],
+   "changes": [
+    "pyproject.toml"
+   ],
+   "creates": [],
+   "test": "Write a test in tests/test_coverage_config.py. The test reads pyproject.toml with tomllib, parses the [tool.coverage.run] table, and asserts that the key `branch` has the value `True`. The test fails before the change because the key is absent",
+   "implementation": "Add `branch = true` to the [tool.coverage.run] section of pyproject.toml, after the existing `parallel = true` line",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_coverage_config.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Upload coverage XML as CI artifact",
+   "reads": [],
+   "changes": [
+    ".github/workflows/ci.yml"
+   ],
+   "creates": [],
+   "test": "Write a test in tests/test_workflows.py. The test reads .github/workflows/ci.yml with yaml.safe_load, finds the job whose `name` is `Tests & Coverage`, and asserts that one of its steps has `uses` starting with `actions/upload-artifact@` and a `with` table containing `path` set to `.data/coverage.xml` and a `retention-days` key. The test fails before the change because no such step exists",
+   "implementation": "Add a step after the Changed-Line Coverage step in the Tests & Coverage job: name `Upload Coverage XML`, uses `actions/upload-artifact` pinned by commit SHA, with `name: coverage-xml`, `path: .data/coverage.xml`, and `retention-days: 7`. Add `if: always()` so the artifact uploads even when the gate fails",
+   "documentation": null,
+   "verify": "uv run devops ci --check --only actionlint,zizmor",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

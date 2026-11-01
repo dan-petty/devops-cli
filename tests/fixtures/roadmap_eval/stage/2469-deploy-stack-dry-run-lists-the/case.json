@@ -1,0 +1,81 @@
+{
+ "issue": 2469,
+ "pull": 2991,
+ "title": "fix(k8s): deploy-stack --dry-run lists the helm repo and helm upgrade requests, with the chart, version and values of each release",
+ "change": "2469-deploy-stack-dry-run-lists-the",
+ "merge_commit": "9fb7b5db99c34fe627bc4c54a5a72a7049871830",
+ "base_commit": "055ed51169cd3eab043ed703eb0dc618c2ba8537",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 4,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "PR #2991 is merged (title \"docs(openspec): plan #2469 add helm commands to dry-run output\", body \"Plans #2469\", all 21 checks green or skipped). The issue is real and still open (label status/blocked). The premise holds: deploy_stack passes only \"helm_releases\": [r[\"name\"] ...] to render_dry_run_result. The plan has real defects. It names a test file that does not exist, so the implement run stopped at group 1. Group 1 does not say how the dry-run branch gets helm_ctx. Group 2 adds a self-inspection test that the issue does not ask for. Feasibility holds no command output. The plan should be fixed before the next implement round.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Every task names the test file tests/test_k8s_logging_stack.py. This file does not exist on main. The real file is tests/commands/k8s/test_k8s_logging_stack.py. The verify commands use the wrong path too. The stage job warned of this in its comment, and the plan was merged unchanged. The implement run then produced stray files (test_helm_commands_dry_run.py, verify_helm_commands.py) and stopped at group 1 on ruff errors.",
+   "evidence": "ls tests/test_k8s_logging_stack.py: No such file. git ls-tree origin/main shows only tests/commands/k8s/test_k8s_logging_stack.py. Stage comment on #2469: 'These paths of the plan are no file on the default branch ... tests/test_k8s_logging_stack.py. A person checks that the plan names them right.' Implement comment: 'uv run ruff check -- src/devops_cli/commands/k8s/stack_lifecycle.py test_helm_commands_dry_run.py tests/commands/k8s/test_k8s_logging_stack.py verify_helm_commands.py exited with status 1'.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_k8s_logging_stack.py"
+   ]
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.2 tells the implementer to call _build_helm_upgrade_cmd(release, helm_ctx, wait, timeout, is_v4=False) in the dry-run branch. In deploy_stack, helm_ctx is defined only after the dry-run branch returns. The plan does not say to build it earlier from effective_context. The issue's design requires --kube-context, --wait and --timeout in the dry-run commands. The plan leaves this to the implementer. The dry-run branch must also call _check_helm_version_for_deploy or not; the plan does not say.",
+   "evidence": "origin/main stack_lifecycle.py: the dry-run branch (line ~1308) ends with 'return'. Line ~1370 then has: helm_ctx = [\"--kube-context\", effective_context] if effective_context else [].",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The dry run uses is_v4=False. On a Helm 4 host the real run adds --force-conflicts (the builder does this when v4 is true). The dry-run list then differs from the requests the real run makes. This contradicts the plan's own rule that the dry run returns what the real run makes. The spec scenario 'builder change reflects in dry run' compares the dry-run list to _build_helm_upgrade_cmd called without is_v4. That call runs _is_helm_v4_or_newer, a helm subprocess, so the scenario depends on the installed Helm. The same scenario needs a private name, while the plan says tests import no private name.",
+   "evidence": "_build_helm_upgrade_cmd: 'v4 = _is_helm_v4_or_newer() if is_v4 is None else is_v4; if v4: helm_cmd.append(\"--force-conflicts\")'. Spec scenario: 'A test calls _build_helm_upgrade_cmd with the loki release dict and compares its result to the corresponding command in the dry-run helm_commands list'. design.md: 'Pass is_v4=False ... the dry run has no cluster to ask'.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Group 2 is not a separate unit of work. Task 2.1 asks for a test that reads the test module's own imports to check that no private name is imported. The issue does not ask for this. Such a test is brittle. Task 2.1 also says 'verify it fails on the base', but the 1.1 test already covers the assertions. Group 2 only changes existing assertions at lines 32-33 and 62-64 of the test file, and removes the private imports. Task 1.1 also edits the test file, but group 1's 'Changes' line lists only stack_lifecycle.py.",
+   "evidence": "tests/commands/k8s/test_k8s_logging_stack.py lines 13-16 import _HELM_RELEASES_BY_STACK and _HELM_REPOS_BY_STACK; lines 32, 33 and 62-64 read them. tasks.md group 1: 'Reads: none. Changes: src/devops_cli/commands/k8s/stack_lifecycle.py.' while 1.1 writes a test in tests/test_k8s_logging_stack.py.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Both groups say 'Reads: none'. Group 1 needs stack_lifecycle.py (about 63 KB, 1600 lines) and the test file. The size is within the 40000-token budget (the stage job counted 5688 tokens), but the line is wrong and the implementer gets no hint where to look (_deploy_helm_repos at ~645, deploy_stack dry-run branch at ~1308). Tasks 1.3 and 2.3 say 'Change no document' and run docs generate and ci docs. No document changes, so these tasks add steps with no purpose.",
+   "evidence": "wc on origin/main stack_lifecycle.py: 1600 lines, 62901 bytes. tasks.md '## 1. ... Reads: none.'",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section holds claims, not evidence. It does not show a command output. It tells the implementer to run 'uv run pytest tests/test_k8s_logging_stack.py' later (wrong path and not the project's test command). It cites src/devops_cli/dry_run.py, but dry_run is a package.",
+   "evidence": "git ls-tree origin/main: src/devops_cli/dry_run/__init__.py, decorator.py, models.py, requests.py, state.py; no src/devops_cli/dry_run.py. Feasibility text: 'First checks the implementation runs against the real system: uv run devops k8s deploy-stack --stack logging --dry-run ... and uv run pytest tests/test_k8s_logging_stack.py'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "design.md",
+   "problem": "The design says '13 test files and external scripts read helm_releases'. The 13 files read the private tables HELM_RELEASES_BY_STACK and HELM_REPOS_BY_STACK, not the dry-run key helm_releases. Only about 2 test files read the key helm_releases (tests/commands/k8s/test_k8s.py:2811 and local variables in tests/invariants/test_k8s_argocd_apps.py). The design also justifies keeping the key as 'backward compatible', but AGENTS.md says the tool keeps no backward compatibility before 1.0.0. The proposal fixes only 1 of the 13 files, but does not say the other 12 stay.",
+   "evidence": "grep -rn helm_releases tests: tests/commands/k8s/test_k8s.py:2811 and tests/invariants/test_k8s_argocd_apps.py (local variable helm_releases_map). Issue #2469 text: '13 test files under tests/ read these tables'. AGENTS.md intro: 'it keeps no backward compatibility, so a change removes the old path and adds no shim.'",
+   "gate": "none"
+  }
+ ]
+}

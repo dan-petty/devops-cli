@@ -1,0 +1,177 @@
+{
+ "summary": "pass per-call sampling to LLM payload",
+ "pull_request_body": "LLMClient.chat and chat_messages accept **kwargs but ignore temperature, top_p, and seed. The review analysis module passes these values and expects them to reach the model, but the request carries the client config defaults instead. This change replaces **kwargs with explicit temperature, top_p, and seed parameters. It threads them through the dispatch chain to the provider payload builders and the cache key. A per-call value overrides the config value when not None. The Claude provider omits seed, as the Anthropic API does not accept it. An unknown keyword argument now raises TypeError. Files changed: src/devops_cli/ai/client/unified.py, src/devops_cli/ai/client/openai.py, src/devops_cli/ai/client/ollama.py, src/devops_cli/ai/client/claude.py, and their tests.",
+ "why": "#2559: LLMClient.chat and chat_messages take **kwargs and use none of them. A caller that passes temperature, top_p, or seed gets no error, and the request carries the client config sampling instead. The review analysis module (src/devops_cli/review/analysis.py, _chat_and_judge) passes these values from its SamplingRecord on each call and believes it sets them.",
+ "what_changes": [
+  "Replace **kwargs with explicit temperature, top_p, and seed parameters in chat() and chat_messages()",
+  "Thread per-call sampling through _retry_chat_dispatch, _dispatch_messages, and _invoke_provider_messages",
+  "Update provider payload builders (openai, ollama, claude) to use per-call values over config, with config fallback",
+  "Omit seed in the Claude provider payload, as the Anthropic API does not accept it",
+  "Include per-call temperature, top_p, and seed in the cache key when provided",
+  "Raise TypeError when a caller passes an unrecognized keyword argument"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "Confirmed: src/devops_cli/ai/client/unified.py line for chat() shows **kwargs: Any, and chat_messages() shows **kwargs: Any. Neither method reads temperature, top_p, or seed from kwargs.",
+  "Confirmed: src/devops_cli/review/analysis.py _chat_and_judge calls llm_client.chat(..., temperature=sampling.temperature, top_p=sampling.top_p, seed=sampling.seed, ...), so the caller expects per-call sampling to work.",
+  "Confirmed: src/devops_cli/ai/client/openai.py _apply_sampling_and_limits reads self._config.temperature and self._config.top_p, not per-call values.",
+  "Confirmed: cache_opts in chat_messages() reads getattr(self._config, 'temperature', None) and getattr(self._config, 'top_p', None), not per-call values.",
+  "First checks the implementation runs: (1) uv run devops ci test tests/ai/client/test_unified_sampling.py to verify per-call values reach the payload; (2) uv run devops ci test tests/ai/client/test_claude_seed.py to verify seed is omitted for Claude; (3) uv run devops ci test tests/ai/client/test_cache_key_sampling.py to verify cache key differentiation."
+ ],
+ "existing_tool": "No new tool is needed. The OpenAI-compatible API, Ollama, and Anthropic APIs natively accept temperature, top_p, and seed per request (Anthropic does not accept seed). The fix threads the caller's values through the existing call chain. The written cost is the change to four files in src/devops_cli/ai/client/ to add explicit parameters and pass them to the payload builders and cache key generation. No internal code is deleted; **kwargs is replaced by named parameters.",
+ "decisions": [
+  {
+   "decision": "Pass temperature, top_p, and seed through to the payload and cache key",
+   "reason": "The review analysis module already passes these values and expects them to reach the model. The provider APIs support per-request sampling. This is the standard pattern for LLM clients."
+  },
+  {
+   "decision": "Per-call value overrides config when not None",
+   "reason": "This preserves existing behavior for callers that do not pass per-call values, and gives callers that do pass them the expected result."
+  },
+  {
+   "decision": "Omit seed for the Claude provider",
+   "reason": "The Anthropic API does not accept a seed parameter. Sending it would cause a 400 error."
+  },
+  {
+   "decision": "Remove **kwargs so unknown arguments raise TypeError",
+   "reason": "Silently ignoring arguments hides bugs. The three recognized parameters are now explicit. Any other keyword is a caller error."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Remove **kwargs without adding explicit parameters",
+   "evidence": "This would break the review analysis module (src/devops_cli/review/analysis.py _chat_and_judge), which legitimately passes temperature, top_p, and seed and expects them to reach the model."
+  },
+  {
+   "alternative": "Per-call value replaces config entirely (no fallback)",
+   "evidence": "This would require callers to pass all sampling parameters or get no sampling at all. It breaks existing callers that rely on config defaults, such as callers that set ai.temperature in settings and pass no per-call value."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "ai-model-sampling",
+   "purpose": null,
+   "added": [
+    {
+     "name": "per-call-sampling-in-request-payload",
+     "text": "When a caller passes temperature, top_p, or seed to chat or chat_messages, the HTTP request body SHALL carry those values.",
+     "scenarios": [
+      {
+       "name": "caller-passes-temperature-and-seed",
+       "when": "A caller invokes client.chat(system, user, temperature=0.9, seed=7) against a fake model at the HTTP edge",
+       "then": "The request body contains temperature 0.9 and seed 7"
+      },
+      {
+       "name": "caller-passes-top-p",
+       "when": "A caller invokes client.chat(system, user, top_p=0.8) against a fake model at the HTTP edge",
+       "then": "The request body contains top_p 0.8"
+      }
+     ]
+    },
+    {
+     "name": "per-call-sampling-in-cache-key",
+     "text": "The cache key generated for a chat call SHALL include the per-call temperature, top_p, and seed values when they are provided.",
+     "scenarios": [
+      {
+       "name": "two-calls-differ-only-in-temperature",
+       "when": "A caller invokes chat with temperature=0.1 and then with temperature=0.9 for the same system and user text",
+       "then": "The two calls produce different cache keys"
+      },
+      {
+       "name": "two-calls-differ-only-in-seed",
+       "when": "A caller invokes chat with seed=7 and then with seed=42 for the same system and user text",
+       "then": "The two calls produce different cache keys"
+      }
+     ]
+    },
+    {
+     "name": "config-default-fallback",
+     "text": "When a caller does not pass a sampling parameter, the request SHALL use the value from the client's config.",
+     "scenarios": [
+      {
+       "name": "caller-omits-temperature",
+       "when": "A caller invokes client.chat(system, user) with config temperature set to 0.1",
+       "then": "The request body contains temperature 0.1"
+      },
+      {
+       "name": "caller-omits-top-p",
+       "when": "A caller invokes client.chat(system, user) with config top_p set to 0.95",
+       "then": "The request body contains top_p 0.95"
+      }
+     ]
+    },
+    {
+     "name": "unknown-keyword-argument-rejected",
+     "text": "A call to chat or chat_messages with a keyword argument that is not a recognized parameter SHALL raise TypeError.",
+     "scenarios": [
+      {
+       "name": "caller-passes-unrecognized-keyword",
+       "when": "A caller invokes client.chat(system, user, unknown_param=1)",
+       "then": "A TypeError is raised"
+      }
+     ]
+    },
+    {
+     "name": "seed-omitted-for-unsupported-providers",
+     "text": "When the provider does not support seed, the request body SHALL omit the seed field even if the caller passes one.",
+     "scenarios": [
+      {
+       "name": "caller-passes-seed-to-claude-provider",
+       "when": "A caller invokes client.chat(system, user, seed=7) with provider set to claude",
+       "then": "The request body does not contain a seed field"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add explicit sampling params to chat and chat_messages",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/ai/client/unified.py",
+    "tests/ai/client/test_unified_sampling.py"
+   ],
+   "creates": [],
+   "test": "Write a test that calls client.chat('sys', 'user', temperature=0.9, seed=7) with a fake httpx2 transport. Assert the request body contains temperature 0.9 and seed 7. Write a test that calls client.chat('sys', 'user', unknown_param=1) and asserts TypeError is raised. Write a test that calls client.chat('sys', 'user') with config temperature 0.1 and asserts the request body contains temperature 0.1",
+   "implementation": "In chat(), replace **kwargs: Any with temperature: float | None = None, top_p: float | None = None, seed: int | None = None. Pass them to chat_messages(). In chat_messages(), replace **kwargs: Any with the same three parameters. Thread them through _retry_chat_dispatch (add as keyword args), _dispatch_messages (add as keyword args), and _invoke_provider_messages (add as keyword args). In cache_opts, use the per-call value when not None, else the config value. In _dispatch_messages telemetry, use the per-call value when not None, else the config value",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/ai/client/test_unified_sampling.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Use per-call sampling in provider payload builders",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/ai/client/openai.py",
+    "src/devops_cli/ai/client/ollama.py",
+    "src/devops_cli/ai/client/claude.py",
+    "tests/ai/client/test_provider_sampling.py"
+   ],
+   "creates": [],
+   "test": "Write a test that builds an LLMClient with provider openai and config temperature 0.1. Call chat with temperature=0.9. Assert the HTTP request body has temperature 0.9. Write a test with provider ollama and the same assertion. Write a test with provider claude and config temperature 0.1. Call chat with temperature=0.9 and seed=7. Assert the request body has temperature 0.9 and no seed key",
+   "implementation": "In _openai_compat_messages, _ollama_messages, and _claude_messages, accept temperature, top_p, and seed as keyword arguments. Pass them to _apply_sampling_and_limits (openai), the Ollama options dict (ollama), and the Claude message body (claude). In each builder, use the per-call value when not None, else fall back to self._config.temperature or self._config.top_p. In the Claude builder, omit seed from the payload entirely, as the Anthropic API does not accept it",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/ai/client/test_provider_sampling.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Cache key includes per-call sampling values",
+   "reads": [],
+   "changes": [
+    "tests/ai/client/test_cache_key_sampling.py"
+   ],
+   "creates": [],
+   "test": "Write a test that calls chat with temperature=0.1 and then temperature=0.9 for the same system and user text. Assert the two calls produce different cache keys. Write a test that calls chat with seed=7 and then seed=42. Assert the two calls produce different cache keys. Write a test that calls chat with no sampling params and asserts the cache key matches the config-based key",
+   "implementation": "Verify that the cache_opts dict in chat_messages() already uses the per-call values threaded in Group 1. If the cache key generation in self._cache.generate_key does not include seed, add seed to the options dict passed to generate_key. Confirm the existing cache key logic in src/devops_cli/ai/response_cache.py hashes the options dict, so a change in any option value changes the key",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/ai/client/test_cache_key_sampling.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

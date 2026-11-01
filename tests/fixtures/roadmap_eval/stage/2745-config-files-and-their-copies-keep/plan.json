@@ -1,0 +1,127 @@
+{
+ "summary": "preserve config file mode on write",
+ "pull_request_body": "Config files that devops-cli writes, and their copies, get the umask mode (0644) instead of the mode of the file they replace. A config file can hold secrets, so other users of the host can read it. This change sets the mode of the temporary file to the existing file's mode, or 0600 for a new file, before os.replace. It applies to _write_content in settings.py and _copy in write_history.py. The live file and every copy keep the mode of the source, never more open. Files: src/devops_cli/config/settings.py, src/devops_cli/config/write_history.py, and their tests.",
+ "why": "#2745 reports that a config file set to 0600 becomes 0644 after any devops config set or unset, and that a temporary file in the redact path is briefly world-readable. A config file can hold secrets, so other users of the host can read it.",
+ "what_changes": [
+  "Set the mode of the tmp file to the existing file's mode (or 0600) before os.replace in _write_content in settings.py",
+  "Set the mode of the tmp file to the source file's mode before os.replace in _copy in write_history.py",
+  "Add tests that assert the mode of written files, new files, and backup copies"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The code in src/devops_cli/config/settings.py confirms _write_content calls tmp.write_bytes(content) then os.replace(tmp, dest_path) with no mode setting between them.",
+  "The code in src/devops_cli/config/write_history.py confirms _copy calls partial.write_bytes(redacted) then shutil.copystat(source, partial) then os.replace(partial, dest), leaving a window where the tmp file has the umask mode.",
+  "The issue's reproduction steps are consistent with this code: a 0600 file becomes 0644 after a write because os.replace preserves the tmp file's umask mode.",
+  "First checks the implementation runs: uv run devops ci test tests/config/test_config_file_mode.py and uv run devops ci test tests/test_config_write_history.py"
+ ],
+ "existing_tool": "The Python standard library covers the need: os.chmod sets a file's mode, os.stat reads it, and stat.S_IMODE extracts the permission bits. No external tool or library is needed. The written cost is two lines of os.chmod in two functions and their tests.",
+ "decisions": [
+  {
+   "decision": "Use os.chmod on the tmp file before os.replace",
+   "reason": "The tmp file has the correct mode before it becomes the live file. No window of wrong mode is visible to other users."
+  },
+  {
+   "decision": "Use 0600 as the default mode for a new config file",
+   "reason": "Owner read/write only. A config file can hold secrets, so no other user should read it."
+  },
+  {
+   "decision": "Keep shutil.copystat in _copy after the os.chmod",
+   "reason": "copystat also copies timestamps. The os.chmod closes the mode window; copystat preserves the rest of the metadata."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Call shutil.copystat after os.replace",
+   "evidence": "The live file briefly has the umask mode between os.replace and copystat. A window of wrong mode is visible to other users."
+  },
+  {
+   "alternative": "Use 0644 (umask default) for new files",
+   "evidence": "World-readable. Insecure for files that can hold secrets. This is the current buggy behavior that #2745 reports."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "config-commands",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Preserve existing file mode on write",
+     "text": "A write of a config file that already exists MUST preserve the mode of the existing file.",
+     "scenarios": [
+      {
+       "name": "Write to a 0600 file",
+       "when": "A config file with mode 0600 is written by devops config set or devops config unset",
+       "then": "The resulting file has mode 0600"
+      }
+     ]
+    },
+    {
+     "name": "New config file gets mode 0600",
+     "text": "A config file that does not exist and is created by a write MUST be created with mode 0600.",
+     "scenarios": [
+      {
+       "name": "Create a new config file",
+       "when": "A write creates a config file that did not exist before",
+       "then": "The new file has mode 0600"
+      }
+     ]
+    },
+    {
+     "name": "Backup copy keeps source mode",
+     "text": "A backup copy of a config file MUST have the same mode as the source file.",
+     "scenarios": [
+      {
+       "name": "Copy a 0600 file",
+       "when": "A backup copy is made of a config file with mode 0600",
+       "then": "The copy has mode 0600"
+      }
+     ]
+    },
+    {
+     "name": "Temporary file never more open than source",
+     "text": "A temporary file written during a config write MUST have a mode no more open than the file it replaces, or 0600 when no file exists.",
+     "scenarios": [
+      {
+       "name": "Tmp file mode during redact copy",
+       "when": "A temporary file is created during a redacted copy of a config file with mode 0600",
+       "then": "The temporary file has mode 0600 before it is replaced by os.replace"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Preserve mode in _write_content",
+   "reads": [],
+   "changes": [
+    "tests/config/test_config_file_mode.py",
+    "src/devops_cli/config/settings.py"
+   ],
+   "creates": [],
+   "test": "Write a test in tests/config/test_config_file_mode.py that: (1) creates a config file with mode 0600, calls _write_content with new content, and asserts the resulting file has mode 0600; (2) calls _write_content for a path that does not exist and asserts the new file has mode 0600.",
+   "implementation": "In src/devops_cli/config/settings.py, add import stat at the top. In _write_content, after tmp.write_bytes(content) and before os.replace(tmp, dest_path), add: mode = stat.S_IMODE(dest_path.stat().st_mode) if dest_path.is_file() else 0o600, then os.chmod(tmp, mode).",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/config/test_config_file_mode.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Preserve mode in _copy redact path",
+   "reads": [],
+   "changes": [
+    "tests/test_config_write_history.py",
+    "src/devops_cli/config/write_history.py"
+   ],
+   "creates": [],
+   "test": "Write a test in tests/test_config_write_history.py that: (1) creates a source file with mode 0600 and a redact key path, calls _copy(source, dest, redact), and asserts dest has mode 0600; (2) asserts the non-redact path (shutil.copy2) also preserves mode 0600.",
+   "implementation": "In src/devops_cli/config/write_history.py, add import stat at the top. In _copy, after partial.write_bytes(redacted) and before shutil.copystat(source, partial), add: os.chmod(partial, stat.S_IMODE(source.stat().st_mode)).",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_config_write_history.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

@@ -6733,6 +6733,35 @@ devops roadmap release [OPTIONS] <item>
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
 | `--confirm` | `boolean` | - | Make the write to GitHub: remove the owner label. |
 
+### `devops roadmap eval`
+
+**Score the plan and implement jobs on a golden set. Each command runs a job's real code on committed cases with a chosen model. It is on demand and no part of devops ci.**
+
+```bash
+devops roadmap eval COMMAND [ARGS]...
+```
+
+#### `devops roadmap eval stage`
+
+**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A change to the stage prompt or to the checks states this score before and after.**
+
+```bash
+devops roadmap eval stage [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
+| `--model` | `string` | - | Model for the analysis task. Without it, the configured model. |
+| `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
+| `--json` | `boolean` | - | Print the report as JSON in place of the table. |
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
+| `--replay` | `boolean` | - | Make no model call. Run the recorded plans through the gates and report which known defects each gate catches. |
+| `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
+| `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
+
 ---
 
 ## devops pr

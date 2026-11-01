@@ -1,0 +1,93 @@
+{
+ "summary": "key claim table by chart version",
+ "pull_request_body": "CHART_CLAIMS in tests/core/test_k8s_local_path_placement.py is keyed by chart name only. A chart release can move a value path, and the test then reads a stale path and passes silently. A pod can bind its volume on the control-plane node. This change keys CHART_CLAIMS by (chart_name, pinned_version), matching the pattern of _CHART_TOKENS in tests/invariants/test_k8s_manifests.py. It adds a test that fails when an Application pins a version the table does not name. The lookup matches by chart name only, as the token test does. No product code changes. No new dependency.",
+ "why": "#2519: CHART_CLAIMS is keyed by chart name only. When a chart release moves a value path, the test reads a stale path and passes silently. A pod can then bind its volume on the control-plane node. The token test (#1652) already solved this with a tuple key and a symmetric-difference check.",
+ "what_changes": [
+  "Change CHART_CLAIMS key type from str to tuple[str, str] in tests/core/test_k8s_local_path_placement.py",
+  "Update the chart lookup to match by name only, ignoring the version in the key",
+  "Add a test that asserts pinned_charts() ^ CHART_CLAIMS.keys() is empty",
+  "Add a spec delta to the local-path-volume-placement capability for the version-keyed table requirement"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue premise is confirmed: CHART_CLAIMS in tests/core/test_k8s_local_path_placement.py is keyed by chart name only (identifier match at line 90 shows the dict annotation). The pattern to copy exists in tests/invariants/test_k8s_manifests.py: _CHART_TOKENS uses tuple[str, str] keys and test_the_chart_table_names_each_chart_at_the_version_that_an_application_pins asserts the symmetric difference with pinned_charts().",
+  "pinned_charts() in tests/support/k8s_tree.py returns frozenset[tuple[str, str]] of (chart, targetRevision) for every Application source that has a chart. This is the source of the versions.",
+  "First check: run `uv run devops ci test tests/core/test_k8s_local_path_placement.py` to confirm the module passes before the change. Second check: after the change, run the same command to confirm all tests pass with the new key structure."
+ ],
+ "existing_tool": "No external tool covers this need. The fix is a repository-internal test change. It reuses pinned_charts() from tests/support/k8s_tree.py and copies the tuple key pattern from _CHART_TOKENS in tests/invariants/test_k8s_manifests.py. The written cost is the tokens to change the CHART_CLAIMS key type from str to tuple[str, str], update the lookup, and add one test function. No new dependency is added.",
+ "decisions": [
+  {
+   "decision": "Use tuple[str, str] as the key type of CHART_CLAIMS, matching _CHART_TOKENS",
+   "reason": "The pattern already exists in the same codebase. The token test design document records the decision to name the version so a chart bump fails until the entry is re-read."
+  },
+  {
+   "decision": "Match by chart name only in the lookup, ignoring the version in the key",
+   "reason": "The version is checked by the separate symmetric-difference test. The lookup only needs the chart name to find the right entry. The token test does the same."
+  },
+  {
+   "decision": "Use symmetric difference with pinned_charts() for the version-match test",
+   "reason": "Catches both a missing entry and a stale version. The token test uses this exact assertion."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Keep str key and add a separate version list",
+   "evidence": "Two structures to keep in sync. The token test already proved the tuple key is simpler and the symmetric-difference check is one line."
+  },
+  {
+   "alternative": "Match by full tuple including version in the lookup",
+   "evidence": "Would require chart_values() to yield the version, changing the shared helper. The token test does not do this."
+  },
+  {
+   "alternative": "Subset check only (pinned_charts() - CHART_CLAIMS.keys())",
+   "evidence": "Would miss a stale entry for a chart that is no longer installed. The symmetric difference is stricter and matches the existing pattern."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "local-path-volume-placement",
+   "purpose": null,
+   "added": [
+    {
+     "name": "version-keyed claim table",
+     "text": "CHART_CLAIMS SHALL use a tuple of chart name and pinned version as its key type, and the set of keys SHALL equal the set returned by pinned_charts().",
+     "scenarios": [
+      {
+       "name": "key type and coverage check",
+       "when": "the test module is imported and CHART_CLAIMS is inspected",
+       "then": "every key is a tuple of two strings, and the set of keys equals the set returned by pinned_charts()"
+      }
+     ]
+    },
+    {
+     "name": "version mismatch fails",
+     "text": "A test SHALL fail when an Application pins a chart version that CHART_CLAIMS does not name.",
+     "scenarios": [
+      {
+       "name": "pinned version not in table",
+       "when": "pinned_charts() returns a (chart, version) pair that is not a key of CHART_CLAIMS",
+       "then": "the test asserts a non-empty symmetric difference and fails"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Key CHART_CLAIMS by chart version and add the mismatch test",
+   "reads": [],
+   "changes": [
+    "tests/core/test_k8s_local_path_placement.py"
+   ],
+   "creates": [],
+   "test": "Write test_the_claim_table_names_each_chart_at_the_version_that_an_application_pins. It asserts sorted(pinned_charts() ^ CHART_CLAIMS.keys(), key=str) == []. This test fails before the implementation because CHART_CLAIMS keys are strings, not tuples",
+   "implementation": "Change CHART_CLAIMS type annotation from dict[str, ...] to dict[tuple[str, str], ...]. Update every key from the chart name string to a (chart_name, version) tuple, using the version from the Argo CD Application file. Update the lookup that finds a chart entry to match by name only: (entry for (name, _), entry in CHART_CLAIMS.items() if name == chart). This mirrors _chart_sites in tests/invariants/test_k8s_manifests.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/core/test_k8s_local_path_placement.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

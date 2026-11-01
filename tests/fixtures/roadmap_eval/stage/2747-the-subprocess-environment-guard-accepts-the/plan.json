@@ -1,0 +1,98 @@
+{
+ "summary": "refuse pytest and npm env keys in guard",
+ "pull_request_body": "Add PYTEST_ADDOPTS and the NPM_CONFIG_* family to CONST_CODE_LOADING_ENV_PATTERNS so that build_subprocess_env raises SecurityError for caller overrides of these keys. PYTEST_ADDOPTS lets pytest write a JUnit file or load a plugin. NPM_CONFIG_* keys let npm write a log or cache file into a caller-named directory. The guard already refuses the same kind of key for curl, git, Python, Node.js and the glibc loader. This change closes the gap for pytest and npm, using the same fnmatch pattern mechanism and the same constant. No new code path is added; two entries join the existing tuple.",
+ "why": "#2747 reports that build_subprocess_env accepts three caller-provided keys that make a child write a file the caller names: PYTEST_ADDOPTS (pytest writes a JUnit file or loads a plugin) and npm_config_logs_dir / npm_config_cache (npm writes a log or cache file). The guard already refuses the same kind of key for other tools via CONST_CODE_LOADING_ENV_PATTERNS, but these three keys are absent, so a caller can direct a file write through them.",
+ "what_changes": [
+  "Add \"PYTEST_ADDOPTS\" to CONST_CODE_LOADING_ENV_PATTERNS in src/devops_cli/config/constants.py",
+  "Add \"NPM_CONFIG_*\" to CONST_CODE_LOADING_ENV_PATTERNS in src/devops_cli/config/constants.py",
+  "Add test cases in tests/core/test_subprocess_env_boundary.py asserting SecurityError for PYTEST_ADDOPTS and NPM_CONFIG_* keys"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed against the inputs. src/devops_cli/core/process.py imports CONST_CODE_LOADING_ENV_PATTERNS from devops_cli.config.constants and passes it to _is_env_var_denied inside _is_env_override_refused. The issue body states PYTEST_ADDOPTS, npm_config_logs_dir and npm_config_cache are not in that constant, so they pass through. The reproduction command in the issue body confirms the gap: build_subprocess_env returns all three keys with no SecurityError.",
+  "First checks the implementation runs: (1) uv run python -c 'from devops_cli.core.process import build_subprocess_env as b; print(sorted(k for k in b(env={\"PYTEST_ADDOPTS\": \"x\", \"npm_config_logs_dir\": \"x\", \"npm_config_cache\": \"x\"}) if k in (\"PYTEST_ADDOPTS\", \"npm_config_logs_dir\", \"npm_config_cache\")))' to confirm the keys are refused after the fix; (2) uv run devops ci test tests/core/test_subprocess_env_boundary.py to confirm all guard tests pass."
+ ],
+ "existing_tool": "No open, maintained tool or library covers this need. The project builds its own guard in src/devops_cli/core/process.py. The written cost is 2 pattern entries and a comment in src/devops_cli/config/constants.py, plus 6 test cases in tests/core/test_subprocess_env_boundary.py. The cost to keep and fix is zero: the patterns are static and no update is needed until a new tool is added. The elapsed time to build is under 10 minutes. No internal code is deleted.",
+ "decisions": [
+  {
+   "decision": "Deny the NPM_CONFIG_* family with a single fnmatch pattern rather than listing npm_config_logs_dir and npm_config_cache individually.",
+   "reason": "npm reads every setting from a key with the NPM_CONFIG_ prefix, so any member can direct a file write. The existing guard already uses family patterns for dangerous families: DYLD_* and BASH_FUNC_*. A single-key list would miss future or unprobed members."
+  },
+  {
+   "decision": "Add PYTEST_ADDOPTS as an exact-name entry, not a family pattern.",
+   "reason": "PYTEST_ADDOPTS is a single key. There is no PYTEST_* family of dangerous keys. The existing constant holds exact names for single keys (LD_AUDIT, ENV) and family patterns for families (DYLD_*, BASH_FUNC_*)."
+  },
+  {
+   "decision": "Place both entries in CONST_CODE_LOADING_ENV_PATTERNS, not in DEFAULT_DENIED_ENV_PATTERNS.",
+   "reason": "CONST_CODE_LOADING_ENV_PATTERNS is the list that _is_env_override_refused checks for caller overrides. DEFAULT_DENIED_ENV_PATTERNS filters ambient environment variables. These keys are a caller-override risk, so they belong in the override list, consistent with the existing entries."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Deny only npm_config_logs_dir and npm_config_cache individually.",
+   "evidence": "npm's config system is open-ended: it reads each npm setting from a key with the NPM_CONFIG_ prefix. A future or unprobed npm_config_* key could also direct a file write. The existing design uses family patterns for this case (DYLD_*, BASH_FUNC_*)."
+  },
+  {
+   "alternative": "Add the keys to DEFAULT_DENIED_ENV_PATTERNS instead of CONST_CODE_LOADING_ENV_PATTERNS.",
+   "evidence": "DEFAULT_DENIED_ENV_PATTERNS filters ambient environment variables. The risk here is a caller override, which _is_env_override_refused checks against CONST_CODE_LOADING_ENV_PATTERNS. Placing the keys in the wrong constant would not block the override path."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "subprocess-environment",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Refuse PYTEST_ADDOPTS caller override",
+     "text": "build_subprocess_env SHALL raise SecurityError when a caller override sets PYTEST_ADDOPTS.",
+     "scenarios": [
+      {
+       "name": "Caller sets PYTEST_ADDOPTS",
+       "when": "A caller passes PYTEST_ADDOPTS in the env dict to build_subprocess_env",
+       "then": "build_subprocess_env raises SecurityError"
+      }
+     ]
+    },
+    {
+     "name": "Refuse NPM_CONFIG family caller overrides",
+     "text": "build_subprocess_env SHALL raise SecurityError when a caller override sets any key matching the NPM_CONFIG_* pattern.",
+     "scenarios": [
+      {
+       "name": "Caller sets npm_config_logs_dir",
+       "when": "A caller passes npm_config_logs_dir in the env dict to build_subprocess_env",
+       "then": "build_subprocess_env raises SecurityError"
+      },
+      {
+       "name": "Caller sets npm_config_cache",
+       "when": "A caller passes npm_config_cache in the env dict to build_subprocess_env",
+       "then": "build_subprocess_env raises SecurityError"
+      },
+      {
+       "name": "Caller sets an unprobed NPM_CONFIG key",
+       "when": "A caller passes NPM_CONFIG_REGISTRY in the env dict to build_subprocess_env",
+       "then": "build_subprocess_env raises SecurityError"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add PYTEST_ADDOPTS and NPM_CONFIG_* to the guard",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/config/constants.py",
+    "tests/core/test_subprocess_env_boundary.py"
+   ],
+   "creates": [],
+   "test": "Write a test that calls build_subprocess_env with env={\"PYTEST_ADDOPTS\": \"--junitxml=/tmp/x.xml\"} and asserts SecurityError is raised. Write a test that calls build_subprocess_env with env={\"npm_config_logs_dir\": \"/tmp/logs\"} and asserts SecurityError is raised. Write a test that calls build_subprocess_env with env={\"npm_config_cache\": \"/tmp/cache\"} and asserts SecurityError is raised. Write a test that calls build_subprocess_env with env={\"NPM_CONFIG_REGISTRY\": \"https://example.com\"} and asserts SecurityError is raised, confirming the family pattern covers any member",
+   "implementation": "Add the string \"PYTEST_ADDOPTS\" to the tuple CONST_CODE_LOADING_ENV_PATTERNS in src/devops_cli/config/constants.py, beside the existing entries. Add the string \"NPM_CONFIG_*\" to the same tuple. Add a comment noting that PYTEST_ADDOPTS lets pytest write a JUnit file or load a plugin, and NPM_CONFIG_* lets npm write a log or cache file into a caller-named directory",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/core/test_subprocess_env_boundary.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

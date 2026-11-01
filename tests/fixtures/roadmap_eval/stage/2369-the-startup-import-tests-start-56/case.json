@@ -1,0 +1,86 @@
+{
+ "issue": 2369,
+ "pull": 2985,
+ "title": "perf(ci): the startup-import tests start 56 interpreters and take 204 s of the suite's 2,423 s",
+ "change": "2369-the-startup-import-tests-start-56",
+ "merge_commit": "78726a37f96348d6e107b20b6c455647d21344c9",
+ "base_commit": "cbd1cf3ae005610aab70a91fc279df722323692e",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 1,
+  "fidelity": 2,
+  "task_quality": 3,
+  "rule_compliance": 2,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The plan is merged (commit 78726a37). Its core premise fails when measured. Removing -X importtime saves about 3% of CPU per probe, not the 50% the issue asks for. The plan never measures this, adds no task that checks the 2x goal, and does not handle the difference between the importtime count and the sys.modules count. It also carries a spec delta that the openspec config forbids for a test-only change. Paths, line numbers and constants are correct, and all 20 checks passed or were skipped. An implementer would build a change that cannot meet the issue acceptance criterion.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md",
+   "problem": "The Feasibility section does not check the premise. It repeats the issue claim that -X importtime is the main cost. The issue says to measure first (step 1), and AGENTS.md rule 2 asks for real evidence. A local measurement shows that -X importtime adds almost no CPU. Dropping it cannot reach the acceptance criterion (at most half the CPU time). The plan should have measured, found this, and returned the item or re-scoped it.",
+   "evidence": "I ran the exact _STARTUP_PROBE for `ci --help`, 5 runs each, twice, with resource.getrusage(RUSAGE_CHILDREN): no flag = 0.853 and 0.842 CPU s per probe; `-X importtime` = 0.888 and 0.860 CPU s per probe. This is a gap of 2 to 4%. For `--help`: 0.59 s wall without the flag, 0.72 s wall with it. Interpreter start plus `import devops_cli.entry` is the cost. proposal.md Feasibility only says 'First checks: run pytest ... to get the baseline CPU time' as a future step.",
+   "gate": "pending"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "No task checks the issue acceptance criterion: at most half the present CPU time over three runs of the file. Task 1 has no baseline step. Group 2 ends without any timing step. The only mention of the 2x goal is in the Feasibility text and the PR body. The plan has no task for the issue's step 1 (split the cost) either.",
+   "evidence": "tasks.md groups 1 and 2 hold only 'verify ... pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q passes'. No task runs the file three times or compares CPU time. Issue #2369 'Acceptance: the file takes at most half of its present CPU time, measured over three runs'.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.2 is built on a wrong picture of the code, and the plan hides a change of the budget meaning. The probe already prints sys.modules to stdout (the `loaded` field, `__MODULES__` line). The budgets do not count `loaded`. They count `imported`, which is the set of modules that `-X importtime` reports, failed imports included. The plan says 'Parse stdout instead of stderr for the module list' and 'all four limits unchanged', but it never says how `imported`, `devops_modules`, `found` and the control test count modules once importtime is gone. The counts differ, so the limits 550/75/1100/250 would be applied to another measure.",
+   "evidence": "git show origin/main:tests/commands/test_cli_startup_imports.py lines 331-341: `print(\"\\n__MODULES__\", *sys.modules)`; line 350: imported = 'Every module `-X importtime` reported, failed imports included: what the budgets count'; lines 468-470 `imported=frozenset(cumulative)`. Measured on `--help`: sys.modules = 448 names, importtime = 437 names. `found()` at line 365 also uses `imported` to catch heavy modules that were tried but failed to import; sys.modules cannot see those. design.md says 'Decisions: None' although this is the key design decision.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/ci-job-time/spec.md",
+   "problem": "The change is test-only and alters no consumer-visible behavior. openspec/config.yaml says such a change has no spec delta and sets skip_specs: true in .openspec.yaml. This plan adds a delta and does not set skip_specs. The delta is also in the wrong capability: ci-job-time is about the `devops ci job-time` command, not the internals of a test probe. Its scenarios test private test internals, not an offline observable.",
+   "evidence": "openspec/config.yaml proposal rule: 'A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.' The merged .openspec.yaml holds only `schema: spec-driven` and `created: 2026-11-01`. openspec/specs/ci-job-time/spec.md Purpose: 'How `devops ci job-time` finds out whether a CI job ... still averages less than five minutes'. The proposal says 'Modified Capabilities: ci-job-time: startup-import-probe-mechanism' but the delta says ADDED.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The tests in 1.1 and 2.1 test implementation details. 1.1 mocks subprocess.run to check that argv has no -X importtime. 2.1 only checks that a private function exists and that its output is sorted. Neither proves that budgets keep the same strictness (issue criteria 3 to 5). The failure-message criterion (the ten slowest imports in the message) has no test of the message itself. Group 2 also depends on group 1 (the `_StartupImports` fields change) but states 'Reads: none'.",
+   "evidence": "tasks.md 1.1: 'The test mocks subprocess.run and checks the args list.' 2.1: 'asserts _probe_startup_imports_timed exists and returns a list of (module, cumulative_seconds) pairs'. Issue criterion 5: 'the assertion message includes the ten slowest imports by cumulative seconds.'",
+   "gate": "none"
+  },
+  {
+   "type": "verify_form",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Verify commands use bare `uv run pytest ... -n 0 -x -q` where config.yaml names `uv run devops ci test <path>`. The new test in 1.1 also adds more subprocess-mocking tests to a file whose cost is the problem.",
+   "evidence": "openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`.' tasks.md 1.1, 1.2, 2.1, 2.2 use `uv run pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q`.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "The Feasibility wording 'The identifier matches confirm the four limit constants at lines 33-36' is unclear and gives no command output. The Why text says '56 probes' while the file collects 57 tests (some are not probes). No count is shown.",
+   "evidence": "uv run pytest tests/commands/test_cli_startup_imports.py --collect-only -q: '57 tests collected'. Lines 33-36 of the file do define the four constants (550, 75, 1100, 250), and line 448 does define _probe_startup_imports, so the path and line numbers are right.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1, 2",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Replace -X importtime with sys.modules dump in the probe' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  }
+ ]
+}

@@ -1,0 +1,23 @@
+{
+ "issue": 2735,
+ "pull": 2858,
+ "title": "fix(security): the subprocess environment guard accepts LESS, which makes less run a program",
+ "change": "2735-the-subprocess-environment-guard-accepts-less",
+ "merge_commit": "c3354bbd9b16588286f4c8468afff13746a1df0a",
+ "base_commit": "ecbdcfc0abe8e0d5fed3624a433b68dd45d1075d",
+ "verdict": "good",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 5,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "The plan of this case is the merged plan of pull request #2858, which the evaluation of 2026-11-01 judged acceptable, with one path corrected: `tests/test_process.py` is `tests/core/test_process.py`. It has no known defect.",
+ "twin_of": "2735-the-subprocess-environment-guard-accepts-less",
+ "notes": [
+  "Corrected path: `tests/test_process.py` is `tests/core/test_process.py`."
+ ],
+ "defects": []
+}

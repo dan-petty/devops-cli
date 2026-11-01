@@ -1,0 +1,97 @@
+{
+ "issue": 2576,
+ "pull": 3002,
+ "title": "fix(argo): a token that Argo CD refuses ends each argo API command in a traceback, and devops never mints a new one",
+ "change": "2576-a-token-that-argo-cd-refuses",
+ "merge_commit": "1267327bdab34cca4ee9c30028915a1e243a5f0a",
+ "base_commit": "8b8f6253a4092ebedd5759caaa1d24d20a049a07",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "open",
+ "summary": "The plan has the right core idea: one helper in argo/credentials.py that retries once on 401 and raises ArgoError. The issue is open, ready, not a tracker and not a duplicate. The PR is a plan-only draft (\"Plans #2576\"), its title is a valid Conventional Commit with no \"!\", and all 18 check runs are green. But an implementer would hit several defects. The plan names a command that does not exist (`devops k8s credentials sync`; the real one is `devops k8s sync-secrets`). It names test files that do not exist and sit outside the tests/ layout. It asks `cd_apps_list` and `cd_apps_status` to \"raise ArgoError\", but both wrap the request in `except Exception`, which swallows the error and shows it in a table or panel. The existing test `test_status_exits_1_when_argo_cd_refuses_the_read` also expects that panel and exit code 1. The Feasibility section does not check the real behavior of these two commands. The plan also leaves two other raw `raise_for_status` Argo CD callers uncovered without saying so, and it ignores 403, which the repo already treats as a token refusal.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md (1.2), spec.md, design.md",
+   "problem": "The plan names the command to run as `devops k8s credentials sync`. That command does not exist. The real command is `devops k8s sync-secrets`. A helper built from task 1.2 would print a wrong fix hint, and a test could assert the wrong text.",
+   "evidence": "tasks.md 1.2: 'raises ArgoError naming argocd.token and devops k8s credentials sync'. `git grep -n \"credentials sync\" origin/main -- src README.md docs` finds no match. docs/commands/k8s.md has '## `devops k8s sync-secrets`' (Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring).",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md (groups 2 and 3), proposal.md Why",
+   "problem": "Task 3.1 asks that `cd_apps_status` raise ArgoError on 401 without a password, with no traceback, and the spec says 'the command exits with one error line'. But `cd_apps_list` and `cd_apps_status` already wrap the request in `except Exception`. That block turns any error, ArgoError included, into a red table row or a status panel, so nothing reaches the exit seam. The commands never produced a traceback in the first place. The plan does not say to narrow or remove the `except Exception`, so it is a wasted change or a contradiction. The existing contract is also unchanged and not mentioned: a status with an error exits 1 and shows the status in the output. Only `cd_apps_sync` has the traceback. The Why claim 'every Argo CD API command ends in a Python traceback' is therefore wrong for list and status.",
+   "evidence": "origin/main src/devops_cli/commands/argo.py lines 236-247 (list) and 346-362 (status): `try: ... resp.raise_for_status() ... except Exception as exc: rows.append([f\"[red]Error: {exc}[/red]\"...` and `panel = format_argo_app_status_panel(..., error=str(exc)); return panel, False`. Only cd_apps_sync (lines 297-307) has an unguarded `resp.raise_for_status()`. tests/commands/test_argo_apps_status.py::test_status_exits_1_when_argo_cd_refuses_the_read stubs a 401 and asserts exit_code == 1 and '401' in result.output.",
+   "gate": "none"
+  },
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md (1.1, 2.1, 3.1, all verify commands)",
+   "problem": "The verify commands run test files that do not exist: tests/test_argo_credentials.py and tests/test_argo_commands.py. The test files for this code are tests/commands/test_argo.py, tests/commands/test_argo_apps_status.py and tests/argo/*. Root-level files outside the layout are a rule problem (docs/TESTING.md). The tasks also say to 'mock the HTTP client'. The same document bans mocks and patches. The repo already has a stub_web edge fake and a cli fixture that tests/commands/test_argo_apps_status.py uses. An implementer cannot tell which existing tests to extend. A 'fails on base' check would fail only because the file is missing.",
+   "evidence": "`git ls-tree --name-only origin/main tests/ | grep -c test_argo` gives 0. `git ls-tree -r origin/main --name-only | grep -E '^tests/.*argo'` lists tests/commands/test_argo.py, tests/commands/test_argo_apps_status.py, tests/argo/test_argo_*.py. docs/TESTING.md line 19: '_Avoid_: mock, stub, dummy, test double' and line 181 says test files outside the layout get ratchets.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_argo_credentials.py",
+    "tests/test_argo_commands.py"
+   ]
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "proposal.md, design.md, tasks.md",
+   "problem": "The plan covers only three commands. Two other Argo CD API callers use the same stored token with a raw `raise_for_status` and have the same traceback: `fleet.py` (used by fleet and sync commands) and `gitops.py`. The plan does not name them as out of scope or as a follow-up. The design says 'duplicating ... across four or more commands', and the issue title says 'each argo API command', yet only three are changed. After the change, `devops argo sync` and the gitops sync still end in a traceback on a refused token.",
+   "evidence": "git grep on origin/main: src/devops_cli/argo/fleet.py:69 `resp.raise_for_status()` after `token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)`; src/devops_cli/argo/gitops.py:405 `resp.raise_for_status()` after the same token lookup. tasks.md has no 'Workflow follow-up' bullet for them.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "spec.md, tasks.md 1.2",
+   "problem": "The spec and helper treat only HTTP 401 as a refused token. The repo defines a refusal as 401 or 403, and its existing credential sync spec says the same. Argo CD can answer a bad session with 403. The plan neither follows that constant nor says why it differs.",
+   "evidence": "src/devops_cli/config/constants.py:3326 `CONST_STACK_TOKEN_REFUSED_HTTP_STATUSES: Final[frozenset[int]] = frozenset({401, 403})`. openspec/specs/stack-credential-sync/spec.md line 8: 'HTTP 401 or 403 SHALL count as a refusal'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md 1.2",
+   "problem": "The plan leaves open what happens when `mint_argocd_token` itself fails (wrong stored password, Argo CD down). That function raises StackCredentialError (a KubernetesError), not ArgoError. The helper spec lists only 'retry 401' as an error. The plan also does not give the mint call arguments. The function needs `base_url`, `password`, and `level=configured_level(settings.ai)`, and the password comes from `get_argocd_password(settings)`. The implementer must decide whether to wrap the error as ArgoError or let it pass.",
+   "evidence": "src/devops_cli/k8s/credentials.py lines 266-306: `mint_argocd_token(base_url, password, *, level, save_to_keyring=True, timeout=...)` raises StackCredentialError 'refused the admin session ... with HTTP ...'. tasks.md 1.2 only says 'it calls mint_argocd_token'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md (Reads lines), group 1 to 3",
+   "problem": "Every group says 'Reads: none', and the Changes lines list only the source file. The implementer must read commands/argo.py, k8s/credentials.py, exceptions/argo.py and the existing tests to do the work, and must edit test files. The groups also repeat a boilerplate task X.3 'Change no document, run docs generate --sync-readme', which changes nothing. The budget numbers (about 4.7k tokens per group) are small, so the sizing is fine, but the Reads and Changes lines are not accurate.",
+   "evidence": "tasks.md: '## 1. ... Reads: none. Changes: `src/devops_cli/credentials.py`' (and the same pattern in groups 2 and 3). The Stage comment on the issue lists 4756, 4623 and 4629 tokens.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "proposal.md (Capabilities) and specs/stack-credential-sync/spec.md",
+   "problem": "The proposal lists 'Modified Capabilities: stack-credential-sync', but the delta uses only '## ADDED Requirements'. The capability is the credential sync of `devops k8s sync-secrets` and does not cover the `devops argo cd apps` commands, so the requirements sit in a spec that does not match their subject. The Feasibility section also gives no command output (no reproduction of the 401 path, no check of what list or status do). It restates the issue.",
+   "evidence": "openspec/specs/ has argo-image-pin-drift, argo-sync-rollouts-teardown and others, but the new requirements go to stack-credential-sync. proposal.md Feasibility: 'The premise is confirmed: ... cd_apps_sync calls resp.raise_for_status()' with no output; it does not mention the except-Exception in list and status.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "nit",
+   "where": "design.md",
+   "problem": "The rejected alternatives restate the issue's reasons and carry no evidence, which openspec/config.yaml asks for ('Record each rejected alternative with the evidence that rejected it'). Also, 'Helper lives in argo/credentials.py' is listed as a separate decision that repeats the first one.",
+   "evidence": "design.md: '- **Per-command try/except in commands/argo.py**: Duplicates the mint-and-retry logic in every command ...' with no code reference; two bullets for the same placement decision.",
+   "gate": "pending"
+  }
+ ]
+}

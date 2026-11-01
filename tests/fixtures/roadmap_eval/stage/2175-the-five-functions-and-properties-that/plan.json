@@ -1,0 +1,119 @@
+{
+ "summary": "delete five dead definitions from src",
+ "pull_request_body": "Delete five dead-code definitions from src/. Each has no caller, no registering decorator, and no library override. The names are StreamingTokenProcessor.thinking_detected, LLMClient._get_ollama_semaphore, ThinkingStreamProcessor.unique_thinking, _validation_error_key, and Dashboard.grid_width. The issue confirms each is dead by git grep at b170358e. Remove any exclusive import or constant with its definition. Remove any test that only calls a deleted name and name it in the pull request. This is the remainder of the dead-code audit of 2026-10-24. Issue #1910 deletes the other 17 names.",
+ "why": "Five functions and properties in src/ have no caller, no registering decorator, and no library override. They are the remainder of the dead-code audit of 2026-10-24. Issue #1910 deletes the other 17 names. These five are not in #1910 and must be deleted to remove dead code from the tree.",
+ "what_changes": [
+  "Delete StreamingTokenProcessor.thinking_detected from src/devops_cli/ai/client/streaming.py",
+  "Delete LLMClient._get_ollama_semaphore from src/devops_cli/ai/client/unified.py",
+  "Delete ThinkingStreamProcessor.unique_thinking from src/devops_cli/ai/thinking_stream.py",
+  "Delete _validation_error_key from src/devops_cli/config/settings.py",
+  "Delete Dashboard.grid_width from src/devops_cli/grafana/schema.py",
+  "Remove any exclusive import or constant that only a deleted name uses",
+  "Remove any test that only calls a deleted name and name it in the pull request"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue confirms each name is dead by git grep at b170358e. The context shows the definitions: thinking_stream.py shows unique_thinking, settings.py shows _validation_error_key, and schema.py shows grid_width.",
+  "First check: run git grep -n -w thinking_detected src/ tests/ docs/ and confirm only the definition line appears.",
+  "First check: run git grep -n -w _get_ollama_semaphore src/ tests/ docs/ and confirm only the definition line appears.",
+  "First check: run git grep -n -w unique_thinking src/ tests/ docs/ and confirm only the definition line appears.",
+  "First check: run git grep -n -w _validation_error_key src/ tests/ docs/ and confirm only the definition line appears.",
+  "First check: run git grep -n -w grid_width src/ tests/ docs/ and confirm only the definition line appears.",
+  "Final check: run uv run devops ci and confirm exit code 0 and coverage at or above fail_under."
+ ],
+ "existing_tool": "Not applicable. The change deletes five known dead definitions. No tool or library is needed to perform the deletion. The internal code deleted is StreamingTokenProcessor.thinking_detected, LLMClient._get_ollama_semaphore, ThinkingStreamProcessor.unique_thinking, _validation_error_key, and Dashboard.grid_width.",
+ "decisions": [],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "thinking-stream",
+   "purpose": null,
+   "added": [
+    {
+     "name": "unique-thinking-removed",
+     "text": "The ThinkingStreamProcessor SHALL not expose a unique_thinking property.",
+     "scenarios": [
+      {
+       "name": "property is absent",
+       "when": "a ThinkingStreamProcessor instance is created",
+       "then": "the instance has no unique_thinking attribute"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Delete thinking_detected from streaming.py",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/ai/client/streaming.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts StreamingTokenProcessor has no thinking_detected attribute. The test fails before the deletion and passes after",
+   "implementation": "Delete the thinking_detected property from StreamingTokenProcessor. Remove any import or constant that only this property uses. Remove any test that only calls thinking_detected",
+   "documentation": null,
+   "verify": "! git grep -n -w thinking_detected src/ tests/ docs/",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Delete _get_ollama_semaphore from unified.py",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/ai/client/unified.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts LLMClient has no _get_ollama_semaphore attribute. The test fails before the deletion and passes after",
+   "implementation": "Delete the _get_ollama_semaphore classmethod from LLMClient. Remove any import or constant that only this method uses. Remove any test that only calls _get_ollama_semaphore",
+   "documentation": null,
+   "verify": "! git grep -n -w _get_ollama_semaphore src/ tests/ docs/",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Delete unique_thinking from thinking_stream.py",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/ai/thinking_stream.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts ThinkingStreamProcessor has no unique_thinking attribute. The test fails before the deletion and passes after",
+   "implementation": "Delete the unique_thinking property from ThinkingStreamProcessor. Remove any import or constant that only this property uses. Remove any test that only calls unique_thinking",
+   "documentation": null,
+   "verify": "! git grep -n -w unique_thinking src/ tests/ docs/",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Delete _validation_error_key from settings.py",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/config/settings.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts the settings module has no _validation_error_key name. The test fails before the deletion and passes after",
+   "implementation": "Delete the _validation_error_key function from settings.py. Remove any import or constant that only this function uses. Remove any test that only calls _validation_error_key",
+   "documentation": null,
+   "verify": "! git grep -n -w _validation_error_key src/ tests/ docs/",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Delete grid_width from schema.py and run CI",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/grafana/schema.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts Dashboard has no grid_width attribute. The test fails before the deletion and passes after",
+   "implementation": "Delete the grid_width property from Dashboard. Remove any import or constant that only this property uses. Remove any test that only calls grid_width",
+   "documentation": null,
+   "verify": "uv run devops ci",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

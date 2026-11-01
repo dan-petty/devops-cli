@@ -1,0 +1,405 @@
+{
+ "summary": "migrate 49 tests to public interfaces",
+ "pull_request_body": "Plans the migration of 49 test files that patch devops_cli internal names or import private names. Each file is rewritten to test through the public CLI interface over shared fakes from tests/support/fakes/. Private product code that exists only for a test patch is removed. No test deletes a behaviour check; each test still asserts the same outcome. The work follows ADR 0007 as amended by #2143 and the rules in docs/TESTING.md.",
+ "why": "#2167: 49 test files added after the 2026-10-07 census patch devops_cli internal names or import private names. No child of #1307 owns them. They must test through public interfaces over shared fakes, as ADR 0007 and docs/TESTING.md require.",
+ "what_changes": [
+  "Rewrite 49 test files to call public CLI commands and install shared fakes through fixtures instead of patching devops_cli private names",
+  "Remove private product code that exists only to be patched by a test, per #1307 Q27",
+  "Replace MagicMock instances with shared fakes from tests/support/fakes/",
+  "Add a spec requirement that tests in the 49-file set use public interfaces and shared fakes"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The context shows tests/ai/review/test_runner.py importing _check_and_warn_perimeter_changes, _execute_review_workflow, _record_review_metrics, _run_orchestrator_review and patching _load_file_analysis_metas and _print_analysis_metadata, confirming the private-import and patch pattern.",
+  "The context shows tests/ci/test_cache_fuzzing.py importing _worktree_divergent_paths and patching _get_git_output, confirming the pattern in the CI domain.",
+  "The context shows tests/llm_stream_fakes.py patching _shared_client, _create_http_client, _query_model_info and _max_attempts, confirming the pattern in the LLM client domain.",
+  "The context shows tests/commands/test_pr.py using shared fakes (GitHubApiFake, ProcessFake, ClockFake) and a cli fixture, confirming the target pattern already exists in the repository.",
+  "First checks the implementation runs: (1) grep -rn 'from devops_cli.* import _' tests/ to enumerate all private imports; (2) grep -rn 'patch(\"devops_cli' tests/ to enumerate all patch sites; (3) uv run devops ci test tests/ to confirm the baseline passes before changes."
+ ],
+ "existing_tool": "No external tool covers this need. The repository already provides shared fakes in tests/support/fakes/ (GitFake, ProcessFake, ClockFake, GitHubApiFake, ModelFake, ScannerFake) and a cli fixture for CLI-level testing. The change reuses these internal fakes and the existing CliRunner pattern seen in tests/commands/test_pr.py. The change deletes private product code that existed only for test patches, such as the functions targeted by the 146 patch sites across 33 files.",
+ "decisions": [
+  {
+   "decision": "Rewrite tests to call the public CLI command via the cli fixture instead of importing and calling private functions directly",
+   "reason": "ADR 0007 and docs/TESTING.md require tests to use public interfaces over shared fakes. The cli fixture pattern already exists in tests/commands/test_pr.py and is the established target pattern."
+  },
+  {
+   "decision": "Replace MagicMock instances with shared fakes from tests/support/fakes/",
+   "reason": "The acceptance criteria state each double must be a shared fake from tests/support/fakes/ installed through its seam or fixture. MagicMock is an inline double that bypasses the shared fake contract."
+  },
+  {
+   "decision": "Remove private product code that exists only to be patched by a test",
+   "reason": "#1307 Q27 specifies that product code needed only for a patch goes. Keeping dead private code adds maintenance cost without consumer value."
+  },
+  {
+   "decision": "Group the 49 files into 21 steps by domain",
+   "reason": "Each step must fit the 40000-token budget with its files. Grouping by domain keeps related changes together and makes each step self-contained."
+  },
+  {
+   "decision": "Provide a spec delta for the test-public-interface capability",
+   "reason": "The change removes private product code and alters the test suite's coupling to internals. The validator requires a spec delta when product code is removed, even if the code is private."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Make all private functions public by removing the underscore prefix",
+   "evidence": "This would expose internal implementation details as a public API, violating the encapsulation that the underscore prefix signals. The acceptance criteria require tests to use the public CLI interface, not a widened module API."
+  },
+  {
+   "alternative": "Keep the patch sites and add a lint rule to suppress the warning",
+   "evidence": "The acceptance criteria explicitly require zero patch sites and zero private imports. A lint suppression does not remove the coupling; it hides it. ADR 0007 requires the coupling to be removed, not suppressed."
+  },
+  {
+   "alternative": "Split the 49 files across multiple pull requests",
+   "evidence": "The issue states this item is one child of #1307 for the files that no other child names. The acceptance criteria require all 49 files to be clean in one pull request. Splitting would leave files in a mixed state."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "test-public-interface",
+   "purpose": "Tests SHALL exercise product behavior through public interfaces and shared fakes, without patching private names or importing private symbols from devops_cli.",
+   "added": [
+    {
+     "name": "tests-use-public-interfaces",
+     "text": "Tests in the 49-file set SHALL exercise product behavior through public CLI commands and shared fakes from tests/support/fakes/, without patching devops_cli private names or importing names that start with an underscore.",
+     "scenarios": [
+      {
+       "name": "no-private-patch-or-import",
+       "when": "a test file in the 49-file set is executed",
+       "then": "it patches no devops_cli module, class, function or attribute, and imports no name that starts with an underscore from devops_cli"
+      },
+      {
+       "name": "shared-fake-installed",
+       "when": "a test needs a double for a devops_cli dependency",
+       "then": "the double is a shared fake from tests/support/fakes/ installed through its seam or fixture"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "AI review runner: remove private imports and patch sites",
+   "reads": [],
+   "changes": [
+    "tests/ai/review/test_runner.py"
+   ],
+   "creates": [],
+   "test": "A grep over tests/ai/review/test_runner.py for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches. The file imports only public names and installs fakes through fixtures",
+   "implementation": "Remove imports of _check_and_warn_perimeter_changes, _execute_review_workflow, _record_review_metrics, _run_orchestrator_review. Rewrite each test to call the public devops review command via the cli fixture. Replace patch of _load_file_analysis_metas and _print_analysis_metadata with a shared fake installed through a conftest fixture. Replace MagicMock(spec=ReviewLLMClient) with ModelFake from tests.support.fakes.model",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/ai/review/test_runner.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "AI review pipeline: remove private imports and patch sites",
+   "reads": [],
+   "changes": [
+    "tests/ai/review/test_pipeline.py"
+   ],
+   "creates": [],
+   "test": "A grep over tests/ai/review/test_pipeline.py for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches. The file imports only public names and installs fakes through fixtures",
+   "implementation": "Remove imports of _admit_scanner_findings and _wrap_static_findings. Rewrite tests to call the public devops review command via the cli fixture. Replace monkeypatch.setattr of _scan_kubernetes_manifests, _scan_container_and_lockfiles, _scan_secrets, _scan_semgrep with ScannerFake installed through the scanner_fake fixture. Replace monkeypatch of run_bandit_scan and run_semgrep_scan with ScannerFake routes",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/ai/review/test_pipeline.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "AI review cited code and removed options",
+   "reads": [],
+   "changes": [
+    "tests/ai/review/test_cited_code.py",
+    "tests/commands/test_review_removed_options.py"
+   ],
+   "creates": [],
+   "test": "A grep over both files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "In test_cited_code.py: replace MagicMock() for llm_client with ModelFake. In test_review_removed_options.py: remove all patch calls of _execute_review_workflow, _prepare_pr_content, _prepare_branch_content, _prepare_path_content, _select_samples. The tests already use CliRunner and only need the patch context managers removed because the removed options exit 2 before any internal function is reached",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/ai/review/test_cited_code.py tests/commands/test_review_removed_options.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "AI review pipeline go, group analysis, canary",
+   "reads": [],
+   "changes": [
+    "tests/test_review_pipeline_go.py",
+    "tests/test_review_group_analysis.py",
+    "tests/test_review_canary.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove private imports and patch sites. Rewrite tests to call the public devops review command via the cli fixture. Replace MagicMock instances with ModelFake and ScannerFake from tests/support/fakes/. Install fakes through conftest fixtures",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_review_pipeline_go.py tests/test_review_group_analysis.py tests/test_review_canary.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "AI review rules pack, syntax masking, ruff/mypy evidence",
+   "reads": [],
+   "changes": [
+    "tests/test_review_rules_pack.py",
+    "tests/test_review_syntax_masking.py",
+    "tests/test_review_ruff_mypy_evidence.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove private imports and patch sites. Rewrite tests to call the public devops review command via the cli fixture. Replace MagicMock instances with shared fakes from tests/support/fakes/",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_review_rules_pack.py tests/test_review_syntax_masking.py tests/test_review_ruff_mypy_evidence.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "AI review tool runs and tool sandbox",
+   "reads": [],
+   "changes": [
+    "tests/test_review_tool_runs.py",
+    "tests/test_review_tool_sandbox.py"
+   ],
+   "creates": [],
+   "test": "A grep over both files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove private imports and patch sites. Rewrite tests to call the public devops review command via the cli fixture. Replace MagicMock instances with ScannerFake from tests/support/fakes/scanners.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_review_tool_runs.py tests/test_review_tool_sandbox.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "K8s IPv6/proxy boundaries and volume reclaim",
+   "reads": [],
+   "changes": [
+    "tests/test_k8s_ipv6_and_proxy_boundaries.py",
+    "tests/test_k8s_volume_reclaim.py"
+   ],
+   "creates": [],
+   "test": "A grep over both files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 15 patch sites and 9 private imports in test_k8s_ipv6_and_proxy_boundaries.py. Remove 12 patch sites in test_k8s_volume_reclaim.py. Rewrite tests to call the public devops k8s command via the cli fixture. Replace MagicMock instances with FakeCoreV1 and client from tests/k8s_fakes.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_k8s_ipv6_and_proxy_boundaries.py tests/test_k8s_volume_reclaim.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "K8s GPU placement and tempo",
+   "reads": [],
+   "changes": [
+    "tests/test_k8s_gpu_placement.py",
+    "tests/test_k8s_tempo.py"
+   ],
+   "creates": [],
+   "test": "A grep over both files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 11 patch sites in test_k8s_gpu_placement.py. Remove 4 patch sites and 1 private import in test_k8s_tempo.py. Rewrite tests to call the public devops k8s command via the cli fixture. Replace MagicMock instances with FakeCoreV1 from tests/k8s_fakes.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_k8s_gpu_placement.py tests/test_k8s_tempo.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "K8s agents manifests and monitoring alerting",
+   "reads": [],
+   "changes": [
+    "tests/test_k8s_agents_manifests.py",
+    "tests/test_k8s_monitoring_alerting.py"
+   ],
+   "creates": [],
+   "test": "A grep over both files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 1 private import in each file. Rewrite tests to call the public devops k8s command via the cli fixture. Replace MagicMock instances with FakeCoreV1 from tests/k8s_fakes.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_k8s_agents_manifests.py tests/test_k8s_monitoring_alerting.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Telemetry LLM content and RAG KB sync",
+   "reads": [],
+   "changes": [
+    "tests/test_telemetry_llm_content.py",
+    "tests/test_rag_kb_sync.py"
+   ],
+   "creates": [],
+   "test": "A grep over both files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 9 patch sites in test_telemetry_llm_content.py. Remove 8 patch sites in test_rag_kb_sync.py. Rewrite tests to call the public devops command via the cli fixture. Replace MagicMock instances with shared fakes from tests/support/fakes/",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_telemetry_llm_content.py tests/test_rag_kb_sync.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Security zizmor, OSV scanner, golangci-lint scanner",
+   "reads": [],
+   "changes": [
+    "tests/test_security_zizmor.py",
+    "tests/test_osv_scanner.py",
+    "tests/test_golangci_lint_scanner.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 6 patch sites in test_security_zizmor.py. Remove 2 patch sites and 2 private imports in test_osv_scanner.py. Remove 3 patch sites in test_golangci_lint_scanner.py. Rewrite tests to call the public devops security command via the cli fixture. Replace MagicMock instances with ScannerFake from tests/support/fakes/scanners.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_security_zizmor.py tests/test_osv_scanner.py tests/test_golangci_lint_scanner.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "CI repeat, CI mutate, cache fuzzing",
+   "reads": [],
+   "changes": [
+    "tests/test_ci_repeat.py",
+    "tests/test_ci_mutate.py",
+    "tests/ci/test_cache_fuzzing.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 3 patch sites in test_ci_repeat.py. Remove 1 patch site in test_ci_mutate.py. In test_cache_fuzzing.py: remove import of _worktree_divergent_paths and patch of _get_git_output. Rewrite the fuzzing test to call the public devops ci command via the cli fixture, or make _worktree_divergent_paths public if it is a genuine product function. Replace patch of _get_git_output with ProcessFake from tests/support/fakes/process.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_ci_repeat.py tests/test_ci_mutate.py tests/ci/test_cache_fuzzing.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Core cleanup fuzzing, clock contract, core repo",
+   "reads": [],
+   "changes": [
+    "tests/core/test_cleanup_fuzzing.py",
+    "tests/core/test_clock_contract.py",
+    "tests/test_core_repo.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "In test_cleanup_fuzzing.py: remove import of _listed_worktrees and patch of run_subprocess. Rewrite to call the public devops command via the cli fixture, or make _listed_worktrees public. Replace patch with ProcessFake. In test_clock_contract.py: remove 1 patch site. In test_core_repo.py: remove 1 patch site. Replace MagicMock instances with shared fakes",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/core/test_cleanup_fuzzing.py tests/core/test_clock_contract.py tests/test_core_repo.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Commands test_pr: remove set_delivered_status patch",
+   "reads": [],
+   "changes": [
+    "tests/commands/test_pr.py"
+   ],
+   "creates": [],
+   "test": "A grep over tests/commands/test_pr.py for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove the 2 private imports. The no_status_write fixture uses monkeypatch.setattr of set_delivered_status with raising=False. Replace with a shared fake or remove if the function is no longer called in the test path. The file already uses GitHubApiFake, ProcessFake, and ClockFake, so only the set_delivered_status patch needs removal",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/commands/test_pr.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "AI research: socratic, mental model, analogies, forage",
+   "reads": [],
+   "changes": [
+    "tests/test_ai_research_socratic.py",
+    "tests/test_ai_research_mental_model.py",
+    "tests/test_ai_research_analogies.py",
+    "tests/test_ai_research_forage.py"
+   ],
+   "creates": [],
+   "test": "A grep over the four files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 6 patch sites and 2 private imports in test_ai_research_socratic.py. Remove 4 patch sites in test_ai_research_mental_model.py. Remove 2 patch sites in test_ai_research_analogies.py. Remove 1 private import in test_ai_research_forage.py. Rewrite tests to call the public devops ai command via the cli fixture. Replace MagicMock instances with ModelFake from tests/support/fakes/model.py",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_ai_research_socratic.py tests/test_ai_research_mental_model.py tests/test_ai_research_analogies.py tests/test_ai_research_forage.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "LLM stream fakes: remove private method patches",
+   "reads": [],
+   "changes": [
+    "tests/llm_stream_fakes.py"
+   ],
+   "creates": [],
+   "test": "A grep over tests/llm_stream_fakes.py for 'patch(\"devops_cli' and 'monkeypatch.setattr' targeting private names returns zero matches",
+   "implementation": "Remove 4 patch sites: _shared_client, _create_http_client, _query_model_info, _max_attempts. Replace monkeypatch.setattr of LLMClient._shared_client and LLMClient._create_http_client with a public seam or a shared fake transport. Replace patch of _query_model_info with a fixture. Replace patch of _max_attempts with a constructor parameter or public property",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/llm_stream_fakes.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Argo gitops fuzzing: remove private import",
+   "reads": [],
+   "changes": [
+    "tests/argo/test_gitops_fuzzing.py"
+   ],
+   "creates": [],
+   "test": "A grep over tests/argo/test_gitops_fuzzing.py for 'from devops_cli.* import _' returns zero matches",
+   "implementation": "Remove import of _parse_drift_event. Rewrite the fuzzing test to call the public devops argo command via the cli fixture, or make _parse_drift_event public if it is a genuine product function",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/argo/test_gitops_fuzzing.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Fail to pass, config field validation, PR hardening report",
+   "reads": [],
+   "changes": [
+    "tests/test_fail_to_pass.py",
+    "tests/test_config_field_validation.py",
+    "tests/test_pr_hardening_report.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 4 patch sites in test_fail_to_pass.py. Remove 1 patch site and 2 private imports in test_config_field_validation.py. Remove 7 patch sites in test_pr_hardening_report.py. Rewrite tests to call the public devops command via the cli fixture. Replace MagicMock instances with shared fakes from tests/support/fakes/",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_fail_to_pass.py tests/test_config_field_validation.py tests/test_pr_hardening_report.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Architectural invariants, roadmap return, URL credential masking",
+   "reads": [],
+   "changes": [
+    "tests/test_architectural_invariants.py",
+    "tests/test_roadmap_return.py",
+    "tests/test_url_credential_masking.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 2 private imports in test_architectural_invariants.py. Remove 2 patch sites in test_roadmap_return.py. Remove 2 patch sites in test_url_credential_masking.py. Rewrite tests to call the public devops command via the cli fixture. Replace MagicMock instances with shared fakes",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_architectural_invariants.py tests/test_roadmap_return.py tests/test_url_credential_masking.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "All commands help dryrun, CLI format adoption, CLI startup imports",
+   "reads": [],
+   "changes": [
+    "tests/test_all_commands_help_dryrun.py",
+    "tests/test_cli_format_adoption.py",
+    "tests/test_cli_startup_imports.py"
+   ],
+   "creates": [],
+   "test": "A grep over the three files for 'from devops_cli.* import _' returns zero matches",
+   "implementation": "Remove 1 private import in each file. Rewrite tests to call the public devops command via the cli fixture. Replace MagicMock instances with shared fakes from tests/support/fakes/",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_all_commands_help_dryrun.py tests/test_cli_format_adoption.py tests/test_cli_startup_imports.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Codebase hygiene, KB manuals metadata, stack dashboards, survey cmd",
+   "reads": [],
+   "changes": [
+    "tests/test_codebase_hygiene_and_shims.py",
+    "tests/test_kb_manuals_metadata.py",
+    "tests/test_stack_dashboards.py",
+    "tests/test_survey_cmd.py"
+   ],
+   "creates": [],
+   "test": "A grep over the four files for 'from devops_cli.* import _' and 'patch(\"devops_cli' returns zero matches",
+   "implementation": "Remove 1 private import in test_codebase_hygiene_and_shims.py. Remove 1 private import in test_kb_manuals_metadata.py. Remove 1 private import in test_stack_dashboards.py. Remove 1 patch site in test_survey_cmd.py. Rewrite tests to call the public devops command via the cli fixture. Replace MagicMock instances with shared fakes",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_codebase_hygiene_and_shims.py tests/test_kb_manuals_metadata.py tests/test_stack_dashboards.py tests/test_survey_cmd.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

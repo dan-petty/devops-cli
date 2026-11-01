@@ -1,0 +1,88 @@
+{
+ "issue": 2130,
+ "pull": 2978,
+ "title": "feat(review): the toolrun of osv-scanner and ruff records the digest of its advisory database and its configuration",
+ "change": "2130-the-toolrun-of-osv-scanner-and",
+ "merge_commit": "7231ebcbac924cc489d45f5bced2cfd1ee141184",
+ "base_commit": "5bd946250ab7ff8e7c58ae562ca08ed9cf4a09c9",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "The PR is merged. The issue #2130 is still open and still valid. The plan does not match the real code. It names three files that do not exist. It adds ToolRun fields that already exist. Its Ruff command fails. An implementer who follows it would write wrong or duplicate code. The Feasibility section holds no evidence from a real run. The plan needs a rewrite before an implement job uses it.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "blocker",
+   "where": "tasks.md",
+   "problem": "All three code paths in the plan do not exist on main. The right files are src/devops_cli/security/osv_scanner.py, src/devops_cli/security/ruff.py and tests/security/test_review_tool_runs.py. The stage job warned about this in its own comment, and the PR was merged anyway.",
+   "evidence": "`ls src/devops_cli/review/scanners` gives: No such file or directory. `ls tests | grep tool_run` finds no tests/test_review_tool_runs.py. The real files are src/devops_cli/security/osv_scanner.py, src/devops_cli/security/ruff.py and tests/security/test_review_tool_runs.py. The stage comment on #2130 says: 'These paths of the plan are no file on the default branch, and no group creates them'.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_review_tool_runs.py"
+   ]
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "blocker",
+   "where": "tasks.md / proposal.md",
+   "problem": "The plan adds `config_digest: str | None` to the ToolRun record, and a new `database_digest` field. ToolRun already has `config_digest: str` and `ruleset_digest: str`. ToolRun is frozen and lives in security/tool_executor.py, not in an adapter. The existing mechanism is the ToolRequest `config_files` and `ruleset_files`, filled by BaseSecurityScanner._tool_files and an overridable `ruleset_files()` hook. Trivy already uses the hook (#772). The plan ignores it. A new field would duplicate or clash with the old one, and the report and SARIF code would not show it.",
+   "evidence": "src/devops_cli/security/tool_executor.py:284-285: `config_digest: str` and `ruleset_digest: str` in class ToolRun. src/devops_cli/security/base.py:581 `def ruleset_files(...)`, base.py:696-697 `config_files=read.config, ruleset_files=read.ruleset`. src/devops_cli/security/trivy.py:151 overrides ruleset_files. src/devops_cli/ai/review/tool_runs.py:44-50 shows columns Config and Ruleset only. OsvScanner has no ruleset_files override (grep of osv_scanner.py shows only data_dirs).",
+   "gate": "pending"
+  },
+  {
+   "type": "verify_form",
+   "severity": "blocker",
+   "where": "tasks.md (task 2.2)",
+   "problem": "The Ruff command in the plan is wrong in two ways. First, `ruff --show-settings` is not a top-level flag. It exists only as `ruff check --show-settings`. Second, `--isolated` makes Ruff ignore all config files, so the digest would never change when ruff.toml changes. Task 2.1 asserts that the digest differs after a ruff.toml edit. That test cannot pass with the planned command. The output is also plain text, not JSON.",
+   "evidence": "`uv run ruff --show-settings` -> `error: unexpected argument '--show-settings' found`. In a temp dir with ruff.toml `line-length=100`: `ruff check --show-settings a.py` prints `linter.line_length = 100` and starts with `Resolved settings for:`. With `--isolated` it prints `linter.line_length = 88`. The output includes absolute paths (cache_dir, project_root). So the digest differs per checkout path and is not stable across hosts unless the plan strips them. The design says 'outputs ... as JSON'; it does not.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md (Feasibility)",
+   "problem": "The Feasibility section lists commands to run later. It records no result of any command. Its claim that Ruff outputs JSON is false. It does not check the premise that the 36 MB database is above the digest size cap. The cap for config and ruleset files is DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES = 50 MiB, so a 36 MB single file would pass. The plan also uses `devops review scan --help` and a `ls` of a database directory as checks, but this host has no ~/.cache/osv-scanner. AGENTS.md rule 2 requires real evidence here. The existing `get_or_compute_snapshot_digest` / `OsvScanner.snapshot_digest` (mtime-based, osv_scanner.py:84-135, profile.osv_snapshot_digest) is not mentioned in the Existing Tool Considered section or in the rejected alternatives.",
+   "evidence": "src/devops_cli/config/defaults.py:530 `DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024`. src/devops_cli/security/tool_executor.py:353-383 (_is_small_regular_file, _files_digest). `ls ~/.cache/osv-scanner` -> No such file or directory. proposal.md Feasibility last bullet: 'First checks the implementation runs ...'.",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "design.md / tasks.md (task 1.2)",
+   "problem": "The plan hashes the database files by content, with a new function. The osv digest needs to be a ruleset file set for the existing ToolRun path, or a streamed digest used by `_files_digest` for large files. The plan names no hook point where `database_digest(db_path)` gets its path. The database dir comes from `_osv_db_base() / CONST_OSV_DB_DIR_NAME` and the scan runs in a sandbox with `data_dirs()`. The plan also puts the call 'before the SARIF export', but ToolRun records are built by the executor before the tool starts (tool_executor.py docstring). The implementer must guess where to call it.",
+   "evidence": "src/devops_cli/security/osv_scanner.py:249-255 (_osv_db_base), 275-280 (data_dirs). tool_executor.py:270-273: 'An executor builds the record before the tool starts'. tasks.md 1.2: 'call `database_digest` on the database directory and store the result in the ToolRun before the SARIF export'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The task list has structure problems. No final task archives the change (`uv run devops openspec archive 2130-...`), which AGENTS.md rule 1 requires in the last commit. Tasks 1.3 and 2.3 say 'Change no document' and then run docs generate, which has no use if no doc changes. 'Reads: none' is wrong for groups that must read osv_scanner.py, ruff.py, base.py and tool_executor.py. A 'Workflow follow-up' section lists a pending review step, which is not a task. Tasks 1.1 and 2.1 name `-k osv_scanner` and `-k ruff`, but the test module has no such test names yet. They fail for the wrong reason on base only if the names collide with nothing.",
+   "evidence": "tasks.md ends with '## Workflow follow-up - Pending a person: review the diff in tuicr'. grep of 'archive' in tasks.md finds nothing. Compare openspec/changes/archive/2026-10-29-1876-ruff-nesting-cap/tasks.md, which ends with '## 3. Archive'.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/review-tool-runs/spec.md",
+   "problem": "The delta spec requires fields named `database_digest` and `config_digest` on the ToolRun. Both names bind the wrong design (see the ToolRun finding). The spec says nothing about the existing `config_digest`, which already covers the raw ruff.toml via config_names. The requirement for Ruff must say that the digest now covers the resolved settings and must say what is stripped (absolute paths).",
+   "evidence": "src/devops_cli/security/ruff.py:235-236 `config_names = CONST_RUFF_CONFIG_FILE_NAMES; config_search_upward = True` already feed config_digest in tool_executor.py:526.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "PR-level",
+   "problem": "Process: the PR body and title are good (Conventional Commit, no '!', 'Plans #2130', not 'Closes'). All 17 completed checks passed. But the PR body states the Ruff digest comes from `ruff --show-settings`, repeating the wrong command. The issue is still open at status/planned, so an implement job will pick up a broken plan.",
+   "evidence": "PR #2978 state closed, merged true, title 'docs(openspec): plan #2130 add osv-scanner and ruff toolrun digests'; issue #2130 state open with label status/planned and stage.pr 2978 in its record.",
+   "gate": "none"
+  }
+ ]
+}

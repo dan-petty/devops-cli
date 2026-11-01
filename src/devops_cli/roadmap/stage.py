@@ -37,7 +37,8 @@ the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply 
 that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
 sent back in the same way: the problem lists the files with the same name, and a second reply with
 a missing path stops the item, so no draft opens. The groups of a split are checked in the same
-way. The plan writes nothing to git or to GitHub. A model call that fails skips its item; rejected
+way. `plan_item` plans one item with a given client and checkout: the golden set of the job runs
+it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call that fails skips its item; rejected
 credentials stop the run.
 
 **Why.** `--why` adds to the plan the open items that the filter does not name, under their own
@@ -56,7 +57,7 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
-from typing import Any, Final, NamedTuple
+from typing import Any, Final, NamedTuple, Protocol
 
 from pydantic import BaseModel
 
@@ -470,6 +471,8 @@ _DEFAULT_WINDOW: Final[int] = 8192
 # A reply that fails its schema goes back to the model once, with the violations; a second one
 # stops the item.
 _REPLY_RETURNS: Final[int] = 1
+# The model calls of one item at most: the plan, one return of a refused reply, and one split.
+CALLS_PER_ITEM_MAX: Final[int] = 3
 
 
 @dataclass(frozen=True)
@@ -569,13 +572,21 @@ class _Refused(NamedTuple):
     reply: StageProposal
 
 
+class StageClient(Protocol):
+    """What the stage job needs of `LLMClient`: one structured call."""
+
+    def chat_structured[M: BaseModel](
+        self, system: str, prompt: str, schema: type[M], *, max_retries: int
+    ) -> M: ...
+
+
 class _Planner:
     """Plans the change of each item with one model client, one checkout and one budget."""
 
     def __init__(
         self,
         *,
-        client: LLMClient,
+        client: StageClient,
         source: Path,
         sha: str,
         known: frozenset[str],
@@ -723,7 +734,7 @@ class _Planner:
         return validate_change(self._tool, self._source, change, files)
 
 
-def _capabilities(source: Path) -> frozenset[str]:
+def capabilities_of(source: Path) -> frozenset[str]:
     """The names of the specs under `openspec/specs/` of the checkout."""
     specs = source / "openspec" / "specs"
     return (
@@ -898,22 +909,49 @@ def plan_stage(
     )
     if not selection.selected:
         return plan
-    tree = StagedTree.read(checkout, operation=_GIT_OPERATION)
     client = model or get_llm_client(task="analysis", settings=settings)
-    window = settings.ai.for_task("analysis").context_window or _DEFAULT_WINDOW
     with _openspec_tool() as tool:
-        planner = _Planner(
-            client=client,
-            source=checkout,
-            sha=sha,
-            known=_capabilities(checkout),
-            tree=tree,
-            budget=budget,
-            window=window,
-            tool=tool,
-        )
+        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
         ready, stopped, failed = _plan_each(planner, selection.selected)
     return replace(plan, ready=tuple(ready), over_budget=tuple(stopped), failed=tuple(failed))
+
+
+def _planner_of(
+    client: StageClient, checkout: Path, sha: str, *, budget: int, tool: OpenSpecTool | None
+) -> _Planner:
+    """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
+    context window of the `analysis` task once."""
+    window = load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
+    return _Planner(
+        client=client,
+        source=checkout,
+        sha=sha,
+        known=capabilities_of(checkout),
+        tree=StagedTree.read(checkout, operation=_GIT_OPERATION),
+        budget=budget,
+        window=window,
+        tool=tool,
+    )
+
+
+def plan_item(
+    item: Item,
+    *,
+    client: StageClient,
+    checkout: Path,
+    sha: str,
+    step_tokens: int | None = None,
+) -> StagedChange | OverBudget:
+    """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
+
+    The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
+    the model once, as in a run, and a second one raises `RoadmapStageError`. `step_tokens`
+    overrides `roadmap.stage.step_tokens`.
+    """
+    budget = step_tokens or load_settings().roadmap.stage.step_tokens
+    with _openspec_tool() as tool:
+        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
+        return planner.plan(_target_of(item))
 
 
 def dry_run_stage(repo: str, *, item: int | None = None, limit: int | None = None) -> StagePlan:
