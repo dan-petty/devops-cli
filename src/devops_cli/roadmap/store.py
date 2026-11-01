@@ -153,8 +153,9 @@ class RefineRecordKey(StrEnum):
 
 class Verdict(StrEnum):
     """What an alternatives check found (#2650): `COVERS` one tool covers the whole need,
-    `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item asks
-    for no tool. The job records it, and refine reads it (#2652)."""
+    `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item is in a
+    skip class, such as a `docs` item, and the job made no search (#2946). The model cannot give
+    `NOT_APPLICABLE`. The job records the verdict, and refine reads it (#2652)."""
 
     COVERS = "covers"
     PARTLY = "partly"

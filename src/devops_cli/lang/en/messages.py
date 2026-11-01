@@ -2009,8 +2009,13 @@ class RoadmapMessages:
     alternatives_reason_url: str = "the reply cites a URL that no tool returned: {url}"
     alternatives_reason_no_facts: str = "the reply names a tool whose facts no tool read: {url}"
     alternatives_reason_no_tool: str = "the reply gives the verdict {verdict} with no tool"
-    alternatives_reason_not_applicable: str = (
-        "the reply gives the verdict not-applicable after a tool ran"
+    alternatives_reason_skip_only: str = (
+        "the reply gives the verdict not-applicable, which the job sets for a skip class only"
+    )
+    alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_retry_search: str = (
+        "Call search_web at least once before you reply. The job refuses a verdict that follows "
+        "no search. Give the verdict none when the search finds no tool."
     )
     alternatives_reason_markers: str = "the body holds a marker of the check with no partner"
     # What the tools of the check answer.
@@ -2037,6 +2042,10 @@ class RoadmapMessages:
     alternatives_comment_heading: str = "## Alternatives check: {verdict}"
     alternatives_comment_tool: str = "Tool: {name} ({url})"
     alternatives_comment_no_tool: str = "Tool: none found"
+    alternatives_comment_skip_class: str = (
+        "Class: {skip_class}. The check makes no search and no model call for an item of this "
+        "class."
+    )
     alternatives_comment_license: str = "- License: {license}"
     alternatives_comment_activity: str = "- Last activity: {date}"
     alternatives_comment_maintained: str = "- Maintained: {answer}"
@@ -2054,6 +2063,7 @@ class RoadmapMessages:
         "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
     )
     alternatives_block_no_tool: str = "Tool: none found."
+    alternatives_block_skip_class: str = "Class: {skip_class}, no search."
     alternatives_maintained: str = "maintained"
     alternatives_not_maintained: str = "not maintained"
     # `devops roadmap implement` (#2664): the refusals of a step, and why a step stops.

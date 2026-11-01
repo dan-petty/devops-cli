@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic_ai.messages import ModelMessage, UserPromptPart
+from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolReturnPart, UserPromptPart
 from typer.testing import CliRunner
 
 from devops_cli.ai.client.models import AICredentialsError
@@ -51,7 +51,7 @@ from devops_cli.roadmap.store import (
     RepositoryFacts,
     RoadmapStore,
 )
-from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL
+from devops_cli.telemetry.instruments import FIRECRAWL_SEARCHES_TOTAL, ROADMAP_ALTERNATIVES_TOTAL
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.otlp import FakeCollector
@@ -90,11 +90,12 @@ def store() -> InMemoryRoadmapStore:
 
 
 @pytest.fixture
-def web_key(config: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    """A Firecrawl key in the settings."""
+def web_key(config: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb) -> None:
+    """A Firecrawl key in the settings, and a Firecrawl that answers each search with one result."""
     for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     config(firecrawl={"api_key": "fc-test"})
+    _firecrawl(stub_web, SEARCH_URL)
 
 
 def _firecrawl(stub_web: StubWeb, *urls: str) -> None:
@@ -174,6 +175,27 @@ def _covers(**changes: Any) -> AlternativesReply:
         sources=[TOOL_URL, SEARCH_URL],
     )
     return reply.model_copy(update=changes)
+
+
+_SEARCH = call("search_web", query="scanner")
+
+
+def _after_search(reply: AlternativesReply) -> list[Any]:
+    """The steps of an item whose model searches once and answers with `reply`."""
+    return [_SEARCH, reply]
+
+
+def _searched(messages: list[ModelMessage]) -> bool:
+    return any(
+        isinstance(part, ToolReturnPart) and part.tool_name == "search_web"
+        for message in messages
+        for part in getattr(message, "parts", ())
+    )
+
+
+def _searching(reply: AlternativesReply) -> Script:
+    """A model that, for each item, searches once and then answers with `reply`."""
+    return Script(lambda messages: reply if _searched(messages) else _SEARCH)
 
 
 def _search_then_read_then(reply: AlternativesReply) -> Script:
@@ -325,7 +347,7 @@ def test_the_recheck_window_is_a_setting(
 ) -> None:
     number = _item(store)
     _mark_checked(store, number, days=10)
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
 
     default_window = _plan(store, script)
     config(roadmap={"alternatives": {"recheck_days": 7}})
@@ -655,7 +677,7 @@ def test_the_request_holds_the_item_the_replies_and_the_budget(
     store.comment(number, f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\nThe last check.")
     store.comment(number, "Keep this item: the scanner lacks a feature.")
     store.comment(number, "A second reply.")
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
 
     _plan(store, script)
 
@@ -673,7 +695,7 @@ def test_the_request_holds_every_comment_when_the_job_left_none(
 ) -> None:
     number = _item(store)
     store.comment(number, "A person's note.")
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
 
     _plan(store, script)
 
@@ -789,7 +811,7 @@ def test_a_check_after_the_window_replaces_the_block_and_adds_a_comment(
     apply_alternatives(store, _plan(store, _search_then_read_then(_covers())))
 
     later = NOW + timedelta(days=31)
-    again = Script(AlternativesReply(verdict=Verdict.NONE))
+    again = _searching(AlternativesReply(verdict=Verdict.NONE))
     apply_alternatives(store, _plan(store, again, now=later))
 
     body = store.read_issue_body(number)
@@ -806,7 +828,7 @@ def test_a_person_changing_the_body_after_the_plan_stops_its_write(
     store: InMemoryRoadmapStore, web_key: None, caplog: pytest.LogCaptureFixture
 ) -> None:
     number = _item(store)
-    plan = _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
     store.as_actor("alice").write_issue_body(number, "A new text.")
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
@@ -841,7 +863,7 @@ def test_a_body_with_an_unpaired_marker_is_skipped_and_a_persons_text_is_kept(
 ) -> None:
     number = _item(store, "Unpaired", body=body)
 
-    plan = _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
     written = apply_alternatives(store, plan)
 
     assert (
@@ -861,7 +883,7 @@ def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None
     number = _item(store)
     reply = AlternativesReply(verdict=Verdict.NONE)
 
-    apply_alternatives(store, _plan(store, Script(reply)))
+    apply_alternatives(store, _plan(store, _searching(reply)))
 
     item = store.item(number)
     assert item is not None
@@ -889,25 +911,10 @@ def test_a_not_applicable_verdict_after_a_search_or_a_fact_read_is_refused(
 
     plan = _plan(store, script)
 
-    reason = "the reply gives the verdict not-applicable after a tool ran"
+    reason = "the reply gives the verdict not-applicable, which the job sets for a skip class only"
     assert (plan.checks, [(f.item.number, f.reason) for f in plan.failures]) == (
         [],
         [(searched, reason), (read, reason)],
-    )
-
-
-def test_a_not_applicable_verdict_with_no_tool_run_is_kept(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
-) -> None:
-    _item(store, "A defect", body="The output has a typo.")
-    reply = AlternativesReply(verdict=Verdict.NOT_APPLICABLE)
-
-    plan = _plan(store, Script(reply))
-
-    assert (plan.checks[0].verdict, plan.checks[0].queries, stub_web.sent) == (
-        Verdict.NOT_APPLICABLE,
-        (),
-        [],
     )
 
 
@@ -939,7 +946,7 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
 
     plan = _plan(roadmap, _search_then_read_then(_covers()))
     written = apply_alternatives(roadmap, plan)
-    unchanged = _plan(roadmap, Script(AlternativesReply(verdict=Verdict.NONE)), now=NOW)
+    unchanged = _plan(roadmap, _searching(AlternativesReply(verdict=Verdict.NONE)), now=NOW)
 
     body = github.body(7)
     (comment,) = github.comments[7]
@@ -964,6 +971,197 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
     )
 
 
+# ── Skip classes and the search before a verdict ──────────────────────────────
+
+
+@pytest.mark.parametrize("kind", ["test", "docs", "refactor", "chore", "ci", "perf"])
+def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
+    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb, otlp: FakeCollector, kind: str
+) -> None:
+    number = _item(store, f"{kind}(roadmap): a change")
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    searches_before = len(stub_web.sent)
+
+    plan = _plan(store, script)
+    written = apply_alternatives(store, plan)
+
+    (check,) = plan.checks
+    (comment,) = store.comments_on(number)
+    assert (
+        (check.verdict, check.skip_class, check.queries, check.tool),
+        script.seen,
+        len(stub_web.sent) == searches_before,
+        written,
+        f"Class: {kind}. The check makes no search" in comment.body,
+        f"Class: {kind}, no search." in store.read_issue_body(number),
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name),
+    ) == (
+        (Verdict.NOT_APPLICABLE, kind, (), None),
+        [],
+        True,
+        1,
+        True,
+        True,
+        "not-applicable",
+        [({"verdict": "not-applicable"}, 1.0)],
+    )
+
+
+def test_skip_class_a_fix_with_a_stack_trace_is_not_applicable_with_no_model_call(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    body = 'It crashes.\n\nTraceback (most recent call last):\n  File "x.py", line 1\nValueError'
+    number = _item(store, "fix(roadmap): a crash", body=body)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    plan = _plan(store, script)
+    apply_alternatives(store, plan)
+
+    (comment,) = store.comments_on(number)
+    assert (
+        [(c.verdict, c.skip_class) for c in plan.checks],
+        script.seen,
+        "Class: fix-with-stack-trace." in comment.body,
+    ) == ([(Verdict.NOT_APPLICABLE, "fix-with-stack-trace")], [], True)
+
+
+@pytest.mark.parametrize(
+    ("title", "body"),
+    [
+        pytest.param("feat(roadmap): x", "A need.", id="feat"),
+        pytest.param("build(roadmap): x", "A need.", id="build"),
+        pytest.param("style(roadmap): x", "A need.", id="style"),
+        pytest.param("fix(roadmap): a crash", "It crashes with no trace.", id="fix-with-no-trace"),
+        pytest.param("Scan a directory", "A need.", id="no-type"),
+    ],
+)
+def test_skip_class_an_item_of_another_type_goes_to_the_model(
+    store: InMemoryRoadmapStore, web_key: None, title: str, body: str
+) -> None:
+    from devops_cli.roadmap.alternatives import skip_class_of
+
+    number = _item(store, title, body=body)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    plan = _plan(store, script)
+
+    item = store.item(number)
+    assert item is not None
+    assert (
+        skip_class_of(item),
+        len(script.seen),
+        [(c.verdict, c.skip_class) for c in plan.checks],
+    ) == (None, 2, [(Verdict.NONE, None)])
+
+
+def test_skip_class_an_item_with_an_unpaired_marker_is_a_failure_and_nothing_is_written(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    body = f"Intro\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nPERSON TEXT\n"
+    number = _item(store, "docs(roadmap): a page", body=body)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    plan = _plan(store, script)
+    written = apply_alternatives(store, plan)
+
+    assert (
+        plan.checks,
+        [(f.item.number, f.reason) for f in plan.failures],
+        written,
+        store.read_issue_body(number),
+        store.comments_on(number),
+        script.seen,
+    ) == (
+        [],
+        [(number, "the body holds a marker of the check with no partner")],
+        0,
+        body,
+        [],
+        [],
+    )
+
+
+def _retry_prompts(script: Script) -> list[str]:
+    """The text of each retry prompt that the model received in its last request."""
+    return [
+        str(part.content)
+        for message in script.seen[-1]
+        for part in getattr(message, "parts", ())
+        if isinstance(part, RetryPromptPart)
+    ]
+
+
+def test_search_first_a_reply_with_no_search_gets_one_more_turn_and_the_search_counts(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    number = _item(store, "feat(roadmap): point argo cd at gitea")
+    answer = AlternativesReply(verdict=Verdict.NONE)
+    script = Script(answer, _SEARCH, answer)
+
+    plan = _plan(store, script)
+
+    (check,) = plan.checks
+    assert (
+        len(script.seen),
+        check.item.number,
+        check.queries,
+        any("Call search_web at least once" in text for text in _retry_prompts(script)),
+        len(otlp.points(FIRECRAWL_SEARCHES_TOTAL.name)) > 0,
+    ) == (3, number, ("scanner",), True, True)
+
+
+def test_search_first_two_replies_with_no_search_end_as_a_failed_check(
+    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+) -> None:
+    number = _item(store, "feat(roadmap): point argo cd at gitea")
+    searches_before = len(stub_web.sent)
+    script = Script(AlternativesReply(verdict=Verdict.NONE))
+
+    plan = _plan(store, script)
+    apply_alternatives(store, plan)
+
+    assert (
+        len(script.seen),
+        plan.checks,
+        [(f.item.number, f.reason, f.error_class) for f in plan.failures],
+        len(stub_web.sent) == searches_before,
+        store.comments_on(number),
+    ) == (
+        2,
+        [],
+        [(number, "the reply gives a verdict with no search", "RefusedReply")],
+        True,
+        [],
+    )
+
+
+def test_search_first_a_not_applicable_reply_from_the_model_is_refused(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    number = _item(store, "feat(roadmap): point argo cd at gitea")
+    answer = AlternativesReply(verdict=Verdict.NOT_APPLICABLE)
+    script = Script(answer, _SEARCH, answer)
+
+    plan = _plan(store, script)
+
+    assert (
+        len(script.seen),
+        plan.checks,
+        [(f.item.number, f.reason) for f in plan.failures],
+    ) == (
+        3,
+        [],
+        [
+            (
+                number,
+                "the reply gives the verdict not-applicable, which the job sets for a skip "
+                "class only",
+            )
+        ],
+    )
+
+
 # ── What the job sets itself ──────────────────────────────────────────────────
 
 
@@ -985,7 +1183,8 @@ def test_the_job_sets_maintained_from_the_facts_a_tool_read(
     _item(store)
 
     plan = _plan(
-        store, Script(call("github_repository", name="example/scanner"), _covers(sources=[]))
+        store,
+        Script(_SEARCH, call("github_repository", name="example/scanner"), _covers(sources=[])),
     )
 
     tool = plan.checks[0].tool
@@ -1000,7 +1199,7 @@ def test_a_pypi_package_is_maintained_when_its_latest_upload_is_recent(
     url = "https://pypi.org/project/scanner"
     reply = _covers(tool_url=f"{url}/", sources=[])
 
-    plan = _plan(store, Script(call("pypi_package", name="scanner"), reply))
+    plan = _plan(store, Script(_SEARCH, call("pypi_package", name="scanner"), reply))
 
     tool = plan.checks[0].tool
     assert (tool.maintained, tool.url) == (True, url)
@@ -1016,17 +1215,17 @@ _READ_THE_TOOL = call("github_repository", name="example/scanner")
     ("steps", "reason"),
     [
         pytest.param(
-            [_READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
+            [_SEARCH, _READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
             "the reply cites a URL that no tool returned: https://example.com/invented",
             id="made-up-source",
         ),
         pytest.param(
-            [_covers(tool_url="https://github.com/example/invented")],
+            [_SEARCH, _covers(tool_url="https://github.com/example/invented")],
             "the reply names a tool whose facts no tool read: https://github.com/example/invented",
             id="tool-with-no-facts",
         ),
         pytest.param(
-            [_covers(tool_url=None)],
+            [_SEARCH, _covers(tool_url=None)],
             "the reply gives the verdict covers with no tool",
             id="verdict-with-no-tool",
         ),
@@ -1040,7 +1239,9 @@ def test_a_refused_reply_skips_its_item_and_the_others_are_written(
 ) -> None:
     refused = _item(store, "Refused")
     kept = _item(store, "Kept")
-    script = _by_item({refused: steps, kept: AlternativesReply(verdict=Verdict.NONE)})
+    script = _by_item(
+        {refused: steps, kept: _after_search(AlternativesReply(verdict=Verdict.NONE))}
+    )
 
     plan = _plan(store, script)
     written = apply_alternatives(store, plan)
@@ -1063,7 +1264,10 @@ def test_a_failed_model_call_skips_its_item_and_names_the_error_class(
     failing = _item(store, "Failing")
     kept = _item(store, "Kept")
     script = _by_item(
-        {failing: ModelHTTPError(500, "m"), kept: AlternativesReply(verdict=Verdict.NONE)}
+        {
+            failing: ModelHTTPError(500, "m"),
+            kept: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+        }
     )
 
     plan = _plan(store, script)
@@ -1117,7 +1321,7 @@ def test_failure_record_the_reason_of_a_stopped_run_holds_its_message(
         lambda *_args, **_kwargs: InvestigationStopped("UsageLimitExceeded", message),
     )
 
-    plan = _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
     apply_alternatives(store, plan)
 
     assert (
@@ -1155,7 +1359,7 @@ def test_the_models_text_makes_no_live_link_mention_or_marker(
         lacks=[f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER} see https://example.com/evil"],
         sources=[TOOL_URL],
     )
-    script = Script(call("github_repository", name="example/scanner"), hostile)
+    script = Script(_SEARCH, call("github_repository", name="example/scanner"), hostile)
 
     apply_alternatives(store, _plan(store, script))
 
@@ -1180,7 +1384,7 @@ def test_a_private_repository_turns_the_check_off(
 ) -> None:
     _item(store)
     store.seed_visibility(is_private=True)
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
 
     plan = _plan(store, script)
 
@@ -1202,7 +1406,7 @@ def test_a_missing_firecrawl_key_turns_the_check_off(
         monkeypatch.delenv(name, raising=False)
     config(firecrawl={"api_key": None})
     _item(store)
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
 
     plan = _plan(store, script)
 
@@ -1226,8 +1430,8 @@ def test_the_report_names_each_check_each_current_item_and_each_failure(
     _mark_checked(store, current, days=2)
     script = _by_item(
         {
-            checked: AlternativesReply(verdict=Verdict.NONE),
-            failed: [_READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
+            checked: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            failed: [_SEARCH, _READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
         }
     )
 
@@ -1249,7 +1453,7 @@ def test_the_command_previews_a_check_and_writes_it_with_confirm(
     roadmap_store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     number = _item(roadmap_store)
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
     monkeypatch.setattr(
         "devops_cli.roadmap.alternatives.get_task_model", lambda _task: script.model()
     )
@@ -1271,7 +1475,7 @@ def test_total_failure_the_command_exits_1_when_its_only_item_fails(
     roadmap_store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     number = _item(roadmap_store)
-    script = Script(_READ_THE_TOOL, _covers(sources=["https://example.com/invented"]))
+    script = Script(_SEARCH, _READ_THE_TOOL, _covers(sources=["https://example.com/invented"]))
     monkeypatch.setattr(
         "devops_cli.roadmap.alternatives.get_task_model", lambda _task: script.model()
     )
@@ -1296,8 +1500,8 @@ def test_total_failure_the_command_exits_0_when_one_item_fails_and_one_is_checke
     kept = _item(roadmap_store, "Kept")
     script = _by_item(
         {
-            failing: [_READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
-            kept: AlternativesReply(verdict=Verdict.NONE),
+            failing: [_SEARCH, _READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
+            kept: _after_search(AlternativesReply(verdict=Verdict.NONE)),
         }
     )
     monkeypatch.setattr(
@@ -1328,7 +1532,7 @@ def test_the_command_checks_the_one_item_it_names(
 ) -> None:
     named = _item(roadmap_store, "Named")
     other = _item(roadmap_store, "Other")
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
     monkeypatch.setattr(
         "devops_cli.roadmap.alternatives.get_task_model", lambda _task: script.model()
     )
@@ -1369,7 +1573,7 @@ def test_the_row_checks_at_most_the_limit_of_the_setting_and_the_command_uses_it
 ) -> None:
     numbers = [_item(store, f"Item {n}") for n in range(4)]
     config(roadmap={"alternatives": {"limit": 2}})
-    _answer_with(monkeypatch, Script(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
 
     planned = plan_alternatives(store, repo=REPO, now=NOW)
     explicit = plan_alternatives(store, repo=REPO, limit=3, now=NOW)
@@ -1406,7 +1610,10 @@ def test_total_failure_a_failed_check_records_its_item_and_the_row_succeeds(
     _answer_with(
         monkeypatch,
         _by_item(
-            {failing: ModelHTTPError(500, "m"), kept: AlternativesReply(verdict=Verdict.NONE)}
+            {
+                failing: ModelHTTPError(500, "m"),
+                kept: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            }
         ),
     )
 
@@ -1452,7 +1659,7 @@ def test_total_failure_a_round_with_no_item_to_check_makes_no_model_call_and_suc
     delayed = _item(store, "Delayed")
     _mark_checked(store, current, days=2)
     _mark_failed(store, delayed, days=1)
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
     _answer_with(monkeypatch, script)
 
     plan = plan_alternatives(store, repo=REPO, now=NOW)
@@ -1478,7 +1685,7 @@ def test_the_row_runs_in_a_round_and_records_its_success_until_the_interval_pass
     store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     number = _item(store)
-    _answer_with(monkeypatch, Script(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
     table = (_alternatives_row(),)
 
     def round_at(now: datetime) -> tuple[str, ...]:
@@ -1506,7 +1713,7 @@ def test_the_commands_limit_option_has_no_default_of_its_own(
 ) -> None:
     numbers = [_item(roadmap_store, f"Item {n}") for n in range(3)]
     config(roadmap={"alternatives": {"limit": 1}})
-    _answer_with(monkeypatch, Script(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
 
     result = CliRunner().invoke(roadmap_app, ["alternatives", "--repo", REPO, "--confirm"])
 
@@ -1526,7 +1733,9 @@ def test_failure_record_one_of_five_checks_fails_and_the_round_records_it_and_su
     before = store.read_issue_body(failing)
     script = _by_item(
         {
-            n: ModelHTTPError(500, "m") if n == failing else AlternativesReply(verdict=Verdict.NONE)
+            n: ModelHTTPError(500, "m")
+            if n == failing
+            else _after_search(AlternativesReply(verdict=Verdict.NONE))
             for n in numbers
         }
     )
@@ -1569,8 +1778,8 @@ def test_failure_record_a_failed_item_is_tried_again_after_the_delay_and_its_che
 
     number = _item(store)
     apply_alternatives(store, _plan(store, Script(ModelHTTPError(500, "m"))))
-    soon = Script(AlternativesReply(verdict=Verdict.NONE))
-    later = Script(AlternativesReply(verdict=Verdict.NONE))
+    soon = _searching(AlternativesReply(verdict=Verdict.NONE))
+    later = _searching(AlternativesReply(verdict=Verdict.NONE))
 
     early = _plan(store, soon, now=NOW + timedelta(days=1))
     apply_alternatives(store, early)
@@ -1586,7 +1795,7 @@ def test_failure_record_a_failed_item_is_tried_again_after_the_delay_and_its_che
         len(later.seen),
         _failure_record(store, number),
         _recorded(store, number, AlternativesRecordKey.VERDICT),
-    ) == ([], [], [], (NOW.isoformat(), "AIClientError"), 1, 1, (None, None), "none")
+    ) == ([], [], [], (NOW.isoformat(), "AIClientError"), 1, 2, (None, None), "none")
 
 
 # ── The metric ────────────────────────────────────────────────────────────────
@@ -1605,7 +1814,7 @@ def test_each_written_check_counts_once_by_its_verdict(
                 call("github_repository", name="example/scanner"),
                 _covers(),
             ],
-            nothing: AlternativesReply(verdict=Verdict.NONE),
+            nothing: _after_search(AlternativesReply(verdict=Verdict.NONE)),
         }
     )
 
@@ -1627,7 +1836,10 @@ def test_a_check_skipped_because_the_body_changed_and_a_failed_check_count_nothi
     edited = _item(store, "Edited")
     failing = _item(store, "Failing")
     script = _by_item(
-        {edited: AlternativesReply(verdict=Verdict.NONE), failing: ModelHTTPError(500, "m")}
+        {
+            edited: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            failing: ModelHTTPError(500, "m"),
+        }
     )
 
     plan = _plan(store, script)

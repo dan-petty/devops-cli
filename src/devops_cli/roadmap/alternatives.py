@@ -7,8 +7,15 @@ Items with no check come first, lowest number first, then items whose last check
 caps a run. An item whose last check failed less than `roadmap.alternatives.retry_days` ago is
 left out. `--item` checks the one item it names whenever it is open.
 
-**The run.** `investigate` of refine's investigation runs the agent with three tools: a Firecrawl
-web search, a GitHub repository read and a PyPI package read. The tools are the only sources. They
+**Skip classes.** A fixed rule, not the model, names the items that need no search (#2946): a
+title of the Conventional Commit type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and a
+`fix` whose body holds a Python traceback. Such an item gets the verdict `not-applicable` with its
+class, and the job makes no model call and no search for it.
+
+**The run.** For every other item, `investigate` of refine's investigation runs the agent with
+three tools: a Firecrawl web search, a GitHub repository read and a PyPI package read. A reply
+that follows no search gets one more turn to search; the job refuses a second reply that follows
+no search, and refuses `not-applicable` from the model. The tools are the only sources. They
 keep the URLs they returned, the facts they read and the searches they ran, and the job writes
 those into the record: the model writes only the verdict, the URL of the tool, and what it covers
 and lacks. The job refuses a reply that cites a URL no tool returned, and sets `maintained` from
@@ -75,6 +82,7 @@ from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.refine import (
     extract_section_and_outside,
     hash_text,
@@ -102,6 +110,13 @@ from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL, emit
 logger = logging.getLogger(__name__)
 
 _PROMPT = "roadmap_alternatives.md"
+
+# The skip classes (#2946): the Conventional Commit types whose items ask for no tool, and a `fix`
+# of an internal defect, which a Python traceback in the body shows.
+_SKIP_COMMIT_TYPES: tuple[str, ...] = ("test", "docs", "refactor", "chore", "ci", "perf")
+_STACK_TRACE_TEXT = "Traceback (most recent call last)"
+_STACK_TRACE_CLASS = "fix-with-stack-trace"
+_FIX_TYPE = "fix"
 
 # ── The reply ─────────────────────────────────────────────────────────────────
 
@@ -387,6 +402,7 @@ class Check:
     body_hash: str
     new_body: str
     comment: str
+    skip_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -537,13 +553,31 @@ def _request(item: Item, comments: Sequence[IssueComment]) -> str:
     return json.dumps(document, ensure_ascii=False, indent=1)
 
 
+def skip_class_of(item: Item) -> str | None:
+    """The skip class of `item`: its Conventional Commit type when the type is in the closed list,
+    `fix-with-stack-trace` for a `fix` whose body holds a Python traceback, else None (#2946)."""
+    kind = commit_type(item.title)
+    if kind in _SKIP_COMMIT_TYPES:
+        return kind
+    if kind == _FIX_TYPE and _STACK_TRACE_TEXT in item.body:
+        return _STACK_TRACE_CLASS
+    return None
+
+
+def _search_missing(tools: AlternativesTools) -> str | None:
+    """The retry message when the run made no search, else None."""
+    return None if tools.queries else MESSAGES.roadmap.alternatives_retry_search
+
+
 def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
-    """Why the job refuses `reply`, or None. A tool verdict needs a tool whose facts a tool read,
-    `not-applicable` needs a run with no search and no fact read, and every source must be a URL
-    that a tool returned."""
+    """Why the job refuses `reply`, or None. The model cannot give `not-applicable`, since the job
+    sets it for a skip class only; every verdict must follow a search; a tool verdict needs a tool
+    whose facts a tool read; and every source must be a URL that a tool returned."""
     texts = MESSAGES.roadmap
-    if reply.verdict is Verdict.NOT_APPLICABLE and (tools.queries or tools.fact_reads):
-        return texts.alternatives_reason_not_applicable
+    if reply.verdict is Verdict.NOT_APPLICABLE:
+        return texts.alternatives_reason_skip_only
+    if not tools.queries:
+        return texts.alternatives_reason_no_search
     if reply.verdict in _TOOL_VERDICTS:
         if reply.tool_url is None:
             return texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
@@ -601,8 +635,14 @@ def _comment_of(check: Check) -> str:
         CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
         texts.alternatives_comment_heading.format(verdict=check.verdict.value),
     ]
+    skip = (
+        [texts.alternatives_comment_skip_class.format(skip_class=check.skip_class)]
+        if check.skip_class
+        else []
+    )
     sections = [
         heading,
+        skip,
         _tool_section(check.tool),
         _list_section(texts.alternatives_comment_covers, check.covers),
         _list_section(texts.alternatives_comment_lacks, check.lacks),
@@ -631,12 +671,18 @@ def _block_of(check: Check) -> str:
                 else texts.alternatives_not_maintained
             ),
         )
+    skip = (
+        [texts.alternatives_block_skip_class.format(skip_class=check.skip_class)]
+        if check.skip_class
+        else []
+    )
     return "\n".join(
         [
             CONST_ROADMAP_ALTERNATIVES_START_MARKER,
             texts.alternatives_block_verdict.format(
                 date=check.checked_at.date().isoformat(), verdict=check.verdict.value
             ),
+            *skip,
             detail,
             CONST_ROADMAP_ALTERNATIVES_END_MARKER,
         ]
@@ -669,6 +715,39 @@ def _with_block(body: str, block: str) -> str:
     return f"{body[:start]}{block}{body[end:]}"
 
 
+def _completed(partial: Check) -> Check:
+    """`partial` with the new body and the comment that its fields give."""
+    return replace(
+        partial,
+        new_body=_with_block(partial.item.body, _block_of(partial)),
+        comment=_comment_of(partial),
+    )
+
+
+def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFailure:
+    """The check of a skip-class item: `not-applicable` with its class, and no tool and no search;
+    or the failure when the body holds an unpaired marker."""
+    problem = _marker_problem(item.body)
+    if problem is not None:
+        return CheckFailure(item, problem, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
+    return _completed(
+        Check(
+            item=item,
+            verdict=Verdict.NOT_APPLICABLE,
+            tool=None,
+            covers=(),
+            lacks=(),
+            queries=(),
+            sources=(),
+            checked_at=now,
+            body_hash=body_hash_of(item.body),
+            new_body="",
+            comment="",
+            skip_class=skip_class,
+        )
+    )
+
+
 def validate_reply(
     item: Item, reply: AlternativesReply, tools: AlternativesTools, now: datetime
 ) -> Check | CheckFailure:
@@ -677,23 +756,20 @@ def validate_reply(
     if refusal is not None:
         return CheckFailure(item, refusal, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
     allowed = tools.allowed_urls
-    partial = Check(
-        item=item,
-        verdict=reply.verdict,
-        tool=_checked_tool(reply, tools, now),
-        covers=_clean(reply.covers, allowed),
-        lacks=_clean(reply.lacks, allowed),
-        queries=_clean(tools.queries, allowed),
-        sources=tuple(dict.fromkeys(_key(url) for url in reply.sources)),
-        checked_at=now,
-        body_hash=body_hash_of(item.body),
-        new_body="",
-        comment="",
-    )
-    return replace(
-        partial,
-        new_body=_with_block(item.body, _block_of(partial)),
-        comment=_comment_of(partial),
+    return _completed(
+        Check(
+            item=item,
+            verdict=reply.verdict,
+            tool=_checked_tool(reply, tools, now),
+            covers=_clean(reply.covers, allowed),
+            lacks=_clean(reply.lacks, allowed),
+            queries=_clean(tools.queries, allowed),
+            sources=tuple(dict.fromkeys(_key(url) for url in reply.sources)),
+            checked_at=now,
+            body_hash=body_hash_of(item.body),
+            new_body="",
+            comment="",
+        )
     )
 
 
@@ -711,13 +787,23 @@ def _stopped_reason(stopped: InvestigationStopped) -> str:
 def _check_one(
     store: RoadmapStore, item: Item, *, key: str, model: Any, now: datetime
 ) -> Check | CheckFailure:
-    """One item's agent run and its validated reply. Raises `AICredentialsError` when the model
-    refuses the key."""
+    """One item's check: the skip check of a skip class, else its agent run and its validated
+    reply. Raises `AICredentialsError` when the model refuses the key."""
+    skip_class = skip_class_of(item)
+    if skip_class is not None:
+        return _skip_check(item, skip_class, now)
     tools = AlternativesTools(store=store, firecrawl_key=key)
     request = _request(item, store.comments_on(item.number))
     texts = MESSAGES.roadmap
     try:
-        reply = investigate(model, load_task_prompt(_PROMPT), request, tools, AlternativesReply)
+        reply = investigate(
+            model,
+            load_task_prompt(_PROMPT),
+            request,
+            tools,
+            AlternativesReply,
+            output_check=lambda _reply: _search_missing(tools),
+        )
     except AICredentialsError:
         raise
     except AIClientError as exc:
@@ -910,5 +996,6 @@ __all__ = [
     "raise_for_failed_checks",
     "render_alternatives_plan",
     "select_items",
+    "skip_class_of",
     "validate_reply",
 ]
