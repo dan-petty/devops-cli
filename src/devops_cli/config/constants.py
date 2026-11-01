@@ -4615,6 +4615,8 @@ CONST_OSV_OFFLINE_DB_TTL_SECONDS: Final[float] = 86400.0  # 24 hours TTL
 # databases` wrote `osv-scalibr/PyPI/all.zip` there on 2026-10-24 (#2096).
 CONST_OSV_DB_DIR_ENV: Final[str] = "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY"
 CONST_OSV_DB_DIR_NAME: Final[str] = "osv-scalibr"
+# The offline database file of one ecosystem, in a directory of its own below `osv-scalibr` (#2130).
+CONST_OSV_DB_FILE_NAME: Final[str] = "all.zip"
 CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
     "uv.lock",
     "poetry.lock",
