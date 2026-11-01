@@ -29,6 +29,7 @@ from tests.support.implement_step import (
     git,
     is_clean_at,
     programs_run,
+    tool_reads,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -97,17 +98,9 @@ def _stage_fails_on(programs: ProcessFake, word: str, report: str = HOOK_REPORT)
 
 
 def _lint_fails_on_an_unused_import(programs: ProcessFake) -> None:
-    def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        assert call.cwd is not None
-        names = call.argv[call.argv.index("--") + 1 :]
-        failed = any("import os" in (call.cwd / name).read_text(encoding="utf-8") for name in names)
-        return subprocess.CompletedProcess(
-            call.argv, 1 if failed else 0, stdout="F401 unused\n" if failed else "", stderr=""
-        )
-
     programs.answer(
         lambda call: command_text(call).startswith("uv run ruff check"),
-        ProcessAnswer(side_effect=answer),
+        ProcessAnswer(side_effect=tool_reads("import os", "F401 unused")),
     )
 
 

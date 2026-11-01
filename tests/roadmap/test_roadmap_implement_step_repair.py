@@ -9,7 +9,6 @@ file that holds `import os` fails the lint and a file that holds `BAD_TYPE` fail
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -29,7 +28,7 @@ from devops_cli.roadmap.implement_step import (
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
-from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.implement_step import (
     SHOUT_CODE,
     TASKS_PATH,
@@ -41,6 +40,7 @@ from tests.support.implement_step import (
     is_clean_at,
     programs_run,
     the_whole_group,
+    tool_reads,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_call, tool_calls
@@ -50,7 +50,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 BAD_TEST = "import os\n\n" + TEST_BODY
 BAD_TYPE_CODE = SHOUT_CODE + "\nBAD_TYPE = 1\n"
 LINT = "uv run ruff check -- src/sample.py tests/test_sample.py"
-TYPES = "uv run mypy --strict -- src/sample.py tests/test_sample.py"
+TYPES = "uv run mypy --python-version 3.14 --strict -- src/sample.py"
 UNUSED = "F401 `os` imported but unused\n --> tests/test_sample.py:1:8"
 BAD_TYPE = "src/sample.py:9: error: bad type"
 NOT_TICKED = (write_call("tests/test_sample.py", BAD_TEST), write_call("src/sample.py", SHOUT_CODE))
@@ -71,26 +71,10 @@ def programs(implement_programs: ProcessFake) -> ProcessFake:
     return implement_programs
 
 
-def _tool_reads(
-    word: str, report: str
-) -> Callable[[ProcessCall], subprocess.CompletedProcess[str]]:
-    """A static tool that fails when a file after `--` holds `word`, and prints `report`."""
-
-    def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        assert call.cwd is not None
-        names = call.argv[call.argv.index("--") + 1 :]
-        failed = any(word in (call.cwd / name).read_text(encoding="utf-8") for name in names)
-        return subprocess.CompletedProcess(
-            call.argv, 1 if failed else 0, stdout=f"{report}\n" if failed else "", stderr=""
-        )
-
-    return answer
-
-
 def _lint_fails_on_an_unused_import(programs: ProcessFake) -> None:
     programs.answer(
         lambda call: command_text(call).startswith("uv run ruff check"),
-        ProcessAnswer(side_effect=_tool_reads("import os", UNUSED)),
+        ProcessAnswer(side_effect=tool_reads("import os", UNUSED)),
     )
 
 
@@ -171,7 +155,7 @@ def test_a_failed_type_check_gets_the_extra_turn_with_its_text(
 ) -> None:
     programs.answer(
         lambda call: command_text(call).startswith("uv run mypy"),
-        ProcessAnswer(side_effect=_tool_reads("BAD_TYPE", BAD_TYPE)),
+        ProcessAnswer(side_effect=tool_reads("BAD_TYPE", BAD_TYPE)),
     )
     work = tool_calls(
         write_call("tests/test_sample.py", TEST_BODY),

@@ -42,6 +42,8 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 FORMAT = "uv run ruff format --"
 CHANGED_FILES = "src/sample.py tests/test_sample.py"
+# The gate type-checks `src` only (#3090), so `mypy` gets the source file and not the test file.
+SOURCE_FILES = "src/sample.py"
 UNFORMATTED = SHOUT_CODE.replace('text.upper() + "!"', 'text.upper()+"!"')
 LINE = "Formatted: src/sample.py"
 
@@ -146,7 +148,7 @@ def test_the_format_run_is_the_first_command_and_the_check_of_the_format_is_gone
         "uv run devops ci test tests/test_sample.py",
         "uv run devops docs check",
         f"uv run ruff check -- {CHANGED_FILES}",
-        f"uv run mypy --strict -- {CHANGED_FILES}",
+        f"uv run mypy --python-version 3.14 --strict -- {SOURCE_FILES}",
         "uv run pre-commit run --hook-stage pre-commit",
     ]
 
@@ -198,7 +200,8 @@ def test_a_type_error_after_the_format_run_still_stops_the_step(
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"uv run mypy --strict -- {CHANGED_FILES} exited with status 1.\nerror: bad type",
+        f"uv run mypy --python-version 3.14 --strict -- {SOURCE_FILES} exited with status 1.\n"
+        "error: bad type",
     )
 
 
@@ -260,14 +263,13 @@ def test_a_file_named_like_an_option_is_a_path_for_each_tool(
 
     outcome = _step(store, checkout, script)
 
-    tools = [("ruff", "format"), ("ruff", "check"), ("mypy", "--strict")]
-    commands = [
-        line.split() for line in programs_run(programs, "uv") if "ruff" in line or "mypy" in line
-    ]
+    tools = [("ruff", "format"), ("ruff", "check")]
+    commands = [line.split() for line in programs_run(programs, "uv") if "ruff" in line]
     assert (outcome.status, [(words[2:4], words[4:6]) for words in commands]) == (
         StepStatus.DONE,
         [(list(tool), ["--", name]) for tool in tools],
     )
+    assert not [line for line in programs_run(programs, "uv") if name in line and "mypy" in line]
 
 
 def _link_then_git(outside: Path) -> Callable[[ProcessCall], subprocess.CompletedProcess[str]]:

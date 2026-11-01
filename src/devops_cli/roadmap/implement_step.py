@@ -56,9 +56,9 @@ from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Trunc
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.ci.typecheck import typecheck_argv, typecheck_files
 from devops_cli.config.commands import (
     BIN_GIT,
-    BIN_MYPY,
     BIN_RUFF,
     BIN_UV,
     IMPLEMENT_ALLOWED_PROGRAMS,
@@ -903,13 +903,18 @@ def _format_failure(source: Path, changed: Sequence[str]) -> str | None:
 
 
 def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
-    """Run `ruff check` and `mypy --strict` on the changed Python files. `ruff check` fixes
-    nothing: a lint rule can point at a defect that the model must see."""
+    """Run the static checks of the gate on the changed Python files (#3090). `ruff check` runs on
+    every one and fixes nothing: a lint rule can point at a defect that the model must see. `mypy`
+    runs, with the options of the gate, on the files that the gate type-checks, and on no other:
+    `typecheck_files` names them. A step that changes only test files runs no `mypy`."""
     files = _python_files(changed)
     if not files:
         return None
-    for tool in ((BIN_RUFF, "check"), (BIN_MYPY, "--strict")):
-        argv = [BIN_UV, "run", *tool, "--", *files]
+    commands = [[BIN_UV, "run", BIN_RUFF, "check", "--", *files]]
+    typed = typecheck_files(files)
+    if typed:
+        commands.append(typecheck_argv(["--", *typed]))
+    for argv in commands:
         failure = _command_failure(source, argv, shlex.join(argv))
         if failure is not None:
             return failure

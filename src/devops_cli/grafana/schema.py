@@ -16,7 +16,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import (
-    CONST_GRAFANA_DASHBOARD_GRID_WIDTH,
     CONST_GRAFANA_DEFAULT_DATASOURCE_TYPE,
     CONST_GRAFANA_SCHEMA_VERSION,
 )
@@ -140,11 +139,6 @@ class Dashboard(BaseModel):
         omitted, so a generated dashboard is byte-comparable with a hand-authored one.
         """
         return self.model_dump(by_alias=True, exclude_none=True)
-
-    @property
-    def grid_width(self) -> int:
-        """The dashboard grid width panels must fit within."""
-        return CONST_GRAFANA_DASHBOARD_GRID_WIDTH
 
 
 __all__ = [
