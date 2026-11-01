@@ -57,7 +57,7 @@ Kind: other.
 
 - [x] 6.1 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [x] 6.2 Archive the change
+- [ ] 6.2 Archive the change
   - Verification: `uv run devops openspec archive 3043-runner-hooks-and-scoped-ci` and `uv run devops openspec check`
 
 ## Workflow follow-up

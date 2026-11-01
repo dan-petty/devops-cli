@@ -57,7 +57,7 @@ The exit checks SHALL run in this order: the agent made no commit, no test that 
 - **THEN** the step reports stopped with the reason that names the file and the missing tests, no verification command runs, and the checkout is reset
 
 ### Requirement: A step asks for the missing ticks within the repair rounds
-When the agent ends its run, the other exit checks pass, and a task of the group is unticked, the step SHALL run one more turn in the same conversation under the same `UsageLimits`, while a repair round is left. Its message SHALL name the path of the `tasks.md`, list the unticked tasks, and ask only for their ticks. A step SHALL get at most `roadmap.implement.repair_rounds` extra turns in all, and none for the ticks of a fix step.
+When the agent ends its run, the check of the tasks passes, each verification command passes, the static checks and the hooks pass, and a task of the group is unticked, the step SHALL run one more model turn while a repair round is left. The turn SHALL continue the same conversation under the same `UsageLimits`. Its message SHALL name the path of the `tasks.md` and list the unticked tasks, and SHALL ask only for their ticks. A step SHALL get at most `roadmap.implement.repair_rounds` extra turns in all, whichever check asks for them, and none for the ticks of a fix step.
 
 #### Scenario: The agent forgot the ticks
 - **WHEN** the model writes a test file and a source file, ends its run with the tasks of group 1 unticked, the verification command and the static checks exit 0, and the model ticks the tasks in the extra turn
@@ -72,7 +72,7 @@ When the agent ends its run, the other exit checks pass, and a task of the group
 - **THEN** the step commits the fix and the model gets no extra turn
 
 ### Requirement: A step asks for a fix of a failed check within the repair rounds
-When the agent ends its run, each verification command passes, and `ruff check`, `mypy --strict` or a hook fails, the step SHALL run one more turn in the same conversation under the same `UsageLimits`, while a repair round is left. Its message SHALL hold the failure text, masked and cut to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters, and the unticked tasks. Every exit check SHALL run again after each turn. With no round left the step SHALL stop with the last failure.
+When the agent ends its run, each verification command passes, and `ruff check`, `mypy --strict` or a hook of the repository fails, the step SHALL run one more turn in the same conversation under the same `UsageLimits`, while a repair round is left. Its message SHALL hold the text of the failure and the unticked tasks, if any. The step SHALL mask secrets in the text with `mask_secrets` first, then cut it to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters. Every exit check SHALL run again after each turn. The step SHALL stop with the failure of the last run when no round is left. `StepOutcome.repair_rounds` SHALL count the extra turns.
 
 #### Scenario: An unused import
 - **WHEN** the model ticks the tasks and ends its run, `ruff check` exits 1 for an unused import in a changed file, and the model removes the import in the extra turn
