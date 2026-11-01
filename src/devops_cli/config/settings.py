@@ -521,7 +521,7 @@ class AITaskOverride(BaseModel):
     supports_reasoning: bool | None = None
     use_model_sampling: bool | None = Field(
         default=None,
-        description="Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p.",
+        description="Leave sampling parameters to the model. When true, requests carry neither temperature, top_p nor seed.",
     )
     temperature: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
@@ -636,7 +636,7 @@ class AIConfig(BaseModel):
     supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING
     use_model_sampling: bool = Field(
         default=False,
-        description="Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p.",
+        description="Leave sampling parameters to the model. When true, requests carry neither temperature, top_p nor seed.",
     )
     temperature: float = Field(default=DEFAULT_AI_TEMPERATURE, ge=0.0, allow_inf_nan=False)
     top_p: float = Field(default=DEFAULT_AI_TOP_P, ge=0.0, le=1.0, allow_inf_nan=False)
