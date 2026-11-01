@@ -1345,8 +1345,10 @@ class RoadmapCommandHelp:
     implement: str = (
         "Implement a Staged item, in bounded steps. With --group it runs one task group of the "
         "change of an item in the checkout --source: the agent is pydantic-ai's Coder on the model "
-        "of ai.tasks.implement. Its inputs are the item's title, problem and acceptance criteria, "
-        "the change's proposal, design and tasks, the group, and the files the group names. The "
+        "of ai.tasks.implement. Its inputs are the AGENTS.md of the checkout, the sections of the "
+        "documents that it routes the group to (a test file brings docs/TESTING.md), the item's "
+        "title, problem and acceptance criteria, the change's proposal, design and tasks, the "
+        "group, and the files the group names. The "
         "command refuses to start when they do not fit the window of the task, or when the "
         "checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and "
         "mypy, with a scratch home. When the agent returns, the command runs the verification "

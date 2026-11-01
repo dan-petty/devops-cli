@@ -89,12 +89,11 @@ from devops_cli.roadmap.implement_step import (
     find_change,
     run_fix_step,
     run_step,
-    section_text,
 )
 from devops_cli.roadmap.pull_labels import declared_labels
 from devops_cli.roadmap.stage_change import closing_keyword_in, delivery_title, safe_text
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status
-from devops_cli.roadmap.step_files import parse_task_groups
+from devops_cli.roadmap.step_files import parse_task_groups, section_text
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 
