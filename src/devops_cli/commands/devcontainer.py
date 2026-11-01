@@ -46,7 +46,13 @@ from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.serialization import strip_json_comments
 from devops_cli.core.templating import render_json_template
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.devcontainer.devcontainer_plans import (
+    _gh_hosts_file,
+    _gh_plaintext_token_hosts,
+)
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.git.operations import iter_workspace_repos
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -60,6 +66,7 @@ from devops_cli.output import (
     write_stdout,
     write_text_file,
 )
+from devops_cli.output.serialization import emit_serialized
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
@@ -81,6 +88,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def init(
     repo_path: Annotated[
         Path, typer.Argument(help=HELP.devcontainer.repo_path)
@@ -126,6 +134,10 @@ def init(
             help=HELP.devcontainer.overwrite,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Scaffold .devcontainer/ using the published DevOps CLI devcontainer image."""
     dc_dir = repo_path / CONST_DEVCONTAINER_DIR_NAME
@@ -134,6 +146,12 @@ def init(
     if dc_file.exists() and not force:
         print_warning(MESSAGES.devcontainer.already_exists.format(path=dc_file), prefix=False)
         raise typer.Exit(1)
+
+    if dry_run or is_dry_run():
+        print_info(
+            f"Would create devcontainer configuration in {repo_path.resolve()}", prefix=False
+        )
+        return
 
     raw_name = project_name or repo_path.resolve().name
     # Strip characters unsafe in container names / shell contexts
@@ -205,6 +223,7 @@ def init(
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def update(
     repo_path: Annotated[
         Path, typer.Argument(help=HELP.devcontainer.repo_path)
@@ -212,6 +231,10 @@ def update(
     python_version: Annotated[
         str, typer.Option("--python", help=HELP.devcontainer.python_version)
     ] = get_project_python_version(),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Update the Python image version in an existing devcontainer.json."""
     dc_file = repo_path / CONST_DEVCONTAINER_JSON_PATH
@@ -224,6 +247,12 @@ def update(
     except json.JSONDecodeError as exc:
         print_error(ERRORS.devcontainer.invalid_json.format(path=dc_file, exc=exc))
         raise typer.Exit(1) from exc
+
+    if dry_run or is_dry_run():
+        new_image = f"{CONST_DEVCONTAINER_IMAGE_PREFIX}{python_version}"
+        print_info(f"Would update image in {dc_file} to {new_image}", prefix=False)
+        return
+
     data["image"] = f"{CONST_DEVCONTAINER_IMAGE_PREFIX}{python_version}"
     write_json_file(dc_file, data)
     print_success(MESSAGES.devcontainer.updated_image.format(version=python_version))
@@ -329,6 +358,7 @@ def _validate_manifest_file(dc_file: Path) -> None:
 
 
 @app.command("validate")
+@dry_run_class("no-external-request")
 def validate(
     workspace: Annotated[
         Path,
@@ -337,9 +367,6 @@ def validate(
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help=HELP.devcontainer.config_file)
     ] = None,
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help=HELP.devcontainer.validate_dry_run)
-    ] = False,
 ) -> None:
     """Validate .devcontainer/devcontainer.json manifest syntax and configuration schema."""
     ws = workspace.resolve()
@@ -353,18 +380,6 @@ def validate(
         ]
         dc_file = next((c for c in candidates if c.exists()), candidates[0])
 
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops devcontainer validate",
-            action="validate_devcontainer_manifest",
-            details={
-                "workspace": str(ws),
-                "manifest_path": str(dc_file),
-                "exists": dc_file.exists(),
-            },
-        )
-        return
-
     _validate_manifest_file(dc_file)
 
 
@@ -374,22 +389,11 @@ def validate(
 
 
 @app.command("list")
+@dry_run_class("no-external-request")
 def list_devcontainers(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """List repos with their devcontainer status."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops devcontainer list",
-            action="list_devcontainers",
-            details={"repos": []},
-        )
-        return
-
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
 
@@ -1219,40 +1223,6 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
     return actions
 
 
-def _gh_hosts_file() -> Path:
-    """Return the file gh keeps per-host login state in."""
-    config_home = os.getenv("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(os.getenv("GH_CONFIG_DIR") or Path(config_home) / "gh") / "hosts.yml"
-
-
-def _gh_plaintext_token_hosts() -> list[str]:
-    """Return the hosts gh keeps a plaintext token for instead of using the keyring.
-
-    gh falls back to hosts.yml whenever the keyring is locked or unreachable at login, and
-    a token there wins over the keyring, so a fallback stays in effect until moved.
-    """
-    import yaml
-
-    try:
-        hosts = yaml.safe_load(_gh_hosts_file().read_text(encoding="utf-8"))
-    except OSError, yaml.YAMLError:
-        return []
-    if not isinstance(hosts, dict):
-        return []
-
-    found: list[str] = []
-    for host, entry in hosts.items():
-        if not isinstance(entry, dict):
-            continue
-        users = entry.get("users")
-        user_entries = users.values() if isinstance(users, dict) else []
-        if entry.get("oauth_token") or any(
-            isinstance(user, dict) and user.get("oauth_token") for user in user_entries
-        ):
-            found.append(str(host))
-    return found
-
-
 def _gh_plaintext_token_warnings() -> list[str]:
     """Explain how to move each plaintext gh token into the keyring without minting a new one."""
     hosts_file = _gh_hosts_file()
@@ -1275,8 +1245,31 @@ def _login_keyring_file() -> Path:
 
 
 @app.command("unlock-keyring")
-def unlock_keyring() -> None:
+@dry_run_class("request-plan")
+def unlock_keyring(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help=HELP.options.json_output),
+    ] = False,
+) -> None:
     """Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in."""
+    if dry_run or is_dry_run():
+        from devops_cli.devcontainer.devcontainer_plans import plan_unlock_keyring
+
+        plans = plan_unlock_keyring()
+        if json_output:
+            emit_serialized(
+                {"dry_run": True, "requests": [r.__dict__ for r in plans]},
+                "json",
+            )
+            return
+        render_request_plan("devops devcontainer unlock-keyring", plans)
+        return
+
     if not _unlock_keyring(timeout=None):
         raise typer.Exit(1)
 
@@ -1420,6 +1413,7 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
 
 
 @app.command("post-create")
+@dry_run_class("request-plan")
 def post_create(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
@@ -1429,15 +1423,23 @@ def post_create(
         bool,
         typer.Option("--skip-tools", help="Skip bootstrapping missing DevOps tool binaries."),
     ] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
 ) -> None:
     """Execute DevContainer post-create setup tasks (history, shell completions, config prep)."""
     ws = workspace.resolve()
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops devcontainer post-create",
-            action="post_create_lifecycle",
-            details={"workspace": str(ws)},
-        )
+        from devops_cli.devcontainer.devcontainer_plans import plan_post_create
+
+        plans = plan_post_create(workspace=ws, skip_tools=skip_tools)
+        if json_output:
+            emit_serialized(
+                {"dry_run": True, "requests": [r.__dict__ for r in plans]},
+                "json",
+            )
+            return
+        render_request_plan("devops devcontainer post-create", plans)
         return
 
     print_info(MESSAGES.devcontainer.post_create_start.format(workspace=ws), prefix=False)
@@ -1453,20 +1455,29 @@ def post_create(
 
 
 @app.command("post-start")
+@dry_run_class("request-plan")
 def post_start(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
 ) -> None:
     """Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync)."""
     ws = workspace.resolve()
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops devcontainer post-start",
-            action="post_start_lifecycle",
-            details={"workspace": str(ws)},
-        )
+        from devops_cli.devcontainer.devcontainer_plans import plan_post_start
+
+        plans = plan_post_start(workspace=ws)
+        if json_output:
+            emit_serialized(
+                {"dry_run": True, "requests": [r.__dict__ for r in plans]},
+                "json",
+            )
+            return
+        render_request_plan("devops devcontainer post-start", plans)
         return
 
     print_info(MESSAGES.devcontainer.post_start_start.format(workspace=ws), prefix=False)
@@ -1489,6 +1500,7 @@ def post_start(
 
 
 @app.command("run-lifecycle")
+@dry_run_class("request-plan")
 def run_lifecycle(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
@@ -1501,6 +1513,9 @@ def run_lifecycle(
     ] = False,
     all_flag: Annotated[bool, typer.Option("--all", "-a", help=HELP.devcontainer.run_all)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
 ) -> None:
     """Run specified DevContainer lifecycle hook tasks natively in Python."""
     ws = workspace.resolve()
@@ -1511,11 +1526,16 @@ def run_lifecycle(
         do_start = True
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops devcontainer run-lifecycle",
-            action="run_lifecycle",
-            details={"workspace": str(ws), "post_create": do_create, "post_start": do_start},
-        )
+        from devops_cli.devcontainer.devcontainer_plans import plan_run_lifecycle
+
+        plans = plan_run_lifecycle(workspace=ws, post_create=do_create, post_start=do_start)
+        if json_output:
+            emit_serialized(
+                {"dry_run": True, "requests": [r.__dict__ for r in plans]},
+                "json",
+            )
+            return
+        render_request_plan("devops devcontainer run-lifecycle", plans)
         return
 
     if do_create:
@@ -1530,21 +1550,30 @@ def run_lifecycle(
 
 
 @app.command("bootstrap-k8s")
+@dry_run_class("request-plan")
 def bootstrap_k8s_cmd(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = DEFAULT_CURRENT_PATH,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.devcontainer.stack)] = "infra",
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
 ) -> None:
     """Execute Minikube cluster startup in the background."""
     ws = workspace.resolve()
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops devcontainer bootstrap-k8s",
-            action="bootstrap_k8s",
-            details={"workspace": str(ws), "stack": stack},
-        )
+        from devops_cli.devcontainer.devcontainer_plans import plan_bootstrap_k8s
+
+        plans = plan_bootstrap_k8s(workspace=ws, stack=stack)
+        if json_output:
+            emit_serialized(
+                {"dry_run": True, "requests": [r.__dict__ for r in plans]},
+                "json",
+            )
+            return
+        render_request_plan("devops devcontainer bootstrap-k8s", plans)
         return
 
     with trace_span(

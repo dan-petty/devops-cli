@@ -234,25 +234,25 @@ def test_lazy_proxy_dry_run_no_external_request_execution(monkeypatch) -> None:
     monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
 
     # 1. Unclassified command prints generic preview and does NOT execute
-    res_unclassified = runner.invoke(main_module.app, ["--dry-run", "install-tools"])
+    res_unclassified = runner.invoke(main_module.app, ["--dry-run", "serve"])
     assert res_unclassified.exit_code == 0
-    assert "Would run delegated command: devops install-tools" in res_unclassified.output
+    assert "Would run delegated command: devops serve" in res_unclassified.output
     assert len(delegated_calls) == 0
 
     # 2. Command with no-external-request class executes normally without --dry-run
-    from devops_cli.commands import install_tools
+    from devops_cli.commands import serve
 
-    original_class = getattr(install_tools.install_all, "_dry_run_class", None)
-    install_tools.install_all._dry_run_class = "no-external-request"
+    original_class = getattr(serve.serve, "_dry_run_class", None)
+    serve.serve._dry_run_class = "no-external-request"
     try:
-        res_no_ext = runner.invoke(main_module.app, ["--dry-run", "install-tools"])
+        res_no_ext = runner.invoke(main_module.app, ["--dry-run", "serve"])
         assert res_no_ext.exit_code == 0
         assert "Would run delegated command" not in res_no_ext.output
         assert len(delegated_calls) == 1
-        assert delegated_calls[0][1] == "install-tools"
+        assert delegated_calls[0][1] == "serve"
         assert "--dry-run" not in delegated_calls[0][2]
     finally:
         if original_class is None:
-            delattr(install_tools.install_all, "_dry_run_class")
+            delattr(serve.serve, "_dry_run_class")
         else:
-            install_tools.install_all._dry_run_class = original_class
+            serve.serve._dry_run_class = original_class
