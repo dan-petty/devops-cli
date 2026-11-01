@@ -1,5 +1,5 @@
 ## Purpose
-How `devops sandbox deploy` gets the sandbox image onto the Docker engine before it creates the container: it pulls a missing image, it makes no pull for a local image, a failed pull names the image and the reason, and the dry run lists the image requests.
+How `devops sandbox deploy` gets the sandbox image onto the Docker engine before it creates the container: it pulls a missing image, it makes no pull for a local image, and a failed pull names the image and the reason.
 
 ## ADDED Requirements
 
@@ -27,10 +27,3 @@ When the image lookup or the pull fails, `DockerEngineService.pull_image` SHALL 
 #### Scenario: The image lookup fails
 - **WHEN** the engine fails the image lookup with an error other than a missing image
 - **THEN** `pull_image` raises `DockerEngineError` with the text `Image lookup failed for` and the image reference, and the engine receives no pull
-
-### Requirement: The dry run of a sandbox deploy lists the image requests
-`devops sandbox deploy --dry-run` SHALL list the image lookup and the image pull before the container creation, and SHALL make no engine call.
-
-#### Scenario: Dry run with the default image
-- **WHEN** the user runs `devops sandbox deploy --dry-run`
-- **THEN** the plan lists `GET /images/python:3.14-slim/json`, then `POST /images/create` for that image marked as sent only when the image is not on the engine, then `POST /containers/create`, and the engine receives no call

@@ -12,23 +12,23 @@ Issue #2554 reports that `devops sandbox deploy` fails with a raw Docker API 404
 - List the image check and the pull in the dry-run plan of `devops sandbox deploy`. The dry-run rule (#412, #2251) says a dry run returns the requests that the real run makes. This change adds two requests to the real run, so the plan must list them.
 - Not in this change: the workload runner (`WorkloadSandboxRunner.run` in `src/devops_cli/docker/sandbox.py`, behind `devops docker sandbox` and `devops test sandbox`) also creates a container with no pull. The issue names only `devops sandbox deploy`, so this change leaves the runner as it is.
 - The change fits one pull request.
-- The change adds the capability `sandbox-image-pull`, because it changes how a devops command behaves. It changes no document: no command, option or help text changes.
+- The change adds the capability `sandbox-image-pull` and modifies `command-dry-run-class`, because it changes how a devops command behaves. It changes no document: no command, option or help text changes.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `sandbox-image-pull`: how `devops sandbox deploy` gets its image onto the engine: it pulls a missing image, it does not pull a local image, a failed pull names the image and the reason, and the dry run lists the image requests.
+- `sandbox-image-pull`: how `devops sandbox deploy` gets its image onto the engine: it pulls a missing image, it does not pull a local image, and a failed pull names the image and the reason.
 
 ### Modified Capabilities
 
-None. The requirement `sandbox-request-plans` of `command-dry-run-class` stays true: the dry run still prints the container creation and start requests and makes zero engine calls.
+- `command-dry-run-class`: the requirement `sandbox-request-plans` adds the image lookup and the image pull to the requests that the dry run of `sandbox deploy` lists.
 
 ## Impact
 
 - Code: `src/devops_cli/docker/engine.py`, `src/devops_cli/docker/sdk.py`, `src/devops_cli/sandbox/engine.py`, `src/devops_cli/sandbox/sandbox_plans.py`.
 - Tests and test support: `tests/support/fakes/docker_engine.py`, `tests/support/docker_engine_scenarios.py`, `tests/docker/test_engine_contract.py`, `tests/fixtures/docker_engine/recorded_exchanges.json`, `tests/core/test_docker_engine.py`, `tests/sandbox/test_sandbox_deploy_pull.py` (new), `tests/commands/test_sandbox_dry_run.py`.
-- Existing tests that must keep passing: `tests/commands/test_sandbox_lifecycle.py` (deploy over mock clients, rollback, dry run), `tests/sandbox/test_sandbox_seccomp.py` and `tests/commands/test_sandbox_logs.py` (deploy over the fake with `alpine:3`, which the fake holds), `tests/commands/test_sandbox_networking.py`.
+- Existing tests that must keep passing: `tests/commands/test_sandbox_lifecycle.py` (deploy over mock clients, rollback, dry run), `tests/sandbox/test_sandbox_seccomp.py` (deploy over the fake with `alpine:3`, which the fake holds), `tests/commands/test_sandbox_logs.py`, `tests/commands/test_sandbox_networking.py`.
 - Code that this change reuses: `DockerEngineError` (`src/devops_cli/exceptions/docker.py`), `DockerEngineFake.fail` and `call_names` (a pull failure in a test uses `fail`), the `docker_daemon` fixture, `DEFAULT_SANDBOX_IMAGE` (`src/devops_cli/config/defaults.py`).
 
 ## Feasibility
@@ -37,7 +37,7 @@ All commands ran on 2026-11-01 in a checkout at origin/main `9f3b7010`, with doc
 
 - No code pulls an image. `git grep -n "images\.pull\|pull_image" -- src tests` prints nothing.
 - `devops sandbox deploy` runs `WorkloadSandboxEngine.deploy`. `grep -n "engine.deploy" src/devops_cli/commands/sandbox.py` prints lines 193 (dry run) and 212 (real run). `_spawn_container` in `src/devops_cli/sandbox/engine.py` calls `engine.create_container` (line 394), and `deploy` wraps any error as `Failed deploying sandbox container: ...` (line 381). That is the text in the issue.
-- The workload runner is not the call site. `git grep -n "create_container" -- src` lists only `src/devops_cli/docker/sandbox.py:295` (the runner) and `src/devops_cli/sandbox/engine.py:394` (deploy). The runner serves `devops docker sandbox` and `devops test sandbox`.
+- The workload runner is not the call site. `git grep -n "create_container" -- src` lists the definition at `src/devops_cli/docker/engine.py:747` and two callers: `src/devops_cli/docker/sandbox.py:295` (the runner) and `src/devops_cli/sandbox/engine.py:394` (deploy). The runner serves `devops docker sandbox` and `devops test sandbox`.
 - The engine answers a create with a missing image as the issue says. The call `containers.create("devops-contract-absent:never")` over the SDK printed `ImageNotFound 404 'No such image: devops-contract-absent:never'`. The recorded exchange `missing_objects` in `tests/fixtures/docker_engine/recorded_exchanges.json` holds the same 404 on `/containers/create`.
 - The lookup raises a typed error for a missing image. `images.get("devops-contract-absent:never")` printed `ImageNotFound 404 'No such image: devops-contract-absent:never'`.
 - A pull of an image that no registry holds raises a typed error that names the reason. `images.pull("devops-contract-absent:never")` printed `ImageNotFound 404 "pull access denied for devops-contract-absent, repository does not exist or may require 'docker login'"`. The error carries the reason, and the code adds the image reference.
@@ -56,7 +56,7 @@ Criteria of the issue, and the group of `tasks.md` that delivers each:
 - Skip the pull when the image is local (scenario: deploy with an existing image): group 2 and group 3.
 - Name the image and the reason when the pull fails (scenario: pull fails): group 2 (the error text) and group 3 (the deploy shows it).
 - Group 1 delivers no criterion by itself. It gives the tests of groups 2 and 3 a fake that answers `images.get` and `images.pull` as the engine does.
-- Group 4 keeps the dry-run plan true to the real run. It is not a criterion of the issue. It follows from the dry-run rule (#412) once the real run makes two more requests.
+- Group 4 keeps the dry-run plan true to the real run. It is not a criterion of the issue. It follows from the dry-run rule (#412) once the real run makes two more requests, and the delta modifies `sandbox-request-plans` to say so. A person who wants a smaller change can drop group 4 and the delta of `command-dry-run-class`.
 - Pending a person: run the reproduction of the issue on a real engine without `python:3.14-slim`. Tests cannot reach a registry.
 
 ## Existing Tool Considered
