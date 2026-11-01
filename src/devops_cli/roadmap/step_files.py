@@ -66,6 +66,11 @@ def _code_spans(inline: Token) -> tuple[str, ...]:
     return tuple(child.content for child in inline.children or () if child.type == "code_inline")
 
 
+def code_spans(text: str) -> tuple[str, ...]:
+    """The code spans of `text`, a line of inline markdown, in order."""
+    return tuple(span for token in MARKDOWN.parseInline(text) for span in _code_spans(token))
+
+
 def _list_items(tokens: Sequence[Token]) -> Iterator[Sequence[Token]]:
     """The tokens of each top-level list item of `tokens`."""
     start = 0
@@ -163,6 +168,7 @@ __all__ = [
     "MARKDOWN",
     "GroupTask",
     "TaskGroup",
+    "code_spans",
     "file_lines",
     "named_files",
     "packed_file",

@@ -1,29 +1,33 @@
 ## ADDED Requirements
 
-### Requirement: dry-run lists helm repo commands
-The dry run of `deploy-stack` SHALL list each `helm repo add` command and the `helm repo update` command that the real run makes, in order, with the repository name and URL, under the key `helm_commands` in the `details` dict.
+### Requirement: deploy-stack dry run lists the Helm repository commands
+The dry run of `devops k8s deploy-stack` SHALL list, in the key `helm_commands` of its `details`, each `helm repo add <name> <url>` command of the selected stacks, in order, and then `helm repo update`, as argument lists. It SHALL list none of them for a stack without a repository. The dry run SHALL run no `helm` command.
 
-#### Scenario: logging stack dry run shows repo add and update
-- **WHEN** A test runs `deploy-stack --stack logging --dry-run` through the `cli` fixture and parses the JSON output
-- **THEN** `details.helm_commands` contains `["helm", "repo", "add", "grafana-community", "https://grafana-community.github.io/helm-charts"]` followed by `["helm", "repo", "update"]`
+#### Scenario: The logging stack dry run lists the repository add and update
+- **WHEN** `devops k8s deploy-stack --stack logging --dry-run` runs
+- **THEN** the first two entries of `details.helm_commands` are `["helm", "repo", "add", "grafana-community", "https://grafana-community.github.io/helm-charts"]` and `["helm", "repo", "update"]`
 
-### Requirement: dry-run lists helm upgrade commands
-The dry run of `deploy-stack` SHALL list each `helm upgrade --install` command that the real run makes, in order, with the release name, chart, version, namespace, and values file, under the key `helm_commands` in the `details` dict.
+### Requirement: deploy-stack dry run lists the Helm upgrade commands
+The dry run of `devops k8s deploy-stack` SHALL list, in `details.helm_commands` after the repository commands, one `helm upgrade --install` command for each release of the selected stacks, in the order of the real run. Each command SHALL carry the release name, the chart, the version, the namespace and the values file. It SHALL carry `--kube-context <context>` when a context is set, and `--wait --timeout <timeout>` when the run waits.
 
-#### Scenario: logging stack dry run shows upgrade with chart and version
-- **WHEN** A test runs `deploy-stack --stack logging --dry-run` through the `cli` fixture and parses the JSON output
-- **THEN** `details.helm_commands` contains a command list that includes `"loki"`, `"grafana-community/loki"`, `"--version"`, `"20.0.2"`, `"--namespace"`, `"logging"`, `"--values"`, and a path ending in `loki-values.yaml`
+#### Scenario: The logging stack dry run lists the loki upgrade with chart and version
+- **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --dry-run` runs
+- **THEN** the last entry of `details.helm_commands` is `["helm", "upgrade", "--install", "--take-ownership", "loki", "grafana-community/loki", "--version", "20.0.2", "--namespace", "logging", "--values", "k8s/logging/loki-values.yaml", "--kube-context", "ctx-example", "--wait", "--timeout", "10m"]`
 
-### Requirement: dry-run commands use real-run builders
-The commands in the dry-run `helm_commands` list SHALL be built by the same argument builder functions that the real run uses, so that a change to a builder changes both the dry-run output and the real run.
+#### Scenario: A dry run with no wait lists no wait flag
+- **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --no-wait --dry-run` runs
+- **THEN** the last entry of `details.helm_commands` holds neither `--wait` nor `--timeout`
 
-#### Scenario: builder change reflects in dry run
-- **WHEN** A test calls `_build_helm_upgrade_cmd` with the `loki` release dict and compares its result to the corresponding command in the dry-run `helm_commands` list
-- **THEN** The two command lists are equal
+### Requirement: The Helm commands of a deploy-stack dry run are those of the real run
+The `helm repo` and `helm upgrade` commands in `details.helm_commands` of a `devops k8s deploy-stack` dry run SHALL be built by the builders that the real run uses, so that the real run starts the same argument lists, in the same order, for the same options on Helm 3 and a cluster without unready nodes. The dry run reads no node state. For a DaemonSet release on a cluster with unready nodes, the real run omits `--wait` and the dry run lists it.
 
-### Requirement: test reads commands from dry-run output
-A test SHALL be able to read the chart, version, and repository from the dry-run output of `deploy-stack` without importing a name starting with `_` from `devops_cli`.
+#### Scenario: The real run starts the commands that the dry run lists
+- **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --no-wait --no-push-secrets` runs against a process double that answers Helm 3.17.0 and a ready cluster, and the same command runs with `--dry-run`
+- **THEN** the `helm repo` and `helm upgrade` commands that the process double recorded equal `details.helm_commands` of the dry run
 
-#### Scenario: test reads chart from dry-run JSON
-- **WHEN** A test invokes `deploy-stack --stack logging --dry-run` and parses the JSON output
-- **THEN** The test finds the chart `grafana-community/loki`, version `20.0.2`, and repository URL in `details.helm_commands`, and the test imports no name starting with `_` from `devops_cli`
+### Requirement: deploy-stack dry run lists the Helm commands as for Helm 3
+The dry run of `devops k8s deploy-stack` SHALL NOT run `helm version`. It SHALL list each `helm upgrade --install` command without `--force-conflicts`, the flag that the real run adds on Helm 4 or later.
+
+#### Scenario: The dry run starts no process
+- **WHEN** `devops k8s deploy-stack --stack logging --dry-run` runs against a process double
+- **THEN** the double records no `helm` command and `details.helm_commands` holds no `--force-conflicts`

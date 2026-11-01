@@ -33,10 +33,12 @@ failure goes back to the model once, and a second one stops the item. A reply th
 (`check_proposal`) takes the same one return. A group that changes no file, has a blank text, or
 breaks the rules of its kind (`GroupKind`: a `behavior` group has a test and changes a path under
 `src/`, and an `other` group has no test and one of `verify` and `process`) fails the schema of
-the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). The
-comment on the item names each changed path that is no file on the default branch and that no group
-creates (`missing_paths`); it never stops the item. The plan writes nothing to git or to GitHub. A
-model call that fails skips its item; rejected credentials stop the run.
+the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply that names a path
+that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
+sent back in the same way: the problem lists the files with the same name, and a second reply with
+a missing path stops the item, so no draft opens. The groups of a split are checked in the same
+way. The plan writes nothing to git or to GitHub. A model call that fails skips its item; rejected
+credentials stop the run.
 
 **Why.** `--why` adds to the plan the open items that the filter does not name, under their own
 heading, each with the family it misses (`StageFilter.mismatch`). They are not "left out": no rule
@@ -107,7 +109,6 @@ from devops_cli.roadmap.stage_change import (
     check_proposal,
     closing_keyword_in,
     measure_groups,
-    missing_paths,
     pull_request_body,
     render_change,
     safe_text,
@@ -115,6 +116,7 @@ from devops_cli.roadmap.stage_change import (
     write_change_files,
 )
 from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
@@ -474,8 +476,7 @@ _REPLY_RETURNS: Final[int] = 1
 class StagedChange:
     """A change ready to write: the target, the title and the body of its draft pull request, the
     files by path from the repository root, the measure of each task group, whether
-    `openspec validate` ran on it (it does not without the binary), the budget of the run, and
-    the paths that the groups change and that exist nowhere (`missing_paths`)."""
+    `openspec validate` ran on it (it does not without the binary), and the budget of the run."""
 
     target: StageTarget
     title: str
@@ -484,7 +485,6 @@ class StagedChange:
     groups: tuple[MeasuredGroup, ...]
     validated: bool
     budget: int
-    missing: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -561,6 +561,14 @@ def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
     return RoadmapStageError(message, failed_items=[target.item.number])
 
 
+class _Refused(NamedTuple):
+    """A reply that fails a check: the problem that goes back to the model, and the reply that has
+    it (after a split, the reply with the split groups)."""
+
+    problem: str
+    reply: StageProposal
+
+
 class _Planner:
     """Plans the change of each item with one model client, one checkout and one budget."""
 
@@ -571,6 +579,7 @@ class _Planner:
         source: Path,
         sha: str,
         known: frozenset[str],
+        tree: StagedTree,
         budget: int,
         window: int,
         tool: OpenSpecTool | None,
@@ -579,6 +588,7 @@ class _Planner:
         self._source = source
         self._sha = sha
         self._known = known
+        self._tree = tree
         self._budget = budget
         self._window = window
         self._tool = tool
@@ -594,12 +604,17 @@ class _Planner:
         request = self._request(target)
         proposal = self._ask(StageProposal, _CHANGE_TASK, request)
         outcome = self._settle(target, proposal)
-        if isinstance(outcome, str):
-            again = {**request, "previous": proposal.model_dump(), "problem": outcome}
+        if isinstance(outcome, _Refused):
+            again = {
+                **request,
+                "previous": outcome.reply.model_dump(),
+                "problem": outcome.problem,
+            }
             proposal = self._ask(StageProposal, _CHANGE_TASK, again)
             outcome = self._settle(target, proposal)
-        if isinstance(outcome, str):
-            raise _stage_error(MESSAGES.roadmap.stage_invalid.format(problem=outcome), target)
+        if isinstance(outcome, _Refused):
+            message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
+            raise _stage_error(message, target)
         return outcome
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
@@ -625,18 +640,24 @@ class _Planner:
 
     def _settle(
         self, target: StageTarget, proposal: StageProposal
-    ) -> StagedChange | OverBudget | str:
+    ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
-        problems = check_proposal(proposal, self._known)
+        problems = check_proposal(proposal, self._known, self._tree_of(target, proposal))
         if problems:
-            return " ".join(problems)
+            return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
         body = pull_request_body(target.item.number, target.change, proposal)
         keyword = closing_keyword_in(f"{title}\n{body}")
         if keyword is not None:
             raise _stage_error(MESSAGES.roadmap.stage_closing.format(keyword=keyword), target)
-        proposal, files, measured = self._fit(target, proposal)
+        asked, files, measured = self._fit(target, proposal)
+        if asked is not proposal:
+            # The split gave new groups, and the model can bring old paths back with them.
+            problems = path_problems(asked.groups, self._tree.with_files(files))
+            if problems:
+                return _Refused(" ".join(problems), asked)
+        proposal = asked
         if any(m.tokens > self._budget for m in measured):
             return OverBudget(target, tuple(measured), self._budget)
         for path, text in files.items():
@@ -644,7 +665,7 @@ class _Planner:
                 raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
         problem = self._validate(target.change, files)
         if problem is not None:
-            return problem
+            return _Refused(problem, proposal)
         return StagedChange(
             target,
             title,
@@ -653,8 +674,13 @@ class _Planner:
             tuple(measured),
             self._tool is not None,
             self._budget,
-            missing_paths(self._source, proposal.groups),
         )
+
+    def _tree_of(self, target: StageTarget, proposal: StageProposal) -> StagedTree:
+        """The files that exist when the change is written: the tracked files of the commit and
+        the files of the change folder, which the job writes in the same commit."""
+        files = render_change(target.change, proposal, self._known, created=self._today)
+        return self._tree.with_files(files)
 
     def _build(
         self, target: StageTarget, proposal: StageProposal
@@ -872,6 +898,7 @@ def plan_stage(
     )
     if not selection.selected:
         return plan
+    tree = StagedTree.read(checkout, operation=_GIT_OPERATION)
     client = model or get_llm_client(task="analysis", settings=settings)
     window = settings.ai.for_task("analysis").context_window or _DEFAULT_WINDOW
     with _openspec_tool() as tool:
@@ -880,6 +907,7 @@ def plan_stage(
             source=checkout,
             sha=sha,
             known=_capabilities(checkout),
+            tree=tree,
             budget=budget,
             window=window,
             tool=tool,
@@ -976,15 +1004,8 @@ def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
 
 
 def _notes(change: StagedChange) -> str:
-    """The notes that end the comment of a staged item: the paths that exist nowhere, and a
-    validation that did not run."""
-    texts = MESSAGES.roadmap
-    missing = (
-        texts.stage_comment_missing.format(paths=", ".join(f"`{p}`" for p in change.missing))
-        if change.missing
-        else ""
-    )
-    return missing + ("" if change.validated else texts.stage_comment_not_validated)
+    """The note that ends the comment of a staged item: a validation that did not run."""
+    return "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
 
 
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:

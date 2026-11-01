@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +49,16 @@ class StageRepo:
     def origin_git(self, *args: str) -> str:
         """`git <args>` in `origin`."""
         return run_git(self.origin, *args)
+
+    def track(self, files: Mapping[str, str]) -> None:
+        """Write `files` (text by path), commit them to `main` and push, so the checkout tracks
+        them at its HEAD, as the stage job reads the files of the commit it plans."""
+        for name, text in files.items():
+            (self.clone / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.clone / name).write_text(text, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "track files")
+        self.git("push", "-q", "origin", "main")
 
     def push_branch(self, branch: str, *, author: str = "Person") -> None:
         """Push one more commit by `author` to `branch` of `origin`, as another clone does; the
@@ -132,8 +143,7 @@ def heavy_group(repo: StageRepo, *, files: int = 4) -> StageGroup:
     tokens when `files` is 4."""
     names = [f"src/devops_cli/big_{i}.py" for i in range(files)]
     lines = [f"def function_{i}(value):\n    return value + {i}\n" for i in range(1500)]
-    for name in names:
-        (repo.clone / name).write_text("\n".join(lines), encoding="utf-8")
+    repo.track({name: "\n".join(lines) for name in names})
     spans = ", ".join(f"`{name}`" for name in names)
     return (
         make_stage_proposal()
