@@ -12,9 +12,9 @@ Reads: none. Changes: `tests/test_models_argo.py`.
 
 Reads: none. Changes: `src/devops_cli/models/argo.py`.
 
-- [ ] 2.1 The tests from the previous group are the failing tests that this group makes pass, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
-- [ ] 2.2 In ArgoCDApp.from_api_item, after reading source from spec.get('source', {}), add: if not source.get('repoURL'): sources = spec.get('sources'); if isinstance(sources, list) and sources: source = sources[0] if isinstance(sources[0], dict) else {}. In ArgoResourceState.from_manifest, apply the same fallback after _section(spec, 'source'), and verify that `uv run devops ci test tests/test_models_argo.py` passes
-- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 2.1 The tests from the previous group are the failing tests that this group makes pass, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
+- [x] 2.2 In ArgoCDApp.from_api_item, after reading source from spec.get('source', {}), add: if not source.get('repoURL'): sources = spec.get('sources'); if isinstance(sources, list) and sources: source = sources[0] if isinstance(sources[0], dict) else {}. In ArgoResourceState.from_manifest, apply the same fallback after _section(spec, 'source'), and verify that `uv run devops ci test tests/test_models_argo.py` passes
+- [x] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## Workflow follow-up
 
