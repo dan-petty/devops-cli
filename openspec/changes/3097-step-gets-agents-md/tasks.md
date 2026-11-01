@@ -22,9 +22,9 @@ Reads: `src/devops_cli/roadmap/step_rules.py`, `src/devops_cli/roadmap/stage_cha
 
 Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_roadmap_implement_prompt.py`. Changes: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_roadmap_implement_prompt.py`.
 
-- [ ] 3.1 Write failing tests: the prompt drops the rules that `AGENTS.md` and the routed documents own, names the heading of the rules section, and every `.data/` path of the prompt is a `.data/` path of `AGENTS.md` (the scratch directory is equal in both)
+- [x] 3.1 Write failing tests: the prompt drops the rules that `AGENTS.md` and the routed documents own, names the heading of the rules section, and every `.data/` path of the prompt is a `.data/` path of `AGENTS.md` (the scratch directory is equal in both)
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_prompt.py` fails on the base
-- [ ] 3.2 Shrink the prompt to the runner facts and tell the agent where the rules are
+- [x] 3.2 Shrink the prompt to the runner facts and tell the agent where the rules are
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_prompt.py tests/roadmap/test_roadmap_implement_step.py tests/roadmap/test_roadmap_implement_shell_refusal.py tests/roadmap/test_roadmap_stage_kind.py`
 
 ## 4. Documents and the measured cost
