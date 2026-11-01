@@ -31,9 +31,9 @@ Reads: `src/devops_cli/roadmap/request_plan.py`. Changes: `src/devops_cli/roadma
 
 Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `k8s/README.md`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `k8s/README.md`, `src/devops_cli/roadmap/stage.py`.
 
-- [ ] 4.1 Tell the model in the stage prompt that the job checks every path against the staged commit, that a path belongs in a code span, and what a second miss does
+- [x] 4.1 Tell the model in the stage prompt that the job checks every path against the staged commit, that a path belongs in a code span, and what a second miss does
   - Verification: `git grep -n "staged commit" src/devops_cli/ai/tasks/roadmap_stage_change.md` prints the rule
-- [ ] 4.2 Change step 15 of `k8s/README.md` and the module text of `src/devops_cli/roadmap/stage.py` to the new behavior
+- [x] 4.2 Change step 15 of `k8s/README.md` and the module text of `src/devops_cli/roadmap/stage.py` to the new behavior
   - Verification: `git grep -n "A person checks" src k8s` prints nothing
 
 ## 5. Documents, fail-to-pass and archive

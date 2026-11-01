@@ -558,6 +558,14 @@ def test_the_prompts_say_what_a_group_names(task: str) -> None:
     assert "Every task has a text" in prompt
 
 
+@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
+def test_the_prompts_say_that_the_job_checks_each_path_against_the_staged_commit(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert "against the files of the staged commit" in prompt
+    assert "`creates`" in prompt
+
+
 # ── The OpenSpec validation ───────────────────────────────────────────────────
 
 
