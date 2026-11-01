@@ -122,6 +122,16 @@ CREDENTIALS: tuple[Credential, ...] = (
         in_file=True,
     ),
     Credential(
+        "gemini.api_key",
+        "Google Gemini API key that `devops k8s push-secrets` writes to the LLM gateway Secret "
+        "(stored in OS keyring)",
+    ),
+    Credential(
+        "anthropic.api_key",
+        "Anthropic API key that `devops k8s push-secrets` writes to the LLM gateway Secret "
+        "(stored in OS keyring)",
+    ),
+    Credential(
         "mattermost.alerts_hook",
         "Mattermost incoming webhook token for the alerts channel (stored in OS keyring)",
     ),

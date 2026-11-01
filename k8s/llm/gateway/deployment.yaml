@@ -53,7 +53,22 @@ spec:
                 secretKeyRef:
                   name: llm-gateway-secrets
                   key: master-key
-            # Use the bundled model cost map; egress is limited to the inference backends.
+            # The keys of the hosted model groups (#3113). `devops k8s push-secrets` writes them
+            # from the keyring. A key that is not stored leaves its group failing, and the
+            # gateway still starts.
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-secrets
+                  key: gemini-api-key
+                  optional: true
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-secrets
+                  key: anthropic-api-key
+                  optional: true
+            # Use the bundled model cost map: the gateway never fetches it from the internet.
             - name: LITELLM_LOCAL_MODEL_COST_MAP
               value: "True"
             - name: LITELLM_TELEMETRY

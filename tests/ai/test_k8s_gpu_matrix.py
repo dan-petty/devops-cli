@@ -152,7 +152,7 @@ def test_rendered_gateway_config_matches_ollama_profiles() -> None:
             m["model_info"]["max_input_tokens"],
         )
         for m in cm_model_list
-        if "model_info" in m and "max_input_tokens" in m["model_info"]
+        if "api_base" in m["litellm_params"] and "max_input_tokens" in m.get("model_info", {})
     ]
     tokens_match_services = all(
         tokens == service_lengths.get(svc) for svc, tokens in windowed_tokens
@@ -165,7 +165,7 @@ def test_rendered_gateway_config_matches_ollama_profiles() -> None:
         tokens_match_services,
     ) == (
         "",
-        21,
+        24,
         [],
         True,
     )
