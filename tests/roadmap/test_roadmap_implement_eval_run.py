@@ -120,6 +120,20 @@ def test_a_step_that_stops_with_a_scratch_file_fails_the_scope_and_skips_the_com
     assert is_clean_at(checkout, base)
 
 
+def test_a_step_that_removed_a_scratch_file_is_done_and_still_fails_the_scope(
+    tmp_path: Path, repo: tuple[Path, str], programs: ProcessFake
+) -> None:
+    checkout, base = repo
+    scratch = write_call("scratch.py", "print('x')\n")
+    script = ModelScript(tool_calls(scratch, *the_whole_group()), say("Done."))
+
+    report = run_case(_loaded(tmp_path, base), repo=checkout, model=script.model(), window=WINDOW)
+
+    assert report.status == "done"
+    assert (_statuses(report)["diff_scope"], _statuses(report)["no_scratch"]) == ("fail", "fail")
+    assert report.first_failed == "diff_scope"
+
+
 def test_a_step_that_the_window_refuses_is_reported_refused_with_every_property_skipped(
     tmp_path: Path, repo: tuple[Path, str], programs: ProcessFake
 ) -> None:

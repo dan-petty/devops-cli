@@ -18,6 +18,8 @@ The step stages the whole checkout with `git add -A`, lists the staged files as 
 - Before the exit checks stage the checkout, the step lists the untracked files (`git ls-files --others --exclude-standard -z`) and deletes each stray file. It does the same after the extra turn, before it compares the checkout with the tree of the first turn. So `git add -A` stages only the allowed files, and `ruff` and `mypy` get only the changed tracked files and the files of the group.
 - The names go to the log of the tool calls (one line in the Job log), to `StepOutcome.removed`, and to the message of the extra turn, which says why the step removed them. A fix step has no stray rule: its group names no file.
 - The prompt keeps its rule and says that the step deletes a stray file.
+- The eval of the job (`devops roadmap eval implement`) reads the diff, and the diff no longer holds a stray file. So the eval passes `StepOutcome.removed` to `diff_scope` and `no_scratch`, and they still fail on a scratch file that the agent wrote.
+- Some tests of the step wrote a file that the group does not name and expected the step to keep or report it. They write a file that the group allows now.
 - The table of the command shows the removed files. The help text of `devops roadmap implement` says the same.
 - Observable behavior changes (a file is deleted, and a message and a table row appear), so the change carries a spec delta.
 - The change fits one pull request.
@@ -33,13 +35,14 @@ None.
 ### Modified Capabilities
 
 - `roadmap-implement-step`: adds the requirement "A step removes the stray files of the agent".
+- `roadmap-eval-implement`: adds the requirement "A run counts the stray files that the step removed".
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/implement_strays.py` (new), `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
+- Code: `src/devops_cli/roadmap/implement_strays.py` (new), `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/roadmap/implement_eval_properties.py`, `src/devops_cli/roadmap/implement_eval_run.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
 - Prompt: `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
-- Documents: `README.md` (generated), `openspec/specs/roadmap-implement-step/spec.md` (by archive). `k8s/README.md` step 16 does not describe the checks of a step, so it stays.
-- Tests: `tests/roadmap/test_roadmap_implement_strays.py` (new), `tests/roadmap/test_roadmap_implement_prompt.py`.
+- Documents: `README.md` (generated), `openspec/specs/roadmap-implement-step/spec.md` and `openspec/specs/roadmap-eval-implement/spec.md` (by archive). `k8s/README.md` step 16 does not describe the checks of a step, so it stays.
+- Tests: `tests/roadmap/test_roadmap_implement_strays.py` (new), `tests/roadmap/test_roadmap_implement_prompt.py`, `tests/roadmap/test_roadmap_implement_eval_properties.py`, `tests/roadmap/test_roadmap_implement_eval_run.py`, and the step tests whose setup wrote a file that the group does not name (`test_roadmap_implement_step.py`, `_step_repair.py`, `_step_format.py`, `_step_output_cap.py`, `test_roadmap_implement_job.py`).
 
 ## Feasibility
 

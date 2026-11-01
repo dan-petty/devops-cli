@@ -298,7 +298,7 @@ def test_a_reply_of_three_quarters_of_the_cap_passes(
     of a small cap: the fake server sends one event for each token, so the real cap of 16,384
     tokens would take about 20 seconds. The real cap is 8 times the longest honest reply."""
     big = Reply(
-        calls=(("write_file", {"path": "src/big.py", "content": ""}),),
+        calls=(("write_file", {"path": "tests/test_big_reply.py", "content": ""}),),
         content_tokens=small_cap * 3 // 4,
     )
     group = Reply(calls=tuple(the_whole_group()))
@@ -307,7 +307,7 @@ def test_a_reply_of_three_quarters_of_the_cap_passes(
     outcome = _step(store, checkout, model)
 
     assert (outcome.status, outcome.reason, len(server.bodies)) == (StepStatus.DONE, "", 3)
-    assert "src/big.py" in git(checkout, "show", "--name-only", "--format=", "HEAD")
+    assert "tests/test_big_reply.py" in git(checkout, "show", "--name-only", "--format=", "HEAD")
 
 
 # ── A call that the deadline ends ─────────────────────────────────────────────────────────

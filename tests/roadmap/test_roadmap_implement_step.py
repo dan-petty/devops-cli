@@ -904,14 +904,15 @@ def test_an_extra_turn_that_changes_another_file_stops_the_step(
 def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    extra = write_call("docs/NEW.md", "New.\n")
+    extra = write_call("tests/test_sample_more.py", TEST_BODY)
     script = ModelScript(tool_calls(*WORK), say("Done."), tool_calls(extra, TICK), say("Ok."))
 
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        "The extra turn for the ticks changed files other than the tasks file: docs/NEW.md.",
+        "The extra turn for the ticks changed files other than the tasks file: "
+        "tests/test_sample_more.py.",
     )
 
 
@@ -923,7 +924,9 @@ def test_an_extra_turn_that_changes_many_files_names_only_the_first_of_them(
 
     def agent_writes_many_files() -> None:
         for number in range(shown + 30):
-            (checkout / "docs" / f"generated_{number:04d}.md").write_text("x\n", encoding="utf-8")
+            (checkout / "tests" / f"test_generated_{number:04d}.py").write_text(
+                "x = 1\n", encoding="utf-8"
+            )
 
     script = ModelScript(
         tool_calls(*WORK),
@@ -935,7 +938,7 @@ def test_an_extra_turn_that_changes_many_files_names_only_the_first_of_them(
 
     outcome = _step(store, checkout, script)
 
-    names = [f"docs/generated_{number:04d}.md" for number in range(shown)]
+    names = [f"tests/test_generated_{number:04d}.py" for number in range(shown)]
     assert outcome.reason == (
         "The extra turn for the ticks changed files other than the tasks file: "
         f"{', '.join(names)} and 30 more."
@@ -1159,7 +1162,7 @@ def test_the_diff_of_a_stopped_step_is_cut_to_a_constant_size(
 ) -> None:
     _stopped_on_docs(programs)
     long_file = write_call(
-        "docs/LONG.md", "y" * 3 * constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n"
+        "src/sample.py", "y" * 3 * constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n"
     )
 
     outcome = _step(store, checkout, ModelScript(tool_calls(long_file, TICK), say("Done.")))
@@ -1184,7 +1187,7 @@ def test_the_diff_of_a_stopped_step_is_masked_before_it_is_cut(
         + "PRIVATE KEY-----\n"
     )
     file = write_call(
-        "docs/KEY.md", key + "y" * 3 * constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n"
+        "src/sample.py", key + "y" * 3 * constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n"
     )
 
     outcome = _step(store, checkout, ModelScript(tool_calls(file, TICK), say("Done.")))
@@ -1204,7 +1207,9 @@ def test_a_stopped_step_reports_the_diff_of_a_file_that_is_not_utf8(
     _stopped_on_docs(programs)
 
     def agent_writes_latin1() -> None:
-        (checkout / "docs" / "LATIN1.md").write_bytes("caf\xe9 au lait\n".encode("latin-1"))
+        (checkout / "tests" / "test_sample_latin1.py").write_bytes(
+            "caf\xe9 au lait\n".encode("latin-1")
+        )
 
     script = ModelScript(
         tool_calls(*the_whole_group()), say("Done."), effects={2: agent_writes_latin1}
@@ -1234,7 +1239,7 @@ def test_a_stopped_step_masks_only_a_bounded_part_of_a_very_large_diff(
         return real_mask(text)
 
     monkeypatch.setattr(implement_step, "mask_secrets", spy)
-    huge = write_call("docs/HUGE.md", ("y" * 99 + "\n") * (50 * limit // 100))
+    huge = write_call("src/sample.py", ("y" * 99 + "\n") * (50 * limit // 100))
 
     outcome = _step(store, checkout, ModelScript(tool_calls(huge, TICK), say("Done.")))
 

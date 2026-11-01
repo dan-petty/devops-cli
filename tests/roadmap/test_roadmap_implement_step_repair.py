@@ -218,7 +218,7 @@ def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _lint_fails_on_an_unused_import(programs)
-    new = write_call("docs/NEW.md", "New.\n")
+    new = write_call("tests/test_sample_more.py", TEST_BODY)
     script = ModelScript(
         tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR, new), say("Fixed.")
     )
@@ -228,7 +228,7 @@ def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
         "The extra turn for the static check changed files that the step had not changed: "
-        "docs/NEW.md.",
+        "tests/test_sample_more.py.",
     )
 
 
