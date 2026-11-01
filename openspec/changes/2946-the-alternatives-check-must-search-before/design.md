@@ -2,16 +2,22 @@
 
 ## Decisions
 
-- **A fixed rule names the skip classes, not the model**: Over 14 days the model searched about 4 times and returned not-applicable every time. A fixed rule is deterministic and testable.
-- **The constant list lives in the alternatives check module**: The issue body says the classes live in one constant list with a test. A constant in the same module as the check keeps the rule and its enforcement together.
-- **Reject a no-search reply and give the model one turn to search**: The issue body records this mechanism. It gives the model a chance to search while still enforcing the rule.
-- **A second no-search reply ends as a failed check**: The issue body says a second answer without a search ends as a failed check for that item.
-- **The verdict for skip-class items is not-applicable with the class name as the reason**: The issue body records this. It is consistent with the existing not-applicable verdict in CONTEXT.md and gives a person a clear reason.
+- **A closed list names the skip classes, not the model.** The list is `_SKIP_COMMIT_TYPES = ("test", "docs", "refactor", "chore", "ci", "perf")` in `src/devops_cli/roadmap/alternatives.py`, the one module that reads it, as CONTRIBUTING.md asks for a constant. The class of an item is the type from `commit_type(item.title)`. A title with no type has no class. A table test names every type, so a type that leaves the list fails a test.
+- **The stack-trace class is the type `fix` and a Python traceback in the body.** The class name is `fix-with-stack-trace`. The body must hold the text `Traceback (most recent call last)`. A `fix` adds no capability by the definition of the Conventional Commit type, so the rule needs no judgement of "no new capability". A `fix` with no traceback goes to the model. The types `build`, `style`, `revert` and `feat` are not skip classes, as the issue lists them not.
+- **A skip-class item gets a `Check` that the job builds itself.** The verdict is `not-applicable`, the tool is none, and a new field `skip_class` of `Check` holds the class. The comment and the block add one line that names the class. The check writes through the same path as every check: the body block, the job record, the comment and the counter. `_marker_problem` still refuses a body with an unpaired marker.
+- **`skip_class_of(item)` is public.** #2951 needs a list of exempt classes. One function serves both.
+- **The retry is a pydantic-ai output validator.** `investigate` takes an optional `output_check`, a function from the reply to a message or None. When it returns a message, the validator raises `ModelRetry` with it. The validator does this once for a run. A second reply passes the validator, and the job refuses it afterwards in `_refusal`. The prototype in the Feasibility section shows exactly one more model request. The retry uses one of the two output retries of `CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES`. Refine passes no `output_check`, so its run does not change.
+- **The check of a search is `tools.queries` not empty.** A search is a call of `search_web` that ran. A read of a repository or a package is not a search, because the issue counts the Firecrawl counter.
+- **`not-applicable` from the model is always refused.** A non-skip item must search first, and the old rule refuses `not-applicable` after a search. So the verdict can only come from a skip class. `_refusal` refuses it with no condition and with a new message that says the job sets it for a skip class only. A model that finds no tool gives `none`. The prompt says so.
+- **A failed second reply is a `CheckFailure`.** `_refusal` returns the reason "the reply gives a verdict with no search". The item is skipped, nothing is written, and the run reports it, as for any refused reply. The behavior of a failed item (record, delay, round result) is the matter of #2949 and is not changed here.
 
 ## Rejected alternatives
 
-- **Let the model decide whether to search**: Over 14 days the model searched about 4 times and returned not-applicable every time (issue body, devops_cli_roadmap_alternatives_total). It is not reliable for this gate.
-- **Store the skip classes in a separate configuration file**: The list is a fixed rule, not a user setting. A config file adds indirection without benefit.
-- **Hardcode the skip classes in the model prompt**: The issue body says a fixed rule, not the model, names the classes. A prompt is not a fixed rule.
-- **Hard-fail immediately on the first no-search reply**: The issue body says the model gets one turn to search. Hard-failing gives the model no chance to correct.
-- **Warn and continue with the no-search verdict**: The issue body says the reply is rejected. Warning does not enforce the rule.
+- **Let the model decide whether to search.** Rejected. In 14 days the model gave only `not-applicable` (36.5 checks) and the Firecrawl counter showed 4.7 searches (Feasibility, metrics).
+- **A second call of `investigate` for the retry.** Rejected. It starts a new run with no message history, a second spend record and a second budget. The output validator keeps the history and costs one request. The prototype shows it works.
+- **A validator that raises on every reply without a search.** Rejected. The shared output retries (2) would give the model two more turns, and the issue says one. The validator counts its own rejection and rejects once.
+- **Read the type from the `type/*` label.** Rejected. The title is the only source of the label (the comment of `CONST_ROADMAP_COMMIT_TYPE_LABELS` in `src/devops_cli/config/constants.py`), and an item before intake has the title but may have no label. `commit_type` reads the title.
+- **Let a model judge "no new capability".** Rejected. The issue says a skip class makes no model call.
+- **Put the list in the settings or in the prompt.** Rejected. The list is a fixed rule, not a user setting, and a prompt is not a fixed rule.
+- **Keep `not-applicable` as a model verdict for a non-skip item that needs no tool.** Rejected. It contradicts the rule that every verdict follows a search, and the old refusal already rejects it after a search.
+- **MODIFY the requirement "The job refuses a reply with a source no tool returned".** Rejected. The plan of #2949 modifies it, and two active changes must not modify one requirement. The new rules are ADDED requirements, and the base scenario "Not-applicable after a tool ran" stays true.
