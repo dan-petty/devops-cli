@@ -29,11 +29,11 @@ Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_
 
 ## 4. Documents and the measured cost
 
-Reads: `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py`. Changes: `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`, `docs/ENV_VARS.md`, `docs/CONFIGURATION.md`.
+Reads: `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py`. Changes: `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md` and `docs/ENV_VARS.md`.
 
-- [ ] 4.1 Change the help text of `devops roadmap implement` and the description of `roadmap.stage.step_tokens`, then regenerate the documents
+- [x] 4.1 Change the help text of `devops roadmap implement` and the description of `roadmap.stage.step_tokens`, then regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
-- [ ] 4.2 Measure the tokens that the rules add to the step of three real groups of the corrected plans of #2175, #2462 and #2531, as the difference between the message on `origin/main` and on this branch
+- [x] 4.2 Measure the tokens that the rules add to the step of three real groups of the corrected plans of #2175, #2462 and #2531, as the difference between the message on `origin/main` and on this branch
   - Verification: a repeatable manual check. On `origin/main` and on the branch, build the inputs of group 1 of each of the three changes with `build_step_inputs`, print `inputs.tokens`, and subtract. Each result stays under the step budget of 40,000 tokens
 
 ## 5. Fail-to-pass and archive

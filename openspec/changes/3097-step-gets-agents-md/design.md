@@ -41,3 +41,17 @@ A whole document is too large. `docs/TESTING.md` has 12,048 tokens, and a step w
 ## Missing files
 
 A checkout with no `AGENTS.md`, or a route whose document is missing, adds no section. The file is the state of the repository. The drift test fails in this repository when a route points to a missing file or to a section that the document lacks. A route with no sections gives the start of the document, cut to the cap.
+
+## Measured cost
+
+`build_step_inputs` was run on every group of the corrected plans of #2175, #2462 and #2531, on `origin/main` and on this change, with the real issue text and a window of 128,000 tokens (the exact tokenizer):
+
+| Plan and group | Names | Before | After | Added |
+| :--- | :--- | ---: | ---: | ---: |
+| #2175 group 1 | `src/` | 8,765 | 15,751 | 6,986 |
+| #2175 group 4 | `src/` | 12,668 | 19,654 | 6,986 |
+| #2462 group 1 | `tests/` and `src/` | 10,980 | 20,700 | 9,720 |
+| #2531 group 1 | `tests/` | 6,733 | 11,063 | 4,330 |
+| #2531 group 2 | `tests/` | 9,000 | 13,330 | 4,330 |
+
+`AGENTS.md` adds about 1,700 tokens to each. Each routed document adds 2,500 to 2,900 tokens. The largest group is 20,700 tokens, half of `roadmap.stage.step_tokens` (40,000), and the window check of the step (128,000 minus 40,000) holds with a wide margin. A group that names tests, source, roadmap code and a manifest adds about 14,000 tokens.

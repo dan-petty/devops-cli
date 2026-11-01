@@ -34,7 +34,7 @@ None.
 
 - Code: `src/devops_cli/roadmap/step_rules.py` (new), `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py` (the text of `step_tokens`).
 - Prompt: `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
-- Documents: `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`, `docs/ENV_VARS.md`, `docs/CONFIGURATION.md` (generated), and the two specs (by archive).
+- Documents: `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md` and `docs/ENV_VARS.md` (generated), and the two specs (by archive).
 - Tests: `tests/roadmap/test_roadmap_step_rules.py` (new), `tests/roadmap/test_roadmap_implement_step_rules.py` (new), `tests/roadmap/test_roadmap_implement_prompt.py`, `tests/roadmap/test_roadmap_stage_measure.py`.
 
 ## Feasibility
