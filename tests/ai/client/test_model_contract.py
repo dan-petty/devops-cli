@@ -9,12 +9,16 @@ real implementations (`TestModel`, `LLMClient` over recorded frames) offline wit
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import httpx2
 import pytest
 from pydantic_ai.direct import model_request_stream_sync, model_request_sync
 from pydantic_ai.messages import ModelRequest, TextPart, ThinkingPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
+
+if TYPE_CHECKING:
+    from devops_cli.ai.spend.ledger import SpendLedger
 
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
@@ -31,6 +35,11 @@ from tests.support.fakes.model import (
     ModelFake,
     deterministic_embedding,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_spend(spend_ledger: SpendLedger) -> None:
+    """Isolate spend records for model contract tests (#2192)."""
 
 
 def test_completion_contract_fake() -> None:

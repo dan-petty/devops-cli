@@ -7,8 +7,11 @@ import hashlib
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
+
+if TYPE_CHECKING:
+    from devops_cli.ai.spend.ledger import SpendLedger
 
 import httpx2
 import pytest
@@ -27,7 +30,7 @@ from tests.support.fakes.clock import ClockFake
 
 
 @pytest.fixture(autouse=True)
-def clean_cache(tmp_path: Path) -> LLMResponseCache:
+def clean_cache(tmp_path: Path, spend_ledger: SpendLedger) -> LLMResponseCache:
     """Fixture providing an isolated response cache per test."""
     reset_llm_response_cache()
     cache_dir = tmp_path / "llm_cache"
