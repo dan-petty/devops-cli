@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.36.0](https://github.com/dan-petty/devops-cli/compare/v0.35.0...v0.36.0) (2026-11-01)
+
+
+### Features
+
+* **k8s:** add bootstrap-mattermost command ([#2945](https://github.com/dan-petty/devops-cli/issues/2945)) ([#2955](https://github.com/dan-petty/devops-cli/issues/2955)) ([66ed3bf](https://github.com/dan-petty/devops-cli/commit/66ed3bf10b95a1c351c5dfdadafe8a9ab2fd7a50))
+* **k8s:** add bootstrap-mattermost command for webhooks and secrets ([#2948](https://github.com/dan-petty/devops-cli/issues/2948)) ([4b22158](https://github.com/dan-petty/devops-cli/commit/4b22158a1df42711b7030391f2e823121b90c489))
+* **roadmap:** add devops roadmap explain ([#2960](https://github.com/dan-petty/devops-cli/issues/2960)) ([8bc5e39](https://github.com/dan-petty/devops-cli/commit/8bc5e393e3b59b3dbe422bf2046a95175bdef26d)), closes [#2911](https://github.com/dan-petty/devops-cli/issues/2911)
+* **roadmap:** start the runner Job from implement --item ([#2959](https://github.com/dan-petty/devops-cli/issues/2959)) ([7c59283](https://github.com/dan-petty/devops-cli/commit/7c5928332b31c332ec63917770cad8b056de9f1c)), closes [#2913](https://github.com/dan-petty/devops-cli/issues/2913)
+* **telemetry:** preview requests in dry run for monitoring commands ([#2954](https://github.com/dan-petty/devops-cli/issues/2954)) ([eea778d](https://github.com/dan-petty/devops-cli/commit/eea778d87f558f94aaeddaf80a964367c80438d7))
+* **vault:** preview requests in dry run for valkey and vault commands ([#2941](https://github.com/dan-petty/devops-cli/issues/2941)) ([91a971e](https://github.com/dan-petty/devops-cli/commit/91a971ee079e4f759b6ac681eace9a7c4ab8e54b)), closes [#2253](https://github.com/dan-petty/devops-cli/issues/2253)
+
+
+### Bug Fixes
+
+* **telemetry:** shutdown test waits for events not timers ([#2961](https://github.com/dan-petty/devops-cli/issues/2961)) ([369ed25](https://github.com/dan-petty/devops-cli/commit/369ed2563392a0fcc938efd841b52c37a9038943)), closes [#2690](https://github.com/dan-petty/devops-cli/issues/2690)
+* **tests:** test waits end on event or process exit ([#2952](https://github.com/dan-petty/devops-cli/issues/2952)) ([df07ee9](https://github.com/dan-petty/devops-cli/commit/df07ee9ed9c3ce8d92150341d896d616fa7db60f)), closes [#2138](https://github.com/dan-petty/devops-cli/issues/2138)
+
 ## [0.35.0](https://github.com/dan-petty/devops-cli/compare/v0.34.0...v0.35.0) (2026-10-31)
 
 
