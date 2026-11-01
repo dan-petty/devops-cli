@@ -22,13 +22,13 @@ Reads: `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/imp
 
 Changes: `README.md`, generated documents, `openspec/changes/3091-job-log-excerpt-decode/`.
 
-- [ ] 3.1 Regenerate the documents
+- [x] 3.1 Regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` then `uv run devops ci docs`
-- [ ] 3.2 Show that no `str(log)` conversion of a pod log is left in the source
+- [x] 3.2 Show that no `str(log)` conversion of a pod log is left in the source
   - Verification: `! git grep -n "return str(log)" src/devops_cli/k8s`
-- [ ] 3.3 Run the fail-to-pass check and the full gate
+- [x] 3.3 Run the fail-to-pass check and the full gate
   - Verification: `uv run devops ci fail-to-pass --base origin/main`, then `uv run devops ci`
-- [ ] 3.4 Validate the change and archive it as the last commit
+- [x] 3.4 Validate the change and archive it as the last commit
   - Verification: `uv run devops openspec check`
 
 ## Workflow follow-up
