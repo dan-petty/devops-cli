@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement import (
     DEFAULT_IMPLEMENT_FILTERS,
     ImplementPlan,
@@ -49,6 +50,7 @@ def _plan(
     *filters: str,
     item: int | None = None,
     limit: int = 1,
+    probe: int | None = None,
 ) -> ImplementPlan:
     return plan_implement(
         store,
@@ -57,6 +59,7 @@ def _plan(
         filters=parse_implement_filters(filters),
         item_number=item,
         limit=limit,
+        probe=probe,
     )
 
 
@@ -320,7 +323,7 @@ def test_a_named_issue_that_is_no_item_is_left_out(
 ) -> None:
     plan = _plan(store, staged_repo, item=99)
 
-    assert _reasons(plan) == {99: "It is not an item of the roadmap."}
+    assert _reasons(plan) == {99: MESSAGES.roadmap.item_left_not_item}
 
 
 def test_the_job_leaves_every_item_out_when_no_app_slug_is_set(
@@ -394,3 +397,22 @@ def test_an_item_that_the_service_holds_is_selected(
     plan = _plan(store, staged_repo)
 
     assert [target.item.number for target in plan.selected] == [number]
+
+
+def test_the_probe_past_the_limit_is_judged_and_the_plan_says_it_passes_every_rule(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    first = seed_staged(store, priority="P0-Critical")
+    push_staged_branch(staged_repo, number=2)
+    route_pull_status(api, pull=6)
+    second = seed_staged(store, pull=6)
+
+    plain = _plan(store, staged_repo)
+    probed = _plan(store, staged_repo, probe=second)
+
+    assert (
+        [t.item.number for t in plain.selected],
+        plain.beyond,
+        [t.item.number for t in probed.selected],
+        probed.beyond,
+    ) == ([first], (), [first], (second,))

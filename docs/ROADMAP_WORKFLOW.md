@@ -29,6 +29,7 @@ Notes on the table:
 
 - A plan that an agent or a person writes is part of the one pull request that closes the issue. It has no separate gate G1. G1 exists for a plan that the Service stages.
 - A person can do every step of an agent or of the Service. A person's claim beats the Service's claim.
+- The command `devops roadmap explain <number>` says why the stage job and the implement job take an Item or leave it out. It names the first rule that fails for each job. It calls no model and writes nothing. The option `--why` on `devops roadmap stage` and `devops roadmap implement` lists the open Items that the filter does not name.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
 
 ## The transitions
@@ -157,7 +158,6 @@ Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the w
 
 | Issue | Step | What it will change |
 | :--- | :--- | :--- |
-| #2911 | 4 Claim, 5 Implement | A command explains why the jobs take or skip an Item |
 | #2912 | Stop and retry | A stop sets `status/blocked` and not `status/ready`. A new runner image clears a stop once |
 | #2913 | The manual path | `devops roadmap implement` outside the runner makes the runner Job, and `--repo` is needed once |
 | #2915 | All | A command lists what waits for a person |

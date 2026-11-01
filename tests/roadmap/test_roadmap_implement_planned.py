@@ -9,6 +9,7 @@ import subprocess
 import pytest
 
 from devops_cli.exceptions import GitOperationError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement import (
     ImplementPlan,
     ImplementTarget,
@@ -411,7 +412,7 @@ def test_a_named_planned_item_that_is_closed_is_left_out(
 
     plan = _plan(store, repo, item=number)
 
-    assert (plan.selected, _reasons(plan)) == ((), {number: "It is closed."})
+    assert (plan.selected, _reasons(plan)) == ((), {number: MESSAGES.roadmap.item_left_closed})
 
 
 def test_a_planned_item_that_is_in_progress_with_no_job_is_left_out(
