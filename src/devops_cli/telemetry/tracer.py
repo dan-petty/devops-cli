@@ -627,7 +627,11 @@ def _resolve_git_dir_from_file(marker: Path) -> Path | None:
 
 def _resolve_git_dir(start_dir: Path | None = None) -> Path | None:
     """Traverse upwards from start_dir to locate active .git directory or worktree."""
-    current = (start_dir or Path.cwd()).resolve()
+    try:
+        current = (start_dir or Path.cwd()).resolve()
+    except OSError:
+        # If the working directory no longer exists, return None
+        return None
     for candidate in [current, *current.parents]:
         marker = candidate / ".git"
         if marker.is_dir():
