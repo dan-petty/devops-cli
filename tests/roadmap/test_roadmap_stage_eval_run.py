@@ -4,6 +4,8 @@ model (#3028)."""
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -181,15 +183,20 @@ def test_plan_item_plans_one_item_in_a_checkout_and_the_recorder_keeps_the_repli
     assert (planned.target.change, recorder.calls, len(recorder.replies)) == (CHANGE, 1, 1)
 
 
-def test_a_commit_that_the_repository_lacks_fails_and_leaves_no_worktree(
-    stage_repo: StageRepo,
+def test_a_commit_that_the_repository_lacks_fails_and_leaves_no_worktree_and_no_folder(
+    stage_repo: StageRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+
     with (
         pytest.raises(GitOperationError, match="worktree"),
         checkout_at(stage_repo.clone, "0" * 40),
     ):
         pass
 
+    assert list(scratch.iterdir()) == []
     assert stage_repo.git("worktree", "list").count("\n") == 0
 
 

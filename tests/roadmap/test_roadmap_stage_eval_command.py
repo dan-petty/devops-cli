@@ -51,7 +51,7 @@ def _live_set(tmp_path: Path, repo: StageRepo, cases: list[StageCase]) -> Path:
     folder.mkdir(parents=True)
     meta = case.model_dump(mode="json", exclude={"name", "issue_body", "plan", "facts"})
     (folder / "case.json").write_text(json.dumps(meta), encoding="utf-8")
-    (folder / "issue.md").write_text(case.issue_body, encoding="utf-8")
+    (folder / "issue.txt").write_text(case.issue_body, encoding="utf-8")
     (folder / "plan.json").write_text(json.dumps(case.plan), encoding="utf-8")
     (folder / "facts.json").write_text(case.facts.model_dump_json(), encoding="utf-8")
     return folder.parent

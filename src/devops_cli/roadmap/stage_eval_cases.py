@@ -7,13 +7,34 @@ gates need, and the defects a reviewer found in it. The files of a case director
   defects. A defect has a type, a severity, the review text with its evidence, and the gate that
   must refuse it: `paths` (#3010), `kind` (#3005), `pending` (a gate that does not exist yet) or
   `none` (no gate judges it; a reviewer does).
-- `issue.md`: the body of the issue, as the stage job read it.
+- `issue.txt`: the body of the issue, as the stage job read it.
 - `plan.json`: the plan as a `StageProposal` holds it. The groups stay raw, as the model wrote
   them, so that a group the schema refuses is still a case.
 - `facts.json`: the tracked files that the gates need, and the capabilities the plan names that
   exist. A replay cannot assume a deep clone, so it reads no git.
 
 A case with the verdict `good` has no defect: every gate must accept it.
+
+How the cases were made (2026-11-01):
+
+- The 37 cases with a pull request come from the review of those plans. The text of each defect and
+  its evidence are the review's. The type of a defect is set from the text of the review, and its
+  gate is the gate that catches the type today.
+- The plan is the change folder of the merge commit, read with `git show <merge>:<file>`. The
+  commit it was staged on is the parent of the merge commit, as the staging commit itself is not in
+  the history after a squash.
+- A plan staged before #2775 names no files in its groups. For these, `changes` lists the paths
+  that its tasks name.
+- A group has the kind `behavior` when it has a failing-test task, as every group had before
+  #3005. The kind rule then refuses the groups that change no path under `src/`.
+- `facts.json` holds the files that the plan names, the files with the same name as a missing
+  path, and one file for each suffix and each top folder of the tree. The gate gives the same
+  answer on these files as on the full tree, so a replay needs no deep clone.
+- The 3 cases that start with `good-` are the plans of #2992, #2859 and #2858 with the one wrong
+  path corrected. They have no defect, and every gate must accept them.
+
+The set is 160 files and about 1 MB. It holds no secret, no private host name and no private
+address.
 """
 
 from __future__ import annotations
@@ -33,7 +54,7 @@ from devops_cli.roadmap.stage_paths import StagedTree
 # The folder of the cases, from the root of the repository.
 CASES_DIRECTORY: Final[Path] = Path("tests/fixtures/roadmap_eval/stage")
 _CASE_FILE: Final[str] = "case.json"
-_ISSUE_FILE: Final[str] = "issue.md"
+_ISSUE_FILE: Final[str] = "issue.txt"
 _PLAN_FILE: Final[str] = "plan.json"
 _FACTS_FILE: Final[str] = "facts.json"
 # The files of the change folder that the job writes, beside the spec of each capability.

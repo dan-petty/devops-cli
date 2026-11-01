@@ -72,8 +72,8 @@ def test_every_type_of_defect_is_used_by_the_set(cases: list[StageCase]) -> None
 def test_the_plan_of_each_case_has_the_fields_of_a_proposal(cases: list[StageCase]) -> None:
     group = make_stage_proposal().groups[0].model_dump()
     for case in cases:
-        StageProposal.model_validate({**case.plan, "groups": [group]})
-        assert case.groups
+        proposal = StageProposal.model_validate({**case.plan, "groups": [group]})
+        assert (proposal.summary, len(case.groups) > 0) == (case.plan["summary"], True)
 
 
 def test_the_change_folder_of_a_case_is_in_its_tree(cases: list[StageCase]) -> None:
@@ -82,7 +82,7 @@ def test_the_change_folder_of_a_case_is_in_its_tree(cases: list[StageCase]) -> N
     tree = case.tree()
 
     assert tree.has(f"openspec/changes/{case.change}/tasks.md")
-    assert not case.facts.tracked or tree.has(case.facts.tracked[0])
+    assert tree.has(case.facts.tracked[0]) is True
 
 
 def test_a_case_with_an_unknown_defect_type_fails_and_names_the_case(

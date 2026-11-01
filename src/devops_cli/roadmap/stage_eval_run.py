@@ -101,14 +101,14 @@ def checkout_at(repository: Path, commit: str) -> Iterator[Path]:
     A commit the repository lacks raises `GitOperationError`."""
     parent = Path(tempfile.mkdtemp(prefix="stage-eval-"))
     tree = parent / "tree"
-    git(repository, "worktree", "add", "--detach", str(tree), commit, operation=_OPERATION)
     try:
-        yield tree
-    finally:
+        git(repository, "worktree", "add", "--detach", str(tree), commit, operation=_OPERATION)
         try:
-            git(repository, "worktree", "remove", "--force", str(tree), operation=_OPERATION)
+            yield tree
         finally:
-            shutil.rmtree(parent, ignore_errors=True)
+            git(repository, "worktree", "remove", "--force", str(tree), operation=_OPERATION)
+    finally:
+        shutil.rmtree(parent, ignore_errors=True)
 
 
 def _first_reply_problems(
