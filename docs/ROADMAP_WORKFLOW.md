@@ -176,6 +176,19 @@ uv run devops roadmap eval stage --replay
 - **The replay** calls no model and reads no git. It runs the recorded plans through the gates and lists, for each gate, the known defects it catches. The `paths` gate is `check_proposal`, the check that the job runs on a reply: the path rule and the rules of the spec delta, with the capabilities of the case. All recorded plans passed the spec rules when they were staged, so these rules fail the replay only when they refuse a good plan. It exits 1 when a gate stops refusing a known-bad plan, or refuses a good plan. The test suite runs it on the whole set. A defect for a gate that does not exist yet is marked `pending`: the replay lists it and fails nothing. When the gate lands, its pull request sets the gate in the case files, and the replay checks it from then on.
 - **The rule.** A pull request that changes the stage prompt (`roadmap_stage_change.md`) or a check of the stage job (`check_proposal` and the gates it calls) states the score of the same model before and after the change. Use one model for both runs, and say which.
 
+## Checks of the implement job
+
+The runner Job runs the checks that a person runs in the devcontainer, from the same definitions (#3043).
+
+- **Hooks.** The Job runs the stages of `.pre-commit-config.yaml` with `pre-commit run`, in a child that holds no token. It installs no git hook: git would run a hook with the token of the session, and the agent can edit the configuration. It installs the hook environments once, before the first step. A failure stops the item at the step `hooks`.
+- **Each step.** The `pre-commit` stage runs on the staged changes after `ruff` and `mypy`. A hook that fixes a file is staged and runs again. A hook that still fails goes to the agent with its output.
+- **Repair rounds.** The setting `roadmap.implement.repair_rounds` (default 3) bounds the extra turns of a step. A failed `ruff`, `mypy` or hook, and a missing tick, each take one round. Only a used budget stops the step. The comment on the pull request shows the rounds of each step.
+- **Before the push.** After the last group, the docs, the archive and the final rebase, the Job runs the `pre-push` stage, `devops ci --check --only constructs,docs,openspec`, and `devops ci test --no-fallback` with the changed Python files. A failed check starts a fix step, up to `repair_rounds` times. The Job pushes only a head that passed. A used budget stops the item at the step `scoped checks` and pushes nothing.
+- **After the push.** The checks of the pull request stay the gate. A failed check gets one fix step.
+- **Time.** The checks add about 2 to 3 minutes to an item. The comment on the pull request gives the seconds of each scoped check.
+
+Tests hold the drift: each local hook runs a tool that the runner image holds, each scoped row is a row of `devops ci`, and the branches of the Job pass the branch-name hook.
+
 ## Measure the implement job
 
 The implement job has a baseline score. The command that gives it calls a model through the gateway, so it runs on demand and is no part of `devops ci`.

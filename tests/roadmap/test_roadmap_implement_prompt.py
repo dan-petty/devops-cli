@@ -27,3 +27,14 @@ def test_the_prompt_says_that_the_step_deletes_a_file_that_the_group_does_not_na
     prompt = load_task_prompt(PROMPT)
 
     assert "The step deletes a new file that your group does not name" in prompt
+
+
+def test_the_prompt_says_that_the_hooks_of_the_project_run_and_that_a_failure_gives_a_turn() -> (
+    None
+):
+    """The step runs the `pre-commit` stage on the changed files (#3043), and the agent learns that
+    a failed hook gives it a turn with the output."""
+    prompt = load_task_prompt(PROMPT)
+
+    assert "The step runs the hooks of the project on your changed files" in prompt
+    assert "A hook that still fails gives you another turn" in prompt

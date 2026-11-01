@@ -37,10 +37,10 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/implement_hooks.py` (new), `src/devops_cli/roadmap/implement_scoped_ci.py` (new), `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/config/commands.py`, `src/devops_cli/lang/en/messages.py`.
+- Code: `src/devops_cli/roadmap/implement_hooks.py` (new), `src/devops_cli/roadmap/implement_scoped_ci.py` (new), `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/config/commands.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
 - Hook configuration: `.pre-commit-config.yaml`.
 - Prompt: `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
-- Documents: `k8s/README.md` (step 16), `docs/ROADMAP_WORKFLOW.md`, `CONTRIBUTING.md`, `docs/SDLC.md`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md`, `README.md` (generated), `openspec/specs/roadmap-implement-step/spec.md`, `openspec/specs/roadmap-implement-job/spec.md` and `openspec/specs/roadmap-implement-runner/spec.md` (by archive).
+- Documents: `k8s/README.md` (step 16), `docs/ROADMAP_WORKFLOW.md`, `CONTRIBUTING.md`, `docs/SDLC.md`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`, `docs/CONFIGURATION.md` and `docs/ENV_VARS.md` (generated), `openspec/specs/roadmap-implement-step/spec.md`, `openspec/specs/roadmap-implement-job/spec.md` and `openspec/specs/roadmap-implement-runner/spec.md` (by archive).
 - Tests: `tests/roadmap/test_roadmap_implement_hooks.py` (new), `tests/roadmap/test_roadmap_implement_scoped_ci.py` (new), `tests/roadmap/test_roadmap_implement_step_hooks.py` (new), `tests/roadmap/test_roadmap_implement_step_repair.py`, `tests/roadmap/test_roadmap_implement_step_ticks.py`, `tests/roadmap/test_roadmap_implement_step.py`, `tests/roadmap/test_roadmap_implement_job.py`, `tests/roadmap/test_roadmap_implement_prompt.py`, `tests/invariants/test_workflow_contracts.py`, `tests/invariants/test_runner_hooks.py` (new).
 - Run time: one `pre-commit` stage run per step commit (about 10 s on a host with 4 CPUs, measured), one environment install per Job (9 s and 51 MB, measured), and the scoped checks once after the last group (see Feasibility).
 

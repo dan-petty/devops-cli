@@ -44,11 +44,11 @@ Kind: other. Reads: `.pre-commit-config.yaml`, `tests/invariants/test_workflow_c
 
 Kind: documents. Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `k8s/README.md`, `docs/ROADMAP_WORKFLOW.md`. Changes: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_roadmap_implement_prompt.py`, `k8s/README.md`, `docs/ROADMAP_WORKFLOW.md`, `README.md`.
 
-- [ ] 5.1 Tell the agent in the prompt that the hooks of the project run on its changed files, and that a failure gives it a turn
+- [x] 5.1 Tell the agent in the prompt that the hooks of the project run on its changed files, and that a failure gives it a turn
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_prompt.py`
-- [ ] 5.2 Describe the hooks, the repair rounds, the setting and the scoped checks in step 16 of `k8s/README.md` and in `docs/ROADMAP_WORKFLOW.md`, with the extra run time of an item
+- [x] 5.2 Describe the hooks, the repair rounds, the setting and the scoped checks in step 16 of `k8s/README.md` and in `docs/ROADMAP_WORKFLOW.md`, with the extra run time of an item
   - Verification: `git grep -n "repair_rounds" -- k8s/README.md docs/ROADMAP_WORKFLOW.md` prints a line for each file
-- [ ] 5.3 Regenerate the generated documents
+- [x] 5.3 Regenerate the generated documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 6. Fail-to-pass and archive
