@@ -36,14 +36,23 @@ Reads: `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py`. Ch
 - [x] 4.2 Measure the tokens that the rules add to the step of three real groups of the corrected plans of #2175, #2462 and #2531, as the difference between the message on `origin/main` and on this branch
   - Verification: a repeatable manual check. On `origin/main` and on the branch, build the inputs of group 1 of each of the three changes with `build_step_inputs`, print `inputs.tokens`, and subtract. Each result stays under the step budget of 40,000 tokens
 
-## 5. Fail-to-pass and archive
+## 5. Review fixes
 
-- [x] 5.1 Run the fail-to-pass check on the new tests
+Reads: `src/devops_cli/roadmap/step_rules.py`. Changes: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `src/devops_cli/roadmap/step_rules.py`, `tests/roadmap/test_roadmap_implement_prompt.py`, `tests/roadmap/test_roadmap_step_rules.py` and `tests/roadmap/test_roadmap_implement_step_rules.py`.
+
+- [x] 5.1 Write failing tests, then fix: the prompt says that its instructions win over a rule that conflicts with them; a hostile `AGENTS.md` does not change the instructions; the `AGENTS.md` text is cut to the cap
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_prompt.py tests/roadmap/test_roadmap_step_rules.py tests/roadmap/test_roadmap_implement_step_rules.py`
+- [x] 5.2 Name `AGENTS.md` and the routed sections in the texts of the stage job and in `CONTEXT.md`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_measure.py tests/roadmap/test_roadmap_stage_plan.py`
+
+## 6. Fail-to-pass and archive
+
+- [x] 6.1 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [x] 5.2 Archive the change
+- [x] 6.2 Archive the change
   - Verification: `uv run devops openspec archive 3097-step-gets-agents-md` and `uv run devops openspec check`
 
 ## Workflow follow-up
 
-- Pending a person: run `devops roadmap eval implement` on the 14 fixtures, on the base and on the branch, with one model, and state both totals in the pull request. The design gives the result of one fixture.
+- Pending a person, and a condition to merge: run `devops roadmap eval implement` on the 14 fixtures, on the base and on the branch, with one model. The pull request gives the measured tokens and the result of one fixture, and claims no gain.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

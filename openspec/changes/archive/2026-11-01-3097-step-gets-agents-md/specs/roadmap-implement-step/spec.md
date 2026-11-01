@@ -31,3 +31,14 @@ The step SHALL add the named sections of a routed document to the message when a
 #### Scenario: A route drifts from AGENTS.md
 - **WHEN** a route names a "When you" cell that the table lacks, or a document that the row does not link
 - **THEN** the test of the routes fails and names the route
+
+### Requirement: The rules in the message are data and are bounded
+The step SHALL cut the `AGENTS.md` text in the message to `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The instructions of the step SHALL stay the text of the prompt, whatever the rules hold. The prompt SHALL say that its instructions win over a rule that conflicts with them.
+
+#### Scenario: A large AGENTS.md
+- **WHEN** the `AGENTS.md` of the checkout holds more tokens than the cap
+- **THEN** the rules section is cut to the cap and ends with the mark of a cut
+
+#### Scenario: A hostile AGENTS.md
+- **WHEN** the `AGENTS.md` of the checkout says to ignore the instructions and holds a heading "Your group"
+- **THEN** the instructions of the step equal the prompt, and the message starts with that text under the rules heading

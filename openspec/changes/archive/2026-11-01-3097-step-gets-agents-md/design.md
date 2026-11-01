@@ -38,6 +38,10 @@ A whole document is too large. `docs/TESTING.md` has 12,048 tokens, and a step w
 
 `measure_groups` adds the tokens of `rules_sections(root, group)` for each group. `AGENTS.md` counts once for each group, as each step reads it. A root without `AGENTS.md` adds nothing, so a repository without the file keeps the old measure. The step prompt is not in the measure today, and this change does not add it.
 
+## The rules are data and are bounded
+
+The rules text comes from the branch, and an earlier step can edit it. So the prompt says that the rules are data, and that its own instructions win over a rule that conflicts with them. `AGENTS.md` describes the work of a person and of the job (commit, push, archive, pull request, `devops roadmap return`, the full `devops ci`), and the agent does none of it. The prompt lists that work and says the job does it. The `AGENTS.md` text is cut to `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens, as a routed document is, so a large file in a branch cannot fill the window. The real file holds about 1,700 tokens, so the cut does not touch it. The text keeps its place under its own heading, and a heading inside it is data under the rules heading. The test builds a message from a hostile `AGENTS.md` and checks that the instructions stay the prompt.
+
 ## Missing files
 
 A checkout with no `AGENTS.md`, or a route whose document is missing, adds no section. The file is the state of the repository. The drift test fails in this repository when a route points to a missing file or to a section that the document lacks. A route with no sections gives the start of the document, cut to the cap.
@@ -54,7 +58,7 @@ A checkout with no `AGENTS.md`, or a route whose document is missing, adds no se
 | #2531 group 1 | `tests/` | 6,733 | 11,063 | 4,330 |
 | #2531 group 2 | `tests/` | 9,000 | 13,330 | 4,330 |
 
-`AGENTS.md` adds about 1,700 tokens to each. Each routed document adds 2,500 to 2,900 tokens. The largest group is 20,700 tokens, half of `roadmap.stage.step_tokens` (40,000), and the window check of the step (128,000 minus 40,000) holds with a wide margin. A group that names tests, source, roadmap code and a manifest adds about 14,000 tokens.
+`AGENTS.md` adds about 1,700 tokens to each. Each routed document adds 2,500 to 2,900 tokens. The largest of these five groups is 20,700 tokens. A second measure ran over all 1,392 groups of the plans in `openspec/changes` and `openspec/changes/archive`. Before this change no group passes `roadmap.stage.step_tokens` (40,000). After it, two groups pass: group 1 of `2526-the-five-defect-fixes-merged-on` (31,133 before, 43,816 after) and group 1 of `2167-the-49-test-files-that-no` (30,666 before, 43,349 after). The most that the rules add to one group is 14,248 tokens. A new group with a heavy body can pass the 40,000 budget, and then costs one more split request in the stage job. The step still fits: 43,816 tokens and the prompt are far below the window of 128,000 minus the reserve, so no step breaks. The owner may raise the budget; this change does not.
 
 ## Score of the implement eval
 
