@@ -419,7 +419,7 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
     group = _group(
         test="Write the test.",
         implementation="Keep the last comment. .",
-        documentation="Change no document.",
+        documentation="Document the fix in `docs/TESTING.md`.",
     )
 
     tasks = _tasks_of(group).partition("## Workflow follow-up")[0]
@@ -431,7 +431,8 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
         "fails on the base",
         "- [ ] 1.2 Keep the last comment, and verify that "
         "`uv run devops ci test tests/test_sample.py` passes",
-        "- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and "
+        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, run "
+        "`uv run devops docs generate --sync-readme`, and "
         "verify that `uv run devops ci docs` passes",
     ]
 
@@ -530,6 +531,19 @@ def test_a_group_with_no_changed_file_goes_back_to_the_model_with_the_violation(
 
     assert len(model_fake.sent) == 2
     assert "groups[0].changes" in model_fake.sent[1].messages[-1].content
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_an_other_group_with_a_test_goes_back_to_the_model_with_the_problem(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_reply_without(kind="other"), make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 2
+    assert "has the kind other, and it has a test" in model_fake.sent[1].messages[-1].content
     assert len(plan.ready) == 1
 
 

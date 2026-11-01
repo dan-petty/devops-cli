@@ -1,13 +1,9 @@
 # Tasks
 
-## 1. Guard urlsplit in _is_single_server_local and add tests
+## 1. Guard the scheme read of a served_by value
 
-Reads: none. Changes: `src/devops_cli/ai/spend/pricing.py`, `tests/test_pricing.py`.
+Reads: `src/devops_cli/ai/spend/pricing.py` lines 226-262, `tests/ai/spend/test_ai_spend_pricing.py` lines 660-725, `tests/ai/client/test_ai_served_by.py` lines 70-90 and 260-300. Changes: `src/devops_cli/ai/spend/pricing.py`, `tests/ai/spend/test_ai_spend_pricing.py`, `tests/ai/client/test_ai_served_by.py`.
 
-- [ ] 1.1 Write a test that calls _is_single_server_local with the string http://[::1 and a _SettingsOnce instance, and asserts it returns False without raising ValueError. Write a test that calls is_local with served_by set to http://[::1 and asserts it returns False. Write a test that calls is_local with served_by set to http://localhost:11434 and asserts it returns True, and verify that `uv run pytest tests/test_pricing.py -x` fails on the base
-- [ ] 1.2 In _is_single_server_local, split the existing if clean in CONST_LOCAL_TRANSPORT_LABELS or urlsplit(clean).scheme == "http+unix" line into two checks. Keep the CONST_LOCAL_TRANSPORT_LABELS check as-is. Wrap the urlsplit(clean).scheme == "http+unix" check in a try block that catches ValueError and returns False, and verify that `uv run pytest tests/test_pricing.py -x` passes
-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-
-## Workflow follow-up
-
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- [ ] 1.1 Write the failing tests first. In `tests/ai/spend/test_ai_spend_pricing.py`, after `test_a_gateway_call_is_local_by_the_backend_that_served_it`, add the parametrized test `test_a_stored_served_by_that_urlsplit_cannot_read_is_hosted`. It calls `is_local(server="gateway.example.com:4000", provider="gateway", served_by=<value>)` and asserts the result. The cases are `http://[::1` (`unclosed-bracket`, false), `http://[` (`open-bracket`, false), `http://localhost:11434,http://[::1` (`list-with-unreadable`, false) and `http://localhost:11434` (`local-url`, true). In `tests/ai/client/test_ai_served_by.py`, add two cases to the `parametrize` of `test_cost_command_names_a_serving_backend_by_its_host_and_port`: `pytest.param("http://[::1", "unknown", id="unreadable-url")` and `pytest.param("http://localhost:11434", "localhost:11434", id="local-url")`. Run `uv run devops ci test tests/ai/spend/test_ai_spend_pricing.py tests/ai/client/test_ai_served_by.py`. It must fail on the base: the three unreadable cases of the first test fail with `ValueError: Invalid IPv6 URL`, and `unreadable-url` fails with exit code 1 where the test expects 0. The two `local-url` cases pass on the base. They pin the behavior of valid values.
+- [ ] 1.2 In `_is_single_server_local` in `src/devops_cli/ai/spend/pricing.py`, keep the `CONST_LOCAL_TRANSPORT_LABELS` check as it is. Read the scheme in a `try` block that catches `ValueError`, so an unreadable value is no `http+unix` URL, and let the code after it run. Add a comment that names #2462 and says that old ledger rows can hold such a value. Run `uv run devops ci test tests/ai/spend/test_ai_spend_pricing.py tests/ai/client/test_ai_served_by.py` and check that it passes.
+- [ ] 1.3 Run `uv run devops ci test src/devops_cli/ai/spend/pricing.py tests/ai/client/test_ai_served_by.py tests/ai/client/test_reply_server.py` and check that every test that reaches the changed module passes. Run `uv run devops openspec check` and check that the change and both spec deltas are valid.

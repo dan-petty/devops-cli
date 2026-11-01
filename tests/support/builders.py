@@ -137,12 +137,13 @@ _STAGE_PROPOSAL: dict[str, Any] = {
     "groups": [
         {
             "title": "Keep the last comment",
+            "kind": "behavior",
             "reads": ["src/devops_cli/sample.py"],
             "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
             "creates": ["tests/test_sample.py"],
             "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
             "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
-            "documentation": "Change no document",
+            "documentation": None,
             "verify": "uv run devops ci test tests/test_sample.py",
         }
     ],
