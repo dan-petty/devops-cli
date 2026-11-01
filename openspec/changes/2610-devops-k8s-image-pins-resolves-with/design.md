@@ -14,7 +14,7 @@
 ## Rejected alternatives
 
 - **Pin `crane` in `tools.lock` and call `crane digest` as a process.** It sends a HEAD too. The design of #1997 (`openspec/changes/archive/2026-10-29-1997-argo-image-pin-drift/design.md`) rejected it for the same read: a new pin, an installer step, a process fake, recorded runs and a contract suite. `tag_digest` already exists and passes its tests.
-- **Prepend the prefix docker.io and library to a name and call `tag_digest` as it is.** The first draft of this plan did that. `curl -sI https://docker.io/v2/library/nginx/manifests/1.27` gives `302` to `www.docker.com`, so every Docker Hub pin would fail. The host map above replaces it.
+- **Prepend the prefix docker.io and library to a name and call `tag_digest` as it is.** `curl -sI https://docker.io/v2/library/nginx/manifests/1.27` gives `302` to `www.docker.com`, so every Docker Hub pin would fail. The host map above replaces it.
 - **Keep `ImagetoolsFake` and add a second fake for `tag_digest`.** The resolver starts no process, so a process fake has no use. `RegistryFake` already answers at the HTTP edge.
 - **Keep `image_reference` in `src/devops_cli/k8s/image_pins.py` next to `tagged_image`.** Two splits of the grammar drift. The issue asks for one.
 - **Use `docker.auth.resolve_repository_name` from docker-py now.** The package has no type hints, and its import adds a `type: ignore` above the ceiling of the project (note in the module docstring of `registry.py`). #2603 does this.

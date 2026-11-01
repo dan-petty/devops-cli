@@ -40,6 +40,8 @@ Reads: `docs/SDLC.md` (the section "The Image Pins"), `docs/TESTING.md` (the lis
 
 ## 5. Fail-to-pass and archive
 
+Reads: nothing. Changes: `openspec/changes/2610-devops-k8s-image-pins-resolves-with` (moved by the archive command) and `openspec/specs/k8s-image-pins/spec.md`.
+
 - [ ] 5.1 Run the fail-to-pass check on the new tests, and check that the job needs no new binary
   - Verification: `uv run devops ci fail-to-pass --base origin/main`, and `git diff --exit-code origin/main -- src/devops_cli/tools_lock/tools.lock`
 - [ ] 5.2 Archive the change
