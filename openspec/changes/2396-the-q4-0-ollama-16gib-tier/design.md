@@ -12,4 +12,4 @@
 
 - **Remove `ollama-16gib-fast` from the embedding group of `k8s/llm/gateway/config.yaml`.** Rejected: the issue scopes the fix to the KV cache type, and the deployment is a valid order 2 fallback. Removing it also leaves the cause, which is a different cache type on one tier, in place for any other model.
 - **Record the producing tier with each vector in Qdrant.** Rejected: the refined design of #2396 puts it out of scope. It is a separate item.
-- **Keep `q4_0` on the 16 GiB tier to save memory and lower the context.** Rejected: the memory fits (see "Feasibility" in `proposal.md`: 15421 MiB of 16303 MiB in the worst case), and a lower context would remove the 131072 window that #2822 raised and that the gateway config declares for `gpt-oss:20b`.
+- **Keep `q4_0` on the 16 GiB tier to save memory and lower the context.** Rejected: the memory fits (see "Feasibility" in `proposal.md`: 15196 MiB of 16303 MiB in the worst case for the chat model alone), and a lower context would remove the 131072 window that #2822 raised and that the gateway config declares for `gpt-oss:20b`.

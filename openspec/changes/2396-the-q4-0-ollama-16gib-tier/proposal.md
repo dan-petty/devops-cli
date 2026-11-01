@@ -57,8 +57,10 @@ The issue text says that the context of the tier is 48000. That is wrong. `OLLAM
 - The query `max_over_time(DCGM_FI_DEV_FB_USED[3d])` on the cluster Prometheus gives a peak of 13660 MiB for hawk. That is the `q4_0` state with `gpt-oss:20b` at 131072.
 - The architecture from `config.json` of `openai/gpt-oss-20b`: 24 layers, 8 KV heads, head dimension 64, a sliding window of 128, and 12 `full_attention` layers.
 - The size of the cache is `2 x 8 x 64 x layers x 131072` elements. A `q4_0` element takes 18/32 byte and a `q8_0` element takes 34/32 byte. With the 12 full layers, the cache grows from 864 MiB to 1632 MiB: 768 MiB more. If all 24 layers keep a full cache, it grows from 1728 MiB to 3264 MiB: 1536 MiB more.
-- `qwen3-embedding:0.6b` at `num_ctx` 8192 on the same tier: the 28 layers, 8 KV heads and head dimension 128 of that model give about 225 MiB more (an estimate from its published architecture, not a measurement).
-- The worst case is 13660 + 1536 + 225 = 15421 MiB of 16303 MiB. About 880 MiB stay free. In the likely case (768 MiB and 225 MiB more) about 1650 MiB stay free. The change fits, with a small margin in the worst case.
+- The peak of 13660 MiB is the chat model alone. The archived change 2822 measured `gpt-oss:20b` alone at 13 GB. The 3-day median is 23 MiB, so the GPU is mostly idle.
+- The bound for the chat model alone is 13660 + up to 1536 = 15196 MiB of 16303 MiB. About 1100 MiB stay free in the worst case. In the likely case (768 MiB more) about 1870 MiB stay free.
+- The embedder `qwen3-embedding:0.6b` at `num_ctx` 8192 is not counted. `src/devops_cli/ai/knowledge_base/it_domains/tools/ollama.md` (line 98) says it needs 2.2 to 2.9 GB, and that Ollama unloads the idle model when both do not fit. The change to `q8_0` does not alter this rule. The embedder cache grows by about 225 MiB (an estimate from its published architecture: 28 layers, 8 KV heads, head dimension 128), but the chat model and the embedder are not proven to be resident together.
+- The change fits for the chat model alone, with a small margin in the worst case.
 
 The margin is an estimate. The first "Workflow follow-up" step makes a person confirm it with `ollama ps` after the rollout. If the model no longer loads 100% on the GPU, the person lowers `OLLAMA_CONTEXT_LENGTH` of the tier in a new item. This plan makes no such decision.
 
