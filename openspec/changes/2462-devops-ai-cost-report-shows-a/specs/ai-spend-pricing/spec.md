@@ -1,22 +1,17 @@
 ## ADDED Requirements
 
-### Requirement: Report does not crash on unparseable served_by
-The report command SHALL NOT raise an unhandled ValueError when a ledger row holds a served_by value that urlsplit cannot parse.
+### Requirement: A stored serving backend that no URL reader accepts is hosted
+`is_local` SHALL decide the locality of a call from the stored served_by value, and SHALL NOT raise for a value that `urllib.parse.urlsplit` cannot read. Such a value names no local server, so the call SHALL count as hosted. A list of served_by values SHALL be local only when every value in it is local. A readable served_by value SHALL keep its classification.
 
-#### Scenario: Ledger row with unparseable served_by
-- **WHEN** A spend ledger row has served_by set to http://[::1 and the user runs devops ai cost report --by backend
-- **THEN** The command exits 0 and prints the report table without a traceback
+#### Scenario: A stored served_by that urlsplit cannot read
+- **WHEN** `is_local` runs for a gateway call whose served_by is `http://[::1`
+- **THEN** it returns false and raises no `ValueError`
 
-### Requirement: Unparseable backend shows as unknown
-The report SHALL display the serving backend as unknown for a row whose served_by value urlsplit cannot parse.
+#### Scenario: A list that holds one unreadable value
+- **WHEN** `is_local` runs for a gateway call whose served_by is `http://localhost:11434,http://[::1`
+- **THEN** it returns false and raises no `ValueError`
 
-#### Scenario: Backend column for unparseable value
-- **WHEN** The report renders a row whose served_by is http://[::1
-- **THEN** The backend column for that row shows unknown
-
-### Requirement: Valid served_by values still resolve
-The report SHALL resolve a valid served_by value to its local or hosted classification as before.
-
-#### Scenario: Valid local backend still detected
-- **WHEN** A ledger row has served_by set to http://localhost:11434 and the user runs devops ai cost report --by backend
-- **THEN** The row is classified as local and the backend column shows the resolved value
+#### Scenario: A stored local URL
+- **WHEN** `is_local` runs for a gateway call whose served_by is `http://localhost:11434`
+- **THEN** it returns true
+- **AND** `devops ai cost report --by backend` shows the serving backend `localhost:11434`
