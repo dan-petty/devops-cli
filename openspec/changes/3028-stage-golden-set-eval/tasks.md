@@ -40,7 +40,7 @@ Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/stage_eval_
 
 Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `README.md`.
 
-- [ ] 5.1 Add one section to `docs/ROADMAP_WORKFLOW.md`: how to run the eval, how to read the score, and the rule that a change to the stage prompt or to the checks states its score before and after in its pull request; then regenerate the documents
+- [x] 5.1 Add one section to `docs/ROADMAP_WORKFLOW.md`: how to run the eval, how to read the score, and the rule that a change to the stage prompt or to the checks states its score before and after in its pull request; then regenerate the documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs` pass, and `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` passes
 
 ## 6. Fail-to-pass and archive

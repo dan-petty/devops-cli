@@ -384,6 +384,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops roadmap return [OPTIONS] <item>` | Return an item to New with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. The item gets the label status/new in place of its other status/* label. |
 |  | `devops roadmap claim [OPTIONS] <item>` | Claim an item for an agent or a person with the label owner/agent or owner/human. An item has one owner. A person can take an item from the Service. The jobs stage and implement take no item that an agent or a person claimed. |
 |  | `devops roadmap release [OPTIONS] <item>` | Release an item: remove its owner/* label, whoever holds it. No job removes the claim of an agent or a person. |
+|  | `devops roadmap eval COMMAND [ARGS]...` | Score the plan and implement jobs on a golden set. Each command runs a job's real code on committed cases with a chosen model. It is on demand and no part of devops ci. |
 | [**pr**](docs/commands/pr.md) | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |

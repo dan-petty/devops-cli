@@ -159,6 +159,23 @@ stateDiagram-v2
     closed: closed, no status label
 ```
 
+## Measure the stage job
+
+The stage job has a golden set: the 37 plans of 2026-11-01, each with the defects a review found in it, and 3 good plans. It lives in `tests/fixtures/roadmap_eval/stage/`, one folder for each plan. A change of the stage prompt or of the checks needs a measure, and this set gives it.
+
+Run the live eval on demand. It calls a model through the gateway and is no part of `devops ci`:
+
+```text
+uv run devops roadmap eval stage --model <model>
+uv run devops roadmap eval stage --case 2260 --dry-run
+uv run devops roadmap eval stage --replay
+```
+
+- **The live run** plans each case with the real stage planner and a checkout of the commit the plan was staged on. It prints one row for each type of defect, and a score. It stores the report as JSON under the data directory, in `roadmap_eval/stage/`.
+- **How to read the score.** The planner sends a refused reply back, so the plan it ends with always passes the gates. The score therefore judges the first reply of the model. For a type of defect that a gate catches, `Cases` counts the plans that had it, `Avoided` counts the first replies that passed the gate, `Caught` counts the first replies that the gate refused, and `Rate` is `Avoided` over `Cases`. A type that no gate judges yet shows its count and a dash, because only a reviewer can judge it. `Score` is the share of avoided defects over all scored rows. A first reply that breaks the schema is sent back inside the client, so the run sees it only when the second reply breaks it too. The `kind` row therefore stays near 100 percent.
+- **The replay** calls no model and reads no git. It runs the recorded plans through the gates and lists, for each gate, the known defects it catches. It exits 1 when a gate stops refusing a known-bad plan, or refuses a good plan. The test suite runs it on the whole set. A defect for a gate that does not exist yet is marked `pending`: the replay lists it and fails nothing. When the gate lands, its pull request sets the gate in the case files, and the replay checks it from then on.
+- **The rule.** A pull request that changes the stage prompt (`roadmap_stage_change.md`) or a check of the stage job (`check_proposal` and the gates it calls) states the score of the same model before and after the change. Use one model for both runs, and say which.
+
 ## Planned changes
 
 Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the work that is not built yet. This section is the one place that names it. When an item merges, change its line here and the text above.
