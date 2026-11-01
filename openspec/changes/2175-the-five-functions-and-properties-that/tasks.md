@@ -22,9 +22,9 @@ Reads: `src/devops_cli/ai/client/unified.py` (lines 1-30 and 155-175), `src/devo
 
 Reads: `src/devops_cli/config/settings.py` (lines 175-215 only; the file is 77 KB). Changes: the same file.
 
-- [ ] 3.1 Run `git grep -n -w _validation_error_key -- src tests docs`. On the base it prints only the definition line (`src/devops_cli/config/settings.py:187`). After the deletion it prints nothing
-- [ ] 3.2 Delete the `_validation_error_key` function from `src/devops_cli/config/settings.py`. Keep `_format_validation_error` and the import of `ValidationError`, which other code uses
-- [ ] 3.3 Run the `git grep` command of task 3.1 (it prints nothing), then `uv run devops ci test tests/config/test_settings.py` (it passes)
+- [x] 3.1 Run `git grep -n -w _validation_error_key -- src tests docs`. On the base it prints only the definition line (`src/devops_cli/config/settings.py:187`). After the deletion it prints nothing
+- [x] 3.2 Delete the `_validation_error_key` function from `src/devops_cli/config/settings.py`. Keep `_format_validation_error` and the import of `ValidationError`, which other code uses
+- [x] 3.3 Run the `git grep` command of task 3.1 (it prints nothing), then `uv run devops ci test tests/config/test_settings.py` (it passes)
 
 ## 4. Delete the dead dashboard property and run the gate
 
