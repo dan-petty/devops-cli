@@ -12,7 +12,7 @@ from pathlib import Path
 
 from devops_cli.dry_run.requests import PlannedRequest
 
-RENDERED_SECRET_PLACEHOLDER = "<output of the previous request>"
+RENDERED_SECRET_PLACEHOLDER = "<output of the previous request>"  # nosec B105 # placeholder string for stdin of planned kubectl apply request, not a secret
 
 
 def _context_args(context: str | None) -> list[str]:
