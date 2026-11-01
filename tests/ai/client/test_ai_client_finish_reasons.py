@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
 
 from devops_cli.ai.client import LLMClient, LLMResponse, ReplyRejectedError, RequestPriority
+from devops_cli.ai.client.models import CallSampling
 from devops_cli.config.constants import (
     CONST_ANTHROPIC_STOP_REASONS,
     CONST_OLLAMA_DONE_REASONS,
@@ -159,6 +160,7 @@ def test_only_replies_that_ended_normally_are_cached(
         *,
         enable_thinking: bool = True,
         priority: RequestPriority | str | None = None,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         provider_calls.append(_system)
         return LLMResponse("reply", prompt_tokens=3, completion_tokens=2, finish_reason=reason)

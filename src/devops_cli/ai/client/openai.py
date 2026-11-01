@@ -19,6 +19,7 @@ from devops_cli.ai.client import network
 from devops_cli.ai.client.base import BaseLLMProviderMixin, _clean_http_error_body
 from devops_cli.ai.client.models import (
     AIClientError,
+    CallSampling,
     LLMResponse,
     credentials_error,
     origin_label,
@@ -153,7 +154,16 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             )
         return False
 
-    def _apply_sampling_and_limits(self, params: dict[str, Any], *, enable_thinking: bool) -> None:
+    def _apply_sampling_and_limits(
+        self,
+        params: dict[str, Any],
+        *,
+        enable_thinking: bool,
+        sampling: CallSampling | None = None,
+    ) -> None:
+        """Set the reply cap and the sampling. A reasoning model and `use_model_sampling` take no
+        sampling, also none that a caller passes; otherwise a per-call value replaces the
+        configured one."""
         limit = self._completion_limit()
         if self._supports_reasoning():
             if enable_thinking:
@@ -166,12 +176,13 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         if limit is not None:
             params["max_tokens"] = limit
         if not getattr(self._config, "use_model_sampling", False):
-            temp = getattr(self._config, "temperature", None)
-            if temp is not None:
-                params["temperature"] = float(temp)
-            top_p = getattr(self._config, "top_p", None)
-            if top_p is not None:
-                params["top_p"] = float(top_p)
+            chosen = (sampling or CallSampling()).over(self._config)
+            if chosen.temperature is not None:
+                params["temperature"] = float(chosen.temperature)
+            if chosen.top_p is not None:
+                params["top_p"] = float(chosen.top_p)
+            if chosen.seed is not None:
+                params["seed"] = int(chosen.seed)
 
     def _prepare_params(
         self,
@@ -180,6 +191,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         *,
         stream: bool = False,
         enable_thinking: bool = True,
+        sampling: CallSampling | None = None,
     ) -> dict[str, Any]:
         extra_headers: dict[str, Any] = inject_trace_context({})
         if not self._api_key:
@@ -199,7 +211,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             params["stream"] = True
             params["stream_options"] = {"include_usage": True}
 
-        self._apply_sampling_and_limits(params, enable_thinking=enable_thinking)
+        self._apply_sampling_and_limits(params, enable_thinking=enable_thinking, sampling=sampling)
 
         schema = reply_schema.get()
         response_format = self._reply_format(schema) if schema is not None else None
@@ -250,6 +262,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         """One reply, read as a stream. The gateway writes keepalive comments while the model has
         no data, so the Cloudflare edge does not cut a reply that takes longer than its 125 s read
@@ -259,7 +272,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         from devops_cli.ai.spend.transport import record_failed_attempt
 
         params = self._prepare_params(
-            system, messages, stream=True, enable_thinking=enable_thinking
+            system, messages, stream=True, enable_thinking=enable_thinking, sampling=sampling
         )
         with self._gateway_slot():
             start_time = time.monotonic()
