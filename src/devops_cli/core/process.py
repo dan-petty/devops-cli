@@ -479,9 +479,6 @@ def prepare_tool_cmd(cmd: Sequence[str] | list[str]) -> list[str]:
     return full_cmd
 
 
-_prepare_cmd = prepare_tool_cmd
-
-
 class ProcessRunner(Protocol):
     """Protocol for process runners executing system subprocesses."""
 
