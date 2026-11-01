@@ -1651,7 +1651,8 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # binding.gyp, starts the interpreter of npm_config_python and of PYTHON.
     # npm reads `npm_config_script-shell` as `npm_config_script_shell`, so `[_-]` matches both.
     # npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: callers set
-    # them, and a caller names a file that it controls.
+    # them, and a caller names a file that it controls. npm_config_cache stays accepted for the
+    # same reason (#2747): `devops install-tools` sets it, and npm writes its log below it.
     "UV_PYTHON",
     "UV_PYTHON_INSTALL_DIR",
     "UV_PROJECT_ENVIRONMENT",
@@ -1669,10 +1670,14 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # connection to SSLKEYLOGFILE, and curl writes a QUIC log to the directory of QLOGDIR.
     # node(1): Node.js writes coverage data to the directory of NODE_V8_COVERAGE and its warnings
     # to the file of NODE_REDIRECT_WARNINGS. The LD_ keys of the loader are the pattern above.
+    # pytest writes a JUnit file at the path of `--junitxml=<path>` in PYTEST_ADDOPTS, and npm
+    # writes its debug log into the directory of npm_config_logs_dir (#2747).
     "SSLKEYLOGFILE",
     "QLOGDIR",
     "NODE_V8_COVERAGE",
     "NODE_REDIRECT_WARNINGS",
+    "PYTEST_ADDOPTS",
+    "NPM_CONFIG_LOGS[_-]DIR",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",
