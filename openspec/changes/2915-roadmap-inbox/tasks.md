@@ -16,9 +16,9 @@
 
 ## 3. The command
 
-- [ ] 3.1 Write failing tests in `tests/roadmap/test_roadmap_inbox_command.py` for the scenarios of "The inbox reads a bounded number of requests and writes none": the output, the reads counted, no write, no model, and the dry run with processes and sockets refused
+- [x] 3.1 Write failing tests in `tests/roadmap/test_roadmap_inbox_command.py` for the scenarios of "The inbox reads a bounded number of requests and writes none": the output, the reads counted, no write, no model, and the dry run with processes and sockets refused
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox_command.py`
-- [ ] 3.2 Add `devops roadmap inbox` with the class `request-plan`, its help and the read failure message
+- [x] 3.2 Add `devops roadmap inbox` with the class `request-plan`, its help and the read failure message
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox_command.py tests/invariants/test_dry_run_class_ratchet.py`
 
 ## 4. The documents and the archive
