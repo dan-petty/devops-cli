@@ -184,15 +184,19 @@ The step SHALL read the item once and SHALL write no issue, comment, label or mi
 - **THEN** the command exits 0, it prints the read of issue 7 and the model requests, the model gets no request, and the roadmap store sees no read
 
 ### Requirement: The outcome is a structured report
-The step SHALL return a `StepOutcome` with the status (done or stopped), the reason, the last message of the agent, the commit, and the requests and tokens that the run spent. The command SHALL print it as a table, or as JSON with `--format json`, and SHALL exit 1 when the status is stopped. The step SHALL record the spend of the run as one record of the spend ledger.
+The step SHALL return a `StepOutcome` with the status (done or stopped), the reason, the last message of the agent, the commit, and the requests, the tool calls and the tokens that the run spent. The command SHALL print it as a table, or as JSON with `--format json`, and SHALL exit 1 when the status is stopped. The step SHALL record the spend of the run as one record of the spend ledger.
 
 #### Scenario: A stopped step as JSON
 - **WHEN** a step stops on a failed verification and the command runs with `--format json`
-- **THEN** the output is one JSON object with `status` `stopped`, the reason, an empty `commit`, and the counts of requests and tokens, and the exit code is 1
+- **THEN** the output is one JSON object with `status` `stopped`, the reason, an empty `commit`, and the counts of requests, tool calls and tokens, and the exit code is 1
 
 #### Scenario: The spend record
 - **WHEN** a step ends after two model requests
 - **THEN** the spend ledger holds one record for the run with the sum of the tokens of the two replies
+
+#### Scenario: The tool calls
+- **WHEN** a step ends after three tool calls in two replies
+- **THEN** the outcome holds `tool_calls` 3
 
 ### Requirement: A fix step makes a failed check pass
 The step SHALL accept a fix request: the name of a failed check and its log. The group of a fix step SHALL be "Make check `<name>` pass", with the verification commands of every group of the change. The inputs SHALL hold the log cut to `CONST_ROADMAP_IMPLEMENT_LOG_CHARS` characters from its end. The exit checks SHALL be those of a group, except that no task is ticked and `tasks.md` SHALL be as it was. A done fix step SHALL commit as `Make check <name> pass (#N)`.
