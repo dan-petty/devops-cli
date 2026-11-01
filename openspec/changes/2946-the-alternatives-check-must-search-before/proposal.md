@@ -13,6 +13,7 @@ The alternatives check lets the model decide whether to search for open tools. I
 - The model can no longer give the verdict `not-applicable`. The job sets it for a skip class only. The existing refusal of `not-applicable` after a search stays. The refusal now holds for every reply, because a non-skip item must search first.
 - The prompt tells the model to search at least once and to give `none` when no tool covers the need.
 - The tests that answer a non-skip item with no search now search first. One test that pinned the old rule is deleted.
+- The docstring of `Verdict` in `src/devops_cli/roadmap/store.py` says that `NOT_APPLICABLE` means the item asks for no tool. It now means the item is in a skip class.
 - The help text of the command, the paragraph of the row in `k8s/README.md` and the term in `CONTEXT.md` state the new rule.
 
 The change alters a message and the result of the command, so it carries a spec delta. The delta only ADDS requirements to `roadmap-alternatives`. It does not MODIFY a requirement, because the plan of #2949 modifies the requirements that this change would touch.
@@ -38,10 +39,10 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/refine_investigation.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/ai/tasks/roadmap_alternatives.md`.
+- Code: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/refine_investigation.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/ai/tasks/roadmap_alternatives.md`, and the docstring of `Verdict` in `src/devops_cli/roadmap/store.py`.
 - Tests: `tests/roadmap/test_roadmap_alternatives.py`.
 - Documents: `k8s/README.md` (step 14), `CONTEXT.md` (term Alternative), and the generated command documents.
-- Reuse and keep passing: `commit_type` in `src/devops_cli/roadmap/commit_title.py` (it reads the type of a title), `_marker_problem` and `validate_reply` in `src/devops_cli/roadmap/alternatives.py`, the base requirements of `openspec/specs/roadmap-alternatives/spec.md`, and the refine tests in `tests/roadmap/test_roadmap_refine.py`, which use `investigate`.
+- Reuse and keep passing: `commit_type` in `src/devops_cli/roadmap/commit_title.py` (it reads the type of a title), `_marker_problem` and `validate_reply` in `src/devops_cli/roadmap/alternatives.py`, the base requirements of `openspec/specs/roadmap-alternatives/spec.md`, the tests that call `investigate` directly in `tests/roadmap/test_roadmap_refine_investigation.py`, and the refine tests in `tests/roadmap/test_roadmap_refine.py`, which use it.
 - Deletes: the test `test_a_not_applicable_verdict_with_no_tool_run_is_kept`, which pins the rule that this change removes.
 - Overlap: the plan of #2949 edits the same file, the same paragraph of `k8s/README.md`, and the requirement "The job refuses a reply with a source no tool returned". This change leaves that requirement alone. The second pull request to merge rebases onto the first. #2951 can reuse the public function `skip_class_of` as its list of exempt classes.
 

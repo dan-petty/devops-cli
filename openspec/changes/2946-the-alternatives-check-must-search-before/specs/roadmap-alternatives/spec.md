@@ -7,6 +7,10 @@ The check SHALL give the verdict `not-applicable`, with no model call and no sea
 - **WHEN** the check runs on six items whose titles have the types `test`, `docs`, `refactor`, `chore`, `ci` and `perf`
 - **THEN** each check has the verdict `not-applicable`, each comment names the type, and the model received no request and no search ran
 
+#### Scenario: The base rule of one agent run holds for non-skip items only
+- **WHEN** the check runs on a skip-class item
+- **THEN** no agent run happens for it, and the rule "The check of one item SHALL be one agent run" of the requirement "The agent finds facts with three tools only" holds for an item that is not a skip class
+
 #### Scenario: A fix with a stack trace
 - **WHEN** the check runs on an item titled `fix(roadmap): a crash` whose body holds `Traceback (most recent call last)`
 - **THEN** the check has the verdict `not-applicable`, the comment names `fix-with-stack-trace`, and the model received no request
