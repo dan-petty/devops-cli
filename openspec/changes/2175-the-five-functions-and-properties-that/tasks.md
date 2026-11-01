@@ -4,10 +4,10 @@
 
 Reads: `src/devops_cli/ai/client/streaming.py` (lines 140-210), `src/devops_cli/ai/thinking_stream.py` (lines 325-395). Changes: the same two files.
 
-- [ ] 1.1 Run `git grep -n -w thinking_detected -- src tests docs` and `git grep -n -w unique_thinking -- src tests docs`. On the base each prints only its definition line. This pair of commands is the check of the group: after the deletion both print nothing
-- [ ] 1.2 Delete the `thinking_detected` property from `StreamingTokenProcessor` in `src/devops_cli/ai/client/streaming.py`. Keep `has_reasoning`, which other code reads
-- [ ] 1.3 Delete the `unique_thinking` property from `ThinkingStreamProcessor` in `src/devops_cli/ai/thinking_stream.py`. Keep the import of `unique_lines`, which line 390 uses
-- [ ] 1.4 Run the two `git grep` commands of task 1.1 (both print nothing), then `uv run devops ci test tests/ai/client/test_ai_streaming.py tests/ai/test_thinking.py` (it passes)
+- [x] 1.1 Run `git grep -n -w thinking_detected -- src tests docs` and `git grep -n -w unique_thinking -- src tests docs`. On the base each prints only its definition line. This pair of commands is the check of the group: after the deletion both print nothing
+- [x] 1.2 Delete the `thinking_detected` property from `StreamingTokenProcessor` in `src/devops_cli/ai/client/streaming.py`. Keep `has_reasoning`, which other code reads
+- [x] 1.3 Delete the `unique_thinking` property from `ThinkingStreamProcessor` in `src/devops_cli/ai/thinking_stream.py`. Keep the import of `unique_lines`, which line 390 uses
+- [x] 1.4 Run the two `git grep` commands of task 1.1 (both print nothing), then `uv run devops ci test tests/ai/client/test_ai_streaming.py tests/ai/test_thinking.py` (it passes)
 
 ## 2. Delete the dead Ollama semaphore code
 
