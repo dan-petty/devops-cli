@@ -902,13 +902,13 @@ class TestDevcontainerCli:
         """devops devcontainer run-lifecycle in dry-run mode renders dry-run JSON."""
         monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
 
-        result = runner.invoke(app, ["run-lifecycle", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["run-lifecycle", "--workspace", str(tmp_path), "--json"])
         assert result.exit_code == 0
         json_text = result.output[result.output.find("{") :]
         data = json.loads(json_text)
-        assert data["command"] == "devops devcontainer run-lifecycle"
-        assert data["action"] == "run_lifecycle"
         assert data["dry_run"] is True
+        assert "requests" in data
+        assert len(data["requests"]) > 0
 
     def test_validate_valid_devcontainer_manifest(self, runner: CliRunner, tmp_path: Path) -> None:
         """devops devcontainer validate must succeed for valid devcontainer.json."""
@@ -992,15 +992,22 @@ class TestDevcontainerCli:
         assert result.exit_code == 1
         assert "does not exist" in result.output
 
-    def test_validate_dry_run_outputs_json(self, runner: CliRunner, tmp_path: Path) -> None:
-        """devops devcontainer validate --dry-run outputs structured JSON result."""
-        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path), "--dry-run"])
+    def test_validate_dry_run_mode(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer validate executes normally under global dry-run."""
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        manifest = {
+            "name": "test-repo",
+            "image": "python:3.14-trixie",
+        }
+        (dc_dir / "devcontainer.json").write_text(json.dumps(manifest), encoding="utf-8")
+        from devops_cli.main import app as main_app
+
+        result = runner.invoke(
+            main_app, ["--dry-run", "devcontainer", "validate", "--workspace", str(tmp_path)]
+        )
         assert result.exit_code == 0
-        json_text = result.output[result.output.find("{") :]
-        data = json.loads(json_text)
-        assert data["command"] == "devops devcontainer validate"
-        assert data["action"] == "validate_devcontainer_manifest"
-        assert data["dry_run"] is True
+        assert "DevContainer manifest is valid" in result.output
 
     def test_post_start_never_starts_git_daemon(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1365,11 +1372,11 @@ class TestDevcontainerCli:
         # 3. Dry-run commands for post-create and post-start
         res_pc_dry = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--dry-run"])
         assert res_pc_dry.exit_code == 0
-        assert "post_create_lifecycle" in res_pc_dry.output
+        assert "curl -LsSf https://astral.sh/uv/install.sh" in res_pc_dry.output
 
         res_ps_dry = runner.invoke(app, ["post-start", "--workspace", str(tmp_path), "--dry-run"])
         assert res_ps_dry.exit_code == 0
-        assert "post_start_lifecycle" in res_ps_dry.output
+        assert "git config --global push.autoSetupRemote true" in res_ps_dry.output
 
         # 4. run-lifecycle with flags
         res_life_pc = runner.invoke(

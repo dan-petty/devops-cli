@@ -14,6 +14,8 @@ devops install-tools [OPTIONS] COMMAND [ARGS]...
 | `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
 | `--only-missing` | `boolean` | - | Only install tools that are not linked at their locked version. |
 | `--check` | `boolean` | - | Install nothing: report each tool not linked at its locked version, and exit 1 if any. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ## Commands
 

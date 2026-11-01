@@ -36,6 +36,9 @@ from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS, DEFAULT_LOC
 from devops_cli.core.binaries import require_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import ChecksumMismatchError, ToolDownloadError, ToolExecutionError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
@@ -47,6 +50,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.output.serialization import emit_serialized
 from devops_cli.tools_lock import (
     LOCK_DIR,
     Artifact,
@@ -416,6 +420,7 @@ def install_managed_tools(
 
 
 @app.callback(invoke_without_command=True)
+@dry_run_class("request-plan")
 def install_all(
     ctx: typer.Context,
     tool: Annotated[str | None, typer.Option("--tool", "-t", help=HELP.install.tool)] = None,
@@ -426,6 +431,14 @@ def install_all(
         bool, typer.Option("--only-missing", help=HELP.install.only_missing)
     ] = False,
     check: Annotated[bool, typer.Option("--check", help=HELP.install.check)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help=HELP.options.json_output),
+    ] = False,
 ) -> None:
     """Install DevOps tools at their locked versions. Without --tool, installs all tools.
 
@@ -438,6 +451,20 @@ def install_all(
     if check:
         _check_pins(targets, target_dir)
         return
+
+    if dry_run or is_dry_run():
+        from devops_cli.devcontainer.devcontainer_plans import plan_install_tools
+
+        plans = plan_install_tools(tool=tool, target_dir=target_dir, only_missing=only_missing)
+        if json_output:
+            emit_serialized(
+                {"dry_run": True, "requests": [r.__dict__ for r in plans]},
+                "json",
+            )
+            return
+        render_request_plan("devops install-tools", plans)
+        return
+
     installed = [
         _install_single_target(name, entry, target_dir)
         for name, entry in (_off_pin(targets, target_dir) if only_missing else targets).items()
@@ -454,6 +481,7 @@ def install_all(
 
 
 @app.command()
+@dry_run_class("no-external-request")
 def status(
     target_dir: Annotated[
         Path, typer.Option("--target-dir", "-d", help=HELP.options.target_dir)
