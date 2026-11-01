@@ -1021,6 +1021,13 @@ class EmbeddingsEngine:
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         """Compute Ollama embeddings with dynamic batch sizing and multi-node distribution."""
         urls = self._get_ollama_urls()
+        if not urls:
+            raise EmbeddingsError(
+                ERRORS.rag.embedding_no_ollama_urls.format(
+                    model=self.model, provider=self.ai_config.provider
+                ),
+                details={"model": self.model, "provider": self.ai_config.provider},
+            )
         chunk_batch_size = max(
             DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
             self._current_batch_size,

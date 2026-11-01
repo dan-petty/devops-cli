@@ -67,7 +67,7 @@ devops ci
 1. **Fix Errors Progressively**: Resolve linting and formatting first, then type checking, then unit tests, and finally documentation sync.
 2. **Synchronize Docs**: If the docs gate reports discrepancies, run `devops docs generate --sync-readme` to regenerate markdown reference files.
 3. **Parallel Test Execution**: `devops ci test` runs the full suite on every logical CPU via `pytest-xdist`; a run narrowed to a few test files (`devops ci test <paths>`) runs serially, and a larger selection on a few workers. pytest-timeout fails a test that hangs, so no run stalls on one.
-4. **Pre-Commit Enforcement**: Pre-commit hooks run essential subsets of `devops ci` on `git commit`. The pre-push hook runs `uv run devops ci --check --only lint,format,actionlint,zizmor`. Push only when it passes, and never use `--no-verify`.
+4. **Pre-Commit Enforcement**: Pre-commit hooks run essential subsets of `devops ci` on `git commit`. The pre-push hooks run `uv run devops ci --check --only lint,format`, and `uv run devops ci --check --only actionlint,zizmor` when the push changes a workflow. Push only when they pass, and never use `--no-verify`.
 
 ---
 

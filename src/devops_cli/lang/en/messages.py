@@ -1375,6 +1375,9 @@ class ToolMessages:
 @dataclass(frozen=True)
 class ArgoMessages:
     url_not_configured: str = "ArgoCD URL not configured. Run: devops config set argocd.url <url>"
+    token_refused_no_password: str = "Argo CD refused the stored token (argocd.token) with HTTP {status}, and no admin password (argocd.password) is stored to get a new token. Run: devops k8s sync-secrets"
+    new_token_refused: str = "Argo CD refused the new token from the admin session with HTTP {status}. Make sure that argocd.password is the admin password of {url}."
+    request_failed: str = "The Argo CD request to {url} failed with HTTP {status}."
     no_apps_found: str = "No ArgoCD applications found."
     app_not_found: str = "Application '{name}' not found."
     sync_triggered: str = "Sync triggered for '{name}'."
@@ -2176,6 +2179,23 @@ class RoadmapMessages:
         "The agent moved HEAD from {start} to {head}. A step makes the only commit."
     )
     implement_stop_commit_failed: str = "The commit failed.\n{output}"
+    implement_stop_hooks_install: str = (
+        "The hook environments of the project did not install.\n{output}"
+    )
+    implement_stop_hooks_failed: str = (
+        "The hooks of the stage {stage} failed with the exit status {status}.\n{output}"
+    )
+    implement_scoped_names: dict[str, str] = field(
+        default_factory=lambda: {"pre_push": "pre-push", "static": "static", "tests": "tests"}
+    )
+    implement_stop_scoped_failed: str = (
+        "The scoped check {name} still failed after {rounds} fix steps. It is {command}.\n{output}"
+    )
+    implement_hook_turn: str = (
+        "A hook of the project failed on your changes:\n\n{failure}\n\nThe hooks of the project "
+        "check each commit. Fix what the hooks report. Change only the files that you "
+        "changed.{ticks}{removed} Then reply with one short message."
+    )
     implement_title: str = "Implement step: item #{item}, group {group} ({title})"
     implement_labels: dict[str, str] = field(
         default_factory=lambda: {
@@ -2186,6 +2206,7 @@ class RoadmapMessages:
             "tool_calls": "Tool calls",
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
+            "repair_rounds": "Repair rounds",
             "last_message": "Last message of the agent",
             "removed": "Removed stray files",
         }
@@ -2363,6 +2384,8 @@ class RoadmapMessages:
             "docs": "docs",
             "archive": "archive",
             "push": "push",
+            "hooks": "hooks",
+            "scoped": "scoped checks",
             "pull_request": "pull request",
             "checks": "checks",
             "ready": "ready",
@@ -2432,8 +2455,21 @@ class RoadmapMessages:
     )
     implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_line: str = (
-        "- {step} ({title}): {status}, {requests} model requests{commit}"
+        "- {step} ({title}): {status}, {requests} model requests, {rounds} repair rounds{commit}"
     )
+    implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
+    implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
+    implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
+    implement_scoped_tests_narrowed: str = (
+        "the changed files select more than {limit} test modules, so only the changed test "
+        "modules ran. The required checks of CI run the others"
+    )
+    implement_scoped_tests_skipped: str = (
+        "not run, because the changed files select more than {limit} test modules. The required "
+        "checks of CI run them"
+    )
+    implement_scoped_passed: str = "passed"
+    implement_scoped_failed: str = "failed"
     implement_pull_comment_commit: str = ", commit `{commit}`"
     implement_pull_body: str = (
         "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"

@@ -1,14 +1,18 @@
-"""`devops roadmap implement` as a job: the watch of the checks, the one fix step, and the stops
-that follow the push (#2665). The checks of the pull request are scripted for each head."""
+"""`devops roadmap implement` as a job: the watch of the checks, the bounded repair rounds, and the
+stops that follow the push (#2665, #3043). The checks of the pull request are scripted for each
+head."""
 
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
+from pathlib import Path
 
 import pytest
+from pydantic_ai.messages import ModelResponse
 
 from tests.support.fakes.process import ProcessAnswer
-from tests.support.model_script import say
+from tests.support.model_script import say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
     FAIL,
@@ -16,6 +20,7 @@ from tests.support.roadmap_implement import (
     PASS,
     PULL,
     RUNNING,
+    SHOUT,
     JobWorld,
     a_fix,
     move_main_when,
@@ -28,13 +33,27 @@ MARKER = "<!-- devops roadmap implement -->"
 CHECK = "Tests & Coverage"
 
 
+def _fix(round_number: int) -> tuple[ModelResponse, ModelResponse]:
+    """A fix that changes the code in a way that no earlier fix did."""
+    changed = SHOUT + "".join(f"\n\nVALUE_{k} = {k}\n" for k in range(round_number))
+    path = "src/devops_cli/shout.py"
+    return (
+        tool_calls(("write_file", {"path": path, "content": changed})),
+        say(f"Fixed round {round_number}."),
+    )
+
+
+def _comments(world: JobWorld) -> list[str]:
+    return [str(sent["body"]) for sent in world.sent("POST", f"issues/{PULL}/comments")]
+
+
 def _item(world: JobWorld) -> tuple[str | None, dict[str, str | None]]:
     held = world.store.item(1)
     assert held is not None
     return held.status, {str(key): value for key, value in held.job_record.items()}
 
 
-def test_a_check_that_fails_once_gets_one_fix_step_with_its_log_and_then_passes(
+def test_a_check_that_fails_once_gets_a_fix_step_with_its_log_and_then_passes(
     job_world: JobWorld,
 ) -> None:
     job_world.pull.runs = [[FAIL], [PASS]]
@@ -77,9 +96,10 @@ def test_a_conflict_on_the_rebase_after_the_fix_pushes_the_fix_commit(job_world:
     assert job_world.pull.ready_calls == []
 
 
-def test_a_check_that_fails_twice_stops_the_item_and_leaves_the_draft(
-    job_world: JobWorld,
+def test_a_check_that_fails_in_the_last_round_stops_the_item_and_leaves_the_draft(
+    job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     job_world.pull.runs = [[FAIL], [FAIL]]
     script = two_groups(*a_fix(), *a_fix())
 
@@ -202,3 +222,63 @@ def test_a_failed_ready_call_stops_the_item_at_ready_and_the_pull_request_stays_
     assert job_world.repo.origin_git("log", "-1", "--format=%s", BRANCH) == (
         "docs(openspec): archive the change (#1)"
     )
+
+
+def test_a_check_that_fails_twice_gets_two_fix_steps_and_then_passes(job_world: JobWorld) -> None:
+    job_world.pull.runs = [[FAIL], [FAIL], [PASS]]
+    script = two_groups(*_fix(1), *_fix(2))
+
+    applied = job_world.run(script)
+
+    assert (applied.ready, applied.stopped) == ((1,), ())
+    assert job_world.origin_log()[-2:] == [f"Make check {CHECK} pass (#1)"] * 2
+    assert len(script.seen) == 8
+
+
+def test_each_repair_round_after_the_push_is_in_a_comment_on_the_pull_request(
+    job_world: JobWorld,
+) -> None:
+    job_world.pull.runs = [[FAIL], [FAIL], [PASS]]
+
+    job_world.run(two_groups(*_fix(1), *_fix(2)))
+
+    comments = _comments(job_world)
+    assert len(comments) == 3
+    assert "- fix (" not in comments[0]
+    for comment in comments[1:]:
+        assert f"- fix (Make check {CHECK} pass): done" in comment
+        assert "0 repair rounds" in comment
+        assert "scoped check static: passed" in comment
+
+
+def test_a_check_that_fails_in_every_round_stops_the_item_after_the_rounds(
+    job_world: JobWorld,
+) -> None:
+    job_world.pull.runs = [[FAIL]]
+    script = two_groups(*_fix(1), *_fix(2), *_fix(3))
+
+    applied = job_world.run(script)
+
+    status, record = _item(job_world)
+    assert (applied.ready, applied.stopped, status, record.get("implement.stopped")) == (
+        (),
+        (1,),
+        "Blocked",
+        "checks",
+    )
+    assert len(script.seen) == 10
+    assert job_world.pull.ready_calls == []
+    assert f"The check {CHECK} failed." in job_world.issue_comments()[0]
+
+
+def test_the_rounds_after_the_push_come_from_the_setting(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
+    job_world.pull.runs = [[FAIL]]
+    script = two_groups()
+
+    applied = job_world.run(script)
+
+    assert (applied.stopped, len(script.seen)) == ((1,), 4)
+    assert job_world.origin_log()[-1] != f"Make check {CHECK} pass (#1)"

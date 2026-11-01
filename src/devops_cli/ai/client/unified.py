@@ -15,6 +15,7 @@ from devops_cli.ai.client.claude import ClaudeProviderMixin
 from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
+    CallSampling,
     LLMResponse,
     ReplyRejectedError,
     RequestPriority,
@@ -365,6 +366,7 @@ class LLMClient(
         *,
         enable_thinking: bool = True,
         priority: RequestPriority | str | None = None,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         p = self._config.provider
         start = time.perf_counter()
@@ -413,7 +415,7 @@ class LLMClient(
             ),
         ):
             res = self._invoke_provider_messages(
-                p, system, messages, enable_thinking, resolved_priority
+                p, system, messages, enable_thinking, resolved_priority, sampling
             )
             duration = time.perf_counter() - start
             self._record_response_telemetry_and_spend(
@@ -431,16 +433,25 @@ class LLMClient(
         messages: list[ChatMessage],
         enable_thinking: bool,
         resolved_priority: RequestPriority,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         """Dispatch messages to configured provider driver."""
         if p == "ollama":
             return self._ollama_messages(
-                system, messages, enable_thinking=enable_thinking, priority=resolved_priority
+                system,
+                messages,
+                enable_thinking=enable_thinking,
+                priority=resolved_priority,
+                sampling=sampling,
             )
         if p == "claude":
-            return self._claude_messages(system, messages, enable_thinking=enable_thinking)
+            return self._claude_messages(
+                system, messages, enable_thinking=enable_thinking, sampling=sampling
+            )
         if p in ("copilot", "github_copilot", "openai", "gateway"):
-            return self._openai_compat_messages(system, messages, enable_thinking=enable_thinking)
+            return self._openai_compat_messages(
+                system, messages, enable_thinking=enable_thinking, sampling=sampling
+            )
         raise LLMInferenceError(
             f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai, gateway",
             provider=p,
@@ -518,9 +529,14 @@ class LLMClient(
         context_tag: str | None = None,
         append_cache: bool | None = None,
         priority: RequestPriority | str | None = RequestPriority.HIGH,
-        **kwargs: Any,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        seed: int | None = None,
     ) -> LLMResponse:
-        """Send a single-turn chat message and return the assistant reply."""
+        """Send a single-turn chat message and return the assistant reply.
+
+        `temperature`, `top_p` and `seed` replace the configured sampling for this call only.
+        """
         return self.chat_messages(
             system,
             [ChatMessage(role="user", content=user)],
@@ -532,7 +548,9 @@ class LLMClient(
             context_tag=context_tag,
             append_cache=append_cache,
             priority=priority,
-            **kwargs,
+            temperature=temperature,
+            top_p=top_p,
+            seed=seed,
         )
 
     def _record_chat_telemetry(self, span_h: Any, res: LLMResponse) -> None:
@@ -690,6 +708,7 @@ class LLMClient(
         context_tag: str | None,
         span_h: Any,
         priority: RequestPriority | str | None = None,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         """Execute chat dispatch across retries with validation and error tracking."""
         last_exc: Exception | None = None
@@ -700,6 +719,7 @@ class LLMClient(
                     out_messages,
                     enable_thinking=enable_thinking,
                     priority=priority,
+                    sampling=sampling,
                 )
                 if not self._validate_response_text(res, validator):
                     last_exc = self._rejection(res, attempt, attempts)
@@ -753,11 +773,15 @@ class LLMClient(
         context_tag: str | None = None,
         append_cache: bool | None = None,
         priority: RequestPriority | str | None = None,
-        **kwargs: Any,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        seed: int | None = None,
     ) -> LLMResponse:
         """Send a multi-turn chat request with response validation, caching, and retries.
 
         The style request joins `system` first, so the cache key holds the system prompt as sent.
+        `temperature`, `top_p` and `seed` replace the configured sampling for this call only,
+        unless `use_model_sampling` leaves sampling to the model.
         """
         if system_prompt and not system:
             system = system_prompt
@@ -774,31 +798,8 @@ class LLMClient(
             else (priority or network.current_request_priority.get())
         )
 
-        cache_opts = {
-            "enable_thinking": enable_thinking,
-            "temperature": (
-                None
-                if (
-                    getattr(self._config, "use_model_sampling", False)
-                    or getattr(self._config, "supports_reasoning", False)
-                )
-                else getattr(self._config, "temperature", None)
-            ),
-            "top_p": (
-                None
-                if (
-                    getattr(self._config, "use_model_sampling", False)
-                    or getattr(self._config, "supports_reasoning", False)
-                )
-                else getattr(self._config, "top_p", None)
-            ),
-            "reasoning_effort": (
-                getattr(self._config, "reasoning_effort", None)
-                if getattr(self._config, "supports_reasoning", False)
-                else None
-            ),
-            "max_tokens": self._completion_limit(),
-        }
+        sampling = CallSampling(temperature, top_p, seed)
+        cache_opts = self._chat_cache_options(enable_thinking, sampling)
 
         if eff_append and eff_start is None and use_cache:
             unaugmented_key = self._cache.generate_key(
@@ -850,7 +851,39 @@ class LLMClient(
                 context_tag=context_tag,
                 span_h=span_h,
                 priority=resolved_p,
+                sampling=sampling,
             )
+
+    def _chat_cache_options(self, enable_thinking: bool, sampling: CallSampling) -> dict[str, Any]:
+        """The request options that the reply cache key hashes.
+
+        Under `use_model_sampling` the key holds no sampling. Otherwise a per-call `temperature`
+        or `top_p` replaces the configured one, which a reasoning model nulls, and a per-call
+        seed joins the options. A driver that drops a per-call value still hashes it: that costs
+        one extra miss and never a wrong hit.
+        """
+        model_sampling = getattr(self._config, "use_model_sampling", False)
+        reasoning = getattr(self._config, "supports_reasoning", False)
+
+        def sampled(per_call: float | None, configured: str) -> float | None:
+            if model_sampling:
+                return None
+            if per_call is not None:
+                return per_call
+            return None if reasoning else getattr(self._config, configured, None)
+
+        opts: dict[str, Any] = {
+            "enable_thinking": enable_thinking,
+            "temperature": sampled(sampling.temperature, "temperature"),
+            "top_p": sampled(sampling.top_p, "top_p"),
+            "reasoning_effort": (
+                getattr(self._config, "reasoning_effort", None) if reasoning else None
+            ),
+            "max_tokens": self._completion_limit(),
+        }
+        if sampling.seed is not None and not model_sampling:
+            opts["seed"] = sampling.seed
+        return opts
 
     def _dispatch_stream(
         self,
