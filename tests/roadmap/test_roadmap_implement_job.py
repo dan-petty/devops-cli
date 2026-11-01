@@ -30,6 +30,7 @@ from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
     CHANGE,
+    CHANGE_DIR,
     PULL,
     TASKS_PATH,
     TICKED_FIRST,
@@ -549,7 +550,7 @@ def test_a_refused_key_stops_the_whole_run_and_not_only_the_item(job_world: JobW
 
 def test_the_stop_comment_cuts_a_reason_that_is_too_long(job_world: JobWorld) -> None:
     """GitHub refuses a comment of more than 65,536 characters, and the comment would be lost."""
-    names = [f"{'f' * 240}{number:02d}.md" for number in range(30)]
+    names = [f"{CHANGE_DIR}/{'f' * 240}{number:02d}.md" for number in range(30)]
     many = tuple(("write_file", {"path": name, "content": "x\n"}) for name in names)
     script = ModelScript(
         tool_calls(*group_one_calls()),

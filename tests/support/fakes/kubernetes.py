@@ -340,7 +340,12 @@ class FakeCoreV1(_FakeApi):
         pods: list[Any] | Exception | None = None,
         nodes: list[Any] | Exception | None = None,
         events: list[Any] | Exception | None = None,
-        logs: dict[tuple[str, str], str | list[Any]] | str | list[Any] | Exception | None = None,
+        logs: dict[tuple[str, str], str | bytes | list[Any]]
+        | str
+        | bytes
+        | list[Any]
+        | Exception
+        | None = None,
         watch_events: list[dict[str, Any]] | Exception | None = None,
         services: list[Any] | Exception | None = None,
         pvs: dict[str, Any] | None = None,
@@ -468,11 +473,25 @@ class FakeCoreV1(_FakeApi):
         return claim
 
 
-def _log_answer(answer: Any, kwargs: dict[str, Any]) -> Any:
-    """A pod's log: text, or as a stream of chunks when the caller asks not to preload it.
+def _log_bytes(answer: Any) -> bytes:
+    """The bytes a pod wrote: an answer that is `bytes`, or text, or a list of chunks."""
+    if isinstance(answer, bytes):
+        return answer
+    if isinstance(answer, list):
+        return b"".join(c for c in answer if isinstance(c, bytes))
+    return str(answer).encode()
 
-    The answer is text, or a list of byte chunks (and exceptions) to stream as they are; a
-    dict holds one of those for each `(namespace, pod)`, and a pod it does not hold is a 404.
+
+def _log_answer(answer: Any, kwargs: dict[str, Any]) -> Any:
+    """A pod's log as the client answers it.
+
+    The answer is what the pod wrote: text, `bytes`, or a list of byte chunks (and exceptions)
+    to stream as they are. A dict holds one of those for each `(namespace, pod)`, and a pod it
+    does not hold is a 404.
+
+    A read that asks not to preload the body gets the stream of the bytes. A plain read gets what
+    `kubernetes` 36.0.3 gives: the response type of `read_namespaced_pod_log` is `str`, so the
+    client skips the decode and `deserialize` ends in `str(bytes)`, the escaped `b'...'` text.
     """
     if isinstance(answer, dict):
         key = (kwargs.get("namespace", ""), kwargs.get("name", ""))
@@ -482,10 +501,8 @@ def _log_answer(answer: Any, kwargs: dict[str, Any]) -> Any:
     if kwargs.get("_preload_content") is False:
         if isinstance(answer, list):
             return _FakeStreamResponse(answer)
-        return _FakeStreamResponse([str(answer).encode()] if answer else [])
-    if isinstance(answer, list):
-        return b"".join(c for c in answer if isinstance(c, bytes)).decode("utf-8", "replace")
-    return str(answer)
+        return _FakeStreamResponse([_log_bytes(answer)] if answer else [])
+    return str(_log_bytes(answer))
 
 
 def _in_namespace(item: Any, namespace: str | None) -> bool:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from collections.abc import Callable, Generator
 from functools import cached_property
@@ -159,10 +158,6 @@ class LLMClient(
     @classmethod
     def _load_and_increment_rr_index(cls, n: int) -> int:
         return network.load_and_increment_rr_index(n)
-
-    @classmethod
-    def _get_ollama_semaphore(cls, url: str, max_parallel: int) -> threading.Semaphore:
-        return network.get_ollama_semaphore(url, max_parallel)
 
     @classmethod
     def _track_ollama_url(cls, url: str, max_parallel: int = 2) -> Any:

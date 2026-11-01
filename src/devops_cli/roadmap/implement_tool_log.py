@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import shlex
 from collections import Counter, deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -54,6 +55,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS,
     CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS,
+    CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS,
     CONST_ROADMAP_IMPLEMENT_STOP_REASONS,
 )
@@ -246,6 +248,27 @@ class ToolCallLog:
     retried: int = 0
     reasons: dict[str, deque[str]] = field(default_factory=dict[str, deque[str]])
     ended_on: str = ""
+    removed: list[str] = field(default_factory=list[str])
+
+    def removed_strays(self, names: Sequence[str]) -> None:
+        """Keep the names of the stray files that the step deleted (#3092), masked and cut as the
+        text of an error is, and write one line to the Job log that names them."""
+        if not names:
+            return
+        self.removed.extend(bounded_text(name) for name in names)
+        line = MESSAGES.roadmap.implement_tool_stray.format(paths=self.removed_text(names))
+        print_muted(line, to_stderr=True, safe=True)
+
+    def removed_text(self, names: Sequence[str] | None = None) -> str:
+        """The deleted stray files on one line: `names`, or all of them when there is no `names`.
+        The text is masked and escaped. It lists at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS`
+        names, then the count of the rest."""
+        shown = [_escaped(name) for name in (self.removed if names is None else names)]
+        limit = CONST_ROADMAP_IMPLEMENT_REASON_PATHS
+        text = ", ".join(shown[:limit])
+        if len(shown) > limit:
+            text += MESSAGES.roadmap.implement_paths_more.format(count=len(shown) - limit)
+        return text
 
     def refused_text(self) -> str:
         """The refused commands for the reason of a stop: the programs from the most refused to the

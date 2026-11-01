@@ -212,9 +212,9 @@ def _tests_kept(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
     return _outcome(Property.TESTS_KEPT, " ".join(problems))
 
 
-def _diff_scope(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
+def _diff_scope(loaded: LoadedCase, patch: PatchSet, removed: Sequence[str]) -> PropertyResult:
     allowed = {*loaded.case.changes, loaded.tasks_path}
-    outside = sorted({file.path for file in patch} - allowed)
+    outside = sorted({*(file.path for file in patch), *removed} - allowed)
     problem = (
         MESSAGES.roadmap.eval_implement_outside.format(names=_listed(outside)) if outside else ""
     )
@@ -225,11 +225,10 @@ def _is_scratch(path: str) -> bool:
     return "/" not in path or _SCRATCH.match_file(path)
 
 
-def _no_scratch(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
+def _no_scratch(loaded: LoadedCase, patch: PatchSet, removed: Sequence[str]) -> PropertyResult:
+    written = {file.path for file in patch if file.is_added_file} | set(removed)
     found = sorted(
-        file.path
-        for file in patch
-        if file.is_added_file and file.path not in loaded.case.changes and _is_scratch(file.path)
+        path for path in written if path not in loaded.case.changes and _is_scratch(path)
     )
     problem = MESSAGES.roadmap.eval_implement_scratch.format(names=_listed(found)) if found else ""
     return _outcome(Property.NO_SCRATCH, problem)
@@ -276,9 +275,13 @@ def _tasks_ticked(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
     return _outcome(Property.TASKS_TICKED, problem)
 
 
-def diff_results(loaded: LoadedCase, diff: str, *, cut: bool = False) -> list[PropertyResult]:
+def diff_results(
+    loaded: LoadedCase, diff: str, *, cut: bool = False, removed: Sequence[str] = ()
+) -> list[PropertyResult]:
     """The four properties that a diff decides, in the order of `DIFF_PROPERTIES`. `cut` says that
-    the step cut the diff: the properties are skipped. A diff that does not parse fails them all."""
+    the step cut the diff: the properties are skipped. A diff that does not parse fails them all.
+    `removed` lists the stray files that the step deleted (#3092): the diff holds none of them, but
+    the agent wrote them, so they count as paths outside the group and as scratch files."""
     texts = MESSAGES.roadmap
     if cut:
         return skipped(DIFF_PROPERTIES, texts.eval_implement_cut)
@@ -289,8 +292,8 @@ def diff_results(loaded: LoadedCase, diff: str, *, cut: bool = False) -> list[Pr
         return [PropertyResult(prop, Status.FAIL, problem) for prop in DIFF_PROPERTIES]
     return [
         _tests_kept(loaded, patch),
-        _diff_scope(loaded, patch),
-        _no_scratch(loaded, patch),
+        _diff_scope(loaded, patch, removed),
+        _no_scratch(loaded, patch, removed),
         _tasks_ticked(loaded, patch),
     ]
 

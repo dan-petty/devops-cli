@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.37.3](https://github.com/dan-petty/devops-cli/compare/v0.37.2...v0.37.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* **roadmap:** decode the log excerpt of an ended Job ([#3093](https://github.com/dan-petty/devops-cli/issues/3093)) ([2b957bf](https://github.com/dan-petty/devops-cli/commit/2b957bf371b5ad85459cca5047568e0c39628af5)), closes [#3091](https://github.com/dan-petty/devops-cli/issues/3091)
+* **roadmap:** remove stray files of the implement step ([#3094](https://github.com/dan-petty/devops-cli/issues/3094)) ([40e65a1](https://github.com/dan-petty/devops-cli/commit/40e65a194ed07379a0b7348cb76e073f09f1304f)), closes [#3092](https://github.com/dan-petty/devops-cli/issues/3092)
+
 ## [0.37.2](https://github.com/dan-petty/devops-cli/compare/v0.37.1...v0.37.2) (2026-11-01)
 
 

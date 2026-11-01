@@ -41,7 +41,6 @@ worktree, which the job removes; the new owner starts from the branch on `origin
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import textwrap
 from collections.abc import Iterator, Sequence
@@ -80,6 +79,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
+from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
 from devops_cli.roadmap.implement_pull import WatchKind, failed_log, mark_ready, watch_pull
 from devops_cli.roadmap.implement_step import (
@@ -177,17 +177,14 @@ def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
 def _diff_section(stop: _StopError) -> str:
     """The diff of the discarded work of a stopped step as a fenced block of the stop comment, or
     nothing when there is none. The diff is text of the agent, so it is masked here again, at the
-    point where it leaves for GitHub. The fence is one backtick longer than the longest run of
-    backticks in the diff, and at least three: CommonMark ends a fenced block only at a fence at
-    least as long as its opening, so no line of the diff can end the block."""
+    point where it leaves for GitHub. The fence is `code_fence` of the diff."""
     if not stop.diff:
         return ""
     texts = MESSAGES.roadmap
     diff = mask_secrets(stop.diff).rstrip("\n")
-    longest = max((len(run) for run in re.findall(r"`+", diff)), default=0)
     cut = texts.implement_comment_diff_cut.format(limit=CONST_ROADMAP_IMPLEMENT_DIFF_CHARS)
     return texts.implement_comment_diff.format(
-        cut=cut if stop.diff_cut else "", fence="`" * max(3, longest + 1), diff=diff
+        cut=cut if stop.diff_cut else "", fence=code_fence(diff), diff=diff
     )
 
 

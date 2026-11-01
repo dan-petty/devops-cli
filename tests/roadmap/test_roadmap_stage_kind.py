@@ -28,9 +28,9 @@ OTHER: dict[str, Any] = {
     "changes": ["src/devops_cli/ai/client/streaming.py"],
     "creates": [],
     "test": None,
-    "implementation": "Delete `thinking_detected` from `StreamingTokenProcessor`",
+    "implementation": "Delete `unused_probe` from `StreamingTokenProcessor`",
     "documentation": None,
-    "verify": "! git grep -n -w thinking_detected src/ tests/ docs/",
+    "verify": "! git grep -n -w unused_probe src/ tests/ docs/",
 }
 
 
@@ -127,8 +127,8 @@ def _task_lines(*groups: dict[str, Any]) -> list[str]:
 
 def test_a_deletion_that_keeps_behavior_renders_one_task_with_its_command_and_no_test() -> None:
     assert _task_lines(OTHER) == [
-        "- [ ] 1.1 Delete `thinking_detected` from `StreamingTokenProcessor`, and verify that "
-        "`! git grep -n -w thinking_detected src/ tests/ docs/` passes"
+        "- [ ] 1.1 Delete `unused_probe` from `StreamingTokenProcessor`, and verify that "
+        "`! git grep -n -w unused_probe src/ tests/ docs/` passes"
     ]
 
 

@@ -2097,6 +2097,11 @@ class RoadmapMessages:
         "The model reply reached the output cap of {tokens} tokens, so the call ended."
     )
     implement_tool_other: str = "other"
+    implement_tool_stray: str = "Removed stray files that the group does not name: {paths}."
+    implement_removed_note: str = (
+        " The step removed these files, because your group does not name them: {paths}. Keep a "
+        "scratch file under `.data/agent/scratch/`."
+    )
     implement_refusal_replacement: str = "Instead of `{program}`: {replacement}."
     implement_refusal_allowed: str = (
         "These programs are allowed: {programs}. Run the commands of the project with `uv run`, "
@@ -2119,12 +2124,12 @@ class RoadmapMessages:
     implement_tick_turn: str = (
         "The checks of your group passed, but `{path}` still holds these tasks of your group "
         "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "
-        "done. Change nothing else in that file and change no other file. Then reply with one "
-        "short message."
+        "done. Change nothing else in that file and change no other file.{removed} Then reply with "
+        "one short message."
     )
     implement_repair_turn: str = (
         "A static check of your group failed:\n\n{failure}\n\nFix what the check reports. Change "
-        "only the files that you changed.{ticks} Then reply with one short message."
+        "only the files that you changed.{ticks}{removed} Then reply with one short message."
     )
     implement_repair_turn_ticks: str = (
         " The file `{path}` also holds these tasks of your group unticked:\n\n{tasks}\n\n"
@@ -2168,6 +2173,7 @@ class RoadmapMessages:
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
             "last_message": "Last message of the agent",
+            "removed": "Removed stray files",
         }
     )
     # `devops roadmap eval implement` (#3030): the fixtures.
@@ -2383,11 +2389,12 @@ class RoadmapMessages:
         "{marker}\nThe runner Job {name} ended: {state}.{digest}\n\n"
         "The last lines of its log:\n\n{log}"
     )
+    implement_job_report_log: str = "{fence}\n{log}\n{fence}"
     implement_job_report_gone: str = (
         "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log.{digest}"
     )
     implement_job_report_digest: str = "\nImage digest: {digest}"
-    implement_job_report_no_log: str = "    (no log: the Job has no pod)"
+    implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
         "\n\nThe Job left this item without a result. The item is Blocked, and the job "
         "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "

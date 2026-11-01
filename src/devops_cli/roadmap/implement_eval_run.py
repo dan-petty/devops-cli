@@ -250,9 +250,12 @@ def _step_properties(
     step leaves them skipped."""
     if outcome.status is StepStatus.DONE:
         diff = _result_diff(clone, start)
-        return [*diff_results(loaded, diff), *command_results(loaded, clone)]
+        return [
+            *diff_results(loaded, diff, removed=outcome.removed),
+            *command_results(loaded, clone),
+        ]
     return [
-        *diff_results(loaded, outcome.diff, cut=outcome.diff_cut),
+        *diff_results(loaded, outcome.diff, cut=outcome.diff_cut, removed=outcome.removed),
         *no_tree(outcome.reason),
     ]
 

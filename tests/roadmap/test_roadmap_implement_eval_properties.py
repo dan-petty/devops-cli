@@ -81,6 +81,20 @@ def test_a_scratch_file_at_the_root_fails_the_scope_and_the_scratch_property(
     }
 
 
+def test_a_stray_file_that_the_step_removed_still_fails_the_scope_and_the_scratch_property(
+    loaded: LoadedCase,
+) -> None:
+    """The step deletes a stray file (#3092), so the diff holds none, but the agent wrote it."""
+    results = _by_property(diff_results(loaded, good_diff(), removed=["scratch.py"]))
+
+    assert results == {
+        Property.TESTS_KEPT: (Status.OK, ""),
+        Property.DIFF_SCOPE: (Status.FAIL, "Paths outside the group: scratch.py."),
+        Property.NO_SCRATCH: (Status.FAIL, "Scratch files: scratch.py."),
+        Property.TASKS_TICKED: (Status.OK, ""),
+    }
+
+
 @pytest.mark.parametrize("path", [".data/agent/notes.md", "docs/plan.md.bak", "docs/x.orig"])
 def test_a_scratch_file_below_the_root_is_found_by_its_place_or_its_suffix(
     loaded: LoadedCase, path: str
