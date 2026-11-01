@@ -1,0 +1,143 @@
+{
+ "summary": "add helm commands to dry-run output",
+ "pull_request_body": "The dry run of `devops k8s deploy-stack` lists only release names. It does not list the `helm repo add` and `helm upgrade --install` commands the real run makes. A person cannot verify the chart, version, and repository from the dry-run output. Tests must read private tables to check these values. This change adds a `helm_commands` key to the dry-run `details` dict. It holds the full argument lists of each helm command, built by the same functions the real run uses. The existing `helm_releases` key stays. A test reads the chart, version, and repository from the dry-run JSON without importing a private name.",
+ "why": "#2469: `deploy-stack --dry-run` gives only release names in `details.helm_releases`. It does not list the `helm repo add` or `helm upgrade --install` commands. A person cannot check the chart, version, and repository from the output. Tests must read the private tables `_HELM_RELEASES_BY_STACK` and `_HELM_REPOS_BY_STACK`, which violates the rule in docs/TESTING.md that no test imports a private name.",
+ "what_changes": [
+  "Add a `helm_commands` key to the dry-run `details` dict of `deploy-stack`, holding the full argument lists of each `helm repo add`, `helm repo update`, and `helm upgrade --install` command.",
+  "Extract a `_build_helm_repo_cmds` function so both the dry-run and real-run paths build repo commands from the same code.",
+  "Call `_build_helm_upgrade_cmd` in the dry-run branch to build each upgrade command.",
+  "Keep the existing `helm_releases` key for backward compatibility.",
+  "Add a test that reads chart, version, and repository from the dry-run JSON output without importing a private name.",
+  "Update `tests/test_k8s_logging_stack.py` to read from the dry-run output instead of the private tables."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed in `src/devops_cli/commands/k8s/stack_lifecycle.py`: the dry-run branch of `deploy_stack` calls `render_dry_run_result` with `\"helm_releases\": [r[\"name\"] for r in all_releases]` and calls no `render_request_plan` for helm. The real-run path calls `_deploy_helm_repos` and `_build_helm_upgrade_cmd`, both visible in the same file.",
+  "The tables `HELM_REPOS_BY_STACK` and `HELM_RELEASES_BY_STACK` are defined at module level in the same file, with the `logging` stack holding one repo (`grafana-community`) and one release (`loki`, chart `grafana-community/loki`, version `20.0.2`).",
+  "First checks the implementation runs against the real system: `uv run devops k8s deploy-stack --stack logging --dry-run` to confirm the current output lacks `helm_commands`, and `uv run pytest tests/test_k8s_logging_stack.py` to confirm the existing test reads private tables."
+ ],
+ "existing_tool": "No open, maintained library covers this need. The dry-run mechanism (`render_dry_run_result` in `src/devops_cli/dry_run.py`) and the argument builders (`_deploy_helm_repos`, `_build_helm_upgrade_cmd` in `src/devops_cli/commands/k8s/stack_lifecycle.py`) are project-specific code. The fix calls the existing builders in the dry-run path and adds their output to the `details` dict. The written cost is the tokens to extract `_build_helm_repo_cmds`, edit the dry-run branch of `deploy_stack`, add the command list to `details`, and update one test file. The elapsed time is under one hour of focused work. No internal code is deleted; `_deploy_helm_repos` is refactored to call the new builder.",
+ "decisions": [
+  {
+   "decision": "Store helm commands as a list of argument lists (`list[list[str]]`) under the key `helm_commands`.",
+   "reason": "This matches the format that `runtime._run_cmd` receives and that `_build_helm_upgrade_cmd` returns. A test can compare exact arguments without parsing a joined string."
+  },
+  {
+   "decision": "Keep the existing `helm_releases` key alongside the new `helm_commands` key.",
+   "reason": "Existing consumers and tests that read `helm_releases` do not break. The new key adds the detail the issue asks for."
+  },
+  {
+   "decision": "Include `helm repo update` in the command list.",
+   "reason": "The real run calls `helm repo update` after all `helm repo add` calls. The dry-run rule says the dry run returns the requests the real run would make."
+  },
+  {
+   "decision": "Pass `is_v4=False` to `_build_helm_upgrade_cmd` in the dry-run branch.",
+   "reason": "The dry run does not query the cluster for the Helm version. The same builder function is used; the `is_v4` input differs because the dry run has no cluster to ask. The output still carries chart, version, namespace, and values."
+  },
+  {
+   "decision": "Extract `_build_helm_repo_cmds` so both paths build repo commands from the same code.",
+   "reason": "The requirement says the commands are built by the same argument builders the real run uses. A shared builder guarantees a change to the builder changes both the dry-run output and the real run."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Store helm commands as joined command strings.",
+   "evidence": "A test must re-split to check individual flags. The argument-list format preserves boundaries and matches the return type of `_build_helm_upgrade_cmd`."
+  },
+  {
+   "alternative": "Replace `helm_releases` with `helm_commands`.",
+   "evidence": "13 test files and external scripts read `helm_releases`. Replacing it breaks every consumer in the same PR. Keeping both is backward compatible."
+  },
+  {
+   "alternative": "Omit `helm repo update` from the command list.",
+   "evidence": "The real run makes this request. The dry-run rule (#412) requires the dry run to return every request the real run would make."
+  },
+  {
+   "alternative": "Use structured objects with type and fields for each command.",
+   "evidence": "The command list already carries all fields. A schema to maintain adds cost without adding information a test needs."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "k8s-helm-deploy",
+   "purpose": null,
+   "added": [
+    {
+     "name": "dry-run lists helm repo commands",
+     "text": "The dry run of `deploy-stack` SHALL list each `helm repo add` command and the `helm repo update` command that the real run makes, in order, with the repository name and URL, under the key `helm_commands` in the `details` dict.",
+     "scenarios": [
+      {
+       "name": "logging stack dry run shows repo add and update",
+       "when": "A test runs `deploy-stack --stack logging --dry-run` through the `cli` fixture and parses the JSON output",
+       "then": "`details.helm_commands` contains `[\"helm\", \"repo\", \"add\", \"grafana-community\", \"https://grafana-community.github.io/helm-charts\"]` followed by `[\"helm\", \"repo\", \"update\"]`"
+      }
+     ]
+    },
+    {
+     "name": "dry-run lists helm upgrade commands",
+     "text": "The dry run of `deploy-stack` SHALL list each `helm upgrade --install` command that the real run makes, in order, with the release name, chart, version, namespace, and values file, under the key `helm_commands` in the `details` dict.",
+     "scenarios": [
+      {
+       "name": "logging stack dry run shows upgrade with chart and version",
+       "when": "A test runs `deploy-stack --stack logging --dry-run` through the `cli` fixture and parses the JSON output",
+       "then": "`details.helm_commands` contains a command list that includes `\"loki\"`, `\"grafana-community/loki\"`, `\"--version\"`, `\"20.0.2\"`, `\"--namespace\"`, `\"logging\"`, `\"--values\"`, and a path ending in `loki-values.yaml`"
+      }
+     ]
+    },
+    {
+     "name": "dry-run commands use real-run builders",
+     "text": "The commands in the dry-run `helm_commands` list SHALL be built by the same argument builder functions that the real run uses, so that a change to a builder changes both the dry-run output and the real run.",
+     "scenarios": [
+      {
+       "name": "builder change reflects in dry run",
+       "when": "A test calls `_build_helm_upgrade_cmd` with the `loki` release dict and compares its result to the corresponding command in the dry-run `helm_commands` list",
+       "then": "The two command lists are equal"
+      }
+     ]
+    },
+    {
+     "name": "test reads commands from dry-run output",
+     "text": "A test SHALL be able to read the chart, version, and repository from the dry-run output of `deploy-stack` without importing a name starting with `_` from `devops_cli`.",
+     "scenarios": [
+      {
+       "name": "test reads chart from dry-run JSON",
+       "when": "A test invokes `deploy-stack --stack logging --dry-run` and parses the JSON output",
+       "then": "The test finds the chart `grafana-community/loki`, version `20.0.2`, and repository URL in `details.helm_commands`, and the test imports no name starting with `_` from `devops_cli`"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add helm_commands to the dry-run output",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/k8s/stack_lifecycle.py"
+   ],
+   "creates": [],
+   "test": "Write a test in `tests/test_k8s_logging_stack.py` that invokes `deploy-stack --stack logging --dry-run` through the `cli` fixture, parses the JSON output, and asserts that `details.helm_commands` is a list containing: (1) `[\"helm\", \"repo\", \"add\", \"grafana-community\", \"https://grafana-community.github.io/helm-charts\"]`, (2) `[\"helm\", \"repo\", \"update\"]`, and (3) a command list that includes `\"loki\"`, `\"grafana-community/loki\"`, `\"--version\"`, `\"20.0.2\"`, `\"--namespace\"`, `\"logging\"`, `\"--values\"`, and a path ending in `loki-values.yaml`. The test imports no name starting with `_` from `devops_cli`",
+   "implementation": "Extract a `_build_helm_repo_cmds(selected_stacks)` function from `_deploy_helm_repos` that returns a `list[list[str]]` of the `helm repo add` and `helm repo update` commands. Refactor `_deploy_helm_repos` to call this builder and then execute each command. In the dry-run branch of `deploy_stack`, call `_build_helm_repo_cmds(selected_stacks)` and `_build_helm_upgrade_cmd(release, helm_ctx, wait, timeout, is_v4=False)` for each release, collect all commands into a list, and add it as `\"helm_commands\"` in the `details` dict passed to `render_dry_run_result`. Keep the existing `\"helm_releases\"` key unchanged",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_k8s_logging_stack.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Update test to read from dry-run output",
+   "reads": [],
+   "changes": [
+    "tests/test_k8s_logging_stack.py"
+   ],
+   "creates": [],
+   "test": "The test from the previous group already asserts the chart, version, and repository from the dry-run JSON. Add an assertion that the test module imports no name starting with `_` from `devops_cli`, by checking the module's own imports",
+   "implementation": "In `tests/test_k8s_logging_stack.py`, remove any import of `_HELM_RELEASES_BY_STACK` or `_HELM_REPOS_BY_STACK` from `devops_cli.commands.k8s.stack_lifecycle`. Replace assertions that read chart, version, or repository from those tables with assertions that read the same values from `details.helm_commands` in the dry-run JSON output",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_k8s_logging_stack.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

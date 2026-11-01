@@ -1,0 +1,82 @@
+{
+ "summary": "Guard urlsplit in pricing local check",
+ "pull_request_body": "Guard the urlsplit call in _is_single_server_local against ValueError. When a spend ledger row holds a served_by value that urlsplit cannot parse, such as http://[::1, the devops ai cost report command crashes with an unhandled ValueError. New rows cannot hold such a value because extract_served_by refuses it, but legacy rows from before that change can. This change wraps the urlsplit call in a try-except ValueError. When urlsplit raises, the function returns False, treating the server as not local. The report then shows the row and the backend as unknown, instead of exiting with a traceback. The pattern of catching ValueError around a parse call is already established in _is_local_host in the same file. No new dependency is added.",
+ "why": "Issue #2462 reports that devops ai cost report exits 1 with ValueError: Invalid IPv6 URL when a spend ledger row holds a served_by value such as http://[::1. The function _is_single_server_local in src/devops_cli/ai/spend/pricing.py calls urlsplit(clean) with no guard. Legacy rows from before the extract_served_by write-time guard can hold such a value. The report must show the row and treat the backend as unknown instead of crashing.",
+ "what_changes": [
+  "Wrap the urlsplit(clean) call in _is_single_server_local with a try-except ValueError that returns False on exception.",
+  "Add a test that verifies _is_single_server_local returns False for http://[::1 without raising.",
+  "Add a test that verifies is_local returns False for a served_by value that urlsplit cannot parse.",
+  "Add a test that verifies a valid local served_by value such as http://localhost:11434 still resolves as local."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The context shows _is_single_server_local at src/devops_cli/ai/spend/pricing.py line 243 calling urlsplit(clean) with no guard, matching the traceback in the issue.",
+  "The context shows _is_local_host in the same file catching ValueError from ipaddress.ip_address, confirming the try-except pattern is established in this module.",
+  "The context shows extract_served_by at src/devops_cli/ai/client/network.py line 99, confirming the write-time guard that prevents new rows from holding bad values.",
+  "The archived design at openspec/changes/archive/2026-10-28-1110-reply-server-origin/design.md confirms the legacy row scenario and references #2462.",
+  "First check: run uv run pytest tests/test_pricing.py -k unparseable -x to confirm the new test fails before the fix.",
+  "Second check: run uv run pytest tests/test_pricing.py -x to confirm all pricing tests pass after the fix."
+ ],
+ "existing_tool": "No external tool covers this need. The fix is a try-except ValueError guard around one urlsplit call in src/devops_cli/ai/spend/pricing.py, plus tests. The written cost is roughly 5 lines of code and 20 lines of test. No new dependency is added. No internal code is deleted.",
+ "decisions": [],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "ai-spend-pricing",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Report does not crash on unparseable served_by",
+     "text": "The report command SHALL NOT raise an unhandled ValueError when a ledger row holds a served_by value that urlsplit cannot parse.",
+     "scenarios": [
+      {
+       "name": "Ledger row with unparseable served_by",
+       "when": "A spend ledger row has served_by set to http://[::1 and the user runs devops ai cost report --by backend",
+       "then": "The command exits 0 and prints the report table without a traceback"
+      }
+     ]
+    },
+    {
+     "name": "Unparseable backend shows as unknown",
+     "text": "The report SHALL display the serving backend as unknown for a row whose served_by value urlsplit cannot parse.",
+     "scenarios": [
+      {
+       "name": "Backend column for unparseable value",
+       "when": "The report renders a row whose served_by is http://[::1",
+       "then": "The backend column for that row shows unknown"
+      }
+     ]
+    },
+    {
+     "name": "Valid served_by values still resolve",
+     "text": "The report SHALL resolve a valid served_by value to its local or hosted classification as before.",
+     "scenarios": [
+      {
+       "name": "Valid local backend still detected",
+       "when": "A ledger row has served_by set to http://localhost:11434 and the user runs devops ai cost report --by backend",
+       "then": "The row is classified as local and the backend column shows the resolved value"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Guard urlsplit in _is_single_server_local and add tests",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/ai/spend/pricing.py",
+    "tests/test_pricing.py"
+   ],
+   "creates": [],
+   "test": "Write a test that calls _is_single_server_local with the string http://[::1 and a _SettingsOnce instance, and asserts it returns False without raising ValueError. Write a test that calls is_local with served_by set to http://[::1 and asserts it returns False. Write a test that calls is_local with served_by set to http://localhost:11434 and asserts it returns True",
+   "implementation": "In _is_single_server_local, split the existing if clean in CONST_LOCAL_TRANSPORT_LABELS or urlsplit(clean).scheme == \"http+unix\" line into two checks. Keep the CONST_LOCAL_TRANSPORT_LABELS check as-is. Wrap the urlsplit(clean).scheme == \"http+unix\" check in a try block that catches ValueError and returns False",
+   "documentation": null,
+   "verify": "uv run pytest tests/test_pricing.py -x",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

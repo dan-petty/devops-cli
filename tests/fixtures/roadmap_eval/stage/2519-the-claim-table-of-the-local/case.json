@@ -1,0 +1,78 @@
+{
+ "issue": 2519,
+ "pull": 3001,
+ "title": "fix(k8s): the claim table of the local-path placement test names the chart version that it was read from",
+ "change": "2519-the-claim-table-of-the-local",
+ "merge_commit": "7d9398ce72ed30fcb60bc0ad673594c21c714365",
+ "base_commit": "f8b65bd214937eaf68a3fbd9630dfebd5697fd30",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 4,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "open",
+ "summary": "The plan is sound and small. It copies a proven pattern (_CHART_TOKENS), and its paths, helpers and cited test exist on main. The OpenSpec check passes and all CI checks are green. But it misses one existing test that the re-key breaks. As written, the task 1.2 verify command cannot pass.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "ignores_existing_code",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The plan does not handle the existing test test_every_chart_an_application_installs_states_its_claims. After CHART_CLAIMS gets tuple keys, that test compares a set of chart-name strings with tuple keys. The difference is never empty, so the test fails. Task 1.2 says the module must pass, and that cannot happen. The issue's own design said to update the existing coverage test. The plan drops this step. The new test from 1.1 replaces it, but no task says to delete or rewrite the old one. The old test also overlaps the existing spec scenario 'An Application installs a chart that the test does not know'.",
+   "evidence": "tests/core/test_k8s_local_path_placement.py:261-263: `assert sorted({chart for chart, _, _ in chart_values()} - CHART_CLAIMS.keys()) == []`. Issue 2519 'Existing Tool Considered' says '...add one test function, and update the existing coverage test.' tasks.md 1.1 to 1.3 never name that test.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "The lookup in task 1.2 is a bare generator expression. The real _chart_sites must unpack exactly one match, then apply the callable branch. The reference at test_k8s_manifests.py:484 uses `(sites,) = (...)`. An implementer must infer this. The text 'The lookup that finds a chart entry' also does not name the function _chart_sites (line 171) or CHART_CLAIMS[chart] (line 173).",
+   "evidence": "tests/core/test_k8s_local_path_placement.py:171-175: `sites = CHART_CLAIMS[chart]; return sites(values) if callable(sites) else sites`. tests/invariants/test_k8s_manifests.py:484: `(sites,) = (sites for (name, _), sites in _CHART_TOKENS.items() if name == chart)`.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task group 1 says 'Reads: none'. The implementer must still read the test file (about 307 lines) and the sample in test_k8s_manifests.py. Task 1.2 also gives no list of the chart versions. The implementer must derive them from pinned_charts() or the Application files. The group is small (staged as 3306 tokens), so this is not a size problem, but the Reads line is wrong.",
+   "evidence": "tasks.md: 'Reads: none. Changes: `tests/core/test_k8s_local_path_placement.py`.' The CHART_CLAIMS dict holds 19 names (lines 93-133) that need versions.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.3 is contradictory and gives no value. It says 'Change no document' and then asks for `devops docs generate --sync-readme`. A test-only change alters no README or generated doc. A single verify with `uv run devops ci docs` would be enough, or the task could be dropped.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'. The proposal's Impact lists only tests/core/test_k8s_local_path_placement.py.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/local-path-volume-placement/spec.md",
+   "problem": "Requirement 'version mismatch fails' states how the test behaves for a synthetic pair not in the table. A repository test cannot assert this scenario, because it only reads the real tree. Requirement 1 already says the key set equals pinned_charts(), so the second requirement repeats the first. The issue also had a third requirement ('placement checks unchanged') that the plan omitted. It is covered by task 1.2, so this is low impact.",
+   "evidence": "spec.md: 'WHEN pinned_charts() returns a (chart, version) pair that is not a key of CHART_CLAIMS THEN the test asserts a non-empty symmetric difference and fails'. Issue 2519 body lists three requirements, including 'placement checks unchanged'.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "Feasibility cites 'identifier match at line 90' and gives evidence by reading code only. It does not show command output. The pattern evidence is correct (pinned_charts at k8s_tree.py:60, test at test_k8s_manifests.py:592), so the premise holds. The 'Why' also repeats the issue number ('#2519:') as the first word, which is fine.",
+   "evidence": "tests/core/test_k8s_local_path_placement.py:90 `CHART_CLAIMS: dict[`; tests/support/k8s_tree.py:60 `def pinned_charts() -> frozenset[tuple[str, str]]`; check-runs for 247dd3cc: all success or skipped, `openspec check` passed in a worktree at the head sha.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Key CHART_CLAIMS by chart version and add the mismatch test' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  }
+ ]
+}

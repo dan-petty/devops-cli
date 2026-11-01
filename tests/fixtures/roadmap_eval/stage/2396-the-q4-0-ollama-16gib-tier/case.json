@@ -1,0 +1,86 @@
+{
+ "issue": 2396,
+ "pull": 2988,
+ "title": "fix(k8s): the q4_0 ollama-16gib tier makes different embedding vectors, so a fallback rag batch puts drifted vectors in the index",
+ "change": "2396-the-q4-0-ollama-16gib-tier",
+ "merge_commit": "4e5ccd0e8406d9f0d4b9c973066375516bc5033b",
+ "base_commit": "5feb5939a26492f3f65a74dcd3b67a732c609c25",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 4,
+  "accuracy": 4
+ },
+ "state": "merged",
+ "summary": "PR #2988 is merged (4e5ccd0e). Its title and body are correct (\"Plans #2396\", no closing keyword) and all 20 checks that ran are green. The folder has proposal, design, tasks and one delta spec, and every file, line and tier count the plan names is correct on main (line 126 q4_0; lines 271, 411, 558, 707 and the rest q8_0; gateway order 2 for ollama-16gib-fast). The plan has one major gap. The fix doubles the KV cache memory of the gpt-oss:20b chat model on the 16 GiB tier, and the plan never checks that this fits. A comment edit in task 1.2 would also record a false measurement. The folder is still unarchived on main, so the implement job has already run: it stopped at group 1 because it added an extra test file (tests/test_ollama_profiles_simple.py), and issue #2396 is now labelled status/blocked. Fixes to the plan matter for the retry.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "Feasibility does not check that q8_0 fits on the 16 GiB tier. The same tier runs gpt-oss:20b at context 131072. The file header says it takes 13 GB with q4_0 KV cache, measured in #2822. q8_0 roughly doubles the KV cache, and the tier targets 16Gi or 20Gi GPUs with two models allowed loaded. The archived change 2395 design already warns that this fix 'changes the KV memory of that tier's chat model'. Neither proposal.md nor design.md addresses it. The issue's refine text says the context is 48000, but the manifest says 131072. The plan did not catch that error. It gives no evidence (an `ollama ps` size or a load test). Rule 2 asks for a premise check against the real system. If the model no longer fits, the fix needs a lower OLLAMA_CONTEXT_LENGTH or a different approach, and that decision is left open.",
+   "evidence": "k8s/llm/profiles/ollama-profiles.yaml:17-18: 'ollama-16gib runs 131072, the native limit of gpt-oss:20b, which takes 13 GB with q4_0 KV cache'; lines 117-126: OLLAMA_CONTEXT_LENGTH \"131072\", OLLAMA_MAX_LOADED_MODELS \"2\", OLLAMA_KV_CACHE_TYPE q4_0; line 74: total-vram-gib In [\"16Gi\",\"20Gi\"]. openspec/changes/archive/2026-10-28-2395-ollama-0-40-12/design.md:16: 'its fix changes the KV memory of that tier's chat model'. Issue #2396 refine text: 'its 48000-token context'.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.2 gives two options for the header comment and the first one is wrong. 'which takes 13 GB with q4_0 KV cache (now q8_0)' states that 13 GB was measured with q8_0. It was not. The implementer must choose between two texts, and either leaves the 13 GB figure stale unless it is measured again.",
+   "evidence": "tasks.md 1.2: \"say 'which takes 13 GB with q4_0 KV cache (now q8_0)' or simply change the reference to q8_0\". Header line 18 of k8s/llm/profiles/ollama-profiles.yaml holds the measured 13 GB.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.1 names a new test file but does not say it is new. It does not point to an existing test pattern for manifests. It says 'Reads: none'. The first implement run then made a second file, tests/test_ollama_profiles_simple.py. The static check changed it and the job stopped. The plan should fix one test path and say the implementer creates only that file.",
+   "evidence": "ls tests | grep -i ollama returns nothing on main. Issue #2396 implement comment: 'The extra turn for the static check changed files that the step had not changed: tests/test_ollama_profiles_simple.py.'",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.3 contradicts itself: 'Change no document, run `uv run devops docs generate --sync-readme`'. It is also a docs-only step in a group that edits only a manifest comment. The wording is unclear for an implementer.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'",
+   "gate": "none"
+  },
+  {
+   "type": "criterion_dropped",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Acceptance criterion 3 of the issue is dropped. It asks for a live check that the same /api/embed request to ollama-16gib and ollama-48gib-slow gives cosine of 0.999 or more. The plan has no 'Pending a person:' bullet for it, and no mention in design.md of why it is left out. The only follow-up bullet is the tuicr review.",
+   "evidence": "Issue #2396 refine: 'Criterion 3: ... cosine similarity of 0.999 or higher'. tasks.md 'Workflow follow-up' holds only 'Pending a person: review the diff in tuicr'.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "nit",
+   "where": "specs/ai-gateway-routing/spec.md",
+   "problem": "The requirement says all tiers that serve the embedding model use 'the same value'. The scenario asserts a fixed value, q8_0, on every DaemonSet. The test would fail on a later change of all tiers to another value, so the scenario is stricter than the requirement. The text also says 'every DaemonSet container env block', which the requirement does not scope to the embedding group.",
+   "evidence": "spec.md: 'SHALL set OLLAMA_KV_CACHE_TYPE to the same value' vs '**THEN** every OLLAMA_KV_CACHE_TYPE value is q8_0'",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "'Existing Tool Considered' says 'Not applicable'. The rule asks to name a tool. A one-line YAML parse test could name PyYAML, which the repo already uses, so the section is present but thin.",
+   "evidence": "proposal.md: 'Not applicable. This is a one-line configuration change ... No external tool or library covers the need.'",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Set q8_0 KV cache on ollama-16gib' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  }
+ ]
+}

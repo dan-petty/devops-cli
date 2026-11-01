@@ -1,0 +1,94 @@
+{
+ "issue": 2169,
+ "pull": 2766,
+ "title": "fix(tests): the qdrant retry, the process fake's delay and 24 test bodies wait on the clock fixture or an event, not on real time",
+ "change": "2169-the-qdrant-retry-the-process-fake",
+ "merge_commit": "e133940b4e36e6867d4b986e0995b85cb06493a8",
+ "base_commit": "46fd02d604500c1e6f40ae424e02bbf697cc82b6",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "PR #2766 is merged (2026-10-30) and issue #2169 is closed as completed by fix PR #2833. The plan has the right structure and the right scope, but it holds a false premise (the Qdrant retry does not use tenacity), a nonexistent clock method (`advance`), stale line numbers copied from the issue, and a spec scenario that conflicts with the default retry count. The false tenacity sentence is now in `openspec/specs/rag-lookup-pause/spec.md` on main. The plan did not name `src/devops_cli/core/clock.py`, which the real fix had to change. The PR title is a valid Conventional Commit with no \"!\". The body says \"Plans #2169\", so there is no closing-keyword problem. Checks on the head sha were green (Semantic PR title, Tests & Coverage, Static Analysis, Rule Pack Tests, Docs Site Build). The group sizes fit the budget: the largest is group 4 at 22.5k tokens, under the 40k limit.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md, design.md, specs/rag-lookup-pause/spec.md, tasks.md 1.2",
+   "problem": "The plan says the Qdrant retry uses tenacity and says to pass a sleep through tenacity's sleep parameter. The retry does not use tenacity. It is a plain for-loop in `_execute_with_retry` that calls `_record_retry`, which ends in `time.sleep(0.5 * attempt)`. The Feasibility section never checked this. The false sentence is now a requirement in the main spec.",
+   "evidence": "`git show 7d6f3e3e:src/devops_cli/ai/rag/qdrant.py | grep -n 'time.sleep\\|tenacity'` prints only `155: time.sleep(0.5 * attempt)`. There is no tenacity import in the file. The real fix (506f7692) added a plain `sleep: Callable[[float], None]` parameter and did not use tenacity. `openspec/specs/rag-lookup-pause/spec.md:27` on main still reads 'through the sleep parameter of tenacity'. The issue text and the refine comment made the same claim. The refine comment cites 'qdrant.py:157' as its source, but that line is the time.sleep call. AGENTS.md rule 2 says to confirm the premise against the real system.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md 2.2",
+   "problem": "Task 2.2 says to call 'the clock fixture's advance method'. `ClockFake` has no `advance` method. It has `sleep` (records a wait and shifts the clock), `shift` (shifts the clock and records no wait), `move_to` and `monotonic`. The task also does not say how a ProcessFake in `tests/support/fakes` gets the fixture instance, and the real fix used `clock_seam.sleep`. An implementer must guess.",
+   "evidence": "`git show 7d6f3e3e:tests/support/fakes/clock.py` defines `sleep`, `monotonic`, `move_to`, `shift` and `concurrent_sleeps` on `ClockFake`. `grep advance` finds nothing in that class. `advance` appears only in a different `Clock` stub in test_rag_query_telemetry.py.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md groups 1 and 2 (Reads/Changes)",
+   "problem": "`src/devops_cli/core/clock.py` is missing from the Reads and Changes lines of groups 1 and 2. It is the clock seam the plan names. The module bound `sleep = time.sleep` at import, so a default argument or an import of it would not follow a monkeypatch on `time`. The real fix had to rewrite that module as functions. The plan hid this change.",
+   "evidence": "The base file has `sleep = time.sleep` / `monotonic = time.monotonic`. Commit 506f7692 changed `src/devops_cli/core/clock.py` to `def sleep(seconds): time.sleep(seconds)` and `def monotonic(): ...`. Neither proposal.md Impact nor any Reads/Changes line names `core/clock.py`.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "tasks.md 3.2, 4.2, 5.2, 6.2 and proposal.md Impact",
+   "problem": "Every cited test line number is wrong at the PR head. The numbers were copied from the issue (commit b170358e) and not checked. In the files, the sleep calls sit at different lines. Some files hold sleeps the plan does not list, so the '24 bodies' list is also incomplete or wrong. Each task also leaves the choice open between 'event wait' and 'clock fixture' per site, with no rule.",
+   "evidence": "At 7d6f3e3e, `tests/test_ai_client_network.py:251` is blank, while `time.sleep` calls are at lines 265, 361 and 394. `tests/test_http_egress.py:435` is blank, with sleeps at 482, 493 and 509. `tests/test_argo_gitops.py:87` is `state1 = compute_manifest_state(...)`, with sleeps at 90 and 243. `tests/test_rag_investigator.py:177` is a `formatted_text=` line, with a sleep at 204. `tests/test_pydantic_agent.py:497` is `)`, with a sleep at 454. `tests/test_telemetry.py:678` is blank, with a sleep at 530. `tests/test_watchers.py:68` is a `def`, with a sleep at 91. `tests/test_devcontainer.py:1978` is `)`, and the only hit is at 2175, which uses THREAD_HANDOFF_BOUND_SECONDS. All 23 cited test lines I checked were wrong.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/rag-lookup-pause/spec.md scenario 2 and tasks.md 1.1",
+   "problem": "The scenario says that with 'three retry attempts' and the default backoff the waits are 0.5, 1.0 and 1.5. With `DEFAULT_MAX_RETRIES = 3`, `_execute_with_retry` sleeps only after attempts 1 and 2 (`attempt < max_attempts`), so the waits are 0.5 and 1.0. Three waits need `max_attempts=4`. The scenario is wrong for the default, and task 1.1 repeats the error.",
+   "evidence": "`src/devops_cli/config/defaults.py:465: DEFAULT_MAX_RETRIES: int = 3`. The `qdrant.py` loop is `for attempt in range(1, max_attempts + 1)` with `if attempt < max_attempts and _is_transient_qdrant_error(exc): _record_retry(...)`. The merged test had to pass `max_attempts=4` to get `[0.5, 1.0, 1.5]`. The merged spec in openspec/specs still states the wrong scenario.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "minor",
+   "where": "tasks.md 2.1, 3.1, 4.1, 5.1, 6.1",
+   "problem": "The failing-test-first tasks do not work as written. Task 2.1 asks for new ProcessFake tests but names no test file, and its fail-on-base command runs three unrelated existing test files (`test_ai_review_pool.py`, `test_memory_profiler.py`, `test_server_service.py`). Tasks 3.1 to 6.1 say 'write or update the test' and 'verify it fails on the base', but removing a sleep from a passing test cannot fail on the base. There is no real red step to check.",
+   "evidence": "tasks.md 2.1: 'verify that `uv run devops ci test tests/test_ai_review_pool.py tests/test_memory_profiler.py tests/test_server_service.py` fails on the base'. Fix PR #2833 put the new ProcessFake test in `tests/core/test_process_contract.py`, which the plan never names.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md x.3 lines",
+   "problem": "Each group ends with a garbled filler task: '1.3 None., run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'. No docs change is planned, and the text 'None.,' is a template leftover. Six no-op tasks add noise.",
+   "evidence": "tasks.md lines 1.3, 2.3, 3.3, 4.3, 5.3 and 6.3.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md Feasibility",
+   "problem": "The Feasibility section holds claims, not evidence. Every item starts 'The context confirms/shows'. It lists no command output. It does not check the tenacity claim, the clock API or the cited lines. Its only 'first checks' are commands for the implementer to run later.",
+   "evidence": "proposal.md Feasibility bullets 1 to 4. AGENTS.md rule 2 says to record how the premise was confirmed against the real system.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "nit",
+   "where": "proposal.md Capabilities vs specs/rag-lookup-pause/spec.md",
+   "problem": "proposal.md lists `rag-lookup-pause` under 'Modified Capabilities', but the delta spec uses only `## ADDED Requirements`. The requirement text also names an implementation detail (tenacity) in a spec.",
+   "evidence": "proposal.md '### Modified Capabilities - rag-lookup-pause: qdrant-retry-wait-uses-clock-seam'. spec.md first line: '## ADDED Requirements'.",
+   "gate": "pending"
+  }
+ ]
+}

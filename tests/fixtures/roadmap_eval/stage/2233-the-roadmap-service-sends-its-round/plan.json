@@ -1,0 +1,121 @@
+{
+ "summary": "add Service pause and GraphQL gauges",
+ "pull_request_body": "Add two Prometheus gauges to the roadmap Service so an operator can alert on a paused Service or a low GraphQL budget without querying Loki. The Service already logs its round pause end time and its remaining GraphQL points after each round. This change sends both values as gauges through the existing OTLP path. - devops_cli_service_paused_until_seconds: the Unix time the round pause ends, or 0 when no pause holds. - devops_cli_github_graphql_remaining: the GraphQL points left from each round's closing budget read. Both are gauges, so their names do not end in _total. A dashboard reads them with last_over_time. The change adds two Instrument definitions to instruments.py, adds emit() calls at the Service's existing log points, adds tests that capture the gauges, and lists both in docs/",
+ "why": "The roadmap Service logs its round pause and GraphQL points left after each round, but Prometheus has no series for either. An alert on a paused Service or on a GraphQL budget near its floor needs Loki. #2233 adds two gauges so both values are available as Prometheus series.",
+ "what_changes": [
+  "Add SERVICE_PAUSED_UNTIL and GITHUB_GRAPHQL_REMAINING Instrument definitions to src/devops_cli/telemetry/instruments.py",
+  "Add emit() calls in the Service round where it already logs the pause end time and the GraphQL budget",
+  "Add tests that capture both gauges and assert their values",
+  "List both gauges in the metric table of docs/TELEMETRY.md"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue premise is confirmed: src/devops_cli/telemetry/instruments.py defines InstrumentKind.GAUGE and emit() calls tracer.record_gauge for gauges. The archived change for #814 names devops_cli_service_paused_until_seconds and cites service_pause_until in src/devops_cli/roadmap/run.py, confirming the Service already holds the pause value.",
+  "First checks: uv run devops ci test tests/test_telemetry_instruments.py verifies the new instruments are in INSTRUMENTS and their names follow the naming rules. uv run devops ci test tests/test_roadmap_run.py verifies the emit() calls fire with the correct values."
+ ],
+ "existing_tool": "The project's own telemetry module (src/devops_cli/telemetry/instruments.py) provides InstrumentKind.GAUGE and emit(), which the project metrics already use. No external tool is needed. The change adds two Instrument definitions and two emit() calls; it deletes no internal code.",
+ "decisions": [
+  {
+   "decision": "Use the existing emit() and InstrumentKind.GAUGE path for both gauges.",
+   "reason": "The project metrics already use this path, and the issue names it as the existing tool."
+  },
+  {
+   "decision": "Send the gauges at the Service's existing log points, not in a new timer or hook.",
+   "reason": "The issue says sent where the Service already logs the values, and the values are already computed at those points."
+  },
+  {
+   "decision": "No labels on either gauge.",
+   "reason": "The issue names no labels, and the Service context already provides the identifying attributes."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Add the gauges to a new telemetry module.",
+   "evidence": "The existing emit() path in instruments.py already handles gauges, and the project metrics use it. A new module would duplicate the path."
+  },
+  {
+   "alternative": "Use a counter for the pause end time.",
+   "evidence": "The pause end time is a snapshot, not an accumulation. A gauge is the correct kind, and the issue names it as a gauge."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "metric-instruments",
+   "purpose": null,
+   "added": [
+    {
+     "name": "service-pause-gauge",
+     "text": "The roadmap Service SHALL send devops_cli_service_paused_until_seconds as a gauge with the Unix time the round pause ends, or 0 when no pause holds.",
+     "scenarios": [
+      {
+       "name": "paused round",
+       "when": "a round pauses and the Service logs the pause end time",
+       "then": "the captured gauge devops_cli_service_paused_until_seconds equals the Unix time the pause ends"
+      },
+      {
+       "name": "unpaused round",
+       "when": "a round completes with no pause",
+       "then": "the captured gauge devops_cli_service_paused_until_seconds equals 0"
+      }
+     ]
+    },
+    {
+     "name": "graphql-remaining-gauge",
+     "text": "The roadmap Service SHALL send devops_cli_github_graphql_remaining as a gauge with the GraphQL points left from each round's closing budget read.",
+     "scenarios": [
+      {
+       "name": "budget read",
+       "when": "a round's closing budget read completes",
+       "then": "the captured gauge devops_cli_github_graphql_remaining equals the remaining GraphQL points"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Define the two Service gauges in instruments.py",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/telemetry/instruments.py"
+   ],
+   "creates": [],
+   "test": "Add a test that asserts SERVICE_PAUSED_UNTIL and GITHUB_GRAPHQL_REMAINING are in INSTRUMENTS, have kind GAUGE, and their names do not end in _total",
+   "implementation": "Add SERVICE_PAUSED_UNTIL (name devops_cli_service_paused_until_seconds, kind GAUGE, unit s) and GITHUB_GRAPHQL_REMAINING (name devops_cli_github_graphql_remaining, kind GAUGE, unit 1) Instrument definitions. Add both to the INSTRUMENTS tuple. Add both to __all__",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_telemetry_instruments.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Emit the two gauges from the Service round",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/roadmap/run.py"
+   ],
+   "creates": [],
+   "test": "Add a test that runs a Service round with a pause and asserts the captured gauge devops_cli_service_paused_until_seconds equals the pause end time. Add a test that runs a round with no pause and asserts the gauge is 0. Add a test that asserts the captured gauge devops_cli_github_graphql_remaining equals the remaining points",
+   "implementation": "Import emit and the two instruments from devops_cli.telemetry.instruments. At the point where the Service logs the round pause end time, call emit(SERVICE_PAUSED_UNTIL, paused_until). At the point where the Service logs the GraphQL budget, call emit(GITHUB_GRAPHQL_REMAINING, remaining_points)",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_roadmap_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "List the two gauges in TELEMETRY.md",
+   "reads": [],
+   "changes": [
+    "docs/TELEMETRY.md"
+   ],
+   "creates": [],
+   "test": "No code test; the acceptance criterion is that the metric table in docs/TELEMETRY.md contains rows for both gauge names",
+   "implementation": "Add a row for devops_cli_service_paused_until_seconds (Gauge, s, the Unix time the round pause ends or 0 when no pause holds) and a row for devops_cli_github_graphql_remaining (Gauge, 1, the GraphQL points left from each round's closing budget read) to the metric table",
+   "documentation": "docs/TELEMETRY.md",
+   "verify": "uv run devops ci test tests/test_telemetry_instruments.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

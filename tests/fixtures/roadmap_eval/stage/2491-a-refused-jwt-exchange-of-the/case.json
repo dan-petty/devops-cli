@@ -1,0 +1,72 @@
+{
+ "issue": 2491,
+ "pull": 2992,
+ "title": "fix(github): a refused JWT exchange of the GitHub App names GitHub's reason, not a gh login",
+ "change": "2491-a-refused-jwt-exchange-of-the",
+ "merge_commit": "2e94906cdcd6b5902a8965b1c95f358bba023d92",
+ "base_commit": "9fb7b5db99c34fe627bc4c54a5a72a7049871830",
+ "verdict": "acceptable",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The plan is sound and fits the issue. The premise is true on main: mint_installation_token passes the 401 message from _unauthenticated_error, which says gh auth login. The 422 override is the right pattern to copy. The PR is merged, its title and body are correct (\"Plans #2491\"), and all checks pass. Four defects are small but real. The plan names a file that does not exist (src/devops_cli/lang/git.py). Its Feasibility section leaves that path to the implementer. Task 1.2 does not say who adds the \"Check the App ID...\" advice, which the wrapper already appends, so the advice could appear twice. Task 1.3 contradicts itself. Issue #2491 is still open, and the implement job stopped at group 1 on a mypy failure in tests/support fakes. That failure does not come from the plan.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task group 1 lists `src/devops_cli/lang/git.py` under Changes, and proposal.md Impact lists it too. That file does not exist. ERRORS.git is the GitErrorMessages dataclass in `src/devops_cli/lang/en/errors.py`. The Service stage comment on the issue flagged this path. An implementer who reads only the plan will search for a missing file or create a wrong one.",
+   "evidence": "git ls-tree -r origin/main shows no src/devops_cli/lang/git.py; src/devops_cli/lang/ holds only __init__.py and en/. `grep github_app_permissions_not_granted src` hits src/devops_cli/lang/en/errors.py:55. The stage comment says: 'These paths of the plan are no file on the default branch... `src/devops_cli/lang/git.py`.'",
+   "gate": "paths",
+   "paths": [
+    "src/devops_cli/lang/git.py"
+   ]
+  },
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "proposal.md",
+   "problem": "The Feasibility section does not check the premise for the ERRORS.git location. It says 'the defining file must be located during implementation'. AGENTS.md rule 2 asks for confirmed evidence in the plan. One grep gives the answer. The plan left it open and then named a wrong path.",
+   "evidence": "proposal.md Feasibility bullet 4: 'The path of the `ERRORS.git` module is not shown in the inputs ... the defining file must be located during implementation.'",
+   "gate": "pending"
+  },
+  {
+   "type": "ignores_existing_code",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.2 and the proposal say the new 401 reason holds 'App-specific advice' to check the App ID, installation ID and key. The wrapper `_token_failed` already appends that sentence to every reason through ERRORS.git.github_app_token_failed. If the implementer puts the advice in the new constant, the message shows it twice. The plan does not give the exact new string. It should say the new reason holds only the request, the status and GitHub's message.",
+   "evidence": "src/devops_cli/lang/en/errors.py: github_app_token_failed = 'GitHub App {login} has no installation token: {reason}. Check the App ID, the installation ID and the private key in {key_env}.' The issue's Actual message shows the sentence once, after the gh-login text. The issue's design uses reason 'GitHub refused the JWT for POST ... (HTTP 401): <message>'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.3 contradicts itself ('Change no document, run `devops docs generate --sync-readme`') and gives no reason for a docs step. The change touches no documented setting or command. The group also says 'Reads: none' although the step edits three files and must read them.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'. Group line: 'Reads: none. Changes: ...'.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "Some Feasibility line numbers are off by one or are garbled. The 422 override sits at lines 117-118 of app_installation.py, not 116-117. The sentence 'currently uses a substring assertion and will not hold the wrong text after the fix' is unclear. The other cited places are right: classify_http_error at line 115, _unauthenticated_error at line 193, test at line 332.",
+   "evidence": "git show origin/main:src/devops_cli/github/app_installation.py: line 116 `reason = failure.message`, 117 `if failure.details.get(\"status\") == HTTPStatus.UNPROCESSABLE_ENTITY:`, 118 `reason = _not_granted(...)`.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "PR-level",
+   "problem": "Status note, not a plan defect. Issue #2491 is still open and labelled status/blocked. The implement job stopped at group 1 on `mypy --strict` errors in tests/support/fakes/process.py and github.py, files the plan does not touch. A person must look at that stop.",
+   "evidence": "Issue comment 2026-11-01T11:13:41Z: 'Stopped at group 1. ... tests/support/fakes/process.py:310: error: Too many arguments for \"object\"'. The record shows implement.stopped = 'group 1'.",
+   "gate": "none"
+  }
+ ]
+}

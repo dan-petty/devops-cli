@@ -1,0 +1,81 @@
+{
+ "summary": "Name GitHub's reason in App 401 error",
+ "pull_request_body": "When GitHub refuses the App's JWT with HTTP 401, the error tells the operator to run gh auth login. A process acting as the App has no gh login, so the advice is wrong. The error also drops GitHub's reason from the response body. This change adds a 401 override in mint_installation_token, following the existing 422 pattern. The new reason includes GitHub's message and App-specific advice to check the App ID, installation ID and private key. The test assertion is updated to compare the full message.",
+ "why": "Issue #2491: when GitHub refuses the App's JWT with HTTP 401, the error message tells the operator to run `gh auth login` or set `GH_TOKEN`. A process acting as the App has no gh login, so the advice is wrong. The message also drops GitHub's reason, for example \"A JSON web token could not be decoded\".",
+ "what_changes": [
+  "Add a 401 elif branch in `mint_installation_token` that replaces the generic reason with an App-specific string including GitHub's message from the response body",
+  "Add a new error string constant in `ERRORS.git` for the App 401 reason",
+  "Update the 401 test assertion to compare the full message, confirming it holds GitHub's reason and App-specific advice, and does not hold gh-login text"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed: `mint_installation_token` in `src/devops_cli/github/app_installation.py` line 115 calls `classify_http_error` and uses `failure.message` for 401, which comes from `_unauthenticated_error` in `src/devops_cli/github/error_classifier.py` line 193 that writes gh-login advice.",
+  "The 422 override at line 116-117 of `app_installation.py` shows the pattern to follow: check `failure.details.get(\"status\")` and replace `reason`.",
+  "The test at `tests/github/test_github_app_identity.py:332` currently uses a substring assertion and will not hold the wrong text after the fix.",
+  "The path of the `ERRORS.git` module is not shown in the inputs; the import `from devops_cli.lang import ERRORS` in `app_installation.py` confirms the package, but the defining file must be located during implementation.",
+  "First checks: run `uv run devops ci test tests/github/test_github_app_identity.py` to confirm the existing test passes, then apply the new assertion and confirm it fails before the fix."
+ ],
+ "existing_tool": "No external tool or library covers this need. The fix is a small code change in existing code: one new error string constant, one elif branch in `mint_installation_token`, and one test assertion update. The written cost is about 15 lines of code and 10 lines of test change, plus the time to run the test suite once.",
+ "decisions": [
+  {
+   "decision": "Override the 401 reason in `mint_installation_token`, following the existing 422 pattern",
+   "reason": "The function already overrides the 422 reason with App-specific text. Adding a 401 override follows the same pattern and keeps App logic in the App module. The generic `_unauthenticated_error` is correct for gh sessions where `gh auth login` is the right advice."
+  },
+  {
+   "decision": "Include GitHub's reason from the response body in the 401 message",
+   "reason": "The spec requirement says the error SHALL name the reason. The issue confirms that \"the reason\" means GitHub's actual message from the response, not a generic instruction. The 422 case already includes GitHub's text."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Change `_unauthenticated_error` to drop gh-login advice",
+   "evidence": "This function is also used for gh sessions where `gh auth login` is the correct advice. Changing it would break the gh-session case. See `src/devops_cli/github/error_classifier.py:193` and its use in `_HTTP_CLASSES` at line 243."
+  },
+  {
+   "alternative": "Add a new classifier entry for App 401",
+   "evidence": "The classifier is generic and does not know about the App context. Adding App-specific logic there mixes concerns. The 422 case is handled in `mint_installation_token`, not in the classifier."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "github-app-identity",
+   "purpose": null,
+   "added": [],
+   "modified": [
+    {
+     "name": "A failed exchange names the App and the reason",
+     "text": "A refused exchange, or a key that cannot sign a JWT, SHALL raise `GitHubUnauthenticatedError` that names the App's bot login and the reason. For a refused exchange with HTTP 401, the reason SHALL include GitHub's message from the response body and SHALL NOT include `gh auth login` or `GH_TOKEN`. The error SHALL never hold the key.",
+     "scenarios": [
+      {
+       "name": "GitHub refuses the exchange",
+       "when": "GitHub answers the exchange with HTTP 401 and body `{\"message\": \"A JSON web token could not be decoded\"}`",
+       "then": "the token lookup raises `GitHubUnauthenticatedError` whose message holds `devops-roadmap[bot]`, `POST /app/installations/42/access_tokens`, `401`, `A JSON web token could not be decoded`, and `Check the App ID, the installation ID and the private key in DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY`, and does not hold `gh auth login` or `GH_TOKEN`"
+      },
+      {
+       "name": "The key is no RSA key",
+       "when": "the environment holds `not-a-pem-key` as the key",
+       "then": "the token lookup raises `GitHubUnauthenticatedError` that says the key is not an RSA private key in PEM form, does not quote the key, and sends no request"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add App-specific 401 reason to the exchange error",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/github/app_installation.py",
+    "src/devops_cli/lang/en/errors.py"
+   ],
+   "creates": [],
+   "test": "Update `test_a_refused_exchange_raises_the_unauthenticated_error_with_githubs_status` in `tests/github/test_github_app_identity.py` to assert the full message: it holds `devops-roadmap[bot]`, `POST /app/installations/42/access_tokens`, `401`, `A JSON web token could not be decoded`, and `Check the App ID, the installation ID and the private key in DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY`. It does not hold `gh auth login` or `GH_TOKEN`",
+   "implementation": "In `mint_installation_token`, add an elif branch after the 422 check: if `failure.details.get(\"status\") == HTTPStatus.UNAUTHORIZED`, replace `reason` with a new App-specific string that includes GitHub's message from `str(error)` and the request path. Add the new error string constant to `ERRORS.git` in the lang module",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/github/test_github_app_identity.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

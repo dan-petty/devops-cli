@@ -1,0 +1,64 @@
+{
+ "issue": 2739,
+ "pull": 2859,
+ "title": "fix(security): the subprocess environment guard accepts GH_TELEMETRY_ENDPOINT_URL, which sends gh telemetry to a caller URL",
+ "change": "2739-the-subprocess-environment-guard-accepts-gh",
+ "merge_commit": "7ea2d5f0c80841c9b7e115e3de42b04480c663d4",
+ "base_commit": "c3354bbd9b16588286f4c8468afff13746a1df0a",
+ "verdict": "acceptable",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The plan is merged (commit 7ea2d5f0), and the fix is already built and merged in PR #2901 (commit a5082031, issue closed as completed). The plan has the right design and a clean PR (title, \"Plans #2739\" body, all checks green). It has one wrong test path that an implementer would hit, a task group that says \"Reads: none\" when it needs two large files, and a Feasibility section that skips the gh probe the issue asked for. Those are minor edits, not blockers. The code change is small, and the implementer finished it despite the wrong path.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The plan names tests/test_process_env.py in tasks 1.1 and 1.2, in the Changes line, in proposal.md Impact and in Feasibility. The file does not exist on main. The verify command `uv run devops ci test tests/test_process_env.py` refuses a path that does not exist. The stage job warned about this path in its comment, but the plan was not fixed. The real tests of this guard live in tests/core/test_subprocess_env_*.py. The implementer put the tests in a new file, tests/core/test_subprocess_env_telemetry.py, and had to guess the verify path.",
+   "evidence": "git ls-tree at c3354bbd (the base of the plan): `git ls-tree -r --name-only c3354bbd | grep -c '^tests/test_process_env.py'` gives 0; existing files are tests/core/test_subprocess_env_boundary.py, test_subprocess_env_gh_kubectl.py, test_subprocess_env_uv_npm.py. Stage comment on #2739: 'These paths of the plan are no file on the default branch, and no group creates them: `tests/test_process_env.py`.' PR #2901 added tests/core/test_subprocess_env_telemetry.py.",
+   "gate": "paths",
+   "paths": [
+    "tests/test_process_env.py"
+   ]
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "The Feasibility section does not hold evidence. The issue says the key was never probed and that the first step of the fix is a probe of what gh sends and where (loopback server, temporary HOME, fake token). The plan only repeats the name-based claim and lists a reproduction command as a 'First check' to run later. It records no output of any command and does no gh probe. The issue's refine design chose 'refuse' as a best-practice decision, so the result is probably right, but AGENTS.md rule 2 asks for the premise to be checked and recorded.",
+   "evidence": "Issue #2739 body: 'I did not probe this key. The name comes from the strings of the gh binary ... The first step of the fix is a probe'. proposal.md Feasibility: 'First check: run the reproduction command ... to confirm the key is currently accepted' (an instruction, not an observed result).",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Group 1 says `Reads: none`. The implementer must read src/devops_cli/core/process.py and src/devops_cli/config/constants.py, which is more than 1600 lines, to place the new constant next to CONST_CODE_LOADING_ENV_PATTERNS and to edit _is_env_override_refused. An implementer with the wrong Reads line gets no guide to the files or to the line anchors (CONST_GIT_ACCEPTED_ENV at constants.py:1092, CONST_CODE_LOADING_ENV_PATTERNS at constants.py:1573, _is_env_override_refused at process.py:146). The implement log shows many read_file and grep calls before the first edit.",
+   "evidence": "git show c3354bbd:src/devops_cli/config/constants.py shows CONST_CODE_LOADING_ENV_PATTERNS at line 1573; git show c3354bbd:src/devops_cli/core/process.py shows _is_env_override_refused at line 146. Stage comment gave 3357 tokens as the size of the inputs.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.3 says 'Change no document, run `uv run devops docs generate --sync-readme`'. The sentence is odd: the code adds only a constant, so a README sync may produce no diff, and the task does not say what to do if it does. The task is a workflow step with no real change. Also task 1.1 packs four tests plus a base-fail check into one checkbox, which is large for one task.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'. openspec/config.yaml line 37 requires every group to regenerate docs, so the step is allowed, but its wording is unclear.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "design.md",
+   "problem": "design.md says 'Decisions: None' and 'Rejected alternatives: None'. The issue's refine design records real decisions and rejected options: a new constant instead of DEFAULT_DENIED_ENV_PATTERNS, instead of a hard-coded check, and refusing only one of the three GH_TELEMETRY keys. The plan keeps the third decision in the proposal text and spec but loses the other two, so a reader of the plan cannot see why DEFAULT_DENIED_ENV_PATTERNS was not used.",
+   "evidence": "design.md content 'None.' under both headings; issue #2739 body, 'Where in the code should the refusal be added?' lists 'Rejected: Add to DEFAULT_DENIED_ENV_PATTERNS' and 'Rejected: Hardcode in _is_env_override_refused'.",
+   "gate": "none"
+  }
+ ]
+}

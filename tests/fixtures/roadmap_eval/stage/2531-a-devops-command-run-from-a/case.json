@@ -1,0 +1,64 @@
+{
+ "issue": 2531,
+ "pull": 2995,
+ "title": "fix(telemetry): a devops command run from a deleted working directory gives no FileNotFoundError traceback from the git directory lookup",
+ "change": "2531-a-devops-command-run-from-a",
+ "merge_commit": "d580cdd86e307fa872bc6c5891012224f4b33ea3",
+ "base_commit": "2e94906cdcd6b5902a8965b1c95f358bba023d92",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 3,
+  "task_quality": 2,
+  "rule_compliance": 4,
+  "accuracy": 2
+ },
+ "state": "merged",
+ "summary": "PR #2995 is merged (d580cdd8). The plan finds the right first crash site: tracer.py:630. But it names a test file that does not exist, and its guard cannot meet its own spec requirement that the command completes. The implement job already stopped at group 1 (issue #2531 is status/blocked). The plan needs a fix before a new implement round. Checks on the head sha all passed or were skipped. The title is a valid Conventional Commit with no \"!\". The body says \"Plans #2531\", so there is no closing keyword problem. The plan has no release, CHANGELOG or config.yaml edits and no private data. PR #3000 is not related: it is refactor #2175.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 1.1 and the proposal Impact line name tests/test_tracer.py. That file does not exist on main. The tracer tests live in tests/telemetry/test_telemetry.py. The Reads/Changes line of group 1 names the wrong path, and the verify command `uv run devops ci test tests/test_tracer.py` runs no real file. The implement job followed the plan, made the new file, and then stopped because mypy --strict failed on it. The stage bot comment also warned that this path is no file on the default branch.",
+   "evidence": "`ls tests | grep -i tracer` gives no output. `ls tests/telemetry` lists test_telemetry.py, test_otlp_export.py and others, but no test_tracer.py. Issue comment (implement bot): 'Stopped at group 1 ... mypy --strict ... tests/test_tracer.py:14: error: Function is missing a return type annotation' (4 errors). Stage comment: 'These paths of the plan are no file on the default branch, and no group creates them: tests/test_tracer.py.'",
+   "gate": "paths",
+   "paths": [
+    "tests/test_tracer.py"
+   ]
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/command-telemetry/spec.md",
+   "problem": "The spec requires that `devops gh api` from a deleted directory completes without a traceback. The plan only guards Path.cwd() in _resolve_git_dir. Other code on the same startup path also calls os.getcwd() and crashes next, so the guard alone cannot satisfy the requirement. No task covers that spot or tests the command-level scenario. This is the issue's main acceptance criterion, and the plan does not deliver it. The plan's Feasibility section checked only the tracer and missed this.",
+   "evidence": "I ran `devops gh api rate_limit` from a deleted directory. The first crash is tracer.py:630 in _resolve_git_dir. I then simulated the planned guard by wrapping _resolve_git_dir to return None on OSError and ran the same command. It still fails: `settings.py:1313 in _config_layers -> os.getcwd()` (called from load_settings at settings.py:1396, via run_gh -> get_github_rate_limiter, rate_limiter.py:1898). settings.py:1464 also calls `Path.cwd()` in project-config discovery. The issue's own design note only checks _normalize_code_filepath.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task 1.1 asks for tests but gives no signature rules. The repo runs mypy --strict on tests, and the implement round failed on missing `-> None` annotations. The Reads line says 'none' for a group that changes tracer.py and tests, so the implementer must find the existing test module and fixtures without help. Task 1.3 runs `devops docs generate --sync-readme` and `devops ci docs` for a change that edits no document. This is wasted work.",
+   "evidence": "Group 1 line: 'Reads: none. Changes: src/devops_cli/telemetry/tracer.py, tests/test_tracer.py.' Task 1.3: 'Change no document, run uv run devops docs generate --sync-readme ...'. Implement comment: mypy errors on tests/test_tracer.py lines 14, 25, 42, 54.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "PR-level",
+   "problem": "The PR body is cut off in the middle of a sentence. It ends with 'plus a test that patches Path.cwd to raise FileNotFoundError and a'. The body becomes the squash commit message, so the permanent record is incomplete.",
+   "evidence": "PR #2995 body: '...plus a test that patches Path.cwd to raise FileNotFoundError and a\\n\\nChange: `openspec/changes/2531-a-devops-command-run-from-a/`'.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "The change folder slug '2531-a-devops-command-run-from-a' is cut off from the title and says nothing about the change. The delta spec uses ADDED for the command-telemetry capability, which is fine because the three requirement names are new (checked against openspec/specs/command-telemetry/spec.md).",
+   "evidence": "Folder: openspec/changes/2531-a-devops-command-run-from-a/. PR title says 'guard Path.cwd in _resolve_git_dir'.",
+   "gate": "none"
+  }
+ ]
+}

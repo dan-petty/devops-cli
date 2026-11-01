@@ -1,0 +1,95 @@
+{
+ "issue": 2371,
+ "pull": 2986,
+ "title": "perf(ci): measure and cut what each of the 16 test workers repeats at start",
+ "change": "2371-measure-and-cut-what-each-of",
+ "merge_commit": "022d784cbc39bbcc359f191009445cab10601e5c",
+ "base_commit": "78726a37f96348d6e107b20b6c455647d21344c9",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 1,
+  "fidelity": 2,
+  "task_quality": 2,
+  "rule_compliance": 2,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The plan is merged and issue #2371 is still open. All 21 checks pass or skip. The plan skips the measurement that the issue asks for, and it builds a fixture that cannot cut CPU time. The fixture is also not autouse, so it never runs. The spec delta is on the wrong capability, and the change needs skip_specs. An implementer would build code that does not meet the acceptance criteria of the issue. Do not implement it as written. Revise the plan, or return the item to the roadmap with the evidence.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md / tasks.md",
+   "problem": "The plan skips the measure-first work. The issue says: measure first, split one run, rank the first imports, then apply the change with the largest share. Acceptance needs three-run CPU numbers, a ranked import list, a drop of at least 5% in CPU time, and no rise in the Tests & Coverage median. No task measures anything, and no task checks the 5% target. The proposal uses the issue's numbers (287/151/136 s) as its Feasibility. It makes no new measurement and checks no candidate against the real system. The three checks listed in Feasibility only 'confirm' counts and are not run in any task. Rule 2 says to check the premise against the real system first.",
+   "evidence": "Issue 2371: 'Measure first. Report CPU time ... over three runs on an idle host' and 'Acceptance: ... at least 5% lower in CPU time'. tasks.md has one group, 1.1 to 1.3, with no measurement step. Only issue figures appear in proposal.md Why and Feasibility.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md / design.md",
+   "problem": "The chosen fix cannot cut CPU time. A worker imports each heavy module once, in a test body or in a fixture. Moving the import to a session fixture moves the cost. It does not remove it. It adds cost on workers that never use a module. The issue itself says that a test that carries the import cost moves it to the next test. Also, 55 test files import pydantic_ai, anthropic, kubernetes or textual at module top level. Collection loads those modules before any session fixture runs. The fixture is then a no-op for those modules. The design says the fixture 'targets the root cause' and that 'The issue identifies [it] as the largest share'. The issue does not say that: it lists three candidates and asks for numbers.",
+   "evidence": "grep -rlE '^\\s*(import|from) (pydantic_ai|anthropic|kubernetes|textual)' tests | wc -l -> 55 (for example tests/roadmap/test_roadmap_implement_submit.py). Issue text: 'A test that carries the import cost of its worker moves that cost to the next test when the test goes.' design.md: 'the session fixture targets the root cause (repeated imports)'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md 1.2",
+   "problem": "The fixture as specified never runs. A session fixture runs only if a test requests it or if it has autouse=True. The task says only 'pytest.fixture(scope=\"session\")'. The sibling session fixtures in tests/conftest.py all use autouse=True. The task has no autouse. Also docs/TESTING.md lists 'autouse setup' under _Avoid_ for the hermetic floor. The plan does not discuss this. If the implementer adds autouse, the fixture has to run after the network, process and path guards in conftest. The plan does not say how it should be ordered with them.",
+   "evidence": "tasks.md 1.2: 'Add a session-scoped fixture ... Use pytest.fixture(scope=\"session\")'. tests/conftest.py:42,372,429,598,612: '@pytest.fixture(autouse=True, scope=\"session\")'.",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md 1.1 / specs/ci-job-time/spec.md",
+   "problem": "Test 1.1 cannot be a sound fail-to-pass test. 'sys.modules contains the four modules after the session fixture runs' holds on base when a test file in the same worker already imported them at top level (55 files do). It would also pass on base for that reason. The second assertion, that the fixture scope is 'session', only tests how the code is written. The two spec scenarios repeat these two checks. The task asks for the test in a new top-level file tests/test_conftest_import_preload.py. The file does not exist. docs/TESTING.md says a new test joins the file that already tests the behaviour, or else a new flat file named after the behaviour.",
+   "evidence": "spec.md scenario 'fixture scope is session': WHEN the fixture definition is inspected THEN the scope parameter ... is session. tasks.md 1.1 names tests/test_conftest_import_preload.py; ls shows no such file.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/ci-job-time/spec.md / .openspec.yaml",
+   "problem": "The change touches only tests/conftest.py and one test. openspec/config.yaml says a change that alters no consumer-visible behavior (tests, CI) has no spec delta and sets skip_specs: true. This plan adds a delta and does not set skip_specs. The delta is also on the wrong capability. ci-job-time is the spec of the 'devops ci job-time' command, which reads the Actions API. A requirement about xdist worker imports does not belong there. The proposal lists 'test-worker-import-preload' as a Modified Capability, but the delta uses ADDED.",
+   "evidence": "openspec/config.yaml: 'A change that alters no behavior a consumer observes (tests, CI workflows, documentation ...) has no spec delta and sets skip_specs: true'. .openspec.yaml holds only 'schema' and 'created'. openspec/specs/ci-job-time/spec.md Purpose: 'How `devops ci job-time` finds out whether a CI job ... still averages less than five minutes'.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "PR body",
+   "problem": "The PR body states a result that does not exist. It says: 'The measurement numbers are reported in the PR description from three runs on an idle host.' The body has no run data. The only figures are 287/151/136 s, which come from the issue. The body also says that the issue 'identifies' the import cost as the largest share. That is false. A reader of the merged squash commit gets a wrong record.",
+   "evidence": "PR 2986 body: 'The measurement numbers are reported in the PR description from three runs on an idle host.' The body has no per-run data. Issue 2371 asks for a measurement in the future implementation pull request.",
+   "gate": "none"
+  },
+  {
+   "type": "missing_path",
+   "severity": "minor",
+   "where": "proposal.md Feasibility, design.md",
+   "problem": "Wrong file path, wrong line numbers and a claim that the source does not support. The path tests/test_cli_startup_imports.py does not exist on main. The file is tests/commands/test_cli_startup_imports.py. The constant CONST_CLI_HEAVY_MODULES starts at line 19, not 17. It holds 12 modules, so it does not list only the four target modules. CHANGELOG.md:1197 is cited as evidence for '-n logical --dist worksteal' and for '16 workers'. That line only mentions worksteal. The 16-worker claim comes from the 16-CPU host in the issue. The real setting is pyproject.toml:199.",
+   "evidence": "ls tests/test_cli_startup_imports.py -> missing; tests/commands/test_cli_startup_imports.py:19 'CONST_CLI_HEAVY_MODULES' (pydantic_ai, kubernetes, docker, fastmcp, qdrant_client, google.genai, anthropic, openai, agentops, litellm, libtmux, textual). pyproject.toml:199 addopts = '-n logical --dist worksteal ...'.",
+   "gate": "paths",
+   "paths": []
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md 1.3 and Workflow follow-up",
+   "problem": "Task 1.3 contradicts itself. It says 'Change no document' and then runs the docs generate command. Nothing in the change touches generated docs. The 'Workflow follow-up' section is a tracking note and not a task group. The Reads line is 'none', but 1.2 needs tests/conftest.py (1150 lines) and the 1.1 test needs its fixtures. The group is small, so the size is not a problem. The Reads line is just not accurate.",
+   "evidence": "tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes'. wc -l tests/conftest.py -> 1150.",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "design.md",
+   "problem": "The plan says importlib.import_module 'avoids static analysis issues' and that a bare import at module level runs at collection time. An import inside the fixture body would run at the same time as import_module. The rationale does not support the choice. The decision also rejects 'fewer workers' and 'shorter collection' without any number. The issue asks to pick the change by measured share.",
+   "evidence": "design.md Decisions, third bullet, and Rejected alternatives: no timing or CPU figure appears.",
+   "gate": "none"
+  }
+ ]
+}

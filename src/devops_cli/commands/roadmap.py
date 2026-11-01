@@ -1,8 +1,8 @@
 """`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
 refine readies items, stage makes a Ready item Staged, implement takes a Staged or Planned item
 to a ready pull request, return sends an item back to New, claim and release say who works
-on an item, explain says why the stage job and the implement job take an item or leave it out, and
-inbox lists what waits for a person.
+on an item, explain says why the stage job and the implement job take an item or leave it out,
+inbox lists what waits for a person, and eval scores a job on a golden set.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
@@ -30,7 +30,7 @@ from typing import Annotated, NoReturn
 
 import typer
 
-from devops_cli.commands.roadmap_eval import app as eval_app
+from devops_cli.commands.roadmap_eval import eval_app
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,

@@ -1,0 +1,23 @@
+{
+ "issue": 2491,
+ "pull": 2992,
+ "title": "fix(github): a refused JWT exchange of the GitHub App names GitHub's reason, not a gh login",
+ "change": "2491-a-refused-jwt-exchange-of-the",
+ "merge_commit": "2e94906cdcd6b5902a8965b1c95f358bba023d92",
+ "base_commit": "9fb7b5db99c34fe627bc4c54a5a72a7049871830",
+ "verdict": "good",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The plan of this case is the merged plan of pull request #2992, which the evaluation of 2026-11-01 judged acceptable, with one path corrected: `src/devops_cli/lang/git.py` is `src/devops_cli/lang/en/errors.py`. It has no known defect.",
+ "twin_of": "2491-a-refused-jwt-exchange-of-the",
+ "notes": [
+  "Corrected path: `src/devops_cli/lang/git.py` is `src/devops_cli/lang/en/errors.py`."
+ ],
+ "defects": []
+}

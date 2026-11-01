@@ -1,0 +1,87 @@
+{
+ "summary": "report a clear error for merge-key unset",
+ "pull_request_body": "devops config unset crashes with a TypeError when the target key is present only through a YAML merge key (<<: *anchor). The _find function in round_trip.py calls node.lc.key(dotted), which returns None for merged keys, and the code then indexes into None. This change adds a check in _find: when node.lc.key(dotted) is None, it raises a ConfigurationError that names the file and states the key comes from a YAML merge key. The command exits 1 with a clear message instead of a traceback. Direct key removal is unchanged.",
+ "why": "Issue #2656: devops config unset stops with a TypeError traceback when the config file gives the key through a YAML merge key. The _find function in round_trip.py calls node.lc.key(dotted), which returns None for merged keys, and the code indexes into None. The user sees a traceback instead of a clear message, and the audit keeps reporting a secret that the command cannot remove.",
+ "what_changes": [
+  "Add a None check for node.lc.key(dotted) in _find in src/devops_cli/config/round_trip.py",
+  "Raise a ConfigurationError naming the file and stating the key comes from a YAML merge key",
+  "Pass the name parameter from find into _find so the error can name the file",
+  "Add a test that calls find with a merge-derived key and asserts a ConfigurationError"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed: src/devops_cli/config/round_trip.py line 161 shows int(node.lc.key(dotted)[0]) + 1, which raises TypeError when node.lc.key(dotted) returns None for a merged key.",
+  "ConfigurationError is already imported in the module (from devops_cli.exceptions import ConfigurationError), so no new import is needed.",
+  "The name parameter is available in find and can be passed to _find without changing the public API.",
+  "First checks: run uv run devops ci test tests/test_round_trip.py to confirm existing tests pass, then run the new merge-key test to confirm the fix."
+ ],
+ "existing_tool": "The project already uses ruamel.yaml for round-trip YAML editing. ruamel.yaml lists merged keys as keys of the mapping but gives no position for them, so node.lc.key() returns None. No external tool covers the need to detect a merge-derived key and report a friendly error. The fix is a few lines in the project's own round_trip.py: check whether node.lc.key(dotted) is None before indexing, and raise a ConfigurationError. Written cost: roughly 10 tokens of new code, no new dependency, no ongoing maintenance beyond the existing module.",
+ "decisions": [
+  {
+   "decision": "Raise a ConfigurationError instead of removing the value from the anchor mapping",
+   "reason": "The anchor may be shared by multiple merge targets. Removing from the anchor would silently affect keys the user did not ask to remove. A clear error names the file and tells the user to remove the key from the anchor mapping directly."
+  },
+  {
+   "decision": "Pass name into _find rather than catching TypeError in find",
+   "reason": "The error message must name the file. Passing name into _find keeps the error at the point of detection and follows the existing pattern where find raises ConfigurationError with name."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Remove the value from the anchor mapping",
+   "evidence": "The anchor may be shared by other merge targets. Removing from it would silently change keys the user did not request. The user asked to remove ai.api_key, not a.b.api_key."
+  },
+  {
+   "alternative": "Print a generic 'key not found' message",
+   "evidence": "The key is found in the merged mapping. A 'not found' message is misleading and does not tell the user what to do."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "config-commands",
+   "purpose": null,
+   "added": [
+    {
+     "name": "merge-key-unset-reports-clear-error",
+     "text": "When the target key is present only through a YAML merge key, devops config unset SHALL exit with code 1 and print a message that names the file and states the key comes from a merge key. It SHALL NOT print a Python traceback.",
+     "scenarios": [
+      {
+       "name": "unset a merge-derived key",
+       "when": "the config file defines the key via <<: *anchor and the user runs devops config unset on that key",
+       "then": "the command exits 1, prints a message naming the file and mentioning the merge key, and prints no Python traceback"
+      }
+     ]
+    },
+    {
+     "name": "direct-key-removal-unchanged",
+     "text": "When the target key is directly present in the file, devops config unset SHALL remove the key and exit with code 0.",
+     "scenarios": [
+      {
+       "name": "unset a directly-present key",
+       "when": "the config file holds the key as a direct entry and the user runs devops config unset on that key",
+       "then": "the key is removed from the file and the command exits 0"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add merge-key error in _find",
+   "reads": [],
+   "changes": [
+    "tests/test_round_trip.py",
+    "src/devops_cli/config/round_trip.py"
+   ],
+   "creates": [],
+   "test": "Write a test in tests/test_round_trip.py that creates a YAML text with a merge key (a: {b: &d {api_key: secret}} and ai: {<<: *d}), calls find(text, 'ai.api_key', name='config.yaml'), and asserts that a ConfigurationError is raised with a message containing 'config.yaml' and 'merge key'.",
+   "implementation": "In src/devops_cli/config/round_trip.py, add a name: str parameter to _find. In the branch where dotted in node is True, assign position = node.lc.key(dotted). If position is None, raise ConfigurationError(f'Cannot unset {name}: the key {dotted!r} comes from a YAML merge key.'). Otherwise return (*prefix, dotted), int(position[0]) + 1. Update the recursive call to pass name. Update find to pass name to _find.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_round_trip.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

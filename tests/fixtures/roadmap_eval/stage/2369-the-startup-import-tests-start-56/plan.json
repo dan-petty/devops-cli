@@ -1,0 +1,74 @@
+{
+ "summary": "speed up startup-import probes",
+ "pull_request_body": "Replace -X importtime with a sys.modules dump in the 56 startup-import probes. The budget check only needs the set of module names, which sys.modules provides at the end of the run. The -X importtime flag stays for the failure diagnostic: when a budget is breached, the probe re-runs with -X importtime to build the ten-slowest-imports message. All 56 probes, all four limits, and the control test are unchanged. The file takes at most half its present CPU time over three runs of pytest tests/commands/test_cli_startup_imports.py -n 0.",
+ "why": "Issue #2369 reports that tests/commands/test_cli_startup_imports.py takes 204 s of the suite's 2,423 s. Each of its 56 probes starts a fresh interpreter under -X importtime, which adds per-import overhead to stderr and a Python parse of that text. The file is a structural budget and must stay, but its cost is the problem.",
+ "what_changes": [
+  "Replace -X importtime with a sys.modules dump in the normal probe path",
+  "Add a timed re-probe that runs with -X importtime only when a budget fails",
+  "Keep all 56 probes, all four limits, and the control test unchanged"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The issue confirms the cost: 56 probes at about 4.2 s CPU each, with -X importtime adding per-import stderr lines and a Python parse. The file is at tests/commands/test_cli_startup_imports.py, and line 448 defines _probe_startup_imports.",
+  "sys.modules provides the set of loaded module names at the end of a run, which is all the budget count needs. The identifier matches confirm the four limit constants at lines 33-36 of the file.",
+  "First checks: run pytest tests/commands/test_cli_startup_imports.py -n 0 to get the baseline CPU time. Then run the same command after the change and confirm the total is at most half the baseline over three runs."
+ ],
+ "existing_tool": "python -X importtime is the existing tool. It stays for the failure diagnostic message. The normal probe uses sys.modules, a Python built-in that requires no new dependency. No new tool is introduced.",
+ "decisions": [],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "ci-job-time",
+   "purpose": null,
+   "added": [
+    {
+     "name": "startup-import-probe-mechanism",
+     "text": "The startup-import probe SHALL collect the set of loaded module names via sys.modules in the normal path, and SHALL use -X importtime only in the failure diagnostic path to report the ten slowest imports by cumulative seconds.",
+     "scenarios": [
+      {
+       "name": "normal probe uses sys.modules",
+       "when": "a startup-import probe runs and the budget passes",
+       "then": "the probe collects module names from sys.modules without the -X importtime flag"
+      },
+      {
+       "name": "failure diagnostic uses importtime",
+       "when": "a startup-import probe runs and the budget fails",
+       "then": "the probe re-runs with -X importtime and the assertion message includes the ten slowest imports by cumulative seconds"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Replace -X importtime with sys.modules dump in the probe",
+   "reads": [],
+   "changes": [
+    "tests/commands/test_cli_startup_imports.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts the subprocess args of _probe_startup_imports do not include -X importtime. The test mocks subprocess.run and checks the args list. Before the change, the args include -X importtime, so the test fails",
+   "implementation": "Modify _probe_startup_imports to build a -c script that imports the entry point, runs the command, then prints sorted(sys.modules.keys()) to stdout. Remove -X importtime from the subprocess args. Parse stdout instead of stderr for the module list",
+   "documentation": null,
+   "verify": "uv run pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Add timed re-probe for the failure diagnostic message",
+   "reads": [],
+   "changes": [
+    "tests/commands/test_cli_startup_imports.py"
+   ],
+   "creates": [],
+   "test": "Write a test that asserts _probe_startup_imports_timed exists and returns a list of (module, cumulative_seconds) pairs sorted by cumulative_seconds descending. Before the change, this function does not exist, so the test fails",
+   "implementation": "Add _probe_startup_imports_timed that runs the same argv with -X importtime and parses stderr for the ten slowest imports by cumulative seconds. Update the assertion helpers: when the module count exceeds the limit, call _probe_startup_imports_timed and include its result in the assertion message",
+   "documentation": null,
+   "verify": "uv run pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

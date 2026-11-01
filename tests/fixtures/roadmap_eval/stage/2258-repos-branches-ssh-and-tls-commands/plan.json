@@ -1,0 +1,244 @@
+{
+ "summary": "plan dry-run for repos branches ssh tls",
+ "pull_request_body": "This change makes 24 repos, branches, ssh and tls commands obey the dry-run rule (#412). Nine commands that make an external request get a request plan: their --dry-run makes no request and returns the ordered PlannedRequest items built from the same argument builder as the real run. Fifteen commands that make no external request get the no-external-request class, so devops --dry-run runs them normally. Echo-only previews are removed with no shim. Each command is removed from tests/fixtures/dry_run_gaps.json. The work uses the existing PlannedRequest, render_request_plan, and the dry-run class decorator from sub-issue 00. No new dependency is added.",
+ "why": "Issue #2258 (part of #886) reports that 24 repos, branches, ssh and tls commands do not obey the dry-run rule (#412). Nine make an external request under --dry-run or have no request plan. Fifteen print a generic line or an argument echo instead of running safely. The owner's rule says a dry run makes no external request and returns the requests a real run would make.",
+ "what_changes": [
+  "Add the request-plan class and a --dry-run that returns ordered PlannedRequest items to 9 commands (branches sync, branches update, repos clone, repos clone-org, repos sync, repos update, ssh register, ssh rotate, tls enable-k8s).",
+  "Add the no-external-request class to 15 commands (branches clean, branches jira, branches list, repos list, repos worktrees prune, repos worktrees status, ssh audit, ssh generate, ssh list, ssh status, tls ca, tls cert, tls homelab, tls inspect, tls verify).",
+  "Remove echo-only --dry-run previews (render_dry_run_result or @dry_run_command) from the 9 request-plan commands and from ssh list, with no shim.",
+  "Remove all 24 command paths from tests/fixtures/dry_run_gaps.json so the ratchet test passes.",
+  "Write tests that verify no external request is made, the plan matches the real run, and mark-only commands run normally under --dry-run."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed by the #886 inventory (2026-10-25, commit 1bb164bd) and the fixture file tests/fixtures/dry_run_gaps.json, which lists all 24 commands.",
+  "The dry-run infrastructure exists: devops_cli.dry_run.requests.PlannedRequest and render_request_plan are referenced in CHANGELOG.md (#741, #885).",
+  "The test guards in tests/conftest.py (network guard, process guard, keyring deny) are in place and will catch any unfaked external reach.",
+  "The dry-run class decorator and ratchet test come from sub-issue 00, a stated dependency.",
+  "First checks the implementation runs: (1) uv run devops ci test tests/test_roadmap_dry_runs.py to confirm the ratchet test currently fails for these 24 commands; (2) uv run devops branches sync --dry-run to confirm the current generic output; (3) uv run devops ssh list --dry-run to confirm the echo-only preview."
+ ],
+ "existing_tool": "The repository already provides devops_cli.dry_run.requests.PlannedRequest, render_request_plan (#741), the dry-run class decorator, and the ratchet test from sub-issue 00. The test guards in tests/conftest.py and the pattern in tests/test_roadmap_dry_runs.py cover the verification. No new dependency is necessary.",
+ "decisions": [
+  {
+   "decision": "Build each PlannedRequest from the same argument builder the real run uses",
+   "reason": "The issue states the plan cannot drift from the run. Using the same builder guarantees the plan matches the real requests."
+  },
+  {
+   "decision": "Remove echo-only previews with no shim",
+   "reason": "The issue says 'with no shim' and the pre-1.0 policy in the repository deletes rather than keeps behind flags."
+  },
+  {
+   "decision": "Group commands by family and work type (mark-only vs request-plan)",
+   "reason": "Each group fits the 40000-token budget. A group of 2-5 commands in one file keeps the step small and focused."
+  },
+  {
+   "decision": "Use the existing PlannedRequest and render_request_plan",
+   "reason": "They exist in the repository (#741) and are the established pattern. Building new rendering would duplicate code."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Build a new dry-run rendering module for these commands",
+   "evidence": "render_request_plan and PlannedRequest already exist (#741, #885 in CHANGELOG.md). Building a new one duplicates code and diverges from the established pattern."
+  },
+  {
+   "alternative": "Keep echo-only previews as a fallback behind a flag",
+   "evidence": "The issue says 'with no shim'. The pre-1.0 policy in the repository (ADR 0005, CONTEXT.md) deletes rather than keeps behind flags."
+  },
+  {
+   "alternative": "Add a new dependency for dry-run planning",
+   "evidence": "The issue states 'No new dependency is necessary.' The repository already has the full dry-run infrastructure."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "command-dry-run-class",
+   "purpose": null,
+   "added": [
+    {
+     "name": "request-plan-dry-run-returns-planned-requests",
+     "text": "A command with the request-plan class SHALL make no external request under --dry-run and SHALL return its real result type marked as a dry run with the ordered PlannedRequest items.",
+     "scenarios": [
+      {
+       "name": "dry-run makes no external request",
+       "when": "a request-plan command is invoked with --dry-run and the process runner and HTTP clients are patched to raise",
+       "then": "the command completes without raising and the output lists the ordered PlannedRequest items with argv, stdin, env, condition and repeat"
+      },
+      {
+       "name": "dry-run returns real result type as json",
+       "when": "a request-plan command is invoked with --dry-run and --format json",
+       "then": "the JSON output has the dry-run mark and the planned requests array in order"
+      }
+     ]
+    },
+    {
+     "name": "no-external-request-runs-normally",
+     "text": "A command with the no-external-request class SHALL run normally under devops --dry-run.",
+     "scenarios": [
+      {
+       "name": "dry-run runs the command",
+       "when": "a no-external-request command is invoked under devops --dry-run with the process runner and HTTP clients patched to raise",
+       "then": "the command completes and returns its normal result without a dry-run mark"
+      }
+     ]
+    },
+    {
+     "name": "request-plan-matches-real-run",
+     "text": "The PlannedRequest items of a request-plan dry run SHALL match the requests the real run makes, in the same order.",
+     "scenarios": [
+      {
+       "name": "plan matches recorded calls",
+       "when": "a test runs the real command against a fake runner or client that records each call and compares the calls with the plan",
+       "then": "the recorded calls match the PlannedRequest items in order with the same argv, stdin and env"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Mark-only branches: clean, jira, list",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/branches.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_branches_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops --dry-run branches clean, devops --dry-run branches jira, and devops --dry-run branches list with the process runner and HTTP clients patched to fail. Assert each command completes and returns its normal result. Assert the --dry-run option is not present on the command (no echo-only preview)",
+   "implementation": "Add the no-external-request class to branches clean, branches jira, and branches list. Remove any echo-only --dry-run option or render_dry_run_result call from these three commands. Remove the three entries (branches clean, branches jira, branches list) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_branches_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Request-plan branches: sync, update",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/branches.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_branches_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops branches sync --dry-run and devops branches update --dry-run with GitPython's fetch and pull patched to raise. Assert no external request is made. Assert the output lists the ordered PlannedRequest items with argv, stdin, env, condition and repeat. Write a second test that runs the real command against a fake runner that records each call, and compares the recorded calls with the plan",
+   "implementation": "Add --dry-run to branches sync and branches update. In the dry-run path, build each PlannedRequest from the same argument builder the real run uses (the fetch_all function in git/operations.py). Return the command's real result type marked as a dry run with the ordered PlannedRequest items. Print with render_request_plan. Give both commands the request-plan class. Remove any echo-only preview. Remove the two entries (branches sync, branches update) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_branches_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Mark-only repos: list, worktrees prune, worktrees status",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/repos.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_repos_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops --dry-run repos list, devops --dry-run repos worktrees prune, and devops --dry-run repos worktrees status with the process runner and HTTP clients patched to fail. Assert each command completes and returns its normal result. Assert repos list has no echo-only --dry-run option",
+   "implementation": "Add the no-external-request class to repos list, repos worktrees prune, and repos worktrees status. Remove the echo-only --dry-run option and render_dry_run_result call from repos list. Remove the three entries (repos list, repos worktrees prune, repos worktrees status) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_repos_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Request-plan repos: clone, clone-org, sync, update",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/repos.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_repos_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops repos clone --dry-run, devops repos clone-org --dry-run, devops repos sync --dry-run, and devops repos update --dry-run with GitPython's clone_from, fetch and pull patched to raise, and the GitHub session patched to raise. Assert no external request is made. Assert the output lists the ordered PlannedRequest items. Write a second test that runs the real command against a fake runner that records each call, and compares the recorded calls with the plan",
+   "implementation": "Add --dry-run to repos clone, repos clone-org, repos sync, and repos update. In the dry-run path, build each PlannedRequest from the same argument builder the real run uses (clone_repo and fetch_all in git/operations.py, and the GitHub org listing for clone-org). Return the command's real result type marked as a dry run with the ordered PlannedRequest items. Print with render_request_plan. Give all four commands the request-plan class. Remove the echo-only --dry-run options and render_dry_run_result calls. Remove the four entries (repos clone, repos clone-org, repos sync, repos update) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_repos_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Mark-only ssh: audit, generate, list, status",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/ssh.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_ssh_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops --dry-run ssh audit, devops --dry-run ssh generate, devops --dry-run ssh list, and devops --dry-run ssh status with the process runner and HTTP clients patched to fail. Assert each command completes and returns its normal result. Assert ssh list has no echo-only --dry-run option",
+   "implementation": "Add the no-external-request class to ssh audit, ssh generate, ssh list, and ssh status. Remove the echo-only --dry-run option and render_dry_run_result call from ssh list (named in #886). Remove the four entries (ssh audit, ssh generate, ssh list, ssh status) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_ssh_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Request-plan ssh: register, rotate",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/ssh.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_ssh_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops ssh register --dry-run and devops ssh rotate --dry-run with the HTTP client (httpx2.AsyncClient) patched to raise. Assert no external request is made. Assert the output lists the ordered PlannedRequest items with argv, stdin, env, condition and repeat. Write a second test that runs the real command against a fake HTTP client that records each call, and compares the recorded calls with the plan",
+   "implementation": "Add --dry-run to ssh register and ssh rotate. In the dry-run path, build each PlannedRequest from the same argument builder the real run uses (the GitHub session post for key registration and rotation). Return the command's real result type marked as a dry run with the ordered PlannedRequest items. Print with render_request_plan. Give both commands the request-plan class. Remove the echo-only --dry-run options and render_dry_run_result calls. Remove the two entries (ssh register, ssh rotate) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_ssh_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Mark-only tls: ca, cert, homelab, inspect, verify",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/tls.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_tls_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops --dry-run tls ca, devops --dry-run tls cert, devops --dry-run tls homelab, devops --dry-run tls inspect, and devops --dry-run tls verify with the process runner and HTTP clients patched to fail. Assert each command completes and returns its normal result. Assert tls ca, tls cert, and tls homelab have no echo-only --dry-run option",
+   "implementation": "Add the no-external-request class to tls ca, tls cert, tls homelab, tls inspect, and tls verify. Remove the echo-only --dry-run options and render_dry_run_result calls from tls ca, tls cert, and tls homelab. Remove the five entries (tls ca, tls cert, tls homelab, tls inspect, tls verify) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_tls_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Request-plan tls: enable-k8s",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/commands/tls.py",
+    "tests/fixtures/dry_run_gaps.json",
+    "tests/test_tls_dry_run.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs devops tls enable-k8s --dry-run with kubectl patched to raise. Assert no external request is made. Assert the output lists the ordered PlannedRequest items with argv, stdin, env, condition and repeat. Write a second test that runs the real command against a fake process runner that records each call, and compares the recorded calls with the plan",
+   "implementation": "Add --dry-run to tls enable-k8s. In the dry-run path, build each PlannedRequest from the same argument builder the real run uses (the kubectl create call at commands.tls:enable_k8s_cmd:508). Return the command's real result type marked as a dry run with the ordered PlannedRequest items. Print with render_request_plan. Give the command the request-plan class. Remove the echo-only --dry-run option and render_dry_run_result call. Remove the entry (tls enable-k8s) from tests/fixtures/dry_run_gaps.json",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/test_tls_dry_run.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Ratchet test and full CI verification",
+   "reads": [],
+   "changes": [
+    "tests/test_roadmap_dry_runs.py"
+   ],
+   "creates": [],
+   "test": "Run the ratchet test from sub-issue 00 and confirm it passes with all 24 commands removed from tests/fixtures/dry_run_gaps.json. Run the full test suite for the four command families and confirm no test starts a process or opens a socket",
+   "implementation": "Verify that tests/fixtures/dry_run_gaps.json no longer contains any of the 24 commands. Confirm the ratchet test in tests/test_roadmap_dry_runs.py passes. If the ratchet test needs an update to reflect the new class assignments, add the assertion that each of the 24 commands carries the correct class (request-plan or no-external-request)",
+   "documentation": null,
+   "verify": "uv run devops ci",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

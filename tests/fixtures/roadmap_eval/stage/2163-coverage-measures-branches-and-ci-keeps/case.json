@@ -1,0 +1,94 @@
+{
+ "issue": 2163,
+ "pull": 2980,
+ "title": "ci(coverage): coverage measures branches and ci keeps the coverage xml as an artifact",
+ "change": "2163-coverage-measures-branches-and-ci-keeps",
+ "merge_commit": "ebc0a94a1e562c15a590ab4346f93aa113fe5425",
+ "base_commit": "d252096e14da070d68394aa708f07bc4b7e1268b",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 3,
+  "task_quality": 3,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The PR is merged and its checks are green. The title and the body are right (\"Plans #2163\"). The issue is open and still valid. The plan builds the right core: branch = true and an artifact upload. But the plan drops two acceptance criteria of the issue (5-run timing, full `devops ci`). It does not check that the 85% floor holds with branches on. It leaves two documents wrong. It puts new tests outside the layout of docs/TESTING.md. One verify command cannot fail as the task says. The upload step does not fit the places where coverage.xml exists. One design claim is false. An implementer needs to fix these points while building.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "criterion_dropped",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The plan has no task for acceptance criterion 4 of the issue: the PR must report the job time of 5 runs before and 5 runs after, with the average under 300 s and compared to 240 s. It also has no task for criterion 6, a full `uv run devops ci` run. Task 1.2 only runs one config test. Nobody checks that the total with branches on stays at or above fail_under = 85. Branch counting usually lowers the total, so the gate can turn red in the first CI run.",
+   "evidence": "Issue body: '- [ ] The pull request gives the job time of 5 runs before and 5 runs after. The average after is under 300 s.' and '- [ ] `uv run devops ci` passes.' tasks.md has only groups 1 and 2, with the verify commands `uv run devops ci test tests/test_coverage_config.py` and `uv run devops ci --check --only actionlint,zizmor`. pyproject.toml line 235 on origin/main: `fail_under = 85`. The proposal Feasibility says 'The 300 s average limit is the hard bound' but no task measures it.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The docs say the floor counts lines. With `branch = true`, coverage.py counts lines and branches together, so these sentences become wrong. Tasks 1.3 and 2.3 say 'Change no document' and only run docs generate. This breaks AGENTS.md rule 8 (fix a document that the change makes wrong) and the rule in openspec/config.yaml that each group regenerates and fixes docs.",
+   "evidence": "docs/TESTING.md:169: 'The coverage floor is 85% of the lines of `src/` (`fail_under` in `pyproject.toml`).' CONTRIBUTING.md:28: '`devops ci` enforces 85% of the lines of `src/`'. tasks.md 1.3: 'Change no document, run `uv run devops docs generate --sync-readme`'.",
+   "gate": "none"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The new test files go against the layout rule of docs/TESTING.md. An invariant test about a workflow or a config goes into its subject file in tests/invariants/, never into a new parallel file. The plan makes tests/test_workflows.py and tests/test_coverage_config.py at the tests root. tests/invariants/ has test_workflow_contracts.py, which already checks ci.yml steps (it reads 'Install promtool' and 'Tests & Coverage Quality Gate'). The plan does not say to use it.",
+   "evidence": "docs/TESTING.md:86: 'A new invariant test goes into its subject's file, created if absent, never into a parallel file.' `ls tests/*.py` shows no test_workflows.py and no test_coverage_config.py. tests/invariants/test_workflow_contracts.py:894 asserts on 'Install promtool' < 'Tests & Coverage Quality Gate'. tests/invariants/test_agents_md_claims.py:591 already reads the coverage floor of pyproject.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Task 2.2 adds `if: always()` to the upload step. But .data/coverage.xml is written only inside the Changed-Line Coverage step. That step runs only on pull_request events and only when outside_plan != 'false'. On push to main, on plan-only PRs and when the Quality Gate step fails, the file does not exist. The upload then logs a 'no files found' warning, or fails if if-no-files-found is set to error. The plan does not name a condition or an if-no-files-found value. The text 'uploads even when the gate fails' is also wrong: when the Quality Gate fails, the xml step is skipped, so no file exists.",
+   "evidence": "ci.yml on origin/main lines 162-170: 'name: Changed-Line Coverage / if: github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'' and `uv run coverage xml -q`. The gate step (line 144) runs `devops ci --check --no-cache --only test` and writes no XML (comment at line 157: 'The gate writes no XML report'). Task 2.2: 'Add `if: always()` so the artifact uploads even when the gate fails'.",
+   "gate": "none"
+  },
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Verify command of task 2.1 cannot fail as written. The task says a failing check on the base is `uv run devops ci --check --only actionlint,zizmor`. These two linters check the syntax and security of the workflow. They do not check that an upload step exists, so they pass on the base. Only the new pytest case fails there. The task also names a lint set that differs from the issue (lint,format,actionlint,zizmor).",
+   "evidence": "tasks.md 2.1: 'The test fails before the change because no such step exists, and verify that `uv run devops ci --check --only actionlint,zizmor` fails on the base'. The base ci.yml is valid, and its checks run green in PR #2980 (zizmor success, Static Analysis success).",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "design.md",
+   "problem": "The design says the project already uses actions/upload-artifact for the SARIF report in the same workflow. This is false. ci.yml uploads SARIF with github/codeql-action/upload-sarif. No workflow uses actions/upload-artifact. The implementer has no existing pin to copy, and the plan does not give the commit SHA or the version to pin. The 'Existing Tool Considered' evidence is therefore wrong.",
+   "evidence": "design.md: 'The project uses it for the SARIF report in the same workflow.' ci.yml line 86: 'uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4'. `grep -rn upload-artifact .github/workflows` gives no output.",
+   "gate": "pending"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "minor",
+   "where": "specs/ci-coverage-reports/spec.md",
+   "problem": "openspec/config.yaml says a change that alters only CI workflows or tests has no spec delta and sets skip_specs: true. This change adds a delta and its .openspec.yaml has no skip_specs. The requirement text says 'at most 14 days' but the design and task say 7. The scenario checks only that a `retention-days` input exists, so the 14-day bound has no test. Proposal Feasibility also says the key sits 'at line 229' in the same sentence that cites the issue's old lines 197-202, which mixes two commits.",
+   "evidence": "openspec/config.yaml: 'A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true'. .openspec.yaml holds only 'schema: spec-driven' and 'created: 2026-11-01'. Spec: 'a retention period of at most 14 days'. `openspec validate` on origin/main says the change is valid, and openspec/specs/ci-coverage-reports exists, so ADDED is legal.",
+   "gate": "pending"
+  },
+  {
+   "type": "false_premise",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "The timing in Feasibility (245-307 s, 284.5 s average) is copied from the issue (runs of 2026-10-24). The plan did not measure it again. A newer job, Test Job Duration (#2699), now fails main when the mean passes 300 s. The plan does not mention it. It makes the time risk of branch measurement real, and it is a reason for task 'measure 5 runs before and after'.",
+   "evidence": "ci.yml job `job-time` 'Test Job Duration' runs `uv run devops ci job-time` and fails when the mean of Tests & Coverage is over 300 s (#2699). proposal.md: 'The Tests & Coverage job took 245-307 s in the last 8 runs (284.5 s average).' This text matches the issue comment of 2026-10-24.",
+   "gate": "pending"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md groups 1, 2",
+   "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
+   "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Enable branch coverage in pyproject.toml' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
+   "gate": "kind",
+   "message": "changes no path under src/"
+  }
+ ]
+}

@@ -1,0 +1,77 @@
+{
+ "issue": 2175,
+ "pull": 2983,
+ "title": "refactor(cli): the five functions and properties that nothing calls and that #1910 does not list leave src",
+ "change": "2175-the-five-functions-and-properties-that",
+ "merge_commit": "1969ab06e1adbff97476e21776f2eb1acfb5c78d",
+ "base_commit": "739854ee402a3a2b8f96782fcefe9f790ee16486",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 2,
+  "task_quality": 2,
+  "rule_compliance": 2,
+  "accuracy": 4
+ },
+ "state": "merged",
+ "summary": "PR #2983 is merged and its checks are green. The premise holds: on origin/main each of the five names appears only at its definition. The plan has three real defects. (1) Each group adds a test that names the deleted name, so the group's own grep check cannot pass. (2) Those tests are tombstone tests, which closed issue #1871 removed as a pattern. (3) The spec delta is an invalid or unneeded tombstone requirement for an internal refactor. The tasks also name no test file path. The implement job (PR 3000) stopped at group 2 and left the issue Blocked. The stop came from a test file written at the repo root and from the agent wrongly saying the method did not exist. The missing test path in the plan made the first of these likely.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "Tasks contradict each other. Task n.1 adds a test that names the deleted attribute. Task n.2 then requires that `! git grep -n -w <name> src/ tests/ docs/` passes. The new test contains the name, so git grep matches it and the check fails. The same conflict is in issue acceptance criterion 2. An implementer must break one of the two tasks.",
+   "evidence": "tasks.md 1.1: \"Write a test that asserts StreamingTokenProcessor has no thinking_detected attribute\". tasks.md 1.2: \"verify that `! git grep -n -w thinking_detected src/ tests/ docs/` passes\". Same pattern in groups 2, 3 and 4. Issue AC: \"git grep -n -w <name> prints nothing in src/, tests/ and docs/\".",
+   "gate": "none"
+  },
+  {
+   "type": "contrived_test",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "The failing-first tests are tombstone tests (assert a deleted name stays deleted). Issue #1871 was closed because the project judged such tests a bad pattern and deleted twelve of them. The plan adds five new ones. It does not tell the implementer that a dead-code deletion needs a different failing check, or that rule 4 may be met another way. It records no decision in design.md.",
+   "evidence": "Issue #1871 (closed): \"tests/test_codebase_hygiene_and_shims.py pins the names of deleted things forever ... Delete the twelve tombstone tests\". design.md: \"Decisions: None.\" Tasks 1.1, 2.1, 3.1, 4.1, 5.1 each assert 'has no <name> attribute'.",
+   "gate": "none"
+  },
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/thinking-stream/spec.md",
+   "problem": "The delta adds a requirement for the removal of one internal property. The change alters no behaviour a consumer observes, so openspec/config.yaml says it must set skip_specs: true and carry no delta. The delta is also a requirement about old behaviour and covers only one of the five names. The proposal calls the capability 'Modified' while the delta uses ADDED, which is inconsistent. `.openspec.yaml` has no skip_specs.",
+   "evidence": "openspec/config.yaml: \"A change that alters no behavior a consumer observes (... a refactor that keeps behavior) has no spec delta and sets skip_specs: true\"; \"Never add a requirement for compatibility with the old behavior.\" spec.md: \"## ADDED Requirements ... The ThinkingStreamProcessor SHALL not expose a unique_thinking property.\" proposal.md: \"Modified Capabilities: thinking-stream: unique-thinking-removed\". .openspec.yaml holds only 'schema' and 'created'. Compare 1323-k8s-commands-edge-fakes/.openspec.yaml, which has skip_specs: true.",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "tasks.md",
+   "problem": "No task names a file path for the new test. The implement job wrote `test_get_ollama_semaphore.py` at the repo root. mypy --strict failed on it and the job stopped at group 2. The plan also says 'Reads: none' for every group, so the implementer is not told to open the file it changes.",
+   "evidence": "Issue #2175 comment (implement): \"Stopped at group 2. uv run mypy --strict -- test_get_ollama_semaphore.py exited with status 1 ... Function is missing a return type annotation\". Issue labels now include status/blocked. tasks.md: \"Reads: none. Changes: `src/devops_cli/ai/client/streaming.py`.\" for all groups.",
+   "gate": "none"
+  },
+  {
+   "type": "false_premise",
+   "severity": "minor",
+   "where": "proposal.md",
+   "problem": "Feasibility cites the issue's claim and lists commands the implementer should run later. It holds no output of its own. The plan does not run the greps itself, and it does not give current line numbers (the issue's line numbers are stale). The plan also does not say that `import threading` in unified.py is used only by the deleted method, which is the one known exclusive import.",
+   "evidence": "proposal.md Feasibility: \"The issue confirms each name is dead by git grep at b170358e.\" I ran git grep -w on origin/main for all five names: each shows only the definition (streaming.py:161, unified.py:164, thinking_stream.py:339, settings.py:187, schema.py:145). Issue says 164, 215, 339, 219, 145. In unified.py, `threading` appears only at line 6 (import) and line 164 (the deleted method).",
+   "gate": "pending"
+  },
+  {
+   "type": "other",
+   "severity": "minor",
+   "where": "tasks.md",
+   "problem": "Task n.3 is noise and is worded in a confusing way. 'Change no document, run docs generate --sync-readme' tells the implementer to change no document and to regenerate one. It is repeated five times, and a 'Workflow follow-up' section names a tuicr review step that is not a task. Group 5 also puts the full `uv run devops ci` in the delete step, and 5.1 asks to verify that CI fails on the base for an unrelated reason. Five groups of one-line deletions would fit one or two groups.",
+   "evidence": "tasks.md 1.3, 2.3, 3.3, 4.3, 5.3: \"Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes\". tasks.md end: \"## Workflow follow-up - Pending a person: review the diff in tuicr\".",
+   "gate": "none"
+  },
+  {
+   "type": "other",
+   "severity": "nit",
+   "where": "proposal.md",
+   "problem": "Existing Tool Considered says 'Not applicable' and does not name vulture or another dead-code tool, even though #1871 proposed a vulture trial. The Why text does not say why a tool is not used to prove deadness.",
+   "evidence": "proposal.md: \"Not applicable. The change deletes five known dead definitions.\" Issue #1871 body: \"Trial vulture at 60% with a committed whitelist\".",
+   "gate": "none"
+  }
+ ]
+}

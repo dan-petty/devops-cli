@@ -1,0 +1,133 @@
+{
+ "summary": "Pull sandbox image before deploy",
+ "pull_request_body": "devops sandbox deploy fails with a raw 404 when the sandbox image is not on the local engine. The command does not pull the image before it creates the container. This change adds a pull_image method to DockerEngineService. It checks if the image exists locally first. It pulls the image only when it is absent. The sandbox deploy path calls pull_image before create_container. A pull failure names the image reference and the reason. No new library is added. The docker SDK already provides images.get and images.pull.",
+ "why": "Issue #2554 reports that devops sandbox deploy fails with a raw Docker API 404 error when the sandbox image is not on the local engine. The first deploy on a fresh engine always fails because no code pulls the image before creating the container. The default image is python:3.14-slim.",
+ "what_changes": [
+  "Add a pull_image method to DockerEngineService that checks for the image locally and pulls it only when absent.",
+  "Update the DockerEngineFake to support images.get and images.pull for test coverage.",
+  "Call pull_image from WorkloadSandboxRunner.run before create_container.",
+  "Raise a DockerEngineError that names the image reference and the failure reason when a pull fails."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise is confirmed: src/devops_cli/docker/sandbox.py calls engine.create_container in WorkloadSandboxRunner.run with no prior image pull. src/devops_cli/docker/engine.py has no pull_image method. The default image python:3.14-slim is set in devops_cli.config.defaults (DEFAULT_SANDBOX_IMAGE).",
+  "The docker SDK (docker-py 7.2.0) already provides client.images.get(name) and client.images.pull(repository, tag). The project already depends on it. No new library is introduced.",
+  "First check: run uv run devops sandbox deploy --name check --network-mode isolated on an engine without python:3.14-slim to confirm the 404. Second check: run uv run devops ci test tests/docker/test_engine_pull_image.py to verify the new pull_image method. Third check: run uv run devops ci test tests/docker/test_sandbox_deploy_pull.py to verify the deploy path calls pull before create."
+ ],
+ "existing_tool": "docker-py (v7.2.0, already a project dependency) provides client.images.pull(repository, tag) and client.images.get(name). The project wraps the SDK through DockerEngineService but does not call either method in the sandbox deploy path. The fix adds one pull_image method to DockerEngineService and calls it from the sandbox deploy code. No new library is introduced.",
+ "decisions": [
+  {
+   "decision": "Pull in the sandbox deploy caller, not inside DockerEngineService.create_container.",
+   "reason": "create_container is used by other callers that use locally-built images. Adding a network check there would add latency to every container creation. The sandbox deploy is the path that needs a registry image."
+  },
+  {
+   "decision": "Check locally with images.get first, pull only when the image is absent.",
+   "reason": "The image is local in the common case. A local check avoids a network round-trip on every deploy."
+  },
+  {
+   "decision": "Raise DockerEngineError with the image reference and failure reason on pull failure.",
+   "reason": "The raw 404 from the Docker API does not name the image. A clear error helps the user identify which image to pull manually."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Pull inside DockerEngineService.create_container.",
+   "evidence": "This would add a network check to every container creation, including callers that use locally-built images. The sandbox deploy is the only path that needs a registry image."
+  },
+  {
+   "alternative": "Replace containers.create with containers.run.",
+   "evidence": "containers.run starts the container immediately. This changes the create-then-start flow the sandbox deploy uses, where the runner controls start, wait, and teardown."
+  },
+  {
+   "alternative": "Always pull without checking locally first.",
+   "evidence": "A pull makes a network request even when the image is local. This adds latency to every deploy in the common case where the image is already present."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "sandbox-deploy",
+   "purpose": "The behavior of devops sandbox deploy when it creates a container from a registry image on the local Docker engine.",
+   "added": [
+    {
+     "name": "pull-missing-image-before-container-creation",
+     "text": "When the sandbox image is not present on the local engine, the deploy command SHALL pull the image before it creates the container.",
+     "scenarios": [
+      {
+       "name": "deploy with a missing image",
+       "when": "The engine has no image matching the sandbox image reference",
+       "then": "The command pulls the image and then creates the container without a 404 error"
+      }
+     ]
+    },
+    {
+     "name": "skip-pull-when-image-exists-locally",
+     "text": "When the sandbox image is already present on the local engine, the deploy command SHALL NOT issue a registry pull request.",
+     "scenarios": [
+      {
+       "name": "deploy with an existing image",
+       "when": "The engine already has an image matching the sandbox image reference",
+       "then": "The command creates the container without a network pull call"
+      }
+     ]
+    },
+    {
+     "name": "name-image-in-pull-failure-error",
+     "text": "When the image pull fails, the error message SHALL contain the image reference and the reason for the failure.",
+     "scenarios": [
+      {
+       "name": "pull fails due to a registry error",
+       "when": "The image pull fails because the registry is unreachable or the image does not exist in the registry",
+       "then": "The error message contains the image reference and the failure reason"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add pull_image to DockerEngineService",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/docker/engine.py",
+    "src/devops_cli/docker/sdk.py"
+   ],
+   "creates": [],
+   "test": "Write a test that calls pull_image with an image not in the fake. Assert images.get was called first, then images.pull was called with the image reference. Write a test that calls pull_image with an image present in the fake. Assert images.pull was not called. Write a test that calls pull_image when the pull fails. Assert the raised DockerEngineError message contains the image reference and the failure reason",
+   "implementation": "Add a pull_image method to DockerEngineService. It calls self.client().images.get(image) in a try block. If the image is found, return. If ImageNotFound is raised, call self.client().images.pull(image). If the pull raises, raise DockerEngineError with the image reference and the failure reason in the message. Add get and pull to the EngineImage protocol in sdk.py if they are not already declared",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/docker/test_engine_pull_image.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Add image pull support to DockerEngineFake",
+   "reads": [],
+   "changes": [
+    "tests/support/fakes/docker_engine.py"
+   ],
+   "creates": [],
+   "test": "Write a contract test case that scripts an image pull on the fake. Assert the call is recorded in calls. Write a case that makes the pull fail. Assert the error propagates with the image reference in the message",
+   "implementation": "Add images.get and images.pull methods to the fake image collection. images.get raises ImageNotFound when the image is absent from the local set. images.pull records the call and adds the image to the local set. A fail method makes the pull raise a DockerException with a given message",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/docker/test_engine_contract.py",
+   "process": null,
+   "kind": "behavior"
+  },
+  {
+   "title": "Pull image in sandbox deploy before create",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/docker/sandbox.py"
+   ],
+   "creates": [],
+   "test": "Write a test that runs WorkloadSandboxRunner.run with an image not in the fake. Assert pull_image was called before create_container. Write a test with the image present in the fake. Assert no pull call was made. Write a test where pull fails. Assert the error message names the image reference",
+   "implementation": "In WorkloadSandboxRunner.run, call engine.pull_image(self.config.image) before engine.create_container. The call sits inside the trace_span block, immediately before the create_container line. No other change to the run method",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/docker/test_sandbox_deploy_pull.py",
+   "process": null,
+   "kind": "behavior"
+  }
+ ]
+}

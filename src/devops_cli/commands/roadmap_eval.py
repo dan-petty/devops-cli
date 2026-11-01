@@ -1,15 +1,19 @@
-"""`devops roadmap eval`: the group of the commands that measure a roadmap job (#3030).
+"""`devops roadmap eval`: the golden sets that measure the plan and implement jobs (#3027).
 
-This module only defines the group and lists its commands, so a new command adds an import and one
-line. `devops roadmap` adds the group once.
+A subcommand of this group runs a job's real code on a committed set of cases with a chosen model,
+prints a score and stores it under `.data/`. Each is an on-demand command and no part of
+`devops ci`: it calls the model through the gateway. Its `--replay` mode calls no model. The
+group is defined here, and each subcommand lives in its own module and is registered here with one
+line. `commands/roadmap.py` registers the group once.
 """
 
 from __future__ import annotations
 
 from devops_cli.commands.roadmap_eval_implement import implement_cmd
+from devops_cli.commands.roadmap_eval_stage import eval_stage_cmd
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP
 
-app = new_typer(help=HELP.roadmap.eval_app, no_args_is_help=True)
-
-app.command("implement", help=HELP.roadmap.eval_implement)(implement_cmd)
+eval_app = new_typer(help=HELP.roadmap.eval_app, no_args_is_help=True)
+eval_app.command("stage", help=HELP.roadmap.eval_stage)(eval_stage_cmd)
+eval_app.command("implement", help=HELP.roadmap.eval_implement)(implement_cmd)
