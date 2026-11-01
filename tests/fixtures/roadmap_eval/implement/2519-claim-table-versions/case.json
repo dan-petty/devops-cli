@@ -16,9 +16,11 @@
   "results": [
     {
       "name": "committed",
-      "source": "Commit a3c925ca of pull request 3020, the commit of group 1.",
+      "source": "Commit a3c925ca of pull request 3020, the commit of group 1. It removes the argo-workflows entry of the claim table, so the named tests fail.",
       "diff": "committed.diff",
-      "fails": []
+      "fails": [
+        "tests_pass"
+      ]
     }
   ]
 }

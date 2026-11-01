@@ -9,22 +9,27 @@ Each property is pass, fail or skipped, with a detail that names what failed. A 
 cut leaves the four diff properties skipped, and a step that stopped has no tree, so it leaves
 the two command properties skipped.
 
-`tests_kept` reads the names on the removed and the added lines of each Python file under `tests/`,
-so it has the limits of `implement_test_names` and one more: a name has no class, because a hunk
-does not show it. A test that moves to another class of its file is kept.
+`tests_kept` reads the hunks of each Python file under `tests/`. It fails for a test name that the
+diff removes and does not add, and for a test that is weakened: it loses assertion lines on balance
+(`assert`, `pytest.raises`, `.assert_...`), or it gets a skip or xfail mark or call while its `def`
+stays. A fixture waives a test with `allow_lost_tests`. A hunk shows no class, so a test that moves to
+another class of its file is kept. The check reads lines and not the tree of the file, so a test that
+keeps its assertion lines and loses their meaning is not found.
 """
 
 from __future__ import annotations
 
 import textwrap
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import NamedTuple
 
 from pathspec import GitIgnoreSpec
 from unidiff.errors import UnidiffParseError
-from unidiff.patch import PatchedFile, PatchSet
+from unidiff.patch import Hunk, Line, PatchedFile, PatchSet
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_EVAL_DETAIL_CHARS,
@@ -45,6 +50,9 @@ from devops_cli.roadmap.step_files import file_lines, parse_task_groups
 _SCRATCH = GitIgnoreSpec.from_lines(CONST_ROADMAP_EVAL_SCRATCH_PATTERNS)
 _TESTS_DIR = "tests/"
 _TEST_PREFIX = "test_"
+_ASSERTION_MARKS = ("assert ", "assert(", "pytest.raises(", "pytest.warns(", ".assert_")
+_SKIP_DECORATORS = ("@pytest.mark.skip", "@pytest.mark.xfail")
+_SKIP_CALLS = ("pytest.skip(", "pytest.xfail(")
 
 
 class Status(StrEnum):
@@ -111,15 +119,97 @@ def _lines(file: PatchedFile, *, added: bool) -> list[str]:
     ]
 
 
+class _Test(NamedTuple):
+    """The test that a line of a hunk belongs to: its name, the indent of its `def`, and whether the
+    diff adds the `def`."""
+
+    name: str
+    indent: int
+    new: bool
+
+
+class _FileScan:
+    """What the hunks of one test file say about its tests: the assertion lines that each test
+    loses and gains, and the tests that get a skip or xfail. A line belongs to the last `def test_`
+    above it with a deeper indent, or to the test that the hunk header names."""
+
+    def __init__(self) -> None:
+        self.removed: Counter[str] = Counter()
+        self.added: Counter[str] = Counter()
+        self.muted: set[str] = set()
+        self._test: _Test | None = None
+        self._skip_pending = False
+
+    def scan(self, file: PatchedFile) -> None:
+        for hunk in file:
+            self._start(hunk)
+            for line in hunk:
+                if line.value.strip():
+                    self._follow(line)
+                    self._count(line)
+
+    def weakened(self) -> set[str]:
+        """The tests that lost an assertion line on balance, or got a skip or xfail."""
+        lost = {name for name, count in self.removed.items() if self.added[name] < count}
+        return lost | self.muted
+
+    def _start(self, hunk: Hunk) -> None:
+        name = _test_name(hunk.section_header or "")
+        self._test = _Test(name, 0, False) if name else None
+        self._skip_pending = False
+
+    def _follow(self, line: Line) -> None:
+        """Move to the test that `line` starts, or out of the test that it ends."""
+        text = line.value
+        stripped = text.strip()
+        indent = len(text) - len(text.lstrip())
+        name = _test_name(text)
+        if name is not None:
+            if self._skip_pending and not line.is_added:
+                self.muted.add(name)
+            self._test = _Test(name, indent, line.is_added)
+            self._skip_pending = False
+        elif stripped.startswith("@"):
+            self._skip_pending |= line.is_added and stripped.startswith(_SKIP_DECORATORS)
+        else:
+            self._skip_pending = False
+            ends = self._test is not None and indent <= self._test.indent
+            if ends and not stripped.startswith((")", "#")):
+                self._test = None
+
+    def _count(self, line: Line) -> None:
+        if self._test is None or line.is_context:
+            return
+        stripped = line.value.strip()
+        counter = self.added if line.is_added else self.removed
+        if any(mark in stripped for mark in _ASSERTION_MARKS):
+            counter[self._test.name] += 1
+        elif line.is_added and not self._test.new and stripped.startswith(_SKIP_CALLS):
+            self.muted.add(self._test.name)
+
+
 def _tests_kept(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
+    texts = MESSAGES.roadmap
     lost: list[str] = []
+    weakened: list[str] = []
     for file in patch:
-        if _is_test_file(file.path):
-            gone = _test_names(_lines(file, added=False)) - _test_names(_lines(file, added=True))
-            lost += [f"{file.path}::{name}" for name in sorted(gone)]
-    lost = [entry for entry in lost if entry not in loaded.case.allow_lost_tests]
-    problem = MESSAGES.roadmap.eval_implement_lost_tests.format(names=_listed(lost)) if lost else ""
-    return _outcome(Property.TESTS_KEPT, problem)
+        if not _is_test_file(file.path):
+            continue
+        gone = _test_names(_lines(file, added=False)) - _test_names(_lines(file, added=True))
+        lost += [f"{file.path}::{name}" for name in sorted(gone)]
+        scan = _FileScan()
+        scan.scan(file)
+        weakened += [f"{file.path}::{name}" for name in sorted(scan.weakened() - gone)]
+    allowed = loaded.case.allow_lost_tests
+    problems = [
+        message.format(names=_listed(names))
+        for message, names in (
+            (texts.eval_implement_lost_tests, [n for n in lost if n not in allowed]),
+            (texts.eval_implement_weakened_tests, [n for n in weakened if n not in allowed]),
+        )
+        if names
+    ]
+    return _outcome(Property.TESTS_KEPT, " ".join(problems))
 
 
 def _diff_scope(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:

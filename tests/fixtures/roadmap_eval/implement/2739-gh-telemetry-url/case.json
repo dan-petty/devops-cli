@@ -12,7 +12,7 @@
     "tests/test_process_env.py"
   ],
   "tests_pass": [
-    "uv run devops ci test tests/core/test_subprocess_env_boundary.py"
+    "uv run devops ci test tests/core/test_subprocess_env_telemetry.py"
   ],
   "allow_lost_tests": [],
   "results": [

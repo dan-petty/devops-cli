@@ -6,7 +6,8 @@ repository that the run starts from, the paths of the `Changes:` line of the gro
 that must pass, and the recorded results of earlier runs. `issue.md` holds the body of the issue,
 `plan/` holds the three files of the change that a step reads, and `results/` holds the diff of
 each recorded result. A recorded result says which properties it is expected to fail, so a check
-of the recorded results proves the checker (`implement_eval_properties`).
+of the recorded results proves the checker (`implement_eval_properties`). A check of the diff
+alone compares the four diff properties. A check with commands compares all six.
 
 The loader reads the folder and refuses a fixture that breaks the schema or contradicts its own
 plan. It reads no git: a replay in CI cannot assume the history of the pinned commit.
@@ -18,9 +19,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR
 from devops_cli.exceptions.roadmap import ImplementEvalError
@@ -63,7 +63,8 @@ class _Strict(BaseModel):
 
 class RecordedResult(_Strict):
     """The result of an earlier run: where it came from, its diff in `results/`, and the properties
-    that the diff is expected to fail. A result that fails none is a good one."""
+    that the diff is expected to fail. A result that fails none is a good one. `fails` may name a
+    command property: a check with commands runs it, and a check of the diff alone leaves it."""
 
     name: str = Field(min_length=1)
     source: str = Field(min_length=1)
@@ -96,18 +97,6 @@ class ImplementCase(_Strict):
             if not (path and separator and name):
                 raise ValueError(MESSAGES.roadmap.eval_implement_lost_form.format(entry=entry))
         return entries
-
-    @model_validator(mode="after")
-    def _only_diff_properties_fail(self) -> Self:
-        for result in self.results:
-            for prop in result.fails:
-                if prop in COMMAND_PROPERTIES:
-                    raise ValueError(
-                        MESSAGES.roadmap.eval_implement_command_property.format(
-                            result=result.name, prop=prop.value
-                        )
-                    )
-        return self
 
 
 @dataclass(frozen=True)

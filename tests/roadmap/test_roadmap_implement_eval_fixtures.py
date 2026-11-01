@@ -87,12 +87,13 @@ def test_a_result_without_a_diff_file_is_refused(tmp_path: Path) -> None:
     )
 
 
-def test_a_result_that_expects_a_command_property_to_fail_is_refused(tmp_path: Path) -> None:
+def test_a_result_may_expect_a_command_property_to_fail(tmp_path: Path) -> None:
     results = [{"name": "good", "source": "a test", "diff": "good.diff", "fails": ["tests_pass"]}]
+    folder = write_fixture(tmp_path, case=case_data(results=results))
 
-    message = _refusal(tmp_path, case=case_data(results=results))
+    (recorded,) = load_case(folder).case.results
 
-    assert "the result good expects tests_pass to fail, and only a tree can show that." in message
+    assert [prop.value for prop in recorded.fails] == ["tests_pass"]
 
 
 def test_a_lost_test_that_is_no_path_and_name_is_refused(tmp_path: Path) -> None:

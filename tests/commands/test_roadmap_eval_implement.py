@@ -15,8 +15,8 @@ from devops_cli.ai.client import factory
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.roadmap.implement_eval_run import eval_model
-from tests.support.fakes.process import ProcessFake
-from tests.support.implement_step import the_whole_group
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.implement_step import command_text, the_whole_group
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_eval import case_data, eval_repo, write_fixture
 
@@ -127,6 +127,29 @@ def test_a_check_with_commands_clones_the_base_and_runs_the_command_properties(
     assert "pass    verify_passes" in result.stdout
 
 
+@pytest.mark.parametrize(("recorded", "exit_code"), [([], 1), (["verify_passes"], 0)])
+def test_a_check_with_commands_exits_1_when_a_command_property_differs_from_the_record(
+    cli: Cli,
+    tmp_path: Path,
+    implement_programs: ProcessFake,
+    recorded: list[str],
+    exit_code: int,
+) -> None:
+    implement_programs.answer(
+        lambda call: command_text(call) == "uv run devops docs check", ProcessAnswer(returncode=1)
+    )
+    repo, base = eval_repo(tmp_path / "repo")
+    results = [{"name": "good", "source": "a test", "diff": "good.diff", "fails": recorded}]
+    root = tmp_path / "fixtures"
+    root.mkdir()
+    write_fixture(root, folder="a-case", case=case_data(name="a-case", base=base, results=results))
+
+    result = _eval(cli, root, "--check-only", "--run-commands", source=repo)
+
+    assert result.exit_code == exit_code, result.output
+    assert "fail    verify_passes" in result.stdout
+
+
 @pytest.mark.parametrize(
     ("flags", "message"),
     [
@@ -169,6 +192,32 @@ def test_a_run_prints_the_report_and_writes_the_json_report_under_the_data_direc
     assert [(r["fixture"], r["status"], r["tool_calls"]) for r in written["results"]] == [
         ("a-case", "done", 3)
     ]
+    assert f"Report: {reports[0]}" in result.stderr
+
+
+def test_a_run_that_fails_on_the_second_fixture_still_writes_the_report_of_the_first(
+    cli: Cli, tmp_path: Path, implement_programs: ProcessFake
+) -> None:
+    repo, base = eval_repo(tmp_path / "repo")
+    root = tmp_path / "fixtures"
+    root.mkdir()
+    for name in ("a-case", "b-case"):
+        write_fixture(root, folder=name, case=case_data(name=name, base=base))
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), ValueError("model broke"))
+    factory.set_llm_client_override(script.model())
+
+    result = _eval(cli, root, source=repo)
+
+    reports = sorted(
+        (resolve_data_path(load_settings().data.dir) / "eval" / "implement").glob(
+            "implement-*.json"
+        )
+    )
+    assert result.exit_code != 0
+    assert len(reports) == 1
+    written = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert [(r["fixture"], r["status"]) for r in written["results"]] == [("a-case", "done")]
+    assert "a-case / step: done" in result.stdout
     assert f"Report: {reports[0]}" in result.stderr
 
 

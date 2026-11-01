@@ -38,6 +38,9 @@ from tests.support.roadmap_eval import (
 TWO_TESTS = "def test_a() -> None:\n    pass\n\n\ndef test_b() -> None:\n    pass\n"
 SWAPPED = "def test_b() -> None:\n    pass\n\n\ndef test_a() -> None:\n    pass\n"
 RENAMED = TWO_TESTS.replace("test_b", "test_c")
+CHECKED = (
+    "def test_y() -> None:\n    assert 1 + 1 == 2\n\n\ndef test_z() -> None:\n    assert True\n"
+)
 ONE_TICK = TASKS.replace("- [ ] Add the failing test", "- [x] Add the failing test")
 
 
@@ -143,6 +146,82 @@ def test_an_async_test_and_a_test_with_a_decorator_count(loaded: LoadedCase) -> 
         Status.FAIL,
         "Lost tests: tests/test_sample.py::test_a.",
     )
+
+
+def test_a_test_that_is_deleted_and_added_again_as_a_stub_is_a_weakened_test(
+    loaded: LoadedCase,
+) -> None:
+    stub = CHECKED.split("\n\n\n")[1] + "\n\ndef test_y() -> None:\n    pass\n"
+    diff = unified(TEST_PATH, CHECKED, stub)
+
+    assert _only(diff_results(loaded, diff), Property.TESTS_KEPT) == (
+        Status.FAIL,
+        "Weakened tests: tests/test_sample.py::test_y.",
+    )
+
+
+def test_a_test_that_keeps_its_name_and_loses_its_assertions_is_a_weakened_test(
+    loaded: LoadedCase,
+) -> None:
+    diff = unified(TEST_PATH, CHECKED, CHECKED.replace("assert 1 + 1 == 2", "pass"))
+
+    assert _only(diff_results(loaded, diff), Property.TESTS_KEPT) == (
+        Status.FAIL,
+        "Weakened tests: tests/test_sample.py::test_y.",
+    )
+
+
+@pytest.mark.parametrize("mark", ["@pytest.mark.skip", '@pytest.mark.skipif(True, reason="x")'])
+def test_a_skip_mark_on_an_existing_test_is_a_weakened_test(loaded: LoadedCase, mark: str) -> None:
+    diff = unified(TEST_PATH, CHECKED, CHECKED.replace("def test_y", f"{mark}\ndef test_y"))
+
+    assert _only(diff_results(loaded, diff), Property.TESTS_KEPT) == (
+        Status.FAIL,
+        "Weakened tests: tests/test_sample.py::test_y.",
+    )
+
+
+def test_a_skip_call_in_an_existing_test_is_a_weakened_test(loaded: LoadedCase) -> None:
+    skipping = CHECKED.replace("    assert 1", "    pytest.skip('later')\n    assert 1")
+
+    assert _only(
+        diff_results(loaded, unified(TEST_PATH, CHECKED, skipping)), Property.TESTS_KEPT
+    ) == (
+        Status.FAIL,
+        "Weakened tests: tests/test_sample.py::test_y.",
+    )
+
+
+def test_a_new_test_with_a_skip_mark_and_a_test_that_gains_assertions_are_kept(
+    loaded: LoadedCase,
+) -> None:
+    new = '\n\n@pytest.mark.skipif(True, reason="host")\ndef test_new() -> None:\n    assert 1\n'
+    stronger = CHECKED.replace("assert True", "assert True\n    assert 2 > 1")
+
+    assert _only(
+        diff_results(loaded, unified(TEST_PATH, CHECKED, CHECKED + new)), Property.TESTS_KEPT
+    ) == (Status.OK, "")
+    assert _only(
+        diff_results(loaded, unified(TEST_PATH, CHECKED, stronger)), Property.TESTS_KEPT
+    ) == (Status.OK, "")
+
+
+def test_a_lost_test_and_a_weakened_test_are_both_named(loaded: LoadedCase) -> None:
+    after = CHECKED.replace("assert 1 + 1 == 2", "pass").replace("def test_z", "def helper_z")
+
+    assert _only(diff_results(loaded, unified(TEST_PATH, CHECKED, after)), Property.TESTS_KEPT) == (
+        Status.FAIL,
+        "Lost tests: tests/test_sample.py::test_z. Weakened tests: tests/test_sample.py::test_y.",
+    )
+
+
+def test_a_weakened_test_that_the_fixture_allows_is_not_weakened(tmp_path: Path) -> None:
+    case = case_data(allow_lost_tests=["tests/test_sample.py::test_y"])
+    allowing = load_case(write_fixture(tmp_path, case=case))
+
+    diff = unified(TEST_PATH, CHECKED, CHECKED.replace("assert 1 + 1 == 2", "pass"))
+
+    assert _only(diff_results(allowing, diff), Property.TESTS_KEPT) == (Status.OK, "")
 
 
 def test_a_lost_test_that_the_fixture_allows_is_not_lost(tmp_path: Path) -> None:

@@ -2184,14 +2184,12 @@ class RoadmapMessages:
     eval_implement_diff_missing: str = (
         "Fixture {name}: the result {result} names the diff results/{file}, which is missing."
     )
-    eval_implement_command_property: str = (
-        "the result {result} expects {prop} to fail, and only a tree can show that."
-    )
     eval_implement_lost_form: str = "allow_lost_tests holds {entry}, which is not path::name."
     eval_implement_unknown: str = "No fixture is named {names}. The fixtures are: {known}."
     # The details of the properties.
     eval_implement_more: str = " and {count} more"
     eval_implement_lost_tests: str = "Lost tests: {names}."
+    eval_implement_weakened_tests: str = "Weakened tests: {names}."
     eval_implement_outside: str = "Paths outside the group: {names}."
     eval_implement_scratch: str = "Scratch files: {names}."
     eval_implement_unticked: str = "Tasks not ticked: {names}."

@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.roadmap.implement_eval import LoadedCase, load_cases
+from devops_cli.roadmap.implement_eval_properties import Status
 from devops_cli.roadmap.implement_eval_run import check_recorded
 from tests.support.paths import FIXTURES
 
@@ -54,6 +55,23 @@ def test_the_set_holds_a_deletion_item_with_a_corrected_plan_and_a_scratch_file_
     assert [(result.name, [p.value for p in result.fails]) for result in scratch] == [
         ("stopped-with-scratch-file", ["diff_scope", "no_scratch"])
     ]
+
+
+@pytest.mark.parametrize(
+    "name", ["2735-less-env-guard-corrected-plan", "2739-gh-telemetry-url-corrected-plan"]
+)
+def test_a_merged_delivery_with_a_corrected_plan_scores_clean_on_every_property(
+    cases: list[LoadedCase], name: str
+) -> None:
+    by_name = {case.name: case for case in cases}
+    case = by_name[name]
+    (delivered,) = case.case.results
+    (report,) = check_recorded(case)
+
+    assert (delivered.name, delivered.fails) == ("delivered", ())
+    assert case.case.tests_pass
+    assert report.count(Status.FAIL) == 0
+    assert report.matches is True
 
 
 def test_every_recorded_result_fails_the_diff_properties_it_is_recorded_to_fail(

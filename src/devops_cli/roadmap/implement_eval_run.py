@@ -9,11 +9,13 @@ result, the two of commands in the tree of a done step.
 
 A check of the recorded results of a fixture makes no model call. It evaluates the four diff
 properties of each recorded diff and compares the failed ones with the record. With commands, it
-clones the base, applies the diff and runs the two command properties too.
+clones the base, applies the diff, runs the two command properties too and compares all six.
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import time
 from collections.abc import Sequence
 from datetime import datetime
@@ -326,8 +328,10 @@ def check_recorded(
 ) -> list[ResultReport]:
     """Each recorded result of the fixture, evaluated. The four diff properties come from the
     diff alone. With `commands` and `repo`, the two command properties run in a scratch clone of
-    `repo` with the diff applied. `matches` says that the failed diff properties are those that
-    the record expects."""
+    `repo` with the diff applied. `matches` says that the failed properties are those that the
+    record expects: all six with commands, else the four of the diff. A command property that was
+    skipped (the diff does not apply) is no failure, so it differs from a record that expects it
+    to fail."""
     case = loaded.case
     reports: list[ResultReport] = []
     for recorded in case.results:
@@ -335,10 +339,9 @@ def check_recorded(
         properties = diff_results(loaded, diff)
         if commands and repo is not None:
             properties += _applied_commands(loaded, repo, diff)
-        failed = tuple(
-            r.prop for r in properties if r.prop in DIFF_PROPERTIES and r.status is Status.FAIL
-        )
-        expected = tuple(p for p in DIFF_PROPERTIES if p in recorded.fails)
+        compared = ALL_PROPERTIES if commands and repo is not None else DIFF_PROPERTIES
+        failed = tuple(r.prop for r in properties if r.prop in compared and r.status is Status.FAIL)
+        expected = tuple(p for p in compared if p in recorded.fails)
         reports.append(
             ResultReport(
                 fixture=case.name,
@@ -440,11 +443,14 @@ def render_report(report: RunReport) -> str:
 
 
 def write_report(report: RunReport, directory: Path, moment: datetime) -> Path:
-    """Write the report as JSON in `directory`, in a file named for `moment`. Returns the path."""
+    """Write the report as JSON in `directory`, in a new file whose name starts with `moment` and
+    ends with a unique part, so that two runs of the same second keep two files. Returns the path."""
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"implement-{moment.strftime('%Y%m%d-%H%M%S')}.json"
-    path.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
-    return path
+    stamp = moment.strftime("%Y%m%d-%H%M%S")
+    handle, name = tempfile.mkstemp(prefix=f"implement-{stamp}-", suffix=".json", dir=directory)
+    with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        stream.write(report.model_dump_json(indent=2) + "\n")
+    return Path(name)
 
 
 def render_dry_run(cases: Sequence[LoadedCase], *, model: str) -> str:

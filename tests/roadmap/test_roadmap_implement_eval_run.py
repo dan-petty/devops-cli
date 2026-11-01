@@ -240,12 +240,51 @@ def test_a_check_with_commands_applies_the_diff_in_a_clone_and_runs_the_commands
     programs.answer(
         lambda call: command_text(call) == "uv run devops docs check", ProcessAnswer(returncode=1)
     )
+    results = [
+        {"name": "good", "source": "a test", "diff": "good.diff", "fails": ["verify_passes"]},
+        {
+            "name": "scratch",
+            "source": "a test",
+            "diff": "scratch.diff",
+            "fails": ["diff_scope", "no_scratch", "verify_passes"],
+        },
+    ]
 
-    good, scratch = check_recorded(_loaded(tmp_path, base), repo=checkout, commands=True)
+    good, scratch = check_recorded(
+        _loaded(tmp_path, base, results=results), repo=checkout, commands=True
+    )
 
     assert _statuses(good) == SIX_WITH_DOCS_FAILING
-    assert (good.matches, scratch.matches) == (True, True)
+    assert (good.expected, good.matches, scratch.matches) == (("verify_passes",), True, True)
     assert is_clean_at(checkout, base)
+
+
+def test_a_command_property_that_differs_from_the_record_does_not_match(
+    tmp_path: Path, repo: tuple[Path, str], programs: ProcessFake
+) -> None:
+    checkout, base = repo
+    programs.answer(
+        lambda call: command_text(call) == "uv run devops docs check", ProcessAnswer(returncode=1)
+    )
+    loaded = _loaded(tmp_path, base)
+
+    good, scratch = check_recorded(loaded, repo=checkout, commands=True)
+
+    assert (good.expected, good.matches) == ((), False)
+    assert (scratch.expected, scratch.matches) == (("diff_scope", "no_scratch"), False)
+
+
+def test_a_command_property_in_the_record_is_not_checked_without_commands(
+    tmp_path: Path,
+) -> None:
+    results = [
+        {"name": "good", "source": "a test", "diff": "good.diff", "fails": ["tests_pass"]},
+    ]
+    loaded = load_case(write_fixture(tmp_path, case=case_data(results=results)))
+
+    (report,) = check_recorded(loaded)
+
+    assert (report.expected, report.matches) == ((), True)
 
 
 SIX_WITH_DOCS_FAILING = {
@@ -303,12 +342,28 @@ def test_the_report_is_written_as_json_in_a_file_named_for_the_moment(tmp_path: 
 
     path = write_report(report, tmp_path / "reports", datetime(2026, 11, 1, 12, 30, 5, tzinfo=UTC))
 
-    assert path == tmp_path / "reports" / "implement-20261101-123005.json"
+    assert path.parent == tmp_path / "reports"
+    assert path.name.startswith("implement-20261101-123005-")
+    assert path.suffix == ".json"
     written = json.loads(path.read_text(encoding="utf-8"))
     assert (written["model"], [r["result"] for r in written["results"]]) == (
         "",
         ["good", "scratch"],
     )
+
+
+def test_two_reports_of_the_same_second_are_written_to_two_files(tmp_path: Path) -> None:
+    moment = datetime(2026, 11, 1, 12, 30, 5, tzinfo=UTC)
+    first = RunReport(model="model-a", results=())
+    second = RunReport(model="model-b", results=())
+
+    paths = [write_report(r, tmp_path / "reports", moment) for r in (first, second)]
+
+    assert paths[0] != paths[1]
+    assert [json.loads(p.read_text(encoding="utf-8"))["model"] for p in paths] == [
+        "model-a",
+        "model-b",
+    ]
 
 
 def test_a_dry_run_lists_the_steps_and_their_model_requests(tmp_path: Path) -> None:

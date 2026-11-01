@@ -161,14 +161,14 @@ stateDiagram-v2
 
 ## Measure the implement job
 
-The implement job has a baseline score. The command that gives it calls a model through the gateway, so it runs on demand and is no part of `devops ci`. The stage job gets the same kind of measure from a sister command of the group `devops roadmap eval`, planned in [#3028](https://github.com/dan-petty/devops-cli/issues/3028). When that command merges, add its line here.
+The implement job has a baseline score. The command that gives it calls a model through the gateway, so it runs on demand and is no part of `devops ci`.
 
 `devops roadmap eval implement` runs one step of each fixture in `tests/fixtures/roadmap_eval/implement/`. A fixture is a real item: the issue text, its plan, a commit of this repository, the group to run, and the recorded results of earlier runs. The command makes a scratch clone at that commit, runs the step with the model that `--model` names, through the same step that the runner Job runs, and checks six properties of the result.
 
 | Property | It passes when |
 | :--- | :--- |
 | `tests_pass` | The commands that name the tests of the fixture exit 0 in the tree of the result |
-| `tests_kept` | The diff deletes no test and renames none |
+| `tests_kept` | The diff deletes no test, renames none, takes no assertion line from a test on balance, and adds no skip or xfail to an existing test |
 | `diff_scope` | The diff touches only the paths of the `Changes:` line of the group, and the `tasks.md` of the change |
 | `verify_passes` | The verification commands of the group exit 0 in the tree of the result |
 | `no_scratch` | The diff adds no file at the root, under `.data/`, or with a scratch suffix |
@@ -176,7 +176,7 @@ The implement job has a baseline score. The command that gives it calls a model 
 
 The report lists each property as pass, fail or skipped, the tokens, the model requests, the tool calls and the wall time of each fixture, and the property that failed first. A run writes the same report as JSON under `eval/implement` in the data directory. The command reads no GitHub state, writes none and pushes nothing. The scratch clone has no remote and goes away after the run.
 
-The fixtures hold the diffs of real runs: deliveries, and stops with a scratch file in the root. `--check-only` evaluates those recorded diffs with no model and no clone, and exits 1 when a diff fails other properties than its record says. `--check-only --run-commands` also applies each diff in a clone and runs the two properties that run commands. `--dry-run` lists the fixtures and the model requests, and makes no request.
+The fixtures hold the diffs of real runs: deliveries, and stops with a scratch file in the root. `--check-only` evaluates those recorded diffs with no model and no clone, and exits 1 when a diff fails other properties than its record says. `--check-only --run-commands` also applies each diff in a clone, runs the two properties that run commands, and compares all six with the record. A record may name a command property as failed. `--dry-run` lists the fixtures and the model requests, and makes no request.
 
 A change to the implement prompt (`src/devops_cli/ai/tasks/roadmap_implement_step.md`) or to the tool set of the step states its score before and after in its pull request. Run the command on the base and on the branch with the same model, and give both totals of properties passed. A change that cannot beat the score of the base does not merge.
 
@@ -192,3 +192,4 @@ Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the w
 | #2917 | 8 Release and learn | A release comments its version and its deploy time on each issue it carries |
 | #2919 | All | Metrics show the age of stuck Items, and one alert fires |
 | #2968 | All | The counts of `devops roadmap inbox` are gauges with a Grafana panel, and the inbox lists an image digest that is not rolled |
+| #3028 | 3 Plan | A sister command of the group `devops roadmap eval` scores the stage job on a golden set of plan cases |
