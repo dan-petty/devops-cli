@@ -26,17 +26,17 @@ A fixture SHALL be a folder under `tests/fixtures/roadmap_eval/implement/` with 
 
 #### Scenario: A result that expects a command property to fail
 - **WHEN** a recorded result expects `tests_pass` to fail
-- **THEN** the loader raises `ImplementEvalError`, as a diff alone cannot show that property
+- **THEN** the loader accepts it, and a check with commands compares that property
 
 ### Requirement: The committed set holds both good and bad results
-The committed set SHALL hold at least 10 fixtures, the fixtures of #2175 and #2735 among them. It SHALL hold a recorded result that fails no diff property and a recorded result that fails some.
+The committed set SHALL hold at least 10 fixtures, the fixtures of #2175 and #2735 among them. It SHALL hold a recorded result that fails no property and a recorded result that fails some.
 
 #### Scenario: The committed set
 - **WHEN** the loader reads the committed folder
-- **THEN** it returns at least 10 fixtures, including those of #2175 and #2735, with a recorded result that fails no diff property and one that fails some
+- **THEN** it returns at least 10 fixtures, including those of #2175 and #2735, with a recorded result that fails no property and one that fails some
 
-### Requirement: The property tests_kept finds a lost test
-`tests_kept` SHALL fail when the diff deletes a Python file under `tests/`, or removes a test name that no added line of the same file defines, unless the fixture allows that `path::name`.
+### Requirement: The property tests_kept finds a lost or weakened test
+`tests_kept` SHALL fail when the diff deletes a Python file under `tests/`, removes a test name that no added line of the same file defines, takes assertion lines from a test on balance, or adds a skip or xfail to a test whose `def` stays, unless the fixture allows that `path::name`.
 
 #### Scenario: A deleted test
 - **WHEN** the diff deletes `tests/test_sample.py`, which defined `test_a`
@@ -49,6 +49,14 @@ The committed set SHALL hold at least 10 fixtures, the fixtures of #2175 and #27
 #### Scenario: A deletion item that allows a lost test
 - **WHEN** the diff removes `test_dead` and the fixture allows `tests/test_sample.py::test_dead`
 - **THEN** `tests_kept` passes
+
+#### Scenario: A test that becomes a stub
+- **WHEN** the diff replaces the assertion lines of `test_y` with `pass`, or removes `test_y` and adds a `test_y` with no assertion
+- **THEN** `tests_kept` fails and names `tests/test_sample.py::test_y` as weakened
+
+#### Scenario: A skip on an existing test
+- **WHEN** the diff adds `@pytest.mark.skip` above a `test_y` that already exists
+- **THEN** `tests_kept` fails and names `tests/test_sample.py::test_y` as weakened
 
 ### Requirement: The property diff_scope finds a path outside the group
 `diff_scope` SHALL fail when the diff touches a path other than the `changes` paths of the fixture and the `tasks.md` of its change.
@@ -117,22 +125,34 @@ For each fixture, the command SHALL clone the checkout at the base SHA into a te
 - **THEN** the temporary folder is gone, the source checkout has the same commit and no new file, and the roadmap store saw no read
 
 ### Requirement: The report lists the cost and the failed property
-The report SHALL list, for each fixture, the status of the step, each property as pass, fail or skipped with its detail, the input and output tokens, the requests, the tool calls, the wall time in seconds, and the first property that failed. `--json` SHALL print the same fields as JSON. A run SHALL write the JSON report under `eval/implement/` of the data directory.
+The report SHALL list, for each fixture, the status of the step, each property as pass, fail or skipped with its detail, the input and output tokens, the requests, the tool calls, the wall time in seconds, and the first property that failed. `--json` SHALL print the same fields as JSON. A run SHALL write the JSON report under `eval/implement/` of the data directory, in a new file for each run, and SHALL do so also when a fixture raises, for the fixtures before it.
 
 #### Scenario: The table
 - **WHEN** a run covers two fixtures and one fails `diff_scope`
 - **THEN** the output has a block for each, the failed block names `diff_scope` and its detail, and the last line counts the properties that passed
+
+#### Scenario: A fixture that raises
+- **WHEN** the second fixture of a run raises an error
+- **THEN** the report of the first fixture is printed and written, and the command exits with the error
+
+#### Scenario: Two runs in the same second
+- **WHEN** two reports are written in the same second
+- **THEN** each report has its own file
 
 #### Scenario: The JSON report
 - **WHEN** a run ends
 - **THEN** a file under `eval/implement/` of the data directory holds the model, the fixtures and the fields above
 
 ### Requirement: A check of recorded results needs no model
-With `--check-only`, the command SHALL evaluate the four properties of each recorded result of each chosen fixture, make no model call, and make no clone. It SHALL exit 1 when the properties that fail differ from the properties the fixture expects to fail. With `--run-commands` it SHALL also clone, apply the diff, and evaluate the two properties that run commands.
+With `--check-only`, the command SHALL evaluate the four properties of each recorded result of each chosen fixture, make no model call, and make no clone. It SHALL exit 1 when the properties that fail differ from the properties the fixture expects to fail. With `--run-commands` it SHALL also clone, apply the diff, evaluate the two properties that run commands, and compare all six with the record.
 
 #### Scenario: Every recorded result behaves as recorded
 - **WHEN** the committed fixtures are checked with `--check-only`
 - **THEN** the exit code is 0 and no model call is made
+
+#### Scenario: A command property that differs from the record
+- **WHEN** `--run-commands` runs and `tests_pass` fails for a result whose record does not expect it
+- **THEN** the command exits 1
 
 #### Scenario: A result that does not behave as recorded
 - **WHEN** a fixture expects a result to fail `diff_scope` and the diff touches only allowed paths

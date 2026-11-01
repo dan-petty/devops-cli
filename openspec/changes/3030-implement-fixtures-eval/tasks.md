@@ -13,7 +13,7 @@ Reads: `src/devops_cli/roadmap/implement_step.py`. Changes: `src/devops_cli/road
 
 Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/exceptions/roadmap.py`. Changes: `src/devops_cli/roadmap/implement_eval.py` (new), `src/devops_cli/exceptions/roadmap.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_eval_fixtures.py` (new), `tests/support/roadmap_eval.py` (new).
 
-- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_fixtures.py` for the scenarios of "A fixture holds an item, its plan, a pinned commit and its properties": a valid folder, an unknown field, a bad SHA, a missing group, a `changes` path the group does not name, a missing diff file, and a result that expects a command property to fail
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_fixtures.py` for the scenarios of "A fixture holds an item, its plan, a pinned commit and its properties": a valid folder, an unknown field, a bad SHA, a missing group, a `changes` path the group does not name, and a missing diff file; a result that expects a command property to fail loads
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_fixtures.py` fails on the base
 - [x] 2.2 Add the models, the loader and `ImplementEvalError` in `src/devops_cli/roadmap/implement_eval.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_fixtures.py` passes
@@ -49,9 +49,9 @@ Reads: `src/devops_cli/commands/roadmap.py`. Changes: `src/devops_cli/commands/r
 
 Reads: `tests/fixtures/dry_run_gaps.json`. Changes: `tests/fixtures/roadmap_eval/implement/` (new), `tests/invariants/test_roadmap_eval_fixtures.py` (new).
 
-- [x] 6.1 Build the 12 fixtures from the merge history of `main`, the group commits of closed pull request 3000 and of pull requests 3020 and 3078, and the diffs in the Job comments of #2175, #2519, #2531, #2735, #2739 and #2747
+- [x] 6.1 Build the 14 fixtures from the merge history of `main`, the group commits of closed pull request 3000 and of pull requests 3020 and 3078, and the diffs in the Job comments of #2175, #2519, #2531, #2735, #2739 and #2747
   - Verification: `uv run devops roadmap eval implement --check-only` exits 0 and prints every recorded result as behaving as recorded
-- [x] 6.2 Add an invariant test that loads the committed set, counts at least 10 fixtures with #2175 and #2735 among them, requires a recorded result that fails no diff property and one that fails some, and holds the set under 300 KB
+- [x] 6.2 Add an invariant test that loads the committed set, counts at least 10 fixtures with #2175 and #2735 among them, requires a recorded result that fails no property and one that fails some, and the delivered results of #2735 and #2739 with corrected plans to score clean, and holds the set under 300 KB
   - Verification: `uv run devops ci test tests/invariants/test_roadmap_eval_fixtures.py`
 
 ## 7. Documents, evidence and archive
@@ -64,8 +64,23 @@ Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`.
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 - [x] 7.3 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [x] 7.4 Archive the change
+- [ ] 7.4 Archive the change
   - Verification: `uv run devops openspec archive 3030-implement-fixtures-eval` and `uv run devops openspec check`
+
+## 8. Review fixes
+
+Reads: `src/devops_cli/roadmap/implement_eval_properties.py`, `src/devops_cli/roadmap/implement_eval_run.py`, `src/devops_cli/commands/roadmap_eval_implement.py`. Changes: `src/devops_cli/roadmap/implement_eval.py`, `src/devops_cli/roadmap/implement_eval_properties.py`, `src/devops_cli/roadmap/implement_eval_run.py`, `src/devops_cli/commands/roadmap_eval_implement.py`, `src/devops_cli/lang/en/messages.py`, `docs/ROADMAP_WORKFLOW.md`, `tests/` (fixtures and tests).
+
+- [x] 8.1 Let a recorded result expect a command property to fail, and compare all six properties with `--run-commands`; record `tests_pass` as failed for the result of #2519
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_run.py tests/commands/test_roadmap_eval_implement.py`, and `uv run devops roadmap eval implement --check-only --run-commands -F 2519-claim-table-versions` exits 0
+- [x] 8.2 Add the fixtures of #2735 and #2739 with their corrected plans; their delivered results score clean
+  - Verification: `uv run devops ci test tests/invariants/test_roadmap_eval_fixtures.py`, and `uv run devops roadmap eval implement --check-only --run-commands -F 2735-less-env-guard-corrected-plan` exits 0
+- [x] 8.3 Make `tests_kept` find a stub, a lost assertion and a new skip
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_properties.py`
+- [x] 8.4 Write each report to a new file, and write the report of the fixtures before a fixture that raises
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_run.py tests/commands/test_roadmap_eval_implement.py`
+- [x] 8.5 Move the stage-job command to the table of planned changes of `docs/ROADMAP_WORKFLOW.md`
+  - Verification: `uv run devops ci docs`
 
 ## Workflow follow-up
 
