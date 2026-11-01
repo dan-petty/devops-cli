@@ -62,8 +62,6 @@ from devops_cli.config.commands import (
     BIN_GIT,
     BIN_RUFF,
     BIN_UV,
-    IMPLEMENT_ALLOWED_PROGRAMS,
-    IMPLEMENT_SHELL_PROGRAMS,
 )
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
@@ -103,7 +101,15 @@ from devops_cli.roadmap.agent_run import (
     record_run_spend,
 )
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
-from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
+from devops_cli.roadmap.implement_shell_policy import (
+    IMPLEMENT_ALLOWED_PROGRAMS,
+    IMPLEMENT_SHELL_PROGRAMS,
+    fill_prompt,
+)
+from devops_cli.roadmap.implement_shell_refusal import (
+    argument_refusal_hooks,
+    shell_refusal_hooks,
+)
 from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
@@ -283,7 +289,7 @@ def build_step_inputs(
         _files_section(source, chosen),
     ]
     message = "\n\n".join(section for section in sections if section)
-    instructions = load_task_prompt(_PROMPT)
+    instructions = fill_prompt(load_task_prompt(_PROMPT))
     tokens = count_tokens(instructions) + count_tokens(message)
     limit = window - CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
     if tokens > limit:
@@ -423,6 +429,7 @@ def build_agent(
             tuned,
             shell_refusal_hooks(),
             log.hooks(),
+            argument_refusal_hooks(),
             output_cap_hooks(CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS),
         ],
     )

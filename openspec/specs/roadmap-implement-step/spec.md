@@ -103,7 +103,7 @@ The user message of the model SHALL hold, in this order: the `AGENTS.md` of the 
 - **THEN** the step raises `RoadmapImplementError` that names the pattern
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, and SHALL add a hint. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
+The shell tool SHALL run a command only when its first word is a program of `SHELL_PROGRAMS` and it holds no operator that starts a second command, no redirect to a file in a read-only program, and no refused argument or `$` word in `find`. Any other command SHALL come back as a refusal with a hint, and the run SHALL go on. A refused argument SHALL count as a refused command. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
@@ -125,9 +125,25 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **WHEN** the model calls the shell tool with a first word of 5000 characters
 - **THEN** the refusal holds the text of the shell cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, then the hint
 
+#### Scenario: A read-only program
+- **WHEN** the model calls the shell tool with `grep -rn shout src`, `cat README.md`, `ls src`, `head -n 5 README.md` or `find src -name "*.py"`
+- **THEN** the command runs and the call returns its output
+
 #### Scenario: A file command
-- **WHEN** the model calls the shell tool with `cat README.md`
-- **THEN** the refusal names the tool `read_file`
+- **WHEN** the model calls the shell tool with `rg shout src`
+- **THEN** the refusal names the tool `grep`
+
+#### Scenario: A find that runs or deletes
+- **WHEN** the model calls the shell tool with `find . -name "*.py" -exec rm {} +`
+- **THEN** the refusal names `find` and `-exec`, says to use `find` to list paths only, and no process starts
+
+#### Scenario: A redirect to a file
+- **WHEN** the model calls the shell tool with `grep -rn x src > out.txt`, `cat a >> b` or `ls > f`
+- **THEN** the refusal names the program and the redirect, says to use `write_file` or `edit_file`, counts as a refused command, and no process starts. `2>&1` and `>/dev/null` still run.
+
+#### Scenario: A find with an expansion
+- **WHEN** the model calls the shell tool with `find . -ex${U}ec echo {} +`, because the shell expands `${U}` after the check
+- **THEN** the refusal names `find` and the word, and no process starts
 
 #### Scenario: A change of directory
 - **WHEN** the model calls the shell tool with `cd src`
@@ -138,8 +154,8 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **THEN** the model got five refusals with a hint, and the sixth call ends the run as before
 
 #### Scenario: The prompt and the table agree
-- **WHEN** the table `IMPLEMENT_SHELL_REPLACEMENTS` or `IMPLEMENT_SHELL_PROGRAMS` differs from the prompt of the step, or a shell command of the prompt holds an operator that the shell refuses
-- **THEN** a test fails
+- **WHEN** the prompt of the step is built, the shell is configured, or `docs/ROADMAP_WORKFLOW.md` is read
+- **THEN** the programs and the refusals in the prompt and the document are the text that `SHELL_PROGRAMS` and `SHELL_REFUSALS` give, the allowlist of the shell is the names of `SHELL_PROGRAMS`, and a shell command of the prompt holds no operator that the shell refuses
 
 ### Requirement: A run that reaches a limit ends stopped
 `UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, or breaks its tools' rules past their retries, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the `message` of the pydantic-ai error, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, never its `body`. The agent SHALL have no `delegate_task` tool.
@@ -288,7 +304,7 @@ A step that stops on a pydantic-ai error SHALL count the tool calls that a tool 
 - **THEN** the call that ends the run counts as refused too
 
 #### Scenario: Refused commands
-- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and the shell allows only `git`, `uv`, `ruff` and `mypy`
+- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and `pytest` is not a program of the shell table
 - **THEN** the reason ends with a new line and "Refused commands: pytest 6. Other retries: 0."
 
 #### Scenario: Refused commands of two programs

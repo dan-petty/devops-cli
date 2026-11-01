@@ -22,25 +22,15 @@ Keep these rules of the runner:
 - Each reply of yours has an output cap. If a reply reaches it, the step stops and all your work is lost. Write a long file in parts: create it with a short first version, then add to it in parts with `edit_file`. Do not write a file of more than 600 lines in one `write_file` call.
 - Put every scratch file under `.data/agent/scratch/`, which git ignores: a probe script, a note, a copy of a file. Make the directory with `uv run python -c '__import__("pathlib").Path(".data/agent/scratch").mkdir(parents=True, exist_ok=True)'`. Put no scratch file in the checkout root or in `src/`, `tests/` or `docs/`, because the step commits every file in the checkout. The step deletes a new file that your group does not name, in the checkout root or outside `src/`, `tests/`, `docs/` and `openspec/`, before it runs its checks, and it tells you which files it deleted. It keeps a new file in those four directories and checks it like the other files, so a scratch file there stays and can fail a check. Run no check on a scratch file, and delete it when you no longer need it.
 
-You have tools to read, search, write and edit files, and a shell. The shell runs only `git`, `uv`, `ruff`, `mypy`. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass. The job formats the changed Python files after your run, so do not run `ruff format`. `ruff check` still runs on every changed Python file. `mypy` runs with the options of `devops ci` (`--strict`) on the changed files under `src/` only, as the gate does. It runs no type check on a test file. If `ruff check` or `mypy` reports an error, you get one more turn with the text of the error. In that turn, change only files that you changed. If an error stays after that turn, the step stops and all your work is lost. You can run both with `uv run` before you finish.
+You have tools to read, search, write and edit files, and a shell. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&`, `||` or a pipe. Do not commit and do not push. The step commits your work when its checks pass. The job formats the changed Python files after your run, so do not run `ruff format`. `ruff check` still runs on every changed Python file. `mypy` runs with the options of `devops ci` (`--strict`) on the changed files under `src/` only, as the gate does. It runs no type check on a test file. If `ruff check` or `mypy` reports an error, you get one more turn with the text of the error. In that turn, change only files that you changed. If an error stays after that turn, the step stops and all your work is lost. You can run both with `uv run` before you finish.
+
+The shell runs only the programs of this table. A program with access `read` changes no file, and the shell refuses a redirect to a file for it (`>` and `>>`; `2>&1` and `>/dev/null` run). To change a file, use `write_file` or `edit_file`. `find` refuses some arguments and any word with `$`, and the refusal tells you what to run instead.
+
+{{shell_programs}}
 
 The shell refuses any other program, and each refusal counts against a limit. If you use the limit up, the step stops and all your work is lost. Use this table in place of the program that you want:
 
-| Program | Instead |
-| :--- | :--- |
-| `python` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
-| `python3` | `uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies |
-| `pytest` | `uv run pytest` |
-| `pip` | nothing. The lockfile gives the dependencies |
-| `pip3` | nothing. The lockfile gives the dependencies |
-| `cat` | the tool `read_file` |
-| `head` | the tool `read_file` |
-| `tail` | the tool `read_file` |
-| `ls` | the tool `list_files` |
-| `find` | the tool `list_files` |
-| `grep` | the tool `grep` |
-| `rg` | the tool `grep` |
-| `cd` | nothing. Every command runs in the checkout |
+{{shell_refusals}}
 
 The tool `write_file` does not create a directory. To create one, run `uv run python -c '__import__("pathlib").Path("dir").mkdir(parents=True)'` with your path in place of `dir`.
 

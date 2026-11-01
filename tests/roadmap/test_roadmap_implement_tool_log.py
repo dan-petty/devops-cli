@@ -14,7 +14,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelRetry, ToolFailed
 
 from devops_cli.config import constants
-from devops_cli.config.commands import IMPLEMENT_SHELL_REPLACEMENTS
+from devops_cli.roadmap.implement_shell_policy import IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.roadmap.implement_step import StepOutcome, run_step
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore

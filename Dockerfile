@@ -41,15 +41,27 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
 
 # The runner: the pod of a cluster Job in which `devops roadmap implement` runs its steps (#2667).
 # It adds to the builder's venv the dev dependencies that the steps' tests and checks run (pytest,
-# ruff, mypy), and git, which a step and the job need. The builder holds uv, gh, the Node runtime
-# and the pinned OpenSpec already. This stage comes before `service`, so that a build with no
+# ruff, mypy, pre-commit and the rest of the dev group), and git, which a step and the job need. The
+# builder holds uv, gh, the Node runtime and the pinned OpenSpec already. The stage adds the tools
+# that the gate and the hooks need (#3072): curl and jq from apt, and promtool at its pin in
+# `tools.lock`. actionlint, shellcheck and Trivy are not here: the image scan fails on the newest
+# release of each (see `NOT_IN_RUNNER`). The list of the tools is `RUNNER_TOOLS` in
+# `src/devops_cli/roadmap/runner_tools.py`, and the last step of the stage checks every one of them. This stage comes before `service`, so that a build with no
 # `--target` still builds the Service image.
 FROM builder AS runner
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
+    curl \
+    jq \
     && rm -rf /var/lib/apt/lists/*
+
+# The pinned binary goes where OpenSpec went, from the same lock and with the same checksum check.
+# It is not in the builder stage, so the Service image does not hold it.
+RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --tool promtool --target-dir /opt/devops-tools/bin && \
+    chmod -R a+rX /opt/devops-tools
 
 # A Job installs no tool, so npm goes (it bundles `undici` and `brace-expansion`) and so does pip
 # (it vendors `certifi`, `urllib3` and `msgpack`), as in the service stage. The scan of the image
@@ -83,6 +95,10 @@ ENV HOME=/home/devops \
 
 WORKDIR /home/devops
 USER 1000:1000
+
+# The smoke test of the stage: every tool of `RUNNER_TOOLS` runs, and every tool of the lock links at
+# its locked version. A tool that is missing, or at another version than its pin, fails the build.
+RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools python -m devops_cli.roadmap.runner_tools
 
 ENTRYPOINT ["devops"]
 
