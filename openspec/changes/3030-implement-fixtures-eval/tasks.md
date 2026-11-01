@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/implement_step.py`. Changes: `src/devops_cli/road
 
 Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/exceptions/roadmap.py`. Changes: `src/devops_cli/roadmap/implement_eval.py` (new), `src/devops_cli/exceptions/roadmap.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_eval_fixtures.py` (new), `tests/support/roadmap_eval.py` (new).
 
-- [ ] 2.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_fixtures.py` for the scenarios of "A fixture holds an item, its plan, a pinned commit and its properties": a valid folder, an unknown field, a bad SHA, a missing group, a `changes` path the group does not name, a missing diff file, and a result that expects a command property to fail
+- [x] 2.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_fixtures.py` for the scenarios of "A fixture holds an item, its plan, a pinned commit and its properties": a valid folder, an unknown field, a bad SHA, a missing group, a `changes` path the group does not name, a missing diff file, and a result that expects a command property to fail
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_fixtures.py` fails on the base
-- [ ] 2.2 Add the models, the loader and `ImplementEvalError` in `src/devops_cli/roadmap/implement_eval.py`
+- [x] 2.2 Add the models, the loader and `ImplementEvalError` in `src/devops_cli/roadmap/implement_eval.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_fixtures.py` passes
 
 ## 3. Evaluate the six properties

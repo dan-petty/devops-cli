@@ -2170,6 +2170,25 @@ class RoadmapMessages:
             "last_message": "Last message of the agent",
         }
     )
+    # `devops roadmap eval implement` (#3030): the fixtures.
+    eval_implement_no_fixtures: str = "No fixture folder at {path}."
+    eval_implement_unreadable: str = "Fixture {name}: cannot read {file}: {reason}"
+    eval_implement_invalid: str = "Fixture {name}: {problems}"
+    eval_implement_name: str = (
+        "Fixture {name}: the folder name must be the name in case.json, which is {given}."
+    )
+    eval_implement_no_group: str = "Fixture {name}: the plan has no group {group}."
+    eval_implement_path_unnamed: str = (
+        "Fixture {name}: `changes` lists {path}, and no code span of group {group} names it."
+    )
+    eval_implement_diff_missing: str = (
+        "Fixture {name}: the result {result} names the diff results/{file}, which is missing."
+    )
+    eval_implement_command_property: str = (
+        "the result {result} expects {prop} to fail, and only a tree can show that."
+    )
+    eval_implement_lost_form: str = "allow_lost_tests holds {entry}, which is not path::name."
+    eval_implement_unknown: str = "No fixture is named {names}. The fixtures are: {known}."
     implement_dry_run_reason: str = "Dry run: no request was made and nothing ran."
     implement_model_request: str = "model request"
     implement_model_target: str = "{model} for group {group} of item #{item}"

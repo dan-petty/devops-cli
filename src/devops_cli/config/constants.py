@@ -3188,6 +3188,21 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
+# `devops roadmap eval implement` (#3030). The folder of the fixtures in a checkout, and the folder
+# of the JSON reports under the data directory. The patterns are the files that a scratch file
+# looks like, anywhere in the tree (gitignore syntax); a file at the root is scratch too. A detail
+# of a property names this many paths, tests or commands, then counts the rest.
+CONST_ROADMAP_EVAL_IMPLEMENT_FIXTURES: Final[str] = "tests/fixtures/roadmap_eval/implement"
+CONST_ROADMAP_EVAL_IMPLEMENT_REPORTS: Final[str] = "eval/implement"
+CONST_ROADMAP_EVAL_SCRATCH_PATTERNS: Final[tuple[str, ...]] = (
+    ".data/",
+    "*.bak",
+    "*.bak-*",
+    "*.orig",
+    "*.rej",
+    "*.tmp",
+)
+CONST_ROADMAP_EVAL_DETAIL_NAMES: Final[int] = 10
 # `devops roadmap inbox` (#2915). A claim whose issue and open pull requests have not changed for
 # this many days is old. The head branch of the release pull request starts with the prefix that
 # release-please gives (`release-please--branches--<branch>`). The line of the labels names this

@@ -56,6 +56,16 @@ class RoadmapImplementError(DevOpsCLIError):
     error_code = "ROADMAP_IMPLEMENT_REFUSED"
 
 
+class ImplementEvalError(DevOpsCLIError):
+    """Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for
+    one that does not exist (#3030).
+
+    The command has made no model request and cloned nothing.
+    """
+
+    error_code = "ROADMAP_EVAL_REFUSED"
+
+
 class RoadmapItemChangedError(GitHubOperationError):
     """Raised before a job's field write that would revert a change made since it read the Item.
 
