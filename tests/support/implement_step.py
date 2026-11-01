@@ -8,6 +8,7 @@ answered by `process_fake`.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -170,3 +171,17 @@ def is_clean_at(checkout: Path, head: str) -> bool:
         head,
         "",
     )
+
+
+def tool_reads(word: str, report: str) -> Callable[[ProcessCall], subprocess.CompletedProcess[str]]:
+    """A static tool that fails when a file after `--` holds `word`, and prints `report`."""
+
+    def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        assert call.cwd is not None
+        names = call.argv[call.argv.index("--") + 1 :]
+        failed = any(word in (call.cwd / name).read_text(encoding="utf-8") for name in names)
+        return subprocess.CompletedProcess(
+            call.argv, 1 if failed else 0, stdout=f"{report}\n" if failed else "", stderr=""
+        )
+
+    return answer

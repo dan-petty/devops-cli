@@ -715,6 +715,8 @@ _TEST_SETTINGS_SCRIPT = (
 
 def get_check_specs() -> list[CheckSpec]:
     """Return the single ordered table of CI quality gate check specifications."""
+    from devops_cli.ci.typecheck import TYPECHECK_PATHS, typecheck_argv
+
     return [
         CheckSpec(
             name="test",
@@ -752,15 +754,7 @@ def get_check_specs() -> list[CheckSpec]:
         CheckSpec(
             name="typecheck",
             display_title=f"mypy (py{DEFAULT_PYTHON_VERSION.replace('.', '')} strict)",
-            cmd=[
-                "uv",
-                "run",
-                "mypy",
-                "--python-version",
-                DEFAULT_PYTHON_VERSION,
-                "--strict",
-                "src",
-            ],
+            cmd=typecheck_argv(TYPECHECK_PATHS),
             span_name="ci.step.typecheck",
             metric_step="typecheck",
             heavy=True,
