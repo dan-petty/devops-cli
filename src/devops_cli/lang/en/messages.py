@@ -2424,10 +2424,6 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
-    stage_comment_missing: str = (
-        "\n\nThese paths of the plan are no file on the default branch, and no group creates "
-        "them: {paths}. A person checks that the plan names them right."
-    )
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."
@@ -2483,6 +2479,7 @@ class RoadmapMessages:
             "remote_heads": "the branches of origin",
             "fetch_default": "fetch the default branch, to read its plans",
             "default_plans": "the change folders of the default branch",
+            "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "model_change": "the analysis model plans the change of the item",
             "model_split": "the analysis model splits the task groups over the budget",
             "model_correction": "the analysis model corrects a change that fails its checks",
@@ -2499,6 +2496,7 @@ class RoadmapMessages:
     )
     stage_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
+            "tracked_files": "the filter names an item",
             "model_split": "a task group is over the budget",
             "model_correction": "the change fails its checks",
             "validate": "the openspec binary is on PATH",
@@ -2571,6 +2569,21 @@ class RoadmapMessages:
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
+    stage_problem_path: str = (
+        "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
+        "group up to group {group} creates it. {hint} Name a file that exists, or make the group "
+        "that creates it list it in `creates`."
+    )
+    stage_path_same_name: str = "These files have the same name: {names}."
+    stage_path_no_same_name: str = "No file has this name."
+    stage_path_places: dict[str, str] = field(
+        default_factory=lambda: {
+            "reads": "`reads`",
+            "changes": "`changes`",
+            "task": "a task",
+            "verify": "`verify`",
+        }
+    )
     stage_impact_line: str = "{kind}: {paths}"
     stage_impact_code: str = "Code"
     stage_impact_documents: str = "Documents"
