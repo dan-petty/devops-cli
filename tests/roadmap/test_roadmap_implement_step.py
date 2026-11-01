@@ -303,7 +303,6 @@ def test_the_exit_checks_format_first_run_each_command_once_then_the_static_chec
             "uv run devops docs check",
             f"uv run ruff check -- {py}",
             "uv run mypy --python-version 3.14 --strict -- src/sample.py",
-            "uv run pre-commit run --hook-stage pre-commit",
         ],
         {checkout},
     )

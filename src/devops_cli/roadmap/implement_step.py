@@ -102,7 +102,7 @@ from devops_cli.roadmap.agent_run import (
     model_call_error,
     record_run_spend,
 )
-from devops_cli.roadmap.implement_hooks import commit_stage
+from devops_cli.roadmap.implement_hooks import commit_stage, has_hooks
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
 from devops_cli.roadmap.implement_strays import stray_files
@@ -1000,7 +1000,10 @@ def _exit_failure(
 def _hooks_failure(source: Path, changed: Sequence[str]) -> _Failure | None:
     """Run the `pre-commit` stage of the hooks over the staged changes (#3043). None when it
     passes. A failed hook (exit 1) is a failure that the agent may repair in the files the step
-    changed. Any other exit code is a stop."""
+    changed. Any other exit code is a stop. A repository whose commit holds no hook configuration
+    has no hook to run."""
+    if not has_hooks(source):
+        return None
     run = commit_stage(source)
     if run is None:
         return None

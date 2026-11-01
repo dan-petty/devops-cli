@@ -81,7 +81,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
 from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
-from devops_cli.roadmap.implement_hooks import install_hook_environments
+from devops_cli.roadmap.implement_hooks import has_hooks, install_hook_environments
 from devops_cli.roadmap.implement_pull import WatchKind, failed_log, mark_ready, watch_pull
 from devops_cli.roadmap.implement_scoped_ci import (
     ScopedResult,
@@ -363,7 +363,7 @@ class _ItemRun:
         """Fetch the hook environments before the first model request, so that no network failure
         wastes a step. A failure stops the item with nothing to push (#3043)."""
         self.step = MESSAGES.roadmap.implement_step_names["hooks"]
-        failure = install_hook_environments(self.path)
+        failure = install_hook_environments(self.path) if has_hooks(self.path) else None
         if failure is not None:
             raise _StopError(self.step, failure, push=False)
 
@@ -456,7 +456,8 @@ class _ItemRun:
             "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
         )
         changed = [name for name in listed.split("\0") if name]
-        results = run_scoped_checks(self.path, scoped_checks(self.default, changed))
+        hooks = has_hooks(self.path, f"origin/{self.default}")
+        results = run_scoped_checks(self.path, scoped_checks(self.default, changed, hooks=hooks))
         self.scoped.extend(results)
         return next((result for result in results if not result.passed), None)
 

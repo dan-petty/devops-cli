@@ -59,6 +59,10 @@ def store(implement_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
 
 @pytest.fixture
 def checkout(implement_checkout: Path) -> Path:
+    """A checkout whose commit holds the configuration of the hooks."""
+    (implement_checkout / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
+    git(implement_checkout, "add", "-A")
+    git(implement_checkout, "commit", "-q", "-m", "Add the hooks")
     return implement_checkout
 
 
@@ -238,3 +242,33 @@ def test_the_table_of_a_step_shows_the_repair_rounds(
     render_outcome(outcome, "example/roadmap", "table")
 
     assert "Repair rounds" in capsys.readouterr().out
+
+
+def test_a_repository_with_no_hook_configuration_runs_no_hook(
+    store: InMemoryRoadmapStore, implement_checkout: Path, programs: ProcessFake
+) -> None:
+    """A hook that does not exist is not run. The agent cannot make the file go away: the
+    commit of the step decides."""
+    work = tool_calls(write_call("tests/test_sample.py", TEST_BODY), CODE, TICK)
+    script = ModelScript(work, say("Done."))
+
+    outcome = _step(store, implement_checkout, script)
+
+    assert (outcome.status, outcome.repair_rounds) == (StepStatus.DONE, 0)
+    assert programs_run(programs, "uv").count(STAGE) == 0
+
+
+def test_a_configuration_that_the_agent_removes_still_runs_the_hooks(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    programs.answer(
+        lambda call: command_text(call).startswith(STAGE),
+        ProcessAnswer(returncode=1, stdout="No .pre-commit-config.yaml file was found\n"),
+    )
+    work = tool_calls(write_call("tests/test_sample.py", TEST_BODY), CODE, TICK)
+    script = ModelScript(work, say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert programs_run(programs, "uv").count(STAGE) >= 1
+    assert outcome.repair_rounds >= 1

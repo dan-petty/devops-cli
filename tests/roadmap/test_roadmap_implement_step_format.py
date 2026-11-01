@@ -149,7 +149,6 @@ def test_the_format_run_is_the_first_command_and_the_check_of_the_format_is_gone
         "uv run devops docs check",
         f"uv run ruff check -- {CHANGED_FILES}",
         f"uv run mypy --python-version 3.14 --strict -- {SOURCE_FILES}",
-        "uv run pre-commit run --hook-stage pre-commit",
     ]
 
 

@@ -150,3 +150,9 @@ def test_the_output_of_a_failed_check_is_masked(
     results = run_scoped_checks(implement_checkout, scoped_checks("main", []))
 
     assert token not in _result(results, "static").log
+
+
+def test_a_repository_with_no_hooks_has_no_pre_push_check() -> None:
+    checks = scoped_checks("main", ["src/devops_cli/shout.py"], hooks=False)
+
+    assert [check.name for check in checks] == ["static", "tests"]

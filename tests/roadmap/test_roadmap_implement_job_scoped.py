@@ -34,6 +34,21 @@ TESTS = "uv run devops ci test --no-fallback src/devops_cli/shout.py"
 RULE = "ast-grep scan....Failed\nerror: pytest.raises without match\n --> tests/test_shout.py"
 
 
+CONFIG = ".pre-commit-config.yaml"
+
+
+@pytest.fixture
+def job_world(job_world: JobWorld) -> JobWorld:
+    """The job world, with the configuration of the hooks on `main` of `origin`. The staged branch
+    is older than it, and the job rebases onto it."""
+    repo = job_world.repo
+    (repo.clone / CONFIG).write_text("repos: []\n", encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "Add the hooks")
+    repo.git("push", "-q", "origin", "main")
+    return job_world
+
+
 def _commands(world: JobWorld) -> list[str]:
     return [command_text(call) for call in world.programs.calls]
 
@@ -245,3 +260,19 @@ def test_the_comment_lists_the_failed_run_of_a_check_and_the_run_after_its_fix(
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
     lines = [line for line in comment["body"].splitlines() if "scoped check static" in line]
     assert [line.split(": ")[1].split(",")[0] for line in lines] == ["failed", "passed"]
+
+
+def test_a_repository_with_no_hook_configuration_gets_no_install_and_no_pre_push_check(
+    job_world: JobWorld,
+) -> None:
+    repo = job_world.repo
+    repo.git("rm", "-q", CONFIG)
+    repo.git("commit", "-q", "-m", "Remove the hooks")
+    repo.git("push", "-q", "origin", "main")
+
+    applied = job_world.run(two_groups())
+
+    commands = _commands(job_world)
+    assert applied.ready == (1,)
+    assert [text for text in commands if text.startswith("uv run pre-commit")] == []
+    assert STATIC in commands

@@ -16,6 +16,7 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHAR
 from devops_cli.roadmap.implement_hooks import (
     HookRun,
     commit_stage,
+    has_hooks,
     hook_environment,
     install_hook_environments,
     stage_run,
@@ -231,3 +232,31 @@ def test_a_failed_install_gives_its_output(
 
     assert failure is not None
     assert "could not resolve host example.com" in failure
+
+
+def test_a_repository_has_hooks_when_its_commit_holds_the_configuration(checkout: Path) -> None:
+    assert has_hooks(checkout) is False
+
+    (checkout / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-q", "-m", "Add the hooks")
+
+    assert has_hooks(checkout) is True
+
+
+def test_a_configuration_that_the_agent_deletes_still_counts_as_hooks(checkout: Path) -> None:
+    """The commit decides, so the agent cannot skip the hooks by removing their configuration."""
+    (checkout / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-q", "-m", "Add the hooks")
+    (checkout / ".pre-commit-config.yaml").unlink()
+
+    assert has_hooks(checkout) is True
+
+
+def test_the_hooks_of_another_ref_are_those_of_that_ref(checkout: Path) -> None:
+    (checkout / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-q", "-m", "Add the hooks")
+
+    assert (has_hooks(checkout, "HEAD"), has_hooks(checkout, "HEAD~1")) == (True, False)

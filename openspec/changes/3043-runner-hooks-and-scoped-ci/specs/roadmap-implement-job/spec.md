@@ -12,7 +12,7 @@ After the last group the job SHALL run `uv run devops docs generate --sync-readm
 ## ADDED Requirements
 
 ### Requirement: The job installs the hook environments before the first step
-Before the first step of an item, the job SHALL run `pre-commit install-hooks` in the worktree, outside the agent shell, with `PRE_COMMIT_HOME` under the data directory. A failure SHALL stop the item at the step `hooks` with the output as the reason, before any model request.
+Before the first step of an item, the job SHALL run `pre-commit install-hooks` in the worktree, outside the agent shell, with `PRE_COMMIT_HOME` under the data directory. A failure SHALL stop the item at the step `hooks` with the output as the reason, before any model request. A repository with no `.pre-commit-config.yaml` SHALL get no install and no `pre-push` check.
 
 #### Scenario: The install fails
 - **WHEN** `pre-commit install-hooks` exits 1

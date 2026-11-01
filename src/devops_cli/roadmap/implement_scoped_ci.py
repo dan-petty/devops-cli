@@ -84,9 +84,12 @@ def paths_for_tests(names: Iterable[str]) -> list[str]:
     return wanted
 
 
-def scoped_checks(default_branch: str, changed: Sequence[str]) -> list[ScopedCheck]:
+def scoped_checks(
+    default_branch: str, changed: Sequence[str], *, hooks: bool = True
+) -> list[ScopedCheck]:
     """The scoped checks of an item that changed `changed`, against `origin/<default_branch>`, in
-    the order they run. The `tests` check is left out when no changed file gives a path."""
+    the order they run. The `pre-push` check is left out when the repository has no hooks
+    (`hooks` is false), and the `tests` check when no changed file gives a path."""
     names = MESSAGES.roadmap.implement_scoped_names
     pre_push = pre_commit_command(
         *stage_arguments(
@@ -106,10 +109,9 @@ def scoped_checks(default_branch: str, changed: Sequence[str]) -> list[ScopedChe
         "--only",
         ",".join(CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS),
     ]
-    checks = [
-        ScopedCheck(names["pre_push"], tuple(pre_push), hook_environment()),
-        ScopedCheck(names["static"], tuple(static)),
-    ]
+    checks = [ScopedCheck(names["static"], tuple(static))]
+    if hooks:
+        checks.insert(0, ScopedCheck(names["pre_push"], tuple(pre_push), hook_environment()))
     paths = paths_for_tests(changed)
     if paths:
         tests = [BIN_UV, "run", BIN_DEVOPS, "ci", "test", "--no-fallback", *paths]

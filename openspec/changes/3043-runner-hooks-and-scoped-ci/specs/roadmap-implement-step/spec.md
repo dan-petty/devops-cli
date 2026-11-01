@@ -144,7 +144,15 @@ The step SHALL return a `StepOutcome` with the status (done or stopped), the rea
 ## ADDED Requirements
 
 ### Requirement: The hooks of the repository are an exit check
-After the static checks, the step SHALL run the `pre-commit` stage of the hooks of the repository over the staged changes, with `pre-commit run --hook-stage pre-commit`. The child SHALL hold no GitHub token and SHALL have `PRE_COMMIT_HOME` under the data directory. The step SHALL install no git hook.
+After the static checks, the step SHALL run the `pre-commit` stage of the hooks of the repository over the staged changes, with `pre-commit run --hook-stage pre-commit`. The child SHALL hold no GitHub token and SHALL have `PRE_COMMIT_HOME` under the data directory. The step SHALL install no git hook. The step SHALL run no hook when the commit at the start of the step holds no `.pre-commit-config.yaml`; a file that the agent removes SHALL NOT change that.
+
+#### Scenario: No hook configuration
+- **WHEN** the repository holds no `.pre-commit-config.yaml` and the checks pass
+- **THEN** the step reports done and runs no `pre-commit` command
+
+#### Scenario: A configuration that the agent removes
+- **WHEN** the commit holds the configuration and the agent deletes the file
+- **THEN** the step still runs the stage, which fails, and the agent gets a repair turn
 
 #### Scenario: No git hook
 - **WHEN** a step ends done

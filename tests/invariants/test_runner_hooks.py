@@ -11,15 +11,14 @@ from __future__ import annotations
 import re
 import shlex
 import tomllib
-from pathlib import Path
 from typing import Any
 
 import yaml
 
 from devops_cli.git.branch_form import branch_name
 from tests.support.dockerfile import stages
+from tests.support.paths import REPO_ROOT as ROOT
 
-ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / ".pre-commit-config.yaml"
 # The tool that a `uv run` hook starts, and the dev dependency or script that provides it.
 PROVIDERS = {"ast-grep": "ast-grep-cli", "devops": "devops"}

@@ -19,9 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from devops_cli.config.commands import BIN_PRE_COMMIT, BIN_UV
+from devops_cli.config.commands import BIN_GIT, BIN_PRE_COMMIT, BIN_UV
 from devops_cli.config.constants import (
     CONST_PRE_COMMIT_COMMIT_STAGE,
+    CONST_PRE_COMMIT_CONFIG_FILENAME,
     CONST_PRE_COMMIT_HOME_DIR,
     CONST_PRE_COMMIT_HOME_ENV,
     CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
@@ -51,6 +52,19 @@ class HookRun:
     def repairable(self) -> bool:
         """Whether the agent can fix the failure: a hook failed, and the tool itself ran."""
         return self.returncode == _HOOKS_FAILED
+
+
+def has_hooks(source: Path, ref: str = "HEAD") -> bool:
+    """Whether the commit `ref` of the checkout holds the configuration of the hooks. The commit
+    decides, not the files of the checkout, so an agent that removes the file does not skip the
+    hooks. A repository with no configuration has no hook to run."""
+    done = run_subprocess(
+        [BIN_GIT, "cat-file", "-e", f"{ref}:{CONST_PRE_COMMIT_CONFIG_FILENAME}"],
+        cwd=source,
+        quiet=True,
+        timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+    )
+    return done.returncode == 0
 
 
 def hook_environment() -> dict[str, str]:
