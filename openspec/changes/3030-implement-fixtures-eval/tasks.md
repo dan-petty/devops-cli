@@ -31,9 +31,9 @@ Reads: `src/devops_cli/roadmap/implement_test_names.py`, `src/devops_cli/roadmap
 
 Reads: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/clone_git.py`, `tests/support/implement_step.py`. Changes: `src/devops_cli/roadmap/implement_eval_run.py` (new), `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_eval_run.py` (new), `tests/support/roadmap_eval.py`.
 
-- [ ] 4.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_run.py` that run a fixture through the real step with a scripted model in a temporary repository: a step that does the group, a step that leaves a scratch file and stops, a check of recorded results, the cleanup, and the JSON report
+- [x] 4.1 Write failing tests in `tests/roadmap/test_roadmap_implement_eval_run.py` that run a fixture through the real step with a scripted model in a temporary repository: a step that does the group, a step that leaves a scratch file and stops, a check of recorded results, the cleanup, and the JSON report
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_run.py` fails on the base
-- [ ] 4.2 Add the scratch clone, the run of one fixture, the check of a recorded result, the model choice, the report and its render in `implement_eval_run.py`
+- [x] 4.2 Add the scratch clone, the run of one fixture, the check of a recorded result, the model choice, the report and its render in `implement_eval_run.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_run.py` passes
 
 ## 5. The command `devops roadmap eval implement`

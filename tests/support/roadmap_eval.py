@@ -19,6 +19,8 @@ from tests.support.implement_step import (
     TASKS_PATH,
     TEST_BODY,
     TICKED,
+    git,
+    make_checkout,
 )
 
 CHANGE = "1-sample-change"
@@ -115,3 +117,10 @@ def write_fixture(
     for name, text in given.items():
         (base / "results" / name).write_text(text, encoding="utf-8")
     return base
+
+
+def eval_repo(root: Path) -> tuple[Path, str]:
+    """A git repository that holds the sample change at one commit, and that commit. Its plan is
+    the plan of `write_fixture`, so a clone of it needs no plan commit."""
+    checkout = make_checkout(root)
+    return checkout, git(checkout, "rev-parse", "HEAD")
