@@ -50,7 +50,7 @@ _TEST_PREFIX = "test_"
 class Status(StrEnum):
     """How a property ended."""
 
-    PASS = "pass"
+    OK = "pass"
     FAIL = "fail"
     SKIPPED = "skipped"
 
@@ -71,7 +71,7 @@ def skipped(props: Iterable[Property], reason: str) -> list[PropertyResult]:
 
 def _outcome(prop: Property, problem: str) -> PropertyResult:
     """The property as failed with `problem`, or passed when it is empty."""
-    return PropertyResult(prop, Status.FAIL if problem else Status.PASS, problem)
+    return PropertyResult(prop, Status.FAIL if problem else Status.OK, problem)
 
 
 def _listed(names: Sequence[str]) -> str:
@@ -214,8 +214,8 @@ def _commands(prop: Property, source: Path, commands: Sequence[str]) -> Property
 def command_results(loaded: LoadedCase, source: Path) -> list[PropertyResult]:
     """The two properties that run commands in the tree `source`, in the order of
     `COMMAND_PROPERTIES`."""
-    tests = _commands(Property.TESTS_PASS, source, loaded.case.tests_pass)
-    verify = _commands(Property.VERIFY_PASSES, source, loaded.group.verification_commands)
+    tests = _commands(Property.NAMED_TESTS, source, loaded.case.tests_pass)
+    verify = _commands(Property.VERIFIED, source, loaded.group.verification_commands)
     return [tests, verify]
 
 

@@ -38,10 +38,10 @@ _LOST_SEPARATOR = "::"
 class Property(StrEnum):
     """A property of a good result."""
 
-    TESTS_PASS = "tests_pass"
+    NAMED_TESTS = "tests_pass"
     TESTS_KEPT = "tests_kept"
     DIFF_SCOPE = "diff_scope"
-    VERIFY_PASSES = "verify_passes"
+    VERIFIED = "verify_passes"
     NO_SCRATCH = "no_scratch"
     TASKS_TICKED = "tasks_ticked"
 
@@ -53,7 +53,7 @@ DIFF_PROPERTIES = (
     Property.NO_SCRATCH,
     Property.TASKS_TICKED,
 )
-COMMAND_PROPERTIES = (Property.TESTS_PASS, Property.VERIFY_PASSES)
+COMMAND_PROPERTIES = (Property.NAMED_TESTS, Property.VERIFIED)
 ALL_PROPERTIES = (*DIFF_PROPERTIES, *COMMAND_PROPERTIES)
 
 

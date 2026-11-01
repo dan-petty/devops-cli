@@ -58,10 +58,10 @@ def test_a_diff_that_does_the_group_passes_the_four_diff_properties(loaded: Load
     results = diff_results(loaded, good_diff())
 
     assert _by_property(results) == {
-        Property.TESTS_KEPT: (Status.PASS, ""),
-        Property.DIFF_SCOPE: (Status.PASS, ""),
-        Property.NO_SCRATCH: (Status.PASS, ""),
-        Property.TASKS_TICKED: (Status.PASS, ""),
+        Property.TESTS_KEPT: (Status.OK, ""),
+        Property.DIFF_SCOPE: (Status.OK, ""),
+        Property.NO_SCRATCH: (Status.OK, ""),
+        Property.TASKS_TICKED: (Status.OK, ""),
     }
 
 
@@ -71,10 +71,10 @@ def test_a_scratch_file_at_the_root_fails_the_scope_and_the_scratch_property(
     results = _by_property(diff_results(loaded, scratch_diff()))
 
     assert results == {
-        Property.TESTS_KEPT: (Status.PASS, ""),
+        Property.TESTS_KEPT: (Status.OK, ""),
         Property.DIFF_SCOPE: (Status.FAIL, "Paths outside the group: scratch.py."),
         Property.NO_SCRATCH: (Status.FAIL, "Scratch files: scratch.py."),
-        Property.TASKS_TICKED: (Status.PASS, ""),
+        Property.TASKS_TICKED: (Status.OK, ""),
     }
 
 
@@ -96,8 +96,8 @@ def test_a_new_file_that_the_group_names_is_no_scratch(tmp_path: Path) -> None:
     named = load_case(write_fixture(tmp_path, case=case, tasks=tasks))
     diff = good_diff() + unified("notes.md", None, "notes\n")
 
-    assert _only(diff_results(named, diff), Property.NO_SCRATCH) == (Status.PASS, "")
-    assert _only(diff_results(named, diff), Property.DIFF_SCOPE) == (Status.PASS, "")
+    assert _only(diff_results(named, diff), Property.NO_SCRATCH) == (Status.OK, "")
+    assert _only(diff_results(named, diff), Property.DIFF_SCOPE) == (Status.OK, "")
 
 
 def test_a_path_outside_the_changes_paths_fails_the_scope(loaded: LoadedCase) -> None:
@@ -132,7 +132,7 @@ def test_a_renamed_test_is_a_lost_test(loaded: LoadedCase) -> None:
 def test_a_test_that_moves_in_its_file_is_kept(loaded: LoadedCase) -> None:
     diff = unified(TEST_PATH, TWO_TESTS, SWAPPED)
 
-    assert _only(diff_results(loaded, diff), Property.TESTS_KEPT) == (Status.PASS, "")
+    assert _only(diff_results(loaded, diff), Property.TESTS_KEPT) == (Status.OK, "")
 
 
 def test_an_async_test_and_a_test_with_a_decorator_count(loaded: LoadedCase) -> None:
@@ -150,13 +150,13 @@ def test_a_lost_test_that_the_fixture_allows_is_not_lost(tmp_path: Path) -> None
     allowing = load_case(write_fixture(tmp_path, case=case))
     diff = unified(TEST_PATH, TWO_TESTS, TWO_TESTS.replace("def test_a", "def helper_a"))
 
-    assert _only(diff_results(allowing, diff), Property.TESTS_KEPT) == (Status.PASS, "")
+    assert _only(diff_results(allowing, diff), Property.TESTS_KEPT) == (Status.OK, "")
 
 
 def test_a_file_outside_the_tests_folder_loses_no_test(loaded: LoadedCase) -> None:
     diff = unified("src/test_helpers.py", TWO_TESTS, None)
 
-    assert _only(diff_results(loaded, diff), Property.TESTS_KEPT) == (Status.PASS, "")
+    assert _only(diff_results(loaded, diff), Property.TESTS_KEPT) == (Status.OK, "")
 
 
 def test_a_diff_that_ticks_one_of_two_tasks_fails_and_names_the_open_task(
@@ -214,9 +214,9 @@ def test_an_empty_diff_fails_only_the_ticks(loaded: LoadedCase) -> None:
     results = _by_property(diff_results(loaded, ""))
 
     assert {prop: status for prop, (status, _) in results.items()} == {
-        Property.TESTS_KEPT: Status.PASS,
-        Property.DIFF_SCOPE: Status.PASS,
-        Property.NO_SCRATCH: Status.PASS,
+        Property.TESTS_KEPT: Status.OK,
+        Property.DIFF_SCOPE: Status.OK,
+        Property.NO_SCRATCH: Status.OK,
         Property.TASKS_TICKED: Status.FAIL,
     }
 
@@ -227,8 +227,8 @@ def test_the_command_properties_pass_when_every_command_exits_0(
     results = _by_property(command_results(loaded, tmp_path))
 
     assert results == {
-        Property.TESTS_PASS: (Status.PASS, ""),
-        Property.VERIFY_PASSES: (Status.PASS, ""),
+        Property.NAMED_TESTS: (Status.OK, ""),
+        Property.VERIFIED: (Status.OK, ""),
     }
     assert [command_text(call) for call in process_fake.calls] == [CHECK, CHECK, DOCS]
 
@@ -242,8 +242,11 @@ def test_a_failing_named_test_fails_tests_pass_and_names_the_command(
 
     results = _by_property(command_results(loaded, tmp_path))
 
-    assert results[Property.TESTS_PASS] == (Status.FAIL, f"{CHECK} exited with status 1.\n1 failed")
-    assert results[Property.VERIFY_PASSES][0] is Status.FAIL
+    assert results[Property.NAMED_TESTS] == (
+        Status.FAIL,
+        f"{CHECK} exited with status 1.\n1 failed",
+    )
+    assert results[Property.VERIFIED][0] is Status.FAIL
 
 
 def test_a_fixture_with_no_named_tests_skips_tests_pass(
@@ -253,19 +256,19 @@ def test_a_fixture_with_no_named_tests_skips_tests_pass(
 
     results = _by_property(command_results(fixture, tmp_path))
 
-    assert results[Property.TESTS_PASS] == (Status.SKIPPED, "There is no command to run.")
-    assert results[Property.VERIFY_PASSES] == (Status.PASS, "")
+    assert results[Property.NAMED_TESTS] == (Status.SKIPPED, "There is no command to run.")
+    assert results[Property.VERIFIED] == (Status.OK, "")
 
 
 def test_a_stopped_step_leaves_the_command_properties_skipped() -> None:
     results: Any = _by_property(no_tree("`ruff check` failed."))
 
     assert results == {
-        Property.TESTS_PASS: (
+        Property.NAMED_TESTS: (
             Status.SKIPPED,
             "The step stopped, so it left no tree: `ruff check` failed.",
         ),
-        Property.VERIFY_PASSES: (
+        Property.VERIFIED: (
             Status.SKIPPED,
             "The step stopped, so it left no tree: `ruff check` failed.",
         ),

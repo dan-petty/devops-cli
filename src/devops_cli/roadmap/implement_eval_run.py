@@ -429,7 +429,7 @@ def render_report(report: RunReport) -> str:
         lines += [*_result_lines(result), ""]
     lines.append(
         texts.eval_implement_totals.format(
-            passed=report.count(Status.PASS),
+            passed=report.count(Status.OK),
             failed=report.count(Status.FAIL),
             skipped=report.count(Status.SKIPPED),
         )
