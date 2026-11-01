@@ -26,7 +26,3 @@ This group changes a document only, so it adds no test. Write each bullet in ASD
   2. Run `git grep -n -E '#(2106|1632|1110|2431|1652|2426)\b' -- SECURITY.md CONTRIBUTING.md`. For each of the six lines, check that it names the defect class, gives the rule with "must" or "never", and names the check that holds the rule.
   3. Run `for p in src/devops_cli/config/commands.py tests/security/test_security_uv_audit.py src/devops_cli/ai/client/models.py tests/ai/client/test_reply_server.py src/devops_cli/sandbox/metrics.py src/devops_cli/sandbox/models.py tests/sandbox/test_sandbox_metrics.py tests/commands/test_sandbox_networking.py tests/invariants/test_k8s_manifests.py k8s/README.md src/devops_cli/config/settings.py tests/commands/test_config_audit_keys.py; do test -f "$p" || echo "missing $p"; done`. It must print nothing.
 - [ ] 2.4 Verify that the tests which read these documents pass with `uv run devops ci test tests/invariants/test_agents_md_claims.py tests/docs/test_docs_inventory.py tests/invariants/test_committed_addresses.py`, and that `uv run devops openspec check` passes
-
-## Workflow follow-up
-
-- Pending a person: decide whether `devops pr hardening-report` should credit a later pull request that adds the guardrail of an older defect pull request. Today it reads only the diff of the audited pull request, so the six pull requests of #2526 stay unhardened in its report.
