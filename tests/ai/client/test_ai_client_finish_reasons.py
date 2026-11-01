@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, get_args
+from typing import TYPE_CHECKING, Any, get_args
 
 import httpx2
 import pytest
 from pydantic_ai.messages import FinishReason
+
+if TYPE_CHECKING:
+    from devops_cli.ai.spend.ledger import SpendLedger
 
 from devops_cli.ai.client import LLMClient, LLMResponse, ReplyRejectedError, RequestPriority
 from devops_cli.config.constants import (
@@ -182,7 +185,7 @@ def test_only_replies_that_ended_normally_are_cached(
 
 
 def test_a_reply_the_validator_refuses_keeps_its_finish_reason(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, spend_ledger: SpendLedger
 ) -> None:
     """Verify the rejection carries the reply as the provider gave it, so a caller reads why it
     ended, and a refused reply is neither cached nor sent again (#1013)."""

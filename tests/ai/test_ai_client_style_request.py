@@ -18,7 +18,7 @@ from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.ai.spend.ledger import observe_llm_calls
+from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
@@ -28,6 +28,11 @@ _SYSTEM = "You review one change."
 _PROMPT = "Explain the diff."
 _MESSAGES = [ChatMessage(role="user", content=_PROMPT)]
 _ANSWER = "Done."
+
+
+@pytest.fixture(autouse=True)
+def _isolate_spend(spend_ledger: SpendLedger) -> None:
+    """Isolate spend records for style request tests (#2192)."""
 
 
 class Verdict(BaseModel):
