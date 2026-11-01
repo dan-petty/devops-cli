@@ -36,13 +36,22 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `k8s/README.md`. Chang
 - [x] 4.2 Change step 15 of `k8s/README.md` and the module text of `src/devops_cli/roadmap/stage.py` to the new behavior
   - Verification: `git grep -n "A person checks" src k8s` prints nothing
 
-## 5. Documents, fail-to-pass and archive
+## 5. Review fix: a name with no folder
 
-- [x] 5.1 Regenerate the command documents
+Reads: `src/devops_cli/roadmap/stage_paths.py`. Changes: `src/devops_cli/roadmap/stage_paths.py`, `tests/roadmap/test_roadmap_stage_paths.py`, `openspec/specs/roadmap-stage/spec.md`.
+
+- [x] 5.1 Write failing tests in `tests/roadmap/test_roadmap_stage_paths.py` that a bare `ruff.toml` in a task and a bare name in `verify` give no problem, and that the same name in `changes` still does
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` fails on the commit before the fix
+- [x] 5.2 Count only a word with a folder in `StagedTree.as_path`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py tests/roadmap/test_roadmap_stage_plan.py`
+
+## 6. Documents, fail-to-pass and archive
+
+- [x] 6.1 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
-- [x] 5.2 Run the fail-to-pass check on the new tests
+- [x] 6.2 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [x] 5.3 Archive the change
+- [x] 6.3 Archive the change
   - Verification: `uv run devops openspec archive 3010-stage-refuses-missing-paths` and `uv run devops openspec check`
 
 ## Workflow follow-up

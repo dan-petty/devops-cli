@@ -482,6 +482,11 @@ The job SHALL check each path of the reply against the tracked files of the stag
 - **WHEN** a code span holds `status/blocked`, `--strict` or `uv run devops ci docs`
 - **THEN** the job finds no missing path
 
+#### Scenario: A name with no folder
+- **WHEN** a code span of a task or the `verify` command holds `ruff.toml` or `grep step_files.py`
+- **THEN** the job finds no missing path
+- **AND** a path of `reads` or `changes` with no folder is still checked
+
 ### Requirement: The comment and the record of a staged item
 The job SHALL post one comment on the issue with the marker `<!-- devops roadmap stage -->` that names the branch, the pull request, the groups with their measures and the budget. The job SHALL record `stage.branch`, `stage.pr`, `stage.sha` and `stage.groups` in the job record. The job SHALL NOT change the Status of the item.
 
