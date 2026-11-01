@@ -29,7 +29,7 @@ Each line SHALL show the number of its issue or pull request (`-` when it has no
 
 #### Scenario: The command of a line
 - **WHEN** the inbox lists an old claim of #7 and missing labels
-- **THEN** the claim line shows `#7`, an age, and `devops roadmap release 7 --confirm`, and the labels line shows `devops gh labels sync`
+- **THEN** the claim line shows `#7`, an age, and `devops roadmap release 7 --repo <repo> --confirm`, and the labels line shows `devops gh labels sync --repo <repo>`
 
 #### Scenario: The cause of a block
 - **WHEN** a blocked item records `implement.stopped` as `group 2`

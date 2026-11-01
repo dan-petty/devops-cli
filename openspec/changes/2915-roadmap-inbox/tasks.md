@@ -27,11 +27,11 @@
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 - [x] 4.2 Name `devops roadmap inbox` in `docs/ROADMAP_WORKFLOW.md` and remove the line of #2915 from "Planned changes"
   - Verification: `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
-- [x] 4.3 Archive the change
+- [ ] 4.3 Archive the change
   - Verification: `uv run devops openspec archive 2915-roadmap-inbox`
 
 ## Workflow follow-up
 
-- A Grafana panel of the inbox counts needs the metrics of W10 (#2919). The panel is built there from `read_inbox`.
-- The image digest that is not yet rolled stays out of the inbox. `devops argo cd apps status devops` reads it.
+- Issue #2968 owns the inbox counts as gauges, the Grafana panel of the inbox and the image digest line. #2919 builds the age panel and does not wait for it.
+- Until #2968 merges, the image digest that is not yet rolled stays out of the inbox. `devops argo cd apps status devops` reads it.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

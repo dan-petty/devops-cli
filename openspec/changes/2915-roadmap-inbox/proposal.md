@@ -36,12 +36,12 @@ A run sends only reads:
 | `.github/labels.yml` on the default branch | 1 |
 | Newest commit that changed `.github/labels.yml` | 1, only when the labels differ |
 
-Today a run sends 5 requests, or 6 when the labels differ. The number grows with the open issues and pull requests, and not with the closed ones. The old design read every issue, which is about 30 pages. If the Service ran the inbox at each 10-minute round of one repository, it would send about 36 requests an hour, which is 7 percent of `service.github_requests_per_hour` (500). This change does not run it in the Service. The metrics of W10 (#2919) decide that.
+Today a run sends 5 requests, or 6 when the labels differ. The number grows with the open issues and pull requests, and not with the closed ones. The old design read every issue, which is about 30 pages. If the Service ran the inbox at each 10-minute round of one repository, it would send about 36 requests an hour, which is 7 percent of `service.github_requests_per_hour` (500). This change does not run it in the Service. Issue #2968 decides that, with the gauges.
 
 ### Out of scope
 
-- **A Grafana panel.** The data path is not trivial: the panel needs the counts as metrics, and those are W10 (#2919). The command prints the list now; W10 adds the metrics from the same function.
-- **The image digest not yet rolled.** The read needs the registry and the Argo CD Application, which means a call to the cluster that the Service budget does not count and a workstation may not have. `devops argo cd apps status devops` already reads both and exits 1 when the pin is old. The inbox leaves the digest out and says so in the command help.
+- **A Grafana panel.** The data path is not trivial: the panel needs the counts as gauges that `emit` sends. Issue #2968 owns the gauges and the panel. They read the counts from `read_inbox`. Issue #2919 builds the age gauges and an age panel, and it does not wait for the inbox panel.
+- **The image digest not yet rolled.** The read needs the registry and the Argo CD Application, which means a call to the cluster that the Service budget does not count and a workstation may not have. `devops argo cd apps status devops` already reads both and exits 1 when the pin is old. The inbox leaves the digest out and says so in the command help. Issue #2968 owns the digest line.
 - **Branch commits for a claim.** The activity of a claim is the newest update of its issue or of its open pull request. A commit date for a branch with no pull request needs one more request for each claim. The workflow opens a draft pull request with the first push, so the gap is short.
 
 ## Capabilities

@@ -165,3 +165,4 @@ Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the w
 | #2867 | 6 Verify | A model evaluator marks a draft ready when it matches its issue and the project rules |
 | #2917 | 8 Release and learn | A release comments its version and its deploy time on each issue it carries |
 | #2919 | All | Metrics show the age of stuck Items, and one alert fires |
+| #2968 | All | The counts of `devops roadmap inbox` are gauges with a Grafana panel, and the inbox lists an image digest that is not rolled |
