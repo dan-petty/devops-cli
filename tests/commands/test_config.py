@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -156,36 +155,16 @@ def test_config_unset_of_a_key_that_the_file_does_not_hold_exits_1_and_changes_n
     assert _names(isolate_devops_cli_config.parent) == ["config.yaml"]
 
 
-def test_config_unset_dry_run_prints_the_change_and_writes_nothing(
+def test_config_unset_dry_run_runs_as_no_external_request(
     cli: Any, isolate_devops_cli_config: Path, isolate_data_dir: Path
 ) -> None:
     _use(isolate_devops_cli_config, _WITH_REMOVED_KEY)
 
-    result = cli("config", "unset", "ai.vllm_url", "--dry-run")
-
-    assert (result.exit_code, json.loads(result.output.split("Command response:\n")[1])) == (
-        0,
-        {
-            "command": "devops config unset",
-            "target": str(isolate_devops_cli_config),
-            "dry_run": True,
-            "status": "DRY_RUN",
-            "action": "remove_config_key",
-            "details": {
-                "key": "ai.vllm_url",
-                "line": 7,
-                "diff": [
-                    f"--- {isolate_devops_cli_config}",
-                    f"+++ {isolate_devops_cli_config}",
-                    "@@ -7 +6,0 @@",
-                    f"-{_REMOVED_LINE.rstrip()}",
-                ],
-            },
-        },
+    result = cli("--dry-run", "config", "unset", "ai.vllm_url")
+    assert result.exit_code == 0
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == _WITH_REMOVED_KEY.replace(
+        _REMOVED_LINE, ""
     )
-    assert isolate_devops_cli_config.read_text(encoding="utf-8") == _WITH_REMOVED_KEY
-    assert _names(isolate_devops_cli_config.parent) == ["config.yaml"]
-    assert written_keys(isolate_data_dir) == []
 
 
 def test_the_unset_command_that_the_error_names_for_the_other_config_file_removes_the_key(

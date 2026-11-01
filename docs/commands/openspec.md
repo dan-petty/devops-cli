@@ -19,14 +19,8 @@ devops openspec check
 **Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written.**
 
 ```bash
-devops openspec regenerate [OPTIONS]
+devops openspec regenerate
 ```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -35,7 +29,7 @@ devops openspec regenerate [OPTIONS]
 **Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation.**
 
 ```bash
-devops openspec archive [OPTIONS] <change>
+devops openspec archive <change>
 ```
 
 **Arguments:**
@@ -43,11 +37,5 @@ devops openspec archive [OPTIONS] <change>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

@@ -62,6 +62,7 @@ devops config set [OPTIONS] <key> <value>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--from-file` | `filename` | - | Read the credential from this file, or from stdin to its end when the path is -. Every line and the last newline stay as the input has them, and the value never shows in the output. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -80,7 +81,7 @@ stays. Store a credential before you remove it, with `devops config set <key>`, 
 `--from-file <path>` for a multi-line one.
 
 ```bash
-devops config unset [OPTIONS] <key>
+devops config unset <key>
 ```
 
 **Arguments:**
@@ -89,12 +90,6 @@ devops config unset [OPTIONS] <key>
 |---|---|---|---|
 | `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
 
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Print the change, with the lines of its unified diff, and write nothing. |
-
 ---
 
 ## `devops config init`
@@ -102,8 +97,15 @@ devops config unset [OPTIONS] <key>
 **Interactive first-time setup wizard.**
 
 ```bash
-devops config init
+devops config init [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -208,6 +210,5 @@ devops config audit-keys [OPTIONS]
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
