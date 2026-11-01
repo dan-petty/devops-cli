@@ -20,13 +20,13 @@ Reads: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/imple
 
 ## 3. The prompt, the table and the documents
 
-Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_roadmap_implement_prompt.py`. Changes: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_prompt.py`, `README.md`.
+Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_roadmap_implement_prompt.py`. Changes: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_implement_prompt.py`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`.
 
-- [ ] 3.1 Write a failing test in `tests/roadmap/test_roadmap_implement_prompt.py` that the prompt says that the step deletes a file that the group does not name, and that it keeps the rule of #3007
+- [x] 3.1 Write a failing test in `tests/roadmap/test_roadmap_implement_prompt.py` that the prompt says that the step deletes a file that the group does not name, and that it keeps the rule of #3007
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_prompt.py` fails on the base
-- [ ] 3.2 Add the sentence to the prompt, show the removed files in the table of the command, and add the rule to the help text
+- [x] 3.2 Add the sentence to the prompt and the rule to the help text of the command
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_prompt.py tests/roadmap/test_roadmap_implement_command.py`
-- [ ] 3.3 Regenerate the command documents
+- [x] 3.3 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 4. Fail-to-pass and archive
