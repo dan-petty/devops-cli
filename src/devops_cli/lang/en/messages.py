@@ -2441,6 +2441,16 @@ class RoadmapMessages:
         "- {step} ({title}): {status}, {requests} model requests, {rounds} repair rounds{commit}"
     )
     implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
+    implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
+    implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
+    implement_scoped_tests_narrowed: str = (
+        "the changed files select more than {limit} test modules, so only the changed test "
+        "modules ran. The required checks of CI run the others"
+    )
+    implement_scoped_tests_skipped: str = (
+        "not run, because the changed files select more than {limit} test modules. The required "
+        "checks of CI run them"
+    )
     implement_scoped_passed: str = "passed"
     implement_scoped_failed: str = "failed"
     implement_pull_comment_commit: str = ", commit `{commit}`"

@@ -59,10 +59,7 @@ def store(implement_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
 
 @pytest.fixture
 def checkout(implement_checkout: Path) -> Path:
-    """A checkout whose commit holds the configuration of the hooks."""
-    (implement_checkout / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
-    git(implement_checkout, "add", "-A")
-    git(implement_checkout, "commit", "-q", "-m", "Add the hooks")
+    """A checkout whose repository has hooks: `_trusted` names their configuration."""
     return implement_checkout
 
 
@@ -71,8 +68,28 @@ def programs(implement_programs: ProcessFake) -> ProcessFake:
     return implement_programs
 
 
-def _step(store: InMemoryRoadmapStore, checkout: Path, script: ModelScript) -> StepOutcome:
-    return run_step(store, item=1, group=1, source=checkout, model=script.model(), window=WINDOW)
+def _stage_runs(programs: ProcessFake) -> list[str]:
+    return [text for text in programs_run(programs, "uv") if text.startswith(STAGE)]
+
+
+def _trusted(checkout: Path) -> Path:
+    """The trusted configuration of the hooks: the job writes it from the default branch. The
+    stage is answered by `process_fake`, so the file need not exist."""
+    return checkout.parent / "pre-commit-trusted-config.yaml"
+
+
+def _step(
+    store: InMemoryRoadmapStore, checkout: Path, script: ModelScript, *, hooks: bool = True
+) -> StepOutcome:
+    return run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        hooks=_trusted(checkout) if hooks else None,
+    )
 
 
 def _prompt(script: ModelScript, request: int) -> str:
@@ -138,7 +155,7 @@ def test_a_hook_failure_goes_to_the_agent_and_a_repair_ends_the_step_done(
         "The hooks of the stage pre-commit failed with the exit status 1.\n"
         f"{HOOK_REPORT}\n\nThe hooks of the project check each commit."
     )
-    assert programs_run(programs, "uv").count(STAGE) == 2
+    assert len(_stage_runs(programs)) == 2
 
 
 def test_a_hook_failure_that_the_agent_cannot_fix_uses_every_round_and_stops_with_the_output(
@@ -252,23 +269,46 @@ def test_a_repository_with_no_hook_configuration_runs_no_hook(
     work = tool_calls(write_call("tests/test_sample.py", TEST_BODY), CODE, TICK)
     script = ModelScript(work, say("Done."))
 
-    outcome = _step(store, implement_checkout, script)
+    outcome = _step(store, implement_checkout, script, hooks=False)
 
     assert (outcome.status, outcome.repair_rounds) == (StepStatus.DONE, 0)
-    assert programs_run(programs, "uv").count(STAGE) == 0
+    assert _stage_runs(programs) == []
 
 
-def test_a_configuration_that_the_agent_removes_still_runs_the_hooks(
+def test_an_edit_of_the_configuration_by_the_agent_changes_no_hook_run(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    """The stage reads the trusted copy with `--config`, so a configuration of `repos: []` in the
+    checkout skips no hook."""
+    skip = write_call(".pre-commit-config.yaml", "repos: []\n")
+    work = tool_calls(write_call("tests/test_sample.py", TEST_BODY), CODE, TICK, skip)
+    script = ModelScript(work, say("Done."))
+
+    _step(store, checkout, script)
+
+    stages = _stage_runs(programs)
+    assert stages
+    assert all(text.endswith(f"--config {_trusted(checkout)}") for text in stages)
+
+
+def test_a_stage_that_runs_out_of_time_stops_the_step_with_the_reason(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    def hang(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(call.argv, 1)
+
     programs.answer(
-        lambda call: command_text(call).startswith(STAGE),
-        ProcessAnswer(returncode=1, stdout="No .pre-commit-config.yaml file was found\n"),
+        lambda call: command_text(call).startswith(STAGE), ProcessAnswer(side_effect=hang)
     )
     work = tool_calls(write_call("tests/test_sample.py", TEST_BODY), CODE, TICK)
     script = ModelScript(work, say("Done."))
+    start = git(checkout, "rev-parse", "HEAD")
 
     outcome = _step(store, checkout, script)
 
-    assert programs_run(programs, "uv").count(STAGE) >= 1
-    assert outcome.repair_rounds >= 1
+    assert (outcome.status, outcome.repair_rounds, "ran out of time" in outcome.reason) == (
+        StepStatus.STOPPED,
+        0,
+        True,
+    )
+    assert is_clean_at(checkout, start)

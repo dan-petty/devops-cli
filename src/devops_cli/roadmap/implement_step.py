@@ -102,7 +102,7 @@ from devops_cli.roadmap.agent_run import (
     model_call_error,
     record_run_spend,
 )
-from devops_cli.roadmap.implement_hooks import commit_stage, has_hooks
+from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
 from devops_cli.roadmap.implement_strays import stray_files
@@ -212,7 +212,8 @@ def fix_group(fix: FixRequest, groups: Sequence[TaskGroup]) -> TaskGroup:
 class StepInputs:
     """What one step gives the model: the instructions, the user message, and their tokens.
     `change` is the change folder, and `tasks_md` is the text of its `tasks.md` before the run,
-    read with its line ends. The job writes that text back after each turn."""
+    read with its line ends. The job writes that text back after each turn. `hooks` is the trusted
+    configuration of the hooks (`trusted_config`), or None when the repository has no hook (#3043)."""
 
     group: TaskGroup
     change: Path
@@ -221,6 +222,7 @@ class StepInputs:
     message: str
     tokens: int
     fix: FixRequest | None = None
+    hooks: Path | None = None
 
 
 def _files_section(source: Path, group: TaskGroup) -> str:
@@ -994,17 +996,17 @@ def _exit_failure(
     static = _static_failure(source, changed)
     if static:
         return _Failure(static, frozenset(changed))
-    return _hooks_failure(source, changed)
+    return _hooks_failure(source, inputs.hooks, changed)
 
 
-def _hooks_failure(source: Path, changed: Sequence[str]) -> _Failure | None:
-    """Run the `pre-commit` stage of the hooks over the staged changes (#3043). None when it
-    passes. A failed hook (exit 1) is a failure that the agent may repair in the files the step
-    changed. Any other exit code is a stop. A repository whose commit holds no hook configuration
-    has no hook to run."""
-    if not has_hooks(source):
+def _hooks_failure(source: Path, config: Path | None, changed: Sequence[str]) -> _Failure | None:
+    """Run the `pre-commit` stage of the hooks of `config` over the staged changes (#3043). None
+    when it passes. A failed hook (exit 1) is a failure that the agent may repair in the files the
+    step changed. Any other exit code, a run that ran out of time too, is a stop. A repository with
+    no hook configuration (`config` is None) has no hook to run."""
+    if config is None:
         return None
-    run = commit_stage(source)
+    run = commit_stage(source, config)
     if run is None:
         return None
     reason = MESSAGES.roadmap.implement_stop_hooks_failed.format(
@@ -1222,6 +1224,7 @@ def run_step(
     model: Any,
     window: int,
     fix: FixRequest | None = None,
+    hooks: Path | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1230,9 +1233,14 @@ def run_step(
     the run raises. It reads the item once and writes nothing to GitHub. A failed model call ends
     the step as stopped, with the diff of the work. Raises `RoadmapImplementError` for a step it
     refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
-    step makes the failed check pass and ticks no task (`run_fix_step`).
+    step makes the failed check pass and ticks no task (`run_fix_step`). `hooks` is the trusted
+    configuration of the hooks of the project (`trusted_config`): the step runs its `pre-commit`
+    stage as an exit check, and none when `hooks` is None (#3043).
     """
-    inputs = build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix)
+    inputs = replace(
+        build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix),
+        hooks=hooks,
+    )
     _require_clean(source)
     start = _head(source)
     done = False
@@ -1246,7 +1254,14 @@ def run_step(
 
 
 def run_fix_step(
-    store: ItemReader, *, item: int, fix: FixRequest, source: Path, model: Any, window: int
+    store: ItemReader,
+    *,
+    item: int,
+    fix: FixRequest,
+    source: Path,
+    model: Any,
+    window: int,
+    hooks: Path | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits as `<that title> (#<item>)` when the
@@ -1259,6 +1274,7 @@ def run_fix_step(
         model=model,
         window=window,
         fix=fix,
+        hooks=hooks,
     )
 
 

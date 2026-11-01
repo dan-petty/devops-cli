@@ -10,9 +10,12 @@ final tree:
   every check that the devcontainer runs on a push, and `.pre-commit-config.yaml` defines them.
 - `static`: the rows of `devops ci` in `CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS`, in check mode: the
   ast-grep scan, the sync of the documents and the OpenSpec gate.
-- `tests`: `devops ci test` with the changed sources and test modules. The command selects the
-  tests that import or conventionally cover them, and `--no-fallback` keeps a path with no
-  covering test from starting the whole suite. The required checks of CI run the suite.
+- `tests`: `devops ci test` with the test modules that cover the changed sources, and the changed
+  test modules. `plan_tests` selects them with the selector of `devops ci test`. The check stays
+  scoped: a change to a module that most tests import selects hundreds of modules, which no Job of
+  2 CPUs runs in the time limit of a command. So above `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES`
+  modules the check runs only the changed test modules. It does not run at all for a change that
+  no test covers. The required checks of CI run the whole suite.
 
 This module only defines the checks and runs them. The job decides what a failure means.
 """
@@ -30,10 +33,12 @@ from devops_cli.config.constants import (
     CONST_PRE_COMMIT_PRE_PUSH_STAGE,
     CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS,
+    CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES,
     CONST_SOURCE_ROOT_DIR,
     CONST_TESTS_ROOT_DIR,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.test_selection import is_test_module, select_tests_for_sources
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_hooks import (
     hook_environment,
@@ -52,6 +57,15 @@ class ScopedCheck:
     name: str
     argv: tuple[str, ...]
     env: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ScopedTests:
+    """What the `tests` check runs: the test modules `paths`, none when the check does not run,
+    and a `note` that says why the check is narrower than the changed files, or empty."""
+
+    paths: tuple[str, ...] = ()
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -84,22 +98,35 @@ def paths_for_tests(names: Iterable[str]) -> list[str]:
     return wanted
 
 
+def plan_tests(source: Path, changed: Iterable[str]) -> ScopedTests:
+    """The test modules that the `tests` check runs for the changed files `changed` of the checkout
+    `source`. The selector of `devops ci test` maps the changed sources and test modules onto test
+    modules. No path when no test covers the change. Above
+    `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES` modules, or for a change that forces the whole
+    suite, only the changed test modules (the note says so)."""
+    texts = MESSAGES.roadmap
+    wanted = paths_for_tests(changed)
+    if not wanted:
+        return ScopedTests()
+    targets = select_tests_for_sources(wanted, source).pytest_targets()
+    if not targets:
+        return ScopedTests(note=texts.implement_scoped_tests_uncovered)
+    whole_suite = any((source / target).is_dir() for target in targets)
+    if not whole_suite and len(targets) <= CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES:
+        return ScopedTests(tuple(targets))
+    own = tuple(name for name in wanted if is_test_module(name))
+    note = texts.implement_scoped_tests_narrowed if own else texts.implement_scoped_tests_skipped
+    return ScopedTests(own, note.format(limit=CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES))
+
+
 def scoped_checks(
-    default_branch: str, changed: Sequence[str], *, hooks: bool = True
+    default_branch: str, tests: Sequence[str], *, config: Path | None
 ) -> list[ScopedCheck]:
-    """The scoped checks of an item that changed `changed`, against `origin/<default_branch>`, in
-    the order they run. The `pre-push` check is left out when the repository has no hooks
-    (`hooks` is false), and the `tests` check when no changed file gives a path."""
+    """The scoped checks of an item, against `origin/<default_branch>`, in the order they run. The
+    `pre-push` check runs the hooks of the configuration `config`, and is left out when there is
+    none (the repository has no hooks). The `tests` check runs the test modules `tests`, and is
+    left out when there are none."""
     names = MESSAGES.roadmap.implement_scoped_names
-    pre_push = pre_commit_command(
-        *stage_arguments(
-            CONST_PRE_COMMIT_PRE_PUSH_STAGE,
-            "--from-ref",
-            f"origin/{default_branch}",
-            "--to-ref",
-            "HEAD",
-        )
-    )
     static = [
         BIN_UV,
         "run",
@@ -110,12 +137,22 @@ def scoped_checks(
         ",".join(CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS),
     ]
     checks = [ScopedCheck(names["static"], tuple(static))]
-    if hooks:
+    if config is not None:
+        pre_push = pre_commit_command(
+            config,
+            *stage_arguments(
+                CONST_PRE_COMMIT_PRE_PUSH_STAGE,
+                "--from-ref",
+                f"origin/{default_branch}",
+                "--to-ref",
+                "HEAD",
+            ),
+        )
         checks.insert(0, ScopedCheck(names["pre_push"], tuple(pre_push), hook_environment()))
-    paths = paths_for_tests(changed)
-    if paths:
-        tests = [BIN_UV, "run", BIN_DEVOPS, "ci", "test", "--no-fallback", *paths]
-        checks.append(ScopedCheck(names["tests"], tuple(tests)))
+    if tests:
+        checks.append(
+            ScopedCheck(names["tests"], (BIN_UV, "run", BIN_DEVOPS, "ci", "test", *tests))
+        )
     return checks
 
 

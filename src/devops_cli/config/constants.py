@@ -213,6 +213,10 @@ CONST_PRE_COMMIT_COMMIT_STAGE: Final[str] = "pre-commit"
 # directory of the data directory.
 CONST_PRE_COMMIT_HOME_ENV: Final[str] = "PRE_COMMIT_HOME"
 CONST_PRE_COMMIT_HOME_DIR: Final[str] = "pre-commit"
+# The file in the cache directory that holds the configuration of the hooks as the default branch
+# has it. The implement job runs every hook stage with it, so an edit of the agent to
+# `.pre-commit-config.yaml` skips no hook (#3043).
+CONST_PRE_COMMIT_TRUSTED_CONFIG_FILE: Final[str] = "pre-commit-trusted-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
@@ -3051,6 +3055,12 @@ CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS: Final[int] = 3000
 # item, with `--check`, before its push (#3043). The `pre-push` stage of the hooks and the tests of
 # the changed files are the other two scoped checks. A test holds that each name is a row.
 CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS: Final[tuple[str, ...]] = ("constructs", "docs", "openspec")
+# The most test modules that the scoped `tests` check runs (#3043). A change to a module that most
+# tests import, such as the constants or the messages, selects hundreds of modules (333 of 725 for
+# one item). On 2 CPUs, as in a Job, 12 test modules of the roadmap ran in 88 s, about 7 s each: 30
+# modules take about 3.5 minutes, far inside the time limit of a command. Above the limit the check
+# runs only the test modules that the item changed, and the required checks of CI run the rest.
+CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES: Final[int] = 30
 # The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
 # of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
 # multiple of the limit: the masking of secrets is slower than linear, and the message of an error
