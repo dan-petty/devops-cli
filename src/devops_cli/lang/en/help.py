@@ -1299,6 +1299,11 @@ class RoadmapCommandHelp:
         "on. Refine looks at the item again after a reply, a body edit or the close of those "
         "items, or after a commit on the default branch changes a file that the block cites. "
         "The report groups every item by its next step. "
+        "A part of an item that cannot be built or decided now moves to new issues through "
+        "intake when the rest of the item is Ready. Each new issue starts with "
+        "'Split from #<issue>.', and refine names the new issues in its Ready comment and "
+        "records them as refine.deferred. An item that is too big for one pull request still "
+        "waits for a person to split it. "
         "An item whose model call fails is skipped and reported; the others are still refined, "
         "and refine then exits 1."
     )
