@@ -16,10 +16,10 @@ Reads: `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadma
 
 ## 3. The prompts follow the kind
 
-Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/ai/tasks/roadmap_stage_split.md`, `src/devops_cli/ai/tasks/roadmap_implement_step.md`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/ai/tasks/roadmap_stage_split.md`, `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_roadmap_stage_kind.py`, `tests/roadmap/__snapshots__/test_roadmap_implement_step.ambr`.
+Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/ai/tasks/roadmap_stage_split.md`, `src/devops_cli/ai/tasks/roadmap_implement_step.md`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/ai/tasks/roadmap_stage_split.md`, `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `tests/roadmap/test_roadmap_stage_kind.py`.
 
-- [ ] 3.1 Write the guard test: the stage prompt and the split prompt name each value of `GroupKind` and each field of `StageGroup`, and the implement prompt names the kinds of group. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py` fails on the base
-- [ ] 3.2 Change the three prompts to the kinds: the stage and split prompts give the fields and the rules, the implement prompt says to write the failing test first when the group has a test task, and else to run the verification. Update the snapshot. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py tests/roadmap/test_roadmap_implement_step.py` passes
+- [x] 3.1 Write the guard test: the stage prompt and the split prompt name each value of `GroupKind` and each field of `StageGroup`, and the implement prompt names the kinds of group. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py` fails on the base
+- [x] 3.2 Change the three prompts to the kinds: the stage and split prompts give the fields and the rules, the implement prompt says to write the failing test first when the group has a test task, and else to run the verification. And verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py tests/roadmap/test_roadmap_implement_step.py` passes
 
 ## 4. The documents state the rule
 

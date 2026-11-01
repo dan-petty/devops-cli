@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.roadmap.stage_change import StageGroup, group_text
+from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.roadmap.stage_change import GroupKind, StageGroup, group_text
 
 BEHAVIOR: dict[str, Any] = {
     "title": "Keep the last comment",
@@ -182,3 +183,28 @@ def test_a_group_with_documentation_renders_the_documentation_task_after_its_wor
         "`uv run devops docs generate --sync-readme`, and verify that "
         "`uv run devops ci docs` passes"
     )
+
+
+# ── The prompts and the validator ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
+def test_a_stage_prompt_names_each_kind_and_each_field_of_a_group(task: str) -> None:
+    prompt = load_task_prompt(task)
+    names = [kind.value for kind in GroupKind] + list(StageGroup.model_fields)
+
+    assert [name for name in names if f"`{name}`" not in prompt] == []
+
+
+def test_the_stage_prompt_states_the_rules_that_the_validator_checks() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "path under `src/`" in prompt
+    assert "no `test`" in prompt
+
+
+def test_the_implement_prompt_writes_the_test_first_only_for_a_group_with_a_test_task() -> None:
+    prompt = load_task_prompt("roadmap_implement_step.md")
+
+    assert "Write the failing test first when your group has a test task" in prompt
+    assert "Else run the verification" in prompt
