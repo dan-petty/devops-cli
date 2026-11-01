@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 import yaml
 from kubernetes.client.rest import ApiException
+from markdown_it import MarkdownIt
 
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
@@ -299,7 +300,7 @@ def test_a_job_that_succeeded_is_reported_on_its_item_with_the_tail_of_its_log(
         _record(store, number)["implement.job_state"],
         _record(store, number).get("implement.stopped"),
         f"The runner Job {name} ended: succeeded." in comment,
-        "    Took 1 item(s)." in comment,
+        "```\nTook 1 item(s).\n" in comment,
         A_TOKEN in comment,
         len(_creates(kube)),
     ) == ("In Review", "succeeded", None, True, True, False, 1)
@@ -309,6 +310,56 @@ def test_a_job_that_succeeded_is_reported_on_its_item_with_the_tail_of_its_log(
         f"{name}-x1",
         40,
         f"batch.kubernetes.io/job-name={name}",
+    )
+
+
+def _fences_of_the_report(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, kube: FakeCluster, written: bytes
+) -> tuple[str, list[Any]]:
+    """Run a Job that ended with the log `written`, and give its report comment and the fenced
+    blocks that a CommonMark reader finds in it."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = written
+
+    _round(store, staged_repo)
+
+    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    return comment, [t for t in MarkdownIt("commonmark").parse(comment) if t.type == "fence"]
+
+
+def test_the_log_of_an_ended_job_is_decoded_text_in_one_fenced_block_with_the_secret_masked(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    written = f"Tool call: ok.\n\N{CHECK MARK} Took 1 item(s).\nauthorization: {A_TOKEN}\n".encode()
+
+    comment, fences = _fences_of_the_report(store, staged_repo, kube, written)
+
+    assert (
+        len(fences),
+        fences[0].content.splitlines()[:2],
+        "b'" in comment,
+        "\\n" in comment,
+        "\\x" in comment,
+        A_TOKEN in comment,
+        "<masked-github-token>" in fences[0].content,
+    ) == (1, ["Tool call: ok.", "\N{CHECK MARK} Took 1 item(s)."], False, False, False, False, True)
+
+
+def test_the_fence_of_the_log_of_an_ended_job_is_longer_than_a_run_of_backticks_in_it(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    written = b"before\n```\nafter the line that tries to close the block\n"
+
+    _, fences = _fences_of_the_report(store, staged_repo, kube, written)
+
+    assert (len(fences), fences[0].markup, fences[0].content) == (
+        1,
+        "````",
+        "before\n```\nafter the line that tries to close the block\n",
     )
 
 

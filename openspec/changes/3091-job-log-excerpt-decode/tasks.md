@@ -13,9 +13,9 @@ Reads: `src/devops_cli/k8s/service.py`, `src/devops_cli/k8s/cluster_job_api.py`,
 
 Reads: `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`. Changes: `src/devops_cli/roadmap/fence.py` (new), `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_submit.py`, `tests/roadmap/test_roadmap_fence.py` (new).
 
-- [ ] 2.1 Write failing tests: the report comment of a Job with a `bytes` log holds a fenced block, real line breaks, the check mark, no `b'` prefix and a masked token; a log with a run of three backticks gets a longer fence; `code_fence` gives three backticks, or one more than the longest run
+- [x] 2.1 Write failing tests: the report comment of a Job with a `bytes` log holds a fenced block, real line breaks, the check mark, no `b'` prefix and a masked token; a log with a run of three backticks gets a longer fence; `code_fence` gives three backticks, or one more than the longest run
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_fence.py` fails on the base
-- [ ] 2.2 Add `code_fence`, use it in the report comment and in the stop comment, and change the message `implement_job_report` and `implement_job_report_no_log`
+- [x] 2.2 Add `code_fence`, use it in the report comment and in the stop comment, and change the message `implement_job_report` and `implement_job_report_no_log`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_fence.py tests/roadmap/test_roadmap_implement_job.py`
 
 ## 3. Documents and gates (no behavior)
