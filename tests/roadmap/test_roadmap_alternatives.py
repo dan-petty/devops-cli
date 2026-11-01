@@ -1267,7 +1267,7 @@ def test_a_round_off_for_want_of_a_key_runs_the_row_and_checks_nothing(
     assert (outcome.placed_critical_or_p0, store.comments_on(number)) == (False, [])
 
 
-def test_the_row_runs_in_a_round_and_records_its_success_for_the_next_day(
+def test_the_row_runs_in_a_round_and_records_its_success_until_the_interval_passes(
     store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     number = _item(store)
@@ -1280,10 +1280,10 @@ def test_the_row_runs_in_a_round_and_records_its_success_for_the_next_day(
         )
 
     first = round_at(NOW)
-    soon = round_at(NOW + timedelta(hours=23))
-    next_day = round_at(NOW + timedelta(hours=24, minutes=1))
+    soon = round_at(NOW + timedelta(minutes=718))
+    later = round_at(NOW + timedelta(minutes=720))
 
-    assert (first, soon, next_day, len(store.comments_on(number))) == (
+    assert (first, soon, later, len(store.comments_on(number))) == (
         ("alternatives",),
         (),
         ("alternatives",),

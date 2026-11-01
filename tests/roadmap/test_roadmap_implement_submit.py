@@ -111,7 +111,7 @@ def _comments(store: InMemoryRoadmapStore, number: int = 1) -> list[str]:
     return [comment.body for comment in store.comments_on(number)]
 
 
-def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_every_ten_minutes() -> (
+def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_every_seven_minutes() -> (
     None
 ):
     """The row calls no model, so it is not on the model lane, where a long refine round would
@@ -123,7 +123,7 @@ def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_e
         IMPLEMENT_ROW.needs_clone,
         IMPLEMENT_ROW.first_run_due,
         IMPLEMENT_ROW.interval,
-    ) == (["metrics", "implement", "stage_ready"], False, True, True, timedelta(minutes=10))
+    ) == (["metrics", "implement", "stage_ready"], False, True, True, timedelta(minutes=7))
 
 
 def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for_its_repository(
