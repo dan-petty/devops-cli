@@ -64,3 +64,12 @@ def test_the_dry_run_opens_no_store_and_lists_the_reads_and_no_write(
 @pytest.mark.parametrize("flag", ["--confirm", "--plan"])
 def test_the_inbox_takes_no_write_option(cli: Callable[..., Any], flag: str) -> None:
     assert cli("roadmap", "inbox", "--repo", REPO, flag).exit_code == 2
+
+
+def test_the_help_states_how_many_requests_a_run_sends(cli: Callable[..., Any]) -> None:
+    result = cli("roadmap", "inbox", "--help")
+
+    text = " ".join(result.output.replace("│", " ").split())
+    assert result.exit_code == 0, result.output
+    assert "5 requests, or 6 when the labels differ" in text
+    assert "one more for each 100 open issues and pull requests" in text

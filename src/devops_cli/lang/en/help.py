@@ -1512,9 +1512,10 @@ class RoadmapCommandHelp:
         "requests, those of people and agents, with drafts marked. The age is the time since the "
         "last update. A draft of a job and a pull request that a runner Job holds are not listed. "
         "The command reads the open issues, the open pull requests, the labels and the labels "
-        "file, and the newest commit of that file when the labels differ. It calls no model and "
-        "writes nothing. It leaves out an image digest that is not rolled yet: run devops argo cd "
-        "apps status devops."
+        "file, and the newest commit of that file when the labels differ. A run sends 5 requests, "
+        "or 6 when the labels differ, and one more for each 100 open issues and pull requests. "
+        "It calls no model and writes nothing. It leaves out an image digest that is not rolled "
+        "yet: run devops argo cd apps status devops."
     )
     inbox_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
