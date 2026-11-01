@@ -42,7 +42,8 @@
    "where": "tasks.md (1.1)",
    "problem": "Task 1.1 asks for a test that asserts that a fixture creates a file on PATH and does not patch `shutil.which`. This tests the test scaffolding. The sentence also contradicts itself. It says the new test fails on the old fixture, but the verify command is the whole file, `pytest tests/test_scanner_tool_executor.py -x`, and the plan says elsewhere that the existing tests pass unchanged. The plan does not say where the new test goes, what it is named, or how it can see the fixture body. An implementer must guess. The convention in docs/TESTING.md is a ratchet or an architectural check, or a grep-based invariant, not a meta-test inside the same module.",
    "evidence": "tasks.md 1.1: `Write a test that asserts the fixture creates an executable file in a directory on PATH ... verify that uv run pytest tests/test_scanner_tool_executor.py -x fails on the base`. proposal.md: `The existing tests pass unchanged.` docs/TESTING.md line 179: `Ratchets hold each thing being retired to a ceiling ... Patches aimed at devops-cli ... get ratchets of their own (target).`",
-   "gate": "kind"
+   "gate": "kind",
+   "message": "changes no path under src/"
   },
   {
    "type": "ignores_existing_code",

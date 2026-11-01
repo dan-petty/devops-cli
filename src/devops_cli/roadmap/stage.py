@@ -734,7 +734,7 @@ class _Planner:
         return validate_change(self._tool, self._source, change, files)
 
 
-def _capabilities(source: Path) -> frozenset[str]:
+def capabilities_of(source: Path) -> frozenset[str]:
     """The names of the specs under `openspec/specs/` of the checkout."""
     specs = source / "openspec" / "specs"
     return (
@@ -926,7 +926,7 @@ def _planner_of(
         client=client,
         source=checkout,
         sha=sha,
-        known=_capabilities(checkout),
+        known=capabilities_of(checkout),
         tree=StagedTree.read(checkout, operation=_GIT_OPERATION),
         budget=budget,
         window=window,

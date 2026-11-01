@@ -8,18 +8,19 @@ import shutil
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_eval_cases import (
     CASES_DIRECTORY,
     DefectType,
+    GateName,
     StageCase,
     Verdict,
     load_cases,
     select_cases,
 )
-from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
 # The 37 pull requests of the evaluation of 2026-11-01: 35 merged and 2 open then.
@@ -69,11 +70,19 @@ def test_every_type_of_defect_is_used_by_the_set(cases: list[StageCase]) -> None
     assert used == set(DefectType)
 
 
-def test_the_plan_of_each_case_has_the_fields_of_a_proposal(cases: list[StageCase]) -> None:
-    group = make_stage_proposal().groups[0].model_dump()
+def test_a_plan_fails_the_schema_of_the_reply_only_when_a_defect_names_the_kind_gate(
+    cases: list[StageCase],
+) -> None:
+    refused = set()
     for case in cases:
-        proposal = StageProposal.model_validate({**case.plan, "groups": [group]})
-        assert (proposal.summary, len(case.groups) > 0) == (case.plan["summary"], True)
+        try:
+            StageProposal.model_validate(case.plan)
+        except ValidationError:
+            refused.add(case.name)
+
+    named = {c.name for c in cases if any(d.gate is GateName.KIND for d in c.defects)}
+
+    assert refused == named
 
 
 def test_the_change_folder_of_a_case_is_in_its_tree(cases: list[StageCase]) -> None:

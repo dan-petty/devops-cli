@@ -47,7 +47,8 @@
    "where": "tasks.md 1.1 / specs/ci-job-time/spec.md",
    "problem": "Test 1.1 cannot be a sound fail-to-pass test. 'sys.modules contains the four modules after the session fixture runs' holds on base when a test file in the same worker already imported them at top level (55 files do). It would also pass on base for that reason. The second assertion, that the fixture scope is 'session', only tests how the code is written. The two spec scenarios repeat these two checks. The task asks for the test in a new top-level file tests/test_conftest_import_preload.py. The file does not exist. docs/TESTING.md says a new test joins the file that already tests the behaviour, or else a new flat file named after the behaviour.",
    "evidence": "spec.md scenario 'fixture scope is session': WHEN the fixture definition is inspected THEN the scope parameter ... is session. tasks.md 1.1 names tests/test_conftest_import_preload.py; ls shows no such file.",
-   "gate": "kind"
+   "gate": "kind",
+   "message": "changes no path under src/"
   },
   {
    "type": "spec_delta_wrong",

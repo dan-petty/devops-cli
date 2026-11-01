@@ -103,7 +103,7 @@
    "creates": [],
    "test": "Write a test in tests/config/test_config_file_mode.py that: (1) creates a config file with mode 0600, calls _write_content with new content, and asserts the resulting file has mode 0600; (2) calls _write_content for a path that does not exist and asserts the new file has mode 0600.",
    "implementation": "In src/devops_cli/config/settings.py, add import stat at the top. In _write_content, after tmp.write_bytes(content) and before os.replace(tmp, dest_path), add: mode = stat.S_IMODE(dest_path.stat().st_mode) if dest_path.is_file() else 0o600, then os.chmod(tmp, mode).",
-   "documentation": "",
+   "documentation": null,
    "verify": "uv run devops ci test tests/config/test_config_file_mode.py",
    "process": null,
    "kind": "behavior"
@@ -118,7 +118,7 @@
    "creates": [],
    "test": "Write a test in tests/test_config_write_history.py that: (1) creates a source file with mode 0600 and a redact key path, calls _copy(source, dest, redact), and asserts dest has mode 0600; (2) asserts the non-redact path (shutil.copy2) also preserves mode 0600.",
    "implementation": "In src/devops_cli/config/write_history.py, add import stat at the top. In _copy, after partial.write_bytes(redacted) and before shutil.copystat(source, partial), add: os.chmod(partial, stat.S_IMODE(source.stat().st_mode)).",
-   "documentation": "",
+   "documentation": null,
    "verify": "uv run devops ci test tests/test_config_write_history.py",
    "process": null,
    "kind": "behavior"

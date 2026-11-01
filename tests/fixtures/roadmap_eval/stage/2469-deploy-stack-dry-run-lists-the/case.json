@@ -50,7 +50,8 @@
    "where": "tasks.md",
    "problem": "Group 2 is not a separate unit of work. Task 2.1 asks for a test that reads the test module's own imports to check that no private name is imported. The issue does not ask for this. Such a test is brittle. Task 2.1 also says 'verify it fails on the base', but the 1.1 test already covers the assertions. Group 2 only changes existing assertions at lines 32-33 and 62-64 of the test file, and removes the private imports. Task 1.1 also edits the test file, but group 1's 'Changes' line lists only stack_lifecycle.py.",
    "evidence": "tests/commands/k8s/test_k8s_logging_stack.py lines 13-16 import _HELM_RELEASES_BY_STACK and _HELM_REPOS_BY_STACK; lines 32, 33 and 62-64 read them. tasks.md group 1: 'Reads: none. Changes: src/devops_cli/commands/k8s/stack_lifecycle.py.' while 1.1 writes a test in tests/test_k8s_logging_stack.py.",
-   "gate": "kind"
+   "gate": "kind",
+   "message": "changes no path under src/"
   },
   {
    "type": "other",

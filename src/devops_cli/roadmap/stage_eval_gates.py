@@ -1,7 +1,9 @@
 """The deterministic gates of the stage job, and the replay of a recorded plan through them (#3028).
 
-A gate finds one type of defect in a plan with no model. `paths` is the path gate (#3010): every
-path a group names is a file of the staged commit, or a group creates it. `kind` is the kind rule
+A gate finds one type of defect in a plan with no model. `paths` is the check of the job on a plan
+(`check_proposal`): the path gate (#3010), where every path a group names is a file of the staged
+commit or a group creates it, and the rules of the spec delta, which use the capabilities of the
+case. `kind` is the kind rule
 (#3005): a group that the schema of the reply refuses. Gates that do not exist yet (#3011 to #3019)
 are in `PENDING_GATES`: a defect that one of them will catch is listed, and it fails nothing.
 
@@ -13,14 +15,20 @@ plan, when a gate refuses a `good` plan, and when a defect waits for a gate that
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final
+from typing import Any, Final
 
 from pydantic import ValidationError
 
-from devops_cli.roadmap.stage_change import GroupKind, StageGroup
+from devops_cli.roadmap.stage_change import (
+    GroupKind,
+    StageGroup,
+    StageProposal,
+    StageSpec,
+    check_proposal,
+)
 from devops_cli.roadmap.stage_eval_cases import (
     Defect,
     DefectType,
@@ -28,37 +36,57 @@ from devops_cli.roadmap.stage_eval_cases import (
     StageCase,
     Verdict,
 )
-from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_paths import StagedTree
 
 
 @dataclass(frozen=True)
 class PlanUnderTest:
-    """A plan as the gates judge it: its task groups, the problems the schema found in them, and
-    the files that exist when the change is written. A reply that the job accepted has no schema
-    problem, since the client sends a reply that breaks the schema back before the checks."""
+    """A plan as the gates judge it: the proposal, the problems the schema found in it, the names
+    of the capabilities that have a spec, and the files that exist when the change is written. A
+    reply that the job accepted has no schema problem, since the client sends a reply that breaks
+    the schema back before the checks."""
 
-    groups: tuple[StageGroup, ...]
+    proposal: StageProposal
     schema_problems: tuple[str, ...]
+    known: frozenset[str]
     tree: StagedTree
 
     @classmethod
     def of_case(cls, case: StageCase) -> PlanUnderTest:
-        """The plan of a case. A raw group that fails the schema is kept as it is, with the
-        message of the schema as a problem, so the other gates still judge it."""
-        groups: list[StageGroup] = []
+        """The plan of a case. A raw group or spec that fails the schema is kept as it is when it
+        can be, with the message of the schema as a problem, so the other gates still judge it."""
         problems: list[str] = []
-        for raw in case.groups:
-            try:
-                groups.append(StageGroup.model_validate(raw))
-            except ValidationError as exc:
-                problems.extend(error["msg"] for error in exc.errors())
-                groups.append(StageGroup.model_construct(**{**raw, "kind": GroupKind(raw["kind"])}))
-        return cls(tuple(groups), tuple(problems), case.tree())
+        groups = [_group_of(raw, problems) for raw in case.groups]
+        specs = [spec for raw in case.plan["specs"] if (spec := _spec_of(raw, problems))]
+        proposal = StageProposal.model_construct(**{**case.plan, "specs": specs, "groups": groups})
+        return cls(proposal, tuple(problems), frozenset(case.facts.capabilities), case.tree())
 
     @classmethod
-    def of_reply(cls, groups: Sequence[StageGroup], tree: StagedTree) -> PlanUnderTest:
+    def of_reply(
+        cls, proposal: StageProposal, tree: StagedTree, known: Collection[str]
+    ) -> PlanUnderTest:
         """The plan of a reply that passed the schema, with the tree it was staged on."""
-        return cls(tuple(groups), (), tree)
+        return cls(proposal, (), frozenset(known), tree)
+
+
+def _group_of(raw: Mapping[str, Any], problems: list[str]) -> StageGroup:
+    """The group that `raw` holds. A group that fails the schema is built with no check, and the
+    messages of the schema are added to `problems`."""
+    try:
+        return StageGroup.model_validate(raw)
+    except ValidationError as exc:
+        problems.extend(error["msg"] for error in exc.errors())
+        return StageGroup.model_construct(**{**raw, "kind": GroupKind(raw["kind"])})
+
+
+def _spec_of(raw: Mapping[str, Any], problems: list[str]) -> StageSpec | None:
+    """The spec that `raw` holds, or None when it fails the schema; the messages of the schema are
+    added to `problems`."""
+    try:
+        return StageSpec.model_validate(raw)
+    except ValidationError as exc:
+        problems.extend(error["msg"] for error in exc.errors())
+        return None
 
 
 @dataclass(frozen=True)
@@ -73,7 +101,9 @@ class Gate:
 
 
 def _path_gate(plan: PlanUnderTest) -> list[str]:
-    return path_problems(plan.groups, plan.tree)
+    """The checks of the job on a plan (`check_proposal`): the path rule and the rules of the spec
+    delta. The recorded plans hold no bad spec, so these rules only refuse a good plan."""
+    return check_proposal(plan.proposal, plan.known, plan.tree)
 
 
 def _kind_gate(plan: PlanUnderTest) -> list[str]:
@@ -166,6 +196,12 @@ def _names_every_path(problems: Sequence[str], paths: Sequence[str]) -> bool:
     return all(any(f"`{path}`" in problem for problem in problems) for path in paths)
 
 
+def _explains(problems: Sequence[str], defect: Defect) -> bool:
+    """Whether the problems name every path of the defect and hold its message."""
+    holds_message = not defect.message or any(defect.message in problem for problem in problems)
+    return holds_message and _names_every_path(problems, defect.paths)
+
+
 def _status(defect: Defect, problems: Mapping[GateName, list[str]]) -> DefectStatus:
     """The status of one defect against the problems the gates found."""
     if defect.gate is GateName.NONE:
@@ -174,7 +210,7 @@ def _status(defect: Defect, problems: Mapping[GateName, list[str]]) -> DefectSta
         stale = gate_for(defect.type) is not GateName.PENDING
         return DefectStatus.STALE if stale else DefectStatus.PENDING
     found = problems.get(defect.gate, [])
-    caught = bool(found) and _names_every_path(found, defect.paths)
+    caught = bool(found) and _explains(found, defect)
     return DefectStatus.CAUGHT if caught else DefectStatus.MISSED
 
 

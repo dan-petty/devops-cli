@@ -53,7 +53,8 @@
    "where": "tasks.md",
    "problem": "The failing-test-first tasks do not work. Task 1.1 says to add an assertion that reads the values files. This copies a check that the existing tests already do through CHART_CLAIMS. Task 2.1 says the test 'passes' and also 'verify ... fails on the base'. The two statements contradict each other. No task has a real red step. The real red step is to remove the three exemptions. The test then fails at once, because the three values files have no affinity. Then add the affinity to turn the test green.",
    "evidence": "tasks.md 2.1: 'it now checks the affinity ... and passes because the previous group added it, and verify that ... fails on the base'. grep -n affinity on k8s/monitoring/grafana-values.yaml and k8s/logging/loki-values.yaml finds nothing. In k8s/monitoring/prometheus-values.yaml the only affinity (line 57) is under alertmanager, not server.",
-   "gate": "kind"
+   "gate": "kind",
+   "message": "changes no path under src/"
   },
   {
    "type": "criterion_dropped",

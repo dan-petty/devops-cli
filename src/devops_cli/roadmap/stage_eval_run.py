@@ -32,7 +32,7 @@ from devops_cli.ai.client.models import (
 from devops_cli.exceptions import RoadmapStageError, ToolExecutionError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.stage import OverBudget, StageClient, plan_item
+from devops_cli.roadmap.stage import OverBudget, StageClient, capabilities_of, plan_item
 from devops_cli.roadmap.stage_change import StageProposal, render_change
 from devops_cli.roadmap.stage_eval_cases import GateName, StageCase
 from devops_cli.roadmap.stage_eval_gates import PlanUnderTest, run_gates
@@ -116,9 +116,10 @@ def _first_reply_problems(
 ) -> dict[GateName, list[str]]:
     """What each gate finds in the first reply, against the files of the checkout and the change
     folder that the reply would write."""
-    files = render_change(case.change, reply, frozenset(), created=datetime.now(UTC).date())
+    known = capabilities_of(source)
+    files = render_change(case.change, reply, known, created=datetime.now(UTC).date())
     tree = StagedTree.read(source, operation=_OPERATION).with_files(files)
-    return run_gates(PlanUnderTest.of_reply(reply.groups, tree))
+    return run_gates(PlanUnderTest.of_reply(reply, tree, known))
 
 
 def _ended(exc: Exception) -> tuple[Outcome, str]:

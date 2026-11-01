@@ -101,7 +101,8 @@
    "where": "tasks.md groups 5",
    "problem": "A group has a failing-test task and changes no path under src/. The model has to invent the test.",
    "evidence": "Issue #3005 counted 50 groups in 22 plans on main (2026-11-01) that change no path under src/. The kind rule refuses this group: Value error, The group 'Update documentation for the new behavior' has the kind behavior, and it changes no path under src/. Use the kind other, or add the path of the code that it changes.",
-   "gate": "kind"
+   "gate": "kind",
+   "message": "changes no path under src/"
   }
  ]
 }

@@ -6,10 +6,12 @@ gates need, and the defects a reviewer found in it. The files of a case director
 - `case.json`: the pull request and the commits, the verdict and scores of the review, and the
   defects. A defect has a type, a severity, the review text with its evidence, and the gate that
   must refuse it: `paths` (#3010), `kind` (#3005), `pending` (a gate that does not exist yet) or
-  `none` (no gate judges it; a reviewer does).
+  `none` (no gate judges it; a reviewer does). A `missing_path` defect lists the paths that the
+  gate must name. A `contrived_test` defect holds the `message` that the gate must give.
 - `issue.txt`: the body of the issue, as the stage job read it.
 - `plan.json`: the plan as a `StageProposal` holds it. The groups stay raw, as the model wrote
-  them, so that a group the schema refuses is still a case.
+  them, so that a group the schema refuses is still a case. A plan fails the schema of the reply
+  if and only if a defect of the case names the gate `kind`: a test holds the set to this rule.
 - `facts.json`: the tracked files that the gates need, and the capabilities the plan names that
   exist. A replay cannot assume a deep clone, so it reads no git.
 
@@ -27,6 +29,8 @@ How the cases were made (2026-11-01):
   that its tasks name.
 - A group has the kind `behavior` when it has a failing-test task, as every group had before
   #3005. The kind rule then refuses the groups that change no path under `src/`.
+- A `documentation` text that was empty is stored as None. The schema of today reads an empty text
+  as a blank task, which is no defect of the plan.
 - `facts.json` holds the files that the plan names, the files with the same name as a missing
   path, and one file for each suffix and each top folder of the tree. The gate gives the same
   answer on these files as on the full tree, so a replay needs no deep clone.
@@ -109,7 +113,8 @@ class _Record(BaseModel):
 
 class Defect(_Record):
     """One defect of a plan, with the text and the evidence of the review. `paths` lists the paths
-    of a `missing_path` defect that the gate must name."""
+    of a `missing_path` defect that the gate must name. `message` is the text that a problem of the
+    gate must hold, for a gate that names no path."""
 
     type: DefectType
     severity: Severity
@@ -118,6 +123,7 @@ class Defect(_Record):
     evidence: str
     gate: GateName
     paths: tuple[str, ...] = ()
+    message: str = ""
 
 
 class Scores(_Record):

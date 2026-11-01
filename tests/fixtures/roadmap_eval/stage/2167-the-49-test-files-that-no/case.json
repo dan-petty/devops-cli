@@ -73,7 +73,8 @@
    "where": "tasks.md",
    "problem": "The task groups are one generic template with small file-specific edits. There is no failing test first, as docs/TESTING.md and rule 4 need. Task x.1 is a grep that returns zero matches, and a clause that the test command 'fails on the base'. A refactor of existing tests passes on the base, so that clause is false. Task x.3 'Change no document, run devops docs generate --sync-readme, and verify devops ci docs passes' is copied into all 21 groups and fits none of them. Each group says 'Reads: none', although the implementer must read each file it edits. Some groups also tell the implementer to do work that needs reading product code, for example removing 'private product code that exists only for a patch', without naming the code.",
    "evidence": "tasks.md 1.1 '... returns zero matches ... and verify that `uv run devops ci test tests/ai/review/test_runner.py` fails on the base'; every group ends 'x.3 Change no document, run `uv run devops docs generate --sync-readme`'; every group begins 'Reads: none.'",
-   "gate": "kind"
+   "gate": "kind",
+   "message": "changes no path under src/"
   },
   {
    "type": "criterion_dropped",

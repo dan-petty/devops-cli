@@ -46,7 +46,8 @@
    "where": "tasks.md (tasks 1.1, 2.1, 3.1)",
    "problem": "The 'failing test first' tasks are not real tests. 1.1 asserts that a report file exists. 2.1 asserts that files are deleted. 3.1 asserts that `devops ci` exits 0 and tasks are ticked. No test under tests/ would assert these, and 'verify ... fails on the base' for 2.1 and 3.1 names a full coverage run and the full CI, not a test. 2.1 uses `uv run pytest --cov=...` where config rules ask for `uv run devops ci test <path>`. This is test-first in form only and wastes an implementer step.",
    "evidence": "tasks.md 1.1: 'A test that asserts the file ...mutation-report.md exists'. 3.1: 'A test that asserts `uv run devops ci` exits with code 0 and the tasks.md file has all tasks marked complete.' openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'.",
-   "gate": "kind"
+   "gate": "kind",
+   "message": "changes no path under src/"
   },
   {
    "type": "other",

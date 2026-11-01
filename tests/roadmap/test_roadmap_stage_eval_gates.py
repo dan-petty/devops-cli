@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from devops_cli.roadmap import stage_change
 from devops_cli.roadmap.stage_eval_cases import (
     CASES_DIRECTORY,
     CaseFacts,
@@ -114,6 +115,45 @@ def test_the_kind_gate_gives_the_message_of_the_schema_for_a_group_with_no_sourc
 
     assert problems
     assert all("changes no path under src/" in problem for problem in problems)
+
+
+def test_the_replay_runs_the_check_of_the_job_so_a_spec_rule_that_refuses_all_fails_it(
+    cases: list[StageCase], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stage_change, "_spec_problems", lambda _spec, _known: ["A spec is wrong."])
+
+    report = replay_all(cases)
+
+    assert any("a good plan is refused by the gate paths" in f for f in report.failures)
+
+
+def test_the_capabilities_of_the_facts_decide_if_a_spec_may_modify_a_capability(
+    cases: list[StageCase],
+) -> None:
+    good = next(c for c in cases if c.verdict is Verdict.GOOD and c.plan["specs"][0]["modified"])
+    unknown = CaseFacts(tracked=good.facts.tracked, capabilities=())
+
+    assert not replay_case(good).refused
+    assert replay_case(good.model_copy(update={"facts": unknown})).refused
+
+
+def test_a_kind_defect_that_the_gate_explains_with_other_words_fails_the_replay(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if any(d.gate is GateName.KIND for d in c.defects))
+    defect = next(d for d in case.defects if d.gate is GateName.KIND)
+    reworded = defect.model_copy(update={"message": "a text the schema never gives"})
+
+    replay = replay_case(case.model_copy(update={"defects": (reworded,)}))
+
+    assert replay.outcomes[0].status is DefectStatus.MISSED
+
+
+def test_each_kind_defect_names_the_message_of_the_schema(cases: list[StageCase]) -> None:
+    kinds = [d for c in cases for d in c.defects if d.gate is GateName.KIND]
+
+    assert kinds
+    assert all(defect.message for defect in kinds)
 
 
 def test_a_pending_defect_of_a_type_with_a_gate_is_stale(cases: list[StageCase]) -> None:
