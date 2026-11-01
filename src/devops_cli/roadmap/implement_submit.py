@@ -59,7 +59,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, job_name, repository_label
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
@@ -203,10 +203,11 @@ def _create(
     None, with nothing written, when an agent or a person claimed the item since the plan."""
     number = target.item.number
     name = job_name(template=RUNNER_TEMPLATE)
+    cronjob = jobs.cronjob(RUNNER_TEMPLATE)
     marks = {
         ImplementRecordKey.JOB: name,
         ImplementRecordKey.JOB_STATE: None,
-        ImplementRecordKey.JOB_DIGEST: jobs.template_digest(RUNNER_TEMPLATE),
+        ImplementRecordKey.JOB_DIGEST: image_digest(cronjob, RUNNER_TEMPLATE),
     }
     if not service_claim(store, number, marks):
         return None
@@ -217,6 +218,7 @@ def _create(
             env={setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo},
             labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
             name=name,
+            cronjob=cronjob,
         )
     except ClusterJobError:
         service_release(store, number, {ImplementRecordKey.JOB: None})

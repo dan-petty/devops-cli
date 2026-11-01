@@ -22,11 +22,13 @@ record, or a template with no digest, is cleared only by a retry.
 label that a job last recorded, and records a stop. A Blocked label that a person set stays. The
 Service takes no item that an agent or a person claimed, or that a runner Job still holds. The
 pass reads the issue again before it writes, and skips an item that changed since the cached read.
+
+**Cost.** A Blocked stop that no rule clears costs one request in each round: the listing of its
+comments. The issue is read again only when a rule holds, right before the write.
 """
 
 from __future__ import annotations
 
-import functools
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -38,13 +40,21 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_BLOCKED,
 )
 from devops_cli.exceptions import GitHubRateLimitError
+from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.implement import retry_asked
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import StageFailure, write_each
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, job_holds, plan_merged
-from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.store import (
+    GitHubState,
+    ImplementRecordKey,
+    IssueComment,
+    Item,
+    ItemField,
+    RoadmapStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +89,28 @@ def is_service_stop(item: Item) -> bool:
     )
 
 
+class _TemplateDigest:
+    """The digest of the template, read at most one time in a pass. A read that fails fails the
+    same way for each caller, with no second request."""
+
+    def __init__(self, read: Callable[[], str | None]) -> None:
+        self._read = read
+        self._asked = False
+        self._digest: str | None = None
+        self._error: ClusterJobError | None = None
+
+    def __call__(self) -> str | None:
+        if not self._asked:
+            self._asked = True
+            try:
+                self._digest = self._read()
+            except ClusterJobError as error:
+                self._error = error
+        if self._error is not None:
+            raise self._error
+        return self._digest
+
+
 def _new_digest(item: Item, template_digest: Callable[[], str | None]) -> str | None:
     """The digest of the template when it differs from the digest of the stop, else None. A stop
     with no digest on record gives None without a read of the template."""
@@ -87,6 +119,17 @@ def _new_digest(item: Item, template_digest: Callable[[], str | None]) -> str | 
         return None
     current = template_digest()
     return current if current and current != recorded else None
+
+
+def _rule(
+    item: Item, comments: list[IssueComment], template_digest: Callable[[], str | None]
+) -> tuple[ClearRule, str | None] | None:
+    """The rule that clears the stop of `item`, with the new digest for the rule `digest`, or None.
+    A retry wins, and needs no read of the template."""
+    if retry_asked(comments):
+        return ClearRule.RETRY, None
+    new = _new_digest(item, template_digest)
+    return (ClearRule.DIGEST, new) if new is not None else None
 
 
 def _comment(rule: ClearRule, item: Item, status: str, current: str | None) -> str:
@@ -116,19 +159,20 @@ def _clear_one(
     template_digest: Callable[[], str | None],
     cleared: list[int],
 ) -> None:
-    """Clear the stop of `item` by the first rule that holds. The issue is read again first: an
-    item that a person, another lane or an earlier write changed since `item` was read is left for
-    the next round. The write comes before the comment, because the comment starts with the marker
-    of the job and so ends a retry that the stop waited for."""
+    """Clear the stop of `item` by the first rule that holds. The rule comes from the cached item
+    and one listing of the comments. Only when a rule holds, the issue is read again: an item that
+    a person, another lane or an earlier write changed since `item` was read is left for the next
+    round. The write comes before the comment, because the comment starts with the marker of the
+    job and so ends a retry that the stop waited for."""
+    comments = store.comments_on(item.number)
+    if _rule(item, comments, template_digest) is None:
+        return
     current = store.item(item.number)
     if current is None or not is_service_stop(current):
         return
-    if retry_asked(store.comments_on(current.number)):
-        rule, new = ClearRule.RETRY, None
-    elif (new := _new_digest(current, template_digest)) is not None:
-        rule = ClearRule.DIGEST
-    else:
+    if (decided := _rule(current, comments, template_digest)) is None:
         return
+    rule, new = decided
     status = derive_status(StatusFacts(plan_merged=plan_merged(current, planned)))
     store.set_field(current, ItemField.STATUS, status, marks={ImplementRecordKey.STOPPED: None})
     store.comment(current.number, _comment(rule, current, status, new))
@@ -142,10 +186,10 @@ def clear_stops(
     digest: Callable[[], str | None],
 ) -> StopsCleared:
     """Clear each stop of the Service that a rule clears. `digest` reads the digest in the template
-    of CronJob `devops-cli-runner`; the pass reads it at most one time, and only for a stop that
-    records a digest. An item that fails does not stop the others; a rate limit, rejected
+    of CronJob `devops-cli-runner`; the pass reads it at most one time, a read that fails
+    included, and only for a stop that records a digest. An item that fails does not stop the others; a rate limit, rejected
     credentials and the stop of the Service stop the pass."""
-    template_digest = functools.cache(digest)
+    template_digest = _TemplateDigest(digest)
     cleared: list[int] = []
     failed: list[StageFailure] = []
     writes = [

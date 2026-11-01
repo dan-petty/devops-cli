@@ -98,6 +98,16 @@ def template_container(pod_spec: dict[str, Any], template: JobTemplate) -> dict[
     )
 
 
+def image_digest(cronjob: dict[str, Any], template: JobTemplate) -> str | None:
+    """The digest in the image of the template's container in `cronjob`: the text after the `@`,
+    as `sha256:<hex>`, or None when the image names no digest. Image Updater writes the digest
+    there, and a Job made from `cronjob` runs it. Raises ClusterJobError when the CronJob has no
+    such container."""
+    pod_spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    image = str(template_container(pod_spec, template).get("image", ""))
+    return image.partition("@")[2] or None
+
+
 def build_job(
     cronjob: dict[str, Any],
     args: list[str],

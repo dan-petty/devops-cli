@@ -494,6 +494,36 @@ def test_the_item_records_the_digest_of_the_template_before_the_job_is_created(
     assert (seen, _record(store, number)["implement.job_digest"]) == ([DIGEST_A], DIGEST_A)
 
 
+def test_an_image_that_rolls_during_the_create_is_recorded_as_the_image_the_job_runs(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CronJob is read one time for each create. A second read could see a newer image than
+    the record names, and the stop of that Job would clear at once: a second Job on one image."""
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    read = kube.custom_objects.get_namespaced_custom_object
+
+    def rolls_after_the_read(*args: Any, **kwargs: Any) -> Any:
+        cronjob = read(*args, **kwargs)
+        _roll(kube, DIGEST_B)
+        return cronjob
+
+    monkeypatch.setattr(kube.custom_objects, "get_namespaced_custom_object", rolls_after_the_read)
+
+    _round(store, staged_repo)
+
+    (container,) = _creates(kube)[0]["spec"]["template"]["spec"]["containers"][:1]
+    assert (
+        container["image"].partition("@")[2],
+        _record(store, number)["implement.job_digest"],
+        len(_creates(kube)),
+    ) == (DIGEST_A, DIGEST_A, 1)
+
+
 def test_a_template_without_a_digest_leaves_no_digest_on_the_record(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:

@@ -14,7 +14,7 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stop_clear import StopsCleared, clear_stops
-from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField
+from devops_cli.roadmap.store import ImplementRecordKey, IssueComment, Item, ItemField
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -27,12 +27,15 @@ NO_PLANS = PlannedChanges("main", {}, {})
 class Template:
     """The digest of CronJob `devops-cli-runner`, and how often a round read it."""
 
-    def __init__(self, digest: str | None) -> None:
+    def __init__(self, digest: str | None, *, error: Exception | None = None) -> None:
         self.digest = digest
+        self.error = error
         self.reads = 0
 
     def __call__(self) -> str | None:
         self.reads += 1
+        if self.error is not None:
+            raise self.error
         return self.digest
 
 
@@ -344,3 +347,48 @@ def test_a_rate_limit_stops_the_pass(store: InMemoryRoadmapStore) -> None:
 
     with pytest.raises(GitHubRateLimitError, match="rate limit"):
         _clear(store, Template(DIGEST_B))
+
+
+def test_a_digest_that_cannot_be_read_is_read_once_and_fails_each_item_that_needs_it(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """One read of the CronJob fails for the whole pass. The retry rule needs no digest, so an
+    item with a retry still clears."""
+    waiting = [_blocked(store) for _ in range(4)]
+    retried = _blocked(store)
+    store.seed_comment(retried, "implement: retry", author_association="OWNER")
+    template = Template(None, error=ClusterJobError("CronJob devops/devops-cli-runner not found"))
+
+    cleared = _clear(store, template)
+
+    assert (
+        template.reads,
+        cleared.cleared,
+        [failure.number for failure in cleared.failed],
+        [_item(store, number).status for number in waiting],
+    ) == (1, (retried,), waiting, ["Blocked"] * 4)
+
+
+def test_an_idle_pass_reads_the_comments_of_each_stop_and_nothing_else(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The cost of a Blocked stop that no rule clears is one request for each round: the listing
+    of its comments. The issue is read again only before a write."""
+    numbers = [_blocked(store) for _ in range(3)]
+    reads: list[str] = []
+    real_item, real_comments = store.item, store.comments_on
+
+    def item(number: int) -> Item | None:
+        reads.append("item")
+        return real_item(number)
+
+    def comments_on(number: int) -> list[IssueComment]:
+        reads.append("comments")
+        return real_comments(number)
+
+    store.item = item  # type: ignore[method-assign]
+    store.comments_on = comments_on  # type: ignore[method-assign]
+
+    cleared = _clear(store, Template(DIGEST_A))
+
+    assert (cleared.cleared, reads) == ((), ["comments"] * len(numbers))
