@@ -2,17 +2,19 @@
 
 ## Decisions
 
-- **Shared helper in argo/credentials.py for the 401 retry logic**: One place for the retry logic, beside the existing token functions. Avoids duplicating the mint-and-retry across four or more commands.
-- **Raise ArgoError for all Argo CD API HTTP errors**: ArgoError is a DevOpsCLIError subclass, so the exit seam of new_typer() reports it as one error line with no traceback.
-- **Error message names argocd.token and the credential sync command**: Tells the user exactly which keyring entry to fix and which command to run.
-- **Helper lives in argo/credentials.py**: Already holds Argo CD credential and token resolution logic. The helper belongs with the code it calls.
+- **One helper, `argocd_api_request`, in `src/devops_cli/argo/credentials.py`.** The module already holds `resolve_argocd_server_and_token`, the function that picks the token. The helper takes the settings, the request headers and a function `send(headers)` that returns the response. The commands keep their own `client.post` and `client.get` calls inside `send`. Evidence: `test_cd_apps_sync_payload_structure` asserts `mock_client.post.assert_called_once()` and reads `call_args.kwargs["json"]`, and `test_argo_cd_apps_list_and_status_render` replaces `httpx2.Client.get` with `fake_get(self, url, **kwargs)`. A helper that calls `client.request(...)` would break both tests. A function argument also leaves the helper free of the URL, the method and the body.
+- **The helper retries on HTTP 401 only.** HTTP 403 is an RBAC denial of a valid session. Evidence: `HTTPStatusFromCode` of grpc-gateway maps `codes.PermissionDenied` to 403 and `codes.Unauthenticated` to 401 (see Feasibility). A new admin token would turn a denied identity into the admin, so 403 ends the command as another status. The issue asks for 401.
+- **The helper mints with `mint_argocd_token(settings.argocd.url, password, level=configured_level(settings.ai))`.** `get_or_mint_argocd_token` in `src/devops_cli/k8s/credentials.py` (line 435) makes the same call when no token is stored. `save_to_keyring` stays `True`, so the keyring entry `argocd_token` holds the new token for the next command.
+- **A failed mint passes through.** `mint_argocd_token` raises `StackCredentialError` with the cause (`Argo CD refused the admin session at <url> with HTTP 401`). It is a `DevOpsCLIError`, so the exit seam prints it as one line. Wrapping it in `ArgoError` would hide the cause and add code.
+- **The helper raises `ArgoError` for each other failure.** `ArgoError` is a `DevOpsCLIError` with `error_code` `ARGO_ERROR` and exit status 1 (checked in Feasibility). No new exception class is needed.
+- **The messages go in `ArgoMessages`** (`src/devops_cli/lang/en/messages.py`, read as `MESSAGES.argo`), beside `url_not_configured`. There are three: a refusal with no stored password, a refusal of the new token, and any other status. Each holds the HTTP status. The first one names `argocd.token` and `devops k8s sync-secrets`.
+- **`list` and `status` keep their `except Exception` block.** The helper raises into it, and the block shows the message in the row or the panel. Evidence: `test_status_exits_1_when_argo_cd_refuses_the_read` and the requirement "A status with an error exits 1" of `argo-image-pin-drift` pin the panel and exit status 1. The `--watch` loops of both commands must also go on after an error.
 
 ## Rejected alternatives
 
-- **Per-command try/except in commands/argo.py**: Duplicates the mint-and-retry logic in every command that calls the Argo CD API.
-- **Pre-verify the token in resolve_argocd_server_and_token**: Adds an extra HTTP call to every command. The issue specifies a reactive retry on 401, not a proactive check.
-- **typer.Exit(1) for HTTP errors**: Bypasses the exit seam. The user sees no structured error message.
-- **A new exception class for Argo CD API errors**: ArgoError already exists in src/devops_cli/exceptions/argo.py and is a DevOpsCLIError subclass.
-- **A generic authentication-failed message**: Does not tell the user how to fix the problem.
-- **Helper in commands/argo.py**: Mixes command logic with credential logic. The commands should call the helper, not define it.
-- **A new module for the helper**: Unnecessary for one function. Adds a file with no other content.
+- **A `try` and `except` for each command in `src/devops_cli/commands/argo.py`.** Evidence: `git grep -n raise_for_status -- src/devops_cli/commands/argo.py` finds three sites (lines 243, 307 and 353). Each would copy the mint, the header swap and the second request.
+- **Check the token first with `verify_argocd_token`.** The function exists (`src/devops_cli/k8s/credentials.py`, a `GET /api/v1/session/userinfo`). A check before each command adds one request to every command, also when the token is good. The issue asks for a reaction to the 401.
+- **Let `ArgoError` leave `list` and `status` by narrowing their `except Exception`.** The existing status contract (a panel with the error and exit status 1) and the watch loops need the block. The block does not hide the error: it shows the message.
+- **`typer.Exit(1)` after `print_error`.** The spec `command-error-exit` requires that a command module reports no `DevOpsCLIError` itself. The exit seam of `new_typer()` prints the message and sets the exit status.
+- **Use `CONST_STACK_TOKEN_REFUSED_HTTP_STATUSES` (401 and 403).** Its check reads `/api/v1/session/userinfo`, which RBAC does not guard. A 403 on an application request is an RBAC denial (see above).
+- **A retry library (`tenacity`, or an `httpx2` transport retry).** It sends the same request with the same stale `Authorization` header. The retry here needs a new header between the two requests.
