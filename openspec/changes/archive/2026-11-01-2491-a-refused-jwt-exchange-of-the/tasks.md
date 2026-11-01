@@ -1,0 +1,8 @@
+# Tasks
+
+## 1. Name GitHub's reason in the App 401 error
+
+Reads: `src/devops_cli/github/app_installation.py`, `tests/github/test_github_app_identity.py`, lines 40 to 65 of `src/devops_cli/lang/en/errors.py`. Changes: `tests/github/test_github_app_identity.py`, `src/devops_cli/github/app_installation.py`, `src/devops_cli/lang/en/errors.py`.
+
+- [x] 1.1 Change `test_a_refused_exchange_raises_the_unauthenticated_error_with_githubs_status` in `tests/github/test_github_app_identity.py` to compare `raised.value.to_dict()` with the whole error, as `test_an_installation_without_a_requested_permission_fails_naming_the_permissions` does. The message is "GitHub App devops-roadmap[bot] has no installation token: GitHub refused the App's JWT for POST /app/installations/42/access_tokens (HTTP 401): A JSON web token could not be decoded. Check the App ID, the installation ID and the private key in DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY." The test must fail on the base because the message holds the gh-login text. Verify with `uv run devops ci test tests/github/test_github_app_identity.py`
+- [x] 1.2 Add `github_app_jwt_refused` to `GitErrorMessages` in `src/devops_cli/lang/en/errors.py`, with the placeholders `{request}` and `{reason}` and no check-the-App-ID advice. In `mint_installation_token`, add an `elif` branch after the 422 check. When `failure.details.get("status") == HTTPStatus.UNAUTHORIZED`, it sets `reason` from the constant with `request` as `POST` and `_token_path(app)`, and `reason` as `str(error)` cut to `CONST_MAX_ERROR_DETAIL_LENGTH`. Update the docstring of `mint_installation_token`. Verify with `uv run devops ci test tests/github/test_github_app_identity.py tests/github/test_github_contract.py`
