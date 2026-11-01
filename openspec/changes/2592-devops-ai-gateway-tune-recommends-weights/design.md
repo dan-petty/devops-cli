@@ -2,13 +2,16 @@
 
 ## Decisions
 
-- **Remove all three weight functions and their helpers rather than keeping them behind a flag**: The gateway uses least-busy and reads no weight. No other code path calls these functions. The pre-1.0 policy is to delete dead code.
-- **Remove recommended_weight and recommended_concurrency from DeploymentTune**: No function computes them after the change. Keeping unset fields in the model misleads the reader.
-- **Keep current_weight in DeploymentTune**: It is read from the gateway model info and is informational data. The table does not show it, but JSON output can carry it.
-- **Remove ai.gateway_weights and ai.gateway_concurrency settings**: No code reads them after the change. The gateway reads no weight. Keeping dead settings misleads the user.
+- **Delete the recommendation, do not mark it informational.** The gateway routes with `least-busy` and reads no weight, so a weight is not a setting that the reader can apply. The measurements (engine, GPUs, capacity, cost, capabilities) stay.
+- **Keep `current_weight` of `DeploymentTune`.** It is the `weight` that the gateway lists for a deployment, not a recommendation. The run record keeps it as `setup.pool[].weight`, and `test_a_gateway_tune_is_kept_with_its_pool` pins that. The table does not show it.
+- **Keep `ai.gateway_concurrency`.** The RAG embedder and indexer read it (`rag/embeddings.py:1158`, `rag/indexer.py:421`). The tune command stops reading it.
+- **Delete `ai.gateway_weights`.** Only `tune_cmd` read it. `AIConfig` has `extra="forbid"`, so a config file that still holds it fails to load with the error of a refused key. That error names the unset command. This is the pre-1.0 way: no shim.
+- **Use `ai.gateway_concurrency` as the example of a mapping setting in the config tests and specs.** It has the same type, `dict[str, int]`, as `ai.gateway_weights` had. This keeps the tests that cover dotted keys in a mapping.
+- **Delete the five constants with their last reader.** Group 3 does it after group 2 removes the readers.
 
 ## Rejected alternatives
 
-- **Keep weight columns but mark them informational**: The user cannot apply the value. Keeping it adds noise and implies an action that does not exist. The gateway uses least-busy and reads no weight.
-- **Keep the settings for a future routing strategy**: Speculative. The project is pre-1.0 and the pre-1.0 policy is to delete, not keep behind flags.
-- **Keep the functions for reuse**: No other code path uses them. Keeping unused functions adds maintenance cost.
+- **Keep the columns and mark them informational.** The reader can not apply the value, and the footer would still imply an action. Evidence: `k8s/llm/gateway/config.yaml:216` and the LiteLLM routing page.
+- **Delete `ai.gateway_concurrency` as well.** Rejected: `git grep -n gateway_concurrency -- src` shows two live readers in `src/devops_cli/ai/rag/`. A deletion would change the embedding batch size.
+- **Keep the weight functions for the `embedding` group, which uses `simple-shuffle`.** Rejected: the tune sweep posts to `/chat/completions` (`gateway_bench.py:51`), so it can not measure an embedding group.
+- **Add `ai.gateway_weights` to `CONST_REMOVED_CONFIG_KEYS`.** Rejected: the table names a release, and a release does not exist yet. The error works without one.
