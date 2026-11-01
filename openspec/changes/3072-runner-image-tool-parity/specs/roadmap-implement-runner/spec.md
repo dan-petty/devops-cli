@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The runner stage holds the tools of a step
-The `runner` stage of `Dockerfile` SHALL be built from the `builder` stage and SHALL run `uv sync --locked`, so that the dev dependencies of `uv.lock` are in the venv. It SHALL install `git`, `shellcheck`, `curl` and `jq` with apt, SHALL copy actionlint from the image that `.devcontainer/Dockerfile` names by the same digest, and SHALL install Trivy and promtool with `devops install-tools`. It SHALL put the pinned OpenSpec, gh and the Node runtime of the builder stage on the stage's `PATH`, SHALL run as user 1000, and SHALL set `ENTRYPOINT ["devops"]`. It SHALL come before the `service` stage, so that a build with no `--target` builds the Service image. The `service` stage SHALL hold none of the added tools.
+The `runner` stage of `Dockerfile` SHALL be built from the `builder` stage and SHALL run `uv sync --locked`, so that the dev dependencies of `uv.lock` are in the venv. It SHALL install `git`, `curl` and `jq` with apt, and SHALL install promtool with `devops install-tools`. It SHALL hold no tool whose newest release fails the image scan. It SHALL put the pinned OpenSpec, gh and the Node runtime of the builder stage on the stage's `PATH`, SHALL run as user 1000, and SHALL set `ENTRYPOINT ["devops"]`. It SHALL come before the `service` stage, so that a build with no `--target` builds the Service image. The `service` stage SHALL hold none of the added tools.
 
 #### Scenario: The stage is read offline
 - **WHEN** a test reads the stages of `Dockerfile`
@@ -25,7 +25,7 @@ The `runner` stage of `Dockerfile` SHALL be built from the `builder` stage and S
 - **THEN** a test fails and names the program
 
 #### Scenario: A pin drifts from the Dockerfile
-- **WHEN** the version of uv, gh, Node, Python or actionlint in the table differs from the Dockerfile, or the actionlint image of the two Dockerfiles differs
+- **WHEN** the version of uv, gh, Node or Python in the table differs from the Dockerfile
 - **THEN** a test fails
 
 ### Requirement: The build of the runner image fails on a missing tool or a wrong pin
@@ -45,3 +45,14 @@ The smoke test of the runner image in `ci.yml` and in `release.yml` SHALL be the
 #### Scenario: The smoke test is read offline
 - **WHEN** a test reads the smoke test of both workflows
 - **THEN** the two texts are equal, they run the check module and the size bound, and no line runs `--entrypoint <tool> "$IMAGE" --version`
+
+### Requirement: The runner image passes the image scan
+The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH,CRITICAL`, fixed findings only) with no `.trivyignore` entry. A tool whose newest release fails the scan SHALL be in `NOT_IN_RUNNER`, with the finding as the reason.
+
+#### Scenario: A tool fails the scan
+- **WHEN** the newest release of `actionlint` (Go 1.27.0) and of Trivy (go-jose 4.1.5) hold a fixed HIGH finding
+- **THEN** the table `NOT_IN_RUNNER` names `actionlint`, `shellcheck` and `trivy` with the image scan as the reason, and the `runner` stage installs none of them
+
+#### Scenario: The image is scanned
+- **WHEN** `trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` runs on the built `runner` target
+- **THEN** it exits 0

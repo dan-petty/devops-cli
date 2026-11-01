@@ -42,7 +42,6 @@ USER_DATA_ROOT_VARIABLE = "DEVOPS_CLI_USER_DATA_ROOT"
 # The pins that only the Dockerfile holds. A test reads the Dockerfile and compares.
 UV_VERSION = "0.13.6"
 GH_VERSION = "2.102.1"
-ACTIONLINT_VERSION = "1.17.0"
 NODE_MAJOR = "24"
 
 
@@ -131,17 +130,8 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _dev("ast-grep", "ci:constructs", "hook:ast-grep-scan", package="ast-grep-cli"),
     _dev("zizmor", "ci:zizmor"),
     _dev("pre-commit", "job"),
-    RunnerTool(
-        "actionlint",
-        ToolSource.IMAGE_PIN,
-        ("ci:actionlint",),
-        ("actionlint", "-version"),
-        pin=ACTIONLINT_VERSION,
-    ),
-    _apt("shellcheck", "ci:actionlint"),
     _apt("curl", "test:live"),
     _apt("jq", "test:live"),
-    _locked("trivy", "gate:static"),
     _locked("promtool", "gate:test"),
     _base("nice", "ci:security"),
     _base("sh", "test:live"),
@@ -166,6 +156,11 @@ _SCANNER = (
     "gate (#2165). The runner does the same as the gate."
 )
 _NO_GATE_STEP = "No step of a required job of `ci.yml` runs it."
+_IMAGE_SCAN = (
+    "The image scan of `ci.yml` and `release.yml` fails on the HIGH findings that the newest "
+    "release holds: {finding}. The scan stays as it is, so the image waits for a release without "
+    "them (#3108). A Job cannot run the {rows}, so the pull request checks it."
+)
 NOT_IN_RUNNER: dict[str, str] = {
     "kubectl": _NO_CLUSTER,
     "kustomize": _NO_CLUSTER,
@@ -187,6 +182,17 @@ NOT_IN_RUNNER: dict[str, str] = {
     "golangci-lint": _SCANNER,
     "semgrep": (
         "Only the rule-pack job of `ci.yml` installs it, and only when a rule file changes."
+    ),
+    "actionlint": _IMAGE_SCAN.format(
+        finding="Go standard library 1.27.0 (four CVEs) in actionlint 1.17.0",
+        rows="`actionlint` row",
+    ),
+    "shellcheck": (
+        "Only actionlint runs it, and the image scan keeps actionlint out (see `actionlint`)."
+    ),
+    "trivy": _IMAGE_SCAN.format(
+        finding="go-jose 4.1.5 (CVE-2026-116587, fixed in 4.1.6) in Trivy 0.76.1",
+        rows="IaC scan of the Security Scan step",
     ),
     "gh-dash": _NO_GATE_STEP,
     "tuicr": _NO_GATE_STEP,

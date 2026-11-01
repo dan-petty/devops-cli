@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is a program of the table `SHELL_PROGRAMS`: `git`, `uv`, `ruff`, `mypy`, and the read-only programs `grep`, `cat`, `ls`, `head`, `tail` and `find`. The command SHALL hold none of the operators that start a second command, and `find` SHALL hold none of `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf` and `-fls`. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, and SHALL add a hint. A refused argument SHALL give a refusal that names the program and the argument and says what to do instead, and it SHALL count as a refused command. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
+The shell tool of the agent SHALL run a command only when its first word is a program of the table `SHELL_PROGRAMS`: `git`, `uv`, `ruff`, `mypy`, and the read-only programs `grep`, `cat`, `ls`, `head`, `tail` and `find`. The command SHALL hold none of the operators that start a second command, a read-only program SHALL hold no redirect to a file other than `/dev/null`, and `find` SHALL hold none of `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf` and `-fls`, and no word with `$`. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, and SHALL add a hint. A refused argument SHALL give a refusal that names the program and the argument and says what to do instead, and it SHALL count as a refused command. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
@@ -34,6 +34,14 @@ The shell tool of the agent SHALL run a command only when its first word is a pr
 #### Scenario: A find that runs or deletes
 - **WHEN** the model calls the shell tool with `find . -name "*.py" -exec rm {} +`
 - **THEN** the refusal names `find` and `-exec`, says to use `find` to list paths only, and no process starts
+
+#### Scenario: A redirect to a file
+- **WHEN** the model calls the shell tool with `grep -rn x src > out.txt`, `cat a >> b` or `ls > f`
+- **THEN** the refusal names the program and the redirect, says to use `write_file` or `edit_file`, counts as a refused command, and no process starts. `2>&1` and `>/dev/null` still run.
+
+#### Scenario: A find with an expansion
+- **WHEN** the model calls the shell tool with `find . -ex${U}ec echo {} +`, because the shell expands `${U}` after the check
+- **THEN** the refusal names `find` and the word, and no process starts
 
 #### Scenario: A change of directory
 - **WHEN** the model calls the shell tool with `cd src`

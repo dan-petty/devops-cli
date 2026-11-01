@@ -21,7 +21,6 @@ import yaml
 from devops_cli.commands.ci import get_check_specs
 from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.roadmap.runner_tools import (
-    ACTIONLINT_VERSION,
     GH_VERSION,
     NODE_MAJOR,
     NOT_IN_RUNNER,
@@ -247,30 +246,18 @@ def test_the_pins_of_the_table_are_the_pins_of_the_dockerfile() -> None:
     ) == (True, True, True, True, NODE_MAJOR, True, True)
 
 
-def _actionlint_reference(text: str) -> str:
-    (words,) = (
-        words
-        for words in (shlex.split(line) for line in text.splitlines() if line.startswith("FROM "))
-        if words[-1] == "actionlint"
-    )
-    return words[1]
-
-
-def test_the_runner_copies_the_actionlint_of_the_devcontainer_by_the_same_digest() -> None:
-    reference = _actionlint_reference(_text("Dockerfile"))
-    copies = [words for words in _runner() if words[0] == "COPY" and "--from=actionlint" in words]
+def test_a_tool_whose_release_fails_the_scan_of_the_image_is_left_out_with_the_reason() -> None:
+    """The scan of the image fails on a fixed HIGH finding in a Go binary, and the owner alone may
+    lower it. Trivy, actionlint and shellcheck (which only actionlint uses) wait for a release
+    that the scan accepts."""
+    held = set(tool_names())
+    scan = ("trivy", "actionlint", "shellcheck")
 
     assert (
-        reference,
-        reference == _actionlint_reference(_text(".devcontainer/Dockerfile")),
-        f":{ACTIONLINT_VERSION}@sha256:" in reference,
-        len(copies),
-    ) == (
-        _actionlint_reference(_text(".devcontainer/Dockerfile")),
-        True,
-        True,
-        1,
-    )
+        held.isdisjoint(scan),
+        all("image scan" in NOT_IN_RUNNER[name] for name in scan),
+        "FROM docker.io/kjanat/actionlint" in _text("Dockerfile"),
+    ) == (True, True, False)
 
 
 def test_the_apt_packages_of_the_runner_are_the_apt_tools_of_the_table() -> None:
