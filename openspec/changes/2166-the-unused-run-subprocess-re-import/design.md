@@ -2,13 +2,13 @@
 
 ## Decisions
 
-- **Use ruff check --select F401 --ignore-noqa as the check command**: ruff is already the project linter and the command is confirmed to report the 15 findings at b170358e. No new tool is needed.
-- **Set the ceiling at 14**: This issue removes the 15th site (ruff.py:23), leaving 14 sites owned by #1332. The ceiling goes to zero when #1332 removes those sites.
-- **Add the check as a devops ci row, not a pytest test**: docs/TESTING.md states: 'A check of committed files or of tool configuration is a row of devops ci, not a pytest test.'
-- **Remove the alias rather than deprecate it**: The project is pre-1.0 and docs/TESTING.md forbids tests from importing private names. The alias exists only for a test fake, which is updated in the same change.
+- **Remove the alias and keep the public name**: `_prepare_cmd` has no caller in `src/`. The project is before 1.0 and keeps no shim. `docs/TESTING.md` forbids a test to import a private name, so the fake and the test move to `prepare_tool_cmd`.
+- **Lower the existing ceiling, and add no row**: the ratchet `src noqa: F401` already fails on a new site once its ceiling equals the count. The count is 0 on `main` (see the Feasibility section of the proposal). A new row would count the same sites with a second tool and would need a subcommand, a message, help text and documents (the `test-settings` row of #2173 changed the command, its message, `README.md` and two generated documents).
+- **Show the failure by a probe file, not by a new test**: the ratchet already has a test. A new test that writes a file into `src/` would break `docs/TESTING.md`, which says a check of committed files is not a test that starts a program. Group 2 holds numbered steps that a person or an agent can repeat.
 
 ## Rejected alternatives
 
-- **Add a pytest invariant test for the F401 ceiling**: docs/TESTING.md states: 'A check of committed files or of tool configuration is a row of devops ci, not a pytest test.'
-- **Use a custom script to count noqa F401 imports**: ruff already reports these with --select F401 --ignore-noqa. A custom script adds tokens to build, keep and fix, and duplicates ruff's parser.
-- **Keep the _prepare_cmd alias with a deprecation warning**: The project is pre-1.0. docs/TESTING.md forbids tests from importing private names. The alias has no production use.
+- **A `devops ci` row `ruff check --select F401 --ignore-noqa src` that counts findings against a ceiling of 14**: the 14 sites are gone (`ruff` reports 0), so a ceiling of 14 would let 14 new sites in. A row with a ceiling of 0 duplicates the ratchet at 0.
+- **A `devops ci` row `ruff check --select F401 --ignore-noqa src` that fails on any finding, as an addition to the `lint` row**: it works, but it checks the same sites as the ratchet. The `lint` subcommand runs only the `cmd` of its row, so the check would run in `devops ci` and not in `devops ci lint`. If a person wants it, it is a follow-up change.
+- **A pytest test that runs `ruff` and asserts on its output**: `docs/TESTING.md` says a test of `src/` starts no system program, and a check of committed files is a row of `devops ci`.
+- **Keep the alias with a deprecation warning**: the alias has no production use, and the project keeps no shim before 1.0.
