@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.37.1](https://github.com/dan-petty/devops-cli/compare/v0.37.0...v0.37.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **roadmap:** the implement step keeps agent scratch files out of git ([#3007](https://github.com/dan-petty/devops-cli/issues/3007)) ([8b8f625](https://github.com/dan-petty/devops-cli/commit/8b8f6253a4092ebedd5759caaa1d24d20a049a07)), closes [#3006](https://github.com/dan-petty/devops-cli/issues/3006)
+
 ## [0.37.0](https://github.com/dan-petty/devops-cli/compare/v0.36.0...v0.37.0) (2026-11-01)
 
 
