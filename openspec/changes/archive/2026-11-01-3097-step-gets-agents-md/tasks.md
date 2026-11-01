@@ -38,9 +38,9 @@ Reads: `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/settings.py`. Ch
 
 ## 5. Fail-to-pass and archive
 
-- [ ] 5.1 Run the fail-to-pass check on the new tests
+- [x] 5.1 Run the fail-to-pass check on the new tests
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] 5.2 Archive the change
+- [x] 5.2 Archive the change
   - Verification: `uv run devops openspec archive 3097-step-gets-agents-md` and `uv run devops openspec check`
 
 ## Workflow follow-up
