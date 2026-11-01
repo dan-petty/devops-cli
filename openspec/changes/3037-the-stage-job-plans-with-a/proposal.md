@@ -53,7 +53,7 @@ None.
 
 ## Feasibility
 
-Checked on `origin/main` (de52216e) in a worktree of the plan branch.
+Checked on `origin/main` (aad01151) in a worktree of the plan branch.
 
 - The planner makes one call and has no tools. `git grep -n "def chat_structured\|self._client.chat_structured" -- src/devops_cli/roadmap/stage.py` prints the `StageClient` protocol (line 578) and one call in `_Planner._ask` (line 645). `grep -n "cannot run a command" src/devops_cli/ai/tasks/roadmap_stage_change.md` prints line 9.
 - The agent loop exists in refine, not in stage. `git grep -n 'UsageLimits($' -- src/devops_cli/roadmap/refine_investigation.py` prints line 255, and `git grep -n -E "def (search_code|list_files|read_file|search_web)" -- src/devops_cli/roadmap/refine_investigation.py` prints the four tools of `InvestigationTools`. Three of them are the first three tools of the toolbox. They read a commit with `git grep`, `git ls-tree` and `git show`, and write nothing.
