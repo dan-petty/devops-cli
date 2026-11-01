@@ -8,7 +8,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed check of the pull request gets bounded fix steps
-When the settled checks of the pull request hold a failed one, the job SHALL run a fix step with the log of the failed run as input, SHALL rebase, run the scoped checks, push, and watch the checks again. It SHALL do so at most `roadmap.implement.repair_rounds` times, and SHALL post a comment on the pull request for each round with its fix step and its scoped checks. A check that still fails after the last round SHALL stop the item. A check that does not settle within `CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS`, an unresolved review thread and a merge conflict SHALL stop the item and run no fix step.
+When the settled checks of the pull request hold a failed one, the job SHALL run a fix step with the log of the failed run, rebase, run the scoped checks, push, and watch again. It SHALL do so at most `roadmap.implement.repair_rounds` times, with a comment on the pull request for each round. A check that still fails after the last round, a check that does not settle within `CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS`, an unresolved review thread and a merge conflict SHALL stop the item.
 
 #### Scenario: A check fails once
 - **WHEN** the first watch shows a failed check, the fix step passes, and the second watch shows every check passed
