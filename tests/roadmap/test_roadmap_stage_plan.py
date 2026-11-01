@@ -28,6 +28,7 @@ from devops_cli.roadmap.stage_change import (
     closing_keyword_in,
     render_change,
 )
+from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import (
@@ -51,6 +52,8 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+# The one file of the sample proposal that exists before the plan.
+SAMPLE_TREE = StagedTree(["src/devops_cli/sample.py"])
 CHANGE = "1-the-job-drops-a-comment"
 VALIDATE = validate_args(CHANGE)
 VALID = (0, VALID_REPORT)
@@ -313,7 +316,7 @@ def test_the_rules_of_a_spec_delta_are_checked() -> None:
         }
     )
 
-    problems = check_proposal(make_stage_proposal(specs=[bad]), known=[])
+    problems = check_proposal(make_stage_proposal(specs=[bad]), [], SAMPLE_TREE)
 
     assert problems == [
         "The capability comment-thread is not in openspec/specs/, so its entry needs a purpose "
@@ -325,19 +328,19 @@ def test_the_rules_of_a_spec_delta_are_checked() -> None:
 
 
 def test_a_spec_delta_goes_with_an_observable_change() -> None:
-    assert check_proposal(make_stage_proposal(skip_specs=True), known=[]) == [
+    assert check_proposal(make_stage_proposal(skip_specs=True), [], SAMPLE_TREE) == [
         "skip_specs is true, and the reply still gives specs."
     ]
-    assert check_proposal(make_stage_proposal(specs=[]), known=[]) == [
+    assert check_proposal(make_stage_proposal(specs=[]), [], SAMPLE_TREE) == [
         "skip_specs is false, and the reply gives no spec delta."
     ]
-    assert check_proposal(make_stage_proposal(), known=["comment-thread"]) == []
+    assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE) == []
 
 
 def test_an_existing_capability_takes_requirements_with_no_purpose() -> None:
     spec = make_stage_proposal().specs[0].model_copy(update={"purpose": None})
 
-    assert check_proposal(make_stage_proposal(specs=[spec]), known=["comment-thread"]) == []
+    assert check_proposal(make_stage_proposal(specs=[spec]), ["comment-thread"], SAMPLE_TREE) == []
     files = render_change(
         "1-x", make_stage_proposal(specs=[spec]), ["comment-thread"], created=TODAY.date()
     )
@@ -571,6 +574,14 @@ def test_the_prompts_say_what_a_group_names(task: str) -> None:
     assert "Every task has a text" in prompt
 
 
+@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
+def test_the_prompts_say_that_the_job_checks_each_path_against_the_staged_commit(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert "against the files of the staged commit" in prompt
+    assert "`creates`" in prompt
+
+
 # ── The OpenSpec validation ───────────────────────────────────────────────────
 
 
@@ -589,6 +600,94 @@ def test_a_proposal_the_rules_refuse_goes_back_to_the_model_once(
     assert "problem" not in first
     assert second["problem"] == "skip_specs is false, and the reply gives no spec delta."
     assert second["previous"]["specs"] == []
+    assert len(plan.ready) == 1
+
+
+def _naming(path: str, *, verify: str | None = None) -> StageProposal:
+    """The sample proposal, with a second changed file `path` that no group creates."""
+    group = make_stage_proposal().groups[0]
+    update: dict[str, Any] = {"changes": [*group.changes, path]}
+    if verify is not None:
+        update["verify"] = verify
+    return make_stage_proposal(groups=[group.model_copy(update=update)])
+
+
+def test_a_path_that_the_commit_lacks_goes_back_with_the_file_of_the_same_name(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    model_fake.answer(_naming("tests/test_scanner_tool_executor.py"), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert "`tests/test_scanner_tool_executor.py`" in second["problem"]
+    assert "`tests/security/test_scanner_tool_executor.py`" in second["problem"]
+    assert len(plan.ready) == 1
+
+
+def test_a_second_reply_with_a_missing_path_stops_the_item(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    model_fake.answer(_naming("tests/test_scanner_tool_executor.py"))
+
+    plan = _plan(store, stage_repo)
+
+    (failure,) = plan.failed
+    assert (plan.ready, plan.over_budget) == ((), ())
+    assert (failure.number, failure.error) == (item, "RoadmapStageError")
+    assert "`tests/security/test_scanner_tool_executor.py`" in failure.reason
+    assert model_fake.call_count == 2
+
+
+def test_a_path_in_a_verify_command_is_checked_and_a_created_path_passes(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(
+        _naming("src/devops_cli/sample.py", verify="uv run pytest tests/old/test_sample.py"),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo)
+
+    problem = _requests(model_fake)[1]["problem"]
+    assert "`tests/old/test_sample.py`" in problem
+    assert "`tests/test_sample.py`" not in problem
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_split_reply_with_a_missing_path_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    heavy = heavy_group(stage_repo)
+    lost = heavy.model_copy(
+        update={"title": "Lost", **NO_FILES, "reads": ["src/devops_cli/old.py"]}
+    )
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy]),
+        StageSplit(groups=[lost]),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    assert "`src/devops_cli/old.py`" in _requests(model_fake)[2]["problem"]
+    assert model_fake.call_count == 3
     assert len(plan.ready) == 1
 
 
