@@ -49,9 +49,9 @@ Reads: `src/devops_cli/commands/roadmap.py`. Changes: `src/devops_cli/commands/r
 
 Reads: `tests/fixtures/dry_run_gaps.json`. Changes: `tests/fixtures/roadmap_eval/implement/` (new), `tests/invariants/test_roadmap_eval_fixtures.py` (new).
 
-- [ ] 6.1 Build the 12 fixtures from the merge history of `main`, the group commits of closed pull request 3000 and of pull requests 3020 and 3078, and the diffs in the Job comments of #2175, #2519, #2531, #2735, #2739 and #2747
+- [x] 6.1 Build the 12 fixtures from the merge history of `main`, the group commits of closed pull request 3000 and of pull requests 3020 and 3078, and the diffs in the Job comments of #2175, #2519, #2531, #2735, #2739 and #2747
   - Verification: `uv run devops roadmap eval implement --check-only` exits 0 and prints every recorded result as behaving as recorded
-- [ ] 6.2 Add an invariant test that loads the committed set, counts at least 10 fixtures with #2175 and #2735 among them, requires a recorded result that fails nothing and one that fails something, and holds the set under 300 KB
+- [x] 6.2 Add an invariant test that loads the committed set, counts at least 10 fixtures with #2175 and #2735 among them, requires a recorded result that fails no diff property and one that fails some, and holds the set under 300 KB
   - Verification: `uv run devops ci test tests/invariants/test_roadmap_eval_fixtures.py`
 
 ## 7. Documents, evidence and archive

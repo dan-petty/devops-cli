@@ -27,8 +27,10 @@ from unidiff.errors import UnidiffParseError
 from unidiff.patch import PatchedFile, PatchSet
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_EVAL_DETAIL_CHARS,
     CONST_ROADMAP_EVAL_DETAIL_NAMES,
     CONST_ROADMAP_EVAL_SCRATCH_PATTERNS,
+    CONST_ROADMAP_EVAL_TASK_CHARS,
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_eval import (
@@ -43,7 +45,6 @@ from devops_cli.roadmap.step_files import file_lines, parse_task_groups
 _SCRATCH = GitIgnoreSpec.from_lines(CONST_ROADMAP_EVAL_SCRATCH_PATTERNS)
 _TESTS_DIR = "tests/"
 _TEST_PREFIX = "test_"
-_TASK_CHARS = 60
 
 
 class Status(StrEnum):
@@ -174,7 +175,11 @@ def _tasks_ticked(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
     if group is None:
         problem = texts.eval_implement_group_gone.format(group=loaded.case.group)
     else:
-        open_tasks = [textwrap.shorten(t.text, _TASK_CHARS) for t in group.tasks if not t.ticked]
+        open_tasks = [
+            textwrap.shorten(t.text, CONST_ROADMAP_EVAL_TASK_CHARS)
+            for t in group.tasks
+            if not t.ticked
+        ]
         problem = (
             texts.eval_implement_unticked.format(names=_listed(open_tasks)) if open_tasks else ""
         )
@@ -215,7 +220,7 @@ def command_results(loaded: LoadedCase, source: Path) -> list[PropertyResult]:
 
 
 def no_tree(reason: str) -> list[PropertyResult]:
-    """The two command properties of a step that stopped: skipped, with the reason of the stop."""
-    return skipped(
-        COMMAND_PROPERTIES, MESSAGES.roadmap.eval_implement_no_tree.format(reason=reason)
-    )
+    """The two command properties of a step that stopped: skipped, with the reason of the stop on
+    one line of at most `CONST_ROADMAP_EVAL_DETAIL_CHARS` characters."""
+    short = textwrap.shorten(reason, CONST_ROADMAP_EVAL_DETAIL_CHARS)
+    return skipped(COMMAND_PROPERTIES, MESSAGES.roadmap.eval_implement_no_tree.format(reason=short))

@@ -1,0 +1,26 @@
+{
+  "name": "2175-dead-code-first-plan-group-1",
+  "source": "The first plan of #2175 (deletion of five dead names), group 1, and the commit that the Job made for it in closed pull request 3000.",
+  "issue": 2175,
+  "title": "refactor(cli): the five functions and properties that nothing calls and that #1910 does not list leave src",
+  "group": 1,
+  "change": "2175-the-five-functions-and-properties-that",
+  "base": "f8b65bd214937eaf68a3fbd9630dfebd5697fd30",
+  "changes": [
+    "src/devops_cli/ai/client/streaming.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/ai/client/test_ai_streaming.py"
+  ],
+  "allow_lost_tests": [],
+  "results": [
+    {
+      "name": "committed-with-all-five-deletions",
+      "source": "Commit ada82772 of closed pull request 3000. The step committed it for group 1, and it also deletes the code of groups 2 to 5.",
+      "diff": "committed-with-all-five-deletions.diff",
+      "fails": [
+        "diff_scope"
+      ]
+    }
+  ]
+}

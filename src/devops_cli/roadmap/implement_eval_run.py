@@ -147,13 +147,15 @@ def _records(results: Sequence[PropertyResult]) -> tuple[PropertyRecord, ...]:
 
 def make_clone(loaded: LoadedCase, repo: Path, work: Path) -> Path:
     """A clone of `repo` in `work/clone` at the base of the fixture, with no remote, a local
-    identity, and the plan of the fixture committed in the change folder. Returns its path.
-    Raises `ImplementEvalError` when `repo` lacks the base commit."""
+    identity, and the plan of the fixture committed in the change folder. Returns its path. The
+    clone shares the objects of `repo`, so it copies none and links none: a link fails when the
+    temporary folder is on another file system. Raises `ImplementEvalError` when `repo` lacks the
+    base commit."""
     clone = work / "clone"
     git(
         work,
         "clone",
-        "--local",
+        "--shared",
         "--no-checkout",
         "--quiet",
         str(repo),

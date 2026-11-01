@@ -161,6 +161,19 @@ def test_the_clone_has_the_plan_of_the_fixture_committed_and_no_remote(
     )
 
 
+def test_the_clone_shares_the_objects_of_the_repository_it_clones(
+    tmp_path: Path, repo: tuple[Path, str], programs: ProcessFake
+) -> None:
+    checkout, base = repo
+    work = tmp_path / "work"
+    work.mkdir()
+
+    clone = make_clone(_loaded(tmp_path, base), checkout, work)
+
+    alternates = clone / ".git" / "objects" / "info" / "alternates"
+    assert alternates.read_text(encoding="utf-8").strip() == str(checkout / ".git" / "objects")
+
+
 def test_a_base_that_the_repository_lacks_is_refused_with_the_commit(
     tmp_path: Path, repo: tuple[Path, str], programs: ProcessFake
 ) -> None:

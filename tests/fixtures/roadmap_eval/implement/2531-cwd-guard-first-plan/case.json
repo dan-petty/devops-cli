@@ -1,0 +1,23 @@
+{
+  "name": "2531-cwd-guard-first-plan",
+  "source": "The first plan of #2531 and the diff of the stop at group 1: the step stopped on `mypy --strict` for a new test file, and the diff itself keeps to the plan.",
+  "issue": 2531,
+  "title": "fix(telemetry): a devops command run from a deleted working directory gives no FileNotFoundError traceback from the git directory lookup",
+  "group": 1,
+  "change": "2531-a-devops-command-run-from-a",
+  "base": "d580cdd86e307fa872bc6c5891012224f4b33ea3",
+  "changes": [
+    "src/devops_cli/telemetry/tracer.py",
+    "tests/test_tracer.py"
+  ],
+  "tests_pass": [],
+  "allow_lost_tests": [],
+  "results": [
+    {
+      "name": "stopped-on-static-check",
+      "source": "The diff that the Job comment of #2531 kept for the stop at group 1.",
+      "diff": "stopped-on-static-check.diff",
+      "fails": []
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "2579-argo-sources-tests",
+  "source": "The plan of #2579, group 1 (the tests first), and the commit that the Job made for it in pull request 3078. The commit also changes the source file of group 2.",
+  "issue": 2579,
+  "title": "fix(argo): devops argo cd apps list shows no repository for an Application with spec.sources",
+  "group": 1,
+  "change": "2579-devops-argo-cd-apps-list-shows",
+  "base": "e0323631a6dd846fc87ce66600f8233a019660f0",
+  "changes": [
+    "tests/test_models_argo.py"
+  ],
+  "tests_pass": [],
+  "allow_lost_tests": [],
+  "results": [
+    {
+      "name": "committed-with-the-source-change",
+      "source": "Commit ece9813b of pull request 3078, the commit of group 1.",
+      "diff": "committed-with-the-source-change.diff",
+      "fails": [
+        "diff_scope"
+      ]
+    }
+  ]
+}

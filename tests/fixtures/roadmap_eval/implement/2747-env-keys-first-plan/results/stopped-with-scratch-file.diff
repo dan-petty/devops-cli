@@ -1,0 +1,69 @@
+diff --git a/test_pytest_npm_fix.py b/test_pytest_npm_fix.py
+new file mode 100644
+index 00000000..bf491ff0
+--- /dev/null
++++ b/test_pytest_npm_fix.py
+@@ -0,0 +1,62 @@
++#!/usr/bin/env python3
++
++"""Test script to verify PYTEST_ADDOPTS and NPM_CONFIG_* keys are properly blocked."""
++
++from devops_cli.core.process import build_subprocess_env
++from devops_cli.exceptions.security import SecurityError
++
++def test_pytest_addopts_should_be_blocked():
++    """Test that PYTEST_ADDOPTS is blocked from caller override."""
++    try:
++        env = build_subprocess_env(env={"PYTEST_ADDOPTS": "--junitxml=/tmp/x.xml"})
++        print("ERROR: PYTEST_ADDOPTS was NOT blocked - this should have raised SecurityError")
++        return False
++    except SecurityError as e:
++        print(f"SUCCESS: PYTEST_ADDOPTS correctly blocked with error: {e}")
++        return True
++
++def test_npm_config_logs_dir_should_be_blocked():
++    """Test that npm_config_logs_dir is blocked from caller override."""
++    try:
++        env = build_subprocess_env(env={"npm_config_logs_dir": "/tmp/logs"})
++        print("ERROR: npm_config_logs_dir was NOT blocked - this should have raised SecurityError")
++        return False
++    except SecurityError as e:
++        print(f"SUCCESS: npm_config_logs_dir correctly blocked with error: {e}")
++        return True
++
++def test_npm_config_cache_should_be_blocked():
++    """Test that npm_config_cache is blocked from caller override."""
++    try:
++        env = build_subprocess_env(env={"npm_config_cache": "/tmp/cache"})
++        print("ERROR: npm_config_cache was NOT blocked - this should have raised SecurityError")
++        return False
++    except SecurityError as e:
++        print(f"SUCCESS: npm_config_cache correctly blocked with error: {e}")
++        return True
++
++def test_npm_config_registry_should_be_blocked():
++    """Test that NPM_CONFIG_REGISTRY (and other NPM_CONFIG_* keys) are blocked from caller override."""
++    try:
++        env = build_subprocess_env(env={"NPM_CONFIG_REGISTRY": "https://example.com"})
++        print("ERROR: NPM_CONFIG_REGISTRY was NOT blocked - this should have raised SecurityError")
++        return False
++    except SecurityError as e:
++        print(f"SUCCESS: NPM_CONFIG_REGISTRY correctly blocked with error: {e}")
++        return True
++
++if __name__ == "__main__":
++    print("Testing current behavior (should all fail)...")
++    
++    results = []
++    results.append(test_pytest_addopts_should_be_blocked())
++    results.append(test_npm_config_logs_dir_should_be_blocked())
++    results.append(test_npm_config_cache_should_be_blocked())
++    results.append(test_npm_config_registry_should_be_blocked())
++    
++    print(f"\nResults: {sum(results)}/{len(results)} tests passed")
++    
++    if all(results):
++        print("All tests passed - the fix is working!")
++    else:
++        print("Some tests failed - the fix needs to be implemented.")
+\ No newline at end of file

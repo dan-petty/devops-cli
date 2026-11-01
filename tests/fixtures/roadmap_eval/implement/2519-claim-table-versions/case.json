@@ -1,0 +1,24 @@
+{
+  "name": "2519-claim-table-versions",
+  "source": "The plan of #2519 and the commit that the Job made for group 1 in pull request 3020.",
+  "issue": 2519,
+  "title": "fix(k8s): the claim table of the local-path placement test names the chart version that it was read from",
+  "group": 1,
+  "change": "2519-the-claim-table-of-the-local",
+  "base": "1c20865aff17939c7fad82425bd06f83909d2b81",
+  "changes": [
+    "tests/core/test_k8s_local_path_placement.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/core/test_k8s_local_path_placement.py"
+  ],
+  "allow_lost_tests": [],
+  "results": [
+    {
+      "name": "committed",
+      "source": "Commit a3c925ca of pull request 3020, the commit of group 1.",
+      "diff": "committed.diff",
+      "fails": []
+    }
+  ]
+}

@@ -29,11 +29,11 @@ A fixture SHALL be a folder under `tests/fixtures/roadmap_eval/implement/` with 
 - **THEN** the loader raises `ImplementEvalError`, as a diff alone cannot show that property
 
 ### Requirement: The committed set holds both good and bad results
-The committed set SHALL hold at least 10 fixtures, the fixtures of #2175 and #2735 among them. It SHALL hold a recorded result that fails no property and a recorded result that fails some.
+The committed set SHALL hold at least 10 fixtures, the fixtures of #2175 and #2735 among them. It SHALL hold a recorded result that fails no diff property and a recorded result that fails some.
 
 #### Scenario: The committed set
 - **WHEN** the loader reads the committed folder
-- **THEN** it returns at least 10 fixtures, including those of #2175 and #2735, with a recorded result that fails no property and one that fails some
+- **THEN** it returns at least 10 fixtures, including those of #2175 and #2735, with a recorded result that fails no diff property and one that fails some
 
 ### Requirement: The property tests_kept finds a lost test
 `tests_kept` SHALL fail when the diff deletes a Python file under `tests/`, or removes a test name that no added line of the same file defines, unless the fixture allows that `path::name`.

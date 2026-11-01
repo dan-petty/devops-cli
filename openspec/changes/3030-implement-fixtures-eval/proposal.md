@@ -6,7 +6,7 @@ Issue #3030: the implement job has no measure. Its first outcomes were two deliv
 
 ## What Changes
 
-- Twelve fixtures under `tests/fixtures/roadmap_eval/implement/`. A fixture holds the issue text, the plan folder (`proposal.md`, `design.md`, `tasks.md`), a base SHA of this repository, the group to run, the paths of its `Changes:` line, the commands that must pass, and the recorded results of earlier runs. A recorded result is a diff with the properties that it is expected to fail. The fixtures come from merged deliveries, from the diffs that stopped runs left in their Job comments, and from corrected plans that no run has used yet.
+- Twelve fixtures under `tests/fixtures/roadmap_eval/implement/`, about 240 KB in all. A test holds the set under 300 KB. A fixture holds the issue text, the plan folder (`proposal.md`, `design.md`, `tasks.md`), a base SHA of this repository, the group to run, the paths of its `Changes:` line, the commands that must pass, and the recorded results of earlier runs. A recorded result is a diff with the properties that it is expected to fail. The fixtures come from merged deliveries, from the diffs that stopped runs left in their Job comments, and from corrected plans that no run has used yet.
 - A new module `src/devops_cli/roadmap/implement_eval.py` holds the fixture models and the loader. It refuses a fixture that breaks the schema or contradicts its own plan.
 - A new module `src/devops_cli/roadmap/implement_eval_properties.py` evaluates six properties. Four come from a diff alone: `tests_kept`, `diff_scope`, `no_scratch` and `tasks_ticked`. Two run commands in a tree: `tests_pass` and `verify_passes`.
 - A new module `src/devops_cli/roadmap/implement_eval_run.py` makes a scratch clone of the base SHA in a temporary folder, puts the plan in it, runs one step through `run_step`, the path that the Job uses, and evaluates the properties. It reads the item from the fixture, so it touches no GitHub state, and it pushes nothing.
@@ -50,7 +50,7 @@ The command is on demand. It calls the model through the gateway, so it is no ro
 
 ## Existing Tool Considered
 
-- `unidiff` reads the diffs. `pathspec`, a declared dependency, matches the scratch patterns. `parse_task_groups` and `code_spans` of `step_files.py` read the plan. `run_step` runs the step. `git clone --local` makes the scratch clone. pydantic validates the fixtures.
+- `unidiff` reads the diffs. `pathspec`, a declared dependency, matches the scratch patterns. `parse_task_groups` and `code_spans` of `step_files.py` read the plan. `run_step` runs the step. `git clone --shared` makes the scratch clone. pydantic validates the fixtures.
 - `pydantic-evals` (used by `devops roadmap intake-eval`) was considered for the scoring. Its evaluators return one value for each assertion, and its report averages them. Here a property can be skipped (a stopped step has no tree to run commands in), and the report needs the tokens, the tool calls and the wall time of the step, which no evaluator sees. The six properties are six pure functions over a diff or a tree. The report is a table of them. `pydantic-evals` would add a dataset, an evaluator class for each property and a custom render for the same result.
 - The change builds the evaluators and the run. Cost: about 150 000 tokens to write, about 10 000 tokens a year to keep, about 30 000 tokens to fix until it matches the first live runs. It takes about one working day.
 - The change deletes no code.
