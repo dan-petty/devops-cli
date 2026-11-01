@@ -842,16 +842,6 @@ def test_core_repo_gitignore_and_files(tmp_path: Path, git_fake: GitFake) -> Non
             outside_dir.rmdir()
 
 
-def test_repos_commands_dry_run(tmp_path: Path) -> None:
-    """Verify repos list and sync in dry-run mode."""
-    with patch("devops_cli.dry_run.is_dry_run", return_value=True):
-        res_list = runner.invoke(repos_app, ["list", "--base-dir", str(tmp_path)])
-        assert res_list.exit_code == 0
-
-        res_sync = runner.invoke(repos_app, ["sync", "--base-dir", str(tmp_path)])
-        assert res_sync.exit_code == 0
-
-
 def test_repos_branch_and_workspace_helpers(tmp_path: Path, git_fake: GitFake) -> None:
     """Verify _current_branch and _resolve_workspace_file."""
     from devops_cli.commands.repos import _current_branch, _resolve_workspace_file
@@ -1132,23 +1122,14 @@ def test_repos_reload_workspace_and_resolve(tmp_path: Path, process_fake: Proces
     assert _resolve_workspace_file(root, custom_rel) == custom_rel
 
 
-def test_repos_clone_org_dry_run_and_missing_org() -> None:
-    """Verify clone-org handles --dry-run and missing org configuration."""
-    result = runner.invoke(app, ["--dry-run", "repos", "clone-org", "test-org"])
-    assert (result.exit_code, "devops repos clone-org" in result.output) == (0, True)
-
+def test_repos_clone_org_missing_org() -> None:
+    """Verify clone-org stops when no organization is given or configured."""
     with patch("devops_cli.commands.repos.load_settings") as mock_load:
         settings = MagicMock()
         settings.github.default_org = None
         mock_load.return_value = settings
         res = runner.invoke(app, ["repos", "clone-org"])
         assert res.exit_code == 1
-
-
-def test_repos_sync_and_status_dry_run() -> None:
-    """Verify sync and status commands handle --dry-run."""
-    res_sync = runner.invoke(app, ["--dry-run", "repos", "sync"])
-    assert (res_sync.exit_code, "devops repos sync" in res_sync.output) == (0, True)
 
 
 def test_a_directory_with_no_repository_has_no_origin_whatever_the_environment(
@@ -1174,9 +1155,6 @@ def test_repo_origin_lru_caching(tmp_path: Path, git_fake: GitFake) -> None:
     res2 = get_repo_origin_name(tmp_path)
     remote_calls = [c for c in git_fake.calls if "remote" in c.argv]
     assert (res1, res2, len(remote_calls)) == ("org/cached-repo", "org/cached-repo", 1)
-
-    res_list = runner.invoke(app, ["--dry-run", "repos", "list"])
-    assert (res_list.exit_code, "devops repos list" in res_list.output) == (0, True)
 
 
 def test_list_repo_files_handles_spaces_non_ascii_and_renames(
@@ -1204,3 +1182,293 @@ def test_list_repo_files_handles_spaces_non_ascii_and_renames(
         repo / "renamed.py",
     ]
     assert files == expected
+
+
+# =============================================================================
+# Dry runs (#2258)
+# =============================================================================
+
+
+def _answer_tracking_repo(git_fake: GitFake, repo_dir: Path) -> None:
+    """Git answers for a repository whose `main` tracks `origin`."""
+    (repo_dir / ".git").mkdir(parents=True)
+    git_fake.answer(["git", "-C", str(repo_dir), "remote"], ProcessAnswer(stdout="origin\n"))
+    git_fake.answer(
+        ["git", "-C", str(repo_dir), "branch", "--show-current"], ProcessAnswer(stdout="main\n")
+    )
+    git_fake.answer(
+        ["git", "-C", str(repo_dir), "config", "--get", "branch.main.remote"],
+        ProcessAnswer(stdout="origin\n"),
+    )
+    git_fake.answer(["git", "-C", str(repo_dir), "fetch"], ProcessAnswer())
+    git_fake.answer(["git", "-C", str(repo_dir), "pull"], ProcessAnswer())
+
+
+def _sync_workspace(
+    tmp_path: Path, git_fake: GitFake, config: Callable[..., Path]
+) -> tuple[Path, list[Path], Path]:
+    """A workspace with two repositories, and the workspace file of the settings."""
+    repos_dir = (tmp_path / "repos").resolve()
+    repo_dirs = [repos_dir / "group" / "alpha", repos_dir / "group" / "beta"]
+    for repo_dir in repo_dirs:
+        _answer_tracking_repo(git_fake, repo_dir)
+    ws_file = tmp_path / "ws.code-workspace"
+    config(workspace={"file": str(ws_file)})
+    return repos_dir, repo_dirs, ws_file
+
+
+def _external_calls(fake: ProcessFake) -> list[str]:
+    """Each recorded command that is not a read of the local repository, as one line."""
+    return [" ".join(call.argv) for call in fake.calls if not call.local_read]
+
+
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    import re
+
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+def test_repos_dry_run_classes() -> None:
+    """Each repos command carries the dry-run class of what it reaches."""
+    from devops_cli.commands import repos
+    from devops_cli.dry_run.decorator import get_dry_run_class
+
+    for callback in (repos.update, repos.worktrees_prune, repos.clone, repos.clone_org):
+        assert get_dry_run_class(callback) == "request-plan"
+    for callback in (repos.list_repos, repos.worktrees_status):
+        assert get_dry_run_class(callback) == "no-external-request"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["repos", "sync", "--dry-run"],
+        ["repos", "update", "--dry-run"],
+        ["--dry-run", "repos", "sync"],
+    ],
+)
+def test_repos_sync_dry_run_lists_the_fetches_pulls_and_reload(
+    tmp_path: Path,
+    git_fake: GitFake,
+    config: Callable[..., Path],
+    cli: Callable[..., Any],
+    argv: list[str],
+) -> None:
+    """A dry run reads the local repositories, makes no request, and lists the requests."""
+    repos_dir, (alpha, beta), ws_file = _sync_workspace(tmp_path, git_fake, config)
+
+    result = cli([*argv, "--base-dir", str(repos_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert _external_calls(git_fake) == []
+    assert not ws_file.exists()
+    assert _plan_lines(result.output) == [
+        f"git -C {alpha} fetch --prune origin",
+        f"git -C {alpha} pull origin main",
+        f"git -C {beta} fetch --prune origin",
+        f"git -C {beta} pull origin main",
+        f"code --reuse-window -- {ws_file}",
+    ]
+
+
+def test_repos_sync_dry_run_without_pull_lists_no_pull(
+    tmp_path: Path, git_fake: GitFake, config: Callable[..., Path], cli: Callable[..., Any]
+) -> None:
+    """`--no-pull` leaves the pulls out of the plan, as it leaves them out of the run."""
+    repos_dir, _repo_dirs, _ws_file = _sync_workspace(tmp_path, git_fake, config)
+
+    result = cli(["--dry-run", "repos", "update", "--no-pull", "--base-dir", str(repos_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert not [line for line in _plan_lines(result.output) if " pull " in line]
+
+
+def test_repos_sync_runs_the_requests_of_its_plan(
+    tmp_path: Path, git_fake: GitFake, config: Callable[..., Path], cli: Callable[..., Any]
+) -> None:
+    """The real run starts the commands of the plan, in the same order."""
+    repos_dir, _repo_dirs, _ws_file = _sync_workspace(tmp_path, git_fake, config)
+    planned = _plan_lines(cli(["repos", "sync", "--dry-run", "--base-dir", str(repos_dir)]).output)
+    git_fake.calls.clear()
+
+    result = cli(["repos", "sync", "--base-dir", str(repos_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert _external_calls(git_fake) == planned
+
+
+def test_repos_list_runs_under_the_dry_run_flag(
+    tmp_path: Path, git_fake: GitFake, cli: Callable[..., Any]
+) -> None:
+    """`repos list` reads only the local repositories, so `devops --dry-run` runs it."""
+    repos_dir = (tmp_path / "repos").resolve()
+    repo_dir = repos_dir / "group" / "alpha"
+    _answer_tracking_repo(git_fake, repo_dir)
+
+    result = cli(["--dry-run", "repos", "list", "--base-dir", str(repos_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "alpha" in result.output
+    assert "main" in result.output
+    assert _external_calls(git_fake) == []
+
+
+def test_repos_list_has_no_dry_run_option(cli: Callable[..., Any]) -> None:
+    """`repos list` makes no request, so it has no preview to offer."""
+    result = cli(["repos", "list", "--dry-run"])
+
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+
+
+_CLONE_URL = "https://github.com/example-org/app.git"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["repos", "clone", _CLONE_URL, "--dry-run"],
+        ["--dry-run", "repos", "clone", _CLONE_URL],
+    ],
+)
+def test_repos_clone_dry_run_lists_the_clone_and_reload(
+    tmp_path: Path,
+    git_fake: GitFake,
+    known_hosts: Path,
+    config: Callable[..., Path],
+    cli: Callable[..., Any],
+    argv: list[str],
+) -> None:
+    """A dry run clones nothing, writes no host key, and lists the clone and the reload."""
+    repos_dir = (tmp_path / "repos").resolve()
+    repos_dir.mkdir()
+    ws_file = tmp_path / "ws.code-workspace"
+    config(workspace={"file": str(ws_file)})
+
+    result = cli([*argv, "--base-dir", str(repos_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert git_fake.calls == []
+    assert list(repos_dir.iterdir()) == []
+    assert not known_hosts.exists()
+    assert _plan_lines(result.output) == [
+        f"git clone -- {_CLONE_URL} {repos_dir / 'example-org' / 'app'}",
+        f"code --reuse-window -- {ws_file}",
+    ]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["repos", "clone", "--dry-run", "--", "-bad"],
+        ["--dry-run", "repos", "clone", "--", "-bad"],
+    ],
+)
+def test_repos_clone_dry_run_refuses_what_a_run_refuses(
+    git_fake: GitFake, cli: Callable[..., Any], argv: list[str]
+) -> None:
+    """A URL that starts with a hyphen ends the dry run as it ends the run."""
+    result = cli(argv)
+
+    assert result.exit_code == 1
+    assert "Invalid repository URL: must not start with a hyphen." in result.output
+    assert _plan_lines(result.output) == []
+
+
+def test_repos_clone_runs_the_requests_of_its_plan(
+    tmp_path: Path,
+    git_fake: GitFake,
+    known_hosts: Path,
+    config: Callable[..., Path],
+    cli: Callable[..., Any],
+) -> None:
+    """The real run starts the commands of the plan, in the same order."""
+    repos_dir = (tmp_path / "repos").resolve()
+    repos_dir.mkdir()
+    config(workspace={"file": str(tmp_path / "ws.code-workspace")})
+    git_fake.answer(["git", "clone"], ProcessAnswer())
+    argv = ["repos", "clone", _CLONE_URL, "--base-dir", str(repos_dir)]
+    planned = _plan_lines(cli([*argv, "--dry-run"]).output)
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert _external_calls(git_fake) == planned
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["repos", "clone-org", "example-org", "--dry-run"],
+        ["--dry-run", "repos", "clone-org", "example-org"],
+    ],
+)
+def test_repos_clone_org_dry_run_lists_the_listing_and_the_clones(
+    tmp_path: Path,
+    process_fake: ProcessFake,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    cli: Callable[..., Any],
+    argv: list[str],
+) -> None:
+    """A dry run sends GitHub nothing, starts nothing, and lists the requests of the run."""
+    repos_dir = (tmp_path / "repos").resolve()
+    ws_file = tmp_path / "ws.code-workspace"
+    config(workspace={"file": str(ws_file)})
+
+    result = cli([*argv, "--base-dir", str(repos_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert (github_api.requested, process_fake.calls) == ([], [])
+    assert not repos_dir.exists()
+    lines = _plan_lines(result.output)
+    assert lines[0] == f"GET {_ORG_REPOS}  [repeated for each next page of the listing]"
+    assert lines[1].startswith("GET /user  [only if GitHub answers 404")
+    assert lines[2].startswith("GET /user/repos?affiliation=owner&visibility=all")
+    assert lines[3].startswith(
+        "git clone -- 'https://github.com/<owner>/<repo>.git' "
+        f"'{repos_dir / 'example-org' / '<repo>'}'"
+    )
+    assert "[repeated for each listed repository" in lines[3]
+    assert lines[4] == f"code --reuse-window -- {ws_file}"
+
+
+def test_repos_clone_org_dry_run_refuses_a_path_traversal(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """An organization name that leaves the base directory ends the dry run as it ends a run."""
+    result = cli(["repos", "clone-org", "../escaped-org", "--dry-run"])
+
+    assert (result.exit_code, github_api.requested) == (1, [])
+
+
+def test_repos_clone_org_runs_the_requests_of_its_plan(
+    tmp_path: Path,
+    git_fake: GitFake,
+    known_hosts: Path,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    cli: Callable[..., Any],
+) -> None:
+    """The run reads the listing of the plan, then clones the one listed repository."""
+    active_repo = _recorded_repositories()[0]
+    github_api.route("GET", _ORG_REPOS, github_json([active_repo]))
+    git_fake.answer(["git", "clone"], ProcessAnswer())
+    repos_dir = (tmp_path / "repos").resolve()
+    config(workspace={"file": str(tmp_path / "ws.code-workspace")})
+    argv = ["repos", "clone-org", "example-org", "--base-dir", str(repos_dir)]
+    planned = cli([*argv, "--dry-run"]).output
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    lines = _plan_lines(planned)
+    assert github_api.requested == [f"GET https://api.github.com{lines[0].split()[1]}"]
+    dest = repos_dir / "example-org" / active_repo["name"]
+    clone_line = lines[3].split("  [")[0]
+    clone_line = clone_line.replace(
+        "'https://github.com/<owner>/<repo>.git'", active_repo["clone_url"]
+    )
+    clone_line = clone_line.replace(f"'{repos_dir / 'example-org' / '<repo>'}'", str(dest))
+    assert _external_calls(git_fake) == [clone_line, lines[4]]

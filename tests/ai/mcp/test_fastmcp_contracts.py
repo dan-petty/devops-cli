@@ -86,8 +86,6 @@ def test_fastmcp_tools_registration() -> None:
         "scan_aibom",
         "scan_sbom",
         # TLS & Certificates
-        "tls_ca",
-        "tls_cert",
         "tls_inspect",
         # AI Architecture & AST
         "ai_repomap",
