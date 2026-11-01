@@ -307,4 +307,25 @@ devops roadmap eval stage [OPTIONS]
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
 | `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
 
+### `devops roadmap eval implement`
+
+**Run one step of each fixture of the implement job in a scratch clone of this repository at the base commit of the fixture, with the chosen model, through the same step that the Job runs. Then evaluate six properties of the result: the tests it names pass, no test is deleted or renamed, the diff touches only the paths of the Changes line of the group, the verification commands of the group pass, no scratch file is in the diff, and the tasks of the group are ticked. The report lists the properties, the tokens, the model requests, the tool calls and the wall time of each fixture, and the property that failed first. A run writes a JSON report under eval/implement of the data directory. The command reads no GitHub state, writes none and pushes nothing. A change to the implement prompt or tool set states the score before and after.**
+
+```bash
+devops roadmap eval implement [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fixture`, `-F` | `string` | - | Run only the fixture with this name. Repeat the option. Without it, run every fixture. |
+| `--fixtures` | `path` | - | Folder of the fixtures. Without it, the command uses tests/fixtures/roadmap_eval/implement of this checkout. |
+| `--source` | `path` | - | Path to the clone of the repository to clone from. It must hold the base commit of each fixture. Without it, the command uses this checkout. |
+| `--model`, `-m` | `string` | - | Model for the step, in place of the model of the task ai.tasks.implement. |
+| `--json` | `boolean` | - | Print the report as JSON. |
+| `--dry-run` | `boolean` | - | Make no request: list the fixtures and the model requests of the steps. Nothing is cloned and no model runs. |
+| `--check-only` | `boolean` | - | Make no model call: evaluate the four properties that a diff decides on each recorded result of each fixture, and exit 1 when a result fails other properties than its record says. This is the offline mode. |
+| `--run-commands` | `boolean` | - | With --check-only: clone the base, apply each recorded diff and run the two properties that run commands. |
+
 ---

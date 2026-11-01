@@ -1,0 +1,25 @@
+{
+  "name": "2175-dead-code-first-plan-group-2",
+  "source": "The first plan of #2175, group 2, and the diff of the stop at group 2 (a scratch file in the checkout root, all tasks ticked, no work).",
+  "issue": 2175,
+  "title": "refactor(cli): the five functions and properties that nothing calls and that #1910 does not list leave src",
+  "group": 2,
+  "change": "2175-the-five-functions-and-properties-that",
+  "base": "f8b65bd214937eaf68a3fbd9630dfebd5697fd30",
+  "changes": [
+    "src/devops_cli/ai/client/unified.py"
+  ],
+  "tests_pass": [],
+  "allow_lost_tests": [],
+  "results": [
+    {
+      "name": "stopped-with-scratch-file",
+      "source": "The diff that the Job comment of #2175 kept for the stop at group 2 (the failure that #3007 answers).",
+      "diff": "stopped-with-scratch-file.diff",
+      "fails": [
+        "diff_scope",
+        "no_scratch"
+      ]
+    }
+  ]
+}

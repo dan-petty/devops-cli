@@ -1,0 +1,26 @@
+{
+  "name": "2739-gh-telemetry-url-corrected-plan",
+  "source": "The corrected plan and the merged delivery of #2739 (pull request 2901). The plan names tests/core/test_subprocess_env_telemetry.py, the file that the delivery changed.",
+  "issue": 2739,
+  "title": "fix(security): the subprocess environment guard accepts GH_TELEMETRY_ENDPOINT_URL, which sends gh telemetry to a caller URL",
+  "group": 1,
+  "change": "2739-the-subprocess-environment-guard-accepts-gh",
+  "base": "17c52957f30e13480024254953082204b1fe5a6f",
+  "changes": [
+    "src/devops_cli/config/constants.py",
+    "src/devops_cli/core/process.py",
+    "tests/core/test_subprocess_env_telemetry.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/core/test_subprocess_env_telemetry.py"
+  ],
+  "allow_lost_tests": [],
+  "results": [
+    {
+      "name": "delivered",
+      "source": "The squash commit a5082031 of pull request 2901, cut to the code, the tests and the ticks of group 1.",
+      "diff": "delivered.diff",
+      "fails": []
+    }
+  ]
+}

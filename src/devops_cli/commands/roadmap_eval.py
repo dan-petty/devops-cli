@@ -9,9 +9,11 @@ line. `commands/roadmap.py` registers the group once.
 
 from __future__ import annotations
 
+from devops_cli.commands.roadmap_eval_implement import implement_cmd
 from devops_cli.commands.roadmap_eval_stage import eval_stage_cmd
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP
 
 eval_app = new_typer(help=HELP.roadmap.eval_app, no_args_is_help=True)
 eval_app.command("stage", help=HELP.roadmap.eval_stage)(eval_stage_cmd)
+eval_app.command("implement", help=HELP.roadmap.eval_implement)(implement_cmd)

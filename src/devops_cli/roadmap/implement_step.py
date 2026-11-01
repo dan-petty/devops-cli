@@ -25,12 +25,12 @@ import subprocess
 import tempfile
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
@@ -118,10 +118,18 @@ from devops_cli.roadmap.step_files import (
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.store import Item, RoadmapStore
+    from devops_cli.roadmap.store import Item
 
 _CHANGE_DOCUMENTS = ("proposal.md", "design.md", "tasks.md")
 _PROMPT = "roadmap_implement_step.md"
+
+
+class ItemReader(Protocol):
+    """What a step reads of the roadmap: the item of an issue number. `RoadmapStore` satisfies it,
+    and so does the item of an evaluation fixture (#3030)."""
+
+    def item(self, number: int) -> Item | None:
+        """The item numbered `number`, or None when that issue is no item."""
 
 
 def section_text(body: str, titles: frozenset[str]) -> str:
@@ -255,7 +263,7 @@ def _tasks_file_section(source: Path, change: Path, fix: FixRequest | None) -> s
 
 
 def build_step_inputs(
-    store: RoadmapStore,
+    store: ItemReader,
     *,
     item: int,
     group: int,
@@ -331,7 +339,8 @@ class StepOutcome(BaseModel):
     (#2758), or the first exit check that failed. `commit` is the commit of a done step. `diff` is
     the diff of the work that a stopped step discarded, with secrets masked and cut to
     `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, and `diff_cut` says that it was cut (#2721).
-    `planned_requests` are the requests a dry run lists."""
+    `tool_calls` counts the tool calls of the replies (#3030). `planned_requests` are the requests
+    a dry run lists."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -345,6 +354,7 @@ class StepOutcome(BaseModel):
     diff: str = ""
     diff_cut: bool = False
     requests: int = 0
+    tool_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     dry_run: bool = False
@@ -446,6 +456,7 @@ class _Run:
     requests: int
     input_tokens: int
     output_tokens: int
+    tool_calls: int = 0
     conversation: Conversation | None = None
     resend: Conversation | None = None
 
@@ -458,6 +469,7 @@ class _Run:
             requests=self.requests + later.requests,
             input_tokens=self.input_tokens + later.input_tokens,
             output_tokens=self.output_tokens + later.output_tokens,
+            tool_calls=self.tool_calls + later.tool_calls,
             conversation=later.conversation,
             resend=later.resend,
         )
@@ -545,9 +557,8 @@ def _resend_after(
     if not _generation_failed(failed) or not kept or isinstance(kept[-1], ModelResponse):
         return None
     replies = _new_replies(kept, conversation)
-    calls = sum(isinstance(part, ToolCallPart) for reply in replies for part in reply.parts)
     spent = (conversation.usage if conversation else RunUsage()) + RunUsage(
-        requests=len(replies) + 1, tool_calls=calls
+        requests=len(replies) + 1, tool_calls=_tool_calls(replies)
     )
     for reply in replies:
         spent.incr(reply.usage)
@@ -629,9 +640,15 @@ def _run_turn(
         requests=len(replies),
         input_tokens=sum(reply.usage.input_tokens for reply in replies),
         output_tokens=sum(reply.usage.output_tokens for reply in replies),
+        tool_calls=_tool_calls(replies),
         conversation=kept,
         resend=resend,
     )
+
+
+def _tool_calls(replies: Sequence[ModelResponse]) -> int:
+    """The tool calls that `replies` make."""
+    return sum(isinstance(part, ToolCallPart) for reply in replies for part in reply.parts)
 
 
 def _new_replies(
@@ -789,11 +806,12 @@ def _command_failure(source: Path, argv: Sequence[str], shown: str) -> str | Non
     )
 
 
-def _verification_failure(source: Path, group: TaskGroup) -> str | None:
-    """Run each verification command of the group, from the tasks as they were before the run.
-    A command whose program is not on the allowlist does not run."""
+def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
+    """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
+    that did not stops the run. A command whose program is not on the allowlist does not run. The
+    step runs the verification commands of a group, from the tasks as they were before the run."""
     texts = MESSAGES.roadmap
-    for command in group.verification_commands:
+    for command in commands:
         try:
             argv = shlex.split(command)
         except ValueError:
@@ -925,7 +943,9 @@ def _exit_failure(source: Path, inputs: StepInputs, start: str) -> _Failure | No
     lost = _tests_failure(source, start)
     if lost:
         return _Failure(lost)
-    early = _format_failure(source, changed) or _verification_failure(source, inputs.group)
+    early = _format_failure(source, changed) or commands_failure(
+        source, inputs.group.verification_commands
+    )
     if early:
         return _Failure(early)
     static = _static_failure(source, changed)
@@ -1099,6 +1119,7 @@ def _attempt(
         status=StepStatus.STOPPED,
         last_message=run.last_message,
         requests=run.requests,
+        tool_calls=run.tool_calls,
         input_tokens=run.input_tokens,
         output_tokens=run.output_tokens,
     )
@@ -1113,7 +1134,7 @@ def _attempt(
 
 
 def run_step(
-    store: RoadmapStore,
+    store: ItemReader,
     *,
     item: int,
     group: int,
@@ -1145,7 +1166,7 @@ def run_step(
 
 
 def run_fix_step(
-    store: RoadmapStore, *, item: int, fix: FixRequest, source: Path, model: Any, window: int
+    store: ItemReader, *, item: int, fix: FixRequest, source: Path, model: Any, window: int
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits as `<that title> (#<item>)` when the
@@ -1210,6 +1231,7 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
         labels["reason"]: escape_text(outcome.reason),
         labels["commit"]: outcome.commit,
         labels["requests"]: str(outcome.requests),
+        labels["tool_calls"]: str(outcome.tool_calls),
         labels["input_tokens"]: str(outcome.input_tokens),
         labels["output_tokens"]: str(outcome.output_tokens),
         labels["last_message"]: escape_text(outcome.last_message),

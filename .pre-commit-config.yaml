@@ -21,8 +21,9 @@ repos:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md, --markdown-linebreak-ext=markdown]
         # syrupy writes a blank line of a snapshot as its two-space indent; trimming it breaks the
-        # snapshot, which is regenerated, never edited (docs/TESTING.md).
-        exclude: (^|/)__snapshots__/
+        # snapshot, which is regenerated, never edited (docs/TESTING.md). A blank line of a
+        # recorded diff is one space, and trimming it changes the record (#3030).
+        exclude: (^|/)__snapshots__/|^tests/fixtures/roadmap_eval/.*\.diff$
         stages: [pre-commit]
       - id: end-of-file-fixer
         stages: [pre-commit]

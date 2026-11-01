@@ -1,0 +1,19 @@
+{
+  "name": "2152-numeric-host-doubles",
+  "source": "The corrected plan of #2152 (pull request 3081), group 1: an edit of tests only. No run has used it yet.",
+  "issue": 2152,
+  "title": "refactor(security): the egress checks read legacy numeric hosts with getaddrinfo and AI_NUMERICHOST, and the hand-written ipv4 parser goes",
+  "group": 1,
+  "change": "2152-the-egress-checks-read-legacy-numeric",
+  "base": "e275249ed92a8fa9949dd4201f779b56bb099917",
+  "changes": [
+    "tests/web_fakes.py",
+    "tests/security/test_reference_address_classes.py",
+    "tests/security/test_reference_extraction.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/security/test_reference_address_classes.py tests/security/test_reference_extraction.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

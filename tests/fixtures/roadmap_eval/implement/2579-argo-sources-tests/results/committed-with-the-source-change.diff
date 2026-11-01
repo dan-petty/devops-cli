@@ -1,0 +1,173 @@
+diff --git a/openspec/changes/2579-devops-argo-cd-apps-list-shows/tasks.md b/openspec/changes/2579-devops-argo-cd-apps-list-shows/tasks.md
+index dc559a3c..feaeac9b 100644
+--- a/openspec/changes/2579-devops-argo-cd-apps-list-shows/tasks.md
++++ b/openspec/changes/2579-devops-argo-cd-apps-list-shows/tasks.md
+@@ -4,9 +4,9 @@
+ 
+ Reads: none. Changes: `tests/test_models_argo.py`.
+ 
+-- [ ] 1.1 Write three tests: (1) ArgoCDApp.from_api_item with spec.source.repoURL set and spec.sources absent returns that URL; (2) ArgoCDApp.from_api_item with spec.sources as a non-empty list and spec.source absent returns spec.sources[0].repoURL; (3) ArgoCDApp.from_api_item with neither field returns empty string. Repeat the same three for ArgoResourceState.from_manifest, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
+-- [ ] 1.2 Add the test functions to tests/test_models_argo.py. Each test builds a minimal dict payload and asserts the repo_url field of the returned model, and verify that `uv run devops ci test tests/test_models_argo.py` passes
+-- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++- [x] 1.1 Write three tests: (1) ArgoCDApp.from_api_item with spec.source.repoURL set and spec.sources absent returns that URL; (2) ArgoCDApp.from_api_item with spec.sources as a non-empty list and spec.source absent returns spec.sources[0].repoURL; (3) ArgoCDApp.from_api_item with neither field returns empty string. Repeat the same three for ArgoResourceState.from_manifest, and verify that `uv run devops ci test tests/test_models_argo.py` fails on the base
++- [x] 1.2 Add the test functions to tests/test_models_argo.py. Each test builds a minimal dict payload and asserts the repo_url field of the returned model, and verify that `uv run devops ci test tests/test_models_argo.py` passes
++- [x] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+ 
+ ## 2. Add spec.sources fallback to ArgoCDApp and ArgoResourceState
+ 
+diff --git a/src/devops_cli/models/argo.py b/src/devops_cli/models/argo.py
+index ea51216a..3fd1594c 100644
+--- a/src/devops_cli/models/argo.py
++++ b/src/devops_cli/models/argo.py
+@@ -38,6 +38,15 @@ class ArgoCDApp(BaseModel):
+         source = spec.get("source", {})
+         if not isinstance(source, dict):
+             source = {}
++
++        # Fallback to spec.sources[0].repoURL if spec.source.repoURL is not set
++        if not source.get("repoURL"):
++            sources = spec.get("sources")
++            if isinstance(sources, list) and sources:
++                first_source = sources[0]
++                if isinstance(first_source, dict):
++                    source = first_source
++
+         return cls(
+             name=str(meta.get("name", "")),
+             project=str(spec.get("project", "")),
+@@ -154,6 +163,18 @@ class ArgoResourceState(BaseModel):
+         spec = _section(manifest, "spec")
+         status = _section(manifest, "status")
+         sync = _section(status, "sync")
++
++        # Get source section
++        source = _section(spec, "source")
++
++        # Fallback to spec.sources[0].repoURL if spec.source.repoURL is not set
++        if not source.get("repoURL"):
++            sources = spec.get("sources")
++            if isinstance(sources, list) and sources:
++                first_source = sources[0]
++                if isinstance(first_source, dict):
++                    source = first_source
++
+         return cls(
+             name=str(meta.get("name", "")),
+             namespace=str(meta.get("namespace", "")),
+@@ -162,7 +183,7 @@ class ArgoResourceState(BaseModel):
+             sync_status=str(sync.get("status", "Unknown")),
+             health_status=str(_section(status, "health").get("status", "Unknown")),
+             revision=str(sync.get("revision", ""))[:8],
+-            repo_url=str(_section(spec, "source").get("repoURL", "")),
++            repo_url=str(source.get("repoURL", "")),
+             created_at=str(meta.get("creationTimestamp", "")),
+         )
+ 
+diff --git a/tests/test_models_argo.py b/tests/test_models_argo.py
+new file mode 100644
+index 00000000..f5f77038
+--- /dev/null
++++ b/tests/test_models_argo.py
+@@ -0,0 +1,102 @@
++"""Tests for Argo CD models."""
++
++from devops_cli.models.argo import ArgoCDApp, ArgoResourceState
++
++
++def test_argocd_app_from_api_item_single_source() -> None:
++    """Test that ArgoCDApp.from_api_item reads repoURL from spec.source when present."""
++    item = {
++        "metadata": {"name": "test-app"},
++        "spec": {"source": {"repoURL": "https://github.com/example/test-repo.git"}},
++        "status": {
++            "sync": {"status": "Synced", "revision": "abc123"},
++            "health": {"status": "Healthy"},
++        },
++    }
++
++    app = ArgoCDApp.from_api_item(item)
++    assert app.repo_url == "https://github.com/example/test-repo.git"
++
++
++def test_argocd_app_from_api_item_multi_source() -> None:
++    """Test that ArgoCDApp.from_api_item falls back to spec.sources[0].repoURL when spec.source is absent."""
++    item = {
++        "metadata": {"name": "test-app"},
++        "spec": {"sources": [{"repoURL": "https://github.com/example/test-repo.git"}]},
++        "status": {
++            "sync": {"status": "Synced", "revision": "abc123"},
++            "health": {"status": "Healthy"},
++        },
++    }
++
++    app = ArgoCDApp.from_api_item(item)
++    assert app.repo_url == "https://github.com/example/test-repo.git"
++
++
++def test_argocd_app_from_api_item_no_source() -> None:
++    """Test that ArgoCDApp.from_api_item returns empty string when neither spec.source nor spec.sources is present."""
++    item = {
++        "metadata": {"name": "test-app"},
++        "spec": {},
++        "status": {
++            "sync": {"status": "Synced", "revision": "abc123"},
++            "health": {"status": "Healthy"},
++        },
++    }
++
++    app = ArgoCDApp.from_api_item(item)
++    assert app.repo_url == ""
++
++
++def test_argocd_resource_state_from_manifest_single_source() -> None:
++    """Test that ArgoResourceState.from_manifest reads repoURL from spec.source when present."""
++    manifest = {
++        "metadata": {"name": "test-app", "namespace": "argocd"},
++        "spec": {
++            "source": {"repoURL": "https://github.com/example/test-repo.git"},
++            "project": "test-project",
++        },
++        "status": {
++            "sync": {"status": "Synced", "revision": "abc123"},
++            "health": {"status": "Healthy"},
++        },
++        "kind": "Application",
++    }
++
++    state = ArgoResourceState.from_manifest(manifest)
++    assert state.repo_url == "https://github.com/example/test-repo.git"
++
++
++def test_argocd_resource_state_from_manifest_multi_source() -> None:
++    """Test that ArgoResourceState.from_manifest falls back to spec.sources[0].repoURL when spec.source is absent."""
++    manifest = {
++        "metadata": {"name": "test-app", "namespace": "argocd"},
++        "spec": {
++            "sources": [{"repoURL": "https://github.com/example/test-repo.git"}],
++            "project": "test-project",
++        },
++        "status": {
++            "sync": {"status": "Synced", "revision": "abc123"},
++            "health": {"status": "Healthy"},
++        },
++        "kind": "Application",
++    }
++
++    state = ArgoResourceState.from_manifest(manifest)
++    assert state.repo_url == "https://github.com/example/test-repo.git"
++
++
++def test_argocd_resource_state_from_manifest_no_source() -> None:
++    """Test that ArgoResourceState.from_manifest returns empty string when neither spec.source nor spec.sources is present."""
++    manifest = {
++        "metadata": {"name": "test-app", "namespace": "argocd"},
++        "spec": {"project": "test-project"},
++        "status": {
++            "sync": {"status": "Synced", "revision": "abc123"},
++            "health": {"status": "Healthy"},
++        },
++        "kind": "Application",
++    }
++
++    state = ArgoResourceState.from_manifest(manifest)
++    assert state.repo_url == ""

@@ -1,0 +1,32 @@
+diff --git a/tests/core/test_subprocess_env_boundary.py b/tests/core/test_subprocess_env_boundary.py
+index d8c42f8f..62adb634 100644
+--- a/tests/core/test_subprocess_env_boundary.py
++++ b/tests/core/test_subprocess_env_boundary.py
+@@ -248,6 +248,7 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
+     "PAGER",
+     "LESSOPEN",
+     "LESSCLOSE",
++    "LESS",
+     "SSH_ASKPASS",
+     "SSH_ASKPASS_REQUIRE",
+     "SSH_SK_PROVIDER",
+diff --git a/tmp_test_addition.py b/tmp_test_addition.py
+new file mode 100644
+index 00000000..3ac3aea8
+--- /dev/null
++++ b/tmp_test_addition.py
+@@ -0,0 +1,13 @@
++def test_build_subprocess_env_less_security() -> None:
++    """Verify that LESS environment variable is refused for security reasons."""
++    # Test that LESS is refused with a SecurityError
++    with pytest.raises(SecurityError, match="Prohibited dangerous environment variable override: 'LESS'"):
++        build_subprocess_env(env={"LESS": "+!x\\n"})
++    
++    # Test that LESS with isolation disabled is also refused  
++    with pytest.raises(SecurityError, match="Prohibited dangerous environment variable override: 'LESS'"):
++        build_subprocess_env(env={"LESS": "+!x\\n"}, isolate_env=False)
++
++    # Verify that LESSOPEN still raises SecurityError (regression test)
++    with pytest.raises(SecurityError, match="Prohibited dangerous environment variable override: 'LESSOPEN'"):
++        build_subprocess_env(env={"LESSOPEN": "|x %s"})
+\ No newline at end of file

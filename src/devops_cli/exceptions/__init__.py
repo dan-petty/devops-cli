@@ -42,6 +42,7 @@ from devops_cli.exceptions.k8s import (
     KubernetesLoggingError,
 )
 from devops_cli.exceptions.roadmap import (
+    ImplementEvalError,
     RoadmapAlternativesError,
     RoadmapClaimError,
     RoadmapImplementError,
@@ -126,6 +127,7 @@ __all__ = [
     "GitHubUnauthenticatedError",
     "GitHubUnreadError",
     "GitOperationError",
+    "ImplementEvalError",
     "InvalidBranchNameError",
     "InvalidURLError",
     "KeyringUnavailableError",

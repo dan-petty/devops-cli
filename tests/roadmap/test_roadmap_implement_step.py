@@ -278,6 +278,17 @@ def test_a_group_that_the_agent_completes_ends_done_with_one_commit(
     )
 
 
+def test_the_outcome_counts_the_tool_calls_of_all_replies(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    test_call, code_call, tick_call = the_whole_group()
+    script = ModelScript(tool_calls(test_call, code_call), tool_calls(tick_call), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.requests, outcome.tool_calls) == (StepStatus.DONE, 3, 3)
+
+
 def test_the_exit_checks_format_first_run_each_command_once_then_the_static_checks_on_the_changed_files(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
