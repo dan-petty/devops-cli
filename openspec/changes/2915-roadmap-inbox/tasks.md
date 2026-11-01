@@ -23,9 +23,9 @@
 
 ## 4. The documents and the archive
 
-- [ ] 4.1 Regenerate the command documents
+- [x] 4.1 Regenerate the command documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
-- [ ] 4.2 Name `devops roadmap inbox` in `docs/ROADMAP_WORKFLOW.md` and remove the line of #2915 from "Planned changes"
+- [x] 4.2 Name `devops roadmap inbox` in `docs/ROADMAP_WORKFLOW.md` and remove the line of #2915 from "Planned changes"
   - Verification: `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py`
 - [ ] 4.3 Archive the change
   - Verification: `uv run devops openspec archive 2915-roadmap-inbox`

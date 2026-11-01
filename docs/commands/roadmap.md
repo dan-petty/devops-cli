@@ -186,6 +186,23 @@ devops roadmap explain [OPTIONS] <item>
 
 ---
 
+## `devops roadmap inbox`
+
+**List what waits for a person, each line with its number, its age and the one command or action that clears it. The order is: ready plan pull requests of the jobs (G1), ready implementation pull requests of the jobs (G2), the open release pull request (G3), items in status/blocked with their cause, claims with no activity for 7 days, and labels of .github/labels.yml that the repository lacks. A second list holds the other open pull requests, those of people and agents, with drafts marked. The age is the time since the last update. A draft of a job and a pull request that a runner Job holds are not listed. The command reads the open issues, the open pull requests, the labels and the labels file, and the newest commit of that file when the labels differ. It calls no model and writes nothing. It leaves out an image digest that is not rolled yet: run devops argo cd apps status devops.**
+
+```bash
+devops roadmap inbox [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
+
+---
+
 ## `devops roadmap return`
 
 **Return an item to New with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. The item gets the label status/new in place of its other status/* label.**
