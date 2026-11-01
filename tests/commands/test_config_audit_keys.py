@@ -73,7 +73,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 19)
+    ) == (True, True, True, 21)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
