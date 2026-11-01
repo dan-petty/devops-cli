@@ -5,6 +5,7 @@
 - **Measure first, then pick the lever.**: The issue asks for the change with the largest measured share, so the plan does not name the lever before the numbers exist. Group 1 measures. Group 2 picks from the table below. Group 3 applies one row.
 - **Measure CPU time, not wall time.**: The shell `time` of the controller counts the user and system time of its worker children. Wall time moved from 3 m 28 s to 6 m 27 s on one suite when the host was loaded (#2356). CPU time moves less.
 - **Measure a plain run, `uv run pytest`.**: The coverage cost is the work of #2373. A plain run keeps this change apart from it. `--cov` stays out of both the before and the after runs.
+- **Run the measurement with plain `uv run pytest`.**: Tasks 1.1 and 1.3 are measurement runs and not verification. `devops ci test` cannot load a scratch plugin, so these runs use the plain pytest command with the same `addopts`. The verify step of 1.1 reads the output file. Verification runs in the other groups use `uv run devops ci test`.
 - **Keep the measuring plugin out of git.**: It is a scratch file of about 40 lines. Nothing in the repository reads it. A committed plugin would be a tool to keep for one measurement.
 - **Stop when no candidate can reach 5%.**: AGENTS.md rule 2 says to write no compensating code when the premise fails. If the numbers of group 1 show that no row of the table can lower the CPU time of a full run by 5%, group 2 stops. The implementer then returns the item to New with the figures: `uv run devops roadmap return 2371 --comment "<figures>" --confirm`.
 
