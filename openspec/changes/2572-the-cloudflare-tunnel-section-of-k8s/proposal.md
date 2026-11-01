@@ -14,15 +14,15 @@ Issue #2572: the Cloudflare tunnel section of `k8s/README.md` writes the public 
 
 ## Acceptance
 
-- "No `homelab.<domain>` host form remains in `k8s/README.md` unless an Ingress in `k8s/` uses it": group 1 (README edit). The only Ingress host with `homelab.` is `homelab.example.com` (an alias of Open WebUI); the section never names it.
-- "The test fails on the current text and passes after the fix": group 1 (tasks 1.2 and 1.4).
+- "No `homelab.<domain>` host form remains in `k8s/README.md` unless an Ingress in `k8s/` uses it": group 2 (task 2.2, README edit). The only Ingress host with `homelab.` is `homelab.example.com` (an alias of Open WebUI); the section never names it.
+- "The test fails on the current text and passes after the fix": group 2 (task 2.1 fails on the current text, task 2.2 passes after the edit).
 - Pending a person: the check of the live Cloudflare dashboard. No offline command reads it.
 
 ## Impact
 
 - Documents: `k8s/README.md` (lines 1131 to 1223 only).
 - Tests: `tests/invariants/test_k8s_manifests.py`.
-- Code that the change must keep: the helper `_hosts`, the test `test_kustomize_applies_the_overrides_to_every_host_the_application_renders` and the test `test_readme_lists_the_table` in the same file. The anchor `#cloudflare-wildcard-tunnel--ingress-routing` (linked from line 54 and from `k8s/ingress/ingress-routes.yaml`) stays, so the heading text stays.
+- Code that the change must keep: the helper `_hosts`, the test `test_kustomize_applies_the_overrides_to_every_host_the_application_renders` and the test `test_readme_lists_the_table` in the same file. The anchor `#cloudflare-wildcard-tunnel--ingress-routing` (linked from `k8s/README.md` line 54) stays, so the heading text stays.
 
 ## Feasibility
 
