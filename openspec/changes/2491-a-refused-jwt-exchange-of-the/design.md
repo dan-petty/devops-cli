@@ -2,10 +2,13 @@
 
 ## Decisions
 
-- **Override the 401 reason in `mint_installation_token`, following the existing 422 pattern**: The function already overrides the 422 reason with App-specific text. Adding a 401 override follows the same pattern and keeps App logic in the App module. The generic `_unauthenticated_error` is correct for gh sessions where `gh auth login` is the right advice.
-- **Include GitHub's reason from the response body in the 401 message**: The spec requirement says the error SHALL name the reason. The issue confirms that "the reason" means GitHub's actual message from the response, not a generic instruction. The 422 case already includes GitHub's text.
+- **Override the 401 reason in `mint_installation_token`, as the 422 case does**: the function already replaces the 422 reason with App-specific text. A 401 branch keeps the App logic in the App module. The generic `_unauthenticated_error` stays right for gh sessions, where `gh auth login` is the correct advice.
+- **Build the reason from a new constant `ERRORS.git.github_app_jwt_refused`**: "GitHub refused the App's JWT for {request} (HTTP 401): {reason}". `{request}` is `POST` and `_token_path(app)`. `{reason}` is `str(error)` cut to `CONST_MAX_ERROR_DETAIL_LENGTH`, as `_refused_error` cuts it.
+- **Put no "check the App ID" advice in the new constant**: `_token_failed` adds it to every reason through `github_app_token_failed`. A second copy would show the sentence twice. The whole-message test pins that it shows once.
+- **Keep `str(error)` for GitHub's reason**: gidgethub sets it to the `message` of the response body.
 
 ## Rejected alternatives
 
-- **Change `_unauthenticated_error` to drop gh-login advice**: This function is also used for gh sessions where `gh auth login` is the correct advice. Changing it would break the gh-session case. See `src/devops_cli/github/error_classifier.py:193` and its use in `_HTTP_CLASSES` at line 243.
-- **Add a new classifier entry for App 401**: The classifier is generic and does not know about the App context. Adding App-specific logic there mixes concerns. The 422 case is handled in `mint_installation_token`, not in the classifier.
+- **Change `_unauthenticated_error` to drop gh-login advice**: the classifier also serves gh sessions, where the advice is right, and `tests/github/test_github_contract.py` pins the text. See `src/devops_cli/github/error_classifier.py` line 193 and the table entry at line 243.
+- **Add a classifier entry for the App 401**: the classifier does not know the App context. The 422 case is also handled in `mint_installation_token`, not in the classifier.
+- **Append GitHub's reason to the current text**: the current text still tells the operator to run `gh auth login`, which is wrong for an App.
