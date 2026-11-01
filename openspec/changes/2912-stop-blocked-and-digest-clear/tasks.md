@@ -40,6 +40,14 @@ Reads: `docs/ROADMAP_WORKFLOW.md`, `k8s/README.md`. Changes: `docs/ROADMAP_WORKF
 - [x] 5.2 Change `docs/ROADMAP_WORKFLOW.md` (the transitions, the Blocked row, `implement.job_digest`, the stop and retry path, the diagram, the planned list) and step 16 of the Roadmap service in `k8s/README.md`. Verify that `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` passes
 - [x] 5.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
+## 6. The record names the image of the Job, and an idle pass costs little
+
+Reads: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/k8s/cluster_job_api.py`. Changes: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/k8s/cluster_job.py`, `src/devops_cli/k8s/cluster_job_api.py`, `docs/ROUTINE_TASKS.md`, `k8s/README.md`, `tests/roadmap/test_roadmap_stop_clear.py`, `tests/roadmap/test_roadmap_implement_submit.py`.
+
+- [x] 6.1 Write tests for an image that rolls between two reads of the CronJob, for a template digest that cannot be read (one read for four items, and a retry still clears), and for the requests of an idle pass. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py tests/roadmap/test_roadmap_implement_submit.py` fails
+- [x] 6.2 Read the CronJob one time for each create, keep a failed digest read for the pass, and read the issue again only when a rule holds. Verify that the same command passes
+- [x] 6.3 Change the two lines of `docs/ROUTINE_TASKS.md` that describe the old stop, and state the cost in step 16 of `k8s/README.md`. Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

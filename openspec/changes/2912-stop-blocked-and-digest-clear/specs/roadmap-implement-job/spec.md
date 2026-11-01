@@ -45,7 +45,7 @@ The job SHALL push the branch of a Planned item with `-u origin` when it first h
 - **THEN** the job removes the branch from `origin`, stops the item, and the record holds no pull request
 
 ### Requirement: The Job is recorded before it is created
-The round SHALL record the name of the Job in `implement.job` and the digest of the runner image in the template of CronJob `devops-cli-runner` in `implement.job_digest`, and clear `implement.job_state`, before it creates the Job. A create that fails SHALL remove the record of the Job. So a Job that no record names does not exist, and an item whose Job dies early is reported and stopped.
+The round SHALL record the name of the Job in `implement.job` and the digest of the runner image in the template of CronJob `devops-cli-runner` in `implement.job_digest`, and clear `implement.job_state`, before it creates the Job. The round SHALL read the CronJob one time for each create, and take the digest and the Job from that read. A create that fails SHALL remove the record of the Job. So a Job that no record names does not exist, and an item whose Job dies early is reported and stopped.
 
 #### Scenario: The order
 - **WHEN** a round creates the Job for item 1
@@ -93,3 +93,10 @@ The comment that reports a Job that ended SHALL name `implement.job_digest` when
 #### Scenario: A Job that failed
 - **WHEN** the round reports a Job whose record holds a digest
 - **THEN** the comment names that digest
+
+### Requirement: A stop that no rule clears costs one request in each round
+The round SHALL list the comments of a Blocked stop one time, and SHALL read the issue again only when a rule holds. It SHALL read the template at most one time, also when the read fails.
+
+#### Scenario: Three stops that nothing clears
+- **WHEN** three items are Blocked and no rule clears them
+- **THEN** the round sends three listings of comments and reads no issue
