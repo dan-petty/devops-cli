@@ -88,22 +88,22 @@ The step SHALL refuse to start when `git status --porcelain` lists a change in t
 - **THEN** the step raises `RoadmapImplementError` that names the checkout, the model gets no request, and the file stays
 
 ### Requirement: The inputs of a step are fixed
-The user message of the model SHALL hold the title, problem statement and acceptance criteria of the item, the `proposal.md`, `design.md` and `tasks.md` of the change, the group, the files that the group names, packed, and, except for a fix step, the path of the `tasks.md` under the heading "The tasks file". It SHALL hold nothing else. The change is the one folder `openspec/changes/<N>-*/` of the checkout, and the step SHALL raise `RoadmapImplementError` when there is none or more than one.
+The user message of the model SHALL hold, in this order: the `AGENTS.md` of the checkout and the routed sections of its documents; the title, problem and criteria of the item; the `proposal.md`, `design.md` and `tasks.md` of the change; the group; its named files, packed; and, except for a fix step, the path of the `tasks.md` under "The tasks file". It SHALL hold nothing else. The change is the one folder `openspec/changes/<N>-*/`, else the step SHALL raise `RoadmapImplementError`.
 
 #### Scenario: The first request
 - **WHEN** the step runs group 1 of a change whose group 1 names `src/sample.py` and `tests/test_sample.py`, which does not exist yet
-- **THEN** the first request holds the item title, the two sections of the issue, the three documents, the text of group 1, the packed `src/sample.py` and the path `openspec/changes/1-sample-change/tasks.md`, and it holds no text of another file
+- **THEN** the first request holds the item title, the two sections of the issue, the three documents, the text of group 1, the packed `src/sample.py`, the path `openspec/changes/1-sample-change/tasks.md` and the text of `AGENTS.md` under the heading "Rules of the repository (AGENTS.md)", and it holds no text of another file
 
 #### Scenario: A fix step
 - **WHEN** a fix step builds its inputs
-- **THEN** the message holds no section "The tasks file"
+- **THEN** the message holds no section "The tasks file", and it holds `AGENTS.md`
 
 #### Scenario: A missing change
 - **WHEN** the checkout holds no folder `openspec/changes/7-*/`
 - **THEN** the step raises `RoadmapImplementError` that names the pattern
 
 ### Requirement: The shell tool admits only the project's programs
-The shell tool of the agent SHALL run a command only when its first word is `git`, `uv`, `ruff` or `mypy`, and the command holds none of the operators that start a second command. Any other command SHALL come back to the model as a refusal, and the run SHALL go on. The refusal SHALL keep the text of the shell tool, cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, and SHALL add a hint. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
+The shell tool SHALL run a command only when its first word is a program of `SHELL_PROGRAMS` and it holds no operator that starts a second command, no redirect to a file in a read-only program, and no refused argument or `$` word in `find`. Any other command SHALL come back as a refusal with a hint, and the run SHALL go on. A refused argument SHALL count as a refused command. The shell SHALL run with `HOME` set to a temporary directory. The shell is no security boundary.
 
 #### Scenario: A program outside the list
 - **WHEN** the model calls the shell tool with `curl http://example.com`, and then ends its run
@@ -125,9 +125,25 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **WHEN** the model calls the shell tool with a first word of 5000 characters
 - **THEN** the refusal holds the text of the shell cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, then the hint
 
+#### Scenario: A read-only program
+- **WHEN** the model calls the shell tool with `grep -rn shout src`, `cat README.md`, `ls src`, `head -n 5 README.md` or `find src -name "*.py"`
+- **THEN** the command runs and the call returns its output
+
 #### Scenario: A file command
-- **WHEN** the model calls the shell tool with `cat README.md`
-- **THEN** the refusal names the tool `read_file`
+- **WHEN** the model calls the shell tool with `rg shout src`
+- **THEN** the refusal names the tool `grep`
+
+#### Scenario: A find that runs or deletes
+- **WHEN** the model calls the shell tool with `find . -name "*.py" -exec rm {} +`
+- **THEN** the refusal names `find` and `-exec`, says to use `find` to list paths only, and no process starts
+
+#### Scenario: A redirect to a file
+- **WHEN** the model calls the shell tool with `grep -rn x src > out.txt`, `cat a >> b` or `ls > f`
+- **THEN** the refusal names the program and the redirect, says to use `write_file` or `edit_file`, counts as a refused command, and no process starts. `2>&1` and `>/dev/null` still run.
+
+#### Scenario: A find with an expansion
+- **WHEN** the model calls the shell tool with `find . -ex${U}ec echo {} +`, because the shell expands `${U}` after the check
+- **THEN** the refusal names `find` and the word, and no process starts
 
 #### Scenario: A change of directory
 - **WHEN** the model calls the shell tool with `cd src`
@@ -138,8 +154,8 @@ The shell tool of the agent SHALL run a command only when its first word is `git
 - **THEN** the model got five refusals with a hint, and the sixth call ends the run as before
 
 #### Scenario: The prompt and the table agree
-- **WHEN** the table `IMPLEMENT_SHELL_REPLACEMENTS` or `IMPLEMENT_SHELL_PROGRAMS` differs from the prompt of the step, or a shell command of the prompt holds an operator that the shell refuses
-- **THEN** a test fails
+- **WHEN** the prompt of the step is built, the shell is configured, or `docs/ROADMAP_WORKFLOW.md` is read
+- **THEN** the programs and the refusals in the prompt and the document are the text that `SHELL_PROGRAMS` and `SHELL_REFUSALS` give, the allowlist of the shell is the names of `SHELL_PROGRAMS`, and a shell command of the prompt holds no operator that the shell refuses
 
 ### Requirement: A run that reaches a limit ends stopped
 `UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, or breaks its tools' rules past their retries, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the `message` of the pydantic-ai error, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters, never its `body`. The agent SHALL have no `delegate_task` tool.
@@ -292,7 +308,7 @@ A step that stops on a pydantic-ai error SHALL count the tool calls that a tool 
 - **THEN** the call that ends the run counts as refused too
 
 #### Scenario: Refused commands
-- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and the shell allows only `git`, `uv`, `ruff` and `mypy`
+- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and `pytest` is not a program of the shell table
 - **THEN** the reason ends with a new line and "Refused commands: pytest 6. Other retries: 0."
 
 #### Scenario: Refused commands of two programs
@@ -871,3 +887,29 @@ When a hook changes a file, the step SHALL stage the changed files and run the s
 #### Scenario: A stage that runs out of time
 - **WHEN** the `pre-commit` stage runs out of time
 - **THEN** the step reports stopped with a reason that says the command ran out of time, the model gets no extra turn, and the checkout is reset
+
+### Requirement: The routes name the documents of a group
+The step SHALL add the named sections of a routed document to the message when a path that the group names in a code span matches a route. Each document has its own heading and is cut to `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. Each route SHALL name a row of the "Where to look" table of `AGENTS.md` that links its document.
+
+#### Scenario: A group that changes a test
+- **WHEN** a group names `tests/test_sample.py`
+- **THEN** the message holds the section "Doubles" of `docs/TESTING.md`
+
+#### Scenario: A group that changes only a manifest
+- **WHEN** a group names only `k8s/sample.yaml`
+- **THEN** the message holds a section of `k8s/README.md` and holds nothing of `docs/TESTING.md`
+
+#### Scenario: A route drifts from AGENTS.md
+- **WHEN** a route names a "When you" cell that the table lacks, or a document that the row does not link
+- **THEN** the test of the routes fails and names the route
+
+### Requirement: The rules in the message are data and are bounded
+The step SHALL cut the `AGENTS.md` text in the message to `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The instructions of the step SHALL stay the text of the prompt, whatever the rules hold. The prompt SHALL say that its instructions win over a rule that conflicts with them.
+
+#### Scenario: A large AGENTS.md
+- **WHEN** the `AGENTS.md` of the checkout holds more tokens than the cap
+- **THEN** the rules section is cut to the cap and ends with the mark of a cut
+
+#### Scenario: A hostile AGENTS.md
+- **WHEN** the `AGENTS.md` of the checkout says to ignore the instructions and holds a heading "Your group"
+- **THEN** the instructions of the step equal the prompt, and the message starts with that text under the rules heading

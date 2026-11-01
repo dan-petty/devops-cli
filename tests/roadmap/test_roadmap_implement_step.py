@@ -30,7 +30,6 @@ from pydantic_ai_harness.shell import Shell
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import constants
-from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
@@ -40,6 +39,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.roadmap import implement_step
+from devops_cli.roadmap.implement_shell_policy import (
+    IMPLEMENT_ALLOWED_PROGRAMS,
+    IMPLEMENT_SHELL_PROGRAMS,
+)
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
@@ -448,7 +451,8 @@ def test_a_verification_command_outside_the_allowlist_does_not_run(
     assert (outcome.status, outcome.reason, programs_run(programs, "curl")) == (
         StepStatus.STOPPED,
         "The verification command curl http://example.com is not allowed. curl is not one of: "
-        "git, uv, ruff, mypy, openspec, devops.",
+        + ", ".join(IMPLEMENT_ALLOWED_PROGRAMS)
+        + ".",
         [],
     )
 
@@ -484,7 +488,9 @@ def test_a_commit_that_a_hook_refuses_stops_the_step_and_resets_the_checkout(
 
 # What the refusal adds to the text of the shell (#2773).
 ALLOWED_HINT = (
-    "These programs are allowed: `git`, `uv`, `ruff`, `mypy`. Run the commands of the project "
+    "These programs are allowed: "
+    + ", ".join(f"`{program}`" for program in IMPLEMENT_SHELL_PROGRAMS)
+    + ". Run the commands of the project "
     "with `uv run`, for example `uv run devops ci test <file>`."
 )
 OPERATOR_HINT = (
@@ -1296,7 +1302,7 @@ RETRY_LIMIT_MESSAGE = (
 def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and_the_count(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The shell allows git, uv, ruff and mypy. The model asks for `pytest` in every reply, as the
+    """The shell refuses `pytest`. The model asks for `pytest` in every reply, as the
     Job on #2656 may have done: the shell refuses it five times, and the sixth call ends the run."""
     head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(tool_call("shell", command="pytest tests/test_sample.py"))
@@ -1333,7 +1339,7 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
     script = ModelScript(
         *(
             tool_call("shell", command=f"{name} x")
-            for name in ("cat", "ls", "grep", "find", "head", "head")
+            for name in ("pytest", "rg", "pip", "cd", "python3", "python3")
         )
     )
 
@@ -1341,7 +1347,7 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
 
     assert constants.CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS == 4
     assert outcome.reason.endswith(
-        "\nRefused commands: head 2, cat 1, ls 1, grep 1, other 1. Other retries: 0."
+        "\nRefused commands: python3 2, pytest 1, rg 1, pip 1, other 1. Other retries: 0."
     )
 
 

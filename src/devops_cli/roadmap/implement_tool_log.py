@@ -49,7 +49,6 @@ from pydantic_ai.exceptions import (
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
-from devops_cli.config.commands import IMPLEMENT_ALLOWED_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
@@ -62,6 +61,10 @@ from devops_cli.config.constants import (
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import bounded_text
+from devops_cli.roadmap.implement_shell_policy import (
+    IMPLEMENT_ALLOWED_PROGRAMS,
+    IMPLEMENT_SHELL_REPLACEMENTS,
+)
 from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model

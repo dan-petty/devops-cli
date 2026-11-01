@@ -855,7 +855,7 @@ class RoadmapStageConfig(BaseModel):
         ge=1,
     )
     step_tokens: Annotated[int, Variable()] = Field(
-        description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
+        description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
         default=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
         ge=1000,
     )

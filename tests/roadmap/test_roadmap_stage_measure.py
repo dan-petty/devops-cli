@@ -9,6 +9,7 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.roadmap.implement_step import _files_section
 from devops_cli.roadmap.stage_change import StageGroup, group_text, measure_groups
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
+from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import heavy_group
 
 if TYPE_CHECKING:
@@ -67,3 +68,26 @@ def test_the_measure_and_the_step_read_the_same_files_with_the_same_text(
     assert all(packed_file(path) in section for path in paths)
     file_tokens = _file_tokens(stage_repo.clone, group)
     assert file_tokens <= count_tokens(section) <= file_tokens + 100
+
+
+def test_the_measure_counts_agents_md_and_the_routed_sections_that_the_step_reads(
+    stage_repo: StageRepo,
+) -> None:
+    """The default group names `src/devops_cli/sample.py` and `tests/test_sample.py`, so the step
+    reads `AGENTS.md` and the testing sections (#3097)."""
+    from devops_cli.roadmap.step_rules import RULES_HEADING, route_heading
+
+    clone = stage_repo.clone
+    group = make_stage_proposal().groups[0]
+    (before,) = measure_groups(clone, [group], shared=[SHARED])
+    (clone / "AGENTS.md").write_text("# Agents\n\nBe brief.\n", encoding="utf-8")
+    (clone / "docs").mkdir()
+    (clone / "docs" / "TESTING.md").write_text(
+        "# Testing\n\n## Conventions\n\n### Doubles\n\nDouble the edges.\n", encoding="utf-8"
+    )
+
+    (after,) = measure_groups(clone, [group], shared=[SHARED])
+
+    rules = f"# {RULES_HEADING}\n\n# Agents\n\nBe brief."
+    testing = f"{route_heading('docs/TESTING.md')}\n\n### Doubles\n\nDouble the edges."
+    assert after.tokens - before.tokens == count_tokens(rules) + count_tokens(testing)

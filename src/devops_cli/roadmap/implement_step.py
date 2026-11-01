@@ -3,7 +3,8 @@ context.
 
 A change is `openspec/changes/<issue>-<slug>/` in a checkout, and its `tasks.md` holds numbered
 groups (`## <n>. <title>`). A step reads one group and builds the inputs the model gets: the
-item's title, problem and acceptance criteria, the change's `proposal.md`, `design.md` and
+`AGENTS.md` of the checkout and the sections of the documents it routes the group to (`step_rules`),
+the item's title, problem and acceptance criteria, the change's `proposal.md`, `design.md` and
 `tasks.md`, the group, and the files the group names, packed. It counts their tokens before the
 first request and refuses a step that does not fit the window of `ai.tasks.implement`.
 
@@ -61,8 +62,6 @@ from devops_cli.config.commands import (
     BIN_GIT,
     BIN_RUFF,
     BIN_UV,
-    IMPLEMENT_ALLOWED_PROGRAMS,
-    IMPLEMENT_SHELL_PROGRAMS,
 )
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
@@ -104,20 +103,29 @@ from devops_cli.roadmap.agent_run import (
 )
 from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
-from devops_cli.roadmap.implement_shell_refusal import shell_refusal_hooks
+from devops_cli.roadmap.implement_shell_policy import (
+    IMPLEMENT_ALLOWED_PROGRAMS,
+    IMPLEMENT_SHELL_PROGRAMS,
+    fill_prompt,
+)
+from devops_cli.roadmap.implement_shell_refusal import (
+    argument_refusal_hooks,
+    shell_refusal_hooks,
+)
 from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
-    MARKDOWN,
     GroupTask,
     TaskGroup,
     file_lines,
     named_files,
     packed_file,
     parse_task_groups,
+    section_text,
 )
+from devops_cli.roadmap.step_rules import rules_sections
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -133,27 +141,6 @@ class ItemReader(Protocol):
 
     def item(self, number: int) -> Item | None:
         """The item numbered `number`, or None when that issue is no item."""
-
-
-def section_text(body: str, titles: frozenset[str]) -> str:
-    """The text of each section of `body` whose heading is one of `titles`, heading included.
-    A section ends at the next heading of its level or a higher one."""
-    tokens = MARKDOWN.parse(body)
-    lines = body.splitlines()
-    marks = [
-        (token.map[0], int(token.tag[1:]), tokens[index + 1].content)
-        for index, token in enumerate(tokens)
-        if token.type == "heading_open" and token.map is not None
-    ]
-    found: list[str] = []
-    for position, (first, level, title) in enumerate(marks):
-        if title.strip().casefold() not in titles:
-            continue
-        end = next(
-            (start for start, deeper, _ in marks[position + 1 :] if deeper <= level), len(lines)
-        )
-        found.append("\n".join(lines[first:end]).rstrip())
-    return "\n\n".join(found)
 
 
 def issue_inputs(item: Item) -> str:
@@ -297,6 +284,7 @@ def build_step_inputs(
         )
     chosen = _chosen_group(groups, group, fix, change)
     sections = [
+        *rules_sections(source, chosen),
         issue_inputs(held),
         *(f"# {name} of the change\n\n{text.strip()}" for name, text in documents.items()),
         f"# Your group\n\n{chosen.text}",
@@ -305,7 +293,7 @@ def build_step_inputs(
         _files_section(source, chosen),
     ]
     message = "\n\n".join(section for section in sections if section)
-    instructions = load_task_prompt(_PROMPT)
+    instructions = fill_prompt(load_task_prompt(_PROMPT))
     tokens = count_tokens(instructions) + count_tokens(message)
     limit = window - CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
     if tokens > limit:
@@ -447,6 +435,7 @@ def build_agent(
             tuned,
             shell_refusal_hooks(),
             log.hooks(),
+            argument_refusal_hooks(),
             output_cap_hooks(CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS),
         ],
     )
