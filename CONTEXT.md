@@ -49,7 +49,7 @@ An item that is in progress, in review or done.
 _Avoid_: active, claimed
 
 **Blocked**:
-An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. Waiting on another item is a dependency, not blocked.
+An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. A stop of the implement job also blocks an item, until a person comments `implement: retry` or a new runner image rolls out (see docs/ROADMAP_WORKFLOW.md). Waiting on another item is a dependency, not blocked.
 _Avoid_: on hold, waiting
 
 **Dependency**:
@@ -131,7 +131,7 @@ The work of one task group of a staged change, sized so that its inputs fit a bu
 _Avoid_: chunk, phase
 
 **Implementing**:
-Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item goes back to Ready (Planned, once the Service sees the plan on the default branch), shows the masked diff of the work it discarded, and waits for the comment `implement: retry`. A person merges.
+Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item is Blocked, shows the masked diff of the work it discarded, and waits for the comment `implement: retry` or, one time for each new runner image, for the clear rule of the Service. A person merges.
 _Avoid_: building, executing
 
 **Runner**:

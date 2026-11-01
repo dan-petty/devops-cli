@@ -36,9 +36,9 @@ Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/implement_
 
 Reads: `docs/ROADMAP_WORKFLOW.md`, `k8s/README.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `k8s/README.md`, `tests/invariants/test_roadmap_workflow_doc.py`.
 
-- [ ] 5.1 Change the retry check of `tests/invariants/test_roadmap_workflow_doc.py` to read the clear rules (a retry row starts from `status/blocked` with `implement.stopped`), and verify that `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` fails on the base
-- [ ] 5.2 Change `docs/ROADMAP_WORKFLOW.md` (the transitions, the Blocked row, `implement.job_digest`, the stop and retry path, the diagram, the planned list) and step 16 of the Roadmap service in `k8s/README.md`. Verify that `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` passes
-- [ ] 5.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 5.1 Change the retry check of `tests/invariants/test_roadmap_workflow_doc.py` to read the clear rules (a retry row starts from `status/blocked` with `implement.stopped`), and verify that `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` fails on the base
+- [x] 5.2 Change `docs/ROADMAP_WORKFLOW.md` (the transitions, the Blocked row, `implement.job_digest`, the stop and retry path, the diagram, the planned list) and step 16 of the Roadmap service in `k8s/README.md`. Verify that `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` passes
+- [x] 5.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## Workflow follow-up
 

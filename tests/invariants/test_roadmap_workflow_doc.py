@@ -163,18 +163,24 @@ def workflow_problems(text: str) -> list[str]:
 
 
 def _retry_problems(tokens: list[Token]) -> list[str]:
-    """The retry comment is read on a stopped Item. A stop sets Ready, so a row of the retry
-    comment must not start from In progress and must name the record key of the stop."""
-    retry_rows = [
-        row for row in _table_rows(tokens, TRANSITION_COLUMNS) if "implement: retry" in row[1]
-    ]
+    """The retry comment is read on a stopped Item. A stop sets Blocked, so a row of the retry
+    comment must start from `status/blocked` and name the record key of the stop. A row of the new
+    runner image must start the same way and name the record key of the digest."""
+    rows = _table_rows(tokens, TRANSITION_COLUMNS)
+    retry_rows = [row for row in rows if "implement: retry" in row[1]]
+    digest_rows = [row for row in rows if "implement.job_digest" in row[1]]
+    problems = []
     if not retry_rows:
-        return ["the retry transition is missing"]
-    return [
-        f"the retry transition starts from {row[0]}"
-        for row in retry_rows
-        if "`status/in-progress`" in row[0] or "`implement.stopped`" not in row[0]
+        problems.append("the retry transition is missing")
+    if not digest_rows:
+        problems.append("the new image transition is missing")
+    problems += [
+        f"the {kind} transition starts from {row[0]}"
+        for kind, kind_rows in (("retry", retry_rows), ("new image", digest_rows))
+        for row in kind_rows
+        if "`status/blocked`" not in row[0] or "`implement.stopped`" not in row[0]
     ]
+    return problems
 
 
 def _document() -> str:
@@ -229,13 +235,19 @@ def test_document_without_the_diagram_fails() -> None:
     assert "the diagram is missing" in workflow_problems(removed)
 
 
-def test_document_with_a_retry_from_in_progress_fails() -> None:
+@pytest.mark.parametrize("start", ["`status/in-progress`", "`status/ready`"])
+def test_document_with_a_retry_from_another_state_fails(start: str) -> None:
     wrong = _document().replace(
-        "| `status/ready` or `status/planned`, with `implement.stopped` |",
-        "| `status/in-progress` |",
+        "| `status/blocked`, with `implement.stopped` | A trusted person",
+        f"| {start}, with `implement.stopped` | A trusted person",
     )
     assert wrong != _document()
     assert any(p.startswith("the retry transition starts from") for p in workflow_problems(wrong))
+
+
+def test_document_without_the_new_image_transition_fails() -> None:
+    removed = _document().replace("not the digest in `implement.job_digest`", "another digest")
+    assert "the new image transition is missing" in workflow_problems(removed)
 
 
 def test_document_without_the_retry_transition_fails() -> None:
