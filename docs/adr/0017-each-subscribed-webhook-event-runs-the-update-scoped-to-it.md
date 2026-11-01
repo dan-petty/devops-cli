@@ -15,9 +15,9 @@ On 2026-10-09 the owner decided that each subscribed event runs, at once, the up
 
 - **Another event stays a hint.** An event or an action that has no row in the table makes a whole round due, as before.
 - **A scoped update writes no last success.** A scoped update never writes a job's last success to `schedule.json`. So the poll still judges every change made since the last round of each job, and a scoped update never hides a change that it did not handle.
-- **A scoped update records what it decided.** Scoped intake adds the issue that it decided to the intake record, with the issue's `updated_at`, and keeps every other entry. The intake job reads the same record, so the poll does not decide that issue again. When scoped intake finds another candidate that is fresh, it keeps intake due, so the next poll decides the candidate of a lost delivery and does not wait for the hourly interval.
+- **A scoped update records what it decided.** Scoped intake adds the issue that it decided to the intake record, with the issue's `updated_at`, and keeps every other entry. The intake job reads the same record, so the poll does not decide that issue again. When scoped intake finds another candidate that is fresh, it keeps intake due, so the next poll decides the candidate of a lost delivery and does not wait for the interval of the row.
 - **A scoped update runs on the lane of its job.** Scoped intake runs on the model lane, one item at a time with the intake job, so the two never write the intake record at the same time.
-- **The poll stays every 5 minutes** (`service.poll_interval_seconds`). It finds a lost delivery and each change that no event scopes.
+- **The poll stays every 151 seconds** (`service.poll_interval_seconds`). It finds a lost delivery and each change that no event scopes.
 
 ## Considered Options
 
@@ -30,5 +30,5 @@ On 2026-10-09 the owner decided that each subscribed event runs, at once, the up
 
 - The roadmap consumer gives each subscribed event to its scoped update on the lane that the table names, queueing no full round (#1533). The live check, a real delivery of each subscribed event, waits until the Service runs again.
 - A delivery of `issues` `edited` about an issue that is already an Item decides nothing.
-- Intake's hourly interval stays for the candidates that no delivery names.
+- Intake's interval of 29 minutes stays for the candidates that no delivery names.
 - The delivery target of ADR 0009 stays the one seam between the router and the jobs. A move of the delivery to another engine changes only that target.

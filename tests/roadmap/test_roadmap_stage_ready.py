@@ -368,7 +368,7 @@ def test_ready_to_mark_is_true_for_passing_checks_only(store: InMemoryRoadmapSto
 STAGE_READY_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "stage_ready")
 
 
-def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_every_ten_minutes() -> (
+def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_every_three_minutes() -> (
     None
 ):
     """The row calls no model, so a long model-lane round never delays it."""
@@ -378,7 +378,7 @@ def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_
         STAGE_READY_ROW.needs_clone,
         STAGE_READY_ROW.first_run_due,
         STAGE_READY_ROW.interval,
-    ) == (["metrics", "implement", "stage_ready"], False, False, True, timedelta(minutes=10))
+    ) == (["metrics", "implement", "stage_ready"], False, False, True, timedelta(minutes=3))
 
 
 def test_a_round_of_the_row_marks_the_green_draft_ready(

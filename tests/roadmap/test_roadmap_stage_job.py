@@ -66,7 +66,9 @@ def _pushed(repo: StageRepo) -> list[str]:
     return repo.origin_git("branch", "--format=%(refname:short)").split()
 
 
-def test_the_row_follows_refine_runs_on_a_clone_and_is_due_by_the_hour_and_on_a_first_run() -> None:
+def test_the_row_follows_refine_runs_on_a_clone_and_is_due_every_37_minutes_and_on_a_first_run() -> (
+    None
+):
     names = [row.name for row in MODEL_LANE_ROWS]
     assert (
         names[names.index("refine") + 1],
@@ -74,7 +76,7 @@ def test_the_row_follows_refine_runs_on_a_clone_and_is_due_by_the_hour_and_on_a_
         STAGE_ROW.first_run_due,
         STAGE_ROW.interval,
         STAGE_ROW.cross_job_predicate is not None,
-    ) == ("stage", True, True, timedelta(minutes=60), True)
+    ) == ("stage", True, True, timedelta(minutes=37), True)
 
 
 def test_the_cross_job_rule_follows_the_set_ready_of_refine() -> None:

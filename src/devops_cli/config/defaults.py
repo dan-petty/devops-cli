@@ -704,10 +704,12 @@ DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS: int = 600
 DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
 # `devops review intake` (#2420): the longest title of a candidate made from a review finding.
 DEFAULT_REVIEW_INTAKE_TITLE_CHARS: int = 200
-DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 60
+# The minutes between two runs of a row are prime numbers (#2965): no two rows keep the same
+# poll tick for long, and no row lands on a multiple of 5 minutes.
+DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 29
 # How often refine is due on its own, besides its cross-job trigger (#1515).
-DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 60
-DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 15
+DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 31
+DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 13
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
 # The author of an issue the in-memory store opens: GitHub gives every issue an association.
@@ -717,10 +719,10 @@ DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
 # `devops roadmap alternatives` (#2650): the most items one run checks, and the days after which a
-# check is old. The Service's row is due once a day (#2652).
+# check is old. The Service's row is due twice a day, about (#2652).
 DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5
 DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
-DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 1440
+DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 719
 # The PyPI JSON API reads of a package (`{name}` is one URL path segment) and its timeout.
 DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
@@ -732,16 +734,16 @@ DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
 DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
 # How often the implement row is due on its own, besides its first run (#2667). A round only reads
 # the Jobs and the plan; the Job itself runs for up to two hours.
-DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 10
+DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
 # The labels of the items the stage job takes when no setting and no option names others: every
 # Ready item, of any type, priority, value and effort (#2906).
 DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = ("status=ready",)
 # How often the stage row is due on its own, besides its first run and its cross-job trigger
 # (#2659).
-DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 60
+DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 37
 # How often the stage_ready row is due on its own, besides its first run (#2865). A round with no
 # recorded draft sends no request; a draft that waits for its checks costs two requests a round.
-DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 10
+DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
 # item, the change folder and the packed files of one task group. It leaves most of a 128k
 # window for tool output and the model's turns (#2654).
@@ -866,7 +868,7 @@ DEFAULT_SHELL_STOP_GRACE_SECONDS: Final[float] = 3.0
 DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05
 
 # ── Service Mode Defaults ─────────────────────────────────────────────────────
-DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 300
+DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 151
 DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS: Final[int] = 120
 # The GitHub requests the Service sends in any one hour, all repositories together (#2161). GitHub
 # suspended the roadmap's former machine account at 800 to 1,700 requests an hour, so the default

@@ -488,7 +488,10 @@ def child_argvs(
 
 
 REPO_DIR = Path("roadmap") / "example" / "roadmap"
-HALF_HOUR_AGO = NOW - timedelta(minutes=30)
+TWENTY_MINUTES_AGO = NOW - timedelta(minutes=20)
+# Just under the shortest interval of the hourly rows (intake, 29 minutes), and over all of them.
+UNDER_MINUTES = 28
+OVER_AGO = NOW - timedelta(minutes=61)
 
 
 def _stamp(tmp_path: Path, **last_success: datetime) -> None:
@@ -557,13 +560,13 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
 
 
 def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
-    """Intake is due by its hour, a first run, an opened issue's webhook and a reopen a poll
+    """Intake is due by its interval, a first run, an opened issue's webhook and a reopen a poll
     reads; a close, a label and the store's own write make nothing due. Intake placing a
     critical fix or a P0 item makes refine due in the same round."""
     person = seeded_store.as_actor("alice")
     planned_item = person.seed_issue("Planned bug", milestone=PLANNED, fields=PLACED)
     other_item = person.seed_issue("Backlog item", fields=PLACED)
-    t59, t61 = NOW - timedelta(minutes=59), NOW - timedelta(minutes=61)
+    under, over = NOW - timedelta(minutes=UNDER_MINUTES), OVER_AGO
 
     def due(
         batch: dict[tuple[str, str, str], int] | None = None,
@@ -571,10 +574,10 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
         stamps: dict[str, datetime] | None = None,
         table: Sequence[JobRow] | None = None,
     ) -> tuple[str, ...]:
-        _stamp(tmp_path, **({"intake": t59} if stamps is None else stamps))
+        _stamp(tmp_path, **({"intake": under} if stamps is None else stamps))
         return _poll_round(seeded_store, tmp_path, table=table, batch=batch or {})
 
-    hour = (due(), due(stamps={"intake": t61}), due(stamps={}))
+    hour = (due(), due(stamps={"intake": over}), due(stamps={}))
     opened = due({OPENED: 1})
     person.close_by_hand(other_item, CloseReason.COMPLETED)
     person.reopen_issue(other_item)
@@ -597,7 +600,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
     quiet = build_stub_table(
         {"intake": lambda **_: JobOutcome(), "refine": lambda **_: JobOutcome()}
     )
-    every = {"intake": t59, "refine": t59}
+    every = {"intake": under, "refine": under}
     cascade = (
         due({OPENED: 1}, stamps=every, table=critical),
         due({OPENED: 1}, stamps=every, table=quiet),
@@ -621,7 +624,7 @@ def test_webhook_or_poll_identical_and_oldest_cutoff(
     person = seeded_store.as_actor("alice")
     num = person.seed_issue("Item 1", fields=PLACED, state=GitHubState.CLOSED)
     person.reopen_issue(num)
-    sched = {"intake": NOW - timedelta(minutes=30)}
+    sched = {"intake": TWENTY_MINUTES_AGO}
 
     _stamp(tmp_path, **sched)
     spy_wh = StoreSpy(seeded_store)
@@ -637,7 +640,7 @@ def test_webhook_or_poll_identical_and_oldest_cutoff(
 
 
 def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
-    """A first round runs metrics, then intake, then refine; with every row run within the hour,
+    """A first round runs metrics, then intake, then refine; with every row run within its interval,
     intake that places a critical fix brings refine in, and a round whose only change is the
     store's own runs nothing (#1360)."""
     calls: list[str] = []
@@ -651,14 +654,14 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
 
     stubs = {name: make_runner(name, JobOutcome()) for name in ("metrics", "intake", "refine")}
     first = _poll_round(seeded_store, tmp_path, table=build_stub_table(stubs), batch={OPENED: 1})
-    t59 = NOW - timedelta(minutes=59)
-    _stamp(tmp_path, metrics=NOW - timedelta(minutes=5), intake=t59, refine=t59)
+    under = NOW - timedelta(minutes=UNDER_MINUTES)
+    _stamp(tmp_path, metrics=NOW - timedelta(minutes=5), intake=under, refine=under)
     critical = build_stub_table(
         {"intake": make_runner("intake", JobOutcome(placed_critical_or_p0=True))},
         include_refine=True,
     )
     cascaded = _poll_round(seeded_store, tmp_path, table=critical, batch={OPENED: 1})
-    _stamp(tmp_path, metrics=NOW - timedelta(minutes=5), intake=t59, refine=t59)
+    _stamp(tmp_path, metrics=NOW - timedelta(minutes=5), intake=under, refine=under)
     seeded_store.close_by_hand(
         seeded_store.seed_issue("Closed by the job", fields=PLACED), CloseReason.COMPLETED
     )
@@ -671,15 +674,15 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
     )
 
 
-def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
+def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Refine is due 60 min after its last success, not at 59, and on a first run; the CLI's dry
+    """Refine is due 31 min after its last success, not at 30, and on a first run; the CLI's dry
     run lists it (#1515)."""
     table = build_stub_table(include_refine=True)
 
     def schedule(refine_age: timedelta | None, now: datetime) -> None:
-        ages = {"intake": now - timedelta(minutes=59)}
+        ages = {"intake": now - timedelta(minutes=UNDER_MINUTES)}
         _stamp(tmp_path, **ages, **({} if refine_age is None else {"refine": now - refine_age}))
 
     def due(refine_age: timedelta | None) -> tuple[str, ...]:
@@ -688,13 +691,13 @@ def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
             REPO, seeded_store, table=table, data_dir=tmp_path, dry_run=True, now=NOW
         )
 
-    at_60, at_59, first = due(timedelta(minutes=60)), due(timedelta(minutes=59)), due(None)
+    at_31, at_30, first = due(timedelta(minutes=31)), due(timedelta(minutes=30)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     schedule(timedelta(minutes=61), datetime.now(UTC))
     with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", table):
         cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
 
-    assert (at_60, at_59, first, cli.exit_code, "Due: refine\n" in cli.output) == (
+    assert (at_31, at_30, first, cli.exit_code, "Due: refine\n" in cli.output) == (
         ("refine",),
         (),
         ("refine",),
@@ -703,26 +706,29 @@ def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
     )
 
 
-def test_stage_is_due_an_hour_after_its_last_success_on_a_first_run_and_the_dry_run_lists_it(
+def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_the_dry_run_lists_it(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The stage row is due 60 min after its last success, not at 59, and on a first run; the
+    """The stage row is due 37 min after its last success, not at 36, and on a first run; the
     CLI's dry run lists it after refine (#2659)."""
     table = build_stub_table(include_refine=True, include_stage=True)
 
     def due(stage_age: timedelta | None) -> tuple[str, ...]:
-        ages = {"intake": NOW - timedelta(minutes=59), "refine": NOW - timedelta(minutes=59)}
+        ages = {
+            "intake": NOW - timedelta(minutes=UNDER_MINUTES),
+            "refine": NOW - timedelta(minutes=UNDER_MINUTES),
+        }
         _stamp(tmp_path, **ages, **({} if stage_age is None else {"stage": NOW - stage_age}))
         return run_due_jobs(
             REPO, seeded_store, table=table, data_dir=tmp_path, dry_run=True, now=NOW
         )
 
-    at_60, at_59, first = due(timedelta(minutes=60)), due(timedelta(minutes=59)), due(None)
+    at_37, at_36, first = due(timedelta(minutes=37)), due(timedelta(minutes=36)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", table):
         cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
 
-    assert (at_60, at_59, first, cli.exit_code, "Due: intake, refine, stage\n" in cli.output) == (
+    assert (at_37, at_36, first, cli.exit_code, "Due: intake, refine, stage\n" in cli.output) == (
         ("stage",),
         (),
         ("stage",),
@@ -820,12 +826,12 @@ def test_failure_isolation_and_cli_exit(
 
 
 def test_state_file_persistence(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
-    """Schedule records success time; subsequent run 30m later sees intake not due."""
+    """Schedule records success time; subsequent run 20m later sees intake not due."""
     tbl = build_stub_table({"intake": lambda **_: JobOutcome()})
     _poll_round(seeded_store, tmp_path, table=tbl, batch={OPENED: 1})
     data = _schedule(tmp_path)
     second_due = _poll_round(
-        seeded_store, tmp_path, table=tbl, batch={}, now=NOW + timedelta(minutes=30)
+        seeded_store, tmp_path, table=tbl, batch={}, now=NOW + timedelta(minutes=20)
     )
     assert ("intake" in data, second_due) == (True, ())
 
@@ -849,7 +855,7 @@ def test_intake_left_with_fresh_candidates_runs_at_the_next_poll_and_its_record_
 ) -> None:
     """The record's pending flag makes intake due with nothing else due, even with no trigger
     at all; a record that cannot be read makes it due too, and reading it raises, naming it."""
-    _stamp(tmp_path, intake=HALF_HOUR_AGO)
+    _stamp(tmp_path, intake=TWENTY_MINUTES_AGO)
     record = tmp_path / REPO_DIR / "intake.json"
     record.write_text(json.dumps({"pending": False}), encoding="utf-8")
     settled = _poll_round(seeded_store, tmp_path)
@@ -866,12 +872,12 @@ def test_idle_records_zero_or_one_store_calls(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
     """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
-    recent = NOW - timedelta(minutes=5)
+    recent = NOW - timedelta(minutes=2)
     _stamp(
         tmp_path,
-        intake=HALF_HOUR_AGO,
-        refine=HALF_HOUR_AGO,
-        stage=HALF_HOUR_AGO,
+        intake=TWENTY_MINUTES_AGO,
+        refine=TWENTY_MINUTES_AGO,
+        stage=TWENTY_MINUTES_AGO,
         implement=recent,
         stage_ready=recent,
         metrics=recent,
@@ -2119,7 +2125,7 @@ def test_opened_issue_webhook_runs_triage_lane_while_model_lane_blocked_and_repo
 def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_hint(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A poll makes the row due on the status lane ten minutes after its last success and not
+    """A poll makes the row due on the status lane seven minutes after its last success and not
     before. A webhook batch reaches the lane too, and makes the row due no sooner, since the row
     has no batch key (#2757)."""
 
@@ -2129,11 +2135,11 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
 
     fresh = {"metrics": NOW - timedelta(minutes=1), "stage_ready": NOW - timedelta(minutes=1)}
     first = ran({POLL_KEY: 1})
-    too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=9, seconds=59))
-    ten_minutes = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=10))
+    too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=6, seconds=59))
+    seven_minutes = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=7))
     hinted = ran({OPENED: 1}, **fresh, implement=NOW - timedelta(minutes=2))
 
-    assert (first, too_soon, ten_minutes, hinted) == (
+    assert (first, too_soon, seven_minutes, hinted) == (
         ("metrics", "implement", "stage_ready"),
         (),
         ("implement",),
@@ -2562,7 +2568,7 @@ def test_an_issues_delivery_intakes_only_its_issue_and_writes_no_last_success(
     model judges it alone, only it gets labels and a reason comment, and `schedule.json` keeps
     each job's last success as it was."""
     store, _, _ = _candidates(3)
-    _stamp(tmp_path, intake=HALF_HOUR_AGO)
+    _stamp(tmp_path, intake=TWENTY_MINUTES_AGO)
     model = _IntakeModel()
 
     outcome = run_scoped_update(
@@ -2582,7 +2588,7 @@ def test_an_issues_delivery_intakes_only_its_issue_and_writes_no_last_success(
         [2],
         [False, True, False],
         [0, 1, 0],
-        {"intake": HALF_HOUR_AGO.isoformat()},
+        {"intake": TWENTY_MINUTES_AGO.isoformat()},
     )
 
 
@@ -2626,7 +2632,7 @@ def test_a_poll_after_a_scoped_update_decides_the_lost_delivery_and_not_the_hand
         clock.now = NOW - timedelta(minutes=5)
         store.reopen_issue(1)
     delivered = store.seed_issue("candidate 2")
-    _stamp(tmp_path, intake=HALF_HOUR_AGO)
+    _stamp(tmp_path, intake=TWENTY_MINUTES_AGO)
     model = _IntakeModel()
     ran: list[str] = []
 
@@ -2645,7 +2651,7 @@ def test_a_poll_after_a_scoped_update_decides_the_lost_delivery_and_not_the_hand
         store.item(1) is not None,
         store.item(delivered) is not None,
     ) == (
-        {"intake": HALF_HOUR_AGO.isoformat()},
+        {"intake": TWENTY_MINUTES_AGO.isoformat()},
         ("intake",),
         ["candidate 2", "candidate 1"],
         True,
@@ -2682,10 +2688,10 @@ def test_a_scoped_update_keeps_the_entries_and_the_pending_flag_a_capped_round_l
     )
 
 
-def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hint(
+def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by_no_hint(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """The row is due on a first run, 24 hours after its last success and not before, and a
+    """The row is due on a first run, 719 minutes after its last success and not before, and a
     webhook hint that makes intake due makes it due no sooner (#2652)."""
     five_minutes_ago = NOW - timedelta(minutes=5)
     recent = {
@@ -2704,11 +2710,11 @@ def test_the_alternatives_row_follows_refine_and_is_due_once_a_day_and_by_no_hin
         )
 
     first = ran({POLL_KEY: 1})
-    too_soon = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(hours=23, minutes=59))
-    a_day = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(hours=24))
+    too_soon = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(minutes=718))
+    on_time = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(minutes=719))
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
-    assert (first, too_soon, a_day, hinted) == (
+    assert (first, too_soon, on_time, hinted) == (
         ("intake", "refine", "stage", "alternatives"),
         (),
         ("alternatives",),
