@@ -2298,11 +2298,13 @@ class RoadmapMessages:
     )
     implement_comment_diff_cut: str = " The diff is cut to {limit} characters."
     implement_job_report: str = (
-        "{marker}\nThe runner Job {name} ended: {state}.\n\nThe last lines of its log:\n\n{log}"
+        "{marker}\nThe runner Job {name} ended: {state}.{digest}\n\n"
+        "The last lines of its log:\n\n{log}"
     )
     implement_job_report_gone: str = (
-        "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log."
+        "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log.{digest}"
     )
+    implement_job_report_digest: str = "\nImage digest: {digest}"
     implement_job_report_no_log: str = "    (no log: the Job has no pod)"
     implement_job_report_stopped: str = (
         "\n\nThe Job left this item without a result. The item is Ready again, and the job "

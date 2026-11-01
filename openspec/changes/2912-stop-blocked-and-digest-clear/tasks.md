@@ -12,9 +12,9 @@ Reads: `src/devops_cli/roadmap/status_sync.py`, `src/devops_cli/roadmap/store.py
 
 Reads: `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/roadmap/implement_submit.py`. Changes: `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/lang/en/messages.py`, `tests/k8s/test_k8s_cluster_job_api.py`, `tests/roadmap/test_roadmap_implement_submit.py`.
 
-- [ ] 2.1 Write tests for `ClusterJobs.template_digest` (an image with a digest, an image with none, a missing CronJob), for the record `implement.job_digest` that holds the digest when the API receives the create, for a template with no digest, and for the report comment that names the digest. Verify that `uv run devops ci test tests/k8s/test_k8s_cluster_job_api.py tests/roadmap/test_roadmap_implement_submit.py` fails on the base
-- [ ] 2.2 Add `ClusterJobs.template_digest`, record the digest in the same write as `implement.job`, and add the digest line to the report comment. Verify that `uv run devops ci test tests/k8s/test_k8s_cluster_job_api.py tests/roadmap/test_roadmap_implement_submit.py` passes
-- [ ] 2.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 2.1 Write tests for `ClusterJobs.template_digest` (an image with a digest, an image with none, a missing CronJob), for the record `implement.job_digest` that holds the digest when the API receives the create, for a template with no digest, and for the report comment that names the digest. Verify that `uv run devops ci test tests/k8s/test_k8s_cluster_job_api.py tests/roadmap/test_roadmap_implement_submit.py` fails on the base
+- [x] 2.2 Add `ClusterJobs.template_digest`, record the digest in the same write as `implement.job`, and add the digest line to the report comment. Verify that `uv run devops ci test tests/k8s/test_k8s_cluster_job_api.py tests/roadmap/test_roadmap_implement_submit.py` passes
+- [x] 2.3 Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
 
 ## 3. A stop sets Blocked
 

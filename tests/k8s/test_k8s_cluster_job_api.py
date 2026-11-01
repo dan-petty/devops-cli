@@ -122,6 +122,60 @@ def test_a_missing_cronjob_is_an_error_that_names_it_and_creates_no_job(
     assert JOBS not in cluster.custom_objects.objects
 
 
+DIGEST = "sha256:" + "a" * 64
+
+
+def _set_image(kube: FakeCluster, image: str) -> None:
+    cronjob = kube.custom_objects.objects[CRONJOBS][0]
+    (container,) = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][:1]
+    container["image"] = image
+
+
+@pytest.mark.parametrize(
+    ("image", "digest"),
+    [
+        (f"ghcr.io/example/runner:latest@{DIGEST}", DIGEST),
+        (f"ghcr.io/example/runner@{DIGEST}", DIGEST),
+        ("ghcr.io/example/runner:latest", None),
+        ("ghcr.io/example/runner", None),
+    ],
+)
+def test_the_digest_of_the_template_is_the_text_after_the_at_sign_of_its_image(
+    kube: FakeCluster, image: str, digest: str | None
+) -> None:
+    _set_image(kube, image)
+
+    assert ClusterJobs().template_digest(RUNNER_TEMPLATE) == digest
+
+
+def test_a_job_made_from_the_template_runs_the_digest_that_the_template_names(
+    kube: FakeCluster,
+) -> None:
+    """The record of the Service is the digest of the template at the create: the Job has the
+    same image."""
+    _set_image(kube, f"ghcr.io/example/runner:latest@{DIGEST}")
+
+    digest = ClusterJobs().template_digest(RUNNER_TEMPLATE)
+    ClusterJobs().create(["roadmap"], template=RUNNER_TEMPLATE)
+
+    (job,) = kube.custom_objects.objects[JOBS]
+    (container,) = job["spec"]["template"]["spec"]["containers"][:1]
+    assert container["image"].partition("@")[2] == digest
+
+
+def test_the_digest_of_a_missing_cronjob_is_an_error_that_names_it(cluster: FakeCluster) -> None:
+    with pytest.raises(ClusterJobError, match="CronJob devops/devops-cli-runner not found"):
+        ClusterJobs().template_digest(RUNNER_TEMPLATE)
+
+
+def test_the_digest_of_a_template_without_the_container_is_an_error(kube: FakeCluster) -> None:
+    cronjob = kube.custom_objects.objects[CRONJOBS][0]
+    cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["name"] = "other"
+
+    with pytest.raises(ClusterJobError, match="has no container runner"):
+        ClusterJobs().template_digest(RUNNER_TEMPLATE)
+
+
 def test_a_refusal_of_the_api_is_an_error_that_names_the_action_and_the_status(
     kube: FakeCluster,
 ) -> None:

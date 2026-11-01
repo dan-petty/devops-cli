@@ -119,11 +119,12 @@ def _fresh(store: RoadmapStore, number: int) -> Item:
     return held
 
 
-def _comment(name: str, state: str, log: str, *, stopped: bool) -> str:
+def _comment(name: str, state: str, log: str, *, stopped: bool, digest: str | None) -> str:
     texts = MESSAGES.roadmap
+    shown = texts.implement_job_report_digest.format(digest=digest) if digest else ""
     if state == _GONE:
         body = texts.implement_job_report_gone.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, name=name
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, name=name, digest=shown
         )
     else:
         quoted = (
@@ -131,7 +132,11 @@ def _comment(name: str, state: str, log: str, *, stopped: bool) -> str:
             or texts.implement_job_report_no_log
         )
         body = texts.implement_job_report.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, name=name, state=state, log=quoted
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+            name=name,
+            state=state,
+            digest=shown,
+            log=quoted,
         )
     return body + (texts.implement_job_report_stopped if stopped else "")
 
@@ -153,7 +158,8 @@ def _report(
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
     stops = _settles_as_stop(item)
-    store.comment(item.number, _comment(name, state, log, stopped=stops))
+    digest = _record(item, ImplementRecordKey.JOB_DIGEST)
+    store.comment(item.number, _comment(name, state, log, stopped=stops, digest=digest))
     service_release(store, item.number, {ImplementRecordKey.JOB_STATE: state})
     if stops:
         store.set_field(
@@ -188,7 +194,11 @@ def _create(
     None, with nothing written, when an agent or a person claimed the item since the plan."""
     number = target.item.number
     name = job_name(template=RUNNER_TEMPLATE)
-    marks = {ImplementRecordKey.JOB: name, ImplementRecordKey.JOB_STATE: None}
+    marks = {
+        ImplementRecordKey.JOB: name,
+        ImplementRecordKey.JOB_STATE: None,
+        ImplementRecordKey.JOB_DIGEST: jobs.template_digest(RUNNER_TEMPLATE),
+    }
     if not service_claim(store, number, marks):
         return None
     try:

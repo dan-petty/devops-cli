@@ -71,6 +71,17 @@ def kube(cluster: FakeCluster, template: dict[str, Any]) -> FakeCluster:
     return cluster
 
 
+DIGEST_A = "sha256:" + "a" * 64
+DIGEST_B = "sha256:" + "b" * 64
+
+
+def _roll(kube: FakeCluster, digest: str | None) -> None:
+    """Image Updater puts `digest` into the image of the template, or takes it out."""
+    cronjob = kube.custom_objects.objects[CRONJOBS][0]
+    (container,) = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][:1]
+    container["image"] = "ghcr.io/example/runner:latest" + (f"@{digest}" if digest else "")
+
+
 def _round(store: InMemoryRoadmapStore, repo: StageRepo) -> JobOutcome:
     """One round of the row, as the Service runs it in its model clone."""
     return IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=repo.clone)
@@ -457,6 +468,71 @@ def test_the_item_records_its_job_before_the_job_is_created(
         [job["metadata"]["name"]],
         job["metadata"]["name"],
     )
+
+
+def test_the_item_records_the_digest_of_the_template_before_the_job_is_created(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stop that a Job leaves is compared with this digest (#2912)."""
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    seen: list[str | None] = []
+    create = kube.custom_objects.create_namespaced_custom_object
+
+    def peek(*args: Any, **kwargs: Any) -> Any:
+        seen.append(_record(store, number).get("implement.job_digest"))
+        return create(*args, **kwargs)
+
+    monkeypatch.setattr(kube.custom_objects, "create_namespaced_custom_object", peek)
+
+    _round(store, staged_repo)
+
+    assert (seen, _record(store, number)["implement.job_digest"]) == ([DIGEST_A], DIGEST_A)
+
+
+def test_a_template_without_a_digest_leaves_no_digest_on_the_record(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    store.set_marks(_held(store, number), {ImplementRecordKey.JOB_DIGEST: DIGEST_A})
+    _roll(kube, None)
+
+    _round(store, staged_repo)
+
+    assert (len(_creates(kube)), _record(store, number).get("implement.job_digest")) == (1, None)
+
+
+def test_the_report_of_a_job_names_the_digest_of_its_image(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    _roll(kube, DIGEST_B)
+    _end(kube, "Failed")
+
+    _round(store, staged_repo)
+
+    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    assert (f"Image digest: {DIGEST_A}" in comment, DIGEST_B in comment) == (True, False)
+
+
+def test_the_report_of_a_job_that_is_gone_names_the_digest_too(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    kube.custom_objects.objects[JOBS] = []
+
+    _round(store, staged_repo)
+
+    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    assert f"Image digest: {DIGEST_A}" in comment
 
 
 def test_a_create_that_the_api_refuses_leaves_no_record_of_a_job(
