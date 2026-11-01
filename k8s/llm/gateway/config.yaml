@@ -191,6 +191,49 @@ model_list:
     model_info:
       max_input_tokens: 160000
 
+  # Hosted models (#3113). A prompt sent to these groups leaves the cluster for the provider, and
+  # the provider bills each token. No pool and no fallback names them, so a request reaches a
+  # provider only when its caller names the group. The key of each comes from the Secret
+  # llm-gateway-secrets, which `devops k8s push-secrets` writes. Without the key a call to the
+  # group fails and no other group is affected.
+  # The cost map of the pinned LiteLLM image lists gemini/gemini-3.8-flash with its window and
+  # prices. It lists no Claude 5.5 model, so these two set their own windows and prices (USD per
+  # token, from the Anthropic pricing page). The same gap hides from LiteLLM that the API
+  # answers 400 to temperature, top_p and top_k on both models, and `drop_params` drops only
+  # what LiteLLM knows a model refuses, so each Claude group drops the three itself. Sonnet 5.5
+  # also answers an error to a forced tool call (tool_choice "required" or a named tool): a
+  # caller of the group sends "auto".
+  - model_name: gemini-3.8-flash
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+    model_info:
+      max_input_tokens: 1048576
+  - model_name: claude-sonnet-5-5
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      additional_drop_params: [temperature, top_p, top_k]
+    model_info:
+      max_input_tokens: 1000000
+      input_cost_per_token: 2.0e-06
+      output_cost_per_token: 1.0e-05
+      cache_creation_input_token_cost: 2.5e-06
+      cache_read_input_token_cost: 1.0e-07
+  # Haiku 5.5 costs more above 100,000 prompt tokens (0.50 USD input and 2.50 USD output per
+  # million). LiteLLM has no price tier at that size, so the prices below are the ones up to it,
+  # and the spend of a longer prompt reads low.
+  - model_name: claude-haiku-5-5
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      additional_drop_params: [temperature, top_p, top_k]
+    model_info:
+      max_input_tokens: 1000000
+      input_cost_per_token: 1.0e-07
+      output_cost_per_token: 5.0e-07
+      cache_creation_input_token_cost: 1.25e-07
+      cache_read_input_token_cost: 1.0e-08
 litellm_settings:
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
   # Ollama nodes export no metrics of their own, so this is how their load is seen.

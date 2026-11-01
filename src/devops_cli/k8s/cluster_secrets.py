@@ -214,6 +214,17 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 generator=SecretGenerator("hex", 24, prefix=LITELLM_KEY_PREFIX),
                 value_prefix=LITELLM_KEY_PREFIX,
             ),
+            # The keys of the hosted model groups. The gateway starts without them (#3113).
+            SecretEntry(
+                "gemini-api-key",
+                KeyringSource.for_credential("gemini.api_key"),
+                required=False,
+            ),
+            SecretEntry(
+                "anthropic-api-key",
+                KeyringSource.for_credential("anthropic.api_key"),
+                required=False,
+            ),
         ),
         restarts=(Workload("deployment", "llm-gateway"),),
         labels={"app.kubernetes.io/name": "llm-gateway"},
