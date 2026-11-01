@@ -20,7 +20,7 @@ The planner of the stage job SHALL plan with an agent that has exactly these too
 - **THEN** it names each tool of the toolbox
 
 ### Requirement: A plan run has a budget
-A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000 output tokens. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit, or that calls a tool that is gone, SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
+A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000 output tokens. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
 
 #### Scenario: The tool call limit
 - **WHEN** one reply of the model in a plan run holds 31 parallel tool calls
@@ -29,10 +29,6 @@ A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000
 #### Scenario: The tools are gone near the limit
 - **WHEN** the model has made 27 tool calls, one in each turn
 - **THEN** the next request offers no tool, and a valid plan in the reply stages the item
-
-#### Scenario: A tool call after the tools are gone
-- **WHEN** the model calls a tool in a request that offers no tool
-- **THEN** the item fails, and the reason names the retry error of that tool
 
 #### Scenario: The output token limit
 - **WHEN** the replies of the model in one plan run hold more than 50000 output tokens
@@ -45,6 +41,21 @@ A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000
 #### Scenario: One item fails and the others are planned
 - **WHEN** the plan run of the first of two items spends its budget
 - **THEN** the second item is planned, and the job fails at the end for the first item
+
+### Requirement: A call to a tool that is gone gets a retry
+When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the tool and the retry limit, and no budget limit.
+
+#### Scenario: One call after the tools are gone
+- **WHEN** the model has made 27 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
+- **THEN** the item is staged
+
+#### Scenario: Two calls after the tools are gone
+- **WHEN** the model calls `read_file` twice in requests that offer no tool, and then gives a valid plan
+- **THEN** the item is staged
+
+#### Scenario: Three calls after the tools are gone
+- **WHEN** the model calls `read_file` a third time in requests that offer no tool
+- **THEN** the item fails, and the reason names the tool `read_file` and the retry limit 2
 
 ### Requirement: The budget is for each plan run
 A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use 60 tool calls and 100000 output tokens at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
