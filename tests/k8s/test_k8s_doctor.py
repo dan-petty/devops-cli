@@ -360,6 +360,22 @@ def test_doctor_reads_logs_only_for_flagged_pods() -> None:
     assert log_calls == {("default", "app-fail", 35)}
 
 
+def test_doctor_logs_are_decoded_text_with_one_entry_for_each_line() -> None:
+    """The log of a flagged pod is UTF-8 text: its lines are separate and its secrets are masked."""
+    token = "ghs_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"  # a fake token for the masking test
+    written = f"start\n\N{CHECK MARK} ready\nauthorization: {token}\n".encode()
+    crashed = crashlooping_pod("app-fail", "default")
+    core = FakeCoreV1(pods=[crashed], nodes=[node("worker-1")], logs=written)
+
+    lines = collect(core, tail=35).logs[("default", "app-fail")]
+
+    assert (len(lines), lines[:2], any(token in line for line in lines)) == (
+        3,
+        ["start", "\N{CHECK MARK} ready"],
+        False,
+    )
+
+
 def test_doctor_calls_carry_a_timeout() -> None:
     """Every Kubernetes API invocation carries a bounded client-side request timeout."""
     crashed = crashlooping_pod("app-crash", "default")

@@ -2383,11 +2383,12 @@ class RoadmapMessages:
         "{marker}\nThe runner Job {name} ended: {state}.{digest}\n\n"
         "The last lines of its log:\n\n{log}"
     )
+    implement_job_report_log: str = "{fence}\n{log}\n{fence}"
     implement_job_report_gone: str = (
         "{marker}\nThe runner Job {name} no longer exists, so it has no state and no log.{digest}"
     )
     implement_job_report_digest: str = "\nImage digest: {digest}"
-    implement_job_report_no_log: str = "    (no log: the Job has no pod)"
+    implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
         "\n\nThe Job left this item without a result. The item is Blocked, and the job "
         "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "

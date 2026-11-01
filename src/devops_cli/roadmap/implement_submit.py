@@ -39,7 +39,6 @@ round: the failures come back in `SubmitResult.status_failed` for the row to rai
 
 from __future__ import annotations
 
-import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial
@@ -63,6 +62,7 @@ from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, 
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
+from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import (
     GIT_OPERATION,
     ImplementTarget,
@@ -136,9 +136,11 @@ def _comment(name: str, state: str, log: str, *, stopped: bool, digest: str | No
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, name=name, digest=shown
         )
     else:
+        excerpt = mask_secrets(log).strip()[-CONST_ROADMAP_IMPLEMENT_LOG_CHARS:]
         quoted = (
-            textwrap.indent(mask_secrets(log).strip()[-CONST_ROADMAP_IMPLEMENT_LOG_CHARS:], "    ")
-            or texts.implement_job_report_no_log
+            texts.implement_job_report_log.format(fence=code_fence(excerpt), log=excerpt)
+            if excerpt
+            else texts.implement_job_report_no_log
         )
         body = texts.implement_job_report.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,

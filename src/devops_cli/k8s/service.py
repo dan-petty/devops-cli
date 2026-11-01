@@ -94,6 +94,30 @@ class PodLogStream:
             self._response.shutdown()
 
 
+def read_pod_log_text(
+    core: CoreApi, name: str, namespace: str, *, tail_lines: int, **kwargs: Any
+) -> str:
+    """The tail of the log of pod `name` as the text that the pod wrote: UTF-8, with a byte that
+    is not UTF-8 replaced, and with its real line breaks.
+
+    A plain `read_namespaced_pod_log` cannot give this. The response type of the call is `str`,
+    so the client skips the decode of the body and ends in `str(bytes)`: the log arrives as the
+    text `b'...\\n...'`, and a log that is valid JSON arrives as the repr of a Python value
+    (`kubernetes` 36.0.3). The call here asks for the raw response, reads its bytes and decodes
+    them one time. `kwargs` go to the call, for example `_request_timeout`. An API error is not
+    caught: the caller names it.
+    """
+    response = core.read_namespaced_pod_log(
+        name, namespace, tail_lines=tail_lines, _preload_content=False, **kwargs
+    )
+    try:
+        raw = b"".join(response.stream())
+    finally:
+        response.close()
+        response.release_conn()
+    return raw.decode("utf-8", errors="replace")
+
+
 def _first_node_address(nodes: list[Any]) -> str | None:
     """Return the first internal or external address of the nodes, in their order."""
     for node in nodes:

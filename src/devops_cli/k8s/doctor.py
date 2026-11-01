@@ -39,6 +39,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_DOCTOR_STUCK_SECONDS,
 )
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.k8s.service import read_pod_log_text
 from devops_cli.models.k8s import DoctorReport, Finding, node_is_ready
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -826,13 +827,14 @@ def collect(
     logs: dict[tuple[str, str], list[str]] = {}
     for pod_ns, pod_name in sorted(flagged_pod_keys):
         try:
-            raw_log = core.read_namespaced_pod_log(
+            raw_log = read_pod_log_text(
+                core,
                 pod_name,
                 pod_ns,
                 tail_lines=tail,
                 _request_timeout=DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
             )
-            if isinstance(raw_log, str) and raw_log:
+            if raw_log:
                 masked = [mask_secrets(line) for line in raw_log.splitlines() if line.strip()]
                 logs[(pod_ns, pod_name)] = masked[-tail:]
         except Exception:
