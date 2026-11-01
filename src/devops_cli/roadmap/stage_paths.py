@@ -9,8 +9,11 @@ groups before it and of itself.
 A group names paths in four places: `reads`, `changes`, the code spans of its three tasks, and the
 words of `verify`. Only the code spans of a task count, as the implement step reads those and no
 other text (`step_files`). A word is a path when its last name ends in a suffix that a tracked file
-has, or when its first folder is a top-level name of the tree. A label such as `status/blocked`, a
-dotted name, an option, a URL or a placeholder is no path, and the check leaves it alone.
+has, or when its first folder is a top-level name of the tree. A word with no folder is no path:
+it is a search pattern or a fixture that a test writes at run time (`ruff.toml`), and the implement
+step accepts a name that holds no file as a file it creates. A label such as `status/blocked`, a
+dotted name, an option, a URL or a placeholder is no path either, and the check leaves it alone.
+`reads` and `changes` list paths by definition, so the check keeps them strict.
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ class StagedTree:
         if word.startswith("-") or not _WORD.fullmatch(word):
             return None
         path = posixpath.normpath(word)
-        if path in {".", _PARENT_DIRECTORY} or path.startswith(f"{_PARENT_DIRECTORY}/"):
+        if "/" not in path or path.startswith(f"{_PARENT_DIRECTORY}/"):
             return None
         known = PurePosixPath(path).suffix in self._suffixes or path.partition("/")[0] in self._tops
         return path if known else None

@@ -188,11 +188,31 @@ def test_a_span_that_is_no_path_is_not_checked(span: str) -> None:
     assert _problems(_group(implementation=f"Use `{span}`")) == []
 
 
-@pytest.mark.parametrize("span", ["uv_cmd.py", "src/devops_cli/new_package", "docs/missing"])
+@pytest.mark.parametrize(
+    "span", ["commands/uv_cmd.py", "src/devops_cli/new_package", "docs/missing"]
+)
 def test_a_name_with_a_known_suffix_or_a_top_folder_is_a_path(span: str) -> None:
     (problem,) = _problems(_group(implementation=f"Use `{span}`"))
 
     assert f"`{span}`" in problem
+
+
+def test_a_bare_file_name_in_a_task_is_a_fixture_and_no_path() -> None:
+    group = _group(test="Write `tests/test_sample.py` that writes `ruff.toml` and `uv_cmd.py`")
+
+    assert _problems(group) == []
+
+
+def test_a_bare_file_name_in_a_search_pattern_is_no_path() -> None:
+    group = _group(verify="git ls-files | grep uv_cmd.py")
+
+    assert _problems(group) == []
+
+
+def test_a_bare_file_name_in_changes_is_still_checked() -> None:
+    (problem,) = _problems(_group(changes=["ruff.toml"]))
+
+    assert "`ruff.toml`" in problem
 
 
 def test_a_command_in_a_span_has_its_paths_checked() -> None:
