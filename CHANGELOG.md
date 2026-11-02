@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.41.0](https://github.com/dan-petty/devops-cli/compare/v0.40.0...v0.41.0) (2026-11-02)
+
+
+### Features
+
+* **k8s:** fall back from Sonnet to DeepSeek ([#3154](https://github.com/dan-petty/devops-cli/issues/3154)) ([11dc347](https://github.com/dan-petty/devops-cli/commit/11dc347229d967e9a8d53f2c3f23d3e6b45e379d)), closes [#3152](https://github.com/dan-petty/devops-cli/issues/3152)
+* **roadmap:** plan the stage job with a read-only toolbox ([#3160](https://github.com/dan-petty/devops-cli/issues/3160)) ([9179b22](https://github.com/dan-petty/devops-cli/commit/9179b22c0c3fd7f580e6410e726e69c7e62378b8)), closes [#3037](https://github.com/dan-petty/devops-cli/issues/3037)
+
 ## [0.40.0](https://github.com/dan-petty/devops-cli/compare/v0.39.1...v0.40.0) (2026-11-02)
 
 
