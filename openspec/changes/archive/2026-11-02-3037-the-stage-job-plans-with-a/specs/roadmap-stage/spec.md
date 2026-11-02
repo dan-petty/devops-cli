@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The planner has a read-only toolbox
-The planner of the stage job SHALL plan with an agent that has exactly these tools: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. Each tool SHALL read the staged commit through git, or read files of the checkout. The toolbox SHALL hold no tool that writes a file, runs a shell command or opens a network connection. A tool SHALL answer a bad argument as text and SHALL NOT raise.
+The planner of the stage job SHALL plan with an agent that has exactly these tools: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. Each tool SHALL read the staged commit through git, read files of the checkout, or read a spec through OpenSpec. The toolbox SHALL hold no tool that writes a file, runs a shell command or opens a network connection. A tool SHALL answer a bad argument as text and SHALL NOT raise.
 
 #### Scenario: The tool set
 - **WHEN** the toolbox is built for a checkout and a commit
@@ -42,8 +42,45 @@ A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000
 - **WHEN** the plan run of the first of two items spends its budget
 - **THEN** the second item is planned, and the job fails at the end for the first item
 
+### Requirement: A plan run keeps its messages inside the context window
+A plan run SHALL offer no tool to a request when the tokens of its messages, with a quarter of the context window of the `analysis` task, reach the window. The model SHALL then give its plan. The tool answers SHALL NOT make a request longer than the window by more than the reply that was kept free.
+
+#### Scenario: A model that reads a big file in every turn
+- **WHEN** a plan run has a window of 12000 tokens and the model reads a file of 120 long lines in every turn
+- **THEN** a request offers no tool before the budget of 27 calls, no request passes the window, and the plan stages the item
+
+#### Scenario: A run with no window
+- **WHEN** a run is given no window
+- **THEN** only the budget of tool calls takes the tools away
+
+### Requirement: The tools read a checkout that is the staged commit
+The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that has a change that is not committed or a file that git does not track, before any model call. The failure SHALL be a `RoadmapStageError`. A tool SHALL read the size of a file before it reads the file, SHALL refuse a file of more than 2000000 bytes, and SHALL number only the lines that it returns. `search_code` and `callers` SHALL stop at 121 matches in one file.
+
+#### Scenario: A modified file
+- **WHEN** the checkout holds a modified tracked file
+- **THEN** building the toolbox raises `RoadmapStageError` and the model gets no request
+
+#### Scenario: A file over the size limit
+- **WHEN** `read_file` gets a file of more than 2000000 bytes
+- **THEN** it answers that the file is too large to read
+
+#### Scenario: A file with many matches
+- **WHEN** a file holds 360 lines that match `callers`
+- **THEN** the answer holds 120 lines and says that lines are left out
+
+### Requirement: The map and the spec tools give short answers
+`repo_map` SHALL give one line for each of at most 20 files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. It SHALL answer as text when OpenSpec is not installed.
+
+#### Scenario: A directory with more files than the limit
+- **WHEN** `repo_map` maps a directory of 25 Python files
+- **THEN** the answer has 20 file lines and a last line that says that files are left out
+
+#### Scenario: A requirement
+- **WHEN** `read_spec` gets a capability and a requirement name
+- **THEN** it answers with the heading, the text and the scenarios of that requirement
+
 ### Requirement: A call to a tool that is gone gets a retry
-When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the tool and the retry limit, and no budget limit.
+When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the retry limit, and no budget limit. It holds no tool name, because the name of a tool in an error message is text that the model chose.
 
 #### Scenario: One call after the tools are gone
 - **WHEN** the model has made 27 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
@@ -55,7 +92,7 @@ When a request offers no tool, a call of the model to a function tool SHALL get 
 
 #### Scenario: Three calls after the tools are gone
 - **WHEN** the model calls `read_file` a third time in requests that offer no tool
-- **THEN** the item fails, and the reason names the tool `read_file` and the retry limit 2
+- **THEN** the item fails, and the reason names the retry limit 2, and no budget limit
 
 ### Requirement: The budget is for each plan run
 A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use 60 tool calls and 100000 output tokens at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.

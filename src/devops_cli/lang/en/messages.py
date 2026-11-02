@@ -2620,6 +2620,14 @@ class RoadmapMessages:
     )
     stage_secret: str = "The reply has text that looks like a secret, in {path}."
     stage_violations: str = "{count} schema violation(s)"
+    # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
+    stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The checkout of a plan run with tools is not the staged commit with no change (#3037).
+    stage_checkout_moved: str = "The checkout is not at the staged commit {sha}."
+    stage_checkout_dirty: str = (
+        "The checkout has changes that are not committed, so the tools would read files that the "
+        "staged commit does not hold."
+    )
     git_failed: str = "`git {command}` failed: {reason}"
     # The comments of the stage job; each starts with its marker.
     stage_comment_staged: str = (
@@ -2628,6 +2636,14 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
+    # The report of the plan run of the toolbox (#3037), after the task groups.
+    stage_comment_run: str = (
+        "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
+        "and {output_tokens} output tokens. {calls}"
+    )
+    stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
+    stage_comment_no_calls: str = "The model made no tool call."
+    stage_comment_call: str = "{index}. `{name}({argument})`"
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."
@@ -3160,10 +3176,12 @@ class RoadmapMessages:
     stage_eval_score_ended: str = "Cases by end: {ended}."
     stage_eval_dry_run: str = (
         "Dry run: no request was made. A run plans {cases} case(s) with the analysis model at "
-        "{gateway}, one case at a time:"
+        "{gateway}, {mode}, one case at a time:"
     )
+    stage_eval_mode_toolbox: str = "with the read-only toolbox"
+    stage_eval_mode_plain: str = "with one call and no tool"
     stage_eval_dry_run_case: str = "plan of the case {name}"
-    stage_eval_dry_run_repeat: str = "up to {count} calls for each case"
+    stage_eval_dry_run_repeat: str = "up to {count} requests for each case"
     stage_eval_stored: str = "Stored the report in {path}."
     stage_eval_failed: str = "{failed} case(s) could not run. The score counts them as not avoided."
     intake_spend: str = (

@@ -15,14 +15,26 @@ from pydantic_ai.exceptions import (
     ModelTimeoutError,
     UnexpectedModelBehavior,
 )
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    TextPart,
+    ToolCallPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
-from devops_cli.config.constants import CONST_ROADMAP_RUN_ERROR_CHARS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_RUN_ERROR_CHARS,
+    CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS,
+)
 from devops_cli.roadmap.agent_run import (
+    RunTrace,
     bounded_text,
     model_call_error,
     record_run_spend,
@@ -141,3 +153,81 @@ def test_a_secret_is_masked_before_a_cut_can_split_it() -> None:
     text = "x" * (CONST_ROADMAP_RUN_ERROR_CHARS - 10) + TOKEN
 
     assert TOKEN[:20] not in bounded_text(text)
+
+
+def _tool_reply(input_tokens: int, output_tokens: int, *parts: ToolCallPart) -> ModelResponse:
+    return ModelResponse(
+        parts=list(parts),
+        usage=RequestUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+    )
+
+
+def test_a_trace_holds_the_tool_calls_and_the_counts_of_a_run() -> None:
+    """The output tool is no tool call of the toolbox, and the counts sum all replies."""
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart("go")]),
+        _tool_reply(
+            100,
+            7,
+            ToolCallPart("read_file", {"path": "src/a.py"}),
+            ToolCallPart("search_code", {"text": "needle"}),
+        ),
+        _tool_reply(150, 9, ToolCallPart("final_result", {"x": 1})),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"read_file", "search_code"})
+
+    assert (
+        [(call.name, call.argument) for call in trace.tool_calls],
+        trace.requests,
+        trace.input_tokens,
+        trace.output_tokens,
+    ) == (
+        [("read_file", '{"path":"src/a.py"}'), ("search_code", '{"text":"needle"}')],
+        2,
+        250,
+        16,
+    )
+
+
+def test_a_trace_masks_and_cuts_the_argument_of_a_call() -> None:
+    messages: list[ModelMessage] = [
+        _tool_reply(1, 1, ToolCallPart("search_code", {"text": TOKEN})),
+        _tool_reply(1, 1, ToolCallPart("search_code", {"text": "x" * 5000})),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"search_code"})
+
+    first, second = (call.argument for call in trace.tool_calls)
+    assert (TOKEN in first, "<masked-github-token>" in first, len(second)) == (
+        False,
+        True,
+        CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS,
+    )
+
+
+def test_a_trace_counts_the_violations_of_the_last_retry_prompt_of_the_output_tool() -> None:
+    errors: list[Any] = [
+        {"type": "missing", "loc": ("a",), "msg": "Field required", "input": {}},
+        {"type": "missing", "loc": ("b",), "msg": "Field required", "input": {}},
+    ]
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[RetryPromptPart(content=errors[:1], tool_name="final_result")]),
+        ModelRequest(parts=[RetryPromptPart(content=errors, tool_name="final_result")]),
+        ModelRequest(parts=[RetryPromptPart(content=errors[:1], tool_name="read_file")]),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"read_file"})
+
+    assert trace.violations == 2
+
+
+def test_a_trace_of_no_reply_is_empty() -> None:
+    trace = RunTrace()
+
+    trace.absorb([ModelRequest(parts=[UserPromptPart("go")])], tools=set())
+
+    assert (trace.tool_calls, trace.requests, trace.violations) == ([], 0, 0)

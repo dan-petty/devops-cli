@@ -387,7 +387,9 @@ def stage_cmd(
         return
     if not (plan_only or confirm):
         print_info(MESSAGES.roadmap.stage_plain_note)
+    from devops_cli.ai.client.factory import get_task_model
     from devops_cli.roadmap.run import model_clone
+    from devops_cli.roadmap.stage_toolbox import ToolboxModel
 
     with _exit_on_failure("Could not plan staging"):
         _, store = _open_store(target)
@@ -400,6 +402,7 @@ def stage_cmd(
             item_number=item,
             limit=limit,
             step_tokens=step_tokens,
+            model=ToolboxModel(get_task_model("analysis")),
             why=why,
         )
     write_stdout(render_stage_plan(plan) + "\n")

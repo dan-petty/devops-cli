@@ -11,15 +11,23 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 import time_machine
 from pydantic import ValidationError
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    UserPromptPart,
+)
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.stage import StagePlan, parse_filters, plan_stage
+from devops_cli.roadmap.stage import StagedChange, StagePlan, parse_filters, plan_item, plan_stage
 from devops_cli.roadmap.stage_change import (
     StageGroup,
     StageProposal,
@@ -29,6 +37,7 @@ from devops_cli.roadmap.stage_change import (
     render_change,
 )
 from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import (
@@ -42,11 +51,13 @@ from tests.support.roadmap_stage import (
     validate_args,
     validation_report,
 )
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
     from devops_cli.ai.client.unified import LLMClient
+    from devops_cli.roadmap.stage import StageClient
     from tests.support.fakes.model import ModelFake, ModelFakeReplies
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -863,3 +874,146 @@ def test_openspec_refuses_a_modified_requirement_that_the_base_spec_lacks(
     else:
         assert problem is not None
         assert expected in problem
+
+
+# ── The toolbox (#3037) ───────────────────────────────────────────────────────
+
+
+def _prompts(script: Script) -> list[dict[str, Any]]:
+    """The request of each plan run of a scripted model, in order, as the planner sent it."""
+    found: list[str] = []
+    for messages in script.seen:
+        first = messages[0]
+        assert isinstance(first, ModelRequest)
+        text = next(p.content for p in first.parts if isinstance(p, UserPromptPart))
+        if str(text) not in found:
+            found.append(str(text))
+    return [json.loads(text) for text in found]
+
+
+def _toolbox_plan(
+    store: InMemoryRoadmapStore, repo: StageRepo, script: Script, **options: Any
+) -> StagePlan:
+    return plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=repo.clone,
+        filters=parse_filters(()),
+        model=ToolboxModel(script.model()),
+        **options,
+    )
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_toolbox_planner_reads_a_file_and_then_gives_its_plan(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
+) -> None:
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+
+    plan = _toolbox_plan(store, stage_repo, script)
+
+    assert (len(plan.ready), script.tool_returns()[0].splitlines()[0]) == (
+        1,
+        "1: def keep(comments):",
+    )
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_a_toolbox_plan_with_a_missing_path_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    script = Script(_naming("tests/test_scanner_tool_executor.py"), make_stage_proposal())
+
+    plan = _toolbox_plan(store, stage_repo, script)
+
+    first, second = _prompts(script)
+    assert "problem" not in first
+    assert "`tests/security/test_scanner_tool_executor.py`" in second["problem"]
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_a_second_toolbox_plan_with_a_missing_path_stops_the_item(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    script = Script(_naming("tests/test_scanner_tool_executor.py"))
+
+    plan = _toolbox_plan(store, stage_repo, script)
+
+    (failure,) = plan.failed
+    assert (plan.ready, failure.error) == ((), "RoadmapStageError")
+    assert "`tests/security/test_scanner_tool_executor.py`" in failure.reason
+
+
+def test_a_plan_run_that_spends_its_budget_fails_its_item_and_the_others_are_planned(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    second = seed_stageable(store, "fix(roadmap): the job drops a label")
+    openspec.script_sequence(validate_args("2-the-job-drops-a-label"), VALID)
+    read = ToolCallPart("read_file", {"path": "src/devops_cli/sample.py"})
+
+    def reply(messages: list[ModelMessage]) -> Any:
+        first = messages[0]
+        assert isinstance(first, ModelRequest)
+        text = next(str(p.content) for p in first.parts if isinstance(p, UserPromptPart))
+        if json.loads(text)["number"] == item:
+            return ModelResponse(parts=[read] * 31)
+        return make_stage_proposal()
+
+    plan = _toolbox_plan(store, stage_repo, Script(reply))
+
+    (failure,) = plan.failed
+    assert (failure.number, failure.error, "tool_calls_limit" in failure.reason) == (
+        item,
+        "RoadmapStageError",
+        True,
+    )
+    assert [c.target.item.number for c in plan.ready] == [second]
+
+
+def test_without_an_investigator_the_planner_makes_the_one_call_and_has_no_trace(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    assert (model_fake.call_count, len(plan.ready)) == (1, 1)
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_plan_item_plans_with_a_toolbox_client(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
+) -> None:
+    script = Script(call("list_files", directory="src"), make_stage_proposal())
+    target = store.item(item)
+    assert target is not None
+    sha = stage_repo.git("rev-parse", "HEAD")
+    client = ToolboxClient(script.model(), cast("StageClient", object()), stage_repo.clone, sha)
+
+    planned = plan_item(target, client=client, checkout=stage_repo.clone, sha=sha)
+
+    assert script.tool_returns()[0] == "src/devops_cli"
+    assert type(planned) is StagedChange
+
+
+def test_a_toolbox_plan_of_a_checkout_with_a_change_fails_before_any_model_call(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
+) -> None:
+    script = Script(make_stage_proposal())
+    (stage_repo.clone / "src" / "devops_cli" / "sample.py").write_text("changed = 1\n")
+
+    with pytest.raises(RoadmapStageError, match="changes that are not committed"):
+        _toolbox_plan(store, stage_repo, script)
+
+    assert script.seen == []

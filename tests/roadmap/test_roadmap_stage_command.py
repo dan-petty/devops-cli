@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.ai.client import factory
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import dry_run_stage
 from devops_cli.roadmap.store import StageRecordKey
@@ -19,6 +20,7 @@ from tests.support.roadmap_stage import (
     seed_stageable,
     validate_args,
 )
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -100,6 +102,34 @@ def test_confirm_stages_the_item_and_reports_it(
     assert item is not None
     assert item.job_record[StageRecordKey.PR] == "5"
     assert "budget of 30000 tokens" in roadmap_store.comments_on(1)[0].body
+
+
+def test_the_command_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_stageable(roadmap_store)
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+    tasks: list[str] = []
+
+    def task_model(task: str) -> Any:
+        tasks.append(task)
+        return script.model()
+
+    monkeypatch.setattr(factory, "get_task_model", task_model)
+
+    result = _stage(cli, stage_repo, "--plan")
+
+    assert result.exit_code == 0, result.output
+    assert (tasks, script.tools_offered[0][:2], model_fake.call_count) == (
+        ["analysis"],
+        ["list_files", "read_file"],
+        0,
+    )
+    assert "## To stage" in result.output
 
 
 def test_a_left_out_item_is_reported_with_its_reason(

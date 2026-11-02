@@ -23,9 +23,13 @@ another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
 Ready.
 
-**Plan.** For each item the job asks the model for one `StageProposal` (`ai.for_task("analysis")`,
-prompt `roadmap_stage_change.md`), measures each task group (`stage_change.measure_groups`) and
-asks once for a split of the groups over `--step-tokens`. A group costs what its step reads: the
+**Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
+before it answers (`ai.for_task("analysis")`, prompt `roadmap_stage_change.md`, and the read-only
+tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
+of tool calls and output tokens (`stage_toolbox`); a run that passes it fails the item. Without a
+`ToolboxModel` the planner makes the one call with no tool, as the tests and the option
+`--no-toolbox` of the golden-set run do. The job measures each task group
+(`stage_change.measure_groups`) and asks once for a split of the groups over `--step-tokens`. A group costs what its step reads: the
 files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens
 (`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
 change with `openspec validate --strict` in a scratch directory when the binary is on `PATH`; a
@@ -38,8 +42,8 @@ that is no file of the staged commit, and that no group up to its own creates (`
 sent back in the same way: the problem lists the files with the same name, and a second reply with
 a missing path stops the item, so no draft opens. The groups of a split are checked in the same
 way. `plan_item` plans one item with a given client and checkout: the golden set of the job runs
-it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call that fails skips its item; rejected
-credentials stop the run.
+it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
+that fails skips its item; rejected credentials stop the run.
 
 **Why.** `--why` adds to the plan the open items that the filter does not name, under their own
 heading, each with the family it misses (`StageFilter.mismatch`). They are not "left out": no rule
@@ -52,7 +56,7 @@ import json
 import shutil
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import partial
@@ -98,6 +102,7 @@ from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
+from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
@@ -118,6 +123,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
@@ -479,7 +485,9 @@ CALLS_PER_ITEM_MAX: Final[int] = 3
 class StagedChange:
     """A change ready to write: the target, the title and the body of its draft pull request, the
     files by path from the repository root, the measure of each task group, whether
-    `openspec validate` ran on it (it does not without the binary), and the budget of the run."""
+    `openspec validate` ran on it (it does not without the binary), the budget of the run, and
+    what the plan runs of the toolbox did (#3037). The trace is empty for an item planned with one
+    call."""
 
     target: StageTarget
     title: str
@@ -488,6 +496,7 @@ class StagedChange:
     groups: tuple[MeasuredGroup, ...]
     validated: bool
     budget: int
+    trace: RunTrace = field(default_factory=RunTrace)
 
 
 @dataclass(frozen=True)
@@ -594,8 +603,10 @@ class _Planner:
         budget: int,
         window: int,
         tool: OpenSpecTool | None,
+        toolbox: ToolboxClient | None = None,
     ) -> None:
         self._client = client
+        self._toolbox = toolbox
         self._source = source
         self._sha = sha
         self._known = known
@@ -612,6 +623,8 @@ class _Planner:
         back to the model once, with the problem. The model splits the groups at most once, so an
         item costs three model calls at most."""
         self._split_asked = False
+        if self._toolbox is not None:
+            self._toolbox.traces.clear()
         request = self._request(target)
         proposal = self._ask(StageProposal, _CHANGE_TASK, request)
         outcome = self._settle(target, proposal)
@@ -626,6 +639,8 @@ class _Planner:
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
+        if isinstance(outcome, StagedChange) and self._toolbox is not None:
+            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
         return outcome
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
@@ -743,7 +758,7 @@ def capabilities_of(source: Path) -> frozenset[str]:
 
 
 @contextmanager
-def _openspec_tool() -> Iterator[OpenSpecTool | None]:
+def openspec_tool() -> Iterator[OpenSpecTool | None]:
     """The pinned OpenSpec under its own configuration, or None when `openspec` is not on PATH."""
     if shutil.which(BIN_OPENSPEC) is None:
         yield None
@@ -874,14 +889,16 @@ def plan_stage(
     item_number: int | None = None,
     limit: int | None = None,
     step_tokens: int | None = None,
-    model: LLMClient | None = None,
+    model: LLMClient | ToolboxModel | None = None,
     why: bool = False,
 ) -> StagePlan:
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
-    override `roadmap.stage.limit` and `roadmap.stage.step_tokens`; `model` overrides the client
-    of the `analysis` task. With `why`, the plan also lists the open items that the filter does
+    override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. A client as `model` replaces
+    the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
+    plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
+    that splits the groups. With `why`, the plan also lists the open items that the filter does
     not name (#2911).
     """
     checkout = Path(source)
@@ -909,21 +926,44 @@ def plan_stage(
     )
     if not selection.selected:
         return plan
-    client = model or get_llm_client(task="analysis", settings=settings)
-    with _openspec_tool() as tool:
-        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
+    toolbox = model if isinstance(model, ToolboxModel) else None
+    client: StageClient
+    if isinstance(model, ToolboxModel) or model is None:
+        client = get_llm_client(task="analysis", settings=settings)
+    else:
+        client = model
+    with openspec_tool() as tool:
+        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool, toolbox=toolbox)
         ready, stopped, failed = _plan_each(planner, selection.selected)
     return replace(plan, ready=tuple(ready), over_budget=tuple(stopped), failed=tuple(failed))
 
 
+def analysis_window() -> int:
+    """The context window of the `analysis` task in tokens, or a default when no setting names it."""
+    return load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
+
+
 def _planner_of(
-    client: StageClient, checkout: Path, sha: str, *, budget: int, tool: OpenSpecTool | None
+    client: StageClient,
+    checkout: Path,
+    sha: str,
+    *,
+    budget: int,
+    tool: OpenSpecTool | None,
+    toolbox: ToolboxModel | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
-    context window of the `analysis` task once."""
-    window = load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
+    context window of the `analysis` task once. With a `toolbox` model, a plan run calls the
+    read-only tools on the checkout, and `client` answers the other calls."""
+    window = analysis_window()
+    runner = (
+        None
+        if toolbox is None
+        else ToolboxClient(toolbox.model, client, checkout, sha, window=window, openspec=tool)
+    )
     return _Planner(
-        client=client,
+        client=runner or client,
+        toolbox=runner,
         source=checkout,
         sha=sha,
         known=capabilities_of(checkout),
@@ -946,10 +986,11 @@ def plan_item(
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
     the model once, as in a run, and a second one raises `RoadmapStageError`. `step_tokens`
-    overrides `roadmap.stage.step_tokens`.
+    overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
+    read-only tools (#3037); the golden set builds it for the case checkout.
     """
     budget = step_tokens or load_settings().roadmap.stage.step_tokens
-    with _openspec_tool() as tool:
+    with openspec_tool() as tool:
         planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
         return planner.plan(_target_of(item))
 
@@ -1041,9 +1082,36 @@ def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
     return json.dumps([[m.group.title, m.tokens] for m in groups], ensure_ascii=False)
 
 
+def _run_report(trace: RunTrace) -> str:
+    """The report of the plan runs of an item: the counts and each tool call, in order. It is
+    empty for an item that was planned with one call, which made no run of the toolbox."""
+    if not trace.requests:
+        return ""
+    texts = MESSAGES.roadmap
+    calls = [
+        texts.stage_comment_call.format(
+            index=index, name=call.name, argument=call.argument.replace("`", "'")
+        )
+        for index, call in enumerate(trace.tool_calls, start=1)
+    ]
+    listed = (
+        texts.stage_comment_calls.format(calls="\n".join(calls))
+        if calls
+        else texts.stage_comment_no_calls
+    )
+    return texts.stage_comment_run.format(
+        requests=trace.requests,
+        input_tokens=trace.input_tokens,
+        output_tokens=trace.output_tokens,
+        calls=listed,
+    )
+
+
 def _notes(change: StagedChange) -> str:
-    """The note that ends the comment of a staged item: a validation that did not run."""
-    return "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
+    """The notes that end the comment of a staged item: the report of the plan runs, and a
+    validation that did not run."""
+    unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
+    return _run_report(change.trace) + unvalidated
 
 
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
@@ -1324,10 +1392,12 @@ __all__ = [
     "StageTarget",
     "StagedChange",
     "Walk",
+    "analysis_window",
     "apply_stage",
     "dry_run_stage",
     "emit_stage_results",
     "named_items",
+    "openspec_tool",
     "parse_filters",
     "plan_stage",
     "priority_order",

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -31,12 +32,21 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.exceptions import RoadmapStageError, ToolExecutionError
 from devops_cli.lang import MESSAGES
+from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.stage import OverBudget, StageClient, capabilities_of, plan_item
+from devops_cli.roadmap.stage import (
+    OverBudget,
+    StageClient,
+    analysis_window,
+    capabilities_of,
+    openspec_tool,
+    plan_item,
+)
 from devops_cli.roadmap.stage_change import StageProposal, render_change
 from devops_cli.roadmap.stage_eval_cases import GateName, StageCase
 from devops_cli.roadmap.stage_eval_gates import PlanUnderTest, run_gates
 from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.store import Item
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -133,12 +143,35 @@ def _ended(exc: Exception) -> tuple[Outcome, str]:
 
 
 def run_case(
-    case: StageCase, client: StageClient, repository: Path, *, step_tokens: int | None = None
+    case: StageCase,
+    client: StageClient,
+    repository: Path,
+    *,
+    step_tokens: int | None = None,
+    toolbox: Any | None = None,
+    openspec: OpenSpecTool | None = None,
 ) -> CaseRun:
     """Plan one case in a checkout of its staging commit. Rejected credentials stop the run; any
-    other error of the planner ends the case as a `refused` or `failed` case."""
-    recorder = RecordingClient(client)
+    other error of the planner ends the case as a `refused` or `failed` case.
+
+    With a `toolbox` model, a plan run reads the checkout with the read-only tools, as the job
+    does (#3037), and `client` answers the call that splits the groups. The recorder wraps the
+    toolbox client, so it keeps the first plan the model gave. `openspec` reads the specs for the
+    tool `read_spec`. Without a toolbox, a plan is one call."""
     with checkout_at(repository, case.base_commit) as source:
+        planner: StageClient = (
+            client
+            if toolbox is None
+            else ToolboxClient(
+                toolbox,
+                client,
+                source,
+                case.base_commit,
+                window=analysis_window(),
+                openspec=openspec,
+            )
+        )
+        recorder = RecordingClient(planner)
         try:
             planned = plan_item(
                 item_of(case),
@@ -168,6 +201,13 @@ def run_cases(
     repository: Path,
     *,
     step_tokens: int | None = None,
+    toolbox: Any | None = None,
 ) -> list[CaseRun]:
-    """Plan each case, one at a time."""
-    return [run_case(case, client, repository, step_tokens=step_tokens) for case in cases]
+    """Plan each case, one at a time, with the `toolbox` model when one is given."""
+    with openspec_tool() as tool:
+        return [
+            run_case(
+                case, client, repository, step_tokens=step_tokens, toolbox=toolbox, openspec=tool
+            )
+            for case in cases
+        ]
