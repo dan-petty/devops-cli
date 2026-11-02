@@ -47,7 +47,7 @@ Reads: `src/devops_cli/roadmap/stage_eval_run.py`, `src/devops_cli/commands/road
 
 Reads: `CONTEXT.md` (the entry **Staging**), `docs/ROADMAP_WORKFLOW.md` (the section "Measure the stage job"), `tests/invariants/test_roadmap_workflow_doc.py`. Changes: `CONTEXT.md`, `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 7.1 In `CONTEXT.md`, add to the entry **Staging** that the planner reads the repository with read-only tools, within a budget of tool calls and output tokens, and that the comment of the staged item reports the run. In `docs/ROADMAP_WORKFLOW.md`, add to the section "Measure the stage job" the option `--no-toolbox`, and the way to compare the two scores: run `uv run devops roadmap eval stage --model <model>` and the same command with `--no-toolbox`, and state both scores in the pull request. Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` and `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` pass
+- [x] 7.1 In `CONTEXT.md`, add to the entry **Staging** that the planner reads the repository with read-only tools, within a budget of tool calls and output tokens, and that the comment of the staged item reports the run. In `docs/ROADMAP_WORKFLOW.md`, add to the section "Measure the stage job" the option `--no-toolbox`, and the way to compare the two scores: run `uv run devops roadmap eval stage --model <model>` and the same command with `--no-toolbox`, and state both scores in the pull request. Run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` and `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` pass
 
 ## Workflow follow-up
 
