@@ -1726,6 +1726,11 @@ def get_service_webhook_secrets(settings: Settings) -> str | None:
     return _resolve("service.webhook_secrets", settings)
 
 
+def get_mcp_token(settings: Settings) -> str | None:
+    """Resolve the bearer token of the streamable HTTP transport of `devops mcp serve`."""
+    return _resolve("mcp.token", settings)
+
+
 def get_firecrawl_api_key(settings: Settings | None = None) -> str | None:
     """Resolve the Firecrawl web search API key."""
     active_settings = settings or load_settings()

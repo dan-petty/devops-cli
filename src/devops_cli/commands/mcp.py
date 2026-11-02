@@ -29,10 +29,10 @@ def server_args(transport: str, host: str, port: int, allow_remote: bool) -> dic
 
 
 def plan_serve(args: dict[str, Any]) -> list[PlannedRequest]:
-    """The bind (`sse` only) and the start of the MCP server. A start makes no outbound
-    request: the tools make requests only when a client calls them."""
+    """The bind (`sse` and `streamable-http`) and the start of the MCP server. A start makes no
+    outbound request: the tools make requests only when a client calls them."""
     requests: list[PlannedRequest] = []
-    if args["transport"] == "sse":
+    if args["transport"] in {"sse", "streamable-http"}:
         requests.append(PlannedRequest(method="BIND", target=f"tcp {args['host']}:{args['port']}"))
     requests.append(PlannedRequest(method="START", target=f"mcp server ({args['transport']})"))
     return requests
@@ -75,19 +75,21 @@ def serve_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Launch FastMCP server to expose devops-cli tools to MCP clients."""
-    if transport not in {"stdio", "sse"}:
+    if transport not in {"stdio", "sse", "streamable-http"}:
         print_error(ERRORS.mcp.invalid_transport.format(transport=transport))
         raise typer.Exit(1)
 
+    from devops_cli.ai.mcp.server import check_bind, transport_token
+
+    try:
+        check_bind(transport, host, allow_remote=allow_remote)
+        transport_token(transport)
+    except ValueError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+
     args = server_args(transport, host, port, allow_remote)
     if dry_run or is_dry_run():
-        from devops_cli.ai.mcp.server import check_sse_bind
-
-        try:
-            check_sse_bind(transport, host, allow_remote=allow_remote)
-        except ValueError as exc:
-            print_error(str(exc))
-            raise typer.Exit(1) from exc
         render_request_plan(
             MESSAGES.mcp.serve_dry_run_heading, plan_serve(args), [MESSAGES.mcp.serve_dry_run_note]
         )
@@ -95,6 +97,12 @@ def serve_cmd(
 
     if transport == "sse":
         print_info(MESSAGES.mcp.starting_sse.format(host=host, port=port))
+    elif transport == "streamable-http":
+        from devops_cli.ai.mcp.roles import JOB_ROLES
+
+        print_info(
+            MESSAGES.mcp.starting_http.format(roles=", ".join(JOB_ROLES), host=host, port=port)
+        )
     else:
         # For stdio, stdout must carry ONLY MCP JSON-RPC. Write status to stderr.
         write_stderr(MESSAGES.mcp.starting_stdio)
