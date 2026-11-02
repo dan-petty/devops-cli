@@ -10,7 +10,7 @@
 - A new test in `tests/output/test_network_table_color.py` checks the color of six statuses: "✓ Safe / Low Risk" and "LOW CONFIDENCE RISK" green, and "⚠️ Flagged (known botnet)", "⚠️ Low Risk", "High Risk" and "MALICIOUS host" red.
 - The spec `threat-intel-lookup-outcome` gets one new requirement for the red and green colors of the table. Its requirement "An unchecked reference ranks above a safe one" already holds the yellow color, so this change does not repeat it.
 - The code and the test are observable behavior of the table, so the change has a spec delta.
-- The pull request that delivers the code closes #2646 and cites its `devops ci fail-to-pass --base origin/main` run. This pull request only plans.
+- The pull request that delivers the code closes this issue and cites its `devops ci fail-to-pass --base origin/main` run. This pull request only plans.
 
 ## Capabilities
 
