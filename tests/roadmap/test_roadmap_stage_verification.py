@@ -10,6 +10,7 @@ import pytest
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StagePlan, apply_stage, parse_filters, plan_stage
+from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage_verify import Finding, Verification
 from tests.support.builders import make_stage_proposal
@@ -155,6 +156,20 @@ def test_a_false_premise_with_a_quote_returns_the_plan_to_the_planner_once(
         "Keep the last comment of a thread",
         (),
     )
+
+
+def test_a_return_that_the_planner_answers_with_premise_failed_returns_the_item(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    model_fake.answer(
+        make_stage_proposal(), StageProposal.model_validate({"premise_failed": "The code is gone."})
+    )
+    verifier.answer(Verification(findings=[_finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)]))
+
+    plan = _plan(store, stage_repo, verifier)
+
+    (returned,) = plan.returned
+    assert (plan.ready, returned.evidence, verifier.call_count) == ((), "The code is gone.", 1)
 
 
 def test_a_return_that_the_gates_refuse_stops_the_item(

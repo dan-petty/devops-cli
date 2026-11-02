@@ -147,6 +147,65 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
 
 
 @pytest.mark.usefixtures("openspec")
+def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    seed_stageable(store, body="Fix `keep` in `src/devops_cli/sample.py`, not `gone_function`.")
+    model_fake.answer(make_stage_proposal())
+
+    _plan(store, stage_repo)
+
+    (request,) = _requests(model_fake)
+    assert request["probes"].splitlines() == [
+        "The path `src/devops_cli/sample.py` is a file of the staging commit.",
+        "`keep` is defined at src/devops_cli/sample.py:1:def keep(comments):",
+        "`gone_function` has no definition at the staging commit. "
+        "No commit in the history added or removed its text.",
+    ]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_an_issue_that_cites_nothing_has_no_probes_key(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+
+    _plan(store, stage_repo)
+
+    (request,) = _requests(model_fake)
+    assert "probes" not in request
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_reply_that_says_the_premise_is_false_gives_no_plan_and_asks_for_no_second_reply(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    evidence = "`gone_function` was removed.\nSee @someone and https://example.org/x."
+    model_fake.answer(StageProposal.model_validate({"premise_failed": evidence}))
+
+    plan = _plan(store, stage_repo)
+
+    (returned,) = plan.returned
+    assert (plan.ready, plan.over_budget, model_fake.call_count) == ((), (), 1)
+    assert returned.target.item.number == item
+    assert "\n" not in returned.evidence
+    assert "`@someone`" in returned.evidence
+
+
+def test_a_blank_premise_failed_is_no_failure() -> None:
+    proposal = StageProposal.model_validate(
+        {**make_stage_proposal().model_dump(mode="json"), "premise_failed": "  "}
+    )
+
+    assert proposal.premise_failed is None
+
+
+def test_a_reply_with_no_plan_and_no_premise_failed_fails_the_schema() -> None:
+    with pytest.raises(ValidationError, match="A reply needs `groups`"):
+        StageProposal.model_validate({"premise_failed": None})
+
+
+@pytest.mark.usefixtures("openspec")
 def test_the_model_reads_the_item_the_capabilities_and_the_repository(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:

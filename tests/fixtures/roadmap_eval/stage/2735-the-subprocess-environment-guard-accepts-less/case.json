@@ -34,7 +34,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section confirms the premise only by quoting the issue body. It says the reproduction command 'returns the key unchanged, confirming the gap', but it records no output or tool version. It does not cite the less(1) manual, and it records no probe of its own. AGENTS.md rule 2 asks for evidence from upstream documents, library source or command output. It also names the issue as the source of the constant contents ('The issue body states the constant already holds LESSOPEN and LESSCLOSE') instead of reading src/devops_cli/config/constants.py. The premise is true: constants.py lists LESSOPEN and LESSCLOSE and has no LESS, and process.py passes CONST_CODE_LOADING_ENV_PATTERNS to _is_env_var_denied.",
    "evidence": "proposal.md Feasibility: 'The issue body states the constant already holds LESSOPEN and LESSCLOSE ... The reproduction command ... returns the key unchanged, confirming the gap.' It states no run output. git show c3354bbd:src/devops_cli/config/constants.py around line 1573 shows CONST_CODE_LOADING_ENV_PATTERNS with LESSOPEN and LESSCLOSE and no LESS. process.py lines 146-151 show _is_env_override_refused.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

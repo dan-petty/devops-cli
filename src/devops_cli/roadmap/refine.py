@@ -77,7 +77,7 @@ import itertools
 import json
 import logging
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -539,7 +539,8 @@ def _asked_questions(body: str, covers: CoversQuestion | None) -> list[str]:
 # ── Git & Checkout Inspection ─────────────────────────────────────────────────
 
 
-def _git(checkout: Path, *args: str) -> tuple[int, str]:
+def git_result(checkout: Path, *args: str) -> tuple[int, str]:
+    """The exit code of `git <args>` in `checkout` and its output, or its error text on failure."""
     proc = run_subprocess(
         [BIN_GIT, "-C", str(checkout), *args],
         env={"GIT_TERMINAL_PROMPT": "0"},
@@ -566,7 +567,7 @@ def inspect_checkout(source: Path | str, expected_repo: str) -> str:
                 "expected": expected_repo[:256],
             },
         )
-    code_sha, sha = _git(path, "rev-parse", "HEAD")
+    code_sha, sha = git_result(path, "rev-parse", "HEAD")
     sha = sha.strip()
     if code_sha != 0 or not sha:
         raise GitHubOperationError(
@@ -586,10 +587,10 @@ _BACKTICK_IDENT_RE = re.compile(r"`([a-zA-Z_][a-zA-Z0-9_]{2,})`")
 
 
 def _read_git_file(source: Path, sha: str, path: str) -> str | None:
-    code_exists, _ = _git(source, "cat-file", "-e", f"{sha}:{path}")
+    code_exists, _ = git_result(source, "cat-file", "-e", f"{sha}:{path}")
     if code_exists != 0:
         return None
-    code_show, content = _git(source, "show", f"{sha}:{path}")
+    code_show, content = git_result(source, "show", f"{sha}:{path}")
     return content if code_show == 0 else None
 
 
@@ -602,12 +603,31 @@ def _slice_lines(content: str, start: int | None, end: int | None) -> str:
     return "\n".join(lines[s:e])
 
 
+def _cited_matches(body: str) -> Iterator[tuple[str, str | None, str | None]]:
+    """The path of each file that `body` cites with its line range, if any, once for each path.
+    A path with `..` or a leading `/` is no cited file."""
+    seen: set[str] = set()
+    for match in _CITED_PATH_RE.finditer(body):
+        path, start, end = match.group(1), match.group(2), match.group(3)
+        if ".." in path or path.startswith("/") or path in seen:
+            continue
+        seen.add(path)
+        yield path, start, end
+
+
+def cited_paths(body: str) -> list[str]:
+    """The files that `body` cites, in the order of the text, each once."""
+    return [path for path, _, _ in _cited_matches(body)]
+
+
+def cited_identifiers(body: str) -> list[str]:
+    """The identifiers that `body` cites in backticks, in the order of the text, each once."""
+    return list(dict.fromkeys(m.group(1) for m in _BACKTICK_IDENT_RE.finditer(body)))
+
+
 def _collect_cited_files(source: Path, sha: str, body: str) -> dict[str, str]:
     found: dict[str, str] = {}
-    for match in _CITED_PATH_RE.finditer(body):
-        path, start_s, end_s = match.group(1), match.group(2), match.group(3)
-        if ".." in path or path.startswith("/") or path in found:
-            continue
+    for path, start_s, end_s in _cited_matches(body):
         content = _read_git_file(source, sha, path)
         if content is not None:
             start = int(start_s) if start_s else None
@@ -619,10 +639,9 @@ def _collect_cited_files(source: Path, sha: str, body: str) -> dict[str, str]:
 
 
 def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
-    raw_idents = {m.group(1) for m in _BACKTICK_IDENT_RE.finditer(body)}
     results: list[str] = []
-    for ident in sorted(raw_idents)[:5]:
-        code, out = _git(source, "grep", "-n", "-F", "-w", "-e", ident, sha, "--")
+    for ident in sorted(cited_identifiers(body))[:5]:
+        code, out = git_result(source, "grep", "-n", "-F", "-w", "-e", ident, sha, "--")
         if code == 0 and out:
             lines = out.splitlines()[:5]
             results.extend(lines)
@@ -635,7 +654,7 @@ def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
 _TEST_DIR: Final[str] = "tests/"
 _TEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
 # The files that name a symbol: Python files, which is where an item's symbols live (#3012).
-_SYMBOL_PATHSPEC: Final[str] = "*.py"
+SYMBOL_PATHSPEC: Final[str] = "*.py"
 _SPECS_DIR: Final[str] = "openspec/specs"
 _REQUIREMENT_RE = re.compile(r"^### Requirement:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
 # The root of the modules that a capability name covers, such as `src/devops_cli/roadmap/refine.py`.
@@ -654,7 +673,7 @@ def _grep_files(
     """The sorted paths of the files at `sha` under `pathspec` that hold one of `needles`."""
     flags = ["-l", "-z", "-F", *(["-w"] if word else [])]
     needle_args = [arg for needle in needles for arg in ("-e", needle)]
-    code, out = _git(source, "grep", *flags, *needle_args, sha, "--", pathspec)
+    code, out = git_result(source, "grep", *flags, *needle_args, sha, "--", pathspec)
     return _paths_of(out, sha) if code == 0 and out else []
 
 
@@ -688,9 +707,9 @@ def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
 
 def _collect_symbol_sections(source: Path, sha: str, body: str) -> list[str]:
     """For each identifier the item cites, the Python test files and caller files that name it."""
-    idents = sorted({m.group(1) for m in _BACKTICK_IDENT_RE.finditer(body)})[:5]
+    idents = sorted(cited_identifiers(body))[:5]
     sections = (
-        _symbol_section(ident, _grep_files(source, sha, [ident], _SYMBOL_PATHSPEC, word=True))
+        _symbol_section(ident, _grep_files(source, sha, [ident], SYMBOL_PATHSPEC, word=True))
         for ident in idents
     )
     return [section for section in sections if section]
@@ -710,7 +729,7 @@ def _module_capability_key(path: str) -> str | None:
 def _capabilities_of_files(source: Path, sha: str, cited: Sequence[str]) -> list[str]:
     """The sorted capabilities of the specs at `sha` that cover a cited file: by the name of its
     module, or because the spec names its path."""
-    code, out = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, _SPECS_DIR)
+    code, out = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, _SPECS_DIR)
     if code != 0 or not out or not cited:
         return []
     listed = out.split("\0") if "\0" in out else out.splitlines()
@@ -746,7 +765,7 @@ def _collect_repo_map(source: Path, sha: str, paths: Sequence[str]) -> list[str]
     dirs = {str(Path(p).parent) for p in paths if "/" in p}
     files: list[str] = []
     for d in sorted(dirs):
-        code, out = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, d)
+        code, out = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, d)
         if code == 0 and out:
             items = out.split("\0") if "\0" in out else out.splitlines()
             files.extend([f for f in items if f][:15])
@@ -770,7 +789,7 @@ def collect_context(
         sections.append(f"### CONTEXT.md\n{ctx}")
 
     # docs/adr/*.md
-    code_adr, adr_list = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, "docs/adr")
+    code_adr, adr_list = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, "docs/adr")
     if code_adr == 0 and adr_list:
         adr_items = adr_list.split("\0") if "\0" in adr_list else adr_list.splitlines()
         for adr_path in [p for p in adr_items if p][:5]:
@@ -976,7 +995,7 @@ def _checkout_path(cited: str, source: Path, sha: str) -> str | None:
     path = match.group(1)
     if ".." in path or path.startswith("/"):
         return None
-    code, _ = _git(source, "cat-file", "-e", f"{sha}:{path}")
+    code, _ = git_result(source, "cat-file", "-e", f"{sha}:{path}")
     return path if code == 0 else None
 
 

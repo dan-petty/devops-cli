@@ -39,7 +39,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section claims 'The premise is confirmed', but it records no command output. It copies the issue text. It lists the repro command as a 'first check the implementation runs', so the plan did not run it. The issue says 'The fix issue must probe each key it claims', and no probe is recorded. The section does not check who sets npm_config_* or PYTEST_ADDOPTS in the repo. A grep of the callers would have shown the install_tools conflict. Under AGENTS.md rule 2, the item should have gone back to New with this evidence, or the design should have narrowed to the probed keys (npm_config_logs_dir, and only the cache key if the installer is changed).",
    "evidence": "proposal.md Feasibility: 'The issue body states PYTEST_ADDOPTS, npm_config_logs_dir and npm_config_cache are not in that constant... The reproduction command in the issue body confirms the gap'. grep -rniE 'npm_config' src shows install_tools.py:311-315 and devcontainer.json.j2:70.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

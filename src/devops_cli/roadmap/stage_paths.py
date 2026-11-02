@@ -125,22 +125,39 @@ def _named(group: StageGroup, tree: StagedTree) -> Iterator[tuple[_Place, str]]:
     yield from ((_Place.VERIFY, path) for path in tree.paths_in(group.verify or ""))
 
 
-def _problem(number: int, place: _Place, path: str, tree: StagedTree) -> str:
+def _problem(number: int, place: _Place, path: str, tree: StagedTree, later: int | None) -> str:
+    """The sentence for a missing path; `later` is the group after `number` that creates it."""
     texts = MESSAGES.roadmap
+    where = texts.stage_path_places[place]
+    if later is not None:
+        return texts.stage_problem_path_later.format(
+            group=number, path=path, place=where, later=later
+        )
     same = tree.same_name(path)
     hint = (
         texts.stage_path_same_name.format(names=", ".join(f"`{name}`" for name in same))
         if same
         else texts.stage_path_no_same_name
     )
-    return texts.stage_problem_path.format(
-        group=number, path=path, place=texts.stage_path_places[place], hint=hint
-    )
+    return texts.stage_problem_path.format(group=number, path=path, place=where, hint=hint)
+
+
+def _first_creators(groups: Sequence[StageGroup]) -> dict[str, int]:
+    """For each path, and each folder above it, that a group lists in `creates`: the number of
+    the first group that does."""
+    first: dict[str, int] = {}
+    for number, group in enumerate(groups, start=1):
+        for path in group.creates:
+            for created in (path, *_folders_of(path)):
+                first.setdefault(created, number)
+    return first
 
 
 def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
     """One sentence for each path, named in `groups`, that `tree` lacks and that no group up to
-    the one that names it creates. A path is named once, at its first place."""
+    the one that names it creates. A path is named once, at its first place. When a later group
+    creates the path, the sentence names that group too."""
+    creators = _first_creators(groups)
     created: set[str] = set()
     reported: set[str] = set()
     problems: list[str] = []
@@ -152,5 +169,5 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
             if path in reported or path in created or tree.has(path):
                 continue
             reported.add(path)
-            problems.append(_problem(number, place, path, tree))
+            problems.append(_problem(number, place, path, tree, creators.get(path)))
     return problems

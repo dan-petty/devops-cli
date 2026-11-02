@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.42.1](https://github.com/dan-petty/devops-cli/compare/v0.42.0...v0.42.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** name the creating group of a forward read ([#3179](https://github.com/dan-petty/devops-cli/issues/3179)) ([64a8b00](https://github.com/dan-petty/devops-cli/commit/64a8b00402e6e5b0ae31644be59476d339083731))
+
 ## [0.42.0](https://github.com/dan-petty/devops-cli/compare/v0.41.0...v0.42.0) (2026-11-02)
 
 

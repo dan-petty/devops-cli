@@ -34,7 +34,7 @@
    "where": "proposal.md (Feasibility), tasks.md 1.2, issue premise",
    "problem": "The plan takes the gate command from the archived 2026-10-27 design (`--cov-report=term-missing --cov-report=xml`). The gate no longer writes an XML report (#2582). So the 'lines' configuration, the `coverage xml` timing (task 2.2) and the issue premise of a serial XML step are stale. The Feasibility section did not check the current gate on main, so rule 2 (check the premise against the real system) is not met. The plan should state the real current command and drop or justify the xml step.",
    "evidence": "src/devops_cli/commands/ci.py:658-659 has `--cov=src` and `--cov-report=term-missing` only. openspec/specs/ci-coverage-reports/spec.md: 'The devops ci test row SHALL ... NOT ask pytest-cov for an XML report'. Commit ae9ebb23 'perf(ci): the gate writes no coverage XML' (#2582). Feasibility cites only the archived design.md and its 'gate command (pytest --cov=src --cov-report=term-missing --cov-report=xml)'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",

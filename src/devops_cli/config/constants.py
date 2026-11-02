@@ -3004,6 +3004,11 @@ CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 20
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 20
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
 CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 8000
+# The premise probe of the stage job (#3011): the git commands it runs for one item, and the lines
+# of definition it shows for one identifier. The cited examples hold 1 to 4 items of at most 2
+# commands each, so 10 commands cover them and keep the probe short.
+CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS: Final[int] = 10
+CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
 # The verification pass of the stage job (#3153): the tokens of the issue body, the tokens of the
 # start of each file that the plan cites, and the most files in one request. 3000 tokens is the
 # cap that a step of the implement job gives a file; the pass reads less of each file, as it only
