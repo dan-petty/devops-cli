@@ -90,7 +90,10 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
+    DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -880,6 +883,21 @@ class RoadmapImplementConfig(BaseModel):
         description="The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project, and one for each time that tasks stay unticked. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn",
         default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
         ge=0,
+    )
+    request_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="The seconds that one model call of an implementation step may take, the read of its stream included. A call that runs past it ends the step as stopped. Keep it under the timeout of the LLM gateway router (1500 s in the stack), or the router ends the call first",
+        default=DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+        ge=1,
+    )
+    command_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="The seconds that one command of an implementation step may run: a verification command, a static check, a hook or a scoped check of the project. A command that runs past it stops the step or fails the check",
+        default=DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+        ge=1,
+    )
+    monitor_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="The most seconds that the implement job waits for the checks of a pull request to settle after a push. When it runs out, the item stops",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
+        ge=1,
     )
 
 

@@ -58,7 +58,6 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS,
-    CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS,
@@ -115,7 +114,6 @@ from devops_cli.roadmap.step_files import parse_task_groups, section_text
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 
-_TIMEOUT = CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS
 _WHY_HEADINGS = frozenset({"why"})
 
 
@@ -346,10 +344,11 @@ class _ItemRun:
         `_StopError` for the current step when it fails or runs out of time."""
         shown = " ".join(argv)
         texts = MESSAGES.roadmap
+        limit = load_settings().roadmap.implement.command_timeout_seconds
         try:
-            done = run_subprocess(list(argv), cwd=self.path, quiet=True, timeout=_TIMEOUT)
+            done = run_subprocess(list(argv), cwd=self.path, quiet=True, timeout=limit)
         except subprocess.TimeoutExpired as exc:
-            reason = texts.implement_stop_program_timeout.format(command=shown, seconds=_TIMEOUT)
+            reason = texts.implement_stop_program_timeout.format(command=shown, seconds=limit)
             raise _StopError(self.step, reason) from exc
         if done.returncode != 0:
             output = _tail(f"{done.stdout or ''}{done.stderr or ''}")
@@ -424,7 +423,7 @@ class _ItemRun:
                 [BIN_GIT, "-C", str(self.path), "rebase", "--abort"],
                 check=False,
                 quiet=True,
-                timeout=_TIMEOUT,
+                timeout=load_settings().roadmap.implement.command_timeout_seconds,
             )
             texts = MESSAGES.roadmap
             reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))

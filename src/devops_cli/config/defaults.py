@@ -738,6 +738,19 @@ DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
 # How often the implement row is due on its own, besides its first run (#2667). A round only reads
 # the Jobs and the plan; the Job itself runs for up to two hours.
 DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
+# The time limits of the implement job (#3206), in seconds, which the settings
+# `roadmap.implement.request_timeout_seconds`, `command_timeout_seconds` and
+# `monitor_timeout_seconds` change. The deadline of one model call is one clock over the whole
+# call, the read of the stream included. It is more than a cold read of the largest window (about
+# 90 s) and a reply at the output cap (a quarter of the window, 32,000 tokens) at the average rate
+# of the longest measured call (38 tokens per second, about 840 s), and under the timeout of the
+# router in `k8s/llm/gateway/config.yaml` (1500 s), which a test holds. A command is one
+# verification command, static check or hook of a step. The monitor is the most time that the
+# checks of a pull request may take to settle: CI that takes more than 5 minutes is a P0 bug, so
+# an hour is an outer bound. The Job deadline ends a run that these limits do not.
+DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: int = 1200
+DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: int = 1800
+DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: int = 3600
 # The labels of the items the stage job takes when no setting and no option names others: every
 # Ready item, of any type, priority, value and effort (#2906).
 DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = ("status=ready",)
@@ -749,9 +762,10 @@ DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 37
 DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
 # `AGENTS.md` of the repository and the sections of the documents it routes the group to, the
-# item, the change folder and the packed files of one task group. It leaves most of a 128k
-# window for tool output and the model's turns (#2654).
-DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = 40000
+# item, the change folder and the packed files of one task group. It is half of the default window
+# of the implement task (128k), which leaves the other half for tool output and the model's turns
+# (#2654, #3206). A test holds that the step budget and the reserve of the turns fit the window.
+DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW // 2
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

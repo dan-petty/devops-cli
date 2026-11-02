@@ -2947,14 +2947,14 @@ CONST_ROADMAP_RECORD_MARKER: Final[str] = "devops-roadmap-record"
 CONST_ROADMAP_REFINE_START_MARKER: Final[str] = "<!-- devops-roadmap-refine:start -->"
 CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end -->"
 CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
-CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
+CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 10
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
 # The stage and refine context lists, for each symbol that an item cites, at most this many paths
 # of the Python files that name it, the tests first. The context says how many it left out (#3012).
 CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL: Final[int] = 50
 # The context names the requirements of at most this many specs, and at most this many for each (#3012).
-CONST_ROADMAP_REFINE_MAX_SPECS: Final[int] = 5
-CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 40
+CONST_ROADMAP_REFINE_MAX_SPECS: Final[int] = 10
+CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 100
 # The `result` of `devops_cli_firecrawl_searches_total` for a search that returned its web results,
 # and for one that got no answer or a reply with no web results. A search that Firecrawl refused
 # counts under its HTTP status (#2475).
@@ -2971,40 +2971,45 @@ CONST_ROADMAP_REFINE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap refine: n
 # What a proposal's `suspected_block` holds when it names no block, lower-cased.
 CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS: Final[frozenset[str]] = frozenset({"", "none", "null"})
 # The newest replies that reach the model, each cut to this many tokens (#1758).
-CONST_ROADMAP_REFINE_MAX_REPLIES: Final[int] = 5
-CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS: Final[int] = 1024
+CONST_ROADMAP_REFINE_MAX_REPLIES: Final[int] = 10
+CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS: Final[int] = 4096
 # The most paths refine records as the cause of an item's block. A later round reads the newest
 # commit of each one while the item waits, so the cap bounds those reads (#2005).
 CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS: Final[int] = 5
 # The budget of one item's investigation (#2398): its model requests and tool calls, the calls
 # one turn can make (the function tools go when fewer are left), and the lines and characters of
 # one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two
-# calls in each turn and needed more than 12 calls for the open facts of #2234.
-CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS: Final[int] = 12
-CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS: Final[int] = 20
+# calls in each turn and needed more than 12 calls for the open facts of #2234. The window is the
+# limit of a run (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`), and the two counts are the
+# loop guard of the job: a model that calls tools without end stops at them, long before the Job
+# deadline. They are 8 and 7.5 times the old counts, and the answers of 100 requests fill the
+# planner window of 65,536 tokens before the counts end the run (#3206).
+CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS: Final[int] = 100
+CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS: Final[int] = 150
 CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
 # The retries the model gets for a tool call or an answer that breaks its schema.
 CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
-CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 120
-CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 4000
+CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 240
+CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 8000
 # The largest blob a file tool reads, and the share of the context window that an investigation
 # keeps for its reply: with tools, a request goes on only while the messages and this share fit the
 # window (#3037). The bytes bound the memory of one tool answer; the lines bound its text.
 CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES: Final[int] = 2_000_000
 CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE: Final[int] = 4
-# The plan run of the stage job (#3037): the tool calls, the output tokens and the model requests
-# of one run, the commits `git_log` lists, the files `repo_map` maps and the characters of each of
-# its lines (20 lines of 180 characters fit one tool answer), and the characters of the answer of
-# `read_spec`, which a whole requirement can pass the limit of the other tools. 30 calls
-# and 50000 tokens are the budget that the refined design of #3037 gave. The requests are a few
-# more than the calls, for the tool-free turn near the limit and the retries of a reply.
-CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 30
-CONST_ROADMAP_STAGE_MAX_OUTPUT_TOKENS: Final[int] = 50000
-CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 40
-CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 20
-CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 20
+# The plan run of the stage job (#3037): the tool calls and the model requests of one run, the
+# commits `git_log` lists, the files `repo_map` maps and the characters of each of its lines (40
+# lines of 180 characters fit one tool answer), and the characters of the answer of `read_spec`,
+# which a whole requirement can pass the limit of the other tools. The window of the model ends
+# the run before the counts do (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`), and the output
+# tokens of the run have no count of their own: they are in the messages, which the window holds
+# (#3206). The counts are the loop guard of the job, 6 to 7 times the old counts. The requests are a
+# few more than the calls, for the tool-free turn near the limit and the retries of a reply.
+CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 200
+CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 250
+CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 40
+CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
-CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 8000
+CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 16000
 # The premise probe of the stage job (#3011): the git commands it runs for one item, and the lines
 # of definition it shows for one identifier. The cited examples hold 1 to 4 items of at most 2
 # commands each, so 10 commands cover them and keep the probe short.
@@ -3023,8 +3028,8 @@ CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
 CONST_ROADMAP_ALTERNATIVES_START_MARKER: Final[str] = "<!-- devops-roadmap-alternatives:start -->"
 CONST_ROADMAP_ALTERNATIVES_END_MARKER: Final[str] = "<!-- devops-roadmap-alternatives:end -->"
 CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER: Final[str] = "<!-- devops roadmap alternatives -->"
-CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES: Final[int] = 3
-CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS: Final[int] = 6
+CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES: Final[int] = 10
+CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS: Final[int] = 30
 CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS: Final[int] = 5
 CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS: Final[int] = 365
 # A PyPI package states its license in `license_expression`, in `license` (a name when it is short,
@@ -3032,17 +3037,22 @@ CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS: Final[int] = 365
 CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS: Final[int] = 100
 CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER: Final[str] = "License :: "
 CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
-# The longest body, in tokens, that reaches the model with an item.
-CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 4096
+# The longest body, in tokens, that reaches the model with an item: a quarter of the planner window
+# of 65,536 tokens that the example ConfigMap sets (#3206).
+CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 16384
 # The class of error that the job records for a reply it refused (#2949): a refusal raises no
 # exception, so it has no class of its own.
 CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR: Final[str] = "RefusedReply"
 # The budget of one step of `devops roadmap implement` (#2664): the model requests and tool calls
 # of its run, the characters of one tool result, and the tokens of the window that the inputs
-# leave to the turns of the run. The window is `ai.tasks.implement.context_window`.
-CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS: Final[int] = 80
-CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: Final[int] = 240
-CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 16000
+# leave to the turns of the run. The window is `ai.tasks.implement.context_window`. The requests
+# and the calls are the loop guard of the job (#3206): 500 requests and 1,500 calls are 6 times the
+# old counts, and without them the Job deadline would be the only stop of a model that loops. A
+# tool result of 40,000 characters is about 10,000 tokens, under a twelfth of the default window of
+# 128,000 tokens.
+CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS: Final[int] = 500
+CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: Final[int] = 1500
+CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 40000
 # The consecutive refusals that a tool may answer before the run ends, such as a command off the
 # allowlist. A refusal is the model's to correct, as the harness's own file tools allow five.
 CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
@@ -3053,29 +3063,27 @@ CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
 # gets at most (1 + `ai.max_retries`) * (1 + this value) sends.
 CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS: Final[int] = 1
 CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS: Final[int] = 40000
-# The output cap of one model reply of a step, in tokens, and the deadline of one model call, in
-# seconds (#2869). Both go to the agent as model settings. The cap is `max_tokens`: the gateway
-# sends it to Ollama as `num_predict`. The longest reply of a step in the Job logs is under 2,000
-# tokens, and the longest reply of any client of the tier is 11,634 tokens, so 16,384 cuts only a
-# model that does not stop. The deadline is `request_timeout`, one clock over the whole call, the
-# read of the stream included. It is more than a cold read of the largest window (about 90 s) and
-# a reply at the cap at the average rate of the longest measured call (38 tokens per second, about
-# 430 s). The rate fell to 27.55 tokens per second for a short time in that call, so a very slow
-# call ends at the deadline before it reaches the cap. Both stops are fine. The deadline is under
-# the timeout of the router in `k8s/llm/gateway/config.yaml` (1500 s), which a test holds.
-CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS: Final[int] = 16384
-CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: Final[int] = 600
-# The tokens of one packed file in the inputs of a step. The agent reads more with its tools.
-CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000
-# How long one verification command or static check of a step may run, and how many lines of its
-# output a stopped step reports.
-CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
+# The output cap of one model reply of a step (#2869) is this share of the window of the task: the
+# window divided by this number, in tokens. It goes to the agent as the model setting `max_tokens`,
+# which the gateway sends to Ollama as `num_predict`. The longest reply of a step in the Job logs is
+# under 2,000 tokens, and the longest reply of any client of the tier is 11,634 tokens, so a
+# quarter of the window (32,000 tokens of 128,000) cuts only a model that does not stop (#3206). The
+# deadline of one call is the setting `roadmap.implement.request_timeout_seconds`
+# (`DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS`).
+CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE: Final[int] = 4
+# The tokens of one packed file in the inputs of a step. The agent reads more with its tools. It is
+# a sixteenth of the default window of 128,000 tokens (#3206).
+CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 8000
+# How many lines of the output of a command a stopped step reports. The time that one verification
+# command or static check may run is the setting `roadmap.implement.command_timeout_seconds`.
 CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
 # The job of `devops roadmap implement` (#2665). The longest log of a failed check, in characters
-# from its end, that the fix step reads; the longest "why" in a pull request body, as the
-# squash message takes it; the longest last message of an agent in a comment; and the most time
-# that the checks of a pull request may take to settle.
-CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 6000
+# from its end, that the fix step reads (20,000 characters are about 5,000 tokens, and the inputs of
+# a fix step are measured against the window like those of any step); the longest "why" in a pull
+# request body, as the squash message takes it; and the longest last message of an agent in a
+# comment. The most time that the checks of a pull request may take to settle is the setting
+# `roadmap.implement.monitor_timeout_seconds`.
+CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 20000
 CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS: Final[int] = 1000
 CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500
 # The longest diff, in characters, that a stopped step reports (#2721) and the job posts in the
@@ -3132,7 +3140,6 @@ CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS: Final[int] = (
 # of the retry that the tool returned. The log and the reason of the stop cut it to the same length.
 CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS: Final[int] = 240
 CONST_ROADMAP_IMPLEMENT_STOP_REASONS: Final[int] = 3
-CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: Final[int] = 1800
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.
 CONST_ROADMAP_IMPLEMENT_HEAD_POLLS: Final[int] = 20

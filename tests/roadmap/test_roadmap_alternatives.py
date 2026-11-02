@@ -30,6 +30,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapAlternativesError
+from devops_cli.roadmap import alternatives
 from devops_cli.roadmap.alternatives import (
     AlternativesReply,
     AlternativesTools,
@@ -428,7 +429,7 @@ def test_the_search_stops_at_its_limit_and_remembers_what_it_ran(
     ) == (
         f"Result {SEARCH_URL}\n{SEARCH_URL}\nA scanner.",
         "The search limit for this item is reached.",
-        ["query 0", "query 1", "query 2"],
+        [f"query {n}" for n in range(CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES)],
         {SEARCH_URL},
         CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
         ["search_web", "github_repository", "pypi_package"],
@@ -532,12 +533,13 @@ def test_the_two_fact_tools_share_one_read_limit(
 ) -> None:
     tools = AlternativesTools(store=store, firecrawl_key="fc-test")
 
-    answers = [tools.github_repository("example/scanner") for _ in range(7)]
+    reads = CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS
+    answers = [tools.github_repository("example/scanner") for _ in range(reads + 1)]
     after = tools.pypi_package("scanner")
 
     assert (
-        answers[0] == answers[5],
-        answers[6],
+        answers[0] == answers[reads - 1],
+        answers[reads],
         after,
         tools.fact_reads,
         stub_web.sent,
@@ -686,7 +688,11 @@ def test_the_request_holds_the_item_the_replies_and_the_budget(
         "title": "Scan a directory",
         "body": body,
         "replies": ["Keep this item: the scanner lacks a feature.", "A second reply."],
-        "search_budget": {"searches": 3, "results_per_search": 5, "fact_reads": 6},
+        "search_budget": {
+            "searches": CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
+            "results_per_search": 5,
+            "fact_reads": CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
+        },
     }
 
 
@@ -1279,9 +1285,34 @@ def test_a_failed_model_call_skips_its_item_and_names_the_error_class(
     ) == ([kept], [(failing, "the model call failed (AIClientError)", "AIClientError")])
 
 
-def test_a_run_that_spends_its_budget_skips_its_item(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+def test_the_run_of_an_item_reads_the_window_of_the_analysis_task(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The run passes the context window to the investigation, so the window ends its tools
+    before the counts of requests and calls do (#3206)."""
+    seen: list[Any] = []
+    real = alternatives.investigate
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs.get("window"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(alternatives, "investigate", spy)
+    monkeypatch.setattr(alternatives, "analysis_window", lambda: 65536)
+    _item(store)
+
+    _plan(store, Script(call("search_web", query="q")))
+
+    assert seen == [65536]
+
+
+def test_a_run_that_spends_its_budget_skips_its_item(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    stub_web: StubWeb,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(alternatives, "analysis_window", lambda: 10**9)
     _firecrawl(stub_web, SEARCH_URL)
     number = _item(store)
     plan = _plan(store, Script(call("search_web", query="q")))

@@ -92,6 +92,7 @@ from devops_cli.roadmap.refine import (
 )
 from devops_cli.roadmap.refine_investigation import (
     InvestigationStopped,
+    analysis_window,
     cited_web_search,
     investigate,
 )
@@ -803,6 +804,7 @@ def _check_one(
             tools,
             AlternativesReply,
             output_check=lambda _reply: _search_missing(tools),
+            window=analysis_window(),
         )
     except AICredentialsError:
         raise
