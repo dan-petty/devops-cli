@@ -13,6 +13,7 @@ reads.
 
 from __future__ import annotations
 
+import re
 import string
 import textwrap
 from collections.abc import Collection, Mapping, Sequence
@@ -109,15 +110,51 @@ RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
 
 
 def _one_line(text: str) -> str:
-    """The text on one line, so that a text of the reply adds no line, no task, no group and no
-    `Verification:` line to `tasks.md`."""
+    """The text on one line, so that a text of the reply adds no line, no task, no group, no
+    section and no `Verification:` line to a file of the change. Each run of white space, a line
+    break of markdown (`\\n`, `\\r`) and one of `str.splitlines` among them, becomes one space."""
     return " ".join(text.split())
+
+
+def _join_lines(text: str) -> str:
+    """The text on one line, with each line break as one space and every other space kept: a
+    command may hold two spaces in a quoted word."""
+    return " ".join(text.splitlines())
+
+
+# What starts a block in markdown, at the start of a line: a heading, a quote, a list marker or a
+# box, a rule, a fence, a comment of HTML.
+_BLOCK_START: Final[re.Pattern[str]] = re.compile(
+    r"#{1,6}(?:\s|$)|>|[-*+](?:\s|$)|\d{1,9}[.)](?:\s|$)|\[[ xX]\]"
+    r"|(?:-{3,}|_{3,}|\*{3,}|={3,}|~{3,}|`{3,})|<!--"
+)
+
+
+def _block_free(text: str) -> str:
+    """The text, which starts with no block syntax, as a file of the change writes it at the start
+    of a line."""
+    if _BLOCK_START.match(text):
+        raise ValueError(MESSAGES.roadmap.stage_bad_block_start.format(text=text[:40]))
+    return text
 
 
 # A text of a task group: at least one character once the whitespace around it is stripped, and on
 # one line in `tasks.md`.
 Text = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_one_line)
+]
+# A command: on one line, with its spaces kept.
+Command = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_join_lines)
+]
+# A text of a file of the change that is not a task: on one line, and at the start of a line only
+# when it starts with no block syntax.
+Line = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_one_line)]
+LineStart = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True),
+    AfterValidator(_one_line),
+    AfterValidator(_block_free),
 ]
 
 
@@ -146,22 +183,23 @@ Process = Annotated[
 
 
 class _Reply(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # A text that is set after validation is folded too, as the writer of the files trusts it.
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
 class StageScenario(_Reply):
     """One scenario of a requirement, in the shape of an OpenSpec scenario."""
 
-    name: str
-    when: str
-    then: str
+    name: Line
+    when: Line
+    then: Line
 
 
 class StageRequirement(_Reply):
     """One requirement of a spec delta; `text` says SHALL or MUST, in capitals."""
 
-    name: str
-    text: str
+    name: Line
+    text: LineStart
     scenarios: list[StageScenario] = Field(min_length=1)
 
 
@@ -169,7 +207,7 @@ class StageSpec(_Reply):
     """The delta of one capability. `purpose` is set for a new capability only."""
 
     capability: Annotated[str, AfterValidator(_capability_name)]
-    purpose: str | None = None
+    purpose: LineStart | None = None
     added: list[StageRequirement] = Field(default_factory=list)
     modified: list[StageRequirement] = Field(default_factory=list)
 
@@ -177,15 +215,15 @@ class StageSpec(_Reply):
 class StageDecision(_Reply):
     """A design decision and its reason."""
 
-    decision: str
-    reason: str
+    decision: Line
+    reason: Line
 
 
 class StageRejection(_Reply):
     """An alternative the design rejected, and the evidence that rejected it."""
 
-    alternative: str
-    evidence: str
+    alternative: Line
+    evidence: Line
 
 
 class GroupKind(StrEnum):
@@ -215,7 +253,7 @@ class StageGroup(_Reply):
     test: Sentence | None = None
     implementation: Sentence
     documentation: Sentence | None = None
-    verify: Text | None = None
+    verify: Command | None = None
     process: Process | None = None
 
     @model_validator(mode="after")
@@ -292,11 +330,11 @@ class StageProposal(_Reply):
     # gives it as `maxLength` for the model and checks it in the validator, not with `max_length`.
     summary: str = Field("", min_length=1, json_schema_extra={"maxLength": STAGE_SUMMARY_MAX_CHARS})
     pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
-    why: str = ""
-    what_changes: list[str] = Field(default_factory=list, min_length=1)
+    why: LineStart = ""
+    what_changes: list[Line] = Field(default_factory=list, min_length=1)
     skip_specs: bool = False
-    feasibility: list[str] = Field(default_factory=list, min_length=1)
-    existing_tool: str = ""
+    feasibility: list[Line] = Field(default_factory=list, min_length=1)
+    existing_tool: LineStart = ""
     decisions: list[StageDecision] = Field(default_factory=list)
     rejected: list[StageRejection] = Field(default_factory=list)
     specs: list[StageSpec] = Field(default_factory=list)
@@ -575,7 +613,10 @@ def _task_texts(group: StageGroup) -> list[str]:
 
 
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its files, and the tasks of its kind."""
+    """The group as `tasks.md` holds it, numbered `index`: its files, and the tasks of its kind.
+    `group` is a validated group: its texts are on one line (`_one_line`), and `verify` holds no
+    backtick (`form_problems`). A group built with `model_construct` skips that check, and no
+    caller renders one."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
         reads=_paths(group.reads) or texts.stage_group_no_reads,
@@ -591,7 +632,9 @@ def group_text(index: int, group: StageGroup) -> str:
 def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
     """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
     group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
-    A plan with no criterion has no section."""
+    A line starts with a fixed word and holds the folded text of the criterion, which comes from
+    the issue: a criterion `## 2. X` is no heading of the file. A plan with no criterion has no
+    section."""
     texts = MESSAGES.roadmap
     lines = [
         texts.stage_criteria_pending.format(
