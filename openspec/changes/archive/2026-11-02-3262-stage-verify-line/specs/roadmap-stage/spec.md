@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A task group renders the tasks of its kind
-A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. A task with a command SHALL render the command on its own line under the task, as `- Verification: ` and the command in a code span, so that the code span is read as a verification command of the group (`step_files`). The line of the failing test SHALL end with the words "fails on the base", and the line of every other task with the command SHALL end with the word "passes". An `other` group SHALL render no test and no words "fails on the base". A task with a `process` SHALL render the steps after the work and no `Verification:` line. A group with no `documentation` SHALL render no documentation task.
+A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. A task with a command SHALL write it on a line `- Verification: ` under the task, as a code span that `step_files` reads. A group with no `documentation` SHALL render no documentation task.
 
 #### Scenario: A deletion that keeps behavior
 - **WHEN** an `other` group deletes a definition and its `verify` is a `git grep` that must print nothing
