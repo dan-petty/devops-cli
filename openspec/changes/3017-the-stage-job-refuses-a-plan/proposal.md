@@ -8,9 +8,11 @@ About 8 of 37 recent plans order their groups so that a group reads a path that 
 
 - `path_problems` finds the first later group that lists a missing path in `creates` and names it in the problem.
 - The problem text tells the model to move the creating group before the reading group.
-- A new test in the shape of #2996 asserts that the problem names group 1 and group 2.
-- A test asserts that a plan whose groups create what they read has no problem.
-- The `roadmap-stage` spec delta states that the problem names both groups.
+- A new test in the shape of #2996 asserts that the problem names the reading group and the creating group, and says which group to move.
+- A test asserts that a path no group creates keeps the message without a creating group.
+- The acceptance criterion "a plan whose groups create what they read passes" has a test already: `test_a_path_that_an_earlier_group_creates_passes_in_a_later_group`. This change adds none.
+- The `roadmap-stage` spec delta adds a sentence and a scenario: the problem names both groups.
+- Item 15 of `k8s/README.md` describes the check, so it gets the new sentence.
 - The change fits one pull request.
 
 ## Capabilities
@@ -26,16 +28,14 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/lang/en/messages.py`
-- Documents: `openspec/changes/3017-stage-names-the-creating-group/proposal.md`, `openspec/changes/3017-stage-names-the-creating-group/design.md`, `openspec/changes/3017-stage-names-the-creating-group/tasks.md`, `openspec/changes/3017-stage-names-the-creating-group/specs/roadmap-stage/spec.md`
+- Documents: `k8s/README.md`
 - Tests: `tests/roadmap/test_roadmap_stage_paths.py`
 
 ## Feasibility
 
-- `search_code` for `path_problems` showed the check already exists in `src/devops_cli/roadmap/stage_paths.py:141` and is called from `check_proposal` in `src/devops_cli/roadmap/stage_change.py:298`, so the premise of the issue holds: the job refuses a forward-read plan.
-- `read_file` of `src/devops_cli/roadmap/stage_paths.py:128-156` showed `_problem` takes only the reading group number, so the problem text names one group. The remaining work is to name the creating group.
-- `read_file` of `tests/roadmap/test_roadmap_stage_paths.py:92-99` showed the existing test asserts only `group 1` in the problem, so it does not yet cover the acceptance criterion.
-- `read_spec` of `roadmap-stage` showed the requirement `The plan names files that exist at the staged commit` holds the check, so the change modifies that requirement.
-- First checks against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` runs the new tests, and `openspec validate --strict` checks the change folder.
+- Read of `src/devops_cli/roadmap/stage_paths.py` at the base: `path_problems` is called from `check_proposal` (`stage_change.py`) and, after a split, from `stage.py`. It reports a path that no group up to the reading group creates, and `_problem` takes only the reading group number. #3010 (archived in `openspec/changes/archive/2026-11-01-3010-stage-refuses-missing-paths/`) built this check, so the issue is partly superseded: the job already refuses a forward-read plan. What is left is the creating group in the text.
+- Run on the base of the new test: a plan with group 1 that reads `tests/test_new.py` and group 3 that creates it gives the problem "Group 1 names `tests/test_new.py` in `reads`. The staged commit has no such file, and no group up to group 1 creates it. No file has this name. Name a file that exists, or make the group that creates it list it in `creates`." The text names no later group, and its tail ("make the group that creates it list it in `creates`") misleads the model, because a later group does list it. The test fails on the base.
+- `path_problems` reports the sentence once for a path, at its first place, so one creating group is enough. The second call site in `stage.py` calls the same function, so it needs no change.
 
 ## Existing Tool Considered
 
