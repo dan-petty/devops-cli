@@ -75,12 +75,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         sections=("Zero-Trust Security & Egress Safety Principles",),
     ),
     Route(
-        row="handle secrets, egress, private data, sandboxes or telemetry",
-        patterns=("src/devops_cli/ai/mcp/**",),
-        document="SECURITY.md",
-        sections=("MCP Tool Secrets",),
-    ),
-    Route(
         row="take an issue to release, or a pull request to merge",
         patterns=("src/devops_cli/roadmap/**",),
         document="docs/ROADMAP_WORKFLOW.md",

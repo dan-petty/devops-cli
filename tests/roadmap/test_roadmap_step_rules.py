@@ -136,20 +136,6 @@ def test_a_group_that_changes_security_code_gets_the_security_policy() -> None:
     ]
 
 
-def test_a_group_that_changes_an_mcp_tool_gets_the_secrets_rule() -> None:
-    """The rule for the parameters of a tool reaches the agent that edits the tool (#3222)."""
-    sections = rules_sections(REPO_ROOT, _group("src/devops_cli/ai/mcp/generator.py"))
-
-    security = next(text for text in sections if text.startswith(route_heading("SECURITY.md")))
-    assert (
-        "publishes no parameter that takes a secret value" in security,
-        "13. **Hosted Models**" in security,
-    ) == (
-        True,
-        False,
-    )
-
-
 def test_a_group_that_changes_roadmap_code_gets_the_roadmap_workflow() -> None:
     assert _documents(_group("src/devops_cli/roadmap/stage.py")) == [
         "ARCHITECTURE.md",

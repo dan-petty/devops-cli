@@ -14,15 +14,14 @@ Three more parameters have a secret word in the name and hold no secret: `secret
 
 ## What Changes
 
-- `SECURITY.md` has a new rule 12, **MCP Tool Secrets**, after rule 11, and a section of the same name that holds the detail. The rule is short because the section of principles has little room under the token cap of an implement step (2953 of 3000 tokens before the change). The old rule 12 (Hosted Models) is rule 13, and `k8s/README.md` cites it by that number.
-- The implement step gives the `MCP Tool Secrets` section to a group that changes a file under `src/devops_cli/ai/mcp/` (a route in `src/devops_cli/roadmap/step_rules.py`).
+- `SECURITY.md` has a new rule 12, **MCP Tool Secrets**, after rule 11, The old rule 12 (Hosted Models) is rule 13, and `k8s/README.md` cites it by that number.
 - A guard test, `tests/ai/mcp/test_mcp_tool_secrets.py`, reads the published schema of every registered tool. It fails on a text parameter whose name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS`, unless `CONST_MCP_SECRET_PARAMETER_ALLOWLIST` names the tool and the parameter with a reason. It also fails on an entry that matches no parameter, and on a reason of less than 30 characters. Both constants are in `src/devops_cli/config/constants.py`, apart from the exposure table.
 - `vault_set` is no tool. A person runs `devops vault set` at the shell. Its entry leaves `CONST_MCP_EXPOSURE_TABLE`.
 - `vault_get` publishes `path`, `key` and `dry_run`, and no `show`.
 - `docker_sign` takes `oidc_token` only as `keyring:<name>`. The tool refuses a token that is not a reference, before any command runs, and the error does not repeat the token. The raw-token hand-off through the environment (`_extract_extra_env`, `_should_skip_option`) is deleted.
 - `RunTrace` hides the value of a tool-call argument by the name of the argument (`mask_secret_named_values` in `src/devops_cli/security/sanitizer.py`), and `mask_secrets` stays the second guard on the rest.
 - The log of FastMCP needs no change: `ArgumentValueLogFilter` already replaces every argument mapping of a call. The rule names it.
-- A consumer sees the tool schemas and the message of the step, so the change carries a spec delta that creates the capability `mcp-tool-secrets` and one scenario for `roadmap-implement-step`.
+- A consumer sees the tool schemas, so the change carries a spec delta that creates the capability `mcp-tool-secrets`.
 - This change fits one pull request.
 
 ## Capabilities
@@ -33,13 +32,13 @@ Three more parameters have a secret word in the name and hold no secret: `secret
 
 ### Modified Capabilities
 
-- `roadmap-implement-step`: the requirement "The routes name the documents of a group" gains a scenario for a group that changes an MCP tool.
+None.
 
 ## Impact
 
 - `SECURITY.md` and `k8s/README.md` (the number of the Hosted Models rule).
 - `src/devops_cli/config/constants.py`: two constants added, one table entry deleted.
-- `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/lang/en/errors.py`, `src/devops_cli/security/sanitizer.py`, `src/devops_cli/roadmap/agent_run.py` and `src/devops_cli/roadmap/step_rules.py`.
+- `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/lang/en/errors.py`, `src/devops_cli/security/sanitizer.py`, and `src/devops_cli/roadmap/agent_run.py`.
 - `tests/ai/mcp/test_mcp_tool_secrets.py` (new), and the tests of `vault_set` and of the `docker_sign` hand-off in `tests/ai/mcp/` and `tests/ai/client/test_roadmap_agent_run.py`.
 - `docs/MCP_TOOLS.md` (generated).
 
