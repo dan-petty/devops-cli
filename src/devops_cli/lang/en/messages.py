@@ -2970,6 +2970,11 @@ class RoadmapMessages:
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
         "`! git grep -n <name>` check that a name is gone. Give a command of one of these forms."
     )
+    stage_problem_verify_backtick: str = (
+        "Group {group} gives the `verify` command `{command}`, and it holds a backtick. The plan "
+        "writes the command in a code span, and a backtick ends that span. Give a command with no "
+        "backtick."
+    )
     stage_problem_verify_run: str = (
         "Group {group} gives the `verify` command `{command}`, and the step cannot run it: "
         "{reason}. Give `uv run devops <command>` or `! git grep -n <name> src/ tests/`."

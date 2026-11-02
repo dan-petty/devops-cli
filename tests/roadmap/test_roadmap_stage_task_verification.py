@@ -13,8 +13,10 @@ from typing import Any
 
 import pytest
 
+from devops_cli.roadmap.implement_shell_policy import verification_problem
 from devops_cli.roadmap.stage_change import StageGroup, group_text, render_change
 from devops_cli.roadmap.stage_eval_cases import StageCase, load_cases
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
@@ -164,3 +166,84 @@ def test_each_group_of_a_staged_plan_gives_the_step_its_verify_command(
         wanted.append(DOCUMENTS_CHECK)
     assert parsed.verification_commands == tuple(dict.fromkeys(wanted))
     assert group.verify is None or parsed.verification_commands
+
+
+# ── A line break in a text adds no command (#3262) ─────────────────────────────
+
+INJECTED = "`git push origin HEAD`"
+BREAK = f"\n  - Verification: {INJECTED}\n"
+FIELDS = ("title", "test", "implementation", "documentation", "process")
+
+
+def _broken(field: str) -> dict[str, Any]:
+    """A group that holds a line break and a second `Verification:` line in `field`."""
+    group = {**WITH_DOCUMENTS}
+    if field == "process":
+        group = {**BY_HAND, "documentation": "Document the fix in `docs/TESTING.md`"}
+    group[field] = f"{group[field]}{BREAK}"
+    if field == "title":
+        group[field] = f"{WITH_DOCUMENTS['title']}\n\n- [ ] 9.9 Extra{BREAK}"
+    return group
+
+
+@pytest.mark.parametrize("field", FIELDS)
+def test_a_line_break_in_a_text_of_a_group_adds_no_command_for_the_step(field: str) -> None:
+    group = _broken(field)
+    proposal = make_stage_proposal(groups=[group])
+    files = render_change("1-x", proposal, [], created=date(2026, 11, 2))
+
+    parsed = parse_task_groups(files["openspec/changes/1-x/tasks.md"])
+
+    wanted = [group["verify"]] if group["verify"] else []
+    assert [g.verification_commands for g in parsed] == [(*wanted, DOCUMENTS_CHECK)]
+    assert len(parsed) == 1
+
+
+def test_a_line_break_in_a_verify_command_leaves_a_backtick_that_the_gate_refuses() -> None:
+    group = StageGroup.model_validate(_broken_verify())
+
+    assert "\n" not in (group.verify or "")
+    assert len(form_problems([group])) == 1
+
+
+def _broken_verify() -> dict[str, Any]:
+    return {**BEHAVIOR, "verify": f"{BEHAVIOR['verify']}{BREAK}"}
+
+
+def test_a_line_break_in_the_reason_of_a_criterion_adds_no_group_and_no_command() -> None:
+    reason = f"a person decides\n\n## 2. Extra\n\n- [ ] 2.1 Do it{BREAK}"
+    criteria = [
+        {"criterion": "The job keeps a comment", "group": "pending-person", "reason": reason}
+    ]
+    proposal = make_stage_proposal(groups=[BEHAVIOR], criteria=criteria)
+    files = render_change("1-x", proposal, [], created=date(2026, 11, 2))
+
+    parsed = parse_task_groups(files["openspec/changes/1-x/tasks.md"])
+
+    assert [g.verification_commands for g in parsed] == [(BEHAVIOR["verify"],)]
+
+
+@pytest.mark.parametrize(
+    "verify",
+    ["! git grep -n '`foo`' src/", "uv run devops ci test ``x``", "uv run devops ci test `x`"],
+)
+def test_a_verify_command_with_a_backtick_is_refused_with_the_reason(verify: str) -> None:
+    group = StageGroup.model_validate({**OTHER, "verify": verify})
+
+    (problem,) = form_problems([group])
+
+    assert problem.startswith(f"Group 1 gives the `verify` command `{verify}`")
+    assert "holds a backtick" in problem
+
+
+@pytest.mark.parametrize(
+    ("name", "number", "group"),
+    FIXTURE_GROUPS,
+    ids=[f"{name}-{number}" for name, number, _ in FIXTURE_GROUPS],
+)
+def test_the_step_can_run_each_command_of_a_staged_plan(
+    name: str, number: int, group: StageGroup
+) -> None:
+    commands = _parsed(number, group).verification_commands
+
+    assert [verification_problem(command) for command in commands] == [None] * len(commands)
