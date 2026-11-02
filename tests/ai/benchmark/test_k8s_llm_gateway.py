@@ -2087,3 +2087,13 @@ def test_each_edit_that_breaks_a_hosted_rule_is_a_violation(
     deployment = copy.deepcopy(_load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment"))
     edit(config, deployment)
     assert expected in _hosted_violations(config, deployment)
+
+
+def test_every_model_of_the_service_config_is_a_group_the_gateway_serves() -> None:
+    """The example config of the Service names each model by a gateway group (#3155)."""
+    configmap = _load_kind(DEVOPS_CONFIGMAP_EXAMPLE, "ConfigMap")
+    ai = yaml.safe_load(configmap["data"]["devops-cli.yaml"])["ai"]
+    named = {ai["model"], *(task["model"] for task in ai["tasks"].values())}
+    served = {m["model_name"] for m in _full_gateway_config()["model_list"]}
+
+    assert sorted(named - served) == []

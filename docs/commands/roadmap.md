@@ -288,7 +288,7 @@ devops roadmap eval COMMAND [ARGS]...
 
 ### `devops roadmap eval stage`
 
-**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A change to the stage prompt or to the checks states this score before and after.**
+**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. The model plans with the read-only toolbox of the job, which reads the code of the staging commit; with --no-toolbox it plans with one call and no tool. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A change to the stage prompt or to the checks states this score before and after.**
 
 ```bash
 devops roadmap eval stage [OPTIONS]
@@ -306,6 +306,7 @@ devops roadmap eval stage [OPTIONS]
 | `--replay` | `boolean` | - | Make no model call. Run the recorded plans through the gates and report which known defects each gate catches. |
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
 | `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
+| `--no-toolbox` | `boolean` | - | Plan each case with one model call and no tool, as the job did before the toolbox. Run the same model with and without this option to compare the two scores. |
 
 ### `devops roadmap eval implement`
 
