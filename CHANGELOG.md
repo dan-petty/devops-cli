@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.39.0](https://github.com/dan-petty/devops-cli/compare/v0.38.0...v0.39.0) (2026-11-02)
+
+
+### Features
+
+* **ci:** uv, test, serve and mcp dry runs list their requests ([#3135](https://github.com/dan-petty/devops-cli/issues/3135)) ([666e183](https://github.com/dan-petty/devops-cli/commit/666e183a8a82284b122c2bcccb242120f9b0d2ee))
+* **k8s:** serve gemini-3.8-flash and two Claude models ([#3117](https://github.com/dan-petty/devops-cli/issues/3117)) ([1fa3a31](https://github.com/dan-petty/devops-cli/commit/1fa3a319cf60373ed138ad68e4c43e34194875cc)), closes [#3113](https://github.com/dan-petty/devops-cli/issues/3113)
+* **repos:** request plans for repos, branches, ssh and tls ([#3129](https://github.com/dan-petty/devops-cli/issues/3129)) ([174b82c](https://github.com/dan-petty/devops-cli/commit/174b82c2427668d14d4d048de01c6a952e1e8678))
+* **roadmap:** move unworkable scope to new issues during refine ([#3130](https://github.com/dan-petty/devops-cli/issues/3130)) ([a0b2cb5](https://github.com/dan-petty/devops-cli/commit/a0b2cb5cdd72e3da33f232f68d7d6ff4928e0638))
+
+
+### Bug Fixes
+
+* **github:** a refused App JWT names GitHub's reason ([#3116](https://github.com/dan-petty/devops-cli/issues/3116)) ([5ac0bea](https://github.com/dan-petty/devops-cli/commit/5ac0bea4b52073d8f76f20ef6dc98e542c120655))
+* **roadmap:** make the alternatives check search before a verdict ([#3127](https://github.com/dan-petty/devops-cli/issues/3127)) ([099c689](https://github.com/dan-petty/devops-cli/commit/099c68985a58946b5a832c849c24f3e9230c235f))
+
 ## [0.38.0](https://github.com/dan-petty/devops-cli/compare/v0.37.4...v0.38.0) (2026-11-01)
 
 
