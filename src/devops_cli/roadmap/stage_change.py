@@ -39,6 +39,7 @@ from devops_cli.core.paths import safe_resolve_subpath
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems
@@ -46,9 +47,6 @@ from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
 
-# The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming): the part
-# after `<type>(<scope>): `, which the check `Semantic PR title` measures.
-SUMMARY_MAX_CHARS: Final[int] = 60
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 _STAGING_TYPE: Final[str] = "docs(openspec)"
