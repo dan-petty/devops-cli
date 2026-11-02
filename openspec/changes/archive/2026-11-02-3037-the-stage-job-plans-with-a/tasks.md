@@ -63,5 +63,5 @@ Reads: `src/devops_cli/roadmap/stage_tools.py`, `src/devops_cli/roadmap/stage_to
 
 ## Workflow follow-up
 
-- Pending a person: compare the score of A1 on the 37 cases with and without the toolbox. Run `uv run devops roadmap eval stage --model <model>` and the same command with `--no-toolbox`, and state both scores in the pull request that delivers this plan. The run needs a model through the gateway. The toolbox score must be higher.
+- Pending a person: compare the score of A1 on the 37 cases with and without the toolbox. Run `uv run devops roadmap eval stage --model <model>` and the same command with `--no-toolbox`, and state both scores in the pull request that delivers this plan. The run needs a model through the gateway, and it is long: in a start of the run on 2026-11-02, one `analysis` call of the gateway took 210 to 345 seconds (the spend ledger), so the 37 cases need hours with `--no-toolbox` alone, and a toolbox run may make up to 81 requests for each case (`devops roadmap eval stage --dry-run`). The review stage stopped that run. The toolbox score must be higher; if it is not, the item needs a change before it is done.
 - Pending a person: review the diff in tuicr (`tuicr -r origin/main..HEAD`).
