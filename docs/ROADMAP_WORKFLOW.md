@@ -104,7 +104,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
-| Implement | `implement.stopped`, `implement.spend` | The step that stopped the Item, and the spend of its steps |
+| Implement | `implement.stopped`, `implement.failure`, `implement.spend` | The step that stopped the Item, the class of its failure, and the spend of its steps |
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
 
 ## The stop and retry path
@@ -112,7 +112,7 @@ These are all the keys of the job record, by the job that writes them:
 The log comment, the suspension of a row and the other details are in [k8s/README.md](../k8s/README.md), Roadmap service step 16, and Runner Jobs.
 
 1. A step stops, a conflict arises, a command fails, or a check fails twice. The runner Job pushes the commits that passed and comments the stop on the issue.
-2. The Job sets `status/blocked` and records the step in `implement.stopped`. The Status function of the Service derives Blocked from that record, so the runner and the Service name the Status in one place.
+2. The Job sets `status/blocked` and records the step in `implement.stopped` and the class of the failure in `implement.failure`. The Status function of the Service derives Blocked from that record, so the runner and the Service name the Status in one place.
 3. A Job that ends with the Item still in progress, or Ready or Planned with no stop, is a stop that the runner could not write. The next round of row `implement` sets the Item to Blocked and records `implement.stopped` as `job`.
 4. The Service records the digest of the runner image in `implement.job_digest` when it makes a Job. The report comment of the Job names that digest. This is the digest of the stop.
 5. The Service makes no Job for a Blocked Item. Two rules take it out of Blocked, and a comment of the Service names the rule that ran:
@@ -121,6 +121,27 @@ The log comment, the suspension of a row and the other details are in [k8s/READM
 6. A clear removes `implement.stopped` and sets `status/ready`, or `status/planned` when the plan is on the default branch. The same round takes the Item again, with its branch and its draft pull request.
 
 Each new Job overwrites `implement.job_digest`. So a second stop on the same image finds equal digests, and only a retry clears it. A stop with no digest on record, and a template with no digest, are cleared by a retry only. The Service takes no Item that an agent or a person claimed, and it never clears a `status/blocked` label that a person set. The ledger of failed rounds is a different thing: it suspends a row after three failed rounds on the same input, and the stop path does not change it.
+
+## The failure classes
+
+A stop has a class (`roadmap/failure.py`, #3065). The classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the last message of the agent. A failure that no rule matches is `ci_infra`. The stop comment names the class, the action taken and the action left, and the Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the label `class` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
+
+| Class | Default action | Meaning |
+| :--- | :--- | :--- |
+| `provider` | `retry` | The model provider answered with an error or did not answer |
+| `parser` | `change_tier` | The provider could not parse a call of the model, or the output did not validate |
+| `test` | `repair` | A test failed |
+| `lint` | `repair` | A lint, format, hook or static check failed |
+| `types` | `repair` | `mypy` or another type check failed |
+| `plan_defect` | `amend` | The plan cannot be run as written: the step changed no file, left a task unticked, or its inputs do not fit the window |
+| `premise_false` | `return` | The premise of the Item is false |
+| `oom` | `raise_limit` | A process was killed for memory |
+| `timeout` | `retry` | A command, a model call or the watch of the checks ran out of time |
+| `refused_tool` | `wait` | A tool refused the calls of the agent, or came back as a retry too often |
+| `conflict` | `wait` | A rebase or the pull request has a merge conflict |
+| `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
+
+The Job runs one action by itself: the fix rounds of `roadmap.implement.repair_rounds` for a failed check. The action left is the default of the class, or `wait` when the Job took that default already. A person runs the other actions. The issues #3060, #3062 and #3098 own their dispatch.
 
 ## The three gates
 

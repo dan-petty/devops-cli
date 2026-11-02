@@ -24,6 +24,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_deadline import manage_deadlines
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import STATUS_LANE_ROWS
+from devops_cli.roadmap.store import ImplementRecordKey
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake
@@ -511,7 +512,12 @@ def test_the_report_of_a_stalled_job_names_the_silence(
     (comment,) = [
         c.body for c in store.comments_on(number) if "roadmap implement" in c.body.splitlines()[0]
     ]
-    assert MESSAGES.roadmap.implement_job_report_stalled.format(seconds=STALL).strip() in comment
+    held = store.item(number)
+    assert held is not None
+    assert (
+        MESSAGES.roadmap.implement_job_report_stalled.format(seconds=STALL).strip() in comment,
+        held.job_record.get(ImplementRecordKey.FAILURE),
+    ) == (True, "timeout")
 
 
 def test_the_report_of_a_job_that_did_not_stall_does_not_mention_a_stall(

@@ -27,7 +27,9 @@ and the draft and takes them over as a Staged item.
 
 **A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
 item: the job pushes the commits that passed, comments the step, the reason and the last message
-of the agent, sets Status Blocked, and records `implement.stopped`. It does not run the item again
+of the agent, sets Status Blocked, and records `implement.stopped`. The comment starts with the
+class of the failure, the action taken and the action left (`failure.py`, #3065), and the class is
+recorded in `implement.failure`. It does not run the item again
 until a clear rule of the Service removes the stop: a person's comment `implement: retry`, or a new
 runner image (`stop_clear.py`).
 
@@ -78,8 +80,16 @@ from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.check_verdict import PRCheckItem
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.output import print_muted
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
+from devops_cli.roadmap.failure import (
+    FailureAction,
+    FailureEvidence,
+    classify_failure,
+    failure_lines,
+    left_action,
+)
 from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
 from devops_cli.roadmap.implement_hooks import install_hook_environments, trusted_config
@@ -123,7 +133,9 @@ _NOTHING_YET = _Mark(0, 0, 0)
 class _StopError(Exception):
     """An item stops: the job's own signal, caught where the item's run ends. `push` says whether
     the commits that passed are worth pushing. `diff` is the diff of the work that a stopped step
-    discarded, and `diff_cut` says that it was cut (#2721)."""
+    discarded, and `diff_cut` says that it was cut (#2721). `status` is the exit status of the command
+    that failed, `check` the name of the check that failed, and `repair_rounds` the fix rounds that
+    the job ran before it stopped: they are the evidence of the failure class (#3065)."""
 
     def __init__(
         self,
@@ -134,6 +146,9 @@ class _StopError(Exception):
         push: bool = True,
         diff: str = "",
         diff_cut: bool = False,
+        status: int | None = None,
+        check: str = "",
+        repair_rounds: int = 0,
     ) -> None:
         super().__init__(reason)
         self.step = step
@@ -142,6 +157,9 @@ class _StopError(Exception):
         self.push = push
         self.diff = diff
         self.diff_cut = diff_cut
+        self.status = status
+        self.check = check
+        self.repair_rounds = repair_rounds
 
 
 class _ClaimedError(Exception):
@@ -188,7 +206,12 @@ class ImplementApplied:
 def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
     """The stop of an item for a step that stopped, with the diff of its discarded work."""
     return _StopError(
-        step, outcome.reason, outcome.last_message, diff=outcome.diff, diff_cut=outcome.diff_cut
+        step,
+        outcome.reason,
+        outcome.last_message,
+        diff=outcome.diff,
+        diff_cut=outcome.diff_cut,
+        repair_rounds=outcome.repair_rounds,
     )
 
 
@@ -333,7 +356,7 @@ class _ItemRun:
             reason = texts.implement_stop_program_failed.format(
                 command=shown, status=done.returncode, output=output
             )
-            raise _StopError(self.step, reason)
+            raise _StopError(self.step, reason, status=done.returncode)
 
     def _commit_if_changed(self, message: str) -> None:
         self._git("add", "-A")
@@ -367,6 +390,7 @@ class _ItemRun:
             marks[ImplementRecordKey.PR] = str(self.pull)
         if self.target.retry:
             marks[ImplementRecordKey.STOPPED] = None
+            marks[ImplementRecordKey.FAILURE] = None
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
@@ -515,7 +539,7 @@ class _ItemRun:
                 reason = MESSAGES.roadmap.implement_stop_scoped_failed.format(
                     name=failed.name, rounds=budget, command=failed.command, output=failed.log
                 )
-                raise _StopError(self.step, reason)
+                raise _StopError(self.step, reason, check=failed.name, repair_rounds=budget)
             self._fix(failed.name, failed.log)
             self._generate_docs()
 
@@ -646,13 +670,16 @@ class _ItemRun:
         self.step = MESSAGES.roadmap.implement_step_names["checks"]
         budget = load_settings().roadmap.implement.repair_rounds
         watch = watch_pull(self.repo, pull, self._head())
+        rounds = 0
         for _round in range(budget):
             if watch.kind is not WatchKind.FAILED or watch.check is None:
                 break
             self._repair_after_push(pull, watch.check)
+            rounds += 1
             watch = watch_pull(self.repo, pull, self._head())
         if watch.kind is not WatchKind.READY:
-            raise _StopError(self.step, watch.reason)
+            name = watch.check.name if watch.check is not None else ""
+            raise _StopError(self.step, watch.reason, check=name, repair_rounds=rounds)
 
     def _repair_after_push(self, pull: int, check: PRCheckItem) -> None:
         """One repair round for the failed check `check` of the pull request: a fix step, the push
@@ -736,11 +763,26 @@ class _ItemRun:
         reason = textwrap.indent(
             mask_secrets(stop.reason).strip()[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS], "    "
         )
+        klass = classify_failure(
+            FailureEvidence(
+                text=stop.reason,
+                exit_status=stop.status,
+                check=stop.check,
+                agent=stop.last_message,
+            )
+        )
+        print_muted(
+            texts.implement_failure_trace.format(
+                failure_class=klass.value,
+                left=left_action(klass, FailureAction.REPAIR if stop.repair_rounds else None).value,
+            )
+        )
         self.store.comment(
             self.number,
             texts.implement_comment_stopped.format(
                 marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
                 step=stop.step,
+                failure=failure_lines(klass, repair_rounds=stop.repair_rounds),
                 reason=reason,
                 last=last or texts.implement_comment_last_none,
                 diff=_diff_section(stop),
@@ -749,6 +791,7 @@ class _ItemRun:
         )
         marks: dict[Any, str | None] = {
             ImplementRecordKey.STOPPED: stop.step,
+            ImplementRecordKey.FAILURE: klass.value,
             ImplementRecordKey.SPEND: self._spend(),
         }
         if self.pull is not None:

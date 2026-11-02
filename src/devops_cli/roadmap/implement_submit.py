@@ -34,6 +34,13 @@ digest of the Job that stopped it (`stop_clear.py`, #2912). A cleared item is el
 round, so the plan below can take it. `implement.job_digest` is the digest in the template at the
 time of the create, recorded with the Job.
 
+**Failure class** (#3065). Each Job that left a stop is counted once, in the counter
+`devops_cli_service_implement_failures_total` by `class`, when the round reports it. The runner
+records the class of its own stop in `implement.failure`. A Job that left the item without a result
+has only its log, so the round classifies that log (`failure.py`), records the class with the stop,
+and names the class and the action left in its comment. The runner pod is not scraped, so the Service
+counts.
+
 **Status.** After it reports the Jobs, and again after it creates one, the round sets the Status
 label of each item from the record and the plans on the default branch (`status_sync.py`, #2920):
 Planned once the plan is merged, and In Progress as soon as the record names a Job. The round reads
@@ -61,6 +68,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_PLANNED,
     CONST_ROADMAP_STATUS_READY,
+    CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
@@ -70,6 +78,12 @@ from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, 
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
+from devops_cli.roadmap.failure import (
+    FailureClass,
+    FailureEvidence,
+    classify_failure,
+    failure_lines,
+)
 from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import (
     GIT_OPERATION,
@@ -84,8 +98,11 @@ from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_stat
 from devops_cli.roadmap.stop_clear import clear_stops
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 _GONE = "gone"
+# The exit status of a Job that the Job controller ended for its active deadline (SIGTERM).
+_DEADLINE_EXIT_STATUS = 143
 
 
 @dataclass(frozen=True)
@@ -137,8 +154,38 @@ def _fresh(store: RoadmapStore, number: int) -> Item:
     return held
 
 
+def _recorded_failure(item: Item) -> FailureClass | None:
+    """The failure class that the runner recorded with its stop, or None."""
+    try:
+        return FailureClass(_record(item, ImplementRecordKey.FAILURE) or "")
+    except ValueError:
+        return None
+
+
+def _failure_of(item: Item, log: str, *, stops: bool, stalled: bool) -> FailureClass | None:
+    """The class of the failure that a Job left. A stop that the runner wrote has its class on
+    record. A Job that left the item without a result has only its log, so the class comes from
+    that log (#3065). A Job that the Service ended for a stall went over its deadline, which is
+    the exit status 143 of a Job over its active deadline (#3063). A Job that ended with a result
+    has no failure."""
+    if stops:
+        return classify_failure(
+            FailureEvidence(text=log, exit_status=_DEADLINE_EXIT_STATUS if stalled else None)
+        )
+    if _record(item, ImplementRecordKey.STOPPED):
+        return _recorded_failure(item)
+    return None
+
+
 def _comment(
-    name: str, state: str, log: str, *, stopped: bool, digest: str | None, stall: str | None = None
+    name: str,
+    state: str,
+    log: str,
+    *,
+    failure: FailureClass | None,
+    stopped: bool,
+    digest: str | None,
+    stall: str | None = None,
 ) -> str:
     texts = MESSAGES.roadmap
     shown = texts.implement_job_report_digest.format(digest=digest) if digest else ""
@@ -162,7 +209,9 @@ def _comment(
         )
     if stall:
         body += texts.implement_job_report_stalled.format(seconds=stall)
-    return body + (texts.implement_job_report_stopped if stopped else "")
+    if not stopped or failure is None:
+        return body
+    return body + texts.implement_job_report_stopped.format(failure=failure_lines(failure))
 
 
 def _log_of(jobs: ClusterJobs, name: str) -> str:
@@ -182,18 +231,27 @@ def _report(
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
     stops = _settles_as_stop(item)
-    digest = _record(item, ImplementRecordKey.JOB_DIGEST)
     stall = ended.annotations.get(CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED) if ended else None
+    failure = _failure_of(item, log, stops=stops, stalled=stall is not None)
+    digest = _record(item, ImplementRecordKey.JOB_DIGEST)
     store.comment(
-        item.number, _comment(name, state, log, stopped=stops, digest=digest, stall=stall)
+        item.number,
+        _comment(name, state, log, failure=failure, stopped=stops, digest=digest, stall=stall),
     )
     service_release(store, item.number, {ImplementRecordKey.JOB_STATE: state})
-    if stops:
+    if stops and failure is not None:
         store.set_field(
             _fresh(store, item.number),
             ItemField.STATUS,
             derive_status(StatusFacts(stopped=True)),
-            marks={ImplementRecordKey.STOPPED: CONST_ROADMAP_IMPLEMENT_JOB_STEP},
+            marks={
+                ImplementRecordKey.STOPPED: CONST_ROADMAP_IMPLEMENT_JOB_STEP,
+                ImplementRecordKey.FAILURE: failure.value,
+            },
+        )
+    if failure is not None:
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_IMPLEMENT_FAILURES, labels={"class": failure.value}
         )
 
 
