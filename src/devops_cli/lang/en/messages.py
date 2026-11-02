@@ -2620,6 +2620,8 @@ class RoadmapMessages:
     )
     stage_secret: str = "The reply has text that looks like a secret, in {path}."
     stage_violations: str = "{count} schema violation(s)"
+    # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
+    stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
     git_failed: str = "`git {command}` failed: {reason}"
     # The comments of the stage job; each starts with its marker.
     stage_comment_staged: str = (
