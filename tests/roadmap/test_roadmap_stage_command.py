@@ -17,6 +17,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    no_findings,
     seed_stageable,
     validate_args,
 )
@@ -51,6 +52,7 @@ def test_a_plan_prints_the_report_and_writes_nothing(
     github_api: GitHubApiFake,
 ) -> None:
     seed_stageable(roadmap_store)
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
     result = _stage(cli, stage_repo, "--plan")
@@ -90,6 +92,7 @@ def test_confirm_stages_the_item_and_reports_it(
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
     seed_stageable(roadmap_store)
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
     result = _stage(cli, stage_repo, "--confirm", "--step-tokens", "30000")
@@ -120,6 +123,7 @@ def test_the_command_plans_with_the_model_of_the_analysis_task_as_a_toolbox_mode
         return script.model()
 
     monkeypatch.setattr(factory, "get_task_model", task_model)
+    no_findings(model_fake)
 
     result = _stage(cli, stage_repo, "--plan")
 
@@ -127,7 +131,7 @@ def test_the_command_plans_with_the_model_of_the_analysis_task_as_a_toolbox_mode
     assert (tasks, script.tools_offered[0][:2], model_fake.call_count) == (
         ["analysis"],
         ["list_files", "read_file"],
-        0,
+        1,
     )
     assert "## To stage" in result.output
 

@@ -41,7 +41,12 @@ the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply 
 that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
 sent back in the same way: the problem lists the files with the same name, and a second reply with
 a missing path stops the item, so no draft opens. The groups of a split are checked in the same
-way. `plan_item` plans one item with a given client and checkout: the golden set of the job runs
+way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
+plan and the files that the plan cites with the client of the task `verification`. A finding of
+the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends
+the plan back to the planner once; every other finding goes into the comment of the item. The
+review never merges and never marks a draft ready. `plan_item` plans one item with a given client
+and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
 that fails skips its item; rejected credentials stop the run.
 
@@ -126,6 +131,14 @@ from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
+from devops_cli.roadmap.stage_verify import (
+    Finding,
+    VerificationInput,
+    findings_section,
+    return_problem,
+    returning,
+    verify,
+)
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
@@ -488,7 +501,8 @@ class StagedChange:
     files by path from the repository root, the measure of each task group, whether
     `openspec validate` ran on it (it does not without the binary), the budget of the run, and
     what the plan runs of the toolbox did (#3037). The trace is empty for an item planned with one
-    call."""
+    call. `proposal` is the plan that the files render, and `findings` are the points that the
+    model review of the plan raised and that returned no plan (#3153): the comment lists them."""
 
     target: StageTarget
     title: str
@@ -497,7 +511,9 @@ class StagedChange:
     groups: tuple[MeasuredGroup, ...]
     validated: bool
     budget: int
+    proposal: StageProposal
     trace: RunTrace = field(default_factory=RunTrace)
+    findings: tuple[Finding, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -605,9 +621,11 @@ class _Planner:
         window: int,
         tool: OpenSpecTool | None,
         toolbox: ToolboxClient | None = None,
+        verifier: StageClient | None = None,
     ) -> None:
         self._client = client
         self._toolbox = toolbox
+        self._verifier = verifier
         self._source = source
         self._sha = sha
         self._specs = specs
@@ -623,12 +641,24 @@ class _Planner:
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes
-        back to the model once, with the problem. The model splits the groups at most once, so an
-        item costs three model calls at most."""
+        back to the model once, with the problem. The model splits the groups at most once. With
+        a verifier, the model review of the plan (#3153) follows the checks and may return the
+        plan once more. So an item costs three planner calls at most without a verifier, four
+        with one, and two calls of the verifier."""
         self._split_asked = False
         if self._toolbox is not None:
             self._toolbox.traces.clear()
         request = self._request(target)
+        outcome = self._gated(target, request)
+        verifier = self._verifier
+        if isinstance(outcome, StagedChange) and verifier is not None:
+            outcome = self._verified(target, request, outcome, verifier)
+        if isinstance(outcome, StagedChange) and self._toolbox is not None:
+            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
+        return outcome
+
+    def _gated(self, target: StageTarget, request: Mapping[str, Any]) -> StagedChange | OverBudget:
+        """The change that passes the checks, with one return of a refused reply."""
         proposal = self._ask(StageProposal, _CHANGE_TASK, request)
         outcome = self._settle(target, proposal)
         if isinstance(outcome, _Refused):
@@ -642,9 +672,51 @@ class _Planner:
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
-        if isinstance(outcome, StagedChange) and self._toolbox is not None:
-            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
         return outcome
+
+    def _verified(
+        self,
+        target: StageTarget,
+        request: Mapping[str, Any],
+        change: StagedChange,
+        verifier: StageClient,
+    ) -> StagedChange | OverBudget:
+        """The change after the model review. A finding of a type that returns the plan, with a
+        quote that is in the input, sends the plan back to the planner once: the revised plan
+        passes the checks and the review again, and a refused revision stops the item. Every
+        other finding, and every finding of the revised plan, stays on the change for the
+        comment."""
+        findings, returned = self._review(target, change, verifier)
+        if returned:
+            again = {
+                **request,
+                "previous": change.proposal.model_dump(),
+                "problem": return_problem(returned),
+            }
+            outcome = self._settle(target, self._ask(StageProposal, _CHANGE_TASK, again))
+            if isinstance(outcome, _Refused):
+                message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
+                raise _stage_error(message, target)
+            if isinstance(outcome, OverBudget):
+                return outcome
+            change = outcome
+            findings, _ = self._review(target, change, verifier)
+        return replace(change, findings=tuple(findings))
+
+    def _review(
+        self, target: StageTarget, change: StagedChange, verifier: StageClient
+    ) -> tuple[list[Finding], list[Finding]]:
+        """The findings of the model review of `change`, and those that return the plan."""
+        item = target.item
+        given = VerificationInput.of(
+            number=item.number,
+            title=item.title,
+            body=item.body,
+            plan=change.proposal.model_dump(mode="json"),
+            source=self._source,
+        )
+        findings = verify(verifier, given)
+        return findings, returning(findings, given)
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
         item = target.item
@@ -708,6 +780,7 @@ class _Planner:
             tuple(measured),
             self._tool is not None,
             self._budget,
+            proposal,
         )
 
     def _tree_of(self, target: StageTarget, proposal: StageProposal) -> StagedTree:
@@ -890,6 +963,7 @@ def plan_stage(
     limit: int | None = None,
     step_tokens: int | None = None,
     model: LLMClient | ToolboxModel | None = None,
+    verifier: StageClient | None = None,
     why: bool = False,
 ) -> StagePlan:
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
@@ -898,8 +972,10 @@ def plan_stage(
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. A client as `model` replaces
     the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
     plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
-    that splits the groups. With `why`, the plan also lists the open items that the filter does
-    not name (#2911).
+    that splits the groups. A `verifier`, the client of the `verification` task, makes the model
+    review each plan after the checks (#3153); without one, the job makes no review call, as the
+    golden-set run of the planner does. With `why`, the plan also lists the open items that the
+    filter does not name (#2911).
     """
     checkout = Path(source)
     settings = load_settings()
@@ -933,7 +1009,9 @@ def plan_stage(
     else:
         client = model
     with openspec_tool() as tool:
-        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool, toolbox=toolbox)
+        planner = _planner_of(
+            client, checkout, sha, budget=budget, tool=tool, toolbox=toolbox, verifier=verifier
+        )
         ready, stopped, failed = _plan_each(planner, selection.selected)
     return replace(plan, ready=tuple(ready), over_budget=tuple(stopped), failed=tuple(failed))
 
@@ -951,10 +1029,12 @@ def _planner_of(
     budget: int,
     tool: OpenSpecTool | None,
     toolbox: ToolboxModel | None = None,
+    verifier: StageClient | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `analysis` task once. With a `toolbox` model, a plan run calls the
-    read-only tools on the checkout, and `client` answers the other calls."""
+    read-only tools on the checkout, and `client` answers the other calls. A `verifier` makes the
+    model review of each plan (#3153)."""
     window = analysis_window()
     runner = (
         None
@@ -971,6 +1051,7 @@ def _planner_of(
         budget=budget,
         window=window,
         tool=tool,
+        verifier=verifier,
     )
 
 
@@ -1111,7 +1192,7 @@ def _notes(change: StagedChange) -> str:
     """The notes that end the comment of a staged item: the report of the plan runs, and a
     validation that did not run."""
     unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
-    return _run_report(change.trace) + unvalidated
+    return _run_report(change.trace) + unvalidated + findings_section(change.findings)
 
 
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
