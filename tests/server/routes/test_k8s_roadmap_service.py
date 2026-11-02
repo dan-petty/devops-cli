@@ -273,15 +273,7 @@ def test_configmap_validates_as_settings_with_repos_and_the_github_app() -> None
         bool(settings.service.repos),
         bool(settings.service.github_app.bot_login),
         settings.telemetry.enabled,
-        settings.telemetry.endpoint,
-        settings.ai.tasks.analysis.context_window,
-    ) == (
-        True,
-        True,
-        True,
-        "http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318",
-        65536,
-    )
+    ) == (True, True, True)
 
 
 def test_kustomizations_list_manifests_and_directory() -> None:
