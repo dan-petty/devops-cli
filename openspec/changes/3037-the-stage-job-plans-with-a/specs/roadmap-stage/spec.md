@@ -43,7 +43,7 @@ A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000
 - **THEN** the second item is planned, and the job fails at the end for the first item
 
 ### Requirement: A call to a tool that is gone gets a retry
-When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the tool and the retry limit, and no budget limit.
+When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the retry limit, and no budget limit. It holds no tool name, because the name of a tool in an error message is text that the model chose.
 
 #### Scenario: One call after the tools are gone
 - **WHEN** the model has made 27 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
@@ -55,7 +55,7 @@ When a request offers no tool, a call of the model to a function tool SHALL get 
 
 #### Scenario: Three calls after the tools are gone
 - **WHEN** the model calls `read_file` a third time in requests that offer no tool
-- **THEN** the item fails, and the reason names the tool `read_file` and the retry limit 2
+- **THEN** the item fails, and the reason names the retry limit 2, and no budget limit
 
 ### Requirement: The budget is for each plan run
 A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use 60 tool calls and 100000 output tokens at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.

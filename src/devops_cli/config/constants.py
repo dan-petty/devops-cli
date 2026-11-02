@@ -3073,6 +3073,8 @@ CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES: Final[int] = 30
 # can hold a long reply of the model.
 CONST_ROADMAP_RUN_ERROR_CHARS: Final[int] = 500
 CONST_ROADMAP_RUN_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_RUN_ERROR_CHARS
+# The most characters of the argument of one tool call that the trace of a run keeps (#3037).
+CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS: Final[int] = 200
 # The most programs that the reason of a stopped run lists in its count of refused commands
 # (#2773). The programs beyond that join the count of "other".
 CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS: Final[int] = 4

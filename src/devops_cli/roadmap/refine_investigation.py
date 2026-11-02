@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
@@ -28,6 +28,7 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
+from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
 
@@ -45,6 +46,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.roadmap.agent_run import (
+    RunTrace,
     drain_events,
     model_call_error,
     record_run_spend,
@@ -102,10 +104,14 @@ class InvestigationStopped:
     """An investigation that ended with no proposal: it spent its budget (`UsageLimitExceeded`),
     or the model broke the run's rules past its retries (`UnexpectedModelBehavior`). `reason` is
     the class of pydantic-ai's error, and `message` the first line of its message, masked and cut
-    (#2562). Refine keeps the first proposal (#2398)."""
+    (#2562). Refine keeps the first proposal (#2398).
+
+    `schema_broken` is true when the model broke the run's rules with the output tool: its last
+    reply held no call to a function tool, so it never gave a valid reply (#3037)."""
 
     reason: str
     message: str
+    schema_broken: bool = False
 
 
 @dataclass
@@ -248,6 +254,16 @@ def _retry_once[T: BaseModel](
     agent.output_validator(validate)
 
 
+def _broke_the_output_rules(messages: Sequence[ModelMessage], tools: Collection[str]) -> bool:
+    """Whether the last reply of the run held no call to a function tool of `tools`: a reply that
+    breaks the schema of the output, as against a tool that ran out of retries."""
+    replies = [message for message in messages if isinstance(message, ModelResponse)]
+    calls = (
+        [part for part in replies[-1].parts if isinstance(part, ToolCallPart)] if replies else []
+    )
+    return not any(call.tool_name in tools for call in calls)
+
+
 def investigate[T: BaseModel](
     model: Any,
     instructions: str,
@@ -255,6 +271,10 @@ def investigate[T: BaseModel](
     tools: ToolSet,
     output_type: type[T],
     output_check: Callable[[T], str | None] | None = None,
+    *,
+    limits: UsageLimits | None = None,
+    output_retries: int | None = None,
+    trace: RunTrace | None = None,
 ) -> T | InvestigationStopped:
     """Run one investigation and return its reply, or `InvestigationStopped` when the run ends
     with none.
@@ -263,38 +283,53 @@ def investigate[T: BaseModel](
     time it returns a message, the run sends the message back to the model as a retry and the
     model gets one more turn; a later reply passes, and the caller decides on it (#2946).
 
+    `limits` replaces the budget of refine, and must set `request_limit` and `tool_calls_limit`,
+    which the hook `_within_budget` reads. `output_retries` replaces the retries of a reply that
+    breaks the schema. `trace` takes what the run did, also when it stops (#3037).
+
     Raises `AICredentialsError` when the model refuses the key, and `AIClientError` for any
     other failed model call.
     """
+    function_tools = tools.tools()
     agent: Agent[None, T] = Agent(
         model,
         output_type=output_type,
         instructions=instructions,
-        tools=tools.tools(),
+        tools=function_tools,
         retries={
             "tools": CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
-            "output": CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
+            "output": CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES
+            if output_retries is None
+            else output_retries,
         },
         capabilities=[PrepareTools(_within_budget)],
     )
     if output_check is not None:
         _retry_once(agent, output_check)
-    limits = UsageLimits(
+    limits = limits or UsageLimits(
         request_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     )
+    tool_names = {tool.name for tool in function_tools}
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
             result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
-            return InvestigationStopped(type(stopped).__name__, run_error_message(stopped))
+            return InvestigationStopped(
+                type(stopped).__name__,
+                run_error_message(stopped),
+                schema_broken=isinstance(stopped, UnexpectedModelBehavior)
+                and _broke_the_output_rules(messages, tool_names),
+            )
         except ModelAPIError as exc:
             # Raised outside this handler, so a logged traceback holds no reply text.
             error = model_call_error(exc, "The investigation's")
         else:
             return result.output
         finally:
+            if trace is not None:
+                trace.absorb(messages, tools=tool_names)
             record_run_spend(model, messages, time.monotonic() - started, stage="analysis")
     raise error
 
