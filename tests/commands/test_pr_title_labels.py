@@ -64,6 +64,11 @@ def test_the_declared_names_come_from_the_labels_file() -> None:
 
 LABELS_FILE = "".join(f'- name: "{name}"\n  color: "ededed"\n' for name in DECLARED)
 PULL = "https://example.com/org/repo/pull/1\n"
+# A body in the form (#3198): `devops pr create` refuses every other.
+BODY = (
+    "The command gives the labels of the title to the pull request it opens.\n\n"
+    "Closes #2748\n\nChange: `openspec/changes/archive/2026-11-02-2748-title-labels/`"
+)
 
 
 @pytest.fixture
@@ -101,7 +106,10 @@ def _create(runner: CliRunner, title: str, *args: str) -> tuple[Any, MagicMock]:
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("devops_cli.commands.pr.run_gh", gh),
     ):
-        return runner.invoke(app, ["create", "--title", title, "--repo", REPO, *args]), gh
+        return (
+            runner.invoke(app, ["create", "--title", title, "--body", BODY, "--repo", REPO, *args]),
+            gh,
+        )
 
 
 @pytest.mark.usefixtures("status")
@@ -110,7 +118,6 @@ def _create(runner: CliRunner, title: str, *args: str) -> tuple[Any, MagicMock]:
     [
         ("fix(ai): a title", {"type/bug", "scope/ai"}),
         ("docs: a title", {"type/docs"}),
-        ("A plain title", set()),
     ],
 )
 def test_create_gives_the_pull_request_the_labels_of_its_title(
@@ -129,23 +136,25 @@ def test_create_gives_the_pull_request_the_labels_of_its_title(
 def test_create_reads_the_labels_file_on_the_base_branch(
     runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int
 ) -> None:
-    roadmap_store.seed_file(LABELS_PATH, '- name: "type/bug"\n  color: "ededed"\n', ref="feat/base")
-    result, _ = _create(runner, "fix(ai): a title", "--base", "feat/base")
-    assert (result.exit_code, _labeled(roadmap_store)) == (0, {(pull, "type/bug")})
+    on_base = '- name: "scope/ai"\n  color: "ededed"\n'
+    roadmap_store.seed_file(LABELS_PATH, on_base, ref="feat/base")
+    result, _ = _create(runner, "docs(ai): a title", "--base", "feat/base")
+    assert (result.exit_code, _labeled(roadmap_store)) == (0, {(pull, "scope/ai")})
 
 
 @pytest.mark.usefixtures("status")
-def test_a_scope_with_no_declared_label_gets_a_warning_and_no_label(
+def test_a_scope_with_no_declared_label_opens_nothing_and_names_the_label(
     runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int
 ) -> None:
-    result, _ = _create(runner, "fix(zzz-unknown): a title")
+    result, gh = _create(runner, "fix(zzz-unknown): a title")
     assert (
         result.exit_code,
+        gh.call_count,
         _labeled(roadmap_store),
         "scope/zzz-unknown" in result.stderr,
         LABELS_PATH in result.stderr,
         "scope/zzz-unknown" in result.stdout,
-    ) == (0, {(pull, "type/bug")}, True, True, False)
+    ) == (1, 0, set(), True, True, False)
 
 
 @pytest.mark.usefixtures("status")
@@ -177,19 +186,19 @@ def test_a_refused_label_exits_1_names_it_and_leaves_the_pull_request(
 @pytest.mark.parametrize(
     "text", [None, "not: a list of label specs"], ids=["missing", "unreadable"]
 )
-def test_a_labels_file_that_is_missing_or_unreadable_exits_1_and_names_the_file(
+def test_a_labels_file_that_is_missing_or_unreadable_opens_nothing_and_names_the_file(
     runner: CliRunner, roadmap_store: InMemoryRoadmapStore, status: MagicMock, text: str | None
 ) -> None:
     if text is not None:
         roadmap_store.seed_file(LABELS_PATH, text, ref="feat/other")
-    result, _ = _create(runner, "fix(ai): a title", "--base", "feat/other")
+    result, gh = _create(runner, "fix(ai): a title", "--base", "feat/other")
     assert (
         result.exit_code,
-        "#1" in result.output,
-        LABELS_PATH in result.output,
+        gh.call_count,
+        LABELS_PATH in result.stderr,
         _labeled(roadmap_store),
         status.call_count,
-    ) == (1, True, True, set(), 1)
+    ) == (1, 0, True, set(), 0)
 
 
 def test_the_status_is_set_when_a_label_is_refused(
@@ -223,7 +232,9 @@ def test_the_rest_fallback_gives_the_labels_too(
         patch("devops_cli.commands.pr._detect_current_branch", return_value="fix/x"),
         patch("devops_cli.commands.pr.run_gh", side_effect=gh),
     ):
-        result = runner.invoke(app, ["create", "--title", "fix(ai): a title", "--repo", REPO])
+        result = runner.invoke(
+            app, ["create", "--title", "fix(ai): a title", "--body", BODY, "--repo", REPO]
+        )
     assert (result.exit_code, _labeled(roadmap_store)) == (
         0,
         {(pull, "type/bug"), (pull, "scope/ai")},
@@ -231,7 +242,7 @@ def test_the_rest_fallback_gives_the_labels_too(
 
 
 @pytest.mark.usefixtures("status")
-@pytest.mark.parametrize("title", ["fix(ai): a title", "feat(security)!: a title"])
+@pytest.mark.parametrize("title", ["fix(ai): a title", "feat(security): a title"])
 def test_the_audit_finds_no_mismatch_after_create(
     runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, title: str
 ) -> None:
@@ -255,7 +266,9 @@ def test_a_dry_run_reads_no_label_file_and_adds_no_label(
         patch("shutil.which", return_value="/usr/bin/gh"),
         patch("devops_cli.commands.pr.run_gh", return_value=planned),
     ):
-        result = runner.invoke(app, ["create", "--title", "fix(ai): a title", "--repo", REPO])
+        result = runner.invoke(
+            app, ["create", "--title", "fix(ai): a title", "--body", BODY, "--repo", REPO]
+        )
     assert (result.exit_code, roadmap_store_repos, _labeled(roadmap_store), status.call_count) == (
         0,
         [],
@@ -274,7 +287,18 @@ def test_a_dry_run_lists_the_label_requests_of_the_title(
         patch("devops_cli.commands.pr.run_gh", return_value=planned),
     ):
         result = runner.invoke(
-            app, ["create", "--title", "fix(ai): a title", "--repo", REPO, "--base", "feat/base"]
+            app,
+            [
+                "create",
+                "--title",
+                "fix(ai): a title",
+                "--body",
+                BODY,
+                "--repo",
+                REPO,
+                "--base",
+                "feat/base",
+            ],
         )
     lines = result.stdout.splitlines()
     assert (result.exit_code, roadmap_store_repos) == (0, [])

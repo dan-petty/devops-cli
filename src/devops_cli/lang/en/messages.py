@@ -1082,10 +1082,81 @@ class PRMessages:
     labels_dry_run_condition: str = "the pull request opens and the labels file declares it"
     labels_unreadable: str = "{path} can't be read as label specs: {error}"
     labels_refused: str = "{labels} could not be added: {error}"
-    labels_scope_undeclared: str = (
-        "The scope `{scope}` of the title has no label: {path} does not declare {label}. "
-        "The pull request gets no scope label."
+    # The form of the title and the body of a pull request (#3198), one text for each problem.
+    form_refused: str = "The pull request breaks the form. Nothing was opened:\n{problems}"
+    form_title_lines: str = "The title is on more than one line."
+    form_title_shape: str = "The title `{title}` is not in the form `<type>(<scope>): <summary>`."
+    form_title_type: str = "The type `{type}` is not a type of the project. The types are: {types}."
+    form_title_breaking: str = (
+        "The title has `!`. Before 1.0.0 nothing is a breaking change, so write no `!`."
     )
+    form_title_scope: str = (
+        "The scope `{scope}` has no label: {path} does not declare `{label}`. Use a scope with a "
+        "label, or declare the label in the same pull request."
+    )
+    form_summary_long: str = (
+        "The summary has {length} characters. The limit is {limit}. Write a shorter summary."
+    )
+    form_summary_cut: str = (
+        "The summary ends with `...`. A cut summary reads as broken. Write a shorter summary."
+    )
+    form_placeholder: str = "The {part} is a placeholder: `{text}`. Write what the change does."
+    form_closes_missing: str = "The body has no line `Closes #<issue>`."
+    form_closes_many: str = (
+        "The body closes {count} issues. A pull request closes one issue, in one line "
+        "`Closes #<issue>`."
+    )
+    form_change_missing: str = (
+        "The body has no line `Change:` in the form of the template: the line holds the folder of "
+        "the change, such as `openspec/changes/archive/<date>-<issue>-<slug>/`, in a code span."
+    )
+    form_issue_differs: str = (
+        "The line `Closes` names issue {closes}, and the line `Change:` names issue {change}."
+    )
+    form_order: str = "The line `Closes` must come before the line `Change:`."
+    form_attribution_first: str = (
+        "The text above `Closes` holds attribution lines. Put them after the line `Change:`."
+    )
+    form_body_short: str = (
+        "The text above `Closes` has {length} characters. Write at least {minimum}: what the "
+        "change does, and why."
+    )
+    form_body_long: str = (
+        "The body has {length} characters before its trailers. The limit is {limit}. Shorten the "
+        "text above `Closes`."
+    )
+    form_trailer_long: str = (
+        "The lines after `Change:` have {length} characters. The limit is {limit}. Keep only the "
+        "attribution lines there."
+    )
+    form_template_text: str = (
+        "The body keeps the comment of the template, `<!-- -->`. Delete it and write the real text."
+    )
+    form_body_breaking: str = (
+        "The body has `BREAKING CHANGE`. Before 1.0.0 nothing is a breaking change."
+    )
+    form_issue_title_type: str = (
+        "The title of the issue, `{title}`, has no Conventional Commit type, so the title of the "
+        "pull request has none."
+    )
+    # `devops pr describe` (#3198).
+    describe_no_repo: str = "The repository is unknown. Give it with --repo OWNER/REPO."
+    describe_no_item: str = "Issue #{issue} is no item of the roadmap in {repo}."
+    describe_no_change: str = (
+        "No change folder for issue #{issue}: {pattern} holds none. Plan the change first."
+    )
+    describe_many_changes: str = "Issue #{issue} has more than one change folder: {names}."
+    describe_no_why: str = (
+        "The proposal {path} has no section `Why`. Write one, or give the text with --why."
+    )
+    describe_why_closes: str = (
+        "The text of the proposal holds a closing keyword for an issue. Give the text with --why."
+    )
+    describe_dated_today: str = (
+        "The change is not archived. The line `Change:` names the archive folder of {date}. "
+        "Run this command again after `devops openspec archive` if the date changes."
+    )
+    describe_dry_run_heading: str = "Would read the issue and the labels file to build the form:"
     gh_cli_required: str = (
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."

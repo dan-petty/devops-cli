@@ -92,6 +92,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
+| [`pr_describe`](#pr-describe) | `true` | Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body. |
 | [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
 | [`pr_edit`](#pr-edit) | `false` | Edit pull request base branch, title, body, or milestone. |
 | [`pr_list`](#pr-list) | `true` | List pull requests with base targeting and review status. |
@@ -1488,6 +1489,23 @@ Close a pull request.
 | `number` | `integer` | Yes | - | Pull request number. |
 | `comment` | `string` | No | - | Comment text to include when closing the pull request. |
 | `delete_branch` | `boolean` | No | `False` | Delete remote topic branch upon closing. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `pr_describe`
+
+Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `issue` | `integer` | Yes | - | Number of the issue that the pull request closes. |
+| `summary` | `string` | Yes | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `why` | `string` | No | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
+| `attribution` | `array[string]` | No | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
