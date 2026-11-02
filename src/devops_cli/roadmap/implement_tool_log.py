@@ -64,12 +64,19 @@ from devops_cli.roadmap.agent_run import bounded_text
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
+    NEGATIVE_SEARCH_WORD,
 )
 from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model
-# reaches the log, and the count of the programs in the reason stays small by design.
-_KNOWN_PROGRAMS = frozenset((*IMPLEMENT_ALLOWED_PROGRAMS, *IMPLEMENT_SHELL_REPLACEMENTS))
+# reaches the log, and the count of the programs in the reason stays small by design. The `!` of a
+# negative search is not one: the words after it are free text, so the log says "other".
+_KNOWN_PROGRAMS = frozenset(
+    (
+        *IMPLEMENT_ALLOWED_PROGRAMS,
+        *(word for word in IMPLEMENT_SHELL_REPLACEMENTS if word != NEGATIVE_SEARCH_WORD),
+    )
+)
 
 
 class ToolOutcome(StrEnum):

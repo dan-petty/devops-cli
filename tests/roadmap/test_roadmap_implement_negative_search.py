@@ -144,8 +144,9 @@ def _path(word: str) -> str:
 def test_a_negative_search_outside_the_fixed_shape_is_refused_and_starts_no_process(
     checkout: Path, programs: ProcessFake, command: str, reason: str
 ) -> None:
+    named = command.encode("unicode_escape").decode("ascii")
     assert commands_failure(checkout, [command]) == (
-        f"The verification command {command} is refused: {reason}."
+        f"The verification command {named} is refused: {reason}."
     )
     assert programs_run(programs, "git") == []
 

@@ -106,6 +106,7 @@ from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_SHELL_PROGRAMS,
     fill_prompt,
     read_verification,
+    shown,
 )
 from devops_cli.roadmap.implement_shell_refusal import (
     argument_refusal_hooks,
@@ -815,12 +816,6 @@ def _command_failure(
     )
 
 
-def _command_shown(command: str) -> str:
-    """`command` for a stop reason, cut to `CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS` characters."""
-    limit = CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
-    return command if len(command) <= limit else f"{command[:limit]}..."
-
-
 def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
     """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
     that did not stops the run. A command whose program is not on the allowlist does not run. A
@@ -828,12 +823,13 @@ def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
     and passes when it finds nothing (#3263). The step runs the verification commands of a group,
     from the tasks as they were before the run."""
     for command in commands:
+        named = shown(command, CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
         found = read_verification(command)
         if isinstance(found, str):
             return MESSAGES.roadmap.implement_stop_command_refused.format(
-                command=_command_shown(command), reason=found
+                command=named, reason=found
             )
-        failure = _command_failure(source, found.argv, command, negative=found.negative)
+        failure = _command_failure(source, found.argv, named, negative=found.negative)
         if failure is not None:
             return failure
     return None

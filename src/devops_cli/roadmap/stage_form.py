@@ -21,8 +21,13 @@ from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final
 
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement_shell_policy import NEGATIVE_SEARCH_WORD, verification_problem
+from devops_cli.roadmap.implement_shell_policy import (
+    NEGATIVE_SEARCH_WORD,
+    shown,
+    verification_problem,
+)
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage_change import StageGroup
@@ -40,17 +45,18 @@ def _verify_problem(number: int, command: str) -> str | None:
     and the step runs it. A command of another form gets the forms to use. A command of the project
     form that the step refuses gets the reason of the step."""
     command = command.strip()
+    named = shown(command, CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
     texts = MESSAGES.roadmap
     if "`" in command:
-        return texts.stage_problem_verify_backtick.format(group=number, command=command)
+        return texts.stage_problem_verify_backtick.format(group=number, command=named)
     first = command.split(maxsplit=1)[0] if command else ""
     if first != NEGATIVE_SEARCH_WORD and not (
         command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
     ):
-        return texts.stage_problem_verify.format(group=number, command=command)
+        return texts.stage_problem_verify.format(group=number, command=named)
     if (reason := verification_problem(command)) is None:
         return None
-    return texts.stage_problem_verify_run.format(group=number, command=command, reason=reason)
+    return texts.stage_problem_verify_run.format(group=number, command=named, reason=reason)
 
 
 def _mirror_directories(groups: Sequence[StageGroup]) -> list[PurePosixPath]:

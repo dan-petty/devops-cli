@@ -2326,7 +2326,7 @@ class RoadmapMessages:
     search_reason_no_path: str = "it gives no path"
     search_reason_path: str = "the word `{word}` is not a path of the checkout"
     verify_reason_unparsed: str = "it is not a valid command line"
-    search_reason_long: str = "it is longer than {limit} characters"
+    verify_reason_long: str = "it is longer than {limit} characters"
     verify_reason_program: str = "`{program}` is not one of: {allowed}"
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"

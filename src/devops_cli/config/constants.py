@@ -3216,8 +3216,8 @@ CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS: Final[frozenset[str]] = frozenset(
 CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS: Final[frozenset[str]] = frozenset(
     {"acceptance criteria"}
 )
-# The characters of all the words of a negative search verification command. A word of 300000
-# characters made `execve` fail with E2BIG (#3263).
+# The characters of all the words of a verification command. A word of 300000 characters made
+# `execve` fail with E2BIG (#3263).
 CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS: Final[int] = 2000
 # The text that starts a second command in a shell command line. The shell tool refuses a command
 # that holds one, because its allowlist reads only the first word. `&` alone is not here, since
