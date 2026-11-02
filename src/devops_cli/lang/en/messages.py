@@ -2803,6 +2803,15 @@ class RoadmapMessages:
         "group up to group {group} creates it. {hint} Name a file that exists, or make the group "
         "that creates it list it in `creates`."
     )
+    stage_problem_verify: str = (
+        "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
+        "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
+        "`! git grep -n <name>` check that a name is gone. Give a command of one of these forms."
+    )
+    stage_problem_test_path: str = (
+        "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
+        "that the plan changes. A new test goes in {expected}. Move it there."
+    )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(

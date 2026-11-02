@@ -39,6 +39,7 @@ from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.refine import sanitize_text
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
@@ -342,6 +343,7 @@ def check_proposal(
     `openspec/specs/`, `requirements` the requirement names of each base spec by capability, and
     `tree` the files that exist when the change is written."""
     problems = _delta_problems(proposal, known, requirements or {})
+    problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
     return problems
 

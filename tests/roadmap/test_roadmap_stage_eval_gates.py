@@ -210,3 +210,20 @@ def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests
         for problem in replay.problems[GateName.PATHS]
     )
     assert replay.failures == []
+
+
+@pytest.mark.parametrize("pull", [2977, 2975, 2985, 2990], ids=lambda pull: f"pull-{pull}")
+def test_the_replay_of_a_plan_with_a_pytest_verify_command_is_refused_for_its_verify_form(
+    cases: list[StageCase], pull: int
+) -> None:
+    case = next(c for c in cases if c.pull == pull)
+    forms = [d for d in case.defects if d.type is DefectType.VERIFY_FORM]
+    judged = [d for d in forms if d.gate is GateName.PATHS]
+
+    replay = replay_case(case)
+
+    assert any(g["verify"].startswith("uv run pytest") for g in case.groups)
+    assert len(judged) == 1
+    assert next(o.status for o in replay.outcomes if o.defect is judged[0]) is DefectStatus.CAUGHT
+    assert any("`uv run pytest " in problem for problem in replay.problems[GateName.PATHS])
+    assert replay.failures == []

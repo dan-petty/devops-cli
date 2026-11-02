@@ -69,7 +69,8 @@
    "where": "tasks.md (all verify commands)",
    "problem": "Verify commands use uv run pytest <file>. openspec/config.yaml asks for 'uv run devops ci test tests/test_<feature>.py', and sibling plan 2258 uses that form. Prior archived plans used uv run pytest with -n 0, so this is a weak finding, but the plan does not follow the config.",
    "evidence": "openspec/config.yaml line 33: 'name each task's verification command, such as uv run devops ci test tests/test_<feature>.py'.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "A `verify` command starts with `uv run devops`"
   },
   {
    "type": "other",

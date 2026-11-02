@@ -60,7 +60,8 @@
    "where": "tasks.md (verify commands)",
    "problem": "The verify commands use `uv run pytest <file>`. config.yaml asks for `uv run devops ci test <path>`. Task 1.3 is also unclear: `Change no document, run devops docs generate --sync-readme` is a contradiction. The change touches no code that a README documents. Task 1.2 does not say what the stand-in file contains, or whether to reuse `_STAND_IN` from `tests/support/fakes/scanners.py`. Its `scanner name the test needs` is open. The list is `_REVIEW_SCANS` in the test file, and the plan does not name it.",
    "evidence": "config.yaml tasks rule: `name each task's verification command, such as uv run devops ci test tests/test_<feature>.py`. CONTRIBUTING.md line 57: `uv run devops ci test <test-file>`. tasks.md 1.1 and 1.2 use `uv run pytest tests/test_scanner_tool_executor.py -x`. `tests/security/test_scanner_tool_executor.py:76-85` builds `installed = {tool for tool, _ in _REVIEW_SCANS}`. `tests/support/fakes/scanners.py:84` defines `_STAND_IN`.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "A `verify` command starts with `uv run devops`"
   },
   {
    "type": "other",

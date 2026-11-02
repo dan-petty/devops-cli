@@ -63,7 +63,8 @@
    "where": "tasks.md",
    "problem": "Verify commands use bare `uv run pytest ... -n 0 -x -q` where config.yaml names `uv run devops ci test <path>`. The new test in 1.1 also adds more subprocess-mocking tests to a file whose cost is the problem.",
    "evidence": "openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`.' tasks.md 1.1, 1.2, 2.1, 2.2 use `uv run pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q`.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "A `verify` command starts with `uv run devops`"
   },
   {
    "type": "false_premise",
