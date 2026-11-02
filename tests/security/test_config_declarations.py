@@ -155,6 +155,7 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_MATTERMOST_ALERTS_HOOK",  # #1392
         "DEVOPS_CLI_MATTERMOST_DEPLOYS_HOOK",  # #1393
         "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN",  # #1395
+        "DEVOPS_CLI_MCP_TOKEN",  # #3219
         "DEVOPS_CLI_GEMINI_API_KEY",  # #3113
         "DEVOPS_CLI_ANTHROPIC_API_KEY",  # #3113
         "DEVOPS_CLI_OPENROUTER_API_KEY",  # #3144
@@ -186,6 +187,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "mattermost.alerts_hook": "mattermost_alerts_hook",  # #1392
     "mattermost.deploys_hook": "mattermost_deploys_hook",  # #1393
     "mattermost.command_token": "mattermost_command_token",  # #1395
+    "mcp.token": "mcp_token",  # #3219
     "gemini.api_key": "gemini_api_key",  # #3113
     "anthropic.api_key": "anthropic_api_key",  # #3113
     "openrouter.api_key": "openrouter_api_key",  # #3144

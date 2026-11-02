@@ -361,7 +361,9 @@ def test_fastmcp_messages_and_errors_localization() -> None:
     # 3. Security error for non-loopback host uses localized catalog template
     with pytest.raises(SecurityError) as sec_info:
         run_mcp_server(transport="sse", host="192.168.1.50")
-    assert ERRORS.mcp.security_sse_non_loopback.format(host="192.168.1.50") in str(sec_info.value)
+    assert ERRORS.mcp.security_non_loopback.format(transport="SSE", host="192.168.1.50") in str(
+        sec_info.value
+    )
 
 
 def test_fastmcp_library_tools_and_resource() -> None:
