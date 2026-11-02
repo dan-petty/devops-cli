@@ -16,11 +16,11 @@ The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-
 
 | Step | State after it | Service job | Agentic coder | Person | Gate |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1. Capture | `status/new` | Row `intake` places each candidate | `devops roadmap intake --title "<title>" --body-file <file> --confirm` | The same command, or a new issue on GitHub | None |
-| 2. Refine | `status/ready` | Rows `refine` and `alternatives` | `devops roadmap refine --item <number> --confirm` | The same command, and an answer to each open question in the issue | None |
-| 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request. Row `stage_ready` marks it ready when its checks pass | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
+| 1. Capture | `status/new` | Row `intake` places each candidate ([intake page](roadmap/intake.md)) | `devops roadmap intake --title "<title>" --body-file <file> --confirm` | The same command, or a new issue on GitHub | None |
+| 2. Refine | `status/ready` | Rows `refine` and `alternatives` ([refine page](roadmap/refine.md), [alternatives page](roadmap/alternatives.md)) | `devops roadmap refine --item <number> --confirm` | The same command, and an answer to each open question in the issue | None |
+| 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request ([stage page](roadmap/stage.md)). Row `stage_ready` marks it ready when its checks pass | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
 | 4. Claim | One `owner/*` label | Row `implement` sets `owner/service` when it makes a Job | `devops repos worktrees add <issue> --type <type> --slug <slug>` sets `owner/agent` | `devops roadmap claim <number> --as human --confirm` | None |
-| 5. Implement | `status/in-progress` | The runner Job runs one step for each task group | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
+| 5. Implement | `status/in-progress` | The runner Job runs one step for each task group ([implement page](roadmap/implement.md)) | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
 | 6. Verify | `status/in-review` | The runner Job watches the checks, runs bounded fix steps, and marks the pull request ready | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>` when the checks pass | The same | None |
 | 7. Review and merge | The issue is closed | None | None | Review, then merge | G2 |
 | 8. Release and learn | The release is out | None | None | Merge the release pull request. Read the release. File each problem as a new candidate | G3 |

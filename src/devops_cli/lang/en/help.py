@@ -1316,9 +1316,9 @@ class RoadmapCommandHelp:
         "Make no request: print the requests a run makes, with placeholders."
     )
     implement: str = (
-        "Implement a Staged or Planned item in bounded steps. With --group, run one task group in a "
-        "checkout. Without it, run the job: it takes items, runs their steps, and marks the pull request ready. "
-        "Details: docs/roadmap/implement.md."
+        "Implement a Staged or Planned item in bounded steps: with --group, run one task group in a "
+        "checkout; without it, run the job, which takes items, runs their steps, and marks the pull "
+        "request ready. Details: docs/roadmap/implement.md."
     )
     implement_item: str = (
         "The issue number of an item. With --group, the item whose change holds the group. "

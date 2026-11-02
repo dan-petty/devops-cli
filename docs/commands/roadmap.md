@@ -133,7 +133,7 @@ devops roadmap run [OPTIONS]
 
 ## `devops roadmap implement`
 
-**Implement a Staged or Planned item in bounded steps. With --group, run one task group in a checkout. Without it, run the job: it takes items, runs their steps, and marks the pull request ready. Details: docs/roadmap/implement.md.**
+**Implement a Staged or Planned item in bounded steps: with --group, run one task group in a checkout; without it, run the job, which takes items, runs their steps, and marks the pull request ready. Details: docs/roadmap/implement.md.**
 
 ```bash
 devops roadmap implement [OPTIONS]
