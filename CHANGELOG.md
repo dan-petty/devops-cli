@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.40.0](https://github.com/dan-petty/devops-cli/compare/v0.39.1...v0.40.0) (2026-11-02)
+
+
+### Features
+
+* **k8s:** serve deepseek-v4.1-flash-1017 via OpenRouter ([#3145](https://github.com/dan-petty/devops-cli/issues/3145)) ([d5dc921](https://github.com/dan-petty/devops-cli/commit/d5dc92119c34dfb9e1f2d05c48494a31236f79ca)), closes [#3144](https://github.com/dan-petty/devops-cli/issues/3144)
+
+
+### Bug Fixes
+
+* **cli:** stop with one error line in a removed working directory ([#3133](https://github.com/dan-petty/devops-cli/issues/3133)) ([c4a4dbb](https://github.com/dan-petty/devops-cli/commit/c4a4dbbfc6fde406b753815b1e1cb64231e3e672))
+
+
+### Code Refactoring
+
+* **cli:** remove the _prepare_cmd alias and ban noqa F401 in src ([#3110](https://github.com/dan-petty/devops-cli/issues/3110)) ([e40dbac](https://github.com/dan-petty/devops-cli/commit/e40dbacb3abd87cf49f2595f3de3d585949d44d7))
+
 ## [0.39.1](https://github.com/dan-petty/devops-cli/compare/v0.39.0...v0.39.1) (2026-11-02)
 
 
