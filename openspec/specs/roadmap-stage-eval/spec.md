@@ -36,7 +36,11 @@ A defect with the gate `pending` SHALL be listed with its type and the issue of 
 
 #### Scenario: Pending defects
 - **WHEN** the replay runs on the set
-- **THEN** the output lists the types `false_premise`, `ignores_existing_code`, `spec_delta_wrong`, `verify_form`, `task_order` and `criterion_dropped` with their counts, and the exit code is 0
+- **THEN** the output lists the types `ignores_existing_code`, `spec_delta_wrong`, `verify_form`, `task_order` and `criterion_dropped` with their counts, and the exit code is 0
+
+#### Scenario: A false premise is judged by no gate
+- **WHEN** the replay runs on the set
+- **THEN** the defects of the type `false_premise` are listed as judged by no gate, and the exit code is 0
 
 #### Scenario: A gate arrives
 - **WHEN** a `pending` defect has the type of a gate that exists
