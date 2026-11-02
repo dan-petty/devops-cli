@@ -23,6 +23,7 @@ from tests.support.roadmap_stage import (
     VALID_REPORT,
     StageRepo,
     heavy_group,
+    no_findings,
     seed_stageable,
     validate_args,
 )
@@ -109,6 +110,7 @@ def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
     )
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "1")
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
     outcome = _round(store, stage_repo)
@@ -135,6 +137,7 @@ def test_a_round_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
         return script.model()
 
     monkeypatch.setattr(run, "get_task_model", task_model)
+    no_findings(model_fake)
 
     outcome = _round(store, stage_repo)
 
@@ -142,7 +145,7 @@ def test_a_round_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
         JobOutcome(),
         ["analysis"],
         ["list_files", "read_file"],
-        0,
+        1,
     )
     assert _pushed(stage_repo) == ["fix/1-the-job-drops-a-comment", "main"]
 
@@ -163,6 +166,7 @@ def test_a_round_counts_staged_needs_split_returned_failed_and_skipped_items_onc
     seed_stageable(store, "fix(roadmap): the job drops a note")
     heavy = heavy_group(stage_repo)
     stuck = make_stage_proposal(groups=[heavy])
+    no_findings(model_fake)
     model_fake.answer(
         make_stage_proposal(),
         stuck,

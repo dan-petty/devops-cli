@@ -3006,6 +3006,13 @@ CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 8000
 # commands each, so 10 commands cover them and keep the probe short.
 CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS: Final[int] = 10
 CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
+# The verification pass of the stage job (#3153): the tokens of the issue body, the tokens of the
+# start of each file that the plan cites, and the most files in one request. 3000 tokens is the
+# cap that a step of the implement job gives a file; the pass reads less of each file, as it only
+# checks a claim of the plan, and 30 files cover the groups of a plan that fits one pull request.
+CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS: Final[int] = 6000
+CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS: Final[int] = 1500
+CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.

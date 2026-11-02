@@ -6574,7 +6574,7 @@ devops roadmap alternatives [OPTIONS]
 
 ### `devops roadmap stage`
 
-**Make Ready items Staged: for each item that a label filter names, make the branch \<type\>/\<issue\>-\<slug\> at the fetched default branch, write the OpenSpec change of the item in task groups that each fit the step budget, make one commit as the identity of the session, push it, and open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The branch keeps the type of the issue. The Status of the item stays Ready, and the job does not mark the pull request ready: the Service does, in its row stage_ready, when all checks of the draft have passed. One comment on the issue names the branch, the pull request and the task groups with their measures. The default filter is status=ready: the job takes the Ready items of any type, priority and effort, the highest priority first. The job leaves out an item that is not Ready, an item with the label needs-split, an item that an account without write access opened, an item that depends on an open issue, an item that a pushed branch or a worktree holds, an item whose plan is on the default branch or whose change is archived there, and an item whose text looks like a secret; the plan says why. A task group over the budget goes back to the model once, and a group still over it stops the item. An item whose model call fails is skipped and reported, the others are still staged, and the command then exits 1. Each run also removes the draft and the branch of a closed item when only the identity of the session wrote to them.**
+**Make Ready items Staged: for each item that a label filter names, make the branch \<type\>/\<issue\>-\<slug\> at the fetched default branch, write the OpenSpec change of the item in task groups that each fit the step budget, make one commit as the identity of the session, push it, and open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The branch keeps the type of the issue. The Status of the item stays Ready, and the job does not mark the pull request ready: the Service does, in its row stage_ready, when all checks of the draft have passed. One comment on the issue names the branch, the pull request and the task groups with their measures. The default filter is status=ready: the job takes the Ready items of any type, priority and effort, the highest priority first. The job leaves out an item that is not Ready, an item with the label needs-split, an item that an account without write access opened, an item that depends on an open issue, an item that a pushed branch or a worktree holds, an item whose plan is on the default branch or whose change is archived there, and an item whose text looks like a secret; the plan says why. A task group over the budget goes back to the model once, and a group still over it stops the item. After the checks, a model of the verification task reviews the plan with the issue and the files it cites. A finding of the type missing_path, false_premise or ignores_existing_code that quotes its evidence sends the plan back once; every other finding goes into the comment, and the draft still opens. An item whose model call fails is skipped and reported, the others are still staged, and the command then exits 1. Each run also removes the draft and the branch of a closed item when only the identity of the session wrote to them.**
 
 ```bash
 devops roadmap stage [OPTIONS]
@@ -6796,6 +6796,26 @@ devops roadmap eval implement [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: list the fixtures and the model requests of the steps. Nothing is cloned and no model runs. |
 | `--check-only` | `boolean` | - | Make no model call: evaluate the four properties that a diff decides on each recorded result of each fixture, and exit 1 when a result fails other properties than its record says. This is the offline mode. |
 | `--run-commands` | `boolean` | - | With --check-only: clone the base, apply each recorded diff and run the two properties that run commands. |
+
+#### `devops roadmap eval verify`
+
+**Score the model verification pass of the stage job on the golden set. For each case the pass reads the issue, the recorded plan and the start of each file that the plan cites, read from the staging commit, and returns findings of the nine defect types. The command prints the recall of the labeled defects (all, and the blocker and major ones), the recall for each type, and the findings on the good plans. It matches each finding to one labeled defect of the same type. It stores the report as JSON under the data directory. It calls the model of the verification task through the gateway, one call per case. A change of the model or of the prompt states this score.**
+
+```bash
+devops roadmap eval verify [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
+| `--model` | `string` | - | Model for the verification task. Without it, the configured model. |
+| `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
+| `--json` | `boolean` | - | Print the report as JSON in place of the table. |
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
+| `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
+| `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
 
 ---
 

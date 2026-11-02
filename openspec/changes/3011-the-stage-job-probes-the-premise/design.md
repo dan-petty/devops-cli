@@ -10,13 +10,14 @@
 - **Read-only by construction.** The probe builds each command from a fixed list: `cat-file`, `grep` and `log`, with a `--` before every path. A test runs the probe on a repository and asserts that every command is one of the three and that the repository has no change after.
 - **The probe says what it does not know.** A missing item with no commit found reads "no commit in the history deleted or renamed it" or "no commit in the history added or removed it". The prompt tells the model that such an item may be a thing the issue asks to create, which is no false premise.
 - **The evidence goes to a public comment.** The job writes the evidence on one line with `safe_text` and masks secrets before the comment, as it does for every model text.
+- **The reply to a return of the verification pass may set `premise_failed`, and the job then returns the item.** The planner is the one that reads the finding with its evidence.
 - **The gate `FALSE_PREMISE` leaves the pending list and its recorded defects get the gate `none`.** See the rejected alternatives.
 
 ## Rejected alternatives
 
 - **Write a second extractor in `stage_probe.py`.** `collect_context` has the patterns already, and the review of the plan asked for one place. Rejected on AGENTS.md rule 3.
 - **Shell out to `devops roadmap return` from the job.** The command needs a store and a clone, and the round has both. `plan_return` and `apply_return` are the code of the command, so a call in process is the same write with no subprocess.
-- **A new model call to judge the premise.** #3153 adds a model pass after the plan. The probe is deterministic and runs before the call, and it costs no token. The model judges only the evidence that the probe gives.
+- **A new model call to judge the premise.** #3153 added a model pass after the plan. The probe is deterministic and runs before the call, and it costs no token. The model judges only the evidence that the probe gives.
 - **Build `FALSE_PREMISE` as a gate of the replay.** `replay_case` reads no git, and `facts.json` of a case holds a thinned tree (the paths of the plan, one file for each suffix and top folder). A gate cannot tell a removed path from a path that never existed on that tree. The premise check runs before the plan, on the live commit, and its test is the #2971 replay on a real temporary repository. Leaving the entry in `PENDING_GATES` would keep a defect that waits for a gate that will not come, so the defects get `none`, which the replay lists as judged by no gate.
 - **Ask the model to extract the cited items.** The model cannot run commands, and the patterns of `refine.py` do the work with no call.
 - **Probe all items in parallel.** The removal probe is only needed for a missing item, so parallel runs waste commands against the bound.

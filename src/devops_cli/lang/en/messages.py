@@ -2644,6 +2644,18 @@ class RoadmapMessages:
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
     stage_comment_no_calls: str = "The model made no tool call."
     stage_comment_call: str = "{index}. `{name}({argument})`"
+    # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
+    # and the section of the comment.
+    stage_finding: str = "- `{type}` at {where}: {problem}{quote}"
+    stage_finding_quote: str = ' Evidence: "{quote}"'
+    stage_verify_return: str = (
+        "A model review of the plan found these defects. Fix each one, or show with a quote "
+        "from the inputs that it is no defect:\n{findings}"
+    )
+    stage_comment_findings: str = (
+        "\n\nA model review of the plan found these points. They stop no draft, and a person "
+        "judges them:\n\n{findings}"
+    )
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."
@@ -3211,6 +3223,31 @@ class RoadmapMessages:
     stage_eval_dry_run_repeat: str = "up to {count} requests for each case"
     stage_eval_stored: str = "Stored the report in {path}."
     stage_eval_failed: str = "{failed} case(s) could not run. The score counts them as not avoided."
+    # `devops roadmap eval verify` (#3153).
+    verify_eval_title: str = (
+        "# Verification pass on the golden set: {cases} case(s), the verification model {model} "
+        "at {gateway}"
+    )
+    verify_eval_header: str = "Defect type               Labeled  Found  Recall"
+    verify_eval_row: str = "{type:<24}  {labeled:>7}  {found:>5}  {rate:>6}"
+    verify_eval_recall: str = "Recall of the labeled defects: {found} of {labeled} ({rate})."
+    verify_eval_serious: str = (
+        "Recall of the blocker and major defects: {found} of {labeled} ({rate})."
+    )
+    verify_eval_good: str = (
+        "Findings on the good plans: {findings} on {cases} plan(s). {returning} of them would "
+        "return a plan to the planner."
+    )
+    verify_eval_ended: str = "Cases by end: {ended}."
+    verify_eval_dry_run: str = (
+        "Dry run: no request was made. A run verifies {cases} case(s) with the verification "
+        "model at {gateway}, one case at a time:"
+    )
+    verify_eval_dry_run_case: str = "verification of the case {name}"
+    verify_eval_dry_run_repeat: str = "one request for each case"
+    verify_eval_failed: str = (
+        "{failed} case(s) could not run. The score counts their defects as not found."
+    )
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "
