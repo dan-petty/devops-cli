@@ -34,7 +34,8 @@
    "where": "specs/review-tool-runs/spec.md, .openspec.yaml",
    "problem": "The change only edits a test fixture, and no consumer can observe the change. openspec/config.yaml says such a change has no spec delta and sets `skip_specs: true` in `.openspec.yaml`. This plan adds a new requirement to the `review-tool-runs` spec about how test fixtures make scanners findable. It does not set `skip_specs`. Archive would write a test-convention rule into the product spec. The proposal's What Changes does not say why a delta is needed.",
    "evidence": "config.yaml, proposal rule: `A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.` The plan's `.openspec.yaml` has only `schema: spec-driven` and `created: 2026-11-01`. The delta adds `### Requirement: test-fixture-makes-scanner-findable-on-path`. The spec file `openspec/specs/review-tool-runs/spec.md` has a Purpose about the record of review tool runs, not test fixtures.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "These paths need no spec delta"
   },
   {
    "type": "contrived_test",
