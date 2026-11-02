@@ -67,7 +67,7 @@ The first exit check SHALL be that `HEAD` is still the commit where the step sta
 - **THEN** the step reports stopped with the reason that `HEAD` moved, makes no commit, and the checkout is back at the commit where the step started
 
 ### Requirement: The verification commands of a group are the code spans of its Verification lines
-The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks, each one once, in the order of the file. The step SHALL run each one in the checkout, and SHALL refuse to run one whose first word is not a program of the verification list: the shell allowlist, `openspec` and `devops`.
+The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks, each one once, in the order of the file. The step SHALL run each one in the checkout as a list of words, never through a shell. It SHALL refuse to run one whose first word is not a program of the verification list (the shell allowlist, `openspec` and `devops`) and is not the `!` of a negative search in the fixed shape.
 
 #### Scenario: Two lines name one command
 - **WHEN** two tasks of the group name `uv run devops ci test tests/test_sample.py` and the second names `uv run devops docs check` as well
@@ -763,11 +763,11 @@ When a tool exceeds its retries, the reason of the stopped run SHALL end with a 
 - **THEN** the reason holds no line of reasons
 
 ### Requirement: A model reply has an output cap and a call has a deadline
-The agent of a step SHALL set the model settings `max_tokens` to `CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS` and `request_timeout` to `CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS`. The deadline SHALL be less than the timeout of the router in `k8s/llm/gateway/config.yaml`. A call that runs past the deadline SHALL end the step as stopped, and the model SHALL get no second request for it.
+The agent of a step SHALL set the model settings `max_tokens` to the context window of the task divided by `CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE`, and `request_timeout` to the setting `roadmap.implement.request_timeout_seconds`. The default of the deadline SHALL be less than the timeout of the router in `k8s/llm/gateway/config.yaml`. A call that runs past the deadline SHALL end the step as stopped, and the model SHALL get no second request for it.
 
 #### Scenario: The settings of the first request
 - **WHEN** the step makes its first model request
-- **THEN** the model settings of the request hold the cap and the deadline
+- **THEN** the model settings of the request hold the cap, a quarter of the window, and the deadline of the setting
 
 #### Scenario: The cap reaches the wire
 - **WHEN** the agent of a step sends a request to an OpenAI chat model
@@ -775,7 +775,7 @@ The agent of a step SHALL set the model settings `max_tokens` to `CONST_ROADMAP_
 
 #### Scenario: The deadline is short of the router timeout
 - **WHEN** a test reads `router_settings.timeout` of the gateway config
-- **THEN** the deadline is less than that timeout
+- **THEN** the default of the deadline is less than that timeout
 
 #### Scenario: A call that never ends
 - **WHEN** a model call does not answer within the deadline
@@ -913,3 +913,85 @@ The step SHALL cut the `AGENTS.md` text in the message to `CONST_ROADMAP_IMPLEME
 #### Scenario: A hostile AGENTS.md
 - **WHEN** the `AGENTS.md` of the checkout says to ignore the instructions and holds a heading "Your group"
 - **THEN** the instructions of the step equal the prompt, and the message starts with that text under the rules heading
+
+### Requirement: The time limits of the implement job are settings
+The settings `roadmap.implement.request_timeout_seconds`, `roadmap.implement.command_timeout_seconds` and `roadmap.implement.monitor_timeout_seconds` SHALL set the seconds that a model call, a command and the watch of the checks of a pull request may take. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 1200, 1800 and 3600, and a value below 1 SHALL be refused. A reader SHALL ask for the value when it runs.
+
+#### Scenario: The defaults
+- **WHEN** no config file and no variable sets a time limit
+- **THEN** the call deadline is 1200 seconds, the command limit is 1800 seconds and the watch limit is 3600 seconds
+
+#### Scenario: A config file and a variable
+- **WHEN** the config file sets `command_timeout_seconds` to 90 and the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS` holds 120
+- **THEN** the command limit is 90 and the watch limit is 120
+
+#### Scenario: A limit of zero
+- **WHEN** the config file sets a time limit to 0
+- **THEN** loading the settings fails and the message names the setting
+
+#### Scenario: A model call
+- **WHEN** the config file sets `request_timeout_seconds` to 77 and a step makes its first model request
+- **THEN** the model settings of the request hold `request_timeout` 77
+
+#### Scenario: A scoped check
+- **WHEN** the config file sets `command_timeout_seconds` to 41 and the job runs the scoped checks
+- **THEN** each command runs with the limit 41, and a command that runs out of time fails its check with a reason that names 41 seconds
+
+#### Scenario: The watch of the checks
+- **WHEN** the config file sets `monitor_timeout_seconds` to 123 and the checks of the pull request are still pending
+- **THEN** the watch waits at most 123 seconds, and the reason of the stop names 123 seconds
+
+### Requirement: A negative search is a verification command in a fixed shape
+The step SHALL run a verification command that starts with `!` only as `! git grep [options] <literal> [--] <path>...`, with at least one path and with the options `-n -I -F -i -w -l -c -q` in words of those letters. The step SHALL start no process for a command outside the shape, and the reason of the stop SHALL say which rule of the shape the command breaks.
+
+#### Scenario: A command that is not the fixed shape
+- **WHEN** a Verification line names `! rm -rf src/`, `! git grep -n name src/ | cat`, `! git grep -n name src/ ; ls`, `! git grep -n name src/ && ls`, `! git grep -n name src/ > out.txt`, `! git grep -n '$(id)' src/`, `! git grep -O name src/`, `! git grep --no-index -n name src/`, `! git grep -f patterns.txt src/`, `! git grep --open-files-in-pager=cat name src/`, `! git grep -n name /etc` or `! git grep -n name ../other`
+- **THEN** the step stops with the reason that says which rule of the shape the command breaks, and starts no process
+
+#### Scenario: A letter outside ASCII
+- **WHEN** a Verification line names a literal with a fullwidth `ｆ` or an accented `é`, or a path with one
+- **THEN** the step stops with the reason that the text is not a literal, or that the word is not a path, and starts no process
+
+### Requirement: The literal and the paths of a negative search are plain
+The literal SHALL hold only letters, digits, spaces and the signs `_ . : / = @ + , # % ~ -`. A path SHALL be relative, SHALL hold only letters, digits and the signs `_ . + @ ~ * / -`, SHALL NOT start with `-`, and SHALL NOT have a `..` part.
+
+#### Scenario: A literal or a path that is not plain
+- **WHEN** a Verification line names `! git grep -n 'a|b' src/` or `! git grep -n name :(top)src`
+- **THEN** the step stops with the reason that names the text or the word, and starts no process
+
+### Requirement: A negative search passes when git finds no match
+The step SHALL run a negative search as `git grep` with the options, the literal, `--` and the paths, with no shell. The search SHALL pass when git exits 1, also when a path matches no file. It SHALL stop the step with the matching lines when git exits 0, and with the status when git exits with any other status.
+
+#### Scenario: A name that is gone
+- **WHEN** a Verification line names `! git grep -n absent_name src/ tests/` and no file holds `absent_name`
+- **THEN** the step runs `git grep -n absent_name -- src/ tests/` and the verification command passes
+
+#### Scenario: A name that is still there
+- **WHEN** a Verification line names `! git grep -n hello src/ tests/` and `src/sample.py` holds `hello`
+- **THEN** the step stops with the reason that the command found a match, with the matching lines
+
+#### Scenario: A search that fails
+- **WHEN** git exits 128 for the search
+- **THEN** the step stops with the reason that holds the status, and the search is no pass
+
+#### Scenario: A path that matches no file
+- **WHEN** a Verification line names `! git grep -n hello missing/` and no tracked file is under `missing/`
+- **THEN** the step runs `git grep -n hello -- missing/` and the verification command passes
+
+### Requirement: The shell of the agent refuses a command that starts with a bang
+The shell of the agent SHALL NOT run a command whose first word is `!`. Only the verification commands of the step run a negative search. The refusal SHALL say to run `git grep -n <literal> -- <paths>`, to read no output as a pass, and that the step runs a verification command that starts with `!` itself. The prompt of the step SHALL say the same.
+
+#### Scenario: The shell of the agent
+- **WHEN** the agent runs `! git grep -n x src/` in its shell
+- **THEN** the shell refuses the command as a program that is not in the allowed list, the refusal holds the `git grep` form and the sentence that the step runs the `!` command itself, and no process starts
+
+### Requirement: A negative search has a limit and a reason that is safe to show
+The words of a negative search SHALL hold at most 2000 characters in all. A word in the reason of a refusal SHALL be escaped and cut, so that the reason holds no raw line break and no NUL byte, and a stop reason SHALL show the command cut to 2000 characters.
+
+#### Scenario: A search that is too long
+- **WHEN** a Verification line names `! git grep -n` followed by a literal of 300000 characters and `src/`
+- **THEN** the step stops with the reason that the command is longer than 2000 characters, shows the command cut to 2000 characters, and starts no process
+
+#### Scenario: A word with a control character
+- **WHEN** a Verification line names `! git grep -n` followed by a quoted literal that holds a NUL byte or a line break
+- **THEN** the reason shows the word with the escapes `\x00` or `\n`, and holds no NUL byte and no line break

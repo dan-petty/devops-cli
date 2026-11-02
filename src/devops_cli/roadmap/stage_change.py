@@ -36,6 +36,7 @@ from pydantic import (
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
 from devops_cli.core.paths import safe_resolve_subpath
+from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
@@ -51,6 +52,14 @@ from devops_cli.roadmap.step_rules import rules_sections
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 _STAGING_TYPE: Final[str] = "docs(openspec)"
 _ELLIPSIS: Final[str] = "..."
+# The most digits that the number of an issue has. The title of a plan is `docs(openspec): plan
+# #<number> <summary>` and its summary has at most `SUMMARY_MAX_CHARS` characters (#2714), so the
+# room for the model's summary depends on the digits. The schema cannot know the number, so its
+# limit is the room for the longest number, and a shorter number leaves room over (#3249).
+ISSUE_NUMBER_DIGITS: Final[int] = 6
+STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - len(
+    MESSAGES.roadmap.stage_title_lead.format(number=10**ISSUE_NUMBER_DIGITS - 1)
+)
 # The most characters of the body of a pull request: it is the message of the squash commit.
 BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
@@ -97,8 +106,19 @@ def _capability_name(name: str) -> str:
 
 
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
-# A text of a task group: at least one character once the whitespace around it is stripped.
-Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _one_line(text: str) -> str:
+    """The text on one line, so that a text of the reply adds no line, no task, no group and no
+    `Verification:` line to `tasks.md`."""
+    return " ".join(text.split())
+
+
+# A text of a task group: at least one character once the whitespace around it is stripped, and on
+# one line in `tasks.md`.
+Text = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_one_line)
+]
 
 
 def _sentence(text: str) -> str:
@@ -111,12 +131,12 @@ def _sentence(text: str) -> str:
 
 
 # The text of a task that the writer joins to the words after it: it ends in no full stop.
-Sentence = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_sentence)]
-
-
-def _one_line(text: str) -> str:
-    """The text on one line, so that a task of `tasks.md` stays one list item."""
-    return " ".join(text.split())
+Sentence = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True),
+    AfterValidator(_one_line),
+    AfterValidator(_sentence),
+]
 
 
 # The steps of a manual check: at least one character, and on one line in `tasks.md`.
@@ -268,7 +288,9 @@ class StageProposal(_Reply):
     `premise_failed` must give every key of the plan."""
 
     premise_failed: str | None = None
-    summary: str = Field("", min_length=1, max_length=SUMMARY_MAX_CHARS)
+    # The limit counts the text as the title shows it (see `_summary_fits_the_title`), so the schema
+    # gives it as `maxLength` for the model and checks it in the validator, not with `max_length`.
+    summary: str = Field("", min_length=1, json_schema_extra={"maxLength": STAGE_SUMMARY_MAX_CHARS})
     pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
     why: str = ""
     what_changes: list[str] = Field(default_factory=list, min_length=1)
@@ -289,6 +311,22 @@ class StageProposal(_Reply):
         if isinstance(data, dict) and str(data.get("premise_failed") or "").strip():
             return {"premise_failed": data["premise_failed"]}
         return data
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_fits_the_title(cls, summary: str) -> str:
+        """The title shows the summary as `safe_text` writes it: on one line, and with a code span
+        for a handle or a link. The limit counts that text, so spare whitespace costs nothing and
+        a handle costs its code span. The reply that breaks it goes back to the model with both
+        counts, and `staging_title` cuts no summary that the schema accepts."""
+        shown = len(safe_text(summary))
+        if shown > STAGE_SUMMARY_MAX_CHARS:
+            raise ValueError(
+                MESSAGES.roadmap.stage_summary_long.format(
+                    length=shown, limit=STAGE_SUMMARY_MAX_CHARS
+                )
+            )
+        return summary
 
     @field_validator("premise_failed")
     @classmethod
@@ -556,7 +594,9 @@ def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
     A plan with no criterion has no section."""
     texts = MESSAGES.roadmap
     lines = [
-        texts.stage_criteria_pending.format(criterion=_one_line(c.criterion), reason=c.reason)
+        texts.stage_criteria_pending.format(
+            criterion=_one_line(c.criterion), reason=_one_line(c.reason or "")
+        )
         if c.group == PENDING_PERSON
         else texts.stage_criteria_line.format(criterion=_one_line(c.criterion), group=c.group)
         for c in criteria
@@ -592,13 +632,21 @@ def render_change(
 
 def staging_title(number: int, summary: str) -> str:
     """The title of the draft pull request of item `number`: `docs(openspec): plan #<number>
-    <summary>`. The summary is cut at a word, so that the part after the colon has at most
-    `SUMMARY_MAX_CHARS` characters (#2714). It is on one line, with a handle or a link in a code
-    span, so it pings no one."""
+    <summary>`. It is on one line, with a handle or a link in a code span, so it pings no one. The
+    part after the colon has at most `SUMMARY_MAX_CHARS` characters (#2714). A summary that the
+    schema accepts (`STAGE_SUMMARY_MAX_CHARS`) always fits, for a number of `ISSUE_NUMBER_DIGITS`
+    digits or fewer. The title is never cut, because a cut text ends with `...` and the form check
+    refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
-    room = SUMMARY_MAX_CHARS - len(lead)
-    shortened = textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)
-    return f"{_STAGING_TYPE}: {lead}{shortened}"
+    shown = safe_text(summary)
+    if len(lead) + len(shown) > SUMMARY_MAX_CHARS:
+        raise RoadmapStageError(
+            MESSAGES.roadmap.stage_title_long.format(
+                number=number, length=len(lead) + len(shown), limit=SUMMARY_MAX_CHARS
+            ),
+            failed_items=[number],
+        )
+    return f"{_STAGING_TYPE}: {lead}{shown}"
 
 
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:

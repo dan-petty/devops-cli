@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.3](https://github.com/dan-petty/devops-cli/compare/v0.48.2...v0.48.3) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** keep a text of a staged group on one line ([#3279](https://github.com/dan-petty/devops-cli/issues/3279)) ([c42e981](https://github.com/dan-petty/devops-cli/commit/c42e9818fd4afed112d2705543ff3e6e1252fb06))
+
+## [0.48.2](https://github.com/dan-petty/devops-cli/compare/v0.48.1...v0.48.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** never cut the plan title, count its summary once ([#3272](https://github.com/dan-petty/devops-cli/issues/3272)) ([0e0e017](https://github.com/dan-petty/devops-cli/commit/0e0e017497293d441b6f16b02e80e38c63d2c7e4))
+* **roadmap:** tell the agent the step runs a bang command ([#3275](https://github.com/dan-petty/devops-cli/issues/3275)) ([a88f9c8](https://github.com/dan-petty/devops-cli/commit/a88f9c815f741d6f6cdf6e17efdf1a705e35d15b))
+
+## [0.48.1](https://github.com/dan-petty/devops-cli/compare/v0.48.0...v0.48.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** make the plan summary fit its title ([#3267](https://github.com/dan-petty/devops-cli/issues/3267)) ([758b7a8](https://github.com/dan-petty/devops-cli/commit/758b7a812eb2007d0439264be30c7d5d228ea0c7))
+* **roadmap:** run a negative search verify in the step ([#3269](https://github.com/dan-petty/devops-cli/issues/3269)) ([42bc835](https://github.com/dan-petty/devops-cli/commit/42bc835f2e15dab61113f4081206b0eab942981c))
+* **roadmap:** write the Verification line under a staged task ([#3268](https://github.com/dan-petty/devops-cli/issues/3268)) ([acaf455](https://github.com/dan-petty/devops-cli/commit/acaf455d38a0ebb9d7893283fd569a16ce90dc9e))
+
+## [0.48.0](https://github.com/dan-petty/devops-cli/compare/v0.47.0...v0.48.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** give the stage planner three more read-only tools ([#3250](https://github.com/dan-petty/devops-cli/issues/3250)) ([80ffc5c](https://github.com/dan-petty/devops-cli/commit/80ffc5c18a9b9ce9131412e172c3a572b2085580))
+
+## [0.47.0](https://github.com/dan-petty/devops-cli/compare/v0.46.1...v0.47.0) (2026-11-02)
+
+
+### Features
+
+* **mcp:** serve role-scoped tools over streamable HTTP ([#3233](https://github.com/dan-petty/devops-cli/issues/3233)) ([6923473](https://github.com/dan-petty/devops-cli/commit/69234732a44a750d3468a3ffadaf17eb7d15ec51))
+* **security:** refuse a secret value as an MCP tool parameter ([#3232](https://github.com/dan-petty/devops-cli/issues/3232)) ([360a8c6](https://github.com/dan-petty/devops-cli/commit/360a8c6da4eb143e7c76b6c53aa29d297356dfd3))
+
+## [0.46.1](https://github.com/dan-petty/devops-cli/compare/v0.46.0...v0.46.1) (2026-11-02)
+
+
+### Performance Improvements
+
+* **roadmap:** raise the soft caps and timeouts of the jobs ([#3223](https://github.com/dan-petty/devops-cli/issues/3223)) ([bc0434e](https://github.com/dan-petty/devops-cli/commit/bc0434eebac536a75f81c69e3ee080b1623bf2ea))
+
 ## [0.46.0](https://github.com/dan-petty/devops-cli/compare/v0.45.0...v0.46.0) (2026-11-02)
 
 

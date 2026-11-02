@@ -35,7 +35,7 @@ None.
 ### Modified Capabilities
 
 - `roadmap-implement-step`: The step chooses a tier per attempt from the ladder and advances on FailureAction.CHANGE_TIER
-- `roadmap-implement-job`: The job record keeps the spend itemized per tier
+- `roadmap-implement-job`: The spend itemizes token cost per tier
 - `roadmap-failure-taxonomy`: The action left is wait after a tier change is taken
 
 ## Impact

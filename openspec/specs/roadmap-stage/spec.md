@@ -77,7 +77,7 @@ For each item the job SHALL make the branch `<type>/<issue>-<slug>` at `origin/<
 - **THEN** the branch is pushed with one commit by the session identity, and the commit holds the change folder
 
 ### Requirement: A staged item gets a draft pull request
-The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
+The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters, and the job SHALL NOT cut it: the schema keeps a summary short enough for an issue number of up to 6 digits, and a longer number stops that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
 
 #### Scenario: The draft opens
 - **WHEN** the job stages a Ready bug
@@ -91,12 +91,24 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **WHEN** the job stages item 12, a bug, and item 13, a feature
 - **THEN** the title of each draft starts with `docs(openspec): plan #12 ` and `docs(openspec): plan #13 `, and the branch of each keeps the type of its issue
 
+#### Scenario: A summary at the limit
+- **WHEN** the model gives a summary of the most characters that the schema accepts (47: the room after `plan #<issue> ` for an issue number of 6 digits) for item 7 and for item 3249
+- **THEN** the title holds the whole summary, ends with no `...`, and passes the form check of titles, and the planner prompt names the same limit
+
 #### Scenario: A long summary
-- **WHEN** the model gives a summary of 60 characters for item 2656
-- **THEN** the title after the colon has at most 60 characters, and the summary is cut at a word
+- **WHEN** the model gives a summary that has more than 47 characters as the title shows it, such as 48 characters, or 47 characters with a handle that gets a code span
+- **THEN** the schema refuses the reply, the reply goes back to the model with the count and the limit, and a second refusal stops that item only
+
+#### Scenario: Spare whitespace costs nothing
+- **WHEN** the model gives a summary of 47 characters followed by a new line
+- **THEN** the schema accepts the reply, because the title shows the text on one line
+
+#### Scenario: A number of 7 digits
+- **WHEN** the job builds the title of item 1000000 for a summary of 47 characters
+- **THEN** the job stops that item with an error that names the limit, and the title is not cut
 
 ### Requirement: The job measures each task group
-The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 40000, and `--step-tokens` SHALL override it for one run.
+The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 64000, and `--step-tokens` SHALL override it for one run.
 
 #### Scenario: A group is measured
 - **WHEN** the model gives a group whose task names a file of the repository
@@ -233,7 +245,7 @@ The model lane of the Service SHALL hold the row `stage` after the row `refine`.
 - **THEN** its `Due:` line lists `stage` after `refine`, and no request is made
 
 ### Requirement: The settings name the filter, the limit and the step budget
-The settings `roadmap.stage.filter`, `roadmap.stage.limit` and `roadmap.stage.step_tokens` SHALL set what the stage job takes. Each SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_FILTER`, `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` or `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS`. The defaults SHALL be the filter `status=ready`, the limit 3 and the step budget 40000. The example ConfigMap of the Service SHALL hold the default filter.
+The settings `roadmap.stage.filter`, `roadmap.stage.limit` and `roadmap.stage.step_tokens` SHALL set what the stage job takes. Each SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_FILTER`, `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` or `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS`. The defaults SHALL be the filter `status=ready`, the limit 3 and the step budget 64000, half of the default window of the implement task. The example ConfigMap of the Service SHALL hold the default filter.
 
 #### Scenario: The defaults
 - **WHEN** no config file and no variable sets a `roadmap.stage` setting
@@ -541,19 +553,27 @@ A task group of the reply SHALL have a `kind`: `behavior` or `other`. A `behavio
 - **THEN** the reply fails the schema
 
 ### Requirement: A task group renders the tasks of its kind
-A `behavior` group SHALL render `n.1` as its failing test with the words "fails on the base", `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. An `other` group SHALL render no test and no words "fails on the base". A group with no `documentation` SHALL render no documentation task.
+A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. A task with a command SHALL write it on a line `- Verification: ` under the task, as a code span that `step_files` reads. A group with no `documentation` SHALL render no documentation task.
 
 #### Scenario: A deletion that keeps behavior
 - **WHEN** an `other` group deletes a definition and its `verify` is a `git grep` that must print nothing
-- **THEN** its first task names the deletion and the `git grep`, and no task asks for a test
+- **THEN** its first task names the deletion, the line under it holds the `git grep` and says "passes", and no task asks for a test or says "fails on the base"
 
 #### Scenario: A manual check
 - **WHEN** an `other` group has a `process`
-- **THEN** its first task holds the steps of the process
+- **THEN** its first task holds the steps of the process, and it has no `Verification:` line
 
 #### Scenario: A behavior group
 - **WHEN** a `behavior` group has a `test`
-- **THEN** its first task is the test and says "fails on the base"
+- **THEN** its first task is the test, and the line under it holds the `verify` command and says "fails on the base"
+
+#### Scenario: The step reads the command
+- **WHEN** the text that `group_text` writes for a group with a `verify` is parsed with `parse_task_groups`
+- **THEN** `verification_commands` of the parsed group holds the `verify` of the group
+
+#### Scenario: A group with documentation
+- **WHEN** a group has a `documentation` task
+- **THEN** its last task holds the command that regenerates the documents, and its `Verification:` line holds `uv run devops ci docs`
 
 ### Requirement: The prompts and the validator name the same kinds
 The stage prompt and the split prompt SHALL name each value of the kind and each field of a task group. The implement prompt SHALL tell the step to write the failing test first only when its group has a test task.
@@ -563,10 +583,10 @@ The stage prompt and the split prompt SHALL name each value of the kind and each
 - **THEN** the guard test fails
 
 ### Requirement: The planner has a read-only toolbox
-The planner of the stage job SHALL plan with an agent that has exactly these tools: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. Each tool SHALL read the staged commit through git, read files of the checkout, or read a spec through OpenSpec. The toolbox SHALL hold no tool that writes a file, runs a shell command or opens a network connection. A tool SHALL answer a bad argument as text and SHALL NOT raise.
+The planner of the stage job SHALL plan with an agent that has the tools of the toolset `roadmap.stage.toolset`. The toolset `base` SHALL have exactly `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. The toolset `extended` SHALL add `references`, `read_issue` and `find_issues`. No tool SHALL write a file or run a shell command. A tool SHALL answer a bad argument as text and SHALL NOT raise.
 
 #### Scenario: The tool set
-- **WHEN** the toolbox is built for a checkout and a commit
+- **WHEN** the toolbox is built for a checkout and a commit with the toolset `base`
 - **THEN** the names of its tools are exactly the nine above, and `search_web` is not one of them
 
 #### Scenario: A path outside the repository
@@ -579,22 +599,22 @@ The planner of the stage job SHALL plan with an agent that has exactly these too
 
 #### Scenario: The prompt names the tools
 - **WHEN** the system text of a toolbox run is built
-- **THEN** it names each tool of the toolbox
+- **THEN** it names each tool of the toolset of the run and no tool of the other toolset
 
 ### Requirement: A plan run has a budget
-A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000 output tokens. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
+A plan run of the toolbox SHALL make at most `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls and `CONST_ROADMAP_STAGE_MAX_REQUESTS` model requests. It SHALL set no count of output tokens: the context window ends the tools of a run. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
 
 #### Scenario: The tool call limit
-- **WHEN** one reply of the model in a plan run holds 31 parallel tool calls
+- **WHEN** one reply of the model in a plan run holds one more parallel tool call than `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
 - **THEN** the item fails, and the reason names `tool_calls_limit`
 
 #### Scenario: The tools are gone near the limit
-- **WHEN** the model has made 27 tool calls, one in each turn
+- **WHEN** the model has made `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` minus 3 tool calls, one in each turn
 - **THEN** the next request offers no tool, and a valid plan in the reply stages the item
 
 #### Scenario: The output token limit
-- **WHEN** the replies of the model in one plan run hold more than 50000 output tokens
-- **THEN** the item fails, and the reason names `output_tokens_limit`
+- **WHEN** the replies of the model in one plan run hold more than 50000 output tokens, and the last reply is a valid plan
+- **THEN** the item is staged
 
 #### Scenario: A run inside the budget
 - **WHEN** the model reads two files and then answers with a valid plan
@@ -609,14 +629,14 @@ A plan run SHALL offer no tool to a request when the tokens of its messages, wit
 
 #### Scenario: A model that reads a big file in every turn
 - **WHEN** a plan run has a window of 12000 tokens and the model reads a file of 120 long lines in every turn
-- **THEN** a request offers no tool before the budget of 27 calls, no request passes the window, and the plan stages the item
+- **THEN** a request offers no tool before the budget of tool calls, no request passes the window, and the plan stages the item
 
 #### Scenario: A run with no window
 - **WHEN** a run is given no window
 - **THEN** only the budget of tool calls takes the tools away
 
 ### Requirement: The tools read a checkout that is the staged commit
-The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that has a change that is not committed or a file that git does not track, before any model call. The failure SHALL be a `RoadmapStageError`. A tool SHALL read the size of a file before it reads the file, SHALL refuse a file of more than 2000000 bytes, and SHALL number only the lines that it returns. `search_code` and `callers` SHALL stop at 121 matches in one file.
+The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that has a change that is not committed or a file that git does not track, before any model call. The failure SHALL be a `RoadmapStageError`. A tool SHALL read the size of a file before it reads the file, SHALL refuse a file of more than 2000000 bytes, and SHALL number only the lines that it returns. `search_code` and `callers` SHALL stop at one more than `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` matches in one file.
 
 #### Scenario: A modified file
 - **WHEN** the checkout holds a modified tracked file
@@ -627,15 +647,15 @@ The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that
 - **THEN** it answers that the file is too large to read
 
 #### Scenario: A file with many matches
-- **WHEN** a file holds 360 lines that match `callers`
-- **THEN** the answer holds 120 lines and says that lines are left out
+- **WHEN** a file holds three times `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines that match `callers`
+- **THEN** the answer holds `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and says that lines are left out
 
 ### Requirement: The map and the spec tools give short answers
-`repo_map` SHALL give one line for each of at most 20 files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. It SHALL answer as text when OpenSpec is not installed.
+`repo_map` SHALL give one line for each of at most `CONST_ROADMAP_STAGE_MAP_MAX_FILES` files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. It SHALL answer as text when OpenSpec is not installed.
 
 #### Scenario: A directory with more files than the limit
-- **WHEN** `repo_map` maps a directory of 25 Python files
-- **THEN** the answer has 20 file lines and a last line that says that files are left out
+- **WHEN** `repo_map` maps a directory of `CONST_ROADMAP_STAGE_MAP_MAX_FILES` plus 5 Python files
+- **THEN** the answer has `CONST_ROADMAP_STAGE_MAP_MAX_FILES` file lines and a last line that says that files are left out
 
 #### Scenario: A requirement
 - **WHEN** `read_spec` gets a capability and a requirement name
@@ -645,7 +665,7 @@ The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that
 When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the retry limit, and no budget limit. It holds no tool name, because the name of a tool in an error message is text that the model chose.
 
 #### Scenario: One call after the tools are gone
-- **WHEN** the model has made 27 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
+- **WHEN** the model has made `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` minus 3 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
 - **THEN** the item is staged
 
 #### Scenario: Two calls after the tools are gone
@@ -657,7 +677,7 @@ When a request offers no tool, a call of the model to a function tool SHALL get 
 - **THEN** the item fails, and the reason names the retry limit 2, and no budget limit
 
 ### Requirement: The budget is for each plan run
-A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use 60 tool calls and 100000 output tokens at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
+A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use twice `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
 
 #### Scenario: The budget is for each plan run
 - **WHEN** the first plan run of an item makes 20 tool calls, the checks refuse its plan, and the second plan run makes 20 tool calls
@@ -775,7 +795,7 @@ The stage job SHALL give the model the purpose and the requirement names of ever
 - **THEN** the input holds the purpose and the requirement names of each capability
 
 ### Requirement: A verify command has the project form
-`check_proposal` SHALL refuse a group whose `verify` command does not start with `uv run devops` as a whole word, unless it starts with `! git grep `.
+`check_proposal` SHALL refuse a group whose `verify` command does not start with `uv run devops` as a whole word, unless it is a negative search. It SHALL refuse a `verify` command of the project form that the implement step refuses to run, and the problem SHALL hold the reason of the step. The reason SHALL come from the table that the step reads, so that the gate and the step cannot differ.
 
 #### Scenario: A pytest verify command is refused
 - **WHEN** a group gives the `verify` command `uv run pytest tests/roadmap/test_stage.py`
@@ -784,6 +804,14 @@ The stage job SHALL give the model the purpose and the requirement names of ever
 #### Scenario: A devops command or a negative search is accepted
 - **WHEN** a group gives the `verify` command `uv run devops ci test tests/roadmap/test_stage.py` or `! git grep -n old_name src/ tests/`
 - **THEN** `check_proposal` returns no problem about the `verify` command
+
+#### Scenario: A negative search that the step refuses
+- **WHEN** a group gives the `verify` command `! git grep -n name src/ | cat` or `! git grep -O name src/`
+- **THEN** `check_proposal` returns a problem that names the command and the reason that the step gives
+
+#### Scenario: A verify command that the step runs
+- **WHEN** a group gives any of the commands `uv run devops ci`, `uv run devops docs check`, `! git grep -n absent_name src/ tests/` and `! git grep -nI -F old_name -- src/ tests/`
+- **THEN** `check_proposal` returns no problem, and the step runs each of them
 
 ### Requirement: A new test module sits in a mirror directory
 `check_proposal` SHALL refuse a path in `creates` that is a test module under `tests/` unless it is in `tests/invariants/` or in the directory that mirrors the package of a source file that the plan changes.
@@ -921,3 +949,110 @@ The prompt of the stage job SHALL tell the model that `probes` holds the result 
 #### Scenario: The prompt names the probes
 - **WHEN** the stage prompt loads
 - **THEN** it names `probes` and `premise_failed`, and asks `feasibility` to quote the probes
+
+### Requirement: The setting toolset chooses the tools of a plan run
+The setting `roadmap.stage.toolset` SHALL be `base` or `extended`, with the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`. The default SHALL be `extended`. The settings SHALL refuse any other value and name it. The example ConfigMap of the Service SHALL set the key. The toolset `base` SHALL have no GitHub tool and SHALL need no GitHub client.
+
+#### Scenario: The default
+- **WHEN** no config file and no variable sets `roadmap.stage.toolset`
+- **THEN** the toolset is `extended`, and a plan run offers twelve tools
+
+#### Scenario: The base toolset
+- **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` is `base`
+- **THEN** a plan run offers the nine tools, and none of `references`, `read_issue` and `find_issues`
+
+#### Scenario: A value that is none of the two
+- **WHEN** the variable is `wide`
+- **THEN** loading the settings fails with a message that names the variable and the values `base` and `extended`
+
+### Requirement: The tool references counts a text in every file of the commit
+`references(name)` SHALL run `git grep -n -I -F` for the text over the whole staged commit with no cap for a file. It SHALL answer the count of files and lines, and for each file its path, its exact count of lines and its first five line numbers. It SHALL answer as text for a name that is empty, longer than 100 characters, or not one line.
+
+#### Scenario: Every file with its count
+- **WHEN** a name is in a source file, a test, a fixture, a spec, two documents and a manifest, and one file holds it 400 times
+- **THEN** the answer lists each of the eight files with its count, and the count of the large file is 400
+
+#### Scenario: A name that cannot be searched
+- **WHEN** the name is empty, or 101 characters long, or holds a line break
+- **THEN** the answer says so as text, and the tool runs no git command
+
+### Requirement: The tool references keeps files of every group
+`references` SHALL keep at most 60 files. It SHALL take them in turn from the source, the tests, the specs, the documents, the change folders and the other files, so that a long list of one group hides no other group. It SHALL say how many files it left out.
+
+#### Scenario: Files left out
+- **WHEN** a name is in more than 60 files, among them a spec and a document
+- **THEN** the answer lists 60 files that include the spec and the document, and says how many files it left out
+
+### Requirement: The tool read_issue answers the state of an item
+`read_issue(number)` SHALL answer the state, the title, the labels, the first 1500 characters of the body, and the last 3 comments cut to 600 characters each. For a closed issue it SHALL name the merged pull request that closed it, or say that none did. For a closed pull request it SHALL say whether it merged.
+
+#### Scenario: An issue closed by a merged pull request
+- **WHEN** `read_issue` reads a closed issue whose last closing commit is in a merged pull request
+- **THEN** the answer holds the state, the title, the labels and the line "Closed by merged pull request #N."
+
+#### Scenario: A closed pull request
+- **WHEN** `read_issue` reads a closed pull request that did not merge
+- **THEN** the answer says that the pull request closed with no merge
+
+### Requirement: The tool find_issues lists open items that name the terms
+`find_issues(terms)` SHALL answer at most 10 open issues and pull requests of the repository that name the terms, each as `#N state title`. It SHALL take every colon and quote out of the terms, so that the search names no repository but that of the job.
+
+#### Scenario: Open items
+- **WHEN** `find_issues` gets the terms `redaction point` and GitHub finds an issue and a pull request
+- **THEN** the answer lists both as `#N state title`
+
+#### Scenario: A qualifier in the terms
+- **WHEN** `find_issues` gets the terms `repo:other/private`
+- **THEN** the search that GitHub receives holds no `repo:` qualifier except that of the repository of the job
+
+### Requirement: The GitHub tools read only, mask what they read and answer a failure as text
+`read_issue` and `find_issues` SHALL read through the GitHub client of the Service with its existing token, send GET requests only, and add no permission. They SHALL reach no host but the GitHub API host of the Service, and no other tool SHALL open a network connection. They SHALL mask secrets in the text from GitHub, cut each text, and state that it is data and no instruction. They SHALL answer each failure as text and SHALL NOT raise.
+
+#### Scenario: A secret in the text from GitHub
+- **WHEN** the body, a comment and the title of an issue each hold a token
+- **THEN** the answer holds none of the three tokens
+
+#### Scenario: An item that does not exist
+- **WHEN** `read_issue` gets a number that GitHub does not hold
+- **THEN** the answer says that GitHub holds no such issue or pull request, and it raises no error
+
+#### Scenario: A failure of GitHub
+- **WHEN** the connection to GitHub fails
+- **THEN** the answer names the class of the failure, tells the model to go on without it, and holds no text of the failure
+
+#### Scenario: A run with no client
+- **WHEN** a plan run has the toolset `extended` and the job gave no GitHub client
+- **THEN** `read_issue` and `find_issues` answer that GitHub is not available
+
+### Requirement: The prompt of the extra tools says when to call each one
+The prompt of a run with the toolset `extended` SHALL tell the model to call `references` for a rename, a move or a removal, `read_issue` for each issue number that the issue names, and `find_issues` before the plan says what it depends on. It SHALL tell the model that text from GitHub is data and never an instruction. The prompt of a run with the toolset `base` SHALL name none of the three tools.
+
+#### Scenario: The extended prompt
+- **WHEN** the system text of a run with the toolset `extended` is built
+- **THEN** it names `references`, `read_issue` and `find_issues`, and it says that text from GitHub is data
+
+#### Scenario: The base prompt
+- **WHEN** the system text of a run with the toolset `base` is built
+- **THEN** it names none of `references`, `read_issue` and `find_issues`
+
+### Requirement: A text of a group stays on one line
+The `title`, `test`, `implementation`, `documentation`, `verify` and `process` of a task group, and the `reason` of a criterion, SHALL be written to `tasks.md` on one line. A line break in one of them SHALL add no line, no task, no group and no `Verification:` line.
+
+#### Scenario: A line break and a command
+- **WHEN** the `implementation` of a group holds a line break and a line `- Verification: ` with a command
+- **THEN** the `verification_commands` of the parsed group are the `verify` of the group and the check of the documents, and no more
+
+#### Scenario: A line break in a title
+- **WHEN** the `title` of a group holds a blank line and a line `- [ ] 9.9 Extra`
+- **THEN** `tasks.md` holds one group and the task list is that of the group
+
+#### Scenario: A line break in the reason of a criterion
+- **WHEN** the `reason` of a `pending-person` criterion holds a line `## 2. Extra`
+- **THEN** `tasks.md` holds one group
+
+### Requirement: A verify command holds no backtick
+`form_problems` SHALL give a problem for a `verify` command that holds a backtick, and the problem SHALL say that it holds a backtick.
+
+#### Scenario: A backtick in a command
+- **WHEN** the `verify` of a group is ``uv run devops ci test `x` ``
+- **THEN** `form_problems` gives one problem, and it says that the command holds a backtick

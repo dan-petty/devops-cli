@@ -23,6 +23,11 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config import settings
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+)
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.openspec.tool import isolated_openspec
@@ -41,7 +46,8 @@ from devops_cli.roadmap.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
-from tests.support.builders import make_stage_proposal
+from tests.support.builders import make_stage_proposal, stage_summary_limit
+from tests.support.fakes.github import github_json
 from tests.support.roadmap_stage import (
     NO_FILES,
     STAGE_REPO,
@@ -60,6 +66,7 @@ if TYPE_CHECKING:
 
     from devops_cli.ai.client.unified import LLMClient
     from devops_cli.roadmap.stage import StageClient
+    from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake, ModelFakeReplies
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -296,14 +303,15 @@ def test_a_large_file_counts_at_most_the_file_cap_of_the_step(
 ) -> None:
     heavy = heavy_group(stage_repo, files=1)
     big = stage_repo.clone / heavy.reads[0]
-    assert count_tokens(big.read_text(encoding="utf-8")) > 6000
+    budget = CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS + 4000
+    assert count_tokens(big.read_text(encoding="utf-8")) > budget
     model_fake.answer(make_stage_proposal(groups=[heavy]))
 
-    plan = _plan(store, stage_repo, step_tokens=6000)
+    plan = _plan(store, stage_repo, step_tokens=budget)
 
     assert (plan.over_budget, model_fake.call_count) == ((), 1)
     (group,) = plan.ready[0].groups
-    assert group.tokens <= 6000
+    assert group.tokens <= budget
 
 
 @pytest.mark.usefixtures("openspec")
@@ -502,13 +510,10 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
     assert ".." not in tasks
     assert ".," not in tasks
     assert [line for line in tasks.splitlines() if line.startswith("- [ ] 1.")] == [
-        "- [ ] 1.1 Write the test, and verify that `uv run devops ci test tests/test_sample.py` "
-        "fails on the base",
-        "- [ ] 1.2 Keep the last comment, and verify that "
-        "`uv run devops ci test tests/test_sample.py` passes",
-        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, run "
-        "`uv run devops docs generate --sync-readme`, and "
-        "verify that `uv run devops ci docs` passes",
+        "- [ ] 1.1 Write the test",
+        "- [ ] 1.2 Keep the last comment",
+        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, and run "
+        "`uv run devops docs generate --sync-readme`",
     ]
 
 
@@ -635,6 +640,44 @@ def test_a_reply_with_a_blank_documentation_that_stays_blank_stops_the_item_afte
     assert (failure.number, failure.error) == (item, "StructuredOutputValidationError")
     assert failure.reason == "1 schema violation(s)"
     assert len(model_fake.sent) == 2
+
+
+def _reply_with_summary(summary: str) -> str:
+    """A reply as the model writes it: JSON, with the sample summary replaced."""
+    return json.dumps(make_stage_proposal().model_dump() | {"summary": summary})
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_summary_over_the_limit_goes_back_to_the_model_with_both_counts(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    limit = stage_summary_limit()
+    model_fake.answer(_reply_with_summary("a" * (limit + 1)), make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    sent = model_fake.sent[1].messages[-1].content
+    assert f"{limit + 1} characters in the title, and the limit is {limit}" in sent
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_summary_over_the_limit_twice_stops_that_item_and_the_run_goes_on(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    second = seed_stageable(store, "fix(roadmap): the job drops a label")
+    openspec.script_sequence(validate_args("2-the-job-drops-a-label"), VALID)
+    too_long = _reply_with_summary("a" * (stage_summary_limit() + 1))
+    model_fake.answer(too_long, too_long, make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert [(f.number, f.error) for f in plan.failed] == [(item, "StructuredOutputValidationError")]
+    assert [c.target.item.number for c in plan.ready] == [second]
 
 
 @pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
@@ -982,6 +1025,48 @@ def test_the_toolbox_planner_reads_a_file_and_then_gives_its_plan(
 
 
 @pytest.mark.usefixtures("model_fake")
+def test_the_toolbox_planner_reads_an_issue_of_the_repository_on_github(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    openspec: OpenSpecFake,
+    github_api: GitHubApiFake,
+) -> None:
+    github_api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/issues/3207",
+        github_json(
+            {"number": 3207, "title": "feat: park #3060", "state": "open", "body": "Parks."}
+        ),
+    )
+    script = Script(call("read_issue", number=3207), make_stage_proposal())
+
+    plan = _toolbox_plan(store, stage_repo, script)
+
+    assert (len(plan.ready), script.tool_returns()[0].splitlines()[1]) == (
+        1,
+        "#3207 issue, open: feat: park #3060",
+    )
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_base_toolset_gives_the_planner_no_github_tool(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    openspec: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "base")
+    settings.reset_settings_cache()
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+
+    _toolbox_plan(store, stage_repo, script)
+
+    assert not {"read_issue", "find_issues", "references"} & set(script.tools_offered[0])
+
+
+@pytest.mark.usefixtures("model_fake")
 def test_a_toolbox_plan_with_a_missing_path_goes_back_to_the_model_once(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
 ) -> None:
@@ -1026,7 +1111,7 @@ def test_a_plan_run_that_spends_its_budget_fails_its_item_and_the_others_are_pla
         assert isinstance(first, ModelRequest)
         text = next(str(p.content) for p in first.parts if isinstance(p, UserPromptPart))
         if json.loads(text)["number"] == item:
-            return ModelResponse(parts=[read] * 31)
+            return ModelResponse(parts=[read] * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1))
         return make_stage_proposal()
 
     plan = _toolbox_plan(store, stage_repo, Script(reply))

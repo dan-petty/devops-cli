@@ -1,11 +1,13 @@
 """The planner client that calls the read-only tools (#3037).
 
 `ToolboxClient` implements `StageClient`, so the planner, the gates and the golden-set run keep
-their code. A call for a `StageProposal` is one agent run with the nine tools of `StageTools`. A
+their code. A call for a `StageProposal` is one agent run with the tools of `StageTools`: the nine of
+the toolset `base`, and with `extended`, the setting `roadmap.stage.toolset`, three more (#3238). A
 call for another schema goes to the inner client, with no tool. Each run has a new budget of tool
-calls and output tokens, and keeps a `RunTrace` of what it did. A run that ends with no plan raises
-`RoadmapStageError` and names the limit it hit, or `StructuredOutputValidationError` when the
-model broke the schema of its reply past its retries.
+calls and requests, ends its tools when the messages fill the context window (#3037), and keeps a
+`RunTrace` of what it did. The output tokens have no count of their own (#3206). A run that ends
+with no plan raises `RoadmapStageError` and names the limit it hit, or
+`StructuredOutputValidationError` when the model broke the schema of its reply past its retries.
 """
 
 from __future__ import annotations
@@ -20,22 +22,25 @@ from pydantic_ai.usage import UsageLimits
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_ROADMAP_STAGE_MAX_OUTPUT_TOKENS,
     CONST_ROADMAP_STAGE_MAX_REQUESTS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
+from devops_cli.config.defaults import StageToolset
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.refine_investigation import InvestigationStopped, investigate
 from devops_cli.roadmap.stage_change import StageProposal
+from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_tools import StageTools
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage import StageClient
 
 _TOOLS_TASK = "roadmap_stage_tools.md"
+_EXTENDED_TOOLS_TASK = "roadmap_stage_tools_extended.md"
 
 
 @dataclass(frozen=True)
@@ -52,7 +57,10 @@ class ToolboxClient:
     `model` is the pydantic-ai model of the run, and `inner` answers every call that is not for a
     plan. `traces` holds one `RunTrace` for each plan run, in order; the caller clears it. With a
     `window`, the context window of the model in tokens, a request that would leave too little of
-    it for the plan offers no tool. `openspec` reads the specs for `read_spec`.
+    it for the plan offers no tool. `openspec` reads the specs for `read_spec`. `toolset` is
+    `base` or `extended`; without it the setting `roadmap.stage.toolset` decides. `github` serves
+    `read_issue` and `find_issues` of `extended`; the Service passes it, and a run without it
+    answers that GitHub is not available.
 
     Raises `RoadmapStageError` when the checkout is not the commit `sha` with no change, because
     three tools read its files and the others read the commit.
@@ -67,10 +75,18 @@ class ToolboxClient:
         *,
         window: int | None = None,
         openspec: OpenSpecTool | None = None,
+        toolset: StageToolset | None = None,
+        github: StageGitHub | None = None,
     ) -> None:
         self._model = model
         self._inner = inner
-        self._tools = StageTools(source=source, sha=sha, openspec=openspec)
+        chosen = toolset or load_settings().roadmap.stage.toolset
+        self._tools = StageTools(
+            source=source, sha=sha, openspec=openspec, toolset=chosen, github=github
+        )
+        self._instructions = load_task_prompt(_TOOLS_TASK)
+        if chosen == "extended":
+            self._instructions += f"\n\n{load_task_prompt(_EXTENDED_TOOLS_TASK)}"
         self._window = window
         self.traces: list[RunTrace] = []
         problem = self._tools.checkout_problem()
@@ -88,14 +104,13 @@ class ToolboxClient:
         self.traces.append(trace)
         result = investigate(
             self._model,
-            f"{system}\n\n{load_task_prompt(_TOOLS_TASK)}",
+            f"{system}\n\n{self._instructions}",
             prompt,
             self._tools,
             schema,
             limits=UsageLimits(
                 request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
                 tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
-                output_tokens_limit=CONST_ROADMAP_STAGE_MAX_OUTPUT_TOKENS,
             ),
             output_retries=max_retries,
             trace=trace,

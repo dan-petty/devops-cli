@@ -66,23 +66,22 @@ from devops_cli.config.commands import (
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
-    CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
-    CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
+    CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE,
     CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REASON_TESTS,
-    CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+    CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
@@ -104,9 +103,9 @@ from devops_cli.roadmap.agent_run import (
 from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_policy import (
-    IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
     fill_prompt,
+    read_verification,
 )
 from devops_cli.roadmap.implement_shell_refusal import (
     argument_refusal_hooks,
@@ -406,6 +405,18 @@ def _tune(
     return capability
 
 
+def output_cap(window: int) -> int:
+    """The output cap of one model reply of a step, in tokens: a share of the context `window` of
+    the task (`CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE`)."""
+    return window // CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE
+
+
+def request_timeout_seconds() -> float:
+    """The deadline of one model call of a step, in seconds: the setting
+    `roadmap.implement.request_timeout_seconds`."""
+    return load_settings().roadmap.implement.request_timeout_seconds
+
+
 def build_agent(
     model: Any, source: Path, instructions: str, window: int, home: Path, log: ToolCallLog
 ) -> Agent[None, str]:
@@ -413,8 +424,8 @@ def build_agent(
     scratch `home`, the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
     tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
     and it loads no instruction file of the checkout, so its context is the inputs of the step. Each
-    model call has an output cap and a deadline (#2869). The shell is no security boundary: the
-    runner of the step is the sandbox."""
+    model call has an output cap, a share of `window`, and a deadline (#2869). The shell is no
+    security boundary: the runner of the step is the sandbox."""
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
@@ -427,8 +438,8 @@ def build_agent(
         output_type=str,
         retries={"tools": CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES},
         model_settings=ModelSettings(
-            max_tokens=CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS,
-            request_timeout=CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+            max_tokens=output_cap(window),
+            request_timeout=request_timeout_seconds(),
         ),
         capabilities=[
             LocalWorkspace(source),
@@ -436,7 +447,7 @@ def build_agent(
             shell_refusal_hooks(),
             log.hooks(),
             argument_refusal_hooks(),
-            output_cap_hooks(CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS),
+            output_cap_hooks(output_cap(window)),
         ],
     )
 
@@ -667,7 +678,7 @@ def _git(source: Path, *args: str) -> subprocess.CompletedProcess[str]:
         [BIN_GIT, *args],
         cwd=source,
         quiet=True,
-        timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+        timeout=load_settings().roadmap.implement.command_timeout_seconds,
     )
 
 
@@ -783,43 +794,46 @@ def _unticked_failure(inputs: StepInputs) -> str | None:
     return MESSAGES.roadmap.implement_stop_unticked.format(task=unticked[0].text)
 
 
-def _command_failure(source: Path, argv: Sequence[str], shown: str) -> str | None:
-    """Run `argv` in the checkout. None when it exits 0, else why the step stops."""
+def _command_failure(
+    source: Path, argv: Sequence[str], shown: str, *, negative: bool = False
+) -> str | None:
+    """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
+    search passes on exit 1 (git found no match), and a match (exit 0) is why it stops."""
+    limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
-        done = run_subprocess(
-            list(argv),
-            cwd=source,
-            quiet=True,
-            timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
-        )
+        done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
     except subprocess.TimeoutExpired:
-        return MESSAGES.roadmap.implement_stop_command_timeout.format(
-            command=shown, seconds=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS
-        )
-    if done.returncode == 0:
+        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=shown, seconds=limit)
+    if done.returncode == (1 if negative else 0):
         return None
+    if negative and done.returncode == 0:
+        return MESSAGES.roadmap.implement_stop_search_found.format(
+            command=shown, output=_tail(done)
+        )
     return MESSAGES.roadmap.implement_stop_command_failed.format(
         command=shown, status=done.returncode, output=_tail(done)
     )
 
 
+def _command_shown(command: str) -> str:
+    """`command` for a stop reason, cut to `CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS` characters."""
+    limit = CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+    return command if len(command) <= limit else f"{command[:limit]}..."
+
+
 def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
     """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
-    that did not stops the run. A command whose program is not on the allowlist does not run. The
-    step runs the verification commands of a group, from the tasks as they were before the run."""
-    texts = MESSAGES.roadmap
+    that did not stops the run. A command whose program is not on the allowlist does not run. A
+    command that starts with `!` runs only as the negative search of `read_negative_search`,
+    and passes when it finds nothing (#3263). The step runs the verification commands of a group,
+    from the tasks as they were before the run."""
     for command in commands:
-        try:
-            argv = shlex.split(command)
-        except ValueError:
-            return texts.implement_stop_command_unparsed.format(command=command)
-        if not argv or argv[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
-            return texts.implement_stop_command_denied.format(
-                command=command,
-                program=argv[0] if argv else "",
-                allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS),
+        found = read_verification(command)
+        if isinstance(found, str):
+            return MESSAGES.roadmap.implement_stop_command_refused.format(
+                command=_command_shown(command), reason=found
             )
-        failure = _command_failure(source, argv, command)
+        failure = _command_failure(source, found.argv, command, negative=found.negative)
         if failure is not None:
             return failure
     return None

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import fnmatch
 import functools
 import os
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,10 +17,8 @@ import yaml
 from packaging.version import Version
 
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
-from devops_cli.config.constants import (
-    CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
-    CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
-)
+from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS
 from devops_cli.config.env import keyring_names, option_env_vars
 from devops_cli.k8s.argocd_overrides import host_patches
 from devops_cli.k8s.cluster_secrets import (
@@ -56,13 +56,13 @@ TRAEFIK_FIRST_CHART_WITH_V3_7_16 = Version("42.1.1")
 
 
 def test_the_deadline_of_a_step_call_is_under_the_router_timeout() -> None:
-    """A call of an implement step ends at its own deadline, so a runaway call is gone long before
+    """A call of an implement step ends at its default deadline, so a runaway call is gone long before
     the router gives up on it, and it does not hold the one slot of the tier until then (#2869)."""
     config = yaml.safe_load((REPO_ROOT / "k8s/llm/gateway/config.yaml").read_text(encoding="utf-8"))
 
     timeout = config["router_settings"]["timeout"]
 
-    assert 0 < CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS < timeout
+    assert 0 < DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS < timeout
 
 
 def test_the_gateway_keeps_a_streamed_chat_reply_open_under_the_edge_timeout() -> None:
@@ -971,18 +971,24 @@ def test_readme_lists_the_table() -> None:
     assert [row for row in rows if row not in readme] == []
 
 
-def _hosts(rendered: str) -> list[str]:
+def _document_hosts(documents: Iterator[dict[str, Any] | None]) -> list[str]:
     hosts = []
-    for doc in yaml.safe_load_all(rendered):
-        if doc and doc.get("kind") == "Ingress":
+    for doc in documents:
+        if not isinstance(doc, dict):
+            continue
+        if doc.get("kind") == "Ingress":
             hosts += [rule["host"] for rule in doc["spec"]["rules"] if "host" in rule]
-        if doc and doc.get("kind") == "IngressRoute":
+        if doc.get("kind") == "IngressRoute":
             hosts += [route["match"] for route in doc["spec"]["routes"]]
-        if doc and doc.get("kind") == "Mattermost":
+        if doc.get("kind") == "Mattermost":
             ingress = doc.get("spec", {}).get("ingress", {})
             if host := ingress.get("host"):
                 hosts.append(host)
     return hosts
+
+
+def _hosts(rendered: str) -> list[str]:
+    return _document_hosts(yaml.safe_load_all(rendered))
 
 
 def _overlay(tmp_path: Path, source: Path, patches: list[dict]) -> Path:
@@ -1009,3 +1015,28 @@ def test_kustomize_applies_the_overrides_to_every_host_the_application_renders(
         [h for h in hosts if "example.com" in h],
         all("example.org" in h for h in hosts),
     ) == (0, True, [], True)
+
+
+def test_the_tunnel_section_of_the_k8s_readme_names_only_hosts_that_a_manifest_serves() -> None:
+    readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
+    start = "## Cloudflare Wildcard Tunnel & Ingress Routing"
+    end = "### 4. The Kubernetes API at `k8s.<domain>`"
+    assert start in readme, f"Heading {start!r} is missing from k8s/README.md"
+    assert end in readme, f"Heading {end!r} is missing from k8s/README.md"
+
+    section = readme.split(start, 1)[1].split(end, 1)[0]
+    names = set(re.findall(r"[\w*.-]+\.<domain>", section))
+    for match in re.finditer(r"\*\*Subdomain\*\*:\s*`([^`]+)`", section):
+        names.add(f"{match.group(1)}.<domain>")
+
+    served = {
+        host.replace("example.com", "<domain>")
+        for host in _document_hosts(document for _, document in yaml_documents(K8S_DIR))
+    }
+    assert names, "No host names found in tunnel section"
+    assert served, "No served hosts found in Kubernetes manifests"
+
+    unmatched = sorted(
+        name for name in names if not any(fnmatch.fnmatchcase(host, name) for host in served)
+    )
+    assert unmatched == []

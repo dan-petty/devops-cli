@@ -1,5 +1,5 @@
-"""The settings `roadmap.stage.filter`, `limit` and `step_tokens`, and the options that replace
-them for one run (#2659)."""
+"""The settings `roadmap.stage.filter`, `limit`, `step_tokens` and `toolset`, and the options that
+replace the first three for one run (#2659, #3238)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.config import settings
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
@@ -40,7 +41,7 @@ def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path.write_text("", encoding="utf-8")
     monkeypatch.setattr(settings, "CONFIG_PATH", path)
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
-    for name in ("FILTER", "LIMIT", "STEP_TOKENS"):
+    for name in ("FILTER", "LIMIT", "STEP_TOKENS", "TOOLSET"):
         monkeypatch.delenv(f"DEVOPS_CLI_ROADMAP_STAGE_{name}", raising=False)
     settings.reset_settings_cache()
     return path
@@ -51,10 +52,10 @@ def _stage_settings() -> tuple[list[str], int, int]:
     return loaded.filter, loaded.limit, loaded.step_tokens
 
 
-def test_the_defaults_are_every_ready_item_three_items_and_forty_thousand_tokens(
+def test_the_defaults_are_every_ready_item_three_items_and_half_the_implement_window(
     config_file: Path,
 ) -> None:
-    assert _stage_settings() == (DEFAULT_FILTER, 3, 40000)
+    assert _stage_settings() == (DEFAULT_FILTER, 3, 64000)
 
 
 def test_a_config_file_and_a_variable_set_the_limit_and_the_filter(
@@ -63,7 +64,11 @@ def test_a_config_file_and_a_variable_set_the_limit_and_the_filter(
     config_file.write_text("roadmap:\n  stage:\n    limit: 1\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
 
-    assert _stage_settings() == (["status=ready", "type=feature"], 1, 40000)
+    assert _stage_settings() == (
+        ["status=ready", "type=feature"],
+        1,
+        DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+    )
 
 
 def test_a_config_file_sets_the_filter_as_a_list(config_file: Path) -> None:
@@ -72,7 +77,11 @@ def test_a_config_file_sets_the_filter_as_a_list(config_file: Path) -> None:
         encoding="utf-8",
     )
 
-    assert _stage_settings() == (["status=ready", "effort=small"], 3, 40000)
+    assert _stage_settings() == (
+        ["status=ready", "effort=small"],
+        3,
+        DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+    )
 
 
 @pytest.mark.parametrize("entry", ["color=red", "ready", "type=", "=bug"])
@@ -92,6 +101,32 @@ def test_a_filter_with_no_entry_is_refused(config_file: Path) -> None:
 
     with pytest.raises(ValidationError, match="too_short"):
         settings.load_settings()
+
+
+def test_the_toolset_is_extended_by_default(config_file: Path) -> None:
+    assert settings.load_settings().roadmap.stage.toolset == "extended"
+
+
+def test_a_config_file_and_a_variable_set_the_toolset(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file.write_text("roadmap:\n  stage:\n    toolset: base\n", encoding="utf-8")
+    from_file = settings.load_settings().roadmap.stage.toolset
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "extended")
+    settings.reset_settings_cache()
+
+    assert (from_file, settings.load_settings().roadmap.stage.toolset) == ("base", "extended")
+
+
+def test_a_toolset_that_is_none_of_the_two_is_refused_naming_it(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "wide")
+
+    with pytest.raises(ConfigurationError, match="DEVOPS_CLI_ROADMAP_STAGE_TOOLSET") as refused:
+        settings.load_settings()
+
+    assert "'base' or 'extended'" in str(refused.value)
 
 
 # ── The command ─────────────────────────────────────────────────────────────────────────────

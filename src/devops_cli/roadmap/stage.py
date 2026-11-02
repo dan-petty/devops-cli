@@ -26,7 +26,8 @@ Ready.
 **Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
 before it answers (`ai.for_task("analysis")`, prompt `roadmap_stage_change.md`, and the read-only
 tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
-of tool calls and output tokens (`stage_toolbox`); a run that passes it fails the item. Without a
+of tool calls and requests (`stage_toolbox`), and its tools end when its messages fill the context
+window; a run that passes the budget fails the item. Without a
 `ToolboxModel` the planner makes the one call with no tool, as the tests and the option
 `--no-toolbox` of the golden-set run do. The job measures each task group
 (`stage_change.measure_groups`) and asks once for a split of the groups over `--step-tokens`. A group costs what its step reads: the
@@ -113,6 +114,7 @@ from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
+from devops_cli.roadmap.refine_investigation import analysis_window
 from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
@@ -129,6 +131,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
@@ -490,7 +493,6 @@ _SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 # The model window is shared by the reply, the body of the item and the repository context.
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
-_DEFAULT_WINDOW: Final[int] = 8192
 # A reply that fails its schema goes back to the model once, with the violations; a second one
 # stops the item.
 _REPLY_RETURNS: Final[int] = 1
@@ -1051,7 +1053,14 @@ def plan_stage(
         client = model
     with openspec_tool() as tool:
         planner = _planner_of(
-            client, checkout, sha, budget=budget, tool=tool, toolbox=toolbox, verifier=verifier
+            client,
+            checkout,
+            sha,
+            budget=budget,
+            tool=tool,
+            toolbox=toolbox,
+            verifier=verifier,
+            repo=repo,
         )
         ready, stopped, returned, failed = _plan_each(planner, selection.selected)
     return replace(
@@ -1063,11 +1072,6 @@ def plan_stage(
     )
 
 
-def analysis_window() -> int:
-    """The context window of the `analysis` task in tokens, or a default when no setting names it."""
-    return load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
-
-
 def _planner_of(
     client: StageClient,
     checkout: Path,
@@ -1077,16 +1081,27 @@ def _planner_of(
     tool: OpenSpecTool | None,
     toolbox: ToolboxModel | None = None,
     verifier: StageClient | None = None,
+    repo: str | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `analysis` task once. With a `toolbox` model, a plan run calls the
-    read-only tools on the checkout, and `client` answers the other calls. A `verifier` makes the
-    model review of each plan (#3153)."""
+    read-only tools on the checkout, and `client` answers the other calls. The toolset
+    `roadmap.stage.toolset` chooses the tools; with `repo`, `read_issue` and `find_issues` of the
+    toolset `extended` read that repository on GitHub with the client of the session (#3238). A
+    `verifier` makes the model review of each plan (#3153)."""
     window = analysis_window()
     runner = (
         None
         if toolbox is None
-        else ToolboxClient(toolbox.model, client, checkout, sha, window=window, openspec=tool)
+        else ToolboxClient(
+            toolbox.model,
+            client,
+            checkout,
+            sha,
+            window=window,
+            openspec=tool,
+            github=None if repo is None else StageGitHub(repo),
+        )
     )
     return _Planner(
         client=runner or client,

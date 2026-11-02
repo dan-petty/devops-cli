@@ -434,7 +434,7 @@ def test_a_verification_command_that_is_no_command_line_does_not_run(
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        "The verification command uv run 'devops is not a valid command line.",
+        "The verification command uv run 'devops is refused: it is not a valid command line.",
     )
 
 
@@ -450,7 +450,7 @@ def test_a_verification_command_outside_the_allowlist_does_not_run(
 
     assert (outcome.status, outcome.reason, programs_run(programs, "curl")) == (
         StepStatus.STOPPED,
-        "The verification command curl http://example.com is not allowed. curl is not one of: "
+        "The verification command curl http://example.com is refused: `curl` is not one of: "
         + ", ".join(IMPLEMENT_ALLOWED_PROGRAMS)
         + ".",
         [],
@@ -1291,7 +1291,8 @@ REQUEST_LIMIT_REASON = (
 )
 TOOL_CALL_LIMIT_REASON = (
     "UsageLimitExceeded: The next tool call(s) would exceed the tool_calls_limit of "
-    f"{CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS} (tool_calls=244). {LIMIT_ADVICE}"
+    f"{CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS} "
+    f"(tool_calls={CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS + 4}). {LIMIT_ADVICE}"
 )
 RETRY_LIMIT_MESSAGE = (
     "Tool 'shell' exceeded max retries count of 5. Consider raising the retry limit, or see the "
