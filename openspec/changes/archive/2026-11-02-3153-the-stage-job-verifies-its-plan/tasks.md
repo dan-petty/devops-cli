@@ -16,7 +16,7 @@
 
 ## 3. The eval command
 
-- [x] 3.1 Write failing tests in `tests/roadmap/test_roadmap_stage_verify_eval.py` for the scenarios of "The verify command scores the verification pass", "The verify command fails on a failed call and has a dry run" and "The group lists the verify command"
+- [x] 3.1 Write failing tests in `tests/roadmap/test_roadmap_stage_verify_eval.py` for the scenarios of "The verify command scores the verification pass", "A finding matches one labeled defect of its type", "The verify command fails on a failed call and has a dry run" and "The group lists the verify command"
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_verify_eval.py`
 - [x] 3.2 Write `src/devops_cli/roadmap/stage_verify_eval.py` and `src/devops_cli/commands/roadmap_eval_verify.py`, register `verify` in `roadmap_eval.py`, and add the help and the messages of the command
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_verify_eval.py tests/roadmap/test_roadmap_stage_eval_command.py`
