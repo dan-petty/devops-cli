@@ -316,6 +316,12 @@ router_settings:
     # No devops-chat rule: fallbacks chain, so devops-coder and devops-reasoning failures
     # would reach the background tier through devops-chat.
     - devops-review: [devops-background]
+    # A hosted group falls back to a hosted group only (#3152). A call to claude-sonnet-5-5 that
+    # fails (an Anthropic error, a rate limit, a spend limit) goes to deepseek-v4.1-flash-1017: in
+    # the review of 12 golden plans it found 38% of the known defects against 56% for Sonnet, and
+    # the Flash Lite, Gemma and older Gemini models found 7 to 25%, so they are no fallback. The
+    # prompt then goes to the OpenRouter provider and not to Anthropic.
+    - claude-sonnet-5-5: [deepseek-v4.1-flash-1017]
     # Fallback chain: devops-review -> devops-background -> qwen3.8:27b means background and
     # review work can reach the interactive tiers when the background tier fails. devops-triage
     # falls back to qwen3.8:27b if the standard tier deployment is unavailable.

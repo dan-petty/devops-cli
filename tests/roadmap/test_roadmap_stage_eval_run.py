@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
 
 from devops_cli.ai.client.models import (
     AIClientError,
@@ -25,6 +26,7 @@ from devops_cli.roadmap.stage_eval_cases import (
     StageCase,
     load_cases,
 )
+from devops_cli.roadmap.stage_eval_gates import PENDING_GATES
 from devops_cli.roadmap.stage_eval_run import (
     CaseRun,
     Outcome,
@@ -38,6 +40,7 @@ from devops_cli.roadmap.stage_eval_score import score_runs
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage import StageClient
@@ -106,6 +109,64 @@ def test_a_reply_with_a_missing_path_is_caught_and_the_second_reply_is_staged(
     assert "`tests/test_missing.py`" in run.first[GateName.PATHS][0]
 
 
+def test_a_case_with_a_toolbox_model_plans_with_the_tools_and_the_first_plan_is_judged(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    """The model reads a file, gives a plan with a missing path, and gives a good plan after the
+    return. The recorder counts the two plan runs and keeps the first plan, which the gates judge."""
+    case = _live_case(cases, stage_repo)
+    stage_repo.track({"tests/security/test_sample.py": ""})
+    script = Script(
+        call("read_file", path="src/devops_cli/sample.py"),
+        _naming("tests/test_missing.py"),
+        make_stage_proposal(),
+    )
+
+    run = run_case(case, _client(model_fake), stage_repo.clone, toolbox=script.model())
+
+    read_back = [
+        str(part.content)
+        for message in script.seen[1]
+        for part in getattr(message, "parts", ())
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert (run.outcome, run.calls, read_back[0].splitlines()[0]) == (
+        Outcome.STAGED,
+        2,
+        "1: def keep(comments):",
+    )
+    assert run.first is not None
+    assert "`tests/test_missing.py`" in run.first[GateName.PATHS][0]
+    assert model_fake.call_count == 0
+
+
+def test_a_plan_run_that_spends_its_budget_ends_the_case_refused_with_the_limit(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    read = ToolCallPart("read_file", {"path": "src/devops_cli/sample.py"})
+    script = Script(ModelResponse(parts=[read] * 31))
+
+    run = run_case(case, _client(model_fake), stage_repo.clone, toolbox=script.model())
+
+    assert (run.outcome, run.first, "tool_calls_limit" in run.reason) == (
+        Outcome.REFUSED,
+        None,
+        True,
+    )
+
+
+def test_a_reply_that_says_the_premise_is_false_ends_the_case_returned(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    model_fake.answer(StageProposal.model_validate({"premise_failed": "The premise is false."}))
+
+    run = run_case(case, _client(model_fake), stage_repo.clone)
+
+    assert (run.outcome, run.calls) == (Outcome.RETURNED, 1)
+
+
 def test_a_first_reply_that_passes_has_no_problem(
     cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
 ) -> None:
@@ -117,7 +178,7 @@ def test_a_first_reply_that_passes_has_no_problem(
     assert (run.outcome, run.calls, run.first) == (
         Outcome.STAGED,
         1,
-        {GateName.PATHS: [], GateName.KIND: []},
+        {GateName.PATHS: [], GateName.KIND: [], GateName.CRITERIA: []},
     )
 
 
@@ -266,21 +327,26 @@ def test_the_score_counts_avoided_and_caught_defects_for_each_type_that_a_gate_c
         Outcome.STAGED: 3,
         Outcome.REFUSED: 0,
         Outcome.OVER_BUDGET: 0,
+        Outcome.RETURNED: 0,
         Outcome.FAILED: 1,
     }
 
 
-def test_a_type_with_no_gate_has_a_count_and_no_rate(cases: list[StageCase]) -> None:
+def test_a_type_with_no_gate_has_a_count_and_no_rate(
+    cases: list[StageCase], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No type waits for a gate now (#3208), so the test plans a gate for one type."""
+    monkeypatch.setitem(PENDING_GATES, DefectType.IGNORES_EXISTING_CODE, "#9999")
     score = score_runs("model-x", cases, [])
 
     rows = {row.type: row for row in score.rows}
 
-    assert rows[DefectType.FALSE_PREMISE].gate is GateName.PENDING
+    pending = rows[DefectType.IGNORES_EXISTING_CODE]
+    assert pending.gate is GateName.PENDING
+    assert pending.cases > 0
+    assert (pending.avoided, pending.rate) == (None, None)
+    assert rows[DefectType.FALSE_PREMISE].gate is GateName.NONE
     assert rows[DefectType.FALSE_PREMISE].cases > 0
-    assert (rows[DefectType.FALSE_PREMISE].avoided, rows[DefectType.FALSE_PREMISE].rate) == (
-        None,
-        None,
-    )
     assert rows[DefectType.OTHER].gate is GateName.NONE
 
 

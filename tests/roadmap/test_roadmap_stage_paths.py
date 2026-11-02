@@ -99,6 +99,39 @@ def test_a_path_that_a_later_group_creates_is_missing_in_the_earlier_group() -> 
     assert "group 1" in problem
 
 
+def test_a_forward_read_names_the_group_that_creates_the_path_and_says_to_move_it() -> None:
+    first = _group(reads=["tests/test_new.py"])
+    between = _group()
+    last = _group(changes=["tests/test_new.py"], creates=["tests/test_new.py"], reads=[])
+
+    (problem,) = _problems(first, between, last)
+
+    assert "Group 1 names `tests/test_new.py`" in problem
+    assert "group 3 creates it after group 1" in problem
+    assert "Move group 3 before group 1" in problem
+    assert "No file has this name" not in problem
+    assert "make the group that creates it list it" not in problem
+
+
+def test_a_forward_read_of_a_folder_names_the_group_that_creates_a_file_in_it() -> None:
+    first = _group(reads=["tests/new/"])
+    later = _group(changes=["tests/new/test_new.py"], creates=["tests/new/test_new.py"], reads=[])
+
+    (problem,) = _problems(first, later)
+
+    assert "group 2 creates it after group 1" in problem
+
+
+def test_a_path_that_no_group_creates_keeps_the_message_without_a_creating_group() -> None:
+    later = _group(changes=["tests/test_other.py"], creates=["tests/test_other.py"], reads=[])
+
+    (problem,) = _problems(_group(reads=["tests/test_new.py"]), later)
+
+    assert "no group up to group 1 creates it" in problem
+    assert "make the group that creates it list it in `creates`" in problem
+    assert "Move group" not in problem
+
+
 def test_a_folder_that_an_earlier_group_creates_a_file_in_passes() -> None:
     first = _group(changes=["tests/new/test_new.py"], creates=["tests/new/test_new.py"], reads=[])
     later = _group(reads=["tests/new/"], changes=["tests/new/test_new.py"])

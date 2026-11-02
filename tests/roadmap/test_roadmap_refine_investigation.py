@@ -27,6 +27,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.usage import UsageLimits
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend.ledger import SpendLedger
@@ -37,6 +38,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
     CONST_ROADMAP_RUN_ERROR_CHARS,
 )
+from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
@@ -603,6 +605,146 @@ def test_the_alternatives_tools_run_in_the_same_agent_run() -> None:
         _SETTLED,
         ["HELLO"],
         ["shout"],
+    )
+
+
+def _run(
+    git_repo: Path, script: Script, *, limits: UsageLimits | None = None, **options: Any
+) -> Any:
+    """One investigation of `RefinementProposal` with the limits and options of a caller that is
+    not refine, as the stage job gives them (#3037)."""
+    tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO))
+    return investigate(
+        script.model(), "Instructions.", "{}", tools, RefinementProposal, limits=limits, **options
+    )
+
+
+def _limits(*, tool_calls: int = 6, output_tokens: int | None = None) -> UsageLimits:
+    return UsageLimits(
+        request_limit=20, tool_calls_limit=tool_calls, output_tokens_limit=output_tokens
+    )
+
+
+def _read(path: str = "../x") -> ModelResponse:
+    return call("read_file", path=path)
+
+
+def test_a_reply_with_more_calls_than_are_left_stops_the_run_and_names_the_limit(
+    git_repo: Path,
+) -> None:
+    seven = ModelResponse(parts=[ToolCallPart(tool_name="read_file", args={"path": "../x"})] * 7)
+
+    stopped = _run(git_repo, Script(seven), limits=_limits(tool_calls=6))
+
+    assert (stopped.reason, "tool_calls_limit" in stopped.message, stopped.schema_broken) == (
+        "UsageLimitExceeded",
+        True,
+        False,
+    )
+
+
+def test_the_request_after_the_third_call_offers_no_tool_when_six_calls_are_allowed(
+    git_repo: Path,
+) -> None:
+    script = Script(_read(), without_tools=_SETTLED)
+
+    result = _run(git_repo, script, limits=_limits(tool_calls=6))
+
+    assert (result, [len(offered) for offered in script.tools_offered]) == (_SETTLED, [3, 3, 3, 0])
+
+
+def test_a_run_that_passes_the_output_token_limit_stops_and_names_it(git_repo: Path) -> None:
+    wordy = call("read_file", path="../" + "word " * 40)
+
+    stopped = _run(git_repo, Script(wordy), limits=_limits(tool_calls=30, output_tokens=10))
+
+    assert (stopped.reason, "output_tokens_limit" in stopped.message, stopped.schema_broken) == (
+        "UsageLimitExceeded",
+        True,
+        False,
+    )
+
+
+_BROKEN = call("final_result", nothing="here")
+
+
+def test_a_reply_that_breaks_the_schema_goes_back_once_with_one_output_retry(
+    git_repo: Path,
+) -> None:
+    result = _run(git_repo, Script(_BROKEN, _SETTLED), output_retries=1)
+
+    assert result == _SETTLED
+
+
+def test_a_second_reply_that_breaks_the_schema_stops_the_run_with_one_output_retry(
+    git_repo: Path,
+) -> None:
+    stopped = _run(git_repo, Script(_BROKEN), output_retries=1)
+
+    assert (stopped.reason, stopped.message, stopped.schema_broken) == (
+        "UnexpectedModelBehavior",
+        "Exceeded maximum output retries (1)",
+        True,
+    )
+
+
+@pytest.mark.parametrize("gone_calls", [1, 2])
+def test_a_call_to_a_tool_that_is_gone_gets_a_retry_and_the_run_goes_on(
+    git_repo: Path, gone_calls: int
+) -> None:
+    """Once fewer than four calls are left the request offers no tool. Up to two calls to a tool
+    in such a request get a retry prompt; a valid plan after them ends the run."""
+    replies = [_read()] * 3 + [_read()] * gone_calls + [_SETTLED]
+
+    result = _run(git_repo, Script(*replies), limits=_limits(tool_calls=6))
+
+    assert result == _SETTLED
+
+
+def test_a_third_call_to_a_tool_that_is_gone_stops_the_run_and_it_is_no_budget_limit(
+    git_repo: Path,
+) -> None:
+    replies = [_read()] * 6 + [_SETTLED]
+
+    stopped = _run(git_repo, Script(*replies), limits=_limits(tool_calls=6))
+
+    assert (
+        stopped.reason,
+        stopped.message.startswith("Tool <text> exceeded max retries count of 2."),
+        stopped.schema_broken,
+    ) == ("UnexpectedModelBehavior", True, False)
+
+
+def test_a_run_with_a_trace_keeps_its_calls_and_counts(git_repo: Path) -> None:
+    trace = RunTrace()
+
+    result = _run(
+        git_repo, Script(_read("src/sample.py"), _read("src/other.py"), _SETTLED), trace=trace
+    )
+
+    assert (result, [(c.name, c.argument) for c in trace.tool_calls], trace.requests) == (
+        _SETTLED,
+        [("read_file", '{"path":"src/sample.py"}'), ("read_file", '{"path":"src/other.py"}')],
+        3,
+    )
+
+
+def test_a_stopped_run_keeps_its_trace(git_repo: Path) -> None:
+    trace = RunTrace()
+
+    stopped = _run(git_repo, Script(_read(), _BROKEN), output_retries=1, trace=trace)
+
+    assert (stopped.schema_broken, len(trace.tool_calls), trace.requests) == (True, 1, 3)
+
+
+def test_a_run_with_no_limits_keeps_the_limits_and_retries_of_refine(git_repo: Path) -> None:
+    script = Script(_read(), without_tools=_SETTLED)
+
+    result = _run(git_repo, script)
+
+    assert (result, len(script.seen)) == (
+        _SETTLED,
+        CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
     )
 
 

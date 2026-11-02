@@ -4,13 +4,21 @@ that keeps a long reply inside the gateway's tunnel, and the spend record of a r
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterable, Mapping, Sequence
+from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import AgentRunError, ModelAPIError, ModelHTTPError, ModelTimeoutError
-from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse
+from pydantic_ai.messages import (
+    AgentStreamEvent,
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    ToolCallPart,
+)
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend import track_request_spend
@@ -18,6 +26,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_ROADMAP_RUN_ERROR_CHARS,
     CONST_ROADMAP_RUN_ERROR_READ_CHARS,
+    CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS,
 )
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -110,6 +119,67 @@ def run_error_message(stopped: AgentRunError) -> str:
     return "".join(char for char in description if char.isprintable()).strip()
 
 
+@dataclass(frozen=True)
+class ToolCallRecord:
+    """One tool call of a run: the tool, and its argument as JSON, masked and cut."""
+
+    name: str
+    argument: str
+
+
+@dataclass
+class RunTrace:
+    """What a run of an agent did (#3037): its tool calls in order, the count of its model
+    requests, its input and output tokens, and the count of schema violations in the last retry
+    prompt of its output tool."""
+
+    tool_calls: list[ToolCallRecord] = field(default_factory=list)
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    violations: int = 0
+
+    @classmethod
+    def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
+        """One trace for all `traces`, in order: their tool calls joined and their counts summed.
+        The violations are those of the last trace that had any."""
+        total = cls()
+        for trace in traces:
+            total.tool_calls.extend(trace.tool_calls)
+            total.requests += trace.requests
+            total.input_tokens += trace.input_tokens
+            total.output_tokens += trace.output_tokens
+            total.violations = trace.violations or total.violations
+        return total
+
+    def absorb(self, messages: Sequence[ModelMessage], *, tools: Collection[str]) -> None:
+        """Add the run of `messages` to the trace. `tools` are the names of the function tools of
+        the run: a call to any other tool is the output tool's and is no tool call of the trace."""
+        for message in messages:
+            if isinstance(message, ModelResponse):
+                self._add_reply(message, tools)
+            elif isinstance(message, ModelRequest):
+                self._add_violations(message, tools)
+
+    def _add_reply(self, reply: ModelResponse, tools: Collection[str]) -> None:
+        self.requests += 1
+        self.input_tokens += reply.usage.input_tokens
+        self.output_tokens += reply.usage.output_tokens
+        for part in reply.parts:
+            if isinstance(part, ToolCallPart) and part.tool_name in tools:
+                argument = bounded_text(part.args_as_json_str())
+                self.tool_calls.append(
+                    ToolCallRecord(
+                        part.tool_name, argument[:CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS]
+                    )
+                )
+
+    def _add_violations(self, request: ModelRequest, tools: Collection[str]) -> None:
+        for part in request.parts:
+            if isinstance(part, RetryPromptPart) and part.tool_name not in tools:
+                self.violations = len(part.content) if isinstance(part.content, list) else 0
+
+
 def record_run_spend(
     model: Any, messages: Sequence[ModelMessage], seconds: float, *, stage: str
 ) -> None:
@@ -133,6 +203,8 @@ def record_run_spend(
 
 
 __all__ = [
+    "RunTrace",
+    "ToolCallRecord",
     "body_error_text",
     "bounded_text",
     "drain_events",

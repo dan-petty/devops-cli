@@ -34,7 +34,8 @@
    "where": "tasks.md / proposal.md",
    "problem": "The plan adds `config_digest: str | None` to the ToolRun record, and a new `database_digest` field. ToolRun already has `config_digest: str` and `ruleset_digest: str`. ToolRun is frozen and lives in security/tool_executor.py, not in an adapter. The existing mechanism is the ToolRequest `config_files` and `ruleset_files`, filled by BaseSecurityScanner._tool_files and an overridable `ruleset_files()` hook. Trivy already uses the hook (#772). The plan ignores it. A new field would duplicate or clash with the old one, and the report and SARIF code would not show it.",
    "evidence": "src/devops_cli/security/tool_executor.py:284-285: `config_digest: str` and `ruleset_digest: str` in class ToolRun. src/devops_cli/security/base.py:581 `def ruleset_files(...)`, base.py:696-697 `config_files=read.config, ruleset_files=read.ruleset`. src/devops_cli/security/trivy.py:151 overrides ruleset_files. src/devops_cli/ai/review/tool_runs.py:44-50 shows columns Config and Ruleset only. OsvScanner has no ruleset_files override (grep of osv_scanner.py shows only data_dirs).",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "verify_form",
@@ -42,7 +43,8 @@
    "where": "tasks.md (task 2.2)",
    "problem": "The Ruff command in the plan is wrong in two ways. First, `ruff --show-settings` is not a top-level flag. It exists only as `ruff check --show-settings`. Second, `--isolated` makes Ruff ignore all config files, so the digest would never change when ruff.toml changes. Task 2.1 asserts that the digest differs after a ruff.toml edit. That test cannot pass with the planned command. The output is also plain text, not JSON.",
    "evidence": "`uv run ruff --show-settings` -> `error: unexpected argument '--show-settings' found`. In a temp dir with ruff.toml `line-length=100`: `ruff check --show-settings a.py` prints `linter.line_length = 100` and starts with `Resolved settings for:`. With `--isolated` it prints `linter.line_length = 88`. The output includes absolute paths (cache_dir, project_root). So the digest differs per checkout path and is not stable across hosts unless the plan strips them. The design says 'outputs ... as JSON'; it does not.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a wrong flag of ruff. Only the tool shows it."
   },
   {
    "type": "false_premise",
@@ -50,7 +52,7 @@
    "where": "proposal.md (Feasibility)",
    "problem": "The Feasibility section lists commands to run later. It records no result of any command. Its claim that Ruff outputs JSON is false. It does not check the premise that the 36 MB database is above the digest size cap. The cap for config and ruleset files is DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES = 50 MiB, so a 36 MB single file would pass. The plan also uses `devops review scan --help` and a `ls` of a database directory as checks, but this host has no ~/.cache/osv-scanner. AGENTS.md rule 2 requires real evidence here. The existing `get_or_compute_snapshot_digest` / `OsvScanner.snapshot_digest` (mtime-based, osv_scanner.py:84-135, profile.osv_snapshot_digest) is not mentioned in the Existing Tool Considered section or in the rejected alternatives.",
    "evidence": "src/devops_cli/config/defaults.py:530 `DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024`. src/devops_cli/security/tool_executor.py:353-383 (_is_small_regular_file, _files_digest). `ls ~/.cache/osv-scanner` -> No such file or directory. proposal.md Feasibility last bullet: 'First checks the implementation runs ...'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "ignores_existing_code",
@@ -58,7 +60,8 @@
    "where": "design.md / tasks.md (task 1.2)",
    "problem": "The plan hashes the database files by content, with a new function. The osv digest needs to be a ruleset file set for the existing ToolRun path, or a streamed digest used by `_files_digest` for large files. The plan names no hook point where `database_digest(db_path)` gets its path. The database dir comes from `_osv_db_base() / CONST_OSV_DB_DIR_NAME` and the scan runs in a sandbox with `data_dirs()`. The plan also puts the call 'before the SARIF export', but ToolRun records are built by the executor before the tool starts (tool_executor.py docstring). The implementer must guess where to call it.",
    "evidence": "src/devops_cli/security/osv_scanner.py:249-255 (_osv_db_base), 275-280 (data_dirs). tool_executor.py:270-273: 'An executor builds the record before the tool starts'. tasks.md 1.2: 'call `database_digest` on the database directory and store the result in the ToolRun before the SARIF export'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",
@@ -74,7 +77,8 @@
    "where": "specs/review-tool-runs/spec.md",
    "problem": "The delta spec requires fields named `database_digest` and `config_digest` on the ToolRun. Both names bind the wrong design (see the ToolRun finding). The spec says nothing about the existing `config_digest`, which already covers the raw ruff.toml via config_names. The requirement for Ruff must say that the digest now covers the resolved settings and must say what is stripped (absolute paths).",
    "evidence": "src/devops_cli/security/ruff.py:235-236 `config_names = CONST_RUFF_CONFIG_FILE_NAMES; config_search_upward = True` already feed config_digest in tool_executor.py:526.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is the design of the digest fields. A person judges it."
   },
   {
    "type": "other",

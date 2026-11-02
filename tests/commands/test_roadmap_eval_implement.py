@@ -231,3 +231,15 @@ def test_the_chosen_model_replaces_the_model_of_the_implement_task(
     _, same_window, task_name = eval_model(None)
 
     assert (name, window, task_name, same_window) == ("chosen-model", 9000, "task-model", 9000)
+
+
+def test_the_chosen_model_replaces_the_model_of_the_task_that_is_named(
+    config: Callable[..., Path],
+) -> None:
+    config(ai={"tasks": {"analysis": {"model": "analysis-model", "context_window": 7000}}})
+    factory.set_llm_client_override(ModelScript(say("x")).model())
+
+    _, window, name = eval_model("chosen-model", task="analysis")
+    _, same_window, task_name = eval_model(None, task="analysis")
+
+    assert (name, window, task_name, same_window) == ("chosen-model", 7000, "analysis-model", 7000)

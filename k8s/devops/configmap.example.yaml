@@ -21,9 +21,14 @@ data:
       # times (k8s/README.md, LLM Gateway).
       max_retries: 1
       tasks:
+        # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
+        # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that
+        # reviews a plan; no code reads it before #3153 is built.
         analysis:
-          model: devops-background
+          model: deepseek-v4.1-flash-1017
           context_window: 65536
+        verification:
+          model: claude-sonnet-5-5
         chat:
           model: devops-background
         embedding:
