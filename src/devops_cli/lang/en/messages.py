@@ -2789,6 +2789,15 @@ class RoadmapMessages:
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
+    stage_problem_specs_not_needed: str = (
+        "skip_specs is false, and every path in `changes` is under {prefixes}. These paths need "
+        "no spec delta. Set skip_specs to true and give no specs."
+    )
+    stage_problem_duplicate_requirement: str = (
+        "The requirement {requirement} is in the added requirements of {capability}, and "
+        "openspec/specs/{capability}/spec.md already has it. Change it with modified, or give "
+        "the new requirement another name."
+    )
     stage_problem_path: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
         "group up to group {group} creates it. {hint} Name a file that exists, or make the group "

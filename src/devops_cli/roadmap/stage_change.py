@@ -60,6 +60,12 @@ _WORD_PUNCTUATION: Final[str] = ".,;:()"
 _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
     {"close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"}
 )
+# A change whose every path starts with one of these has no spec delta: tests, workflows, documents
+# and plans are not behavior a consumer observes (#3013).
+_NO_SPEC_PREFIXES: Final[tuple[str, ...]] = ("tests/", ".github/workflows/", "docs/", "openspec/")
+_NO_SPEC_PREFIXES_TEXT: Final[str] = (
+    f"{', '.join(_NO_SPEC_PREFIXES[:-1])} or {_NO_SPEC_PREFIXES[-1]}"
+)
 _TESTS_DIRECTORY: Final[str] = "tests/"
 _SOURCE_DIRECTORY: Final[str] = "src/"
 _DOCUMENT_SUFFIX: Final[str] = ".md"
@@ -283,18 +289,59 @@ def _spec_problems(spec: StageSpec, known: Collection[str]) -> list[str]:
     return problems
 
 
-def check_proposal(proposal: StageProposal, known: Collection[str], tree: StagedTree) -> list[str]:
-    """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
-    `proposal`, one sentence each. `known` holds the names of the capabilities under
-    `openspec/specs/`, and `tree` the files that exist when the change is written."""
+def _needs_no_spec(proposal: StageProposal) -> bool:
+    """Whether every path of `changes`, in every group, is a test, a workflow, a document or a
+    plan: a change that no consumer observes (#3013)."""
+    return all(
+        path.startswith(_NO_SPEC_PREFIXES) for group in proposal.groups for path in group.changes
+    )
+
+
+def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[str]]) -> list[str]:
+    """One problem for each ADDED requirement of `spec` whose name the base spec of the capability
+    already has."""
+    taken = {name.strip() for name in requirements.get(spec.capability, ())}
+    return [
+        MESSAGES.roadmap.stage_problem_duplicate_requirement.format(
+            requirement=requirement.name.strip(), capability=spec.capability
+        )
+        for requirement in spec.added
+        if requirement.name.strip() in taken
+    ]
+
+
+def _delta_problems(
+    proposal: StageProposal, known: Collection[str], requirements: Mapping[str, Collection[str]]
+) -> list[str]:
+    """What is wrong with the spec delta of `proposal` as a whole and in each capability."""
     texts = MESSAGES.roadmap
     problems: list[str] = []
     if proposal.skip_specs and proposal.specs:
         problems.append(texts.stage_problem_skip_with_specs)
     if not proposal.skip_specs and not proposal.specs:
         problems.append(texts.stage_problem_no_specs)
+    if not proposal.skip_specs and proposal.specs and _needs_no_spec(proposal):
+        problems.append(
+            texts.stage_problem_specs_not_needed.format(prefixes=_NO_SPEC_PREFIXES_TEXT)
+        )
     for spec in proposal.specs:
         problems.extend(_spec_problems(spec, known))
+        problems.extend(_duplicate_problems(spec, requirements))
+    return problems
+
+
+def check_proposal(
+    proposal: StageProposal,
+    known: Collection[str],
+    tree: StagedTree,
+    *,
+    requirements: Mapping[str, Collection[str]] | None = None,
+) -> list[str]:
+    """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
+    `proposal`, one sentence each. `known` holds the names of the capabilities under
+    `openspec/specs/`, `requirements` the requirement names of each base spec by capability, and
+    `tree` the files that exist when the change is written."""
+    problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(path_problems(proposal.groups, tree))
     return problems
 

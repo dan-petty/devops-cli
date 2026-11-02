@@ -16,7 +16,7 @@ plan, when a gate refuses a `good` plan, and when a defect waits for a gate that
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Final
 
@@ -50,6 +50,7 @@ class PlanUnderTest:
     schema_problems: tuple[str, ...]
     known: frozenset[str]
     tree: StagedTree
+    requirements: Mapping[str, Collection[str]] = field(default_factory=dict)
 
     @classmethod
     def of_case(cls, case: StageCase) -> PlanUnderTest:
@@ -63,10 +64,15 @@ class PlanUnderTest:
 
     @classmethod
     def of_reply(
-        cls, proposal: StageProposal, tree: StagedTree, known: Collection[str]
+        cls,
+        proposal: StageProposal,
+        tree: StagedTree,
+        known: Collection[str],
+        requirements: Mapping[str, Collection[str]] | None = None,
     ) -> PlanUnderTest:
-        """The plan of a reply that passed the schema, with the tree it was staged on."""
-        return cls(proposal, (), frozenset(known), tree)
+        """The plan of a reply that passed the schema, with the tree it was staged on and the
+        requirement names of the base spec of each capability."""
+        return cls(proposal, (), frozenset(known), tree, requirements or {})
 
 
 def _group_of(raw: Mapping[str, Any], problems: list[str]) -> StageGroup:
@@ -102,8 +108,10 @@ class Gate:
 
 def _path_gate(plan: PlanUnderTest) -> list[str]:
     """The checks of the job on a plan (`check_proposal`): the path rule and the rules of the spec
-    delta. The recorded plans hold no bad spec, so these rules only refuse a good plan."""
-    return check_proposal(plan.proposal, plan.known, plan.tree)
+    delta, which refuses a spec delta that the changed paths do not need (#3013). A recorded case
+    holds the names of the capabilities and no requirement names, so a replay of a case does not
+    judge a duplicate requirement."""
+    return check_proposal(plan.proposal, plan.known, plan.tree, requirements=plan.requirements)
 
 
 def _kind_gate(plan: PlanUnderTest) -> list[str]:

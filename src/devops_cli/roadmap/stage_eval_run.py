@@ -38,7 +38,6 @@ from devops_cli.roadmap.stage import (
     OverBudget,
     StageClient,
     analysis_window,
-    capabilities_of,
     openspec_tool,
     plan_item,
 )
@@ -46,6 +45,7 @@ from devops_cli.roadmap.stage_change import StageProposal, render_change
 from devops_cli.roadmap.stage_eval_cases import GateName, StageCase
 from devops_cli.roadmap.stage_eval_gates import PlanUnderTest, run_gates
 from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage_specs import read_base_specs
 from devops_cli.roadmap.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.store import Item
 from devops_cli.security.sanitizer import mask_secrets
@@ -126,10 +126,12 @@ def _first_reply_problems(
 ) -> dict[GateName, list[str]]:
     """What each gate finds in the first reply, against the files of the checkout and the change
     folder that the reply would write."""
-    known = capabilities_of(source)
+    specs = read_base_specs(source)
+    known = frozenset(specs)
     files = render_change(case.change, reply, known, created=datetime.now(UTC).date())
     tree = StagedTree.read(source, operation=_OPERATION).with_files(files)
-    return run_gates(PlanUnderTest.of_reply(reply, tree, known))
+    requirements = {name: spec.requirements for name, spec in specs.items()}
+    return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements))
 
 
 def _ended(exc: Exception) -> tuple[Outcome, str]:
