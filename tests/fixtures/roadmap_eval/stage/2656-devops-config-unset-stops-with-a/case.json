@@ -68,7 +68,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section quotes the failing line but shows no run of the reproduction (the issue gives steps). It does not show that a ConfigurationError reaches exit code 1 in the CLI. The check is cheap but the evidence is a claim.",
    "evidence": "proposal.md Feasibility: 'line 161 shows int(node.lc.key(dotted)[0]) + 1' (true: git show 'a383c5f9^:src/devops_cli/config/round_trip.py' line 161). No command output of the repro or of the exit code is recorded.",
-   "gate": "pending"
+   "gate": "none"
   }
  ]
 }

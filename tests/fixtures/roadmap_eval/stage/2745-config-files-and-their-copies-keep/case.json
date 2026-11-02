@@ -34,7 +34,7 @@
    "where": "design.md",
    "problem": "The design claims 'No window of wrong mode is visible to other users', but the planned code does not give that. Both functions create the tmp file with Path.write_bytes (umask mode, content written) and call os.chmod only after. For a few moments the tmp file holds the secrets at the umask mode. The issue and its refined design said to set the mode before writing the content (os.open with a mode argument). The plan chose the weaker order and still claims the strong result. The spec scenario 'Tmp file never more open' is not met.",
    "evidence": "tasks.md 1.2: 'after tmp.write_bytes(content) and before os.replace(tmp, dest_path), add ... os.chmod(tmp, mode)'. Issue #2745 refined design for _copy: 'Set the tmp file's mode to the source file's mode before writing content. Use os.open with the source mode'. design.md: 'The tmp file has the correct mode before it becomes the live file. No window of wrong mode'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",
@@ -66,7 +66,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section only restates what the code says. It has no command output that proves the bug (the issue gives a stat reproduction: 600 before, 644 after) and no run of the reproduction. It ends with 'First checks the implementation runs: ...', which is a verify command, not evidence. The failing-first claim for the _copy case was not checked, and it is wrong (see the major finding on group 2).",
    "evidence": "proposal.md Feasibility bullets: 'The code ... confirms _write_content calls tmp.write_bytes(content) then os.replace ...' with no stat output or version.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

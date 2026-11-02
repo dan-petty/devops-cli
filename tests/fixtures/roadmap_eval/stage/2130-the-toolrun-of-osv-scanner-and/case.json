@@ -50,7 +50,7 @@
    "where": "proposal.md (Feasibility)",
    "problem": "The Feasibility section lists commands to run later. It records no result of any command. Its claim that Ruff outputs JSON is false. It does not check the premise that the 36 MB database is above the digest size cap. The cap for config and ruleset files is DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES = 50 MiB, so a 36 MB single file would pass. The plan also uses `devops review scan --help` and a `ls` of a database directory as checks, but this host has no ~/.cache/osv-scanner. AGENTS.md rule 2 requires real evidence here. The existing `get_or_compute_snapshot_digest` / `OsvScanner.snapshot_digest` (mtime-based, osv_scanner.py:84-135, profile.osv_snapshot_digest) is not mentioned in the Existing Tool Considered section or in the rejected alternatives.",
    "evidence": "src/devops_cli/config/defaults.py:530 `DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024`. src/devops_cli/security/tool_executor.py:353-383 (_is_small_regular_file, _files_digest). `ls ~/.cache/osv-scanner` -> No such file or directory. proposal.md Feasibility last bullet: 'First checks the implementation runs ...'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "ignores_existing_code",
