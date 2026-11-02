@@ -62,7 +62,7 @@
    "where": "proposal.md, PR body",
    "problem": "The plan does not deliver acceptance criterion 1 of the issue: the volumes are on worker nodes with reclaim policy Retain. It leaves this as an 'operational step' with no task, no gate and no check. The README says a pod with the affinity cannot start while its volume is still on the control-plane node. Argo CD tracks main with selfHeal, so a merge before the move leaves Grafana, Prometheus and Loki Pending. The plan has no step that checks the volumes are moved before the change merges. It has no Feasibility evidence of the cluster state either.",
    "evidence": "k8s/README.md line 337: 'with the affinity their pods cannot start. Move each volume as below, then remove its exemption and add the affinity to its values in one pull request.' The proposal Feasibility lists only 'read file' checks. The PR body says the move is done 'before this code change is deployed'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

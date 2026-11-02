@@ -131,7 +131,7 @@ def _first_reply_problems(
     files = render_change(case.change, reply, known, created=datetime.now(UTC).date())
     tree = StagedTree.read(source, operation=_OPERATION).with_files(files)
     requirements = {name: spec.requirements for name, spec in specs.items()}
-    return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements))
+    return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements, case.issue_body))
 
 
 def _ended(exc: Exception) -> tuple[Outcome, str]:

@@ -4,7 +4,9 @@ A gate finds one type of defect in a plan with no model. `paths` is the check of
 (`check_proposal`): the path gate (#3010), where every path a group names is a file of the staged
 commit or a group creates it, and the rules of the spec delta, which use the capabilities of the
 case. `kind` is the kind rule
-(#3005): a group that the schema of the reply refuses. Gates that do not exist yet (#3011 to #3019)
+(#3005): a group that the schema of the reply refuses. `criteria` is the criteria rule (#3019): an
+acceptance criterion of the issue that the `criteria` list leaves out. A recorded plan has no such
+list, so the replay does not judge it, and its defects of this type have the gate `none`. Gates that do not exist yet (#3011 to #3017)
 are in `PENDING_GATES`: a defect that one of them will catch is listed, and it fails nothing.
 
 `replay_case` runs the gates on the plan of a case, as the job runs them on a reply, and checks
@@ -29,6 +31,7 @@ from devops_cli.roadmap.stage_change import (
     StageSpec,
     check_proposal,
 )
+from devops_cli.roadmap.stage_criteria import StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_eval_cases import (
     Defect,
     DefectType,
@@ -51,6 +54,10 @@ class PlanUnderTest:
     known: frozenset[str]
     tree: StagedTree
     requirements: Mapping[str, Collection[str]] = field(default_factory=dict)
+    issue_body: str = ""
+    # Whether the plan has a `criteria` list. A plan recorded before #3019 has none: it was never
+    # asked for a mapping, so the criteria gate has nothing to judge in it.
+    mapped: bool = False
 
     @classmethod
     def of_case(cls, case: StageCase) -> PlanUnderTest:
@@ -59,8 +66,18 @@ class PlanUnderTest:
         problems: list[str] = []
         groups = [_group_of(raw, problems) for raw in case.groups]
         specs = [spec for raw in case.plan["specs"] if (spec := _spec_of(raw, problems))]
-        proposal = StageProposal.model_construct(**{**case.plan, "specs": specs, "groups": groups})
-        return cls(proposal, tuple(problems), frozenset(case.facts.capabilities), case.tree())
+        criteria = [StageCriterion.model_validate(raw) for raw in case.plan.get("criteria", [])]
+        proposal = StageProposal.model_construct(
+            **{**case.plan, "specs": specs, "groups": groups, "criteria": criteria}
+        )
+        return cls(
+            proposal,
+            tuple(problems),
+            frozenset(case.facts.capabilities),
+            case.tree(),
+            issue_body=case.issue_body,
+            mapped="criteria" in case.plan,
+        )
 
     @classmethod
     def of_reply(
@@ -69,10 +86,13 @@ class PlanUnderTest:
         tree: StagedTree,
         known: Collection[str],
         requirements: Mapping[str, Collection[str]] | None = None,
+        issue_body: str = "",
     ) -> PlanUnderTest:
-        """The plan of a reply that passed the schema, with the tree it was staged on and the
-        requirement names of the base spec of each capability."""
-        return cls(proposal, (), frozenset(known), tree, requirements or {})
+        """The plan of a reply that passed the schema, with the tree it was staged on, the
+        requirement names of the base spec of each capability, and the body of the issue."""
+        return cls(
+            proposal, (), frozenset(known), tree, requirements or {}, issue_body, mapped=True
+        )
 
 
 def _group_of(raw: Mapping[str, Any], problems: list[str]) -> StageGroup:
@@ -114,6 +134,14 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
     return check_proposal(plan.proposal, plan.known, plan.tree, requirements=plan.requirements)
 
 
+def _criteria_gate(plan: PlanUnderTest) -> list[str]:
+    """The criteria rule (#3019): every acceptance criterion of the issue has an entry in the
+    `criteria` list of the plan. A plan with no list (a recorded one) is not judged."""
+    if not plan.mapped:
+        return []
+    return criterion_problems(plan.proposal.criteria, plan.issue_body, len(plan.proposal.groups))
+
+
 def _kind_gate(plan: PlanUnderTest) -> list[str]:
     return list(plan.schema_problems)
 
@@ -121,6 +149,7 @@ def _kind_gate(plan: PlanUnderTest) -> list[str]:
 GATES: Final[tuple[Gate, ...]] = (
     Gate(GateName.PATHS, "#3010", DefectType.MISSING_PATH, _path_gate),
     Gate(GateName.KIND, "#3005", DefectType.CONTRIVED_TEST, _kind_gate),
+    Gate(GateName.CRITERIA, "#3019", DefectType.CRITERION_DROPPED, _criteria_gate),
 )
 # The gates that are not built yet, by the type of defect they will catch.
 PENDING_GATES: Final[Mapping[DefectType, str]] = {
@@ -129,7 +158,6 @@ PENDING_GATES: Final[Mapping[DefectType, str]] = {
     DefectType.SPEC_DELTA_WRONG: "#3013",
     DefectType.VERIFY_FORM: "#3015",
     DefectType.TASK_ORDER: "#3017",
-    DefectType.CRITERION_DROPPED: "#3019",
 }
 _GATE_BY_TYPE: Final[Mapping[DefectType, Gate]] = {gate.catches: gate for gate in GATES}
 

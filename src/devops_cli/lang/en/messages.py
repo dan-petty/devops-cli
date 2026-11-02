@@ -2798,6 +2798,22 @@ class RoadmapMessages:
         "openspec/specs/{capability}/spec.md already has it. Change it with modified, or give "
         "the new requirement another name."
     )
+    stage_problem_criterion: str = (
+        'The issue lists the acceptance criterion "{criterion}", and `criteria` has no entry with '
+        "this text. Add an entry that copies the text, with the number of the group that "
+        "delivers it or pending-person and a reason."
+    )
+    stage_problem_criterion_group: str = (
+        'The entry of `criteria` for "{criterion}" names group {group}, and the plan has '
+        "{count} groups."
+    )
+    stage_criterion_bad_group: str = "A criterion group is a number from 1, not {group}."
+    stage_criterion_no_reason: str = (
+        'The criterion "{criterion}" is pending-person and has no reason.'
+    )
+    stage_criteria_title: str = "Criteria"
+    stage_criteria_line: str = "{criterion}: group {group}"
+    stage_criteria_pending: str = "{criterion}: pending-person, {reason}"
     stage_problem_path: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
         "group up to group {group} creates it. {hint} Name a file that exists, or make the group "

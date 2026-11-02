@@ -121,6 +121,7 @@ from devops_cli.roadmap.stage_change import (
     staging_title,
     write_change_files,
 )
+from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
@@ -677,6 +678,7 @@ class _Planner:
             self._known,
             self._tree_of(target, proposal),
             requirements=self._requirements,
+            issue_body=target.item.body,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -689,6 +691,7 @@ class _Planner:
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.
             problems = path_problems(asked.groups, self._tree.with_files(files))
+            problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)
         proposal = asked
@@ -743,9 +746,10 @@ class _Planner:
                 {**m.group.model_dump(), "tokens": m.tokens, "over_budget": m.tokens > self._budget}
                 for m in measured
             ],
+            "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
         split = self._ask(StageSplit, _SPLIT_TASK, asked)
-        proposal = proposal.model_copy(update={"groups": split.groups})
+        proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured
 

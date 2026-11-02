@@ -166,7 +166,7 @@ def test_a_first_reply_that_passes_has_no_problem(
     assert (run.outcome, run.calls, run.first) == (
         Outcome.STAGED,
         1,
-        {GateName.PATHS: [], GateName.KIND: []},
+        {GateName.PATHS: [], GateName.KIND: [], GateName.CRITERIA: []},
     )
 
 

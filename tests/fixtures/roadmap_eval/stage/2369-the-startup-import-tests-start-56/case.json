@@ -31,7 +31,7 @@
    "where": "tasks.md",
    "problem": "No task checks the issue acceptance criterion: at most half the present CPU time over three runs of the file. Task 1 has no baseline step. Group 2 ends without any timing step. The only mention of the 2x goal is in the Feasibility text and the PR body. The plan has no task for the issue's step 1 (split the cost) either.",
    "evidence": "tasks.md groups 1 and 2 hold only 'verify ... pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q passes'. No task runs the file three times or compares CPU time. Issue #2369 'Acceptance: the file takes at most half of its present CPU time, measured over three runs'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
