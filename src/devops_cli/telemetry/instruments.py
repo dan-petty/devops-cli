@@ -254,8 +254,8 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "1",
     "Items that a stage round handled, one count for each item, by result: staged for an item "
     "written as a branch and a draft pull request, needs_split for an item stopped on a task "
-    "group over the budget, failed for an item that failed in the plan or in the writes, and "
-    "skipped for an item the job left out with a reason. A plan with no write counts nothing",
+    "group over the budget, returned for an item returned to New on a false premise, failed for "
+    "an item that failed in the plan or in the writes, and skipped for an item the job left out with a reason. A plan with no write counts nothing",
 )
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",

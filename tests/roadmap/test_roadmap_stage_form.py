@@ -1,0 +1,174 @@
+"""`devops roadmap stage`: a plan gives a verify command and test paths in the project form (#3015)."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.roadmap.stage_change import StageGroup, StageProposal, check_proposal
+from devops_cli.roadmap.stage_paths import StagedTree
+from tests.support.builders import make_stage_proposal
+from tests.support.paths import REPO_ROOT
+
+CODE = "src/devops_cli/roadmap/stage.py"
+MIRRORED = "tests/roadmap/test_stage.py"
+FLAT = "tests/test_stage.py"
+VERIFY_PROBLEM = (
+    "Group 1 gives the `verify` command `uv run pytest tests/roadmap/test_stage.py`. A `verify` "
+    "command starts with `uv run devops`, such as `uv run devops ci test "
+    "tests/roadmap/test_feature.py`, or is a `! git grep -n <name>` check that a name is gone. "
+    "Give a command of one of these forms."
+)
+
+
+def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = None) -> StageProposal:
+    """The sample proposal, with one group that changes `changes` and creates `creates`."""
+    base = make_stage_proposal().groups[0].model_dump()
+    update: dict[str, Any] = {"reads": [], "changes": list(changes), "creates": list(creates)}
+    sourced = any(path.startswith("src/") for path in changes)
+    if not sourced:
+        update |= {"kind": "other", "test": None}
+    if verify is not None:
+        update["verify"] = verify
+    group = StageGroup.model_validate({**base, **update})
+    return make_stage_proposal(
+        groups=[group], **({} if sourced else {"skip_specs": True, "specs": []})
+    )
+
+
+def _problems(proposal: StageProposal) -> list[str]:
+    """What `check_proposal` finds in a plan whose files all exist or are created by it."""
+    group = proposal.groups[0]
+    tree = StagedTree([*group.changes, "src/devops_cli/sample.py", "tests/test_sample.py"])
+    return check_proposal(proposal, ["comment-thread"], tree)
+
+
+def test_a_pytest_verify_command_is_refused_with_the_form_to_use() -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,), verify=f"uv run pytest {MIRRORED}")
+
+    assert _problems(plan) == [VERIFY_PROBLEM]
+
+
+@pytest.mark.parametrize(
+    "verify",
+    [
+        f"uv run devops ci test {MIRRORED}",
+        "uv run devops ci",
+        "uv run devops openspec check",
+        "uv run devops docs check",
+        "uv run devops k8s image-pins",
+        "! git grep -n -w old_name src/ tests/",
+    ],
+)
+def test_a_devops_command_or_a_negative_search_is_a_verify_command(verify: str) -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,), verify=verify)
+
+    assert _problems(plan) == []
+
+
+@pytest.mark.parametrize(
+    "verify", ["devops ci test tests/roadmap/test_stage.py", "uv run devopsx", "pytest -x"]
+)
+def test_a_command_that_is_not_uv_run_devops_is_refused(verify: str) -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,), verify=verify)
+
+    (problem,) = _problems(plan)
+    assert f"`{verify}`" in problem
+
+
+def test_a_flat_new_test_path_is_refused_with_the_mirror_directory() -> None:
+    plan = _plan(CODE, FLAT, creates=(FLAT,))
+
+    (problem,) = _problems(plan)
+    assert problem == (
+        f"Group 1 creates `{FLAT}`, and the directory `tests` does not mirror the code that the "
+        "plan changes. A new test goes in `tests/roadmap` or `tests/invariants`. Move it there."
+    )
+
+
+def test_a_new_test_in_the_mirror_directory_or_in_invariants_is_accepted() -> None:
+    invariant = "tests/invariants/test_source_tree.py"
+    plan = _plan(CODE, MIRRORED, invariant, creates=(MIRRORED, invariant))
+
+    assert _problems(plan) == []
+
+
+def test_a_new_test_is_checked_against_the_code_of_every_group() -> None:
+    other = "src/devops_cli/ai/review/pipeline.py"
+    new = "tests/ai/review/test_pipeline.py"
+    plan = _plan(CODE, other, new, creates=(new,))
+
+    assert _problems(plan) == []
+
+
+def test_a_new_test_in_the_wrong_package_directory_is_refused() -> None:
+    wrong = "tests/ai/test_stage.py"
+    plan = _plan(CODE, wrong, creates=(wrong,))
+
+    (problem,) = _problems(plan)
+    assert f"`{wrong}`" in problem
+    assert "`tests/roadmap`" in problem
+
+
+def test_a_top_level_module_has_the_tests_directory_as_its_mirror() -> None:
+    plan = _plan("src/devops_cli/sample.py", FLAT, creates=(FLAT,))
+
+    assert _problems(plan) == []
+
+
+def test_a_plan_with_no_source_path_refuses_a_flat_test_and_accepts_a_nested_one() -> None:
+    flat = _plan(FLAT, creates=(FLAT,), verify="uv run devops ci test tests/test_stage.py")
+    nested = _plan(MIRRORED, creates=(MIRRORED,), verify=f"uv run devops ci test {MIRRORED}")
+
+    assert len(_problems(flat)) == 1
+    assert _problems(nested) == []
+
+
+@pytest.mark.parametrize(
+    "path", ["tests/conftest.py", "tests/fixtures/stage/plan.json", "tests/support/builders.py"]
+)
+def test_a_new_file_under_tests_that_is_no_test_module_is_not_judged(path: str) -> None:
+    plan = _plan(CODE, path, creates=(path,))
+
+    assert _problems(plan) == []
+
+
+def test_a_test_that_already_exists_is_not_judged() -> None:
+    plan = _plan(CODE, FLAT)
+
+    assert _problems(plan) == []
+
+
+# ── The examples of the prompt and of the rules ───────────────────────────────
+
+_TEST_PATH = re.compile(r"tests/[\w/<>-]*test_[\w<>-]*\.py")
+_PROMPT = "roadmap_stage_change.md"
+
+
+def _example_paths(text: str) -> list[str]:
+    return _TEST_PATH.findall(text)
+
+
+def _mirrored(path: str) -> bool:
+    """Whether the folder of `path` sits under `tests/` and mirrors a package of `src/devops_cli`."""
+    folder = Path(path).parent
+    package = REPO_ROOT / "src" / "devops_cli" / folder.relative_to("tests")
+    return folder != Path("tests") and package.is_dir()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(load_task_prompt(_PROMPT), id="prompt"),
+        pytest.param((REPO_ROOT / "openspec" / "config.yaml").read_text("utf-8"), id="config"),
+    ],
+)
+def test_every_example_test_path_of_the_prompt_and_the_config_is_mirrored(text: str) -> None:
+    paths = _example_paths(text)
+
+    assert paths
+    assert [path for path in paths if not _mirrored(path)] == []

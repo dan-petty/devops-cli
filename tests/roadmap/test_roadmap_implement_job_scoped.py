@@ -218,6 +218,20 @@ def test_a_check_that_no_fix_repairs_stops_the_item_and_pushes_nothing(
     assert job_world.pull.ready_calls == []
 
 
+def test_a_check_that_no_fix_repairs_stops_with_the_class_of_its_log_and_the_repair_taken(
+    job_world: JobWorld,
+) -> None:
+    _fails_until(job_world, PRE_PUSH, "ruff-check....Failed", times=99)
+
+    job_world.run(two_groups(*_fix(1), *_fix(2), *_fix(3)))
+
+    _, record = _item_record(job_world)
+    comment = next(c for c in job_world.issue_comments() if "Failure class" in c)
+    assert record["implement.failure"] == "lint"
+    assert "Failure class: `lint`.\nAction taken: `repair`, 3 fix round(s).\n" in comment
+    assert "Action left: `wait`: wait for a person." in comment
+
+
 def test_the_rounds_for_the_scoped_checks_come_from_the_setting(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:

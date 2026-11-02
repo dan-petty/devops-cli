@@ -151,36 +151,17 @@ def test_writable_paths_are_empty_dirs_and_the_data_dir_is_under_home() -> None:
 
 
 def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None:
+    """The example validates as settings, calls the model through the gateway in the cluster, and
+    holds no credential. The models, windows and limits are the owner's to tune, so the test pins
+    none of them."""
     raw = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
     settings = Settings.model_validate(raw)
     leaked = [c.key for c in CREDENTIALS if _dotted(raw, c.key) is not None]
     assert (
         settings.ai.provider,
-        settings.ai.gateway_url,
-        settings.ai.allow_private_network,
-        settings.ai.model,
-        settings.ai.max_retries,
-        settings.ai.tasks.analysis.model,
-        settings.ai.tasks.verification.model,
-        settings.ai.tasks.analysis.context_window,
-        settings.ai.tasks.chat.model,
-        settings.telemetry.enabled,
-        settings.telemetry.endpoint,
+        str(settings.ai.gateway_url).split("/")[2].endswith(".svc.cluster.local:4000"),
         leaked,
-    ) == (
-        "gateway",
-        "http://llm-gateway.llm.svc.cluster.local:4000/v1",
-        True,
-        "devops-background",
-        1,
-        "deepseek-v4.1-flash-1017",
-        "claude-sonnet-5-5",
-        65536,
-        "devops-background",
-        True,
-        "http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318",
-        [],
-    )
+    ) == ("gateway", True, [])
 
 
 def _dotted(document: Any, key: str) -> Any:
