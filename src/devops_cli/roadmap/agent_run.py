@@ -3,6 +3,7 @@ that keeps a long reply inside the gateway's tunnel, and the spend record of a r
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -19,7 +20,6 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     ToolCallPart,
 )
-from pydantic_core import to_json
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend import track_request_spend
@@ -125,7 +125,12 @@ def _argument_json(call: ToolCallPart) -> str:
     hidden. A model writes the argument, so a secret in it would reach the trace comment (#3222).
     `bounded_text` masks the rest by form. An argument that is no JSON object is already wrapped
     by pydantic-ai as `{"INVALID_JSON": <text>}`."""
-    return to_json(mask_secret_named_values(call.args_as_dict())).decode()
+    return json.dumps(
+        mask_secret_named_values(call.args_as_dict()),
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
 
 
 @dataclass(frozen=True)
