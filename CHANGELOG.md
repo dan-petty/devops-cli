@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.2](https://github.com/dan-petty/devops-cli/compare/v0.48.1...v0.48.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** never cut the plan title, count its summary once ([#3272](https://github.com/dan-petty/devops-cli/issues/3272)) ([0e0e017](https://github.com/dan-petty/devops-cli/commit/0e0e017497293d441b6f16b02e80e38c63d2c7e4))
+* **roadmap:** tell the agent the step runs a bang command ([#3275](https://github.com/dan-petty/devops-cli/issues/3275)) ([a88f9c8](https://github.com/dan-petty/devops-cli/commit/a88f9c815f741d6f6cdf6e17efdf1a705e35d15b))
+
 ## [0.48.1](https://github.com/dan-petty/devops-cli/compare/v0.48.0...v0.48.1) (2026-11-02)
 
 
