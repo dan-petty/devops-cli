@@ -11,17 +11,15 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.config import settings
-from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
-    CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
-    CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
-    CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
-)
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
 from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
 )
 from tests.support.paths import REPO_ROOT
@@ -58,8 +56,8 @@ def _deadlines() -> tuple[int, int, int]:
     )
 
 
-def test_the_defaults_are_forty_minutes_one_hour_and_four_hours(config_file: Path) -> None:
-    assert _deadlines() == (2400, 3600, 14400)
+def test_the_defaults_are_70_minutes_90_minutes_and_four_hours(config_file: Path) -> None:
+    assert _deadlines() == (4200, 5400, 14400)
 
 
 def test_a_config_file_and_a_variable_set_the_stall_the_extension_and_the_ceiling(
@@ -111,9 +109,9 @@ def test_the_default_ceiling_is_the_cap_of_the_admission_policy() -> None:
 
 def test_the_default_stall_covers_the_longest_wait_in_which_the_runner_writes_no_line() -> None:
     silent = max(
-        CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
-        CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
-        CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
+        DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+        DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+        DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     )
 
     assert DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS >= silent + MARGIN_SECONDS

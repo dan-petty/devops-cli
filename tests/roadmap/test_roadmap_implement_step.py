@@ -1291,7 +1291,8 @@ REQUEST_LIMIT_REASON = (
 )
 TOOL_CALL_LIMIT_REASON = (
     "UsageLimitExceeded: The next tool call(s) would exceed the tool_calls_limit of "
-    f"{CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS} (tool_calls=244). {LIMIT_ADVICE}"
+    f"{CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS} "
+    f"(tool_calls={CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS + 4}). {LIMIT_ADVICE}"
 )
 RETRY_LIMIT_MESSAGE = (
     "Tool 'shell' exceeded max retries count of 5. Consider raising the retry limit, or see the "
