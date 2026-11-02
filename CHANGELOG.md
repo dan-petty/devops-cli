@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.1](https://github.com/dan-petty/devops-cli/compare/v0.48.0...v0.48.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** make the plan summary fit its title ([#3267](https://github.com/dan-petty/devops-cli/issues/3267)) ([758b7a8](https://github.com/dan-petty/devops-cli/commit/758b7a812eb2007d0439264be30c7d5d228ea0c7))
+* **roadmap:** run a negative search verify in the step ([#3269](https://github.com/dan-petty/devops-cli/issues/3269)) ([42bc835](https://github.com/dan-petty/devops-cli/commit/42bc835f2e15dab61113f4081206b0eab942981c))
+* **roadmap:** write the Verification line under a staged task ([#3268](https://github.com/dan-petty/devops-cli/issues/3268)) ([acaf455](https://github.com/dan-petty/devops-cli/commit/acaf455d38a0ebb9d7893283fd569a16ce90dc9e))
+
 ## [0.48.0](https://github.com/dan-petty/devops-cli/compare/v0.47.0...v0.48.0) (2026-11-02)
 
 
