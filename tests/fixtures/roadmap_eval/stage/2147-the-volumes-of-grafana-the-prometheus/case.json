@@ -23,7 +23,7 @@
    "where": "proposal.md, tasks.md, design.md, specs/local-path-volume-placement/spec.md",
    "problem": "The plan edits CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS in src/devops_cli/config/constants.py. This constant does not exist. The only exemption list is _CONTROL_PLANE_CLAIM_EXEMPTIONS in the test file. Task 2.2, the second spec scenario, the 'Keep the constant as an empty list' decision and the Impact line for constants.py all describe a change that cannot be made. The reason the design gives, that other code may import the constant, is invented. The issue text has the same wrong name, so the plan copied it and did not check it (AGENTS.md rule 2).",
    "evidence": "grep -rn CLAIM_EXEMPTIONS in the repo finds only _CONTROL_PLANE_CLAIM_EXEMPTIONS in tests/core/test_k8s_local_path_placement.py (lines 14, 32, 274, 288, 303). grep -n 'CONTROL_PLANE' src/devops_cli/config/constants.py finds only CONST_K8S_CONTROL_PLANE_LABEL (line 3465).",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "missing_path",
@@ -78,7 +78,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section says the test 'currently passes' and lists 'checks to run' without a recorded result. It holds no command output as evidence. It claims 'The three values files and the constants file are named in the issue and the README', but neither names the paths in the form the plan uses. The Modified Capabilities entry uses 'ADDED Requirements' in a spec for a capability that is not shown to exist in openspec/specs.",
    "evidence": "proposal.md Feasibility lists 'First check / Second check / Third check' as future reads. The third check (read constants.py for the three entries) would have found the constant missing.",
-   "gate": "pending"
+   "gate": "none"
   }
  ]
 }

@@ -50,7 +50,7 @@
    "where": "proposal.md ## Feasibility",
    "problem": "Feasibility is made of statements like 'The context shows ...'. It holds no command output. It never shows urlsplit('http://[::1') raising ValueError, or that the report path reaches this function. AGENTS.md rule 2 asks for evidence of the premise. The claims are true, but the section does not record the proof.",
    "evidence": "python3 -c \"from urllib.parse import urlsplit; urlsplit('http://[::1')\" raises ValueError('Invalid IPv6 URL'). The proposal has no such output. The first and second 'checks' are only future test runs.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

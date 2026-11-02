@@ -39,7 +39,7 @@
    "where": "proposal.md (Feasibility)",
    "problem": "Feasibility has no evidence. It says the orchestrator path 'is not shown in the context' and gives the implementer grep commands to run later. It does not check that refine.py exists, that intake can be called from apply, or what intake needs. AGENTS.md rule 2 asks for a premise check with evidence before the plan. The checks were available: refine.py and intake_candidate exist.",
    "evidence": "proposal.md: 'The exact orchestrator file path is not shown in the context. The implementation step must confirm it by searching ... First check: grep -r ...'. Real: src/devops_cli/roadmap/refine.py (2152 lines) and `intake_candidate(store, candidate, *, repo, model, ref, confirm)` at src/devops_cli/roadmap/intake.py:1338.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "ignores_existing_code",

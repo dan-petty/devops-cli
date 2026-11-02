@@ -55,7 +55,7 @@
    "where": "proposal.md",
    "problem": "Feasibility cites the issue's claim and lists commands the implementer should run later. It holds no output of its own. The plan does not run the greps itself, and it does not give current line numbers (the issue's line numbers are stale). The plan also does not say that `import threading` in unified.py is used only by the deleted method, which is the one known exclusive import.",
    "evidence": "proposal.md Feasibility: \"The issue confirms each name is dead by git grep at b170358e.\" I ran git grep -w on origin/main for all five names: each shows only the definition (streaming.py:161, unified.py:164, thinking_stream.py:339, settings.py:187, schema.py:145). Issue says 164, 215, 339, 219, 145. In unified.py, `threading` appears only at line 6 (import) and line 164 (the deleted method).",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

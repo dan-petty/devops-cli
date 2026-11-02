@@ -61,7 +61,7 @@
    "where": "proposal.md Feasibility; design.md",
    "problem": "Rule 2 asks for evidence that the premise holds. Feasibility only lists checks the implementer will run later. It cites 'shown in context' and 'CHANGELOG shows 15+ prior deliveries'. The issue asks to decide, with evidence, whether the pass-through commands uv run and pipeline can list a plan. The design answers with CHANGELOG.md:1390 and tests/test_roadmap_dry_runs.py. Line 1390 of CHANGELOG.md is about 'Active marginalia' and 'Socratic inquiry' under devops ai research. It has no dry-run content. The second source does not exist. The decision for uv run (an arbitrary command with extra args and a possible implicit sync) and for pipeline (Dagger) has no real evidence.",
    "evidence": "git show origin/main:CHANGELOG.md lines 1385-1395: 'Active marginalia & epistemic scratchpad (devops ai research annotate)' and 'Socratic inquiry'. tests/test_roadmap_dry_runs.py is missing on main.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "verify_form",

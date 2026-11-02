@@ -6,8 +6,10 @@ commit or a group creates it, and the rules of the spec delta, which use the cap
 case. `kind` is the kind rule
 (#3005): a group that the schema of the reply refuses. `criteria` is the criteria rule (#3019): an
 acceptance criterion of the issue that the `criteria` list leaves out. A recorded plan has no such
-list, so the replay does not judge it, and its defects of this type have the gate `none`. Gates that do not exist yet (#3011 to #3017)
+list, so the replay does not judge it, and its defects of this type have the gate `none`. Gates that do not exist yet (#3012 to #3017)
 are in `PENDING_GATES`: a defect that one of them will catch is listed, and it fails nothing.
+A false premise has no gate here: the job probes it at the staging commit before the plan
+(`stage_probe`, #3011), and the replay reads no git, so a defect of that type has the gate `none`.
 
 `replay_case` runs the gates on the plan of a case, as the job runs them on a reply, and checks
 each known defect against the gate that must refuse it. The replay reads no git and makes no model
@@ -153,7 +155,6 @@ GATES: Final[tuple[Gate, ...]] = (
 )
 # The gates that are not built yet, by the type of defect they will catch.
 PENDING_GATES: Final[Mapping[DefectType, str]] = {
-    DefectType.FALSE_PREMISE: "#3011",
     DefectType.IGNORES_EXISTING_CODE: "#3012",
     DefectType.SPEC_DELTA_WRONG: "#3013",
     DefectType.VERIFY_FORM: "#3015",

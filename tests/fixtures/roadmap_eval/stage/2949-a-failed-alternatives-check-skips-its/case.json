@@ -85,7 +85,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds quotes from docs (k8s/README.md:610, ERRORS.md:125) and one line that promises tests. It holds no check of the code. A check of the code would have found that rows.py does not exist, that failures are already collected, and that the base spec contradicts the change. Another open plan (2946, same file alternatives.py) changes the same module and is not named in the proposal.",
    "evidence": "proposal.md lines 34-39 cite only documents; line 39 'First checks the implementation runs: `uv run devops ci test tests/test_roadmap_alternatives.py`'. openspec/changes/2946-the-alternatives-check-must-search-before/tasks.md edits `src/devops_cli/roadmap/alternatives.py` too.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

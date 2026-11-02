@@ -31,7 +31,7 @@
    "where": "tasks.md",
    "problem": "The named host list in task 2.2 does not match the README section. It lists hooks, alloy, qdrant and prometheus, which the section never names. It omits mattermost, which the section names. So the replacement list and the check ('Verify each named host appears in ingress-routes.yaml or roadmap-service/ingress.yaml') cannot be followed as written. The list also includes k8s, which neither file defines as an Ingress host.",
    "evidence": "README lines 1156-1159 name chat, grafana, ai, argocd, git, mattermost (all with .homelab.<domain>). grep of 'host:' in the two named Ingress files has no k8s.* and no mattermost.* host. Task 2.2: 'for each named host (chat, grafana, ai, argocd, git, hooks, k8s, alloy, qdrant, prometheus)'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "criterion_dropped",
@@ -47,7 +47,7 @@
    "where": "tasks.md",
    "problem": "The Ingress manifests write hosts with the literal example.com (and Traefik IngressRoute uses Host(`traefik.example.com`)). The README writes <domain>. The task never says to map example.com to <domain>, and never says where the 'homelab.' rule applies. Also 'homelab.example.com' is a real Ingress host (open-webui), so a rule 'no token contains homelab.' conflicts with the issue criterion 'unless an Ingress in k8s/ uses it'.",
    "evidence": "k8s/ingress/ingress-routes.yaml:35 '- host: homelab.example.com' (backend open-webui); lines 25,59,133 'host: chat.example.com', 'ai.example.com', 'grafana.example.com'; line 499 'match: Host(`traefik.example.com`)'. Issue acceptance criteria: 'No homelab.<domain> host form remains in k8s/README.md unless an Ingress in k8s/ uses it.'",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "task_order",
@@ -71,7 +71,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section repeats the issue ('The issue confirms 24 Ingress hosts', 'The issue cites lines 972, 989-991...'). It records no own command output. Its 'first checks' are plans, not evidence. The cited lines are stale: the section now sits at lines 1139-1178. The plan does not address the issue's second solution bullet (check the Access and DNS steps against `devops cloudflare` and the tunnel manifests).",
    "evidence": "proposal.md Feasibility bullets. git show origin/main:k8s/README.md: 'homelab.<domain>' on lines 1139, 1156-1159, 1172, 1178; none at 972-1010. Issue body: 'Check the Access application and DNS steps against the current Cloudflare setup that `devops cloudflare` and the tunnel manifests use.'",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

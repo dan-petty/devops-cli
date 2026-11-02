@@ -113,6 +113,7 @@ from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
+from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
@@ -129,6 +130,7 @@ from devops_cli.roadmap.stage_change import (
 from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_probe import probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
@@ -532,6 +534,15 @@ class OverBudget:
 
 
 @dataclass(frozen=True)
+class PremiseFailed:
+    """An item whose premise is false: the model's evidence, on one line. The job returns the item
+    to New and plans no change (#3011)."""
+
+    target: StageTarget
+    evidence: str
+
+
+@dataclass(frozen=True)
 class StageFailure:
     """An item the job could not plan: the class of the error and why, never the model's text."""
 
@@ -576,6 +587,7 @@ class StagePlan:
     budget: int = 0
     ready: tuple[StagedChange, ...] = ()
     over_budget: tuple[OverBudget, ...] = ()
+    returned: tuple[PremiseFailed, ...] = ()
     failed: tuple[StageFailure, ...] = ()
     left_out: tuple[LeftOut, ...] = ()
     removals: tuple[Removal, ...] = ()
@@ -640,12 +652,13 @@ class _Planner:
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
 
-    def plan(self, target: StageTarget) -> StagedChange | OverBudget:
-        """The change of `target`, or the group that stops it. A reply the checks refuse goes
-        back to the model once, with the problem. The model splits the groups at most once. With
-        a verifier, the model review of the plan (#3153) follows the checks and may return the
-        plan once more. So an item costs three planner calls at most without a verifier, four
-        with one, and two calls of the verifier."""
+    def plan(self, target: StageTarget) -> StagedChange | OverBudget | PremiseFailed:
+        """The change of `target`, the group that stops it, or the evidence that its premise is
+        false. A reply the checks refuse goes back to the model once, with the problem. The model
+        splits the groups at most once. With a verifier, the model review of the plan (#3153)
+        follows the checks and may return the plan once more. So an item costs three planner calls
+        at most without a verifier, four with one, and two calls of the verifier. A reply that
+        sets `premise_failed` ends the item at once, with no review."""
         self._split_asked = False
         if self._toolbox is not None:
             self._toolbox.traces.clear()
@@ -658,9 +671,14 @@ class _Planner:
             return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
         return outcome
 
-    def _gated(self, target: StageTarget, request: Mapping[str, Any]) -> StagedChange | OverBudget:
-        """The change that passes the checks, with one return of a refused reply."""
+    def _gated(
+        self, target: StageTarget, request: Mapping[str, Any]
+    ) -> StagedChange | OverBudget | PremiseFailed:
+        """The change that passes the checks, with one return of a refused reply, or the evidence
+        that the premise is false."""
         proposal = self._ask(StageProposal, _CHANGE_TASK, request)
+        if proposal.premise_failed is not None:
+            return self._premise_failed(target, proposal.premise_failed)
         outcome = self._settle(target, proposal)
         if isinstance(outcome, _Refused):
             again = {
@@ -669,11 +687,19 @@ class _Planner:
                 "problem": outcome.problem,
             }
             proposal = self._ask(StageProposal, _CHANGE_TASK, again)
+            if proposal.premise_failed is not None:
+                return self._premise_failed(target, proposal.premise_failed)
             outcome = self._settle(target, proposal)
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
         return outcome
+
+    @staticmethod
+    def _premise_failed(target: StageTarget, evidence: str) -> PremiseFailed:
+        """The outcome for a reply that says the premise is false: the evidence on one line, a
+        secret masked, with no handle or link that pings anyone."""
+        return PremiseFailed(target, safe_text(mask_secrets(evidence)))
 
     def _verified(
         self,
@@ -681,10 +707,11 @@ class _Planner:
         request: Mapping[str, Any],
         change: StagedChange,
         verifier: StageClient,
-    ) -> StagedChange | OverBudget:
+    ) -> StagedChange | OverBudget | PremiseFailed:
         """The change after the model review. A finding of a type that returns the plan, with a
         quote that is in the input, sends the plan back to the planner once: the revised plan
-        passes the checks and the review again, and a refused revision stops the item. Every
+        passes the checks and the review again, a refused revision stops the item, and a reply
+        that sets `premise_failed` returns the item. Every
         other finding, and every finding of the revised plan, stays on the change for the
         comment."""
         findings, returned = self._review(target, change, verifier)
@@ -694,7 +721,10 @@ class _Planner:
                 "previous": change.proposal.model_dump(),
                 "problem": return_problem(returned),
             }
-            outcome = self._settle(target, self._ask(StageProposal, _CHANGE_TASK, again))
+            revised = self._ask(StageProposal, _CHANGE_TASK, again)
+            if revised.premise_failed is not None:
+                return self._premise_failed(target, revised.premise_failed)
+            outcome = self._settle(target, revised)
             if isinstance(outcome, _Refused):
                 message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
                 raise _stage_error(message, target)
@@ -721,7 +751,7 @@ class _Planner:
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
         item = target.item
-        return {
+        request: dict[str, Any] = {
             "number": item.number,
             "title": item.title,
             "body": truncate_to_token_limit(item.body, self._window // _WINDOW_SHARE_BODY),
@@ -731,6 +761,10 @@ class _Planner:
             "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
+        probes = probe_premise(self._source, self._sha, item.body).text
+        if probes:
+            request["probes"] = probes
+        return request
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
         return self._client.chat_structured(
@@ -860,9 +894,10 @@ def _failure_of(
 
 def _plan_each(
     planner: _Planner, targets: Iterable[StageTarget]
-) -> tuple[list[StagedChange], list[OverBudget], list[StageFailure]]:
+) -> tuple[list[StagedChange], list[OverBudget], list[PremiseFailed], list[StageFailure]]:
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
+    returned: list[PremiseFailed] = []
     failed: list[StageFailure] = []
     for target in targets:
         try:
@@ -874,9 +909,11 @@ def _plan_each(
             continue
         if isinstance(outcome, OverBudget):
             stopped.append(outcome)
+        elif isinstance(outcome, PremiseFailed):
+            returned.append(outcome)
         else:
             ready.append(outcome)
-    return ready, stopped, failed
+    return ready, stopped, returned, failed
 
 
 def _pull_of(item: Item) -> int | None:
@@ -1016,8 +1053,14 @@ def plan_stage(
         planner = _planner_of(
             client, checkout, sha, budget=budget, tool=tool, toolbox=toolbox, verifier=verifier
         )
-        ready, stopped, failed = _plan_each(planner, selection.selected)
-    return replace(plan, ready=tuple(ready), over_budget=tuple(stopped), failed=tuple(failed))
+        ready, stopped, returned, failed = _plan_each(planner, selection.selected)
+    return replace(
+        plan,
+        ready=tuple(ready),
+        over_budget=tuple(stopped),
+        returned=tuple(returned),
+        failed=tuple(failed),
+    )
 
 
 def analysis_window() -> int:
@@ -1066,7 +1109,7 @@ def plan_item(
     checkout: Path,
     sha: str,
     step_tokens: int | None = None,
-) -> StagedChange | OverBudget:
+) -> StagedChange | OverBudget | PremiseFailed:
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
@@ -1097,13 +1140,14 @@ _GIT_OPERATION: Final[str] = "roadmap.stage"
 
 @dataclass(frozen=True)
 class StageApplied:
-    """What a run wrote: the items it staged, the items it stopped on a group over the budget, and
-    the items whose writes failed."""
+    """What a run wrote: the items it staged, the items it stopped on a group over the budget, the
+    items it returned to New on a false premise, and the items whose writes failed."""
 
     staged: tuple[int, ...] = ()
     stopped: tuple[int, ...] = ()
     failed: tuple[StageFailure, ...] = ()
     removed: tuple[int, ...] = ()
+    returned: tuple[int, ...] = ()
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -1261,6 +1305,16 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
     )
 
 
+def _return_item(store: RoadmapStore, repo: str, returned: PremiseFailed) -> None:
+    """Return the item to New with the evidence, as `devops roadmap return` does: the comment goes
+    first, then the Status. The item gets no branch and no pull request."""
+    number = returned.target.item.number
+    comment = MESSAGES.roadmap.stage_comment_premise_failed.format(
+        marker=CONST_ROADMAP_STAGE_COMMENT_MARKER, evidence=returned.evidence
+    )
+    apply_return(store, plan_return(store, number, comment, repo))
+
+
 def _write_failure(item: Item, exc: DevOpsCLIError) -> StageFailure:
     """The failure of a write: the error's class and its message, credentials masked."""
     return StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)))
@@ -1311,6 +1365,7 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     removed: list[int] = []
     staged: list[int] = []
     stopped: list[int] = []
+    returned: list[int] = []
     failed: list[StageFailure] = []
     phases = (
         (
@@ -1328,6 +1383,10 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
             staged,
         ),
         ([(o.target.item, partial(_stop_on_budget, store, o)) for o in plan.over_budget], stopped),
+        (
+            [(r.target.item, partial(_return_item, store, plan.repo, r)) for r in plan.returned],
+            returned,
+        ),
     )
     try:
         for writes, done in phases:
@@ -1335,7 +1394,9 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     except ServiceStoppingError:
         raise_for_failed([*plan.failed, *failed])
         raise
-    return StageApplied(tuple(staged), tuple(stopped), tuple(failed), tuple(removed))
+    return StageApplied(
+        tuple(staged), tuple(stopped), tuple(failed), tuple(removed), tuple(returned)
+    )
 
 
 class StageResult(StrEnum):
@@ -1343,6 +1404,7 @@ class StageResult(StrEnum):
 
     STAGED = "staged"
     NEEDS_SPLIT = "needs_split"
+    RETURNED = "returned"
     FAILED = "failed"
     SKIPPED = "skipped"
 
@@ -1353,6 +1415,7 @@ def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResu
     results = dict.fromkeys((left.number for left in plan.left_out), StageResult.SKIPPED)
     results |= dict.fromkeys(applied.staged, StageResult.STAGED)
     results |= dict.fromkeys(applied.stopped, StageResult.NEEDS_SPLIT)
+    results |= dict.fromkeys(applied.returned, StageResult.RETURNED)
     results |= dict.fromkeys(
         (failure.number for failure in (*plan.failed, *applied.failed)), StageResult.FAILED
     )
@@ -1402,6 +1465,12 @@ def render_stage_plan(plan: StagePlan) -> str:
         )
         for o in plan.over_budget
     ]
+    returned = [
+        texts.stage_returned_line.format(
+            number=r.target.item.number, title=r.target.item.title, evidence=r.evidence
+        )
+        for r in plan.returned
+    ]
     left = [
         texts.stage_left_line.format(number=x.number, title=x.title, reason=x.reason)
         for x in plan.left_out
@@ -1427,6 +1496,7 @@ def render_stage_plan(plan: StagePlan) -> str:
     ]
     lines += _section(texts.stage_heading_ready, ready)
     lines += _section(texts.stage_heading_over, over)
+    lines += _section(texts.stage_heading_returned, returned)
     lines += _section(texts.stage_heading_left, left)
     lines += _section(
         texts.item_heading_unmatched,
@@ -1438,7 +1508,7 @@ def render_stage_plan(plan: StagePlan) -> str:
     lines += _section(texts.stage_heading_failed, failed)
     lines += _section(texts.stage_heading_removals, removals)
     lines += _section(texts.stage_heading_kept, kept)
-    if not (ready or over or left or failed or removals or kept):
+    if not (ready or over or returned or left or failed or removals or kept):
         lines += ["", texts.stage_nothing]
     return "\n".join(lines)
 
@@ -1466,6 +1536,7 @@ __all__ = [
     "KeptBranch",
     "LeftOut",
     "OverBudget",
+    "PremiseFailed",
     "Removal",
     "StageApplied",
     "StageFailure",

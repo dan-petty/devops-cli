@@ -155,6 +155,17 @@ def test_a_plan_run_that_spends_its_budget_ends_the_case_refused_with_the_limit(
     )
 
 
+def test_a_reply_that_says_the_premise_is_false_ends_the_case_returned(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    model_fake.answer(StageProposal.model_validate({"premise_failed": "The premise is false."}))
+
+    run = run_case(case, _client(model_fake), stage_repo.clone)
+
+    assert (run.outcome, run.calls) == (Outcome.RETURNED, 1)
+
+
 def test_a_first_reply_that_passes_has_no_problem(
     cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
 ) -> None:
@@ -315,6 +326,7 @@ def test_the_score_counts_avoided_and_caught_defects_for_each_type_that_a_gate_c
         Outcome.STAGED: 3,
         Outcome.REFUSED: 0,
         Outcome.OVER_BUDGET: 0,
+        Outcome.RETURNED: 0,
         Outcome.FAILED: 1,
     }
 
@@ -324,12 +336,12 @@ def test_a_type_with_no_gate_has_a_count_and_no_rate(cases: list[StageCase]) -> 
 
     rows = {row.type: row for row in score.rows}
 
-    assert rows[DefectType.FALSE_PREMISE].gate is GateName.PENDING
+    pending = rows[DefectType.IGNORES_EXISTING_CODE]
+    assert pending.gate is GateName.PENDING
+    assert pending.cases > 0
+    assert (pending.avoided, pending.rate) == (None, None)
+    assert rows[DefectType.FALSE_PREMISE].gate is GateName.NONE
     assert rows[DefectType.FALSE_PREMISE].cases > 0
-    assert (rows[DefectType.FALSE_PREMISE].avoided, rows[DefectType.FALSE_PREMISE].rate) == (
-        None,
-        None,
-    )
     assert rows[DefectType.OTHER].gate is GateName.NONE
 
 

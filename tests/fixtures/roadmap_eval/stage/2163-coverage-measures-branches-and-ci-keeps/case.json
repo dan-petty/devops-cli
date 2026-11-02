@@ -63,7 +63,7 @@
    "where": "design.md",
    "problem": "The design says the project already uses actions/upload-artifact for the SARIF report in the same workflow. This is false. ci.yml uploads SARIF with github/codeql-action/upload-sarif. No workflow uses actions/upload-artifact. The implementer has no existing pin to copy, and the plan does not give the commit SHA or the version to pin. The 'Existing Tool Considered' evidence is therefore wrong.",
    "evidence": "design.md: 'The project uses it for the SARIF report in the same workflow.' ci.yml line 86: 'uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4'. `grep -rn upload-artifact .github/workflows` gives no output.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",
@@ -79,7 +79,7 @@
    "where": "proposal.md",
    "problem": "The timing in Feasibility (245-307 s, 284.5 s average) is copied from the issue (runs of 2026-10-24). The plan did not measure it again. A newer job, Test Job Duration (#2699), now fails main when the mean passes 300 s. The plan does not mention it. It makes the time risk of branch measurement real, and it is a reason for task 'measure 5 runs before and after'.",
    "evidence": "ci.yml job `job-time` 'Test Job Duration' runs `uv run devops ci job-time` and fails when the mean of Tests & Coverage is over 300 s (#2699). proposal.md: 'The Tests & Coverage job took 245-307 s in the last 8 runs (284.5 s average).' This text matches the issue comment of 2026-10-24.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "contrived_test",
