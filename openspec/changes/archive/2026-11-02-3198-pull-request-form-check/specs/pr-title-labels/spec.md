@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The title gives the labels of a new pull request
-After `devops pr create` opens a pull request, it SHALL add the `type/*` label that the Conventional Commit type of the title names, and the label `scope/<scope>` when the title has the scope `<scope>`, each only when `.github/labels.yml` of the repository on the base branch declares it. It SHALL use the same rule as intake, so `fix` gives `type/bug`. A title with no scope SHALL give only the type label. A title with no Conventional Commit type or with a scope that has no label is refused before the pull request opens (see the capability `pull-request-form`).
+After `devops pr create` opens a pull request, it SHALL add the `type/*` label that the Conventional Commit type of the title names, and `scope/<scope>` when the title has the scope `<scope>`, each only when `.github/labels.yml` on the base branch declares it. It SHALL use the rule of intake, so `fix` gives `type/bug`. A title with no scope SHALL give only the type label. A title with no type, or a scope with no label, is refused before the pull request opens (capability `pull-request-form`).
 
 #### Scenario: A fix with a scope
 - **WHEN** `devops pr create --title "fix(ai): a title"` with a body in the form opens pull request 14
@@ -16,7 +16,7 @@ After `devops pr create` opens a pull request, it SHALL add the `type/*` label t
 - **THEN** the command exits 1 and opens no pull request, so no label is added
 
 ### Requirement: A label that cannot be added is reported and the pull request stays
-When the label file cannot be read, the command SHALL stop before it opens the pull request, with an error that names the file. When a label cannot be added after the pull request opened, the command SHALL print an error that names the pull request number, each label that was not added, the reason, and the `devops gh api` command that adds a label by hand, and SHALL exit 1. It SHALL try every label, and SHALL NOT close or delete the pull request. The Status of the item that the pull request closes SHALL still be set.
+When the label file cannot be read, the command SHALL stop before it opens the pull request and name the file. When a label cannot be added after the pull request opened, it SHALL print an error that names the pull request number, each label not added, the reason, and the `devops gh api` command that adds a label by hand, and SHALL exit 1. It SHALL try every label, SHALL NOT close or delete the pull request, and SHALL still set the Status of the item that the pull request closes.
 
 #### Scenario: One label is refused
 - **WHEN** GitHub refuses `type/bug` for pull request 14 and accepts `scope/ai`
