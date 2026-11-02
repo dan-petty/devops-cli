@@ -10,6 +10,7 @@ model broke the schema of its reply past its retries.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
+from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.refine_investigation import InvestigationStopped, investigate
 from devops_cli.roadmap.stage_change import StageProposal
@@ -36,19 +38,44 @@ if TYPE_CHECKING:
 _TOOLS_TASK = "roadmap_stage_tools.md"
 
 
+@dataclass(frozen=True)
+class ToolboxModel:
+    """The pydantic-ai model of a plan run that has the tools. Give it where the job takes a model
+    to ask for a plan with the toolbox; a client instead plans with the one call and no tool."""
+
+    model: Any
+
+
 class ToolboxClient:
     """A stage client whose plan runs read the repository at `sha` with read-only tools.
 
     `model` is the pydantic-ai model of the run, and `inner` answers every call that is not for a
-    plan. `traces` holds one `RunTrace` for each plan run, in order; the caller clears it.
+    plan. `traces` holds one `RunTrace` for each plan run, in order; the caller clears it. With a
+    `window`, the context window of the model in tokens, a request that would leave too little of
+    it for the plan offers no tool. `openspec` reads the specs for `read_spec`.
+
+    Raises `RoadmapStageError` when the checkout is not the commit `sha` with no change, because
+    three tools read its files and the others read the commit.
     """
 
-    def __init__(self, model: Any, inner: StageClient, source: Path, sha: str) -> None:
+    def __init__(
+        self,
+        model: Any,
+        inner: StageClient,
+        source: Path,
+        sha: str,
+        *,
+        window: int | None = None,
+        openspec: OpenSpecTool | None = None,
+    ) -> None:
         self._model = model
         self._inner = inner
-        self._source = source
-        self._sha = sha
+        self._tools = StageTools(source=source, sha=sha, openspec=openspec)
+        self._window = window
         self.traces: list[RunTrace] = []
+        problem = self._tools.checkout_problem()
+        if problem is not None:
+            raise RoadmapStageError(problem)
 
     def chat_structured[M: BaseModel](
         self, system: str, prompt: str, schema: type[M], *, max_retries: int
@@ -63,7 +90,7 @@ class ToolboxClient:
             self._model,
             f"{system}\n\n{load_task_prompt(_TOOLS_TASK)}",
             prompt,
-            StageTools(source=self._source, sha=self._sha),
+            self._tools,
             schema,
             limits=UsageLimits(
                 request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
@@ -72,6 +99,7 @@ class ToolboxClient:
             ),
             output_retries=max_retries,
             trace=trace,
+            window=self._window,
         )
         if isinstance(result, InvestigationStopped):
             raise _stopped(result, trace)
@@ -89,4 +117,4 @@ def _stopped(result: InvestigationStopped, trace: RunTrace) -> Exception:
     return RoadmapStageError(MESSAGES.roadmap.stage_run_stopped.format(reason=result.message))
 
 
-__all__ = ["ToolboxClient"]
+__all__ = ["ToolboxClient", "ToolboxModel"]

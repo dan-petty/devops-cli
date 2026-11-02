@@ -14,13 +14,19 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+)
 
 from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
     StructuredOutputValidationError,
 )
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.stage_change import StageProposal, StageSplit
@@ -256,3 +262,53 @@ def test_each_run_has_a_new_budget(checkout: tuple[Path, str]) -> None:
         [len(tools) for tools in script.tools_offered],
         [len(trace.tool_calls) for trace in client.traces],
     ) == ([9] * 42, [20, 20])
+
+
+def _big_file_checkout(checkout: tuple[Path, str]) -> tuple[Path, str]:
+    """The checkout with one committed file whose first 120 lines fill a tool answer."""
+    source, _ = checkout
+    text = "".join(f"line {n} of the big file with words that a model reads\n" for n in range(300))
+    (source / "src" / "big.py").write_text(text, encoding="utf-8")
+    _git(source, "add", "-A")
+    _git(source, "commit", "-q", "-m", "big")
+    return source, _git(source, "rev-parse", "HEAD")
+
+
+def test_a_window_takes_the_tools_away_before_the_messages_pass_it(
+    checkout: tuple[Path, str],
+) -> None:
+    source, sha = _big_file_checkout(checkout)
+    window = 12000
+    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=window)
+
+    plan = _plan(client)
+
+    offered = [len(tools) for tools in script.tools_offered]
+    last = ModelMessagesTypeAdapter.dump_json(script.seen[-1]).decode()
+    assert (plan, offered[0], offered[-1], 1 < len(offered) < 27) == (_PLAN, 9, 0, True)
+    assert count_tokens(last) < window
+
+
+def test_a_run_with_no_window_keeps_the_tools_until_the_budget_takes_them(
+    checkout: tuple[Path, str],
+) -> None:
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), without_tools=_PLAN)
+
+    _plan(ToolboxClient(script.model(), _Inner(), source, sha))
+
+    assert [len(tools) for tools in script.tools_offered] == [9] * 27 + [0]
+
+
+def test_a_checkout_that_is_not_the_staged_commit_is_refused_before_a_run(
+    checkout: tuple[Path, str],
+) -> None:
+    source, sha = checkout
+    (source / "src" / "sample.py").write_text("changed = 1\n", encoding="utf-8")
+    script = Script(_PLAN)
+
+    with pytest.raises(RoadmapStageError, match="not committed"):
+        ToolboxClient(script.model(), _Inner(), source, sha)
+
+    assert script.seen == []

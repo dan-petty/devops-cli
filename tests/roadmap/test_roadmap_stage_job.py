@@ -118,7 +118,7 @@ def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
     assert _counted(otlp) == [("staged", 1.0)]
 
 
-def test_a_round_plans_with_the_model_of_the_analysis_task_as_an_investigator(
+def test_a_round_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,

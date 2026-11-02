@@ -23,6 +23,7 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -36,6 +37,7 @@ from devops_cli.roadmap.stage_change import (
     render_change,
 )
 from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import (
@@ -897,7 +899,7 @@ def _toolbox_plan(
         repo=STAGE_REPO,
         source=repo.clone,
         filters=parse_filters(()),
-        investigator=script.model(),
+        model=ToolboxModel(script.model()),
         **options,
     )
 
@@ -989,55 +991,29 @@ def test_without_an_investigator_the_planner_makes_the_one_call_and_has_no_trace
     assert (model_fake.call_count, len(plan.ready)) == (1, 1)
 
 
-def test_a_model_and_an_investigator_together_are_refused_before_the_selection_is_read(
-    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
-) -> None:
-    with pytest.raises(ValueError, match="model or an investigator"):
-        plan_stage(
-            store,
-            repo=STAGE_REPO,
-            source=stage_repo.clone,
-            filters=parse_filters(()),
-            model=cast("LLMClient", model_fake),
-            investigator=Script(make_stage_proposal()).model(),
-        )
-
-    assert model_fake.call_count == 0
-
-
 @pytest.mark.usefixtures("model_fake")
-def test_plan_item_plans_with_an_investigator(
+def test_plan_item_plans_with_a_toolbox_client(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
 ) -> None:
     script = Script(call("list_files", directory="src"), make_stage_proposal())
     target = store.item(item)
     assert target is not None
+    sha = stage_repo.git("rev-parse", "HEAD")
+    client = ToolboxClient(script.model(), cast("StageClient", object()), stage_repo.clone, sha)
 
-    planned = plan_item(
-        target,
-        investigator=script.model(),
-        checkout=stage_repo.clone,
-        sha=stage_repo.git("rev-parse", "HEAD"),
-    )
+    planned = plan_item(target, client=client, checkout=stage_repo.clone, sha=sha)
 
     assert script.tool_returns()[0] == "src/devops_cli"
     assert type(planned) is StagedChange
 
 
-def test_plan_item_takes_a_client_or_an_investigator_and_not_both(
-    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+def test_a_toolbox_plan_of_a_checkout_with_a_change_fails_before_any_model_call(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
 ) -> None:
-    target = store.item(item)
-    assert target is not None
-    sha = stage_repo.git("rev-parse", "HEAD")
+    script = Script(make_stage_proposal())
+    (stage_repo.clone / "src" / "devops_cli" / "sample.py").write_text("changed = 1\n")
 
-    with pytest.raises(ValueError, match="client or an investigator"):
-        plan_item(
-            target,
-            client=cast("StageClient", model_fake),
-            investigator=Script(make_stage_proposal()).model(),
-            checkout=stage_repo.clone,
-            sha=sha,
-        )
+    with pytest.raises(RoadmapStageError, match="changes that are not committed"):
+        _toolbox_plan(store, stage_repo, script)
 
-    assert model_fake.call_count == 0
+    assert script.seen == []

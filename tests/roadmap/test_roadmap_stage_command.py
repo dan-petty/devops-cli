@@ -104,7 +104,7 @@ def test_confirm_stages_the_item_and_reports_it(
     assert "budget of 30000 tokens" in roadmap_store.comments_on(1)[0].body
 
 
-def test_the_command_plans_with_the_model_of_the_analysis_task_as_an_investigator(
+def test_the_command_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
     cli: Cli,
     roadmap_store: InMemoryRoadmapStore,
     stage_repo: StageRepo,

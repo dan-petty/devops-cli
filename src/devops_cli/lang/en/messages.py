@@ -2622,6 +2622,12 @@ class RoadmapMessages:
     stage_violations: str = "{count} schema violation(s)"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The checkout of a plan run with tools is not the staged commit with no change (#3037).
+    stage_checkout_moved: str = "The checkout is not at the staged commit {sha}."
+    stage_checkout_dirty: str = (
+        "The checkout has changes that are not committed, so the tools would read files that the "
+        "staged commit does not hold."
+    )
     git_failed: str = "`git {command}` failed: {reason}"
     # The comments of the stage job; each starts with its marker.
     stage_comment_staged: str = (

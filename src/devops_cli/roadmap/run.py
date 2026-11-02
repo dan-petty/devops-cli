@@ -123,6 +123,7 @@ from devops_cli.roadmap.stage import (
     raise_for_failed,
 )
 from devops_cli.roadmap.stage_ready import mark_stage_ready
+from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.status_sync import sync_statuses
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
@@ -557,7 +558,7 @@ def _run_stage_adapter(
         repo=repo,
         source=source,
         filters=parse_filters(()),
-        investigator=get_task_model("analysis"),
+        model=ToolboxModel(get_task_model("analysis")),
     )
     applied = apply_stage(store, plan, source=source)
     emit_stage_results(plan, applied)

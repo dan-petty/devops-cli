@@ -7,8 +7,9 @@ The others read the staged commit with git, or read the checkout through tree-si
 writes a file, runs a shell command or opens a network connection.
 
 A tool answers each failure as text, so no argument that the model sends can stop the run. A tool
-runs only `git` with a fixed list of arguments, and a `--` before every path. `file_symbols` and
-`repo_map` read the files of the checkout, which the job holds at the staged commit.
+runs only `git` with a fixed list of arguments, and a `--` before every path, or `openspec` to read
+a spec. `file_symbols`, `repo_map` and `read_spec` read the files of the checkout, so the checkout
+must be the staged commit with no change: `checkout_problem` says when it is not.
 """
 
 from __future__ import annotations
@@ -16,18 +17,22 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from pydantic_ai import Tool
 
 from devops_cli.ai.ast.engine import TreeSitterEngine
-from devops_cli.ai.repomap import generate_repo_map, render_repo_map_text
+from devops_cli.ai.repomap import FileMapNode, generate_repo_map
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_LOG_MAX_COUNT,
+    CONST_ROADMAP_STAGE_MAP_LINE_CHARS,
     CONST_ROADMAP_STAGE_MAP_MAX_FILES,
     CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
 )
+from devops_cli.lang import MESSAGES
+from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.refine_investigation import (
+    GREP_MATCHES_PER_FILE,
     InvestigationTools,
     cut,
     repository_path,
@@ -36,8 +41,6 @@ from devops_cli.roadmap.refine_investigation import (
 _COMMIT: Final[re.Pattern[str]] = re.compile(r"[0-9a-fA-F]{7,40}")
 _SYMBOL: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _CAPABILITY: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-_REQUIREMENT_HEADING: Final[str] = "### Requirement:"
-_SPECS: Final[str] = "openspec/specs"
 
 
 def _outside(text: str) -> str:
@@ -49,8 +52,21 @@ class StageTools(InvestigationTools):
     """The nine read-only tools of one plan run, on commit `sha` of the checkout at `source`.
 
     It extends refine's tools and leaves out `search_web`: the toolbox opens no network
-    connection.
+    connection. `openspec` reads the specs; without it `read_spec` answers that it is missing.
     """
+
+    openspec: OpenSpecTool | None = None
+
+    def checkout_problem(self) -> str | None:
+        """Why the checkout is not the staged commit with no change, or None when it is. Three
+        tools read the files of the checkout and the others read the commit, so a checkout that
+        differs would make them disagree."""
+        _, head = self._git("rev-parse", "HEAD")
+        _, staged = self._git("rev-parse", "--verify", "--quiet", f"{self.sha}^{{commit}}")
+        if not head.strip() or head.strip() != staged.strip():
+            return MESSAGES.roadmap.stage_checkout_moved.format(sha=self.sha)
+        _, changes = self._git("status", "--porcelain")
+        return MESSAGES.roadmap.stage_checkout_dirty if changes.strip() else None
 
     def git_log(self, path: str = "") -> str:
         """List the newest commits that changed a path, or any path when none is given.
@@ -114,7 +130,17 @@ class StageTools(InvestigationTools):
         if not _SYMBOL.fullmatch(symbol):
             return f"The text {symbol} is no symbol name."
         pattern = rf"(^|[^A-Za-z0-9_]){symbol}\("
-        code, out = self._git("grep", "-n", "-I", "-E", "-e", pattern, self.sha, "--")
+        code, out = self._git(
+            "grep",
+            "-n",
+            "-I",
+            "-E",
+            f"--max-count={GREP_MATCHES_PER_FILE}",
+            "-e",
+            pattern,
+            self.sha,
+            "--",
+        )
         decoded = out.decode("utf-8", errors="replace").splitlines()
         lines = [line.removeprefix(f"{self.sha}:") for line in decoded]
         return cut(lines) if code == 0 and lines else f"No call of {symbol}."
@@ -158,26 +184,33 @@ class StageTools(InvestigationTools):
         return cut(lines)
 
     def repo_map(self, directory: str = "") -> str:
-        """Map the symbols of the source files under one directory.
+        """Map the Python source files under one directory: a line for each file, with the names
+        of its top-level classes and functions. It maps the first files in path order, so for a
+        large directory ask for a subdirectory. An empty text is the top, which maps `src/`; ask
+        for `tests` to map the tests.
 
         Args:
-            directory: The repository path of the directory. An empty text is the top.
+            directory: The repository path of the directory.
         """
         resolved, clean = self._checkout_path(directory)
         if resolved is None:
             return clean
         if not resolved.is_dir():
             return f"The checkout holds no directory {clean}."
+        # One more file than the limit shows whether the directory holds more.
         nodes = generate_repo_map(
-            resolved, max_files=CONST_ROADMAP_STAGE_MAP_MAX_FILES, include_tests=True
+            resolved, max_files=CONST_ROADMAP_STAGE_MAP_MAX_FILES + 1, include_tests=True
         )
         if not nodes:
             return f"No source file under {clean or 'the top'} has symbols."
-        placed = [
-            node.model_copy(update={"path": f"{clean}/{node.path}" if clean else node.path})
-            for node in nodes
-        ]
-        return cut(render_repo_map_text(placed).splitlines())
+        lines = [_map_line(node, clean) for node in nodes[:CONST_ROADMAP_STAGE_MAP_MAX_FILES]]
+        if len(nodes) > CONST_ROADMAP_STAGE_MAP_MAX_FILES:
+            lines.append("(more files are left out; map a subdirectory)")
+        return "\n".join(lines)
+
+    def _spec_names(self, tool: OpenSpecTool) -> list[str]:
+        listing = tool.read_json(["list", "--specs", "--json"], self.source)
+        return [spec["id"] for spec in listing["specs"]]
 
     def read_spec(self, capability: str = "", requirement: str = "") -> str:
         """Read a base spec of the project. Without a capability, list the capabilities. With one,
@@ -187,24 +220,24 @@ class StageTools(InvestigationTools):
             capability: The name of the capability, such as `roadmap-stage`.
             requirement: The name of one requirement of the capability.
         """
-        if not capability:
-            _, out = self._git("ls-tree", "--name-only", self.sha, f"{_SPECS}/")
-            names = [Path(line).name for line in out.decode("utf-8", errors="replace").splitlines()]
-            return cut(names) or "The commit holds no spec."
-        if not _CAPABILITY.fullmatch(capability):
+        tool = self.openspec
+        if tool is None:
+            return "OpenSpec is not installed, so no spec can be read."
+        if capability and not _CAPABILITY.fullmatch(capability):
             return f"The text {capability} is no capability name."
-        code, out = self._git("show", f"{self.sha}:{_SPECS}/{capability}/spec.md")
-        if code != 0:
-            return f"The commit holds no spec {capability}."
-        lines = out.decode("utf-8", errors="replace").splitlines()
-        names = [
-            line.removeprefix(_REQUIREMENT_HEADING).strip()
-            for line in lines
-            if line.startswith(_REQUIREMENT_HEADING)
-        ]
+        names = self._spec_names(tool)
+        if not capability:
+            return cut(names) or "The checkout holds no spec."
+        if capability not in names:
+            return f"The checkout holds no spec {capability}."
+        shown = tool.read_json(["show", capability, "--type", "spec", "--json"], self.source)
+        found = {entry["name"]: entry for entry in shown["requirements"]}
         if not requirement:
-            return cut(names) or f"The spec {capability} holds no requirement."
-        return _requirement_text(lines, capability, requirement.strip())
+            return cut(list(found)) or f"The spec {capability} holds no requirement."
+        entry = found.get(requirement.strip())
+        if entry is None:
+            return f"The spec {capability} holds no requirement {requirement.strip()}."
+        return cut(_requirement_lines(entry), max_chars=CONST_ROADMAP_STAGE_SPEC_MAX_CHARS)
 
     def tools(self) -> list[Tool[None]]:
         """The nine tools of the toolbox, and no other."""
@@ -224,24 +257,23 @@ class StageTools(InvestigationTools):
         ]
 
 
-def _requirement_text(lines: list[str], capability: str, name: str) -> str:
-    """The lines of the requirement `name`, from its heading to the next requirement or section."""
-    heading = f"{_REQUIREMENT_HEADING} {name}"
-    start = next((i for i, line in enumerate(lines) if line.strip() == heading), None)
-    if start is None:
-        return f"The spec {capability} holds no requirement {name}."
-    end = next(
-        (
-            i
-            for i in range(start + 1, len(lines))
-            if lines[i].startswith(_REQUIREMENT_HEADING) or lines[i].startswith("## ")
-        ),
-        len(lines),
-    )
-    kept = lines[start:end]
-    while kept and not kept[-1].strip():
-        kept.pop()
-    return cut(kept, max_chars=CONST_ROADMAP_STAGE_SPEC_MAX_CHARS)
+def _requirement_lines(entry: dict[str, Any]) -> list[str]:
+    """A requirement as OpenSpec reads it, in the form of a spec file: the heading, the text and
+    each scenario. A `MODIFIED` entry copies this form."""
+    lines = [f"### Requirement: {entry['name']}", *str(entry["text"]).splitlines()]
+    for scenario in entry["scenarios"]:
+        lines += ["", f"#### Scenario: {scenario['name']}", *str(scenario["rawText"]).splitlines()]
+    return lines
+
+
+def _map_line(node: FileMapNode, directory: str) -> str:
+    """One line of the map: the path from the top, and the names of the top-level symbols, cut
+    to `CONST_ROADMAP_STAGE_MAP_LINE_CHARS` characters. The limits of the map are set so that its
+    lines fit one tool answer (`CONST_ROADMAP_REFINE_TOOL_MAX_CHARS`) with none cut."""
+    path = f"{directory}/{node.path}" if directory else node.path
+    line = f"{path}: {', '.join(symbol.name for symbol in node.symbols)}"
+    limit = CONST_ROADMAP_STAGE_MAP_LINE_CHARS
+    return line if len(line) <= limit else f"{line[: limit - 3]}..."
 
 
 __all__ = ["StageTools"]

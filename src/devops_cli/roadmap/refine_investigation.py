@@ -10,6 +10,8 @@ the spend ledger as one record.
 
 from __future__ import annotations
 
+import io
+import itertools
 import logging
 import subprocess
 import time
@@ -28,13 +30,21 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelResponse,
+    ToolCallPart,
+)
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
 
 from devops_cli.ai.common_tools import firecrawl_search
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
+    CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES,
+    CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
@@ -58,6 +68,9 @@ logger = logging.getLogger(__name__)
 # The exit code `_git` gives a command that ran out of time, as timeout(1) does.
 _TIMED_OUT = 124
 _GIT_TIMEOUT_SECONDS = 15
+# `git grep` stops at this many matches in one file, one more than a tool answer keeps, so `cut`
+# still says that lines are left out. A file of millions of matching lines costs no more than this.
+GREP_MATCHES_PER_FILE = CONST_ROADMAP_REFINE_TOOL_MAX_LINES + 1
 
 
 def repository_path(text: str) -> str | None:
@@ -156,7 +169,18 @@ class InvestigationTools:
         Returns:
             One line for each match, as `path:line:content`.
         """
-        code, out = self._git("grep", "-n", "-I", "-F", "-i", "-e", text, self.sha, "--")
+        code, out = self._git(
+            "grep",
+            "-n",
+            "-I",
+            "-F",
+            "-i",
+            f"--max-count={GREP_MATCHES_PER_FILE}",
+            "-e",
+            text,
+            self.sha,
+            "--",
+        )
         if code == _TIMED_OUT:
             return "The search ran out of time. Search for a less common text."
         decoded = out.decode("utf-8", errors="replace").splitlines()
@@ -176,6 +200,23 @@ class InvestigationTools:
         names = out.decode("utf-8", errors="replace").splitlines()
         return cut(names) or f"The commit holds no directory {path}."
 
+    def _text_blob(self, clean: str) -> tuple[str | None, str]:
+        """The text of the file `clean` at the commit and "", or None and the answer a tool gives
+        for a file that is missing, binary or larger than
+        `CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES`. The size is read first, so a huge file is
+        never held in memory."""
+        size_code, size = self._git("cat-file", "-s", f"{self.sha}:{clean}")
+        if size_code != 0:
+            return None, f"The commit holds no file {clean}."
+        if int(size.strip() or 0) > CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES:
+            return None, f"The file {clean} is too large to read."
+        code, out = self._git("show", f"{self.sha}:{clean}")
+        if code != 0:
+            return None, f"The commit holds no file {clean}."
+        if b"\0" in out:
+            return None, f"The file {clean} is binary."
+        return out.decode("utf-8", errors="replace"), ""
+
     def read_file(self, path: str, start_line: int = 1, end_line: int = 0) -> str:
         """Read a file of the repository. Each line starts with its number.
 
@@ -187,15 +228,20 @@ class InvestigationTools:
         clean = repository_path(path)
         if not clean:
             return f"The path {path} is outside the repository."
-        code, out = self._git("show", f"{self.sha}:{clean}")
-        if code != 0:
-            return f"The commit holds no file {clean}."
-        if b"\0" in out:
-            return f"The file {clean} is binary."
-        lines = out.decode("utf-8", errors="replace").splitlines()
+        blob, answer = self._text_blob(clean)
+        if blob is None:
+            return answer
         first = max(1, start_line)
-        last = len(lines) if end_line < first else min(end_line, len(lines))
-        numbered = [f"{number}: {lines[number - 1]}" for number in range(first, last + 1)]
+        # One line past the limit lets `cut` say that lines are left out.
+        stop = first - 1 + CONST_ROADMAP_REFINE_TOOL_MAX_LINES + 1
+        if end_line >= first:
+            stop = min(end_line, stop)
+        text = io.StringIO(blob, newline="\n")
+        lines = (line.rstrip("\n").removesuffix("\r") for line in text)
+        numbered = [
+            f"{number}: {line}"
+            for number, line in enumerate(itertools.islice(lines, first - 1, stop), start=first)
+        ]
         return cut(numbered) or f"The file {clean} has no lines from line {first}."
 
     def search_web(self, query: str) -> str:
@@ -232,6 +278,32 @@ def _within_budget(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> li
     requests_left = (limits.request_limit or 0) - ctx.usage.requests
     has_budget = tool_calls_left >= CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS
     return tool_defs if has_budget and requests_left > 1 else []
+
+
+def _within_window_of(
+    window: int | None,
+) -> Callable[[RunContext[None], list[ToolDefinition]], list[ToolDefinition]]:
+    """The hook of a run: the tools of `_within_budget` while the messages and a share of the
+    `window` for the reply (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`) still fit it, and
+    none after that, so the model's next reply calls the output tool (#3037). Without a window it
+    is `_within_budget`."""
+    if window is None:
+        return _within_budget
+    reserve = window // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
+
+    def hook(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
+        offered = _within_budget(ctx, tool_defs)
+        if offered and _tokens_of(ctx.messages) + reserve >= window:
+            return []
+        return offered
+
+    return hook
+
+
+def _tokens_of(messages: Sequence[ModelMessage]) -> int:
+    """The tokens of every message of a run: its instructions, requests, replies and tool answers.
+    The JSON form is a little longer than the text a model reads, so the count errs high."""
+    return count_tokens(ModelMessagesTypeAdapter.dump_json(list(messages)).decode())
 
 
 def _retry_once[T: BaseModel](
@@ -275,6 +347,7 @@ def investigate[T: BaseModel](
     limits: UsageLimits | None = None,
     output_retries: int | None = None,
     trace: RunTrace | None = None,
+    window: int | None = None,
 ) -> T | InvestigationStopped:
     """Run one investigation and return its reply, or `InvestigationStopped` when the run ends
     with none.
@@ -285,7 +358,9 @@ def investigate[T: BaseModel](
 
     `limits` replaces the budget of refine, and must set `request_limit` and `tool_calls_limit`,
     which the hook `_within_budget` reads. `output_retries` replaces the retries of a reply that
-    breaks the schema. `trace` takes what the run did, also when it stops (#3037).
+    breaks the schema. `trace` takes what the run did, also when it stops (#3037). `window` is the
+    context window of the model in tokens: a request that would leave less than
+    `1 / CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE` of it for the reply offers no tool.
 
     Raises `AICredentialsError` when the model refuses the key, and `AIClientError` for any
     other failed model call.
@@ -302,7 +377,7 @@ def investigate[T: BaseModel](
             if output_retries is None
             else output_retries,
         },
-        capabilities=[PrepareTools(_within_budget)],
+        capabilities=[PrepareTools(_within_window_of(window))],
     )
     if output_check is not None:
         _retry_once(agent, output_check)

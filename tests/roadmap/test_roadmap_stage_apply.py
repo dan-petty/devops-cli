@@ -23,6 +23,7 @@ from devops_cli.roadmap.stage import (
     plan_stage,
 )
 from devops_cli.roadmap.stage_change import StageSplit
+from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
@@ -77,7 +78,7 @@ def _stage(
     repo: StageRepo,
     *,
     step_tokens: int | None = None,
-    investigator: Script | None = None,
+    toolbox: Script | None = None,
 ) -> StageApplied:
     plan = plan_stage(
         store,
@@ -85,7 +86,7 @@ def _stage(
         source=repo.clone,
         filters=parse_filters(()),
         step_tokens=step_tokens,
-        investigator=investigator.model() if investigator else None,
+        model=ToolboxModel(toolbox.model()) if toolbox else None,
     )
     return apply_stage(store, plan, source=repo.clone)
 
@@ -395,7 +396,7 @@ def test_the_comment_lists_the_tool_calls_and_the_counts_of_the_plan_run(
 ) -> None:
     script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
 
-    applied = _stage(store, stage_repo, investigator=script)
+    applied = _stage(store, stage_repo, toolbox=script)
 
     (comment,) = _comments(store)
     assert applied.staged == (1,)
@@ -409,7 +410,7 @@ def test_the_comment_lists_the_tool_calls_and_the_counts_of_the_plan_run(
 def test_the_comment_of_an_item_that_made_no_tool_call_says_so(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
 ) -> None:
-    _stage(store, stage_repo, investigator=Script(make_stage_proposal()))
+    _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
 
     (comment,) = _comments(store)
     assert "The plan run made 1 model request(s)" in comment
@@ -447,7 +448,7 @@ def test_the_comment_of_an_item_with_two_plan_runs_lists_the_calls_of_both_and_s
         make_stage_proposal(),
     )
 
-    _stage(store, stage_repo, investigator=script)
+    _stage(store, stage_repo, toolbox=script)
 
     (comment,) = _comments(store)
     assert "The plan run made 4 model request(s)" in comment
@@ -462,7 +463,7 @@ def test_the_comment_holds_the_masked_argument_and_not_the_secret(
 ) -> None:
     script = Script(call("search_code", text=_SECRET), make_stage_proposal())
 
-    _stage(store, stage_repo, investigator=script)
+    _stage(store, stage_repo, toolbox=script)
 
     (comment,) = _comments(store)
     assert (_SECRET in comment, "<masked-github-token>" in comment) == (False, True)
