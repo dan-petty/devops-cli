@@ -20,10 +20,12 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.core.test_selection import select_tests_for_sources
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     format_duration,
@@ -68,6 +70,7 @@ def _changed_paths(repo_root: Path) -> list[str]:
         ["git", "diff", "--name-only", "-z", "--no-renames", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
         cwd=repo_root,
         check=False,
+        local_read=True,
     )
     if diff_proc.returncode == 0 and diff_proc.stdout:
         diff_entries = (
@@ -78,7 +81,7 @@ def _changed_paths(repo_root: Path) -> list[str]:
         changed.update(p for p in diff_entries if p)
 
     status = ["git", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"]
-    wt_proc = run_subprocess(status, cwd=repo_root, check=False)
+    wt_proc = run_subprocess(status, cwd=repo_root, check=False, local_read=True)
     if wt_proc.returncode == 0 and wt_proc.stdout:
         wt_entries = (
             wt_proc.stdout.split("\0")
@@ -110,7 +113,29 @@ def _changed_targets(repo_root: Path) -> list[str]:
 # =============================================================================
 
 
+def pytest_argv(
+    targets: list[str],
+    *,
+    verbose: bool = False,
+    fail_fast: bool = False,
+    filter_expr: str | None = None,
+    coverage: bool = False,
+) -> list[str]:
+    """The command of `devops test run`: `uv run pytest` with its options, then the targets."""
+    args = ["uv", "run", "pytest"]
+    if verbose:
+        args.append("-vv")
+    if fail_fast:
+        args.append("-x")
+    if filter_expr:
+        args.extend(["-k", filter_expr])
+    if coverage:
+        args.extend(["--cov=src", "--cov-report=term-missing"])
+    return [*args, *targets]
+
+
 @app.command("run")
+@dry_run_class("request-plan")
 def run_test_cmd(
     target: Annotated[
         Path | None,
@@ -143,17 +168,6 @@ def run_test_cmd(
 ) -> None:
     """Execute pytest test suite with optional git-diff aware test selection."""
     repo_root = find_worktree_root()
-    test_args: list[str] = ["pytest"]
-
-    if verbose:
-        test_args.append("-vv")
-    if fail_fast:
-        test_args.append("-x")
-    if filter_expr:
-        test_args.extend(["-k", filter_expr])
-    if coverage:
-        test_args.extend(["--cov=src", "--cov-report=term-missing"])
-
     target_paths: list[str] = []
     if target:
         target_paths.append(str(target))
@@ -162,18 +176,23 @@ def run_test_cmd(
     else:
         target_paths.append(CONST_TESTS_ROOT_DIR)
 
-    test_args.extend(target_paths)
+    cmd = pytest_argv(
+        target_paths,
+        verbose=verbose,
+        fail_fast=fail_fast,
+        filter_expr=filter_expr,
+        coverage=coverage,
+    )
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops test run",
-            action="execute_pytest",
-            details={"args": test_args, "targets": target_paths},
+        request = PlannedRequest(
+            method="uv", target="run pytest", argv=tuple(prepare_tool_cmd(cmd))
         )
+        render_request_plan(MESSAGES.test.run_dry_run_heading, [request])
         return
 
     with trace_span("test.pytest", attributes={"targets": ",".join(target_paths)}):
-        res = run_subprocess(["uv", "run", *test_args], cwd=repo_root, check=False)
+        res = run_subprocess(cmd, cwd=repo_root, check=False)
         if res.returncode == 0:
             print_success("Test suite passed cleanly.")
         else:
@@ -187,6 +206,7 @@ def run_test_cmd(
 
 
 @app.command("load")
+@dry_run_class("request-plan")
 def load_test_cmd(
     script_path: Annotated[
         Path,
@@ -210,21 +230,16 @@ def load_test_cmd(
     ] = False,
 ) -> None:
     """Execute developer-centric load, spike, and latency tests against services using k6."""
+    cmd = build_k6_cmd(
+        script_path=script_path.resolve(),
+        vus=vus,
+        duration=duration,
+        summary_export=summary_export.resolve() if summary_export else None,
+    )
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops test load",
-            action="execute_k6_load_test",
-            details={
-                "script_path": str(script_path),
-                "vus": vus,
-                "duration": duration,
-                "summary_export": str(summary_export) if summary_export else None,
-                "simulated_metrics": {
-                    "http_reqs": vus * 50,
-                    "http_req_duration_p95_ms": 14.2,
-                    "http_req_failed_rate": 0.0,
-                },
-            },
+        request = PlannedRequest(method=BIN_K6, target=str(script_path.resolve()), argv=tuple(cmd))
+        render_request_plan(
+            MESSAGES.test.load_dry_run_heading, [request], [MESSAGES.test.load_dry_run_note]
         )
         return
 
@@ -242,12 +257,6 @@ def load_test_cmd(
                 vus=vus, duration=duration, script_path=script_path
             ),
             prefix=False,
-        )
-        cmd = build_k6_cmd(
-            script_path=script_path.resolve(),
-            vus=vus,
-            duration=duration,
-            summary_export=summary_export.resolve() if summary_export else None,
         )
         res = run_subprocess(cmd, check=False)
         if res.returncode == 0:
@@ -308,6 +317,7 @@ def _validate_sandbox_network(
 
 
 @app.command("sandbox")
+@dry_run_class("request-plan")
 def test_sandbox(
     command: Annotated[
         list[str],
@@ -403,11 +413,19 @@ def test_sandbox(
     sandbox_runner = WorkloadSandboxRunner(cfg)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops test sandbox {' '.join(command)}",
-            action="docker_workload_sandbox",
-            details=sandbox_runner.build_dry_run_details(),
+        from devops_cli.docker.docker_plans import plan_docker_sandbox
+
+        plan = plan_docker_sandbox(
+            command=command,
+            image=image,
+            workspace=sandbox_runner._validate_workspace_dir(),
+            network_mode=cfg.network_mode,
+            read_only=read_only,
+            rootless=rootless,
+            declared_controls=sandbox_runner.declared_controls(),
+            seccomp_profile=policy.seccomp_profile.path if policy.seccomp_profile else None,
         )
+        render_request_plan(MESSAGES.test.sandbox_dry_run_heading, plan)
         return
 
     print_info(f"Running command in sandbox ({mask_secrets(image)}, network={cfg.network_mode})...")
@@ -464,6 +482,7 @@ def _render_memory_report(report: MemoryProfileReport) -> None:
 
 
 @app.command("profile-memory")
+@dry_run_class("no-external-request")
 def test_profile_memory(
     target: Annotated[
         str,
@@ -504,17 +523,21 @@ def test_profile_memory(
 ) -> None:
     """Deterministic async memory and connection pool profiler using tracemalloc."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command=f"devops test profile-memory {target}",
-            action="profile_async_memory",
-            details={
-                "target": target,
-                "iterations": iterations,
-                "top": top,
-                "max_peak_mb": max_peak_mb,
-                "fail_on_leak": fail_on_leak,
-                "output": str(output) if output else None,
-            },
+        messages = MESSAGES.test
+        leak_rule = (
+            messages.profile_memory_fail_on_leak
+            if fail_on_leak
+            else messages.profile_memory_ignore_leak
+        )
+        print_info(
+            messages.profile_memory_dry_run.format(
+                target=target,
+                iterations=iterations,
+                max_peak_mb=max_peak_mb,
+                leak_rule=leak_rule,
+                output=output or messages.profile_memory_no_report,
+            ),
+            prefix=False,
         )
         return
 

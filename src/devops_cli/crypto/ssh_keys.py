@@ -304,26 +304,31 @@ def list_managed_keys_info(key_dir: Path, prefix: str | None = None) -> list[Man
     return result
 
 
-def configure_git_signing(key_path: Path, repo_dir: Path | None = None) -> None:
-    """Point git's SSH commit signing at `key_path`: in the global git config, and in the local
-    config of `repo_dir` (the working directory when none is given) when it is a repository."""
-    from devops_cli.core.process import run_subprocess
-
+def git_signing_commands(key_path: Path, repo_dir: Path | None = None) -> list[list[str]]:
+    """The `git config` commands that point git's SSH commit signing at `key_path`: three in the
+    global config, then three in the local config of `repo_dir` (the working directory when none
+    is given) when it is a repository. `configure_git_signing` runs them, and a dry run lists
+    them."""
     settings = (
         ("gpg.format", "ssh"),
         ("user.signingkey", str(key_path)),
         ("commit.gpgsign", "true"),
     )
-    for key, value in settings:
-        run_subprocess(
-            ["git", "config", "--global", key, value],
-            quiet=True,
-            extra_allowed_env=CONST_GIT_GLOBAL_CONFIG_ENV,
-        )
-
+    commands = [["git", "config", "--global", key, value] for key, value in settings]
     target_repo = (repo_dir or Path.cwd()).resolve()
     if (target_repo / ".git").exists():
-        for key, value in settings:
-            run_subprocess(
-                ["git", "-C", str(target_repo), "config", "--local", key, value], quiet=True
-            )
+        commands += [
+            ["git", "-C", str(target_repo), "config", "--local", key, value]
+            for key, value in settings
+        ]
+    return commands
+
+
+def configure_git_signing(key_path: Path, repo_dir: Path | None = None) -> None:
+    """Point git's SSH commit signing at `key_path`: in the global git config, and in the local
+    config of `repo_dir` (the working directory when none is given) when it is a repository."""
+    from devops_cli.core.process import run_subprocess
+
+    for command in git_signing_commands(key_path, repo_dir):
+        allowed_env = CONST_GIT_GLOBAL_CONFIG_ENV if "--global" in command else None
+        run_subprocess(command, quiet=True, extra_allowed_env=allowed_env)

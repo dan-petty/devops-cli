@@ -202,7 +202,10 @@ model_list:
   # answers 400 to temperature, top_p and top_k on both models, and `drop_params` drops only
   # what LiteLLM knows a model refuses, so each Claude group drops the three itself. Sonnet 5.5
   # also answers an error to a forced tool call (tool_choice "required" or a named tool): a
-  # caller of the group sends "auto".
+  # caller of the group sends "auto". LiteLLM turns a `response_format` into such a forced tool
+  # call unless its model map says that the model supports native structured output, so each
+  # Claude group sets `supports_native_structured_output` and `supports_response_schema` and
+  # LiteLLM sends the schema as Anthropic `output_format` (#3140).
   - model_name: gemini-3.8-flash
     litellm_params:
       model: gemini/gemini-3.8-flash
@@ -216,6 +219,8 @@ model_list:
       additional_drop_params: [temperature, top_p, top_k]
     model_info:
       max_input_tokens: 1000000
+      supports_native_structured_output: true
+      supports_response_schema: true
       input_cost_per_token: 2.0e-06
       output_cost_per_token: 1.0e-05
       cache_creation_input_token_cost: 2.5e-06
@@ -230,10 +235,33 @@ model_list:
       additional_drop_params: [temperature, top_p, top_k]
     model_info:
       max_input_tokens: 1000000
+      supports_native_structured_output: true
+      supports_response_schema: true
       input_cost_per_token: 1.0e-07
       output_cost_per_token: 5.0e-07
       cache_creation_input_token_cost: 1.25e-07
       cache_read_input_token_cost: 1.0e-08
+  # OpenRouter routes a prompt to a provider of its choice (#3144). The suffix `:floor` picks the
+  # cheapest provider, `quantizations: [fp8]` keeps it to fp8 weights, and `data_collection: deny`
+  # keeps it to providers that do not store or train on prompts. A provider that fails a filter is
+  # skipped, so the price can be higher than the cheapest fp8 provider. The cost map of the pinned
+  # LiteLLM image lists no -1017 snapshot, so the group sets its window and the prices of the
+  # cheapest fp8 provider on 2026-11-02 (USD per token); OpenRouter reports the real cost of a call.
+  # A caller sets the reasoning effort (`ai.tasks.<task>.reasoning_effort`).
+  - model_name: deepseek-v4.1-flash-1017
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4.1-flash-1017:floor
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        provider:
+          quantizations: [fp8]
+          data_collection: deny
+    model_info:
+      max_input_tokens: 1048576
+      input_cost_per_token: 5.0e-08
+      output_cost_per_token: 1.92e-07
+      cache_read_input_token_cost: 8.0e-09
+      supports_response_schema: true
 litellm_settings:
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
   # Ollama nodes export no metrics of their own, so this is how their load is seen.

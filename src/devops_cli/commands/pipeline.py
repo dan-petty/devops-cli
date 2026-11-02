@@ -12,7 +12,9 @@ from devops_cli.config.constants import CONST_CURRENT_DIR
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
 from devops_cli.telemetry.tracer import trace_span
@@ -21,6 +23,7 @@ app = new_typer(help=HELP.pipeline.app, no_args_is_help=True)
 
 
 @app.command("run", help=HELP.pipeline.run)
+@dry_run_class("request-plan")
 def run_pipeline_cmd(
     pipeline_path: Annotated[
         Path,
@@ -56,15 +59,17 @@ def run_pipeline_cmd(
             raise typer.Exit(1)
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops pipeline run",
-            action="execute_dagger_pipeline",
-            details={
-                "pipeline_path": str(pipeline_path),
-                "function_name": function_name or "default",
-                "args": args or [],
-                "status": "SIMULATED_SUCCESS",
-            },
+        cmd = build_dagger_cmd(
+            pipeline_path=pipeline_path.resolve(), function_name=function_name, args=args
+        )
+        render_request_plan(
+            MESSAGES.pipeline.dry_run_heading,
+            [
+                PlannedRequest(
+                    method=BIN_DAGGER, target=str(pipeline_path.resolve()), argv=tuple(cmd)
+                )
+            ],
+            [MESSAGES.pipeline.dry_run_note],
         )
         return
 

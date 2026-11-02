@@ -213,6 +213,35 @@ def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_
     ) == ([f"api repos/{REPO}/issues/<item>", "issue patch"], [])
 
 
+def test_a_refine_plan_lists_the_intake_requests_of_a_deferred_part() -> None:
+    """A round and a refine of one item each list the requests of one new intake candidate, and
+    the record of its number, when the proposal defers a part (#2423)."""
+    from devops_cli.roadmap.intake_requests import planned_requests
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    deferred = MESSAGES.roadmap.plan_conditions["deferred"]
+    part_reads, part_writes = planned_requests(["<deferred part>"], repo=REPO, ref=None, new=True)
+    shapes = []
+    for item in (None, 7):
+        reads, writes = refine_requests(REPO, None, item=item)
+        shapes.append(
+            (
+                [r.argv for r in reads if deferred in r.condition],
+                [r.argv for r in writes if deferred in r.condition],
+            )
+        )
+    target = f"api repos/{REPO}/issues/<item>"
+    assert (
+        [listed for listed, _ in shapes],
+        [listed[: len(part_writes)] for _, listed in shapes],
+        [_shape(r) for r in refine_requests(REPO, None)[1] if r.condition == deferred][-2:],
+    ) == (
+        [[r.argv for r in part_reads]] * 2,
+        [[r.argv for r in part_writes]] * 2,
+        [target, "issue patch"],
+    )
+
+
 def _shape(request: PlannedRequest) -> str:
     """What a planned request is: a `PATCH` of an issue, or its first arguments."""
     args = list(request.argv[1:])

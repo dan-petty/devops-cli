@@ -203,6 +203,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/llm-gateway",),
         ),
         (
+            "llm/llm-gateway-secrets",
+            "openrouter-api-key",
+            "llm",
+            False,
+            None,
+            None,
+            ("deployment/llm-gateway",),
+        ),
+        (
             "llm/qdrant-api-key",
             "api-key",
             "llm",

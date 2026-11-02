@@ -68,6 +68,12 @@ spec:
                   name: llm-gateway-secrets
                   key: anthropic-api-key
                   optional: true
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-secrets
+                  key: openrouter-api-key
+                  optional: true
             # Use the bundled model cost map: the gateway never fetches it from the internet.
             - name: LITELLM_LOCAL_MODEL_COST_MAP
               value: "True"

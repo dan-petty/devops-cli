@@ -151,6 +151,7 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN",  # #1395
         "DEVOPS_CLI_GEMINI_API_KEY",  # #3113
         "DEVOPS_CLI_ANTHROPIC_API_KEY",  # #3113
+        "DEVOPS_CLI_OPENROUTER_API_KEY",  # #3144
     }
 )
 
@@ -181,6 +182,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "mattermost.command_token": "mattermost_command_token",  # #1395
     "gemini.api_key": "gemini_api_key",  # #3113
     "anthropic.api_key": "anthropic_api_key",  # #3113
+    "openrouter.api_key": "openrouter_api_key",  # #3144
 }
 
 

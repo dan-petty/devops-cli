@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
@@ -23,7 +23,7 @@ from devops_cli.ci.fail_to_pass import (
 from devops_cli.commands.ci import app, get_check_specs
 from devops_cli.core.process import run_subprocess
 from tests.support.fakes.git import GitFake
-from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
@@ -697,3 +697,94 @@ def test_a_replay_that_collects_no_tests_is_an_empty_replay(
         "A fix needs at least one changed test that fails in the call phase on base "
         "(tests/test_mod.py).",
     )
+
+
+# =============================================================================
+# Dry runs (#2260)
+# =============================================================================
+
+
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    import re
+
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
+    cli: Any, process_fake: ProcessFake, flag_first: bool
+) -> None:
+    """A dry run starts no git and no pytest, and lists each process of the run in order."""
+    argv = ["ci", "fail-to-pass", "--base", "main"]
+    result = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    lines = [line.split("  [")[0] for line in _plan_lines(result.output)]
+    assert lines[:5] == [
+        "git merge-base -- main HEAD",
+        "git rev-parse --verify --quiet 'main^{commit}'",
+        "git rev-parse --verify --quiet 'HEAD^{commit}'",
+        "git diff --name-status -z --find-renames '<merge-base>' --",
+        "git ls-files --others --exclude-standard -z -- tests",
+    ]
+    assert lines[5] == "git worktree add --quiet --detach '<temp-dir>/tree' '<merge-base>'"
+    assert lines[6] == "git archive --format=tar '--output=<temp-dir>/tests.tar' HEAD -- tests"
+    assert " -m pytest " in lines[7]
+    assert lines[7].endswith("'<changed test files>'")
+    assert lines[8:] == [
+        "git worktree remove --force '<temp-dir>/tree'",
+        "git worktree prune",
+    ]
+    assert all(
+        "[only if a changed test file exists]" in line for line in _plan_lines(result.output)[5:]
+    )
+
+
+def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
+    cli: Any, process_fake: ProcessFake
+) -> None:
+    """With `--head`, the plan lists the two-dot diff that follows a failed three-dot diff."""
+    result = cli(["ci", "fail-to-pass", "--base", "main", "--head", "feature", "--dry-run"])
+
+    lines = _plan_lines(result.output)
+    assert result.exit_code == 0, result.output
+    assert lines[3] == "git diff --name-status -z --find-renames '<merge-base>...feature' --"
+    assert lines[4] == (
+        "git diff --name-status -z --find-renames '<merge-base>' feature --"
+        "  [only if the three-dot diff fails]"
+    )
+    assert not [line for line in lines if "ls-files" in line]
+
+
+def test_fail_to_pass_runs_the_processes_of_its_plan(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake
+) -> None:
+    """The real replay starts the commands of the plan, in the same order, once the
+    placeholders hold the values that the run reads."""
+    import shlex
+
+    from devops_cli.ci.fail_to_pass import plan_fail_to_pass
+
+    process_fake.answer(["git", "merge-base"], ProcessAnswer(stdout="abc123\n"))
+    process_fake.answer(
+        ["git", "diff", "--name-status"], ProcessAnswer(stdout="M\0tests/test_x.py\0")
+    )
+
+    run_fail_to_pass(tmp_path, base="main")
+
+    recorded = [call.argv for call in process_fake.calls]
+    tree = Path(recorded[5][5])
+    values = {
+        "<merge-base>": "abc123",
+        "<temp-dir>": str(tree.parent),
+        "<changed test files>": "tests/test_x.py",
+    }
+    planned = []
+    for request in plan_fail_to_pass("main"):
+        line = shlex.join(request.argv)
+        for placeholder, value in values.items():
+            line = line.replace(shlex.quote(placeholder), value).replace(placeholder, value)
+        planned.append(shlex.split(line))
+    assert [list(argv) for argv in recorded] == planned

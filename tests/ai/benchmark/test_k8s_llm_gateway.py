@@ -104,7 +104,12 @@ def _load_service(path: Path, name: str) -> dict[str, Any]:
 
 
 # The groups that call a provider outside the cluster (#3113). Every other group is an Ollama tier.
-HOSTED_GROUPS = ("gemini-3.8-flash", "claude-sonnet-5-5", "claude-haiku-5-5")
+HOSTED_GROUPS = (
+    "gemini-3.8-flash",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "deepseek-v4.1-flash-1017",
+)
 HOSTED_SECRET = "llm-gateway-secrets"
 
 
@@ -1959,8 +1964,8 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
         name = model["model_name"]
         variable = str(params.get("api_key", "")).removeprefix("os.environ/")
         reference = env.get(variable)
-        if params["model"].partition("/")[0] not in {"gemini", "anthropic"}:
-            problems.append(f"{name} calls a provider that is not gemini or anthropic")
+        if params["model"].partition("/")[0] not in {"gemini", "anthropic", "openrouter"}:
+            problems.append(f"{name} calls a provider that is not gemini, anthropic or openrouter")
         if "api_base" in params:
             problems.append(f"{name} sets an api_base")
         if not str(params.get("api_key", "")).startswith("os.environ/") or reference is None:
@@ -1977,6 +1982,10 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
             info.get("input_cost_per_token") and info.get("output_cost_per_token")
         ):
             problems.append(f"{name} sets no prices, and the cost map of the image lacks it")
+        if params["model"].startswith("anthropic/") and not (
+            info.get("supports_native_structured_output") and info.get("supports_response_schema")
+        ):
+            problems.append(f"{name} would get a forced tool call for a structured reply")
         if params["model"].startswith("anthropic/") and set(
             params.get("additional_drop_params") or ()
         ) != {"temperature", "top_p", "top_k"}:
@@ -2042,6 +2051,13 @@ def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() 
             )["model_info"].pop("output_cost_per_token"),
             "claude-haiku-5-5 sets no prices, and the cost map of the image lacks it",
             id="claude-prices-missing",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "claude-sonnet-5-5"
+            )["model_info"].pop("supports_native_structured_output"),
+            "claude-sonnet-5-5 would get a forced tool call for a structured reply",
+            id="structured-reply-by-forced-tool-call",
         ),
         pytest.param(
             lambda config, deployment: next(

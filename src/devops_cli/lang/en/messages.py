@@ -426,6 +426,8 @@ class BranchMessages:
     invalid_ticket_id: str = "Invalid ticket ID '{ticket_id}'. Expected format: PROJ-123"
     not_a_git_repo: str = "Not a git repository: {repo_path}"
     created_branch: str = "Created and checked out: {branch_name}"
+    jira_dry_run: str = "Would create the branch {branch_name}"
+    sync_dry_run_heading: str = "devops branches sync"
     no_merged_branches: str = "No merged branches to clean."
 
 
@@ -465,6 +467,12 @@ class RepoMessages:
     sync_done: str = "done {name}"
     sync_fail: str = "fail {name}: {exc}"
     table_title_cloned: str = "Cloned repositories — {root}"
+    sync_dry_run_heading: str = "devops repos sync"
+    clone_dry_run_heading: str = "devops repos clone"
+    clone_org_dry_run_heading: str = "devops repos clone-org"
+    workspace_dry_run_note: str = (
+        "Before the reload, the run writes the folders of the workspace to {path}."
+    )
     worktrees_dry_run_confirm: str = (
         "--dry-run makes no change, so it cannot be used with --confirm."
     )
@@ -1299,6 +1307,13 @@ class RAGMessages:
 
 @dataclass(frozen=True)
 class TLSMessages:
+    ca_dry_run: str = "Would write the CA certificate {cert} and its key {key}"
+    cert_dry_run: str = "Would write the certificate {cert} for {common_name}, signed by {signer}, and its key {key}"
+    homelab_dry_run: str = "Would write the homelab bundle (CA, server certificate, key and full chain) to {output_dir}"
+    enable_k8s_dry_run_heading: str = "devops tls enable-k8s"
+    enable_k8s_bundle_note: str = (
+        "Before the requests, the run writes the homelab bundle to {tls_dir}."
+    )
     cert_generated: str = "Generated leaf certificate: {cert}"
     generating_bundle: str = "[bold]Generating homelab TLS bundle...[/bold]"
     deploying_secret: str = (
@@ -1310,6 +1325,16 @@ class TLSMessages:
 @dataclass(frozen=True)
 class SSHMessages:
     key_generated: str = "Generated Ed25519 SSH keypair: {path}"
+    generate_dry_run: str = "Would write the key {key_path} and its public key {key_path}.pub"
+    register_dry_run_heading: str = "devops ssh register"
+    rotate_dry_run_heading: str = "devops ssh rotate"
+    rotate_dry_run_note: str = (
+        "Before the requests, the run writes the new key when it does not exist. When "
+        "GitHub refuses the key, the run deletes the new key."
+    )
+    key_placeholder_note: str = (
+        "The body of each POST holds the public key of the key file in place of <public key>."
+    )
     no_project_key: str = (
         "No managed SSH key with the prefix '{prefix}' exists in {key_dir}. "
         "Run 'devops ssh generate' to make one."
@@ -1427,6 +1452,7 @@ class ArgoMessages:
 
 @dataclass(frozen=True)
 class CIMessages:
+    fail_to_pass_dry_run_heading: str = "devops ci fail-to-pass"
     ci_dry_run_heading: str = (
         "Dry run: no request was made. CI would make these requests, in order:"
     )
@@ -1679,6 +1705,12 @@ class GrafanaMessages:
 
 @dataclass(frozen=True)
 class MCPMessages:
+    serve_dry_run_heading: str = "devops mcp serve"
+    serve_dry_run_note: str = (
+        "The server makes no outbound request when it starts. A tool makes its requests only "
+        "when a client calls it."
+    )
+    export_dry_run: str = "Would write {count} tool schema(s) and instructions.md to {directory}"
     starting_sse: str = "Starting FastMCP server (SSE) on http://{host}:{port}..."
     starting_stdio: str = "Starting FastMCP server (stdio) — devops-cli\n"
     table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
@@ -1689,6 +1721,15 @@ class MCPMessages:
 
 @dataclass(frozen=True)
 class ServeMessages:
+    dry_run_heading: str = "devops serve"
+    dry_run_note: str = (
+        "The server makes no outbound request when it starts. A route makes its requests only "
+        "when a client calls it."
+    )
+    service_dry_run_note: str = (
+        "With --service, the start first loads the settings and the credentials and reports "
+        "an error in them. The dry run reads neither."
+    )
     starting_service: str = "Starting DevOps CLI REST & OpenAPI Service v{version}"
     listening_on: str = "  [cyan]•[/cyan] Listening on: [bold]http://{host}:{port}[/bold]"
     swagger_ui: str = "  [cyan]•[/cyan] Swagger UI:  [link=http://{host}:{port}/docs]http://{host}:{port}/docs[/link]"
@@ -1769,6 +1810,11 @@ class ServeMessages:
 
 @dataclass(frozen=True)
 class PipelineMessages:
+    dry_run_heading: str = "devops pipeline"
+    dry_run_note: str = (
+        "The requests that the Dagger pipeline makes come from its own code, so the plan does "
+        "not list them."
+    )
     executing: str = "Executing Dagger pipeline from '{path}'..."
     success: str = "✓ Pipeline execution completed successfully ({name})."
     failed: str = "Pipeline execution failed with exit code {code}."
@@ -1779,6 +1825,20 @@ class PipelineMessages:
 
 @dataclass(frozen=True)
 class TestMessages:
+    run_dry_run_heading: str = "devops test run"
+    sandbox_dry_run_heading: str = "devops test sandbox"
+    profile_memory_dry_run: str = (
+        "Would profile {target} for {iterations} iterations, with a peak limit of {max_peak_mb} MB, "
+        "{leak_rule}, and write the report to {output}"
+    )
+    profile_memory_fail_on_leak: str = "failing on a socket leak"
+    profile_memory_ignore_leak: str = "ignoring a socket leak"
+    profile_memory_no_report: str = "no file (the report goes to the terminal only)"
+    load_dry_run_heading: str = "devops test load"
+    load_dry_run_note: str = (
+        "The requests that k6 sends to the services come from the script, so the plan does not "
+        "list them."
+    )
     starting_load_test: str = (
         "Starting k6 load test with {vus} VUs for {duration} ({script_path})..."
     )
@@ -1891,6 +1951,19 @@ class RoadmapMessages:
         "{marker}\nStatus set to Ready at {sha} (see proposed design in issue body)."
     )
     refine_step_comment: str = "{marker}\n{status}{step}\n\n{details}"
+    # Deferred parts (#2423): the first line of a new issue, the sentence of the Ready comment,
+    # the detail of an item that a part keeps waiting, and the warning of a round that filed
+    # only some parts.
+    refine_deferred_split_from: str = "Split from #{number}."
+    refine_deferred_comment: str = "Moved to new items: {items}."
+    refine_deferred_refused: str = (
+        'Intake cannot file the deferred part "{title}". Decide the part, or take it out of '
+        "the item."
+    )
+    refine_deferred_incomplete: str = (
+        "Refine filed {filed} of the {count} deferred parts of #{number} and left the item as it "
+        "was. The next round files the rest."
+    )
     refine_back_to_new: str = "Status set back to New at {sha}. "
     # The comment that gives an item its next step, by the step's value (#1758).
     refine_step_comments: dict[str, str] = field(
@@ -2002,16 +2075,23 @@ class RoadmapMessages:
     alternatives_skipped_line: str = "- #{number} {title}: skipped, {reason}"
     alternatives_applied: str = "Checked {count} item(s) for open alternatives."
     alternatives_failed: str = (
-        "the check failed for {count} item(s), and the others were written: {items}"
+        "the check failed for each of the {count} item(s) it tried, and no check was written: "
+        "{items}"
     )
     alternatives_failed_item: str = "#{number} ({reason})"
     alternatives_reason_stopped: str = "the model's run stopped ({reason})"
+    alternatives_reason_stopped_message: str = "the model's run stopped ({reason}: {message})"
     alternatives_reason_error: str = "the model call failed ({error})"
     alternatives_reason_url: str = "the reply cites a URL that no tool returned: {url}"
     alternatives_reason_no_facts: str = "the reply names a tool whose facts no tool read: {url}"
     alternatives_reason_no_tool: str = "the reply gives the verdict {verdict} with no tool"
-    alternatives_reason_not_applicable: str = (
-        "the reply gives the verdict not-applicable after a tool ran"
+    alternatives_reason_skip_only: str = (
+        "the reply gives the verdict not-applicable, which the job sets for a skip class only"
+    )
+    alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_retry_search: str = (
+        "Call search_web at least once before you reply. The job refuses a verdict that follows "
+        "no search. Give the verdict none when the search finds no tool."
     )
     alternatives_reason_markers: str = "the body holds a marker of the check with no partner"
     # What the tools of the check answer.
@@ -2038,6 +2118,10 @@ class RoadmapMessages:
     alternatives_comment_heading: str = "## Alternatives check: {verdict}"
     alternatives_comment_tool: str = "Tool: {name} ({url})"
     alternatives_comment_no_tool: str = "Tool: none found"
+    alternatives_comment_skip_class: str = (
+        "Class: {skip_class}. The check makes no search and no model call for an item of this "
+        "class."
+    )
     alternatives_comment_license: str = "- License: {license}"
     alternatives_comment_activity: str = "- Last activity: {date}"
     alternatives_comment_maintained: str = "- Maintained: {answer}"
@@ -2055,6 +2139,7 @@ class RoadmapMessages:
         "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
     )
     alternatives_block_no_tool: str = "Tool: none found."
+    alternatives_block_skip_class: str = "Class: {skip_class}, no search."
     alternatives_maintained: str = "maintained"
     alternatives_not_maintained: str = "not maintained"
     # `devops roadmap implement` (#2664): the refusals of a step, and why a step stops.
@@ -2821,6 +2906,7 @@ class RoadmapMessages:
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
             "number": "<number>",
+            "deferred_part": "<deferred part>",
             "milestone": "<milestone>",
             "labels": "<the labels, the field's family replaced>",
             "record": "<the body, its job record block written>",
@@ -2899,6 +2985,7 @@ class RoadmapMessages:
                 "the cap on refine's comments leaves the item alone, and no earlier round "
                 "recorded its newest comment"
             ),
+            "deferred": "the proposal defers a part of the item",
         }
     )
     plan_repeat: dict[str, str] = field(

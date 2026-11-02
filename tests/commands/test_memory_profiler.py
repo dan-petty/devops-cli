@@ -7,6 +7,7 @@ import json
 import socket
 import tracemalloc
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -315,11 +316,26 @@ def test_cli_profile_memory_output_file(
     assert content["target"] == "fastmcp"
 
 
-def test_cli_profile_memory_dry_run(runner: CliRunner) -> None:
-    res = runner.invoke(app, ["profile-memory", "http-pool", "--dry-run"])
-    assert res.exit_code == 0
-    assert "dry_run" in res.stdout
-    assert "profile_async_memory" in res.stdout
+@pytest.mark.parametrize("target", ["http-pool", "example_pkg.module:function"])
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_cli_profile_memory_dry_run_runs_nothing_and_writes_nothing(
+    tmp_path: Path, cli: Any, target: str, flag_first: bool
+) -> None:
+    """A dry run names the target, the limits and the report, and profiles nothing (#2260)."""
+    report = tmp_path / "out" / "report.json"
+    argv = ["test", "profile-memory", target, "--iterations", "3", "--output", str(report)]
+    with patch(
+        "devops_cli.commands.test_cmd.run_memory_profiler",
+        side_effect=AssertionError("no profile"),
+    ):
+        res = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+
+    output = " ".join(res.output.split())
+    assert res.exit_code == 0, res.output
+    assert f"Would profile {target} for 3 iterations, with a peak limit of 50.0 MB" in output
+    assert "failing on a socket leak" in output
+    assert str(report) in output
+    assert not report.parent.exists()
 
 
 @patch("devops_cli.commands.test_cmd.run_memory_profiler")

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import yaml
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
@@ -356,3 +357,74 @@ def test_a_ref_that_git_cannot_read_is_an_error_not_a_repository_with_no_hooks(
 ) -> None:
     with pytest.raises(GitOperationError, match="no-such-branch"):
         trusted_config(checkout, "origin/no-such-branch")
+
+
+_TWO_HOOKS = """\
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff
+        entry: ruff check
+        language: system
+      - id: devops-ci-workflows-pre-push
+        name: workflows
+        entry: devops ci --check --only actionlint,zizmor
+        language: system
+        stages: [pre-push]
+"""
+
+
+def _missing(monkeypatch: pytest.MonkeyPatch, *hooks: str) -> None:
+    """Make the image lack the programs of `hooks`."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_hooks.hooks_without_programs", lambda: tuple(hooks)
+    )
+
+
+def test_the_trusted_configuration_leaves_out_a_hook_whose_program_the_image_lacks(
+    checkout: Path, cache: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The runner image holds no `actionlint`, and no agent can install it, so the hook of the
+    workflow checks would fail every item that changes a workflow (#3134). The checks of the pull
+    request run it."""
+    _missing(monkeypatch, "devops-ci-workflows-pre-push")
+    _commit_config(checkout, _TWO_HOOKS)
+
+    path = trusted_config(checkout, "HEAD")
+
+    assert path is not None
+    hooks = [
+        hook["id"]
+        for repo in yaml.safe_load(path.read_text("utf-8"))["repos"]
+        for hook in repo["hooks"]
+    ]
+    assert hooks == ["ruff-check"]
+
+
+def test_the_trusted_configuration_keeps_that_hook_where_the_program_is_on_the_path(
+    checkout: Path, cache: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _missing(monkeypatch)
+    _commit_config(checkout, _TWO_HOOKS)
+
+    path = trusted_config(checkout, "HEAD")
+
+    assert path is not None
+    assert path.read_text(encoding="utf-8") == _TWO_HOOKS
+
+
+def test_a_repository_whose_only_hook_is_left_out_leaves_the_list(
+    checkout: Path, cache: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _missing(monkeypatch, "devops-ci-workflows-pre-push")
+    only = _TWO_HOOKS.replace(
+        "      - id: ruff-check\n        name: ruff\n        entry: ruff check\n        language: system\n",
+        "",
+    )
+    _commit_config(checkout, only)
+
+    path = trusted_config(checkout, "HEAD")
+
+    assert path is not None
+    assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"repos": []}

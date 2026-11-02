@@ -89,6 +89,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+    DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
@@ -956,6 +957,12 @@ class AlternativesConfig(BaseModel):
     recheck_days: int = Field(
         description="Days after which an item's check for an open alternative tool is old and the item is checked again",
         default=DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+        ge=1,
+    )
+
+    retry_days: int = Field(
+        description="Days after a failed check of an item before the alternatives check takes the item again",
+        default=DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
         ge=1,
     )
 

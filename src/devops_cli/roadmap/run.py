@@ -597,9 +597,9 @@ def _run_stage_ready_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> J
 
 def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
     """Check at most `roadmap.alternatives.limit` open items for an open tool that covers them
-    (#2652). The check writes the others when one fails, and then the job fails naming it. A
-    repository the check is off for, such as a private one, costs a visibility read and nothing
-    else."""
+    (#2652). A failed check is recorded in its item's job record and the others are written; the
+    job fails, naming the items, only when it tried items and checked none (#2949). A repository
+    the check is off for, such as a private one, costs a visibility read and nothing else."""
     plan = plan_alternatives(store, repo=repo, limit=load_settings().roadmap.alternatives.limit)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)

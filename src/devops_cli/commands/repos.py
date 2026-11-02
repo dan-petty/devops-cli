@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
     CONST_GITHUB_REPO_SUFFIX,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_URL_SCHEME_HTTPS,
-    CONST_VSCODE_CLI,
     CONST_VSCODE_WORKSPACE_FILE,
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
@@ -28,8 +27,17 @@ from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions import DevOpsCLIError, GitOperationError
 from devops_cli.git.branch_form import is_valid_slug
+from devops_cli.git.git_plans import (
+    plan_clone,
+    plan_clone_org,
+    plan_reload_workspace,
+    plan_repo_sync,
+    reload_workspace_argv,
+)
 from devops_cli.git.operations import (
     clone_repo,
     current_branch,
@@ -53,7 +61,6 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
-    render_dry_run_result,
     track_progress,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
@@ -100,7 +107,7 @@ def _reload_workspace(workspace_file: Path) -> None:
 
     try:
         run_subprocess(
-            [CONST_VSCODE_CLI, "--reuse-window", "--", str(workspace_file)],
+            reload_workspace_argv(workspace_file),
             check=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -157,6 +164,7 @@ def _clone_single_org_repo(repo: Any, org_dir: Path) -> None:
 
 
 @app.command("clone-org")
+@dry_run_class("request-plan")
 def clone_org(
     org: Annotated[
         str | None,
@@ -173,15 +181,6 @@ def clone_org(
     ] = False,
 ) -> None:
     """Clone all repos from a GitHub org into `repos/<org>/.`."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops repos clone-org",
-            target=org,
-            action="clone_org_repositories",
-            details={"org": org, "private": private, "forks": forks},
-        )
-        return
-
     settings = load_settings()
     org_name = org or settings.github.default_org
     if not org_name:
@@ -190,6 +189,13 @@ def clone_org(
 
     root = (base_dir or settings.repos.base_dir).resolve()
     org_dir = _resolve_safe_org_dir(root, org_name)
+    if dry_run or is_dry_run():
+        render_request_plan(
+            MESSAGES.repos.clone_org_dry_run_heading,
+            plan_clone_org(org_name, org_dir, settings.workspace.file, include_private=private),
+            [MESSAGES.repos.workspace_dry_run_note.format(path=settings.workspace.file)],
+        )
+        return
     client = _require_client()
 
     repos = client.get_org_repos(
@@ -215,6 +221,7 @@ def clone_org(
 
 
 @app.command()
+@dry_run_class("request-plan")
 def clone(
     url: Annotated[str, typer.Argument(help=HELP.repos.repo_url)],
     base_dir: Annotated[
@@ -229,15 +236,6 @@ def clone(
     if url.startswith("-"):
         print_error(MESSAGES.repos.invalid_url_hyphen, prefix=False)
         raise typer.Exit(1)
-
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops repos clone",
-            target=mask_secrets(url),
-            action="clone_single_repository",
-            details={"url": mask_secrets(url)},
-        )
-        return
 
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
@@ -264,6 +262,14 @@ def clone(
         print_warning(MESSAGES.repos.already_exists.format(dest=dest), prefix=False)
         raise typer.Exit(1)
 
+    if dry_run or is_dry_run():
+        render_request_plan(
+            MESSAGES.repos.clone_dry_run_heading,
+            plan_clone(mask_secrets(url), dest, settings.workspace.file),
+            [MESSAGES.repos.workspace_dry_run_note.format(path=settings.workspace.file)],
+        )
+        return
+
     dest_dir.mkdir(parents=True, exist_ok=True)
     masked_url = mask_secrets(url)
     print_info(MESSAGES.repos.cloning_repo.format(url=masked_url, dest=dest), prefix=False)
@@ -278,22 +284,11 @@ def clone(
 
 
 @app.command("list")
+@dry_run_class("no-external-request")
 def list_repos(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
 ) -> None:
     """List all cloned repositories."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops repos list",
-            action="list_cloned_repositories",
-            details={},
-        )
-        return
-
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
 
@@ -320,20 +315,13 @@ def list_repos(
 
 @app.command("sync")
 @app.command()
+@dry_run_class("request-plan")
 def update(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
     pull: Annotated[bool, typer.Option("--pull/--no-pull")] = True,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Fetch (and optionally pull) all tracking branches across repos."""
-    if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops repos sync",
-            action="sync_workspace_repositories",
-            details={"pull": pull},
-        )
-        return
-
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
 
@@ -341,6 +329,10 @@ def update(
     if not repos_list:
         print_warning(MESSAGES.repos.no_repos_found, prefix=False)
         raise typer.Exit(0)
+
+    if dry_run or is_dry_run():
+        _plan_update(repos_list, settings.workspace.file, pull=pull)
+        return
 
     failed = False
     for repo_dir in track_progress(repos_list, description="Updating..."):
@@ -355,6 +347,28 @@ def update(
             print_error(f"{label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
+    if failed:
+        raise typer.Exit(1)
+
+
+def _plan_update(repos_list: list[Path], ws_file: Path, *, pull: bool) -> None:
+    """Print the fetches, pulls and the workspace reload of `repos sync`, and make none. A
+    repository whose plan fails is reported as the run reports it, and the exit status is 1."""
+    requests: list[PlannedRequest] = []
+    failed = False
+    for repo_dir in repos_list:
+        label = repo_label(repo_dir)
+        try:
+            requests.extend(plan_repo_sync(repo_dir, label, pull=pull))
+        except (DevOpsCLIError, OSError, ValueError) as exc:
+            failed = True
+            print_error(f"{label}: {exc}")
+    requests.extend(plan_reload_workspace(ws_file))
+    render_request_plan(
+        MESSAGES.repos.sync_dry_run_heading,
+        requests,
+        [MESSAGES.repos.workspace_dry_run_note.format(path=ws_file)],
+    )
     if failed:
         raise typer.Exit(1)
 
@@ -386,6 +400,7 @@ def _format_worktree_table_row(entry: Any) -> list[str]:
 
 
 @worktrees_app.command("status")
+@dry_run_class("no-external-request")
 def worktrees_status(
     repo_dir: Annotated[
         Path | None,
@@ -614,6 +629,7 @@ def worktrees_add(
 
 
 @worktrees_app.command("prune")
+@dry_run_class("request-plan")
 def worktrees_prune(
     repo_dir: Annotated[
         Path | None,

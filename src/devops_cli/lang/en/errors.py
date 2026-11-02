@@ -62,6 +62,7 @@ class GitErrorMessages:
     )
     github_app_key_unreadable: str = "the private key is not an RSA private key in PEM form"
     github_app_answer_unreadable: str = "GitHub's answer holds no token and expiry time"
+    github_app_jwt_refused: str = "GitHub refused the App's JWT for {request} (HTTP 401): {reason}"
 
 
 @dataclass(frozen=True)

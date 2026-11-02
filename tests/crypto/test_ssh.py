@@ -779,12 +779,12 @@ def test_list_with_all_shows_the_keys_of_every_project(
     )
 
 
-@pytest.mark.parametrize("dry_run_options", [[], ["--dry-run"]])
+@pytest.mark.parametrize("dry_run_env", [{}, {"DEVOPS_CLI_DRY_RUN": "true"}])
 def test_list_refuses_all_together_with_a_prefix(
-    key_dir_of_three_projects: Path, cli: Callable[..., Any], dry_run_options: list[str]
+    key_dir_of_three_projects: Path, cli: Callable[..., Any], dry_run_env: dict[str, str]
 ) -> None:
     """A dry run refuses the same arguments as a run, and prints no plan for them."""
-    result = cli("ssh", "list", "--all", "--prefix", "alpha", *dry_run_options)
+    result = cli("ssh", "list", "--all", "--prefix", "alpha", env=dry_run_env)
     assert (
         result.exit_code,
         _keys_named_in(result.output),
@@ -967,3 +967,180 @@ def test_git_signing_points_the_global_config_and_a_repository_at_the_key(
         expected,
         expected,
     )
+
+
+# =============================================================================
+# Dry runs (#2258)
+# =============================================================================
+
+
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    import re
+
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+def test_ssh_dry_run_classes() -> None:
+    """Each ssh command carries the dry-run class of what it reaches."""
+    from devops_cli.commands import ssh
+    from devops_cli.dry_run.decorator import get_dry_run_class
+
+    for callback in (ssh.generate, ssh.list_keys, ssh.status):
+        assert get_dry_run_class(callback) == "no-external-request"
+    for callback in (ssh.register, ssh.rotate):
+        assert get_dry_run_class(callback) == "request-plan"
+
+
+@pytest.mark.parametrize("command", ["list", "audit", "status"])
+def test_ssh_read_commands_run_under_the_dry_run_flag(
+    key_dir_of_three_projects: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    command: str,
+) -> None:
+    """A command that only reads the key directory runs normally under `devops --dry-run`."""
+    result = cli("--dry-run", "ssh", command)
+
+    assert (result.exit_code, _keys_named_in(result.output)) == (0, [_PROJECT_KEY])
+    assert "action" not in result.output
+    assert github_api.requested == []
+
+
+@pytest.mark.parametrize("command", ["list", "audit", "status"])
+def test_ssh_read_commands_have_no_dry_run_option(cli: Callable[..., Any], command: str) -> None:
+    """A command that makes no request has no preview to offer."""
+    result = cli("ssh", command, "--dry-run")
+
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["ssh", "generate", "--key-dir", "{key_dir}", "--dry-run"],
+        ["--dry-run", "ssh", "generate", "--key-dir", "{key_dir}"],
+    ],
+)
+def test_ssh_generate_dry_run_writes_no_key(
+    tmp_path: Path,
+    cli: Callable[..., Any],
+    config: Callable[..., Path],
+    clock: ClockFake,
+    argv: list[str],
+) -> None:
+    """A dry run names the key that the run would write, and writes nothing."""
+    clock.move_to(datetime(2026, 1, 1, 12, tzinfo=UTC))
+    config(ssh={"key_prefix": "devops-cli"})
+    key_dir = tmp_path / "keys"
+
+    result = cli([arg.format(key_dir=key_dir) for arg in argv])
+
+    assert result.exit_code == 0, result.output
+    assert f"Would write the key {key_dir / 'devops-cli-id_ed25519-20260101'}" in _squash(
+        result.output
+    )
+    assert not key_dir.exists()
+
+
+def test_ssh_generate_dry_run_refuses_a_key_that_exists(
+    tmp_path: Path, cli: Callable[..., Any], config: Callable[..., Path], clock: ClockFake
+) -> None:
+    """A dry run refuses the key of today that exists, as a run does."""
+    clock.move_to(datetime(2026, 1, 1, 12, tzinfo=UTC))
+    config(ssh={"key_dir": str(tmp_path), "key_prefix": "devops-cli"})
+    (tmp_path / "devops-cli-id_ed25519-20260101").touch()
+
+    assert cli(["ssh", "generate", "--dry-run"]).exit_code == 1
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["ssh", "register", "--dry-run"], ["--dry-run", "ssh", "register"]],
+)
+def test_ssh_register_dry_run_lists_the_requests(
+    key_dir_of_three_projects: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+) -> None:
+    """A dry run sends GitHub nothing, starts no process, and lists the requests of the run."""
+    monkeypatch.chdir(key_dir_of_three_projects)
+    key = key_dir_of_three_projects / _PROJECT_KEY
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert (github_api.requested, git_fake.calls) == ([], [])
+    lines = _plan_lines(result.output)
+    assert lines[0] == "POST /user/keys"
+    assert lines[1].startswith("GET /user/keys  [only if GitHub answers the POST /user/keys")
+    assert lines[2] == "POST /user/ssh_signing_keys"
+    assert lines[3].startswith("GET /user/ssh_signing_keys  [only if")
+    assert lines[4:] == [
+        "git config --global gpg.format ssh",
+        f"git config --global user.signingkey {key}",
+        "git config --global commit.gpgsign true",
+    ]
+    assert f'"title": "{_PROJECT_KEY}", "key": "<public key>"' in result.output
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["ssh", "rotate", "--dry-run"], ["--dry-run", "ssh", "rotate"]],
+)
+def test_ssh_rotate_dry_run_writes_no_key_and_lists_the_requests(
+    key_dir_of_three_projects: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+) -> None:
+    """A dry run writes no new key, sends nothing, and lists the requests with their condition."""
+    monkeypatch.chdir(key_dir_of_three_projects)
+    before = sorted(path.name for path in key_dir_of_three_projects.iterdir())
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert (github_api.requested, git_fake.calls) == ([], [])
+    assert sorted(path.name for path in key_dir_of_three_projects.iterdir()) == before
+    lines = _plan_lines(result.output)
+    assert [line.split("  [")[0] for line in lines[:4]] == [
+        "POST /user/keys",
+        "GET /user/keys",
+        "POST /user/ssh_signing_keys",
+        "GET /user/ssh_signing_keys",
+    ]
+    assert all(
+        "the newest key is older than the rotation age or --force is set" in line for line in lines
+    )
+
+
+def test_ssh_register_runs_the_requests_of_its_plan(
+    key_dir_of_three_projects: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real run sends the requests of the plan that have no condition, in the same order,
+    and runs the `git config` commands of the plan."""
+    monkeypatch.chdir(key_dir_of_three_projects)
+    _accept_keys(github_api)
+    lines = _plan_lines(cli("ssh", "register", "--dry-run").output)
+
+    result = cli("ssh", "register")
+
+    assert result.exit_code == 0, result.output
+    unconditional = [line for line in lines if "[only if" not in line]
+    assert [f"{sent.method} {sent.url.path}" for sent in github_api.sent] == [
+        line for line in unconditional if not line.startswith("git ")
+    ]
+    assert [" ".join(call.argv) for call in git_fake.calls] == [
+        line for line in unconditional if line.startswith("git ")
+    ]

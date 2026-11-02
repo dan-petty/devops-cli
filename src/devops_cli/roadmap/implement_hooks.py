@@ -21,8 +21,11 @@ Job admits public HTTPS.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from devops_cli.config.commands import BIN_PRE_COMMIT, BIN_UV
 from devops_cli.config.constants import (
@@ -39,6 +42,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
+from devops_cli.roadmap.runner_tools import hooks_without_programs
 from devops_cli.security.sanitizer import mask_secrets
 
 _OPERATION = "roadmap.implement.hooks"
@@ -68,12 +72,38 @@ def _cache_dir() -> Path:
     return resolve_data_path(load_settings().data.cache_dir)
 
 
+def _without_hooks(text: str, skipped: Collection[str]) -> str:
+    """`text`, a hook configuration, without the hooks `skipped`, and without a repository that
+    keeps no hook. The text is the same when it holds none of them."""
+    config = yaml.safe_load(text) if skipped else None
+    if not isinstance(config, dict) or not isinstance(config.get("repos"), list):
+        return text
+    repos = config["repos"]
+    kept = []
+    changed = False
+    for repo in repos:
+        hooks = repo.get("hooks") if isinstance(repo, dict) else None
+        if not isinstance(hooks, list):
+            kept.append(repo)
+            continue
+        left = [
+            hook for hook in hooks if not (isinstance(hook, dict) and hook.get("id") in skipped)
+        ]
+        changed = changed or len(left) != len(hooks)
+        if left:
+            kept.append({**repo, "hooks": left})
+    if not changed:
+        return text
+    return yaml.safe_dump({**config, "repos": kept}, sort_keys=False).rstrip("\n")
+
+
 def trusted_config(source: Path, ref: str) -> Path | None:
     """The configuration of the hooks as commit `ref` holds it, written to the cache directory:
     the file that every hook run gets with `--config`. None when `ref` holds no configuration, as
     a repository with no hook has none to run. The commit decides, not the files of the checkout,
-    so an agent that removes or edits the file does not skip a hook. Raises `GitOperationError`
-    when git cannot read `ref`."""
+    so an agent that removes or edits the file does not skip a hook. The one hooks it leaves out
+    are those that run a program the runner image does not hold (`HOOK_PROGRAMS`): the checks of
+    the pull request run them. Raises `GitOperationError` when git cannot read `ref`."""
     name = CONST_PRE_COMMIT_CONFIG_FILENAME
     listed = git(source, "ls-tree", "--name-only", ref, "--", name, operation=_OPERATION)
     if not listed:
@@ -81,7 +111,7 @@ def trusted_config(source: Path, ref: str) -> Path | None:
     text = git(source, "show", f"{ref}:{name}", operation=_OPERATION)
     target = _cache_dir() / CONST_PRE_COMMIT_TRUSTED_CONFIG_FILE
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(f"{text}\n", encoding="utf-8")
+    target.write_text(f"{_without_hooks(text, hooks_without_programs())}\n", encoding="utf-8")
     return target
 
 

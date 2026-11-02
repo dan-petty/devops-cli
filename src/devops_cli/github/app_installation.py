@@ -29,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_GITHUB_APP_TOKEN_PERMISSIONS,
     CONST_GITHUB_USER_AGENT,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_URL_GITHUB_API_BASE,
 )
 from devops_cli.exceptions import ConfigurationError
@@ -96,7 +97,8 @@ def mint_installation_token() -> tuple[str, str, datetime | None]:
     The reason names the request and GitHub's status, or says that the key could not sign a JWT;
     it never holds the key or a token. GitHub refuses with HTTP 422 a permission that the
     installation does not grant, and its reply does not say which, so the reason then names each
-    permission that the token asks for.
+    permission that the token asks for. GitHub also refuses with HTTP 401, and the error message
+    includes GitHub's reason.
     """
     import httpx2
     from gidgethub import HTTPException
@@ -116,6 +118,12 @@ def mint_installation_token() -> tuple[str, str, datetime | None]:
         reason = failure.message
         if failure.details.get("status") == HTTPStatus.UNPROCESSABLE_ENTITY:
             reason = _not_granted(app, reason)
+        elif failure.details.get("status") == HTTPStatus.UNAUTHORIZED:
+            # Replace the generic 401 message with one that includes GitHub's reason and App-specific context
+            reason = ERRORS.git.github_app_jwt_refused.format(
+                request=f"POST {_token_path(app)}",
+                reason=str(error)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+            )
         return "", _token_failed(app, reason), None
     try:
         token, expires_at = str(answer["token"]), datetime.fromisoformat(answer["expires_at"])

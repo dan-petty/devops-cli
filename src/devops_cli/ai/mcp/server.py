@@ -396,6 +396,15 @@ def list_mcp_tools() -> list[MCPToolInfo]:
     ]
 
 
+def check_sse_bind(transport: str, host: str, *, allow_remote: bool = False) -> None:
+    """Refuse an `sse` bind to a host that is not loopback, unless `allow_remote` is set. The
+    server start and its dry run both call it."""
+    from devops_cli.core.validation import is_loopback_host
+
+    if transport == "sse" and not allow_remote and not is_loopback_host(host):
+        raise SecurityError(ERRORS.mcp.security_sse_non_loopback.format(host=host))
+
+
 def run_mcp_server(
     transport: str = "stdio",
     host: str = "127.0.0.1",
@@ -403,11 +412,8 @@ def run_mcp_server(
     allow_remote: bool = False,
 ) -> None:
     """Launch FastMCP server using stdio or sse transport."""
+    check_sse_bind(transport, host, allow_remote=allow_remote)
     if transport == "sse":
-        from devops_cli.core.validation import is_loopback_host
-
-        if not allow_remote and not is_loopback_host(host):
-            raise SecurityError(ERRORS.mcp.security_sse_non_loopback.format(host=host))
         mcp.run(transport="sse", host=host, port=port)
     else:
         mcp.run(transport="stdio", show_banner=False)

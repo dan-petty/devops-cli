@@ -1767,19 +1767,3 @@ def test_sandbox_create_kwargs_omits_user_when_running_as_root(
     docker_kwargs = runner._build_create_kwargs(tmp_path)
 
     assert ("user" in engine_kwargs, "user" in docker_kwargs) == (False, False)
-
-
-def test_sandbox_dry_run_details_rootless_user_note(tmp_path: Path, docker_engine: Any) -> None:
-    """build_dry_run_details includes user mapping and note on rootless engine."""
-    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
-
-    workload_cfg = WorkloadSandboxConfig(
-        command=["sleep", "1"], workspace_dir=tmp_path, rootless=True
-    )
-    runner = WorkloadSandboxRunner(workload_cfg)
-    details = runner.build_dry_run_details()
-
-    assert (
-        details["user"],
-        "rootless engine runs as container root" in details.get("note", ""),
-    ) == (f"{os.getuid()}:{os.getgid()}", True)

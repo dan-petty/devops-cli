@@ -13,6 +13,7 @@ import ast
 import shlex
 import tomllib
 from collections.abc import Iterator, Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from devops_cli.commands.ci import get_check_specs
 from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.roadmap.runner_tools import (
     GH_VERSION,
+    HOOK_PROGRAMS,
     NODE_MAJOR,
     NOT_IN_RUNNER,
     RUNNER_TOOLS,
@@ -30,6 +32,7 @@ from devops_cli.roadmap.runner_tools import (
     ToolSource,
     expected_text,
     failures,
+    hooks_without_programs,
     main,
     tool_failure,
     tool_names,
@@ -415,3 +418,33 @@ def test_main_exits_0_when_every_tool_passes(
 ) -> None:
     assert main() == 0
     assert f"All {len(RUNNER_TOOLS)} runner tools run at their pins." in capsys.readouterr().out
+
+
+def test_a_hook_that_the_job_leaves_out_is_a_hook_of_the_config_and_runs_programs_not_in_the_image() -> (
+    None
+):
+    """The Job leaves out a hook only when its program is a decided absence (#3134)."""
+    config = yaml.safe_load(_text(".pre-commit-config.yaml"))
+    ids = {hook["id"] for repo in config["repos"] for hook in repo["hooks"]}
+
+    assert (
+        sorted(set(HOOK_PROGRAMS) - ids),
+        sorted(
+            p for programs in HOOK_PROGRAMS.values() for p in programs if p not in NOT_IN_RUNNER
+        ),
+    ) == ([], [])
+
+
+def test_a_hook_is_missing_its_program_when_the_program_is_not_on_the_search_path(
+    tmp_path: Path,
+) -> None:
+    empty, held = tmp_path / "empty", tmp_path / "held"
+    empty.mkdir()
+    held.mkdir()
+    (held / "actionlint").write_text("#!/bin/sh\n", encoding="utf-8")
+    (held / "actionlint").chmod(0o755)
+
+    assert (hooks_without_programs(str(empty)), hooks_without_programs(str(held))) == (
+        tuple(HOOK_PROGRAMS),
+        (),
+    )

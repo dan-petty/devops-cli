@@ -203,8 +203,13 @@ def _git(
 ) -> subprocess.CompletedProcess[str]:
     """Run `git -C <repo_dir> <args>` through the process runner. A read runs in a dry run."""
     return run_subprocess(
-        ["git", "-C", str(repo_dir), *args], quiet=True, local_read=read, input=input, env=env
+        git_argv(repo_dir, *args), quiet=True, local_read=read, input=input, env=env
     )
+
+
+def git_argv(repo_dir: Path, *args: str) -> list[str]:
+    """The command `git -C <repo_dir> <args>`, as `_git` runs it and a dry run lists it."""
+    return ["git", "-C", str(repo_dir), *args]
 
 
 def _checked(
@@ -237,11 +242,16 @@ def _remote_error(
     )
 
 
+def clone_argv(url: str, dest: Path) -> list[str]:
+    """The command that clones `url`, normalized, to `dest`, as `clone_repo` runs it."""
+    return ["git", "clone", "--", _normalize_clone_url(url), str(dest)]
+
+
 def clone_repo(url: str, dest: Path) -> None:
     """Clone a repository to *dest*."""
     _validate_clone_dest(dest)
     normalized_url = _prepare_clone_url(url)
-    proc = run_subprocess(["git", "clone", "--", normalized_url, str(dest)], quiet=True)
+    proc = run_subprocess(clone_argv(normalized_url, dest), quiet=True)
     if proc.returncode != 0:
         raise GitOperationError(_reason(proc))
 
@@ -251,10 +261,16 @@ def _remotes(repo_dir: Path, operation: str) -> list[str]:
     return _checked(repo_dir, "remote", operation=operation, read=True).splitlines()
 
 
+def fetch_commands(repo_dir: Path) -> list[tuple[str, list[str]]]:
+    """The remote and the git arguments of each fetch that `fetch_all` runs, in order. It reads
+    the remotes of the local repository, which a dry run also does."""
+    return [(remote, ["fetch", "--prune", remote]) for remote in _remotes(repo_dir, "fetch")]
+
+
 def fetch_all(repo_dir: Path) -> None:
     """Fetch all remotes with pruning."""
-    for remote in _remotes(repo_dir, "fetch"):
-        proc = _git(repo_dir, "fetch", "--prune", remote)
+    for remote, args in fetch_commands(repo_dir):
+        proc = _git(repo_dir, *args)
         if proc.returncode != 0:
             raise _remote_error("fetch", "fetch", repo_dir, remote, _reason(proc))
 
@@ -276,12 +292,14 @@ def _tracking_remote(repo_dir: Path, branch: str) -> str:
     return "" if remote == "." else remote
 
 
-def pull_tracking(repo_dir: Path) -> None:
-    """Pull the current tracking branch if one is configured."""
+def pull_command(repo_dir: Path) -> tuple[str, list[str]] | None:
+    """The remote and the git arguments of the pull that `pull_tracking` runs; `None` when the
+    current branch tracks no remote. It reads only the local repository, which a dry run also
+    does, and it refuses a tracking remote that does not exist, as the run does."""
     branch = current_branch(repo_dir)
     remote = _tracking_remote(repo_dir, branch) if branch else ""
     if not remote:
-        return
+        return None
     if remote not in _remotes(repo_dir, "pull"):
         raise GitOperationError(
             f"Remote '{remote}' configured for tracking in '{repo_dir}' not found",
@@ -291,7 +309,16 @@ def pull_tracking(repo_dir: Path) -> None:
                 "remote": remote[:CONST_MAX_ERROR_DETAIL_LENGTH],
             },
         )
-    proc = _git(repo_dir, "pull", remote, branch)
+    return remote, ["pull", remote, branch]
+
+
+def pull_tracking(repo_dir: Path) -> None:
+    """Pull the current tracking branch if one is configured."""
+    command = pull_command(repo_dir)
+    if command is None:
+        return
+    remote, args = command
+    proc = _git(repo_dir, *args)
     if proc.returncode != 0:
         raise _remote_error("pull", "pull", repo_dir, remote, _reason(proc))
 
@@ -525,13 +552,32 @@ def read_file_at_revision(repo_dir: Path, revision: str, rel_path: str) -> str |
     return proc.stdout if proc.returncode == 0 else None
 
 
+def merge_base_argv(base: str, head: str = "HEAD") -> list[str]:
+    """The command that `resolve_merge_base` runs."""
+    return ["git", "merge-base", "--", base, head]
+
+
+def diff_name_status_argv(
+    base: str, head: str | None = None, *, fallback: bool = False
+) -> list[str]:
+    """The command that `list_changed_files` runs: the three-dot diff of `base...head`, or the
+    two-dot diff of `base head` as its `fallback`, or the working tree's diff without `head`."""
+    if head is None:
+        refs = [base]
+    elif fallback:
+        refs = [base, head]
+    else:
+        refs = [f"{base}...{head}"]
+    return ["git", "diff", "--name-status", "-z", "--find-renames", *refs, "--"]
+
+
 def resolve_merge_base(repo_dir: Path, base: str, head: str = "HEAD") -> str | None:
     """The merge base of `base` and `head`; `base` itself when git finds none, None if refused."""
     if not (_is_safe_revision(base) and _is_safe_revision(head)):
         return None
     try:
         proc = run_subprocess(
-            ["git", "merge-base", "--", base, head], cwd=repo_dir, quiet=True, local_read=True
+            merge_base_argv(base, head), cwd=repo_dir, quiet=True, local_read=True
         )
     except Exception as exc:
         logger.debug("Could not resolve the merge base of %s and %s: %s", base, head, exc)
@@ -550,21 +596,11 @@ def list_changed_files(repo_dir: Path, base: str, head: str | None = None) -> li
         return []
     if head is None and not _is_safe_revision(base):
         return []
-    ref_arg = [f"{base}...{head}"] if head is not None else [base]
-    cmd = ["git", "diff", "--name-status", "-z", "--find-renames", *ref_arg, "--"]
+    cmd = diff_name_status_argv(base, head)
     try:
         proc = run_subprocess(cmd, cwd=repo_dir, quiet=True, local_read=True)
         if proc.returncode != 0 and head is not None:
-            fallback_cmd = [
-                "git",
-                "diff",
-                "--name-status",
-                "-z",
-                "--find-renames",
-                base,
-                head,
-                "--",
-            ]
+            fallback_cmd = diff_name_status_argv(base, head, fallback=True)
             proc = run_subprocess(fallback_cmd, cwd=repo_dir, quiet=True, local_read=True)
     except Exception as exc:
         logger.debug("Could not list the files changed since %s: %s", base, exc)

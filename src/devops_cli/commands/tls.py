@@ -16,8 +16,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CA_VALIDITY_DAYS,
     DEFAULT_CERT_COMMON_NAME,
-    DEFAULT_HOMELAB_DOMAINS,
-    DEFAULT_HOMELAB_IPS,
     DEFAULT_K8S_TLS_SECRET_NAME,
     DEFAULT_TLS_COUNTRY,
     DEFAULT_TLS_DIR,
@@ -35,7 +33,16 @@ from devops_cli.crypto.tls_certificates import (
     inspect_certificate,
     verify_certificate,
 )
+from devops_cli.crypto.tls_plans import (
+    namespace_check_argv,
+    namespace_create_argv,
+    plan_enable_k8s,
+    secret_apply_argv,
+    secret_render_argv,
+)
 from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.decorator import dry_run_class
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.tls import KubernetesTLSSecretResult
 from devops_cli.output import (
@@ -43,7 +50,6 @@ from devops_cli.output import (
     print_info,
     print_success,
     print_table,
-    render_dry_run_result,
 )
 
 app = new_typer(
@@ -58,6 +64,7 @@ app = new_typer(
 
 
 @app.command("ca")
+@dry_run_class("no-external-request")
 def cmd_ca(
     output_dir: Annotated[
         Path,
@@ -94,18 +101,11 @@ def cmd_ca(
 ) -> None:
     """Generate a self-signed Root Certificate Authority (CA) key pair."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops tls ca",
-            action="generate_root_ca",
-            target=str(output_dir),
-            details={
-                "common_name": common_name,
-                "organization": organization,
-                "validity_days": validity_days,
-                "key_size": key_size,
-                "ca_cert": str(output_dir / CONST_CA_CERT_NAME),
-                "ca_key": str(output_dir / CONST_CA_KEY_NAME),
-            },
+        print_info(
+            MESSAGES.tls.ca_dry_run.format(
+                cert=output_dir / CONST_CA_CERT_NAME, key=output_dir / CONST_CA_KEY_NAME
+            ),
+            prefix=False,
         )
         return
 
@@ -145,6 +145,7 @@ def cmd_ca(
 
 
 @app.command("cert")
+@dry_run_class("no-external-request")
 def generate_cert_cmd(
     common_name: Annotated[
         str,
@@ -203,18 +204,14 @@ def generate_cert_cmd(
         san_list = [common_name, "127.0.0.1"]
 
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops tls cert",
-            action="generate_tls_certificate",
-            target=str(output_dir),
-            details={
-                "common_name": common_name,
-                "sans": san_list,
-                "signed_by_ca": use_ca,
-                "validity_days": validity_days,
-                "cert_path": str(output_dir / CONST_SERVER_CERT_NAME),
-                "key_path": str(output_dir / CONST_SERVER_KEY_NAME),
-            },
+        print_info(
+            MESSAGES.tls.cert_dry_run.format(
+                cert=output_dir / CONST_SERVER_CERT_NAME,
+                key=output_dir / CONST_SERVER_KEY_NAME,
+                common_name=common_name,
+                signer=resolved_ca_cert if use_ca else "itself",
+            ),
+            prefix=False,
         )
         return
 
@@ -262,6 +259,7 @@ def generate_cert_cmd(
 
 
 @app.command("homelab")
+@dry_run_class("no-external-request")
 def generate_homelab_cmd(
     output_dir: Annotated[
         Path,
@@ -286,18 +284,7 @@ def generate_homelab_cmd(
 ) -> None:
     """Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert)."""
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops tls homelab",
-            action="generate_homelab_tls_bundle",
-            target=str(output_dir),
-            details={
-                "output_dir": str(output_dir),
-                "custom_domains": domain or [],
-                "custom_ips": ip or [],
-                "default_domains": list(DEFAULT_HOMELAB_DOMAINS),
-                "default_ips": [str(ip) for ip in DEFAULT_HOMELAB_IPS],
-            },
-        )
+        print_info(MESSAGES.tls.homelab_dry_run.format(output_dir=output_dir), prefix=False)
         return
 
     summary = generate_homelab_tls_bundle(
@@ -336,6 +323,7 @@ def generate_homelab_cmd(
 
 
 @app.command("inspect")
+@dry_run_class("no-external-request")
 def inspect_cmd(
     cert_path: Annotated[
         Path,
@@ -389,6 +377,7 @@ def inspect_cmd(
 
 
 @app.command("verify")
+@dry_run_class("no-external-request")
 def verify_cmd(
     cert_path: Annotated[
         Path,
@@ -427,6 +416,7 @@ def verify_cmd(
 
 
 @app.command("enable-k8s")
+@dry_run_class("request-plan")
 def enable_k8s_cmd(
     context: Annotated[
         str | None,
@@ -464,22 +454,18 @@ def enable_k8s_cmd(
     cert_path = tls_dir / CONST_SERVER_CERT_NAME
     key_path = tls_dir / CONST_SERVER_KEY_NAME
 
+    generates_bundle = not cert_path.exists() or not key_path.exists() or overwrite
     if dry_run or is_dry_run():
-        render_dry_run_result(
-            command="devops tls enable-k8s",
-            action="apply_k8s_tls_secrets",
-            target=context or "current-context",
-            details={
-                "secret_name": secret_name,
-                "namespaces": target_namespaces,
-                "cert_path": str(cert_path),
-                "key_path": str(key_path),
-            },
+        notes = [MESSAGES.tls.enable_k8s_bundle_note.format(tls_dir=tls_dir)]
+        render_request_plan(
+            MESSAGES.tls.enable_k8s_dry_run_heading,
+            plan_enable_k8s(target_namespaces, secret_name, cert_path, key_path, context),
+            notes if generates_bundle else [],
         )
         return
 
     # Generate homelab bundle if certificates don't exist
-    if not cert_path.exists() or not key_path.exists() or overwrite:
+    if generates_bundle:
         print_info(MESSAGES.tls.generating_bundle, prefix=False)
         generate_homelab_tls_bundle(output_dir=tls_dir, overwrite=overwrite)
 
@@ -490,40 +476,20 @@ def enable_k8s_cmd(
     )
     results: list[KubernetesTLSSecretResult] = []
 
-    kubectl_ctx = ["--context", context] if context else []
-
     for ns in target_namespaces:
         # Check if namespace exists or create it
-        ns_check = run_subprocess(
-            ["kubectl", "get", "namespace", ns] + kubectl_ctx, capture_output=True
-        )
+        ns_check = run_subprocess(namespace_check_argv(ns, context), capture_output=True)
         if ns_check.returncode != 0:
-            run_subprocess(
-                ["kubectl", "create", "namespace", ns] + kubectl_ctx, capture_output=True
-            )
+            run_subprocess(namespace_create_argv(ns, context), capture_output=True)
 
         # Render the secret client-side, where kubectl rejects a certificate and key that do
         # not match, and apply it over the existing one only once it renders. Deleting first
         # left the namespace without a secret whenever the create then failed.
-        render_cmd = [
-            "kubectl",
-            "create",
-            "secret",
-            "tls",
-            secret_name,
-            f"--cert={cert_path}",
-            f"--key={key_path}",
-            "-n",
-            ns,
-            "--dry-run=client",
-            "-o",
-            "yaml",
-        ] + kubectl_ctx
-
+        render_cmd = secret_render_argv(secret_name, cert_path, key_path, ns, context)
         proc = run_subprocess(render_cmd, capture_output=True, text=True)
         if proc.returncode == 0:
             proc = run_subprocess(
-                ["kubectl", "apply", "-f", "-", "-n", ns] + kubectl_ctx,
+                secret_apply_argv(ns, context),
                 input=proc.stdout,
                 capture_output=True,
                 text=True,
