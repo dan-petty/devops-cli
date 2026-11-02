@@ -434,7 +434,7 @@ def test_a_verification_command_that_is_no_command_line_does_not_run(
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        "The verification command uv run 'devops is not a valid command line.",
+        "The verification command uv run 'devops is refused: it is not a valid command line.",
     )
 
 
@@ -450,7 +450,7 @@ def test_a_verification_command_outside_the_allowlist_does_not_run(
 
     assert (outcome.status, outcome.reason, programs_run(programs, "curl")) == (
         StepStatus.STOPPED,
-        "The verification command curl http://example.com is not allowed. curl is not one of: "
+        "The verification command curl http://example.com is refused: `curl` is not one of: "
         + ", ".join(IMPLEMENT_ALLOWED_PROGRAMS)
         + ".",
         [],

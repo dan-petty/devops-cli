@@ -114,6 +114,39 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "one line of the map; the lines of the map fit one tool answer",
     ),
     "CONST_ROADMAP_STAGE_SPEC_MAX_CHARS": ("raised", "was 8000; one `read_spec` answer"),
+    "CONST_ROADMAP_STAGE_REFERENCE_NAME_MAX_CHARS": (
+        "kept",
+        "the text `references` searches for; a name is short, and a longer text is no name",
+    ),
+    "CONST_ROADMAP_STAGE_REFERENCE_MAX_FILES": (
+        "kept",
+        "files of one `references` answer; the answer says how many it left out",
+    ),
+    "CONST_ROADMAP_STAGE_REFERENCE_LINES_PER_FILE": (
+        "kept",
+        "line numbers shown for a file; the count of the file is exact",
+    ),
+    "CONST_ROADMAP_STAGE_ISSUE_BODY_CHARS": (
+        "kept",
+        "GitHub text in one `read_issue` answer; the tool cuts data it did not write",
+    ),
+    "CONST_ROADMAP_STAGE_ISSUE_COMMENTS": ("kept", "comments of one `read_issue` answer"),
+    "CONST_ROADMAP_STAGE_ISSUE_COMMENT_CHARS": (
+        "kept",
+        "GitHub text in one comment of a `read_issue` answer",
+    ),
+    "CONST_ROADMAP_STAGE_ISSUE_TITLE_CHARS": (
+        "kept",
+        "GitHub text in one title or label of a tool answer",
+    ),
+    "CONST_ROADMAP_STAGE_FIND_MAX_RESULTS": (
+        "kept",
+        "items of one `find_issues` answer; one request to the search of GitHub",
+    ),
+    "CONST_ROADMAP_STAGE_FIND_TERMS_MAX_CHARS": (
+        "kept",
+        "the terms of one search; the search of GitHub reads a short query",
+    ),
     "CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS": (
         "kept",
         "git commands of one premise probe; the probe runs in the process of the job",
@@ -205,6 +238,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS": ("kept", "the secret masking is slower than linear"),
     "CONST_ROADMAP_IMPLEMENT_REASON_PATHS": ("kept", "paths in a stop reason, read by a person"),
+    "CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS": (
+        "kept",
+        "the words of a negative search must fit one process argument list (E2BIG at about 128000)",
+    ),
     "CONST_ROADMAP_IMPLEMENT_REASON_TESTS": ("kept", "tests in a stop reason, read by a person"),
     "CONST_ROADMAP_IMPLEMENT_REASON_CHARS": (
         "kept",

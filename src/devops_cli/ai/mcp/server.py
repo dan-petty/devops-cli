@@ -396,13 +396,28 @@ def list_mcp_tools() -> list[MCPToolInfo]:
     ]
 
 
-def check_sse_bind(transport: str, host: str, *, allow_remote: bool = False) -> None:
-    """Refuse an `sse` bind to a host that is not loopback, unless `allow_remote` is set. The
-    server start and its dry run both call it."""
+_REMOTE_TRANSPORT_LABELS: dict[str, str] = {"sse": "SSE", "streamable-http": "streamable HTTP"}
+
+
+def check_bind(transport: str, host: str, *, allow_remote: bool = False) -> None:
+    """Refuse a network transport (`sse`, `streamable-http`) on a host that is not loopback,
+    unless `allow_remote` is set. The server start and its dry run both call it."""
     from devops_cli.core.validation import is_loopback_host
 
-    if transport == "sse" and not allow_remote and not is_loopback_host(host):
-        raise SecurityError(ERRORS.mcp.security_sse_non_loopback.format(host=host))
+    label = _REMOTE_TRANSPORT_LABELS.get(transport)
+    if label is not None and not allow_remote and not is_loopback_host(host):
+        raise SecurityError(ERRORS.mcp.security_non_loopback.format(transport=label, host=host))
+
+
+def transport_token(transport: str) -> str | None:
+    """The bearer token that `streamable-http` needs. It raises `SecurityError` when the token
+    is missing or too short, so the transport never starts open. The other transports return
+    None. The server start and its dry run both call it."""
+    if transport != "streamable-http":
+        return None
+    from devops_cli.ai.mcp.remote import resolve_token
+
+    return resolve_token()
 
 
 def run_mcp_server(
@@ -411,9 +426,14 @@ def run_mcp_server(
     port: int = DEFAULT_MCP_SERVER_PORT,
     allow_remote: bool = False,
 ) -> None:
-    """Launch FastMCP server using stdio or sse transport."""
-    check_sse_bind(transport, host, allow_remote=allow_remote)
-    if transport == "sse":
+    """Launch the FastMCP server using the stdio, sse or streamable-http transport."""
+    check_bind(transport, host, allow_remote=allow_remote)
+    token = transport_token(transport)
+    if token is not None:
+        from devops_cli.ai.mcp.remote import serve_streamable_http
+
+        serve_streamable_http(host, port, token)
+    elif transport == "sse":
         mcp.run(transport="sse", host=host, port=port)
     else:
         mcp.run(transport="stdio", show_banner=False)
@@ -472,10 +492,16 @@ class ArgumentContractMiddleware(Middleware):
     resolves the registered tool, listed or withheld, and refuses `1.0` for any integer,
     though JSON Schema counts it as one. Pydantic still runs afterwards, and its refusal is
     answered with the same envelope.
+
+    A role server of the HTTP transport passes itself, so the check reads its tools and not the
+    whole catalogue.
     """
 
+    def __init__(self, server: FastMCP | None = None) -> None:
+        self._server = server
+
     async def on_call_tool(self, context: Any, call_next: Any) -> Any:
-        tool = await mcp.get_tool(context.message.name)
+        tool = await (self._server or mcp).get_tool(context.message.name)
         if tool is None:
             return await call_next(context)
         violations = schema_violations(tool.parameters, context.message.arguments or {})

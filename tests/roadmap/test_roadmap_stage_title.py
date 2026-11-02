@@ -8,14 +8,23 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.stage import parse_filters, plan_stage
-from devops_cli.roadmap.stage_change import SUMMARY_MAX_CHARS, delivery_title, staging_title
+from devops_cli.roadmap.stage_change import (
+    SUMMARY_MAX_CHARS,
+    StageProposal,
+    delivery_title,
+    staging_title,
+)
 from devops_cli.roadmap.store import ItemField
-from tests.support.builders import make_stage_proposal
+from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -23,7 +32,11 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 LONG_SUMMARY = "Report a clear error when a merge key is unset in the file"
 # The label names that .github/labels.yml declares, as far as these tests need them.
-DECLARED = ("scope/cli", "scope/config", "scope/roadmap")
+DECLARED = ("scope/cli", "scope/config", "scope/openspec", "scope/roadmap")
+
+
+# The largest number that the schema supports: the lead of the title is longest for it.
+LARGEST_NUMBER = 999999
 
 
 def _summary_of(title: str) -> str:
@@ -37,18 +50,181 @@ def test_a_staging_title_has_the_type_docs_openspec_the_issue_and_the_summary() 
     )
 
 
-@pytest.mark.parametrize("number", [7, 2656, 123456])
-def test_the_summary_of_a_staging_title_has_at_most_sixty_characters_and_is_cut_at_a_word(
+@pytest.mark.parametrize("number", [7, 2656, LARGEST_NUMBER])
+def test_a_staging_title_cuts_nothing_and_refuses_a_summary_that_does_not_fit(
     number: int,
 ) -> None:
+    """A cut summary ends with `...`, which the form check refuses (#3249): the title is built
+    whole or not at all."""
     assert len(LONG_SUMMARY) < SUMMARY_MAX_CHARS
 
-    title = staging_title(number, LONG_SUMMARY + " as the user asked")
+    with pytest.raises(RoadmapStageError, match="characters after the colon") as raised:
+        staging_title(number, LONG_SUMMARY + " as the user asked")
 
-    summary = _summary_of(title)
-    assert len(summary) <= SUMMARY_MAX_CHARS
-    assert summary.startswith(f"plan #{number} Report a clear error")
-    assert summary.endswith("...")
+    assert raised.value.failed_items == (number,)
+
+
+def test_the_guard_of_the_title_counts_units_so_a_number_with_seven_digits_refuses_emoji() -> None:
+    """24 emoji are 24 characters and 48 units: with the lead of 14 the title has 62 units, and the
+    guard is the only gate here, because the schema blocks the reply first for a smaller number."""
+    with pytest.raises(RoadmapStageError, match="would have 62 characters after the colon"):
+        staging_title(10**6, "\U0001f600" * 24)
+
+
+@pytest.mark.parametrize("invisible", ["\u200b", "\ufeff", "\u2063", "\xad", "\u2800", "\u3164"])
+def test_the_schema_refuses_a_summary_that_shows_nothing_to_a_reader(invisible: str) -> None:
+    with pytest.raises(ValueError, match="The summary has no text"):
+        make_stage_proposal(summary=invisible * 3)
+
+
+def test_the_schema_message_tells_that_an_emoji_counts_as_two() -> None:
+    with pytest.raises(ValueError, match="an emoji counts as two"):
+        make_stage_proposal(summary="\U0001f600" * 24)
+
+
+def test_a_number_with_more_digits_than_the_schema_supports_stops_the_item_and_cuts_nothing() -> (
+    None
+):
+    """The schema accepts 47 characters, which is the room for 6 digits. A number of 7 digits
+    leaves less, so the title fails loud instead of ending with `...`."""
+    summary = "a" * stage_summary_limit()
+
+    with pytest.raises(RoadmapStageError, match="characters after the colon") as raised:
+        staging_title(10**6, summary)
+
+    assert raised.value.failed_items == (10**6,)
+
+
+@pytest.mark.parametrize("number", [1, 42, 999, 3249, 12345, LARGEST_NUMBER])
+def test_a_summary_of_the_most_characters_that_the_schema_accepts_gives_a_title_the_form_accepts(
+    number: int,
+) -> None:
+    """The job built a title that its own form check refused (#3249): the schema accepted 60
+    characters, the lead of the title took some, and the cut summary ended with `...`."""
+    summary = "a" * stage_summary_limit()
+
+    title = staging_title(number, make_stage_proposal(summary=summary).summary)
+
+    assert (title.endswith(summary), title_problems(title, DECLARED)) == (True, [])
+
+
+def test_the_limit_of_the_schema_is_the_room_that_the_title_leaves_for_the_largest_number() -> None:
+    lead = _summary_of(staging_title(LARGEST_NUMBER, ""))
+
+    assert stage_summary_limit() == SUMMARY_MAX_CHARS - len(lead)
+    assert len(_summary_of(staging_title(LARGEST_NUMBER, "a" * stage_summary_limit()))) == (
+        SUMMARY_MAX_CHARS
+    )
+
+
+def test_the_constants_of_the_limit_name_the_largest_number_that_the_schema_supports() -> None:
+    from devops_cli.roadmap.stage_change import ISSUE_NUMBER_DIGITS, STAGE_SUMMARY_MAX_CHARS
+
+    assert (10**ISSUE_NUMBER_DIGITS - 1, STAGE_SUMMARY_MAX_CHARS) == (
+        LARGEST_NUMBER,
+        stage_summary_limit(),
+    )
+
+
+def test_the_schema_refuses_a_summary_that_is_too_long_for_the_title_and_names_both_counts() -> (
+    None
+):
+    limit = stage_summary_limit()
+
+    with pytest.raises(ValueError, match=rf"{limit + 1} characters in the title.*limit is {limit}"):
+        make_stage_proposal(summary="a" * (limit + 1))
+
+
+def test_the_schema_refuses_a_summary_that_the_title_would_cut_after_the_handle_has_a_code_span() -> (
+    None
+):
+    """A handle gets two backticks in the title, so a summary at the limit grows past the room."""
+    limit = stage_summary_limit()
+    summary = "a" * (limit - len("@maintainer") - 1) + " @maintainer"
+
+    assert len(summary) == limit
+    with pytest.raises(ValueError, match=rf"{limit + 2} characters in the title.*limit is {limit}"):
+        make_stage_proposal(summary=summary)
+
+
+@pytest.mark.parametrize(
+    "spare",
+    [
+        lambda full: full + " ",
+        lambda full: full + "\n",
+        lambda full: "  " + full,
+        lambda full: full[:20] + " " * 10 + full[21:],
+        lambda full: full[:1] + "\t" * 12 + full[2:],
+    ],
+)
+def test_the_schema_measures_the_summary_as_the_title_shows_it_so_spare_whitespace_costs_nothing(
+    spare: Callable[[str], str],
+) -> None:
+    """The limit counts the one-line text of the title, so a trailing newline or a run of spaces
+    that the title collapses does not make the model write the reply again."""
+    limit = stage_summary_limit()
+    summary = spare("a" * limit)
+
+    proposal = make_stage_proposal(summary=summary)
+
+    assert len(summary) > limit
+    assert title_problems(staging_title(1, proposal.summary), DECLARED) == []
+
+
+def _utf16_units(text: str) -> int:
+    """The length that `^.{1,60}$` of the check `Semantic PR title` measures: JavaScript counts
+    UTF-16 code units, and a character outside the Basic Multilingual Plane has two."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+@pytest.mark.parametrize("symbol", ["\U0001f600", "\U00020000"], ids=["emoji", "astral-cjk"])
+def test_the_limit_counts_a_character_outside_the_basic_plane_as_two_like_the_ci_check(
+    symbol: str,
+) -> None:
+    """47 emoji are 47 characters for Python but 94 units for the CI check, which refuses the
+    title (#3249). The limit counts units, so half as many fit, and the title passes both."""
+    limit = stage_summary_limit()
+    fits = symbol * (limit // 2)
+
+    title = staging_title(LARGEST_NUMBER, make_stage_proposal(summary=fits).summary)
+
+    assert _utf16_units(_summary_of(title)) <= SUMMARY_MAX_CHARS
+    assert title_problems(title, DECLARED) == []
+    with pytest.raises(ValueError, match=rf"{limit // 2 * 2 + 2} characters in the title"):
+        make_stage_proposal(summary=symbol * (limit // 2 + 1))
+
+
+@pytest.mark.parametrize("blank", [" ", "\n", "\t \xa0", "\u2028"])
+def test_the_schema_refuses_a_summary_that_has_no_text_once_the_title_shows_it(
+    blank: str,
+) -> None:
+    """The title of a blank summary is `plan #12 ` with nothing after the number."""
+    with pytest.raises(ValueError, match="The summary has no text"):
+        make_stage_proposal(summary=blank)
+
+
+def test_the_json_schema_of_the_summary_holds_both_bounds_for_the_model() -> None:
+    schema = StageProposal.model_json_schema()["properties"]["summary"]
+
+    assert (schema["minLength"], schema["maxLength"]) == (1, stage_summary_limit())
+
+
+def test_the_title_error_names_the_count_and_the_limit_for_a_number_that_is_too_large() -> None:
+    summary = "a" * stage_summary_limit()
+
+    with pytest.raises(
+        RoadmapStageError,
+        match=r"The title of item 1000000 would have 61 characters after the colon, "
+        r"and the limit is 60\.",
+    ):
+        staging_title(10**6, summary)
+
+
+def test_the_summary_error_tells_that_a_handle_or_a_link_gets_a_code_span() -> None:
+    summary = "a" * (stage_summary_limit() - len("@maintainer") - 1) + " @maintainer"
+
+    with pytest.raises(ValueError, match="A handle or a link gets a code span in the title"):
+        make_stage_proposal(summary=summary)
 
 
 def test_a_summary_with_a_handle_has_it_in_a_code_span_so_that_the_title_pings_no_one() -> None:

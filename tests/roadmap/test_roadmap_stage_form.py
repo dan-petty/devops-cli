@@ -71,6 +71,32 @@ def test_a_devops_command_or_a_negative_search_is_a_verify_command(verify: str) 
 
 
 @pytest.mark.parametrize(
+    ("verify", "reason"),
+    [
+        ("! git grep -n name", "it gives no path"),
+        ("! git grep -n name src/ | cat", "the word `|` is not a path of the checkout"),
+        ("! git grep -n name src/ ; rm -rf tests/", "the word `;` is not a path of the checkout"),
+        (
+            "! git grep -O name src/",
+            "the option `-O` is not allowed (the options are -n -I -F -i -w -l -c -q)",
+        ),
+        ("! rm -rf src/", "it does not start with `! git grep`"),
+        ("! git log", "it does not start with `! git grep`"),
+        ("uv run devops 'ci", "it is not a valid command line"),
+    ],
+)
+def test_a_verify_command_that_the_step_refuses_gets_the_reason_of_the_step(
+    verify: str, reason: str
+) -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,), verify=verify)
+
+    assert _problems(plan) == [
+        f"Group 1 gives the `verify` command `{verify}`, and the step cannot run it: {reason}. "
+        "Give `uv run devops <command>` or `! git grep -n <name> src/ tests/`."
+    ]
+
+
+@pytest.mark.parametrize(
     "verify", ["devops ci test tests/roadmap/test_stage.py", "uv run devopsx", "pytest -x"]
 )
 def test_a_command_that_is_not_uv_run_devops_is_refused(verify: str) -> None:

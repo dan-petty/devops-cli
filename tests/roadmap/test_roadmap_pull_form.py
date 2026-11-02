@@ -17,6 +17,7 @@ from devops_cli.roadmap.pull_form import (
     build_body,
     build_title,
     is_placeholder,
+    summary_length,
     title_problems,
 )
 
@@ -47,6 +48,25 @@ def test_a_title_in_the_form_has_no_problem(title: str) -> None:
     assert title_problems(title, DECLARED) == []
 
 
+def test_the_summary_limit_counts_utf16_units_like_the_title_check_of_the_workflow() -> None:
+    """`^.{1,60}$` in JavaScript counts UTF-16 units: an emoji is two, so 31 emoji are 62 units
+    and the check `Semantic PR title` refuses a title that has only 31 code points (#3249)."""
+    fits = f"feat(pr): {chr(0x1F600) * (SUMMARY_MAX_CHARS // 2)}"
+    long = f"feat(pr): {chr(0x20000) * (SUMMARY_MAX_CHARS // 2 + 1)}"
+
+    assert title_problems(fits, DECLARED) == []
+    (problem,) = title_problems(long, DECLARED)
+    assert f"The summary has {SUMMARY_MAX_CHARS + 2} characters" in problem
+    assert "an emoji counts as two" in problem
+
+
+def test_a_lone_surrogate_counts_as_one_unit_and_the_form_check_does_not_crash() -> None:
+    """A byte that is no UTF-8 reaches argv as a lone surrogate, and JavaScript counts it as one
+    unit. `devops pr create` must print the form report for it, not a traceback (#3249)."""
+    assert (summary_length("a\udcff"), summary_length("\ud83d")) == (2, 1)
+    assert title_problems("feat(pr): bad \udcff byte", DECLARED) == []
+
+
 @pytest.mark.parametrize(
     ("title", "fragment"),
     [
@@ -55,6 +75,9 @@ def test_a_title_in_the_form_has_no_problem(title: str) -> None:
         ("Feat(pr): build it", "is not in the form"),
         ("feat(): build it", "is not in the form"),
         ("feat(pr): build it\nand more", "more than one line"),
+        ("feat(pr): build it\rand more", "more than one line"),
+        ("feat(pr): build it\u2028and more", "more than one line"),
+        ("feat(pr): build it\u2029and more", "more than one line"),
         ("wip(pr): build it", "not a type of the project"),
         ("feat(pr)!: build it", "Before 1.0.0"),
         ("feat(zzz-unknown): build it", "`scope/zzz-unknown`"),

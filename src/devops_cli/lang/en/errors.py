@@ -239,7 +239,9 @@ class GrafanaErrorMessages:
 
 @dataclass(frozen=True)
 class MCPErrorMessages:
-    invalid_transport: str = "Invalid transport '{transport}'. Choose 'stdio' or 'sse'."
+    invalid_transport: str = (
+        "Invalid transport '{transport}'. Choose 'stdio', 'sse' or 'streamable-http'."
+    )
     hyphen_prefixed_argument: str = (
         "Invalid value for '{name}': must not start with a hyphen. "
         "Hyphen-prefixed values could be interpreted as flags by the underlying command."
@@ -252,12 +254,24 @@ class MCPErrorMessages:
         "requests of the benchmark, which only the command line may choose. "
         "Name each model alone; it runs on the configured servers."
     )
+    oidc_token_not_reference: str = (
+        "Invalid value for 'oidc_token': use a reference of the form keyring:<name>. "
+        "A token in an argument passes through the model, so the tool never takes the token itself."
+    )
     conflicting_symbol_and_pattern: str = (
         "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
     )
-    security_sse_non_loopback: str = (
-        "Refusing to bind SSE transport to non-loopback host '{host}' by default. "
+    security_non_loopback: str = (
+        "Refusing to bind {transport} transport to non-loopback host '{host}' by default. "
         "Use allow_remote=True to permit external host binding."
+    )
+    token_required: str = (
+        "Refusing to start the streamable-http transport: no bearer token is set. "
+        "Set mcp.token (DEVOPS_CLI_MCP_TOKEN, or `devops config set mcp.token`)."
+    )
+    token_too_short: str = (
+        "Refusing to start the streamable-http transport: mcp.token has fewer than "
+        "{minimum} characters."
     )
 
 

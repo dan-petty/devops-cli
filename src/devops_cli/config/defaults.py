@@ -775,6 +775,11 @@ DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
 # of the implement task (128k), which leaves the other half for tool output and the model's turns
 # (#2654, #3206). A test holds that the step budget and the reserve of the turns fit the window.
 DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW // 2
+# The tools of a plan run of the stage job (#3238): `base` is the nine tools that read the staged
+# commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read
+# GitHub through the client of the Service.
+StageToolset = Literal["base", "extended"]
+DEFAULT_ROADMAP_STAGE_TOOLSET: StageToolset = "extended"
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

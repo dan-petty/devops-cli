@@ -102,11 +102,15 @@ def _task_of(item: Sequence[Token]) -> GroupTask | None:
 
 
 def _headings(tokens: Sequence[Token], tag: str) -> list[tuple[int, int, str]]:
-    """The index, the first line and the text of each heading of `tag`."""
+    """The index, the first line and the text of each heading of `tag` at the top level. A heading in a
+    list item or a quote is text of that item, not a heading of the file."""
     return [
         (index, token.map[0], tokens[index + 1].content)
         for index, token in enumerate(tokens)
-        if token.type == "heading_open" and token.tag == tag and token.map is not None
+        if token.type == "heading_open"
+        and token.tag == tag
+        and token.level == 0
+        and token.map is not None
     ]
 
 
