@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.0](https://github.com/dan-petty/devops-cli/compare/v0.47.0...v0.48.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** give the stage planner three more read-only tools ([#3250](https://github.com/dan-petty/devops-cli/issues/3250)) ([80ffc5c](https://github.com/dan-petty/devops-cli/commit/80ffc5c18a9b9ce9131412e172c3a572b2085580))
+
 ## [0.47.0](https://github.com/dan-petty/devops-cli/compare/v0.46.1...v0.47.0) (2026-11-02)
 
 
