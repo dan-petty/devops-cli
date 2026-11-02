@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A staged item gets a draft pull request
-The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters. The job SHALL NOT cut the title: the schema accepts a summary only when the title holds it whole for an issue number of up to 6 digits, and for a longer number the job SHALL stop that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
+The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters, and the job SHALL NOT cut it: the schema keeps a summary short enough for an issue number of up to 6 digits, and a longer number stops that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
 
 #### Scenario: The draft opens
 - **WHEN** the job stages a Ready bug

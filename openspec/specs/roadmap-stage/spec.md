@@ -77,7 +77,7 @@ For each item the job SHALL make the branch `<type>/<issue>-<slug>` at `origin/<
 - **THEN** the branch is pushed with one commit by the session identity, and the commit holds the change folder
 
 ### Requirement: A staged item gets a draft pull request
-The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters. The job SHALL NOT cut a summary that the schema of the plan accepted. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
+The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters, and the job SHALL NOT cut it: the schema keeps a summary short enough for an issue number of up to 6 digits, and a longer number stops that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
 
 #### Scenario: The draft opens
 - **WHEN** the job stages a Ready bug
@@ -96,8 +96,16 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **THEN** the title holds the whole summary, ends with no `...`, and passes the form check of titles, and the planner prompt names the same limit
 
 #### Scenario: A long summary
-- **WHEN** the model gives a summary of 48 characters, or a summary of 47 characters whose handle gets a code span in the title
-- **THEN** the schema refuses the reply, and the reply goes back to the model with the limit
+- **WHEN** the model gives a summary that has more than 47 characters as the title shows it, such as 48 characters, or 47 characters with a handle that gets a code span
+- **THEN** the schema refuses the reply, the reply goes back to the model with the count and the limit, and a second refusal stops that item only
+
+#### Scenario: Spare whitespace costs nothing
+- **WHEN** the model gives a summary of 47 characters followed by a new line
+- **THEN** the schema accepts the reply, because the title shows the text on one line
+
+#### Scenario: A number of 7 digits
+- **WHEN** the job builds the title of item 1000000 for a summary of 47 characters
+- **THEN** the job stops that item with an error that names the limit, and the title is not cut
 
 ### Requirement: The job measures each task group
 The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 64000, and `--step-tokens` SHALL override it for one run.
