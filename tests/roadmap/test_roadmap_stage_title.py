@@ -58,7 +58,7 @@ def test_a_staging_title_cuts_nothing_and_refuses_a_summary_that_does_not_fit(
     with pytest.raises(RoadmapStageError, match="characters after the colon") as raised:
         staging_title(number, LONG_SUMMARY + " as the user asked")
 
-    assert raised.value.failed_items == [number]
+    assert raised.value.failed_items == (number,)
 
 
 def test_a_number_with_more_digits_than_the_schema_supports_stops_the_item_and_cuts_nothing() -> (
@@ -71,7 +71,7 @@ def test_a_number_with_more_digits_than_the_schema_supports_stops_the_item_and_c
     with pytest.raises(RoadmapStageError, match="characters after the colon") as raised:
         staging_title(10**6, summary)
 
-    assert raised.value.failed_items == [10**6]
+    assert raised.value.failed_items == (10**6,)
 
 
 @pytest.mark.parametrize("number", [1, 42, 999, 3249, 12345, LARGEST_NUMBER])

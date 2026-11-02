@@ -36,6 +36,7 @@ from pydantic import (
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
 from devops_cli.core.paths import safe_resolve_subpath
+from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
@@ -276,7 +277,9 @@ class StageProposal(_Reply):
     `premise_failed` must give every key of the plan."""
 
     premise_failed: str | None = None
-    summary: str = Field("", min_length=1, max_length=STAGE_SUMMARY_MAX_CHARS)
+    # The limit counts the text as the title shows it (see `_summary_fits_the_title`), so the schema
+    # gives it as `maxLength` for the model and checks it in the validator, not with `max_length`.
+    summary: str = Field("", min_length=1, json_schema_extra={"maxLength": STAGE_SUMMARY_MAX_CHARS})
     pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
     why: str = ""
     what_changes: list[str] = Field(default_factory=list, min_length=1)
@@ -301,8 +304,10 @@ class StageProposal(_Reply):
     @field_validator("summary")
     @classmethod
     def _summary_fits_the_title(cls, summary: str) -> str:
-        """The title shows the summary as `safe_text` writes it, which can be longer: a handle
-        gets a code span. `staging_title` cuts no summary that the schema accepts."""
+        """The title shows the summary as `safe_text` writes it: on one line, and with a code span
+        for a handle or a link. The limit counts that text, so spare whitespace costs nothing and
+        a handle costs its code span. The reply that breaks it goes back to the model with both
+        counts, and `staging_title` cuts no summary that the schema accepts."""
         shown = len(safe_text(summary))
         if shown > STAGE_SUMMARY_MAX_CHARS:
             raise ValueError(
@@ -617,11 +622,18 @@ def staging_title(number: int, summary: str) -> str:
     <summary>`. It is on one line, with a handle or a link in a code span, so it pings no one. The
     part after the colon has at most `SUMMARY_MAX_CHARS` characters (#2714). A summary that the
     schema accepts (`STAGE_SUMMARY_MAX_CHARS`) always fits, for a number of `ISSUE_NUMBER_DIGITS`
-    digits or fewer. A longer text is cut at a word, with `...`, and `title_problems` refuses it."""
+    digits or fewer. The title is never cut, because a cut text ends with `...` and the form check
+    refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
-    room = SUMMARY_MAX_CHARS - len(lead)
-    shortened = textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)
-    return f"{_STAGING_TYPE}: {lead}{shortened}"
+    shown = safe_text(summary)
+    if len(lead) + len(shown) > SUMMARY_MAX_CHARS:
+        raise RoadmapStageError(
+            MESSAGES.roadmap.stage_title_long.format(
+                number=number, length=len(lead) + len(shown), limit=SUMMARY_MAX_CHARS
+            ),
+            failed_items=[number],
+        )
+    return f"{_STAGING_TYPE}: {lead}{shown}"
 
 
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:

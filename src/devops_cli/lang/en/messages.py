@@ -3040,6 +3040,10 @@ class RoadmapMessages:
         "Keep one of them."
     )
     stage_title_lead: str = "plan #{number} "
+    stage_title_long: str = (
+        "The title of item {number} would have {length} characters after the colon, and the "
+        "limit is {limit}. The summary of the plan does not fit the number of this item."
+    )
     stage_summary_long: str = (
         "The summary has {length} characters in the title, and the limit is {limit}. "
         "A handle or a link gets a code span in the title. Write a shorter summary."

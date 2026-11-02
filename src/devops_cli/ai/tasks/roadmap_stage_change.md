@@ -22,7 +22,7 @@ The rules of the project:
 The reply has these keys and no other, at the top level or inside any entry:
 
 - `premise_failed`: a string with the evidence that the premise is false, or `null`. When it is a string, no other key is needed. When it is `null`, the keys below are required.
-- `summary`: the summary of the title of the pull request in the imperative mood, at most 47 characters, with no full stop. The job writes the title as `docs(openspec): plan #<number> <summary>`, because the pull request only plans the item.
+- `summary`: the summary of the title of the pull request in the imperative mood, at most 47 characters, with no full stop. The limit counts the summary as the title shows it. The job puts a handle or a link in a code span, which adds characters, so write no handle or link in the summary. The job writes the title as `docs(openspec): plan #<number> <summary>`, because the pull request only plans the item.
 - `pull_request_body`: what the change does and why, in plain text, at most 800 characters. It is the message of the squash commit. Never write close, closes, closed, fix, fixes, fixed, resolve, resolves or resolved before an issue reference.
 - `why`: the problem the issue solves. Cite the issue as `#<number>`.
 - `what_changes`: a list of strings, one for each change. When `skip_specs` is `true`, one of them says why the change has no spec delta.
