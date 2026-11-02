@@ -25,7 +25,7 @@ Kind: documents
 - [x] 3.1 Update `k8s/README.md` and `docs/ROUTINE_TASKS.md`, and regenerate the generated documents
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 - [x] 3.2 Archive the change
-  - Verification: `uv run devops openspec archive 3063-progress-based-runner-deadline`
+  - Verification: `uv run devops openspec archive 3063-long-running-tasks-progress-based-deadlines`
 
 ## Workflow follow-up
 
