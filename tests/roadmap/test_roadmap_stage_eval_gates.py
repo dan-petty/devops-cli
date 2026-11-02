@@ -66,10 +66,16 @@ def test_the_pending_defects_are_counted_and_fail_nothing(cases: list[StageCase]
     assert report.failures == []
 
 
-def test_a_defect_is_listed_for_the_gate_that_catches_its_type(cases: list[StageCase]) -> None:
+def test_a_defect_is_listed_for_the_gate_that_catches_its_type_or_for_a_gate_that_finds_it(
+    cases: list[StageCase],
+) -> None:
+    """A type that waits for a gate (the spec delta, #3013) can have a defect that a gate of
+    another type already refuses: the case then names that gate and holds its message."""
     for case in cases:
         for defect in case.defects:
-            assert defect.gate in (gate_for(defect.type), GateName.NONE), (case.name, defect.type)
+            by_type = defect.gate in (gate_for(defect.type), GateName.NONE)
+            by_finding = defect.type in PENDING_GATES and defect.gate in {g.name for g in GATES}
+            assert by_type or (by_finding and defect.message), (case.name, defect.type)
 
 
 def test_a_gate_that_stops_refusing_a_plan_fails_the_replay(cases: list[StageCase]) -> None:
@@ -183,3 +189,24 @@ def test_the_gates_and_the_pending_gates_cover_each_type_once() -> None:
 
     assert caught.isdisjoint(PENDING_GATES)
     assert caught | set(PENDING_GATES) | {DefectType.OTHER} == set(DefectType)
+
+
+def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests_only_change(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.pull == 2977)
+    delta = next(d for d in case.defects if d.type is DefectType.SPEC_DELTA_WRONG)
+
+    replay = replay_case(case)
+
+    assert (case.plan["skip_specs"], [g["changes"] for g in case.groups]) == (
+        False,
+        [["tests/test_scanner_tool_executor.py"]],
+    )
+    assert delta.gate is GateName.PATHS
+    assert next(o.status for o in replay.outcomes if o.defect is delta) is DefectStatus.CAUGHT
+    assert any(
+        "every path in `changes` is under tests/" in problem
+        for problem in replay.problems[GateName.PATHS]
+    )
+    assert replay.failures == []

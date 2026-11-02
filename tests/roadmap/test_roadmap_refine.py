@@ -8,6 +8,7 @@ The model-failure cases (#1363) answer refine's own client at the HTTP edge with
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 import re
@@ -41,6 +42,7 @@ from devops_cli.ai.client.models import (
     ReplyRejectedError,
     StructuredOutputValidationError,
 )
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.config import constants
@@ -167,6 +169,22 @@ def _answer_grep(repo: Path, ident: str) -> ProcessAnswer:
     return ProcessAnswer(returncode=1)
 
 
+def _answer_grep_files(repo: Path, argv: list[str]) -> ProcessAnswer:
+    """`grep -l -z -F -e <needle>... <sha> -- <pathspec>...`: the NUL-ended `<sha>:<path>` of each
+    file under a pathspec that holds a needle."""
+    needles = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-e"]
+    specs = argv[argv.index("--") + 1 :]
+    found = []
+    for f in sorted(p for p in repo.rglob("*") if p.is_file()):
+        rel = f.relative_to(repo).as_posix()
+        in_scope = not specs or any(fnmatch.fnmatch(rel, s) or rel.startswith(s) for s in specs)
+        if in_scope and any(n in f.read_text(encoding="utf-8") for n in needles):
+            found.append(f"{REFINE_HEAD_SHA}:{rel}")
+    if not found:
+        return ProcessAnswer(returncode=1)
+    return ProcessAnswer(stdout="\0".join(found) + "\0")
+
+
 def _answer_refine_git(repo: Path, argv: list[str]) -> ProcessAnswer:
     if argv[1:] == ["remote", "get-url", "origin"]:
         return ProcessAnswer(stdout=f"https://example.com/{REPO}.git\n")
@@ -180,6 +198,8 @@ def _answer_refine_git(repo: Path, argv: list[str]) -> ProcessAnswer:
     if "ls-tree" in argv:
         target_dir = repo / argv[-1] if len(argv) > 6 else repo
         return _answer_ls_tree(repo, target_dir)
+    if "grep" in argv and "-l" in argv:
+        return _answer_grep_files(repo, argv)
     if "grep" in argv:
         ident_idx = argv.index("-e") + 1
         return _answer_grep(repo, argv[ident_idx])
@@ -306,6 +326,115 @@ def test_collect_context_handles_spaces_and_non_ascii_adrs(git_repo: Path) -> No
     ctx = collect_context(git_repo, new_sha, "body", max_tokens=1000)
     assert "Special ADR content." in ctx
     assert "0002-café decision with space.md" in ctx
+
+
+def _write(repo: Path, rel: str, text: str) -> None:
+    path = repo / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_a_cited_symbol_brings_its_tests_and_its_callers(git_repo: Path) -> None:
+    """The context lists the test files, then the caller files, that reference a cited symbol
+    (#3012). A test file is under `tests/`, or is named `test_*.py` or `*_test.py`."""
+    _write(git_repo, "tests/test_sample.py", "from src.sample import hello_world\n")
+    _write(git_repo, "pkg/test_inline.py", "hello_world()\n")
+    _write(git_repo, "pkg/inline_test.py", "hello_world()\n")
+    _write(git_repo, "src/caller.py", "from sample import hello_world\n")
+    _write(git_repo, "src/contest.py", "hello_world()\n")
+    _write(git_repo, "src/unrelated.py", "nothing = 1\n")
+    sha = inspect_checkout(git_repo, REPO)
+
+    ctx = collect_context(git_repo, sha, "Call `hello_world` again.", max_tokens=4000)
+
+    assert "### Tests and callers of `hello_world`" in ctx
+    section = ctx.split("### Tests and callers of `hello_world`")[1]
+    tests_part, callers_part = section.split("Callers:")
+    assert (
+        [
+            f"- {p}" in tests_part
+            for p in ("tests/test_sample.py", "pkg/test_inline.py", "pkg/inline_test.py")
+        ],
+        [f"- {p}" in callers_part for p in ("src/caller.py", "src/contest.py", "src/sample.py")],
+        "src/unrelated.py" in section,
+    ) == ([True, True, True], [True, True, True], False)
+
+
+def test_a_symbol_with_no_other_file_adds_no_section(git_repo: Path) -> None:
+    sha = inspect_checkout(git_repo, REPO)
+    ctx = collect_context(git_repo, sha, "Call `missing_symbol` again.", max_tokens=4000)
+    assert "Tests and callers" not in ctx
+
+
+def test_the_paths_of_one_symbol_are_bounded_and_the_cut_is_noted(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert constants.CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL == 50
+    monkeypatch.setattr("devops_cli.roadmap.refine.CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL", 3)
+    for index in range(5):
+        _write(git_repo, f"tests/test_n{index}.py", "hello_world()\n")
+    sha = inspect_checkout(git_repo, REPO)
+
+    ctx = collect_context(git_repo, sha, "Call `hello_world` again.", max_tokens=4000)
+
+    section = ctx.split("### Tests and callers of `hello_world`")[1].split("###")[0]
+    assert (section.count("\n- "), "3 of 6 paths shown; 3 more" in section) == (3, True)
+
+
+def test_a_cited_file_brings_the_requirement_names_of_its_capability(git_repo: Path) -> None:
+    """A cited file belongs to the capabilities whose name is its package and module name, or
+    that begin with that name, and to the specs that name its path (#3012)."""
+    _write(git_repo, "src/devops_cli/widget/render.py", "def render_widget():\n    return 1\n")
+    _write(
+        git_repo,
+        "openspec/specs/widget-render/spec.md",
+        "# widget-render\n\n## Requirements\n\n### Requirement: A widget renders\nIt SHALL.\n\n"
+        "#### Scenario: One\n\n### Requirement: A widget has a title\nIt SHALL.\n",
+    )
+    _write(
+        git_repo,
+        "openspec/specs/widget/spec.md",
+        "### Requirement: The widget package is documented\nIt SHALL.\n",
+    )
+    _write(
+        git_repo,
+        "openspec/specs/named-by-path/spec.md",
+        "### Requirement: The renderer is named by path\nSee `src/devops_cli/widget/render.py`.\n",
+    )
+    _write(
+        git_repo,
+        "openspec/specs/other/spec.md",
+        "### Requirement: An unrelated capability\nIt SHALL.\n",
+    )
+    sha = inspect_checkout(git_repo, REPO)
+
+    ctx = collect_context(git_repo, sha, "Change src/devops_cli/widget/render.py now.", 4000)
+
+    assert "### Requirements of widget-render" in ctx
+    assert "- A widget renders\n- A widget has a title" in ctx
+    assert "### Requirements of named-by-path\n- The renderer is named by path" in ctx
+    # The budget cuts the end first, so the short sections come before the cited code.
+    assert ctx.index("### Requirements of widget-render") < ctx.index("### Code: src/devops_cli")
+    assert "- The widget package is documented" in ctx
+    assert "An unrelated capability" not in ctx
+
+
+def test_a_cited_file_with_no_capability_adds_no_requirement_section(git_repo: Path) -> None:
+    _write(git_repo, "openspec/specs/other/spec.md", "### Requirement: Unrelated\nIt SHALL.\n")
+    sha = inspect_checkout(git_repo, REPO)
+    ctx = collect_context(git_repo, sha, "Review src/sample.py:1-2 now.", max_tokens=4000)
+    assert "### Requirements of" not in ctx
+
+
+def test_the_larger_context_stays_inside_the_token_budget(git_repo: Path) -> None:
+    for index in range(40):
+        _write(git_repo, f"tests/test_budget_{index}.py", "hello_world()\n")
+    sha = inspect_checkout(git_repo, REPO)
+    body = "Review src/sample.py:1-2 and `hello_world` identifier."
+
+    ctx = collect_context(git_repo, sha, body, max_tokens=120)
+
+    assert count_tokens(ctx) <= 120
 
 
 def test_the_web_search_state_of_a_round_whose_visibility_read_fails(
