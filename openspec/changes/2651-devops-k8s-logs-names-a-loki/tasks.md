@@ -1,18 +1,26 @@
 # Tasks
 
-## 1. Add loki.url config key to settings
+## 1. The setting `loki.url`
 
-Reads: none. Changes: `src/devops_cli/config/settings.py`, `tests/test_loki_url_config.py` (new).
+Reads: `src/devops_cli/config/settings.py`, `tests/config/test_config_keys.py`. Changes: `src/devops_cli/config/settings.py`, `tests/security/test_config_declarations.py`, `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `tests/config/test_loki_url.py` (new).
 
-- [ ] 1.1 test_loki_url_config_key: run devops config set loki.url http://example.com:3100 and assert the command exits with code 0, and verify that `uv run pytest tests/test_loki_url_config.py -v` fails on the base
-- [ ] 1.2 Add a LokiConfig Pydantic model with a url field of type ServiceUrlStr | None, defaulting to None. Add loki: LokiConfig = LokiConfig() to the Settings class, alongside qdrant, tempo, pyroscope and valkey. Import DEFAULT_LOKI_URL from devops_cli.config.defaults for reference in the field description, and verify that `uv run pytest tests/test_loki_url_config.py -v` passes
+- [ ] 1.1 Write failing tests in `tests/config/test_loki_url.py` for the scenarios of "The Loki address is a setting": `config set` writes `loki.url`, `config set` refuses a `k8s://` value and names `loki.url`, and `DEVOPS_CLI_LOKI_URL` sets it. Add `DEVOPS_CLI_LOKI_URL` to `_VARIABLES_OF_LATER_SETTINGS` in `tests/security/test_config_declarations.py`.
+  - Verification: `uv run devops ci test tests/config/test_loki_url.py tests/security/test_config_declarations.py` (fails on the base)
+- [ ] 1.2 Add `LokiConfig` with `url: Annotated[HttpUrlStr | None, Variable()]` (default `None`, with a description) before `TempoConfig` in `settings.py`, and `loki: LokiConfig = LokiConfig()` in `Settings` before `tempo`. Import no constant for the description.
+  - Verification: `uv run devops ci test tests/config/test_loki_url.py tests/security/test_config_declarations.py`
+- [ ] 1.3 Regenerate the documents for the new key and variable with `uv run devops docs generate --sync-readme`
+  - Verification: `uv run devops docs check`
 
-## 2. Wire loki.url into k8s logs command
+## 2. One address for every Loki query
 
-Reads: none. Changes: `src/devops_cli/k8s/logql.py`.
+Reads: `src/devops_cli/k8s/logql.py`, `src/devops_cli/k8s/cluster_plans.py`, `src/devops_cli/commands/k8s/cluster_context.py`, `src/devops_cli/ui/widgets.py`, `tests/web_fakes.py`, `tests/http/test_http_egress.py`. Changes: `src/devops_cli/k8s/logql.py`, `src/devops_cli/k8s/cluster_plans.py`, `src/devops_cli/commands/k8s/cluster_context.py`, `tests/ai/mcp/test_k8s_logql.py`, `docs/CLI_REFERENCE.md`, `docs/commands/k8s.md`, `tests/k8s/test_loki_url_setting.py` (new), `tests/commands/k8s/test_k8s_logs_loki_url.py` (new).
 
-- [ ] 2.1 test_k8s_logs_uses_configured_loki_url: set loki.url to http://example.com:3100, run devops k8s logs without --loki-url, and assert the HTTP request is sent to http://example.com:3100/loki/api/v1/query_range, and verify that `uv run pytest tests/ai/mcp/test_k8s_logql.py -v` fails on the base
-- [ ] 2.2 In the logql query path, read settings.loki.url. When --loki-url is not given, use settings.loki.url if set, else DEFAULT_LOKI_URL. The MCP tool k8s_logs calls the same function, so it reads the same setting. The --loki-url flag overrides the setting when both are present, and verify that `uv run pytest tests/ai/mcp/test_k8s_logql.py -v` passes
+- [ ] 2.1 Write failing tests for the scenarios of "The Loki address of a log query" and of the MODIFIED "The MCP tool k8s_logs publishes no Loki URL". In `tests/k8s/test_loki_url_setting.py`: `execute_logql_query` and `plan_k8s_logs` use the setting, an argument wins, neither gives `localhost:3100`, a host that answers `127.0.0.1` or `192.0.2.10` is dialled with `ai.allow_private_network` false, and a host that answers `169.254.169.254` raises `SSRFBlockedError` with no dial. In `tests/commands/k8s/test_k8s_logs_loki_url.py`: `devops k8s logs` uses the setting, `--loki-url` wins, `--dry-run` shows the setting, and `devops k8s logs --help` names `loki.url`. In `tests/ai/mcp/test_k8s_logql.py`: the tool queries the setting, and a call with `loki_url` fails with no dial when the setting is set.
+  - Verification: `uv run devops ci test tests/k8s/test_loki_url_setting.py tests/commands/k8s/test_k8s_logs_loki_url.py tests/ai/mcp/test_k8s_logql.py` (fails on the base)
+- [ ] 2.2 Add `resolve_loki_url(loki_url: str | None = None) -> str` to `logql.py` (option, else `load_settings().loki.url`, else `DEFAULT_LOKI_URL`). Call it in `execute_logql_query` in place of `loki_url or DEFAULT_LOKI_URL`, and in `plan_k8s_logs` in place of the same expression. Delete the import of `DEFAULT_LOKI_URL` in `cluster_plans.py`. Change the help of `--loki-url` in `cluster_context.py` to "Loki service endpoint; overrides the `loki.url` setting (default: http://localhost:3100)".
+  - Verification: `uv run devops ci test tests/k8s/test_loki_url_setting.py tests/commands/k8s/test_k8s_logs_loki_url.py tests/ai/mcp/test_k8s_logql.py tests/commands/test_k8s_dry_run.py tests/http/test_http_egress.py`
+- [ ] 2.3 Regenerate the documents for the new help with `uv run devops docs generate --sync-readme`
+  - Verification: `uv run devops docs check`
 
 ## Workflow follow-up
 
