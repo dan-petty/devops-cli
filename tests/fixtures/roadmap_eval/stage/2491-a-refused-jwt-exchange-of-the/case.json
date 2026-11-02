@@ -34,7 +34,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section does not check the premise for the ERRORS.git location. It says 'the defining file must be located during implementation'. AGENTS.md rule 2 asks for confirmed evidence in the plan. One grep gives the answer. The plan left it open and then named a wrong path.",
    "evidence": "proposal.md Feasibility bullet 4: 'The path of the `ERRORS.git` module is not shown in the inputs ... the defining file must be located during implementation.'",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "ignores_existing_code",
@@ -42,7 +42,8 @@
    "where": "tasks.md",
    "problem": "Task 1.2 and the proposal say the new 401 reason holds 'App-specific advice' to check the App ID, installation ID and key. The wrapper `_token_failed` already appends that sentence to every reason through ERRORS.git.github_app_token_failed. If the implementer puts the advice in the new constant, the message shows it twice. The plan does not give the exact new string. It should say the new reason holds only the request, the status and GitHub's message.",
    "evidence": "src/devops_cli/lang/en/errors.py: github_app_token_failed = 'GitHub App {login} has no installation token: {reason}. Check the App ID, the installation ID and the private key in {key_env}.' The issue's Actual message shows the sentence once, after the gh-login text. The issue's design uses reason 'GitHub refused the JWT for POST ... (HTTP 401): <message>'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",
@@ -58,7 +59,7 @@
    "where": "proposal.md",
    "problem": "Some Feasibility line numbers are off by one or are garbled. The 422 override sits at lines 117-118 of app_installation.py, not 116-117. The sentence 'currently uses a substring assertion and will not hold the wrong text after the fix' is unclear. The other cited places are right: classify_http_error at line 115, _unauthenticated_error at line 193, test at line 332.",
    "evidence": "git show origin/main:src/devops_cli/github/app_installation.py: line 116 `reason = failure.message`, 117 `if failure.details.get(\"status\") == HTTPStatus.UNPROCESSABLE_ENTITY:`, 118 `reason = _not_granted(...)`.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

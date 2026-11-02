@@ -21,7 +21,7 @@ from datetime import date
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Final, Self
+from typing import Annotated, Any, Final, Self
 
 from pydantic import (
     AfterValidator,
@@ -29,6 +29,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 
@@ -38,14 +39,14 @@ from devops_cli.core.paths import safe_resolve_subpath
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS
 from devops_cli.roadmap.refine import sanitize_text
+from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
 
-# The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming): the part
-# after `<type>(<scope>): `, which the check `Semantic PR title` measures.
-SUMMARY_MAX_CHARS: Final[int] = 60
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 _STAGING_TYPE: Final[str] = "docs(openspec)"
@@ -59,6 +60,12 @@ _WORD_PUNCTUATION: Final[str] = ".,;:()"
 # GitHub closes the issue that follows one of these words in the body of a pull request.
 _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
     {"close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"}
+)
+# A change whose every path starts with one of these has no spec delta: tests, workflows, documents
+# and plans are not behavior a consumer observes (#3013).
+_NO_SPEC_PREFIXES: Final[tuple[str, ...]] = ("tests/", ".github/workflows/", "docs/", "openspec/")
+_NO_SPEC_PREFIXES_TEXT: Final[str] = (
+    f"{', '.join(_NO_SPEC_PREFIXES[:-1])} or {_NO_SPEC_PREFIXES[-1]}"
 )
 _TESTS_DIRECTORY: Final[str] = "tests/"
 _SOURCE_DIRECTORY: Final[str] = "src/"
@@ -236,28 +243,78 @@ def _other_problems(group: StageGroup) -> list[str]:
     return [text.format(title=group.title) for broken, text in found if broken]
 
 
+# The keys of the plan: a reply that does not set `premise_failed` gives each of them.
+_PLAN_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "summary",
+        "pull_request_body",
+        "why",
+        "what_changes",
+        "skip_specs",
+        "feasibility",
+        "existing_tool",
+        "groups",
+    }
+)
+
+
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
     `pull_request_body` the what and why of its body. The scope and the type of the title are not
-    the model's: see `staging_title`."""
+    the model's: see `staging_title`.
 
-    summary: str = Field(min_length=1, max_length=SUMMARY_MAX_CHARS)
-    pull_request_body: str = Field(min_length=1, max_length=BODY_MAX_CHARS)
-    why: str
-    what_changes: list[str] = Field(min_length=1)
-    skip_specs: bool
-    feasibility: list[str] = Field(min_length=1)
-    existing_tool: str
+    A reply may instead set `premise_failed`, the evidence that the premise of the issue is false
+    (#3011). It then needs no plan, and the job returns the item. A reply with no
+    `premise_failed` must give every key of the plan."""
+
+    premise_failed: str | None = None
+    summary: str = Field("", min_length=1, max_length=SUMMARY_MAX_CHARS)
+    pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
+    why: str = ""
+    what_changes: list[str] = Field(default_factory=list, min_length=1)
+    skip_specs: bool = False
+    feasibility: list[str] = Field(default_factory=list, min_length=1)
+    existing_tool: str = ""
     decisions: list[StageDecision] = Field(default_factory=list)
     rejected: list[StageRejection] = Field(default_factory=list)
     specs: list[StageSpec] = Field(default_factory=list)
-    groups: list[StageGroup] = Field(min_length=1)
+    groups: list[StageGroup] = Field(default_factory=list, min_length=1)
+    criteria: list[StageCriterion] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _evidence_alone(cls, data: Any) -> Any:
+        """A reply with evidence is only the evidence: the empty keys that a model writes for the
+        plan it does not give are dropped."""
+        if isinstance(data, dict) and str(data.get("premise_failed") or "").strip():
+            return {"premise_failed": data["premise_failed"]}
+        return data
+
+    @field_validator("premise_failed")
+    @classmethod
+    def _blank_is_none(cls, evidence: str | None) -> str | None:
+        """A blank text means no failure, as the model writes an empty key for none."""
+        return evidence.strip() or None if evidence is not None else None
+
+    @model_validator(mode="after")
+    def _plan_unless_premise_failed(self) -> Self:
+        if self.premise_failed is None:
+            missing = sorted(_PLAN_KEYS - self.model_fields_set)
+            if missing:
+                raise ValueError(
+                    " ".join(
+                        MESSAGES.roadmap.stage_premise_plan_missing.format(field=k) for k in missing
+                    )
+                )
+        return self
 
 
 class StageSplit(_Reply):
-    """The model's answer to a split: every group of the change, in order."""
+    """The model's answer to a split: every group of the change, in order, and the `criteria`
+    list again, since a split moves the numbers of the groups."""
 
     groups: list[StageGroup] = Field(min_length=1)
+    criteria: list[StageCriterion] = Field(default_factory=list)
 
 
 def _says_shall_or_must(text: str) -> bool:
@@ -283,19 +340,65 @@ def _spec_problems(spec: StageSpec, known: Collection[str]) -> list[str]:
     return problems
 
 
-def check_proposal(proposal: StageProposal, known: Collection[str], tree: StagedTree) -> list[str]:
-    """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
-    `proposal`, one sentence each. `known` holds the names of the capabilities under
-    `openspec/specs/`, and `tree` the files that exist when the change is written."""
+def _needs_no_spec(proposal: StageProposal) -> bool:
+    """Whether every path of `changes`, in every group, is a test, a workflow, a document or a
+    plan: a change that no consumer observes (#3013)."""
+    return all(
+        path.startswith(_NO_SPEC_PREFIXES) for group in proposal.groups for path in group.changes
+    )
+
+
+def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[str]]) -> list[str]:
+    """One problem for each ADDED requirement of `spec` whose name the base spec of the capability
+    already has."""
+    taken = {name.strip() for name in requirements.get(spec.capability, ())}
+    return [
+        MESSAGES.roadmap.stage_problem_duplicate_requirement.format(
+            requirement=requirement.name.strip(), capability=spec.capability
+        )
+        for requirement in spec.added
+        if requirement.name.strip() in taken
+    ]
+
+
+def _delta_problems(
+    proposal: StageProposal, known: Collection[str], requirements: Mapping[str, Collection[str]]
+) -> list[str]:
+    """What is wrong with the spec delta of `proposal` as a whole and in each capability."""
     texts = MESSAGES.roadmap
     problems: list[str] = []
     if proposal.skip_specs and proposal.specs:
         problems.append(texts.stage_problem_skip_with_specs)
     if not proposal.skip_specs and not proposal.specs:
         problems.append(texts.stage_problem_no_specs)
+    if not proposal.skip_specs and proposal.specs and _needs_no_spec(proposal):
+        problems.append(
+            texts.stage_problem_specs_not_needed.format(prefixes=_NO_SPEC_PREFIXES_TEXT)
+        )
     for spec in proposal.specs:
         problems.extend(_spec_problems(spec, known))
+        problems.extend(_duplicate_problems(spec, requirements))
+    return problems
+
+
+def check_proposal(
+    proposal: StageProposal,
+    known: Collection[str],
+    tree: StagedTree,
+    *,
+    requirements: Mapping[str, Collection[str]] | None = None,
+    issue_body: str = "",
+) -> list[str]:
+    """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
+    `proposal`, one sentence each. `known` holds the names of the capabilities under
+    `openspec/specs/`, `requirements` the requirement names of each base spec by capability, and
+    `tree` the files that exist when the change is written. `issue_body` is the whole body of the
+    issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
+    none needs no entry."""
+    problems = _delta_problems(proposal, known, requirements or {})
+    problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
+    problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
     return problems
 
 
@@ -447,9 +550,23 @@ def group_text(index: int, group: StageGroup) -> str:
     return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
 
 
-def _tasks_file(groups: Sequence[StageGroup]) -> str:
+def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
+    """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
+    group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
+    A plan with no criterion has no section."""
+    texts = MESSAGES.roadmap
+    lines = [
+        texts.stage_criteria_pending.format(criterion=_one_line(c.criterion), reason=c.reason)
+        if c.group == PENDING_PERSON
+        else texts.stage_criteria_line.format(criterion=_one_line(c.criterion), group=c.group)
+        for c in criteria
+    ]
+    return f"## {texts.stage_criteria_title}\n\n{_bullets(lines)}\n\n" if lines else ""
+
+
+def _tasks_file(groups: Sequence[StageGroup], criteria: Sequence[StageCriterion] = ()) -> str:
     sections = "\n".join(group_text(i, g) for i, g in enumerate(groups, start=1))
-    return f"# Tasks\n\n{sections}\n## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
+    return f"# Tasks\n\n{sections}\n{_criteria_section(criteria)}## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
 
 
 def render_change(
@@ -466,7 +583,7 @@ def render_change(
         f"{root}/.openspec.yaml": f"schema: spec-driven\ncreated: {created.isoformat()}\n{skip}",
         f"{root}/proposal.md": _proposal_file(proposal, known),
         f"{root}/design.md": _design_file(proposal),
-        f"{root}/tasks.md": _tasks_file(proposal.groups),
+        f"{root}/tasks.md": _tasks_file(proposal.groups, proposal.criteria),
     }
     for spec in proposal.specs:
         files[f"{root}/specs/{spec.capability}/spec.md"] = _spec_file(spec)

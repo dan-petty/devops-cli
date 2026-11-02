@@ -60,7 +60,8 @@
    "where": "specs/config-commands/spec.md",
    "problem": "The delta spec requires exit code 1 with no traceback (CLI behavior) and exit 0 for a direct key. The tasks test only the library function find. No task tests the CLI exit code or the unchanged direct removal. The proposal 'Impact' is 'None' although a command output changes. The proposal also claims the 'cost' of the change is 'roughly 10 tokens', which is not a real cost estimate for tokens to build, keep and fix it (AGENTS.md rule 3). #2828 added the CLI test in tests/config/test_config_key_removal.py on its own.",
    "evidence": "spec.md: 'SHALL exit with code 1 ... SHALL NOT print a Python traceback'. tasks.md has one test, on find(...). proposal.md '## Impact\\n\\nNone.' and 'Written cost: roughly 10 tokens of new code'. Commit 75147663 stat: 'tests/config/test_config_key_removal.py | 24 ++++'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The tasks do not test the CLI scenarios. A person judges this."
   },
   {
    "type": "false_premise",
@@ -68,7 +69,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section quotes the failing line but shows no run of the reproduction (the issue gives steps). It does not show that a ConfigurationError reaches exit code 1 in the CLI. The check is cheap but the evidence is a claim.",
    "evidence": "proposal.md Feasibility: 'line 161 shows int(node.lc.key(dotted)[0]) + 1' (true: git show 'a383c5f9^:src/devops_cli/config/round_trip.py' line 161). No command output of the repro or of the exit code is recorded.",
-   "gate": "pending"
+   "gate": "none"
   }
  ]
 }

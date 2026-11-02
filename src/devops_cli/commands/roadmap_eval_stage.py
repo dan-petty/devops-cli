@@ -1,7 +1,9 @@
 """`devops roadmap eval stage`: the golden set of the stage job (#3028).
 
 The command runs the real stage code on each case of `tests/fixtures/roadmap_eval/stage/` with the
-model of the `analysis` task, or with `--model`, and prints a score for each type of defect. It
+model of the `analysis` task, or with `--model`, and prints a score for each type of defect. The
+model plans with the read-only toolbox of the job; `--no-toolbox` plans with one call and no tool,
+so two runs of one model compare (#3037). It
 stores the score as JSON under the data directory. `--replay` makes no model call: it runs the
 recorded plans through the deterministic gates and reports the defects each gate catches.
 """
@@ -44,9 +46,11 @@ def _run(
     source: Path | None,
     dry_run: bool,
     as_json: bool,
+    toolbox: bool,
 ) -> None:
     from devops_cli.ai.client import get_llm_client
     from devops_cli.config.settings import load_settings
+    from devops_cli.roadmap.implement_eval_run import eval_model
     from devops_cli.roadmap.intake_model import gateway_address
     from devops_cli.roadmap.stage_eval_cases import load_cases, select_cases
     from devops_cli.roadmap.stage_eval_render import (
@@ -62,13 +66,20 @@ def _run(
     gateway = gateway_address(settings.ai)
     if dry_run:
         render_request_plan(
-            MESSAGES.roadmap.stage_eval_dry_run.format(gateway=gateway, cases=len(cases)),
-            planned_calls(cases, gateway),
+            MESSAGES.roadmap.stage_eval_dry_run.format(
+                gateway=gateway,
+                cases=len(cases),
+                mode=MESSAGES.roadmap.stage_eval_mode_toolbox
+                if toolbox
+                else MESSAGES.roadmap.stage_eval_mode_plain,
+            ),
+            planned_calls(cases, gateway, toolbox=toolbox),
         )
         return
     client = get_llm_client(task="analysis", settings=settings, model=model)
     name = model or settings.ai.for_task("analysis").model
-    runs = run_cases(cases, client, source or find_repo_root())
+    planner = eval_model(model, task="analysis")[0] if toolbox else None
+    runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner)
     score = score_runs(name, cases, runs)
     now = datetime.now(UTC)
     report = score_json(score, gateway=gateway, taken=now.isoformat(timespec="seconds"))
@@ -105,6 +116,9 @@ def eval_stage_cmd(
     source: Annotated[
         Path | None, typer.Option("--source", help=HELP.roadmap.eval_stage_source)
     ] = None,
+    no_toolbox: Annotated[
+        bool, typer.Option("--no-toolbox", help=HELP.roadmap.eval_stage_no_toolbox)
+    ] = False,
 ) -> None:
     """Score the stage job on the golden set: the live run, or the replay through the gates."""
     names = tuple(case or ())
@@ -119,4 +133,5 @@ def eval_stage_cmd(
         source=source,
         dry_run=dry_run or is_dry_run(),
         as_json=as_json,
+        toolbox=not no_toolbox,
     )
