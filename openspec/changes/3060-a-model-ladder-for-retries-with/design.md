@@ -2,15 +2,16 @@
 
 ## Decisions
 
-- **Store the ladder as a map from step class to an ordered tier list in the existing settings.**: The issue asks for a tier per attempt and per step class, and the settings already hold the model overrides of a task.
-- **Advance the tier on a provider error and leave the repair round counter unchanged.**: The issue says a provider error moves down the ladder without spending a repair round.
-- **Read gateway tier health before each tier choice and skip a tier that it reports unhealthy.**: The issue requires the gateway tier health to be read before a choice.
-- **Record the token cost per tier in the record of the implement run, beside the step record.**: The repository has no trace module, and the run record already holds what each step of an item did.
-- **Default the ladder to local tiers only.**: The issue requires no hosted-provider call unless the setting names one.
+- **Store the ladder as `roadmap.implement.ladder: dict[str, list[str]]` in `RoadmapImplementConfig`.**: `RoadmapImplementConfig` configures implement settings, supports setting variables, and prints in `devops config show`.
+- **Default the ladder to local model tiers only (`devops-coder`, `devops-reasoning`).**: `SECURITY.md` item 12 states a prompt leaves the cluster only when a caller explicitly names a hosted group.
+- **Advance the ladder on `FailureAction.CHANGE_TIER` without incrementing repair rounds.**: The failure taxonomy maps `FailureClass.PARSER` to `CHANGE_TIER`. Changing tiers addresses model defects without wasting code repair turns.
+- **Rebuild the step agent per attempt with the model and context window of that tier.**: Tiers differ in context windows (262144 vs 160000 tokens), and output caps depend on window size.
+- **Record the tier in `StepOutcome` and itemize spend per tier under `implement.spend`.**: The run record maintains `implement.spend` per item. Itemizing by tier enables spend tracking and cost audit.
+- **Check gateway tier health before each attempt and skip unhealthy tiers.**: Probing health before an attempt prevents sending requests to offline backend pods.
 
 ## Rejected alternatives
 
-- **A single global tier list.**: The issue requires a ladder per step class, so plan and repair can use different tiers.
-- **Treat a provider error as a normal failure and spend a repair round.**: The issue says a provider error moves down the ladder without spending a repair round.
-- **Cache gateway health for a TTL.**: The issue requires gateway tier health to be read before a choice, and a cache returns stale health.
-- **Record only an aggregate token total.**: The issue requires the token cost per tier, not only the total.
+- **A single global tier list across all step classes.**: Planning steps need large context windows for codebase exploration, while repair steps need specialized reasoning models for syntax fixing. A single list either over-spends on edits or starves repair steps.
+- **Spend a repair round on parser errors.**: Issue #2953 proved that a model family with an XML tool-call bug repeats the exact same error on subsequent repair turns. Spending repair rounds on model bugs exhausts the repair budget without fixing code.
+- **Cache gateway tier health with a TTL.**: `src/devops_cli/ai/gateway.py` has no per-group health endpoint, and backend pods can fail within the 1500s request timeout window. A TTL cache returns stale healthy status during outages.
+- **Record aggregate token totals only.**: `docs/ROADMAP_WORKFLOW.md` and `devops ai spend` evaluate model cost efficiency. Without per-tier spend attribution in the run record, operators cannot measure the cost impact of tier escalations.
