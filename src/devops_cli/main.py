@@ -12,7 +12,7 @@ import typer
 
 from devops_cli import __version__
 from devops_cli.config.constants import CONST_CLI_ROOT_LEVEL_COMMANDS, CONST_REVIEW_COMMAND_WORDS
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import new_typer, require_working_directory
 from devops_cli.dry_run import dry_run_requested_by_environment, is_dry_run, set_dry_run
 from devops_cli.lang import HELP
 
@@ -99,6 +99,15 @@ def _runs_a_review(command_name: str, args: list[str]) -> bool:
 
 
 def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
+    # Fast dispatch for help queries skips devops_cli.telemetry and the tracer span.
+    # Arguments after `--` belong to a passed-through command (`devops k8s run-job -- review
+    # --help` runs a Job), so a help flag there is not a help query and the exit code counts.
+    own_args = args[: args.index("--")] if "--" in args else args
+    is_help_query = any(a in ("-h", "--help") for a in own_args)
+    if not is_help_query:
+        # A module can read the working directory when it loads, so the check comes first (#2531).
+        require_working_directory()
+
     module = import_module(module_path)
     module_app = module.app
     command = typer.main.get_command(module_app)
@@ -108,11 +117,7 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
 
     prog = "devops" if is_root_level else f"devops {command_name}"
 
-    # Fast dispatch for help queries skips devops_cli.telemetry and the tracer span.
-    # Arguments after `--` belong to a passed-through command (`devops k8s run-job -- review
-    # --help` runs a Job), so a help flag there is not a help query and the exit code counts.
-    own_args = args[: args.index("--")] if "--" in args else args
-    if any(a in ("-h", "--help") for a in own_args):
+    if is_help_query:
         command.main(
             args=effective_args,
             prog_name=prog,

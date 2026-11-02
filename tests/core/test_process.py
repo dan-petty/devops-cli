@@ -580,22 +580,22 @@ def test_process_runner_seam() -> None:
 
 def test_uv_preview_flags_injection() -> None:
     """Verify uv commands automatically receive preview features if not present."""
-    from devops_cli.core.process import _prepare_cmd
+    from devops_cli.core.process import prepare_tool_cmd
 
-    assert _prepare_cmd(["uv", "run", "pytest"]) == [
+    assert prepare_tool_cmd(["uv", "run", "pytest"]) == [
         "uv",
         "--preview-features",
         "malware-check,check-command",
         "run",
         "pytest",
     ]
-    assert _prepare_cmd(["uv", "--preview-features", "malware-check", "run"]) == [
+    assert prepare_tool_cmd(["uv", "--preview-features", "malware-check", "run"]) == [
         "uv",
         "--preview-features",
         "malware-check",
         "run",
     ]
-    assert _prepare_cmd(["git", "status"]) == ["git", "status"]
+    assert prepare_tool_cmd(["git", "status"]) == ["git", "status"]
 
 
 def test_default_process_runner_spawn_sandbox() -> None:

@@ -1,6 +1,7 @@
 """Unit tests for OpenTelemetry tracer and metrics emitter."""
 
 import os
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -696,3 +697,45 @@ def test_resource_attributes_standard() -> None:
     assert res_attrs["process.runtime.name"] == "cpython"
     assert res_attrs["telemetry.sdk.name"] == "devops-cli-otel"
     assert res_attrs["telemetry.sdk.language"] == "python"
+
+
+def _exported_vcs_attributes(span_name: str) -> dict[str, Any]:
+    """Start a span in a client that exports to a fake collector, and return its exported `vcs.*` attributes."""
+    otlp = FakeCollector()
+    reset_tracer()
+    with otlp.client().span(span_name):
+        pass
+    reset_tracer()
+    (span,) = otlp.spans
+    return {key: value for key, value in span.attributes.items() if key.startswith("vcs.")}
+
+
+def test_span_starts_without_vcs_attributes_when_working_directory_is_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A span starts, and exports no `vcs.*` attribute, when the working directory was removed."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+
+    assert _exported_vcs_attributes("test_gone_span") == {}
+
+
+def test_span_holds_vcs_attributes_when_working_directory_is_in_a_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A span exports the branch and the revision of the repository that holds the working directory."""
+    revision = "a1b2c3d4e5f67890123456789012345678901234"
+    repo_meta = tmp_path / ".git"
+    (repo_meta / "refs" / "heads" / "feat").mkdir(parents=True)
+    (repo_meta / "HEAD").write_text("ref: refs/heads/feat/example\n")
+    (repo_meta / "refs" / "heads" / "feat" / "example").write_text(revision + "\n")
+    monkeypatch.chdir(tmp_path)
+
+    assert _exported_vcs_attributes("test_repo_span") == {
+        "vcs.ref.name": "feat/example",
+        "vcs.branch": "feat/example",
+        "vcs.revision_id": revision,
+        "vcs.commit": revision,
+    }

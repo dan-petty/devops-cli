@@ -9,7 +9,7 @@ A guard in `_resolve_git_dir` alone does not give that. The next crash is in `_c
 ## What Changes
 
 - `_resolve_git_dir` returns `None` when `Path.cwd()` raises `OSError`. A span then starts with no `vcs.*` attribute.
-- A command of a `new_typer()` app checks the working directory before it runs. When the directory is gone, the command prints one error line, exits with status 1 and runs no body. A group that shows its help is not a command and keeps working.
+- A command of a `new_typer()` app checks the working directory before it runs. A command group that the entry point loads (`devops scan`, `devops ci`) gets the same check before its module loads, because a module can read the working directory when it loads. When the directory is gone, the command prints one error line, exits with status 1 and runs no body. The entry point then prints its `Elapsed` line. A group that shows its help is not a command and keeps working.
 - The paragraph of `ARCHITECTURE.md` on the exit seam names this check.
 - The change fits one pull request. It has two task groups.
 
@@ -32,7 +32,7 @@ Acceptance criteria of #2531, from the refine block of the issue:
 
 ## Impact
 
-- Code: `src/devops_cli/telemetry/tracer.py` (`_resolve_git_dir`), `src/devops_cli/core/cli.py` (`OTelTyper.command`).
+- Code: `src/devops_cli/telemetry/tracer.py` (`_resolve_git_dir`), `src/devops_cli/core/cli.py` (`OTelTyper.command`, the lazy proxy of `OTelTyper.add_typer`, `require_working_directory`), `src/devops_cli/main.py` (`_delegate`).
 - Tests: `tests/telemetry/test_telemetry.py`, `tests/commands/test_command_error_exit.py`.
 - Documents: `ARCHITECTURE.md` (section 7, the exit seam).
 - Existing code the change keeps: `_detect_vcs_metadata` already treats `None` as "no git directory" and returns an empty mapping. `reset_tracer()` clears its cache, which the tests use. `_report_devops_error` prints a `DevOpsCLIError` as one line and exits with its status. The test `test_every_command_app_passes_its_commands_through_the_exit_seam` and the requirements of `command-error-exit` must still pass.
@@ -52,4 +52,4 @@ Every check below ran on `origin/main` (0.37.1) on 2026-11-01, in a worktree of 
 
 ## Existing Tool Considered
 
-The standard library covers the need: `os.getcwd()` raises `FileNotFoundError` for a removed directory, and the change catches it. No external tool or library does more. The written cost is two short guards (about 10 lines), three tests, one paragraph of `ARCHITECTURE.md`, and the upkeep of the check in `OTelTyper.command`. The change deletes no internal code.
+The standard library covers the need: `os.getcwd()` raises `FileNotFoundError` for a removed directory, and the change catches it. No external tool or library does more. The written cost is two short guards (about 10 lines) and one shared check function with two callers (`OTelTyper.command` and the dry-run path and `_delegate` of the entry point), five tests, one paragraph of `ARCHITECTURE.md`, and the upkeep of those calls. The change deletes no internal code.
