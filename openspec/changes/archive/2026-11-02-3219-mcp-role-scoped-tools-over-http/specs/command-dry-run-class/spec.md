@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: server-request-plans
-The commands `mcp serve` and `serve` SHALL carry the `request-plan` dry-run class and expose `--dry-run`. Under `--dry-run` each command SHALL start no server and open no socket. It SHALL print a bind request and a start request built from the values of the real call. `mcp serve` over `sse` or `streamable-http` SHALL refuse a host that is not loopback without `--allow-remote`, and over `streamable-http` SHALL refuse a missing or short `mcp.token`, as the real run does. `serve --service --dry-run` SHALL load no settings and read no credential.
+The commands `mcp serve` and `serve` SHALL carry the `request-plan` dry-run class and expose `--dry-run`. Under `--dry-run` each command SHALL start no server and open no socket. It SHALL print the bind and start requests of the real call. `mcp serve` SHALL refuse a host that is not loopback without `--allow-remote`, and over `streamable-http` a missing or short `mcp.token`, as the real run does. `serve --service --dry-run` SHALL load no settings and read no credential.
 
 #### Scenario: Dry run on mcp serve over sse
 - **WHEN** a user runs `devops mcp serve --transport sse --host 127.0.0.1 --port 9090 --dry-run` with `run_mcp_server` patched to fail
