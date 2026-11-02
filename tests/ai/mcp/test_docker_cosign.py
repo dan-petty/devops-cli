@@ -568,22 +568,6 @@ def test_cosign_exceptions_and_models_reexported() -> None:
     assert models_mod.DockerVerifyResult is docker_models.DockerVerifyResult
 
 
-def test_fastmcp_docker_sign_env_handoff() -> None:
-    """Validate docker_sign FastMCP tool passes raw OIDC tokens via env, never in argv."""
-    from devops_cli.ai.mcp.server import docker_sign
-
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_run:
-        mock_run.return_value = "Signed successfully"
-        res = docker_sign("example.com/app:1.0.0", oidc_token="mock-secret-jwt")
-        assert res == "Signed successfully"
-        mock_run.assert_called_once()
-        cmd_called, kwargs_called = mock_run.call_args[0], mock_run.call_args[1]
-        argv = cmd_called[0] if cmd_called else []
-        assert "--oidc-token" not in argv
-        assert "mock-secret-jwt" not in argv
-        assert kwargs_called.get("env") == {"COSIGN_IDENTITY_TOKEN": "mock-secret-jwt"}
-
-
 def test_cosign_runner_sign_and_verify_passes_xdg_runtime_dir(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -19,6 +19,7 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     ToolCallPart,
 )
+from pydantic_core import to_json
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.spend import track_request_spend
@@ -28,7 +29,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_ERROR_READ_CHARS,
     CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS,
 )
-from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.security.sanitizer import mask_secret_named_values, mask_secrets
 
 # The HTTP statuses of a model reply that refuse the key, which stop the whole run.
 _REFUSED_KEY_STATUSES = frozenset({401, 403})
@@ -119,6 +120,14 @@ def run_error_message(stopped: AgentRunError) -> str:
     return "".join(char for char in description if char.isprintable()).strip()
 
 
+def _argument_json(call: ToolCallPart) -> str:
+    """The argument of a tool call as compact JSON, with each value under a secret-suggesting name
+    hidden. A model writes the argument, so a secret in it would reach the trace comment (#3222).
+    `bounded_text` masks the rest by form. An argument that is no JSON object is already wrapped
+    by pydantic-ai as `{"INVALID_JSON": <text>}`."""
+    return to_json(mask_secret_named_values(call.args_as_dict())).decode()
+
+
 @dataclass(frozen=True)
 class ToolCallRecord:
     """One tool call of a run: the tool, and its argument as JSON, masked and cut."""
@@ -167,7 +176,7 @@ class RunTrace:
         self.output_tokens += reply.usage.output_tokens
         for part in reply.parts:
             if isinstance(part, ToolCallPart) and part.tool_name in tools:
-                argument = bounded_text(part.args_as_json_str())
+                argument = bounded_text(_argument_json(part))
                 self.tool_calls.append(
                     ToolCallRecord(
                         part.tool_name, argument[:CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS]
