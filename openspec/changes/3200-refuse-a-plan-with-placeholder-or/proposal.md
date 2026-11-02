@@ -12,7 +12,8 @@ The stage job accepts plan text that is a placeholder or cut (#3200). A plan wit
 - `StageProposal` gains `builds_own`, and the content check requires a token count and a time in `existing_tool` when it is true.
 - The content check refuses `true`, `:` and `exit 0` as the `verify` command of a group.
 - `lang/en/messages.py` holds one message for each refusal, and each message names its field.
-- `staging_title` and `delivery_title` use the full summary and add no `...`.
+- `StageProposal.summary` takes the bound `PLAN_SUMMARY_MAX_CHARS = 47` that the prompt already states (the issue text says 40, and the schema says 60, which the title lead of `plan #<number> ` exceeds). `staging_title` and `delivery_title` use the full summary and add no `...`.
+- `stage.py` passes the probe lines of the item to `check_proposal`, because the job makes the only call that has them.
 - `stage_eval_gates.py` gains `GateName.CONTENT` and a gate that catches `DefectType.OTHER`.
 - The golden set gains the recorded placeholder plans as defects of type `other`, and the case-count assertions of the eval test follow.
 - The change alters what the stage job accepts, so it carries a spec delta.
@@ -30,7 +31,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/stage_eval_gates.py`, `src/devops_cli/roadmap/stage_eval_cases.py`
+- Code: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/stage_eval_gates.py`, `src/devops_cli/roadmap/stage_eval_cases.py`
 - Tests: `tests/roadmap/test_roadmap_stage_form.py`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/placeholder-why/case.json`, `tests/fixtures/roadmap_eval/stage/placeholder-verify/case.json`, `tests/roadmap/test_roadmap_stage_eval_cases.py`
 
 ## Feasibility
@@ -45,6 +46,7 @@ None.
 - First check against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_form.py` runs the new content tests.
 - First check against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_gates.py` replays the golden set through the new content gate.
 - First check against the real system: `uv run devops openspec check` validates the change folder against the base specs.
+- `read_file` on `src/devops_cli/roadmap/stage.py` showed that `_settle` calls `check_proposal` with no probe lines, and `src/devops_cli/roadmap/pull_form.py` showed `SUMMARY_MAX_CHARS = 60`, while `src/devops_cli/ai/tasks/roadmap_stage_change.md` states a limit of 47 characters. The issue text of 40 is stale, so the change uses 47.
 
 ## Existing Tool Considered
 

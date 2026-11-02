@@ -61,11 +61,11 @@ The stage job SHALL refuse `true`, `:` and `exit 0` as the `verify` command of a
 - **THEN** `check_proposal` returns no verify problem.
 
 ### Requirement: The summary of a plan is not cut
-The stage plan SHALL refuse a `summary` that is longer than `SUMMARY_MAX_CHARS` or that ends with `...`.
+The stage plan SHALL refuse a `summary` that is longer than `PLAN_SUMMARY_MAX_CHARS` or that ends with `...`.
 
 #### Scenario: Long summary
-- **WHEN** A reply gives a `summary` of 41 characters.
-- **THEN** The schema returns a problem that names `summary` and the 40-character bound.
+- **WHEN** A reply gives a `summary` of 48 characters.
+- **THEN** The schema returns a problem that names `summary` and the 47-character bound.
 
 #### Scenario: Cut summary
 - **WHEN** A reply gives a `summary` that ends with `...`.
