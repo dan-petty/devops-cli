@@ -467,7 +467,7 @@ The job SHALL leave out an item that has sub-issues or the label `type/epic`, an
 - **THEN** the output has no section "Matched no filter"
 
 ### Requirement: The plan names files that exist at the staged commit
-The job SHALL check each path of the reply against the tracked files of the staged commit: the paths of `reads` and `changes`, the paths in the code spans of the tasks, and the paths in `verify`. A path SHALL pass when the commit holds it, or when `creates` of its group or of an earlier group lists it. A missing path SHALL go back to the model once, with the files of the commit that have the same file name. A second reply with a missing path SHALL stop the item and open no draft pull request.
+The job SHALL check each path of the reply against the tracked files of the staged commit: the paths of `reads` and `changes`, the paths in the code spans of the tasks, and the paths in `verify`. A path SHALL pass when the commit holds it, or when `creates` of its group or of an earlier group lists it. A missing path SHALL go back to the model once, with the files of the commit that have the same file name. When a later group lists the missing path in `creates`, the problem SHALL name the group that names it and the first later group that creates it, and SHALL tell the model to move the creating group before the reading group. A second reply with a missing path SHALL stop the item and open no draft pull request.
 
 #### Scenario: A test file that moved
 - **WHEN** a group changes `tests/test_scanner_tool_executor.py` and the commit holds `tests/security/test_scanner_tool_executor.py`
@@ -485,6 +485,10 @@ The job SHALL check each path of the reply against the tracked files of the stag
 - **WHEN** a group changes `tests/test_new.py`, lists it in `creates`, and a later group reads it
 - **THEN** the job finds no missing path
 - **AND** when only a later group lists it in `creates`, the earlier group names a missing path
+
+#### Scenario: A path that only a later group creates
+- **WHEN** group 1 reads `tests/test_new.py` and only group 3 lists it in `creates`
+- **THEN** the problem names group 1 and group 3, and tells the model to move group 3 before group 1
 
 #### Scenario: A word that is no path
 - **WHEN** a code span holds `status/blocked`, `--strict` or `uv run devops ci docs`
