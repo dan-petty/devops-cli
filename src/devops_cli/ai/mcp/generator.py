@@ -91,6 +91,11 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         "required": frozenset(),
     },
     ("vault", "status"): {"allowed": frozenset({"dry_run"}), "required": frozenset()},
+    # No `show`: it prints the secret in plain text, and a tool never returns a credential (#3222).
+    ("vault", "get"): {
+        "allowed": frozenset({"path", "key", "dry_run"}),
+        "required": frozenset(),
+    },
 }
 
 
@@ -302,21 +307,19 @@ def _check_model_endpoints(path: tuple[str, ...], kwargs: dict[str, Any]) -> Non
         raise ValidationError(ERRORS.mcp.model_names_endpoint, field="models")
 
 
-def _extract_extra_env(path: tuple[str, ...], kwargs: dict[str, Any]) -> dict[str, str] | None:
-    """Extract environment variables for sensitive parameters passed out-of-band."""
-    if path == ("docker", "sign") and (token := kwargs.get("oidc_token")):
-        token_str = str(token)
-        if not token_str.startswith("keyring:"):
-            return {"COSIGN_IDENTITY_TOKEN": token_str}
-    return None
+def _check_oidc_token_reference(path: tuple[str, ...], kwargs: dict[str, Any]) -> None:
+    """Refuse an OIDC token of the sign tool that is not a `keyring:<name>` reference.
 
+    The model writes the arguments of a call, so a token in one passes through the model context,
+    the provider and the run trace. The command resolves the reference from the OS keyring (#3222).
+    """
+    if path != ("docker", "sign") or not (token := kwargs.get("oidc_token")):
+        return
+    if not str(token).startswith("keyring:"):
+        from devops_cli.exceptions import ValidationError
+        from devops_cli.lang import ERRORS
 
-def _should_skip_option(path: tuple[str, ...], param_name: str, kwargs: dict[str, Any]) -> bool:
-    """Determine whether an option should be skipped from CLI argv."""
-    if path == ("docker", "sign") and param_name == "oidc_token":
-        val = kwargs.get("oidc_token")
-        return bool(val is not None and not str(val).startswith("keyring:"))
-    return False
+        raise ValidationError(ERRORS.mcp.oidc_token_not_reference, field="oidc_token")
 
 
 def _append_options(
@@ -324,11 +327,10 @@ def _append_options(
     opts: list[Any],
     format_json: bool,
     kwargs: dict[str, Any],
-    path: tuple[str, ...] = (),
 ) -> None:
     """Append option flags and values to argv."""
     for p in opts:
-        if p.name in _IGNORED_PARAM_NAMES or _should_skip_option(path, p.name, kwargs):
+        if p.name in _IGNORED_PARAM_NAMES:
             continue
         if format_json and p.name in _JSON_PARAM_NAMES:
             continue
@@ -372,7 +374,7 @@ def _build_command_argv(
         if p.name in kwargs and kwargs[p.name] is not None:
             _append_argument_tokens(argv, p, kwargs[p.name])
 
-    _append_options(argv, opts, format_json, kwargs, path)
+    _append_options(argv, opts, format_json, kwargs)
 
     command_param = next((p for p in args if p.name == "command"), None)
     if command_param and command_param.name in kwargs and kwargs[command_param.name] is not None:
@@ -402,10 +404,8 @@ def _create_tool_function(
         bound.apply_defaults()
         _check_sandbox_preconditions(path, bound.arguments)
         _check_model_endpoints(path, bound.arguments)
+        _check_oidc_token_reference(path, bound.arguments)
         argv = _build_command_argv(path, click_cmd, format_json, bound.arguments)
-        extra_env = _extract_extra_env(path, bound.arguments)
-        if extra_env is not None:
-            return _run_mcp_cmd(["uv", "run", "devops", *argv], timeout=timeout, env=extra_env)
         return _run_mcp_cmd(["uv", "run", "devops", *argv], timeout=timeout)
 
     tool_fn.__name__ = tool_name

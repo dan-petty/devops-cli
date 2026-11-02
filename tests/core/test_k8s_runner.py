@@ -212,7 +212,11 @@ def test_the_role_of_the_service_holds_four_rules_and_one_binding() -> None:
     ) == (
         "devops",
         [
-            {"apiGroups": ["batch"], "resources": ["jobs"], "verbs": ["create", "get", "list"]},
+            {
+                "apiGroups": ["batch"],
+                "resources": ["jobs"],
+                "verbs": ["create", "get", "list", "patch"],
+            },
             {
                 "apiGroups": ["batch"],
                 "resources": ["cronjobs"],

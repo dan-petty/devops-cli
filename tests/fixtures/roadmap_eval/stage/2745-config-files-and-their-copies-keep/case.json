@@ -26,7 +26,8 @@
    "where": "tasks.md",
    "problem": "Group 2 (_copy) is a no-op as planned, and its failing-test-first step cannot work. _copy already calls shutil.copystat(source, partial) before os.replace, so the final copy already has the source mode. Task 2.1 says the test must fail on the base. Case (1) (redact path, dest mode 0600) and case (2) (shutil.copy2 path) both pass on the base. Task 2.2 adds os.chmod right before copystat, which sets the same mode as copystat does. It does not close the window the issue names (the tmp file exists with the umask mode after write_bytes and before the mode is set).",
    "evidence": "src/devops_cli/config/write_history.py _copy at the parent of b57b9b3c: `partial.write_bytes(redacted)` / `shutil.copystat(source, partial)` / `os.replace(partial, dest)`. Task 2.2: 'after partial.write_bytes(redacted) and before shutil.copystat(source, partial), add: os.chmod(partial, ...)'. The implement job later reported: 'Verified existing implementation ... All tests in tests/test_config_write_history.py pass' and stopped at group 2.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "false_premise",
@@ -34,7 +35,7 @@
    "where": "design.md",
    "problem": "The design claims 'No window of wrong mode is visible to other users', but the planned code does not give that. Both functions create the tmp file with Path.write_bytes (umask mode, content written) and call os.chmod only after. For a few moments the tmp file holds the secrets at the umask mode. The issue and its refined design said to set the mode before writing the content (os.open with a mode argument). The plan chose the weaker order and still claims the strong result. The spec scenario 'Tmp file never more open' is not met.",
    "evidence": "tasks.md 1.2: 'after tmp.write_bytes(content) and before os.replace(tmp, dest_path), add ... os.chmod(tmp, mode)'. Issue #2745 refined design for _copy: 'Set the tmp file's mode to the source file's mode before writing content. Use os.open with the source mode'. design.md: 'The tmp file has the correct mode before it becomes the live file. No window of wrong mode'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",
@@ -66,7 +67,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section only restates what the code says. It has no command output that proves the bug (the issue gives a stat reproduction: 600 before, 644 after) and no run of the reproduction. It ends with 'First checks the implementation runs: ...', which is a verify command, not evidence. The failing-first claim for the _copy case was not checked, and it is wrong (see the major finding on group 2).",
    "evidence": "proposal.md Feasibility bullets: 'The code ... confirms _write_content calls tmp.write_bytes(content) then os.replace ...' with no stat output or version.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

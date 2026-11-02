@@ -61,4 +61,4 @@ data:
         filter:
           - status=ready
         limit: 3
-        step_tokens: 40000
+        step_tokens: 64000
