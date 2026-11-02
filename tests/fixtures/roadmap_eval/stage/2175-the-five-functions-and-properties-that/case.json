@@ -39,7 +39,8 @@
    "where": "specs/thinking-stream/spec.md",
    "problem": "The delta adds a requirement for the removal of one internal property. The change alters no behaviour a consumer observes, so openspec/config.yaml says it must set skip_specs: true and carry no delta. The delta is also a requirement about old behaviour and covers only one of the five names. The proposal calls the capability 'Modified' while the delta uses ADDED, which is inconsistent. `.openspec.yaml` has no skip_specs.",
    "evidence": "openspec/config.yaml: \"A change that alters no behavior a consumer observes (... a refactor that keeps behavior) has no spec delta and sets skip_specs: true\"; \"Never add a requirement for compatibility with the old behavior.\" spec.md: \"## ADDED Requirements ... The ThinkingStreamProcessor SHALL not expose a unique_thinking property.\" proposal.md: \"Modified Capabilities: thinking-stream: unique-thinking-removed\". .openspec.yaml holds only 'schema' and 'created'. Compare 1323-k8s-commands-edge-fakes/.openspec.yaml, which has skip_specs: true.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The groups change files under src/, so the rule for a delta that is not needed cannot know that no consumer sees the change."
   },
   {
    "type": "other",
@@ -55,7 +56,7 @@
    "where": "proposal.md",
    "problem": "Feasibility cites the issue's claim and lists commands the implementer should run later. It holds no output of its own. The plan does not run the greps itself, and it does not give current line numbers (the issue's line numbers are stale). The plan also does not say that `import threading` in unified.py is used only by the deleted method, which is the one known exclusive import.",
    "evidence": "proposal.md Feasibility: \"The issue confirms each name is dead by git grep at b170358e.\" I ran git grep -w on origin/main for all five names: each shows only the definition (streaming.py:161, unified.py:164, thinking_stream.py:339, settings.py:187, schema.py:145). Issue says 164, 215, 339, 219, 145. In unified.py, `threading` appears only at line 6 (import) and line 164 (the deleted method).",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

@@ -45,7 +45,8 @@
    "where": "specs/roadmap-alternatives/spec.md",
    "problem": "The delta only ADDS requirements. The base spec already holds requirements and scenarios that say the opposite: the row SHALL fail the round when the check of any item failed. After archive, the spec would contradict itself. The delta must MODIFY or REMOVE those requirements.",
    "evidence": "openspec/specs/roadmap-alternatives/spec.md line 68: 'It SHALL skip that item ... write the checks of the other items, and then fail with an error that names each skipped item'; lines 78-80 scenario 'A model call fails ... THEN the run writes the second item, then fails with an error that names the first'; line 174 'SHALL fail the round, once the other checks are written, when the check of any item failed'; lines 193-195 scenario 'A failed check ... the row fails, naming the first'. The delta spec.md has only '## ADDED Requirements'. The base spec also has 'The recheck window is a setting' (line 141); a retry_days requirement is missing from the delta.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a contradiction with the base spec. A case holds no text of the base spec."
   },
   {
    "type": "ignores_existing_code",
@@ -53,7 +54,8 @@
    "where": "tasks.md",
    "problem": "Task 2.2 says to wrap each item's check in try/except and build a new AlternativeFailure. The code already does this work. _check_one catches AIClientError and InvestigationStopped and returns a CheckFailure; plan_alternatives collects them. UnexpectedModelBehavior is returned as InvestigationStopped, not raised. The real change is different: record the failure in the job record (AlternativesRecordKey in store.py, written with store.set_marks), skip recorded items in select_items, and change raise_for_failed_checks. A new AlternativeFailure dataclass duplicates CheckFailure. The plan does not name CheckFailure, AlternativesRecordKey, select_items or set_marks. An implementer reading only the plan builds a second failure path (AGENTS.md rule 11 and the 'fixes use libraries, not home-grown' direction).",
    "evidence": "src/devops_cli/roadmap/alternatives.py:388 `class CheckFailure`, :677-707 `_check_one` returns CheckFailure on AIClientError and InvestigationStopped, :736-741 loop collects failures, :783-796 `raise_for_failed_checks`. src/devops_cli/roadmap/store.py:165 `class AlternativesRecordKey` holds only CHECKED_AT, BODY_HASH, VERDICT, TOOL. docs/ERRORS.md and archive 2398 design.md:39 say the run 'returns InvestigationStopped with the class of pydantic-ai's error'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",
@@ -69,7 +71,8 @@
    "where": "tasks.md",
    "problem": "Task 1.2 adds the key retry_days with 'a default of 3' but names no file for it. The config model is AlternativesConfig in src/devops_cli/config/settings.py with defaults in src/devops_cli/config/defaults.py (DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS is the model). Group 1 says 'Changes: alternatives.py' only. docs/CONFIGURATION.md line 271 lists the fields and is generated. The task also says a dataclass field of type datetime is written into the job record, but the job record holds flat string marks.",
    "evidence": "src/devops_cli/config/settings.py:948-963 class AlternativesConfig (limit, recheck_days); defaults.py:724 `DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30`; docs/CONFIGURATION.md:271 `limit=5 recheck_days=30`.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",
@@ -85,7 +88,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds quotes from docs (k8s/README.md:610, ERRORS.md:125) and one line that promises tests. It holds no check of the code. A check of the code would have found that rows.py does not exist, that failures are already collected, and that the base spec contradicts the change. Another open plan (2946, same file alternatives.py) changes the same module and is not named in the proposal.",
    "evidence": "proposal.md lines 34-39 cite only documents; line 39 'First checks the implementation runs: `uv run devops ci test tests/test_roadmap_alternatives.py`'. openspec/changes/2946-the-alternatives-check-must-search-before/tasks.md edits `src/devops_cli/roadmap/alternatives.py` too.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

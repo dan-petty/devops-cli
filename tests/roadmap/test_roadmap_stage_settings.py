@@ -19,6 +19,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    no_findings,
     seed_stageable,
     validate_args,
 )
@@ -126,6 +127,7 @@ def test_the_command_takes_the_filter_and_the_limit_of_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
     output = _plan(cli, stage_repo)
@@ -142,6 +144,7 @@ def test_the_options_replace_the_filter_of_the_settings_for_one_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
     output = _plan(cli, stage_repo, "--filter", "status=ready", "--filter", "type=bug")
@@ -159,6 +162,7 @@ def test_the_limit_of_the_settings_caps_the_command_and_the_option_replaces_it(
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "1")
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
     capped = _plan(cli, stage_repo)
 

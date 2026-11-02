@@ -351,6 +351,7 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("pr", "check-readiness"), 60.0, True, False),
     (("pr", "checks"), 60.0, True, False),
     (("pr", "close"), 60.0, False, False),
+    (("pr", "describe"), 60.0, True, False),
     (("pr", "diff"), 60.0, True, False),
     (("pr", "edit"), 60.0, False, False),
     (("pr", "list"), 60.0, True, False),
@@ -496,6 +497,7 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "docs/VISION.md",
         "docs/agent/README.md",
         "docs/index.md",
+        "docs/roadmap/*.md",
         "k8s/**/README.md",
         "src/devops_cli/ai/knowledge_base/**/*.md",
         "tf/README.md",
@@ -1516,6 +1518,9 @@ CONST_SERVICE_METRIC_BUDGET_HOLDS: Final[str] = "devops_cli_service_budget_holds
 # 1 while a job of a repository failed its limit of rounds in a row and waits for new input, else
 # 0, by `repo` and `row` (#2475). The label is `row`, not `job`, which is the scrape's label.
 CONST_SERVICE_METRIC_JOB_SUSPENDED: Final[str] = "devops_cli_service_job_suspended"
+# Counts the stops of the implement job by failure `class` (#3065). The Service counts when a round
+# reports the Job that ended, because the pod of a runner Job is not scraped.
+CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
 # Counts chat commands handled through the webhook router by `command` and `result` (#1395).
 CONST_SERVICE_METRIC_CHAT_COMMANDS: Final[str] = "devops_cli_service_chat_commands_total"
 # The Service's window for its GitHub request budget (#2161).
@@ -2945,6 +2950,12 @@ CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end --
 CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
+# The stage and refine context lists, for each symbol that an item cites, at most this many paths
+# of the Python files that name it, the tests first. The context says how many it left out (#3012).
+CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL: Final[int] = 50
+# The context names the requirements of at most this many specs, and at most this many for each (#3012).
+CONST_ROADMAP_REFINE_MAX_SPECS: Final[int] = 5
+CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 40
 # The `result` of `devops_cli_firecrawl_searches_total` for a search that returned its web results,
 # and for one that got no answer or a reply with no web results. A search that Firecrawl refused
 # counts under its HTTP status (#2475).
@@ -2977,6 +2988,36 @@ CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
 CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
 CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 120
 CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 4000
+# The largest blob a file tool reads, and the share of the context window that an investigation
+# keeps for its reply: with tools, a request goes on only while the messages and this share fit the
+# window (#3037). The bytes bound the memory of one tool answer; the lines bound its text.
+CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES: Final[int] = 2_000_000
+CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE: Final[int] = 4
+# The plan run of the stage job (#3037): the tool calls, the output tokens and the model requests
+# of one run, the commits `git_log` lists, the files `repo_map` maps and the characters of each of
+# its lines (20 lines of 180 characters fit one tool answer), and the characters of the answer of
+# `read_spec`, which a whole requirement can pass the limit of the other tools. 30 calls
+# and 50000 tokens are the budget that the refined design of #3037 gave. The requests are a few
+# more than the calls, for the tool-free turn near the limit and the retries of a reply.
+CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 30
+CONST_ROADMAP_STAGE_MAX_OUTPUT_TOKENS: Final[int] = 50000
+CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 40
+CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 20
+CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 20
+CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
+CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 8000
+# The premise probe of the stage job (#3011): the git commands it runs for one item, and the lines
+# of definition it shows for one identifier. The cited examples hold 1 to 4 items of at most 2
+# commands each, so 10 commands cover them and keep the probe short.
+CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS: Final[int] = 10
+CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
+# The verification pass of the stage job (#3153): the tokens of the issue body, the tokens of the
+# start of each file that the plan cites, and the most files in one request. 3000 tokens is the
+# cap that a step of the implement job gives a file; the pass reads less of each file, as it only
+# checks a claim of the plan, and 30 files cover the groups of a plan that fits one pull request.
+CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS: Final[int] = 6000
+CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS: Final[int] = 1500
+CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.
@@ -3032,9 +3073,9 @@ CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 3000
 CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: Final[int] = 900
 CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
 # The job of `devops roadmap implement` (#2665). The longest log of a failed check, in characters
-# from its end, that the fix step reads; the longest "why" in a pull request body, as the
-# squash message takes it; the longest last message of an agent in a comment; and the most time
-# that the checks of a pull request may take to settle.
+# from its end, that the fix step reads; the longest pull request body before its trailers, as the
+# squash message takes it (`roadmap/pull_form.py` holds the rule, #3198); the longest last message
+# of an agent in a comment; and the most time that the checks of a pull request may take to settle.
 CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 6000
 CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS: Final[int] = 1000
 CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500
@@ -3073,6 +3114,8 @@ CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES: Final[int] = 30
 # can hold a long reply of the model.
 CONST_ROADMAP_RUN_ERROR_CHARS: Final[int] = 500
 CONST_ROADMAP_RUN_ERROR_READ_CHARS: Final[int] = 4 * CONST_ROADMAP_RUN_ERROR_CHARS
+# The most characters of the argument of one tool call that the trace of a run keeps (#3037).
+CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS: Final[int] = 200
 # The most programs that the reason of a stopped run lists in its count of refused commands
 # (#2773). The programs beyond that join the count of "other".
 CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS: Final[int] = 4
@@ -3104,6 +3147,16 @@ CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER: Final[str] = "<!-- devops roadmap implem
 CONST_ROADMAP_IMPLEMENT_JOB_LABEL: Final[str] = "implement-repo"
 CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES: Final[int] = 40
 CONST_ROADMAP_IMPLEMENT_JOB_STEP: Final[str] = "job"
+# The deadline of a runner Job follows its progress (#3063). The most that a deadline may be, the
+# value in the admission policy `roadmap-service-jobs`; the lines of the log whose digest shows
+# progress; and the annotations of the Job that hold the state: the digest of that tail, the time
+# (epoch seconds) of the last progress that the Service saw, and the seconds of silence when it
+# ended a stall. A Job without the second annotation is not a Job of the Service.
+CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS: Final[int] = 14400
+CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES: Final[int] = 20
+CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS: Final[str] = "roadmap.devops-cli/progress"
+CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: Final[str] = "roadmap.devops-cli/progress-at"
+CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED: Final[str] = "roadmap.devops-cli/stalled"
 # The number of the group of a fix step: a change numbers its groups from 1.
 CONST_ROADMAP_IMPLEMENT_FIX_GROUP: Final[int] = 0
 # The headings, in lower case, of the two sections of an issue that a step gives the model: the
