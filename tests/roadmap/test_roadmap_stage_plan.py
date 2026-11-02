@@ -31,6 +31,7 @@ from devops_cli.roadmap.stage import StagedChange, StagePlan, parse_filters, pla
 from devops_cli.roadmap.stage_change import (
     StageGroup,
     StageProposal,
+    StageSpec,
     StageSplit,
     check_proposal,
     closing_keyword_in,
@@ -159,7 +160,7 @@ def test_the_model_reads_the_item_the_capabilities_and_the_repository(
         "number": item,
         "title": "fix(roadmap): the job drops a comment",
         "body": "The job drops the last comment of a thread.",
-        "capabilities": ["roadmap-refine"],
+        "capabilities": [{"name": "roadmap-refine", "purpose": "", "requirements": []}],
         "budget": 9000,
     }
     assert "The job reads comments." in request["context"]
@@ -1017,3 +1018,197 @@ def test_a_toolbox_plan_of_a_checkout_with_a_change_fails_before_any_model_call(
         _toolbox_plan(store, stage_repo, script)
 
     assert script.seen == []
+
+
+# ── The spec delta that the change does not need (#3013) ──────────────────────
+
+NO_SPEC_PATHS = (
+    "tests/test_sample.py",
+    ".github/workflows/ci.yml",
+    "docs/TESTING.md",
+    "openspec/changes/1-x/tasks.md",
+)
+NO_SPEC_PROBLEM = (
+    "skip_specs is false, and every path in `changes` is under tests/, .github/workflows/, "
+    "docs/ or openspec/. These paths need no spec delta. Set skip_specs to true and give no specs."
+)
+
+
+def _changed(title: str, *paths: str) -> StageGroup:
+    """A group that changes only `paths`: a behavior group when one is source code, else an other
+    group that a command proves."""
+    update: dict[str, Any] = {"title": title, "changes": list(paths), "creates": [], "reads": []}
+    if not any(path.startswith("src/") for path in paths):
+        update |= {"kind": "other", "test": None, "verify": "uv run devops ci docs"}
+    return StageGroup.model_validate({**make_stage_proposal().groups[0].model_dump(), **update})
+
+
+def _tree(*paths: str) -> StagedTree:
+    """The files of the sample commit and `paths`, which the text of the sample group names."""
+    return StagedTree([*SAMPLE_TREE.files, *paths])
+
+
+def _changing(*paths: str) -> StageProposal:
+    """The sample proposal, with one group that changes only `paths`."""
+    return make_stage_proposal(groups=[_changed("Change the paths", *paths)])
+
+
+@pytest.mark.parametrize("path", NO_SPEC_PATHS)
+def test_a_spec_delta_on_a_change_of_tests_workflows_documents_or_plans_is_refused(
+    path: str,
+) -> None:
+    assert check_proposal(_changing(path), [], _tree(path)) == [NO_SPEC_PROBLEM]
+
+
+def test_a_spec_delta_on_every_path_of_every_group_that_needs_none_is_refused() -> None:
+    proposal = make_stage_proposal(
+        groups=[_changed("First", NO_SPEC_PATHS[0]), _changed("Second", NO_SPEC_PATHS[2])]
+    )
+
+    assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS)) == [NO_SPEC_PROBLEM]
+
+
+def test_a_spec_delta_stays_when_one_changed_path_is_source_code() -> None:
+    paths = ("tests/test_sample.py", "src/devops_cli/sample.py")
+
+    assert check_proposal(_changing(*paths), [], _tree(*paths)) == []
+
+
+def test_a_change_with_no_spec_delta_on_test_paths_is_accepted() -> None:
+    proposal = _changing(NO_SPEC_PATHS[0]).model_copy(update={"skip_specs": True, "specs": []})
+
+    assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS)) == []
+
+
+# ── The requirement that the base spec already has (#3013) ────────────────────
+
+DUPLICATE_PROBLEM = (
+    "The requirement The job keeps every comment is in the added requirements of comment-thread, "
+    "and openspec/specs/comment-thread/spec.md already has it. Change it with modified, or give "
+    "the new requirement another name."
+)
+
+
+def test_an_added_requirement_that_the_base_spec_has_is_refused() -> None:
+    base = {"comment-thread": ["The job keeps every comment", "Another requirement"]}
+
+    problems = check_proposal(
+        make_stage_proposal(), ["comment-thread"], SAMPLE_TREE, requirements=base
+    )
+
+    assert problems == [DUPLICATE_PROBLEM]
+
+
+def test_an_added_requirement_is_compared_with_its_own_capability_by_name() -> None:
+    base = {"comment-thread": ["A new name"], "other": ["The job keeps every comment"]}
+
+    problems = check_proposal(
+        make_stage_proposal(), ["comment-thread", "other"], SAMPLE_TREE, requirements=base
+    )
+
+    assert problems == []
+
+
+def test_a_modified_requirement_may_keep_the_name_the_base_spec_has() -> None:
+    spec = make_stage_proposal().specs[0]
+    moved = spec.model_copy(update={"modified": spec.added, "added": []})
+    base = {"comment-thread": ["The job keeps every comment"]}
+
+    problems = check_proposal(
+        make_stage_proposal(specs=[moved]), ["comment-thread"], SAMPLE_TREE, requirements=base
+    )
+
+    assert problems == []
+
+
+BASE_SPEC = """# comment-thread Specification
+
+## Purpose
+Keeps every comment of a thread when the job reads it, so a later step sees the whole thread.
+
+## Requirements
+
+### Requirement: The job keeps every comment
+The job SHALL keep every comment.
+
+#### Scenario: One comment
+- **WHEN** a thread has one comment
+- **THEN** the job keeps it
+
+### Requirement: The job orders comments
+The job SHALL order comments by time.
+
+#### Scenario: Two comments
+- **WHEN** a thread has two comments
+- **THEN** the older comes first
+"""
+
+
+def _renamed_spec() -> StageSpec:
+    """The sample spec delta for the existing capability, with a requirement name that is new."""
+    spec = make_stage_proposal().specs[0]
+    renamed = spec.added[0].model_copy(update={"name": "The job drops no comment"})
+    return spec.model_copy(update={"purpose": None, "added": [renamed]})
+
+
+@pytest.mark.usefixtures("openspec")
+def test_the_model_reads_the_purpose_and_the_requirement_names_of_each_capability(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    stage_repo.track({"openspec/specs/comment-thread/spec.md": BASE_SPEC})
+    model_fake.answer(make_stage_proposal(specs=[_renamed_spec()]))
+
+    _plan(store, stage_repo)
+
+    (request,) = _requests(model_fake)
+    assert request["capabilities"] == [
+        {
+            "name": "comment-thread",
+            "purpose": (
+                "Keeps every comment of a thread when the job reads it, so a later step sees "
+                "the whole thread."
+            ),
+            "requirements": ["The job keeps every comment", "The job orders comments"],
+        },
+        {"name": "roadmap-refine", "purpose": "", "requirements": []},
+    ]
+
+
+def test_a_duplicate_requirement_goes_back_to_the_model_with_the_problem(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    stage_repo.track({"openspec/specs/comment-thread/spec.md": BASE_SPEC})
+    duplicate = make_stage_proposal().specs[0].model_copy(update={"purpose": None})
+    model_fake.answer(
+        make_stage_proposal(specs=[duplicate]), make_stage_proposal(specs=[_renamed_spec()])
+    )
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert second["problem"] == DUPLICATE_PROBLEM
+    assert len(plan.ready) == 1
+
+
+def test_a_spec_delta_on_test_paths_goes_back_to_the_model_with_the_problem(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    stage_repo.track({"tests/test_sample.py": ""})
+    fixed = _changing("tests/test_sample.py").model_copy(update={"skip_specs": True, "specs": []})
+    model_fake.answer(_changing("tests/test_sample.py"), fixed)
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert second["problem"] == NO_SPEC_PROBLEM
+    assert len(plan.ready) == 1
