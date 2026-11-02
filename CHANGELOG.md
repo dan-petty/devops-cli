@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.39.1](https://github.com/dan-petty/devops-cli/compare/v0.39.0...v0.39.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** the Job skips a hook whose program is missing ([#3137](https://github.com/dan-petty/devops-cli/issues/3137)) ([6c57c85](https://github.com/dan-petty/devops-cli/commit/6c57c85b853810138b2b83a3306685f8de5b1ff5)), closes [#3136](https://github.com/dan-petty/devops-cli/issues/3136)
+
 ## [0.39.0](https://github.com/dan-petty/devops-cli/compare/v0.38.0...v0.39.0) (2026-11-02)
 
 
