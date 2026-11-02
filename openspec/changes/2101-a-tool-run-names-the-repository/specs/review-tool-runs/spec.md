@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: ToolRun repository_uri field
-A ToolRun SHALL have a repository_uri field of type str | None. It SHALL hold the `remote.origin.url` setting of the checkout that holds the tree, with the userinfo removed, when that setting is an absolute URI with a host. It SHALL be None when the checkout has no `origin` remote, when the remote is not an absolute URI with a host, when the tree is outside any checkout, and when the direct executor cannot read the checkout.
+A ToolRun SHALL have a repository_uri field of type str | None. It SHALL hold the `remote.origin.url` setting of the checkout that holds the tree, with the userinfo removed, when that setting is an absolute URI with a host. It SHALL be None when the checkout has no `origin` remote, when the remote is not an absolute URI with a host, when the remote is a malformed URL, when the tree is outside any checkout, and when the direct executor cannot read the checkout.
 
 #### Scenario: Remote with credentials
 - **WHEN** a checkout has a remote whose URL contains user:password@
@@ -14,6 +14,10 @@ A ToolRun SHALL have a repository_uri field of type str | None. It SHALL hold th
 #### Scenario: Remote that is not an absolute URI
 - **WHEN** a checkout has the remote `git@example.com:a/b.git`, or the remote `/srv/a.git`
 - **THEN** repository_uri is None
+
+#### Scenario: Malformed remote
+- **WHEN** a checkout has the remote `https://[bad/a.git`
+- **THEN** repository_uri is None and the record is made
 
 #### Scenario: No remote
 - **WHEN** a checkout has no remote configured

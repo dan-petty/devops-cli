@@ -6,7 +6,7 @@ The SARIF export of a review writes no versionControlProvenance. SARIF 2.1.0 req
 
 ## What Changes
 
-- Add repository_uri field to ToolRun, read from the remote.origin.url setting of the checkout with the userinfo stripped. A remote that is not an absolute URI with a host gives None.
+- Add repository_uri field to ToolRun, read from the remote.origin.url setting of the checkout with the userinfo stripped. A remote that is malformed, or is not an absolute URI with a host, gives None.
 - Write versionControlProvenance in the SARIF export. It holds one entry for each distinct pair of repository URI and clean commit among the records of the tool.
 - Change the base requirement of sarif-export that forbids versionControlProvenance.
 - The change fits one pull request.
@@ -45,6 +45,7 @@ I ran these commands with git 2.55.0, in a new checkout, in a directory with no 
 - `_git` in `src/devops_cli/security/tool_executor.py` raises `SandboxError` when the exit code is not in `accepted`. So the plan reads the remote with `config --local --get remote.origin.url` and accepts exit code 0 and 1. The `git config` manual documents exit code 1 for a key that is not set. The command `remote get-url origin` exits with 2 for a missing remote, and git does not document that code. The option `--local` keeps git from reading the global configuration, and it gives exit 128 for a tree that git cannot read, as the commit read does.
 - `_tree_commit` already turns a `SandboxError` into None when `required` is false. `_read_tree_commit` already returns None when `nearest_checkout` finds no checkout. The repository read reuses both guards.
 - `urlsplit` gives an empty scheme for `git@example.com:a/b.git` and for `/srv/a.git`, and an empty host for `file:///srv/a.git`. It gives scheme `ssh` and the user name `git` for `ssh://git@example.com/a/b.git`.
+- `urlsplit('https://[bad/a.git')` and `urlsplit('https://host]/a.git')` raise `ValueError: Invalid IPv6 URL` (`python3 -I`). So the read catches `ValueError` and gives None.
 - `run.versionControlProvenance` is an array with `uniqueItems` in the vendored schema `tests/fixtures/sarif-schema-2.1.0.json`. So one run can hold more than one entry. `repositoryUri` is the only required property of an entry, and it has the format `uri`.
 - The tests of `tests/ai/test_tool_executor_contract.py` start git only through the git fake (`_handle_tool_executor_git`). That handler answers `config` with an empty output and exit 0 today, so the handler gets a branch for the new command.
 
