@@ -12,7 +12,7 @@ Issue #3188: the help of six `devops roadmap` commands is as long as a specifica
 - Replace the one test that asserts a sentence of the long help (the request count of `inbox`, in `tests/roadmap/test_roadmap_inbox_command.py`) with a test of the plan of the reads, and state the rule in the spec `roadmap-inbox`. The count "5 requests, or 6" in the old help was the count for two pages of issues on the day it was written; the rule is one request for each 100 rows.
 - Add a test (`tests/roadmap/test_roadmap_command_help.py`) that fails when the help of one of the six commands has more than three sentences or does not name an existing page. It is the check that fails if the problem returns.
 - Regenerate `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md` and `docs/MCP_TOOLS.md` with `devops docs generate --sync-readme`.
-- A command, an option text and a message are observable, so the change carries a spec delta: a new capability `roadmap-command-help`, and a MODIFIED requirement of `roadmap-inbox`.
+- A command, an option text and a message are observable, so the change carries a spec delta: a new capability `roadmap-command-help`, and an ADDED requirement of `roadmap-inbox`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,7 +23,7 @@ Issue #3188: the help of six `devops roadmap` commands is as long as a specifica
 
 ### Modified Capabilities
 
-- `roadmap-inbox`: the requirement "The inbox reads a bounded number of requests and writes none" states the number of requests of a run, and has a scenario for the plan of the reads.
+- `roadmap-inbox`: the new requirement "A listing takes one request for each 100 rows" states the number of requests of a run, and has a scenario for the plan of the reads.
 
 ## Impact
 
