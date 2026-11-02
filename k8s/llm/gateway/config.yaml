@@ -241,6 +241,22 @@ model_list:
       output_cost_per_token: 5.0e-07
       cache_creation_input_token_cost: 1.25e-07
       cache_read_input_token_cost: 1.0e-08
+  # OpenRouter routes a prompt to a provider of its choice (#3144). `data_collection: deny` limits
+  # the choice to providers that do not store or train on prompts. The cost map of the pinned
+  # LiteLLM image lists no -1017 snapshot, so the group sets its window and its prices (USD per
+  # token, from the OpenRouter model list).
+  - model_name: deepseek-v4.1-flash-1017
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4.1-flash-1017
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        provider:
+          data_collection: deny
+    model_info:
+      max_input_tokens: 1048576
+      input_cost_per_token: 3.0e-07
+      output_cost_per_token: 1.2e-06
+      supports_response_schema: true
 litellm_settings:
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
   # Ollama nodes export no metrics of their own, so this is how their load is seen.
