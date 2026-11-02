@@ -2,16 +2,37 @@
 
 ## Decisions
 
-- **Put the comment builder in `src/devops_cli/github/pr_evidence.py`, and keep the command in `src/devops_cli/commands/pr.py`.**: The command and the Service can import one builder, so the comment text has one owner.
-- **Read the check runs with REST `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` through `run_gh`.**: The response gives the check name, conclusion, details URL and head SHA, and the project already reads check runs this way through `fetch_pr_check_verdicts`.
-- **Identify the command's own comment by the hidden marker line `<!-- devops-cli:pr-evidence -->` at its top.**: The marker identifies the comment after a restart, a new head commit or a new token.
-- **Select the fail-to-pass run by the check-run name `Fail-to-Pass Check`.**: `.github/workflows/fail-to-pass.yml` declares that name for the job, so the name is stable.
-- **Reuse the attribution footer builder of `src/devops_cli/roadmap/pull_describe.py` and add no free-text option.**: The project has one footer format, and a free-text option would let a person type a count.
-- **Add the requirements to the existing `pull-request-form` capability.**: The command and its messages are observable behavior of the pull request workflow, and the capability already holds the form rules of a pull request.
+- **Create a dedicated evidence builder in `src/devops_cli/github/pr_evidence.py`**:
+  - `devops pr evidence` formats a sticky markdown table of check runs and test evidence.
+  - Putting the builder in `pr_evidence.py` separates markdown formatting from CLI argument parsing.
+- **Reuse `read_check_runs` from `src/devops_cli/github/check_verdict.py`**:
+  - `read_check_runs` uses paginated GitHub sessions and maps responses to `PRCheckItem` models.
+  - This avoids duplicate REST queries and preserves skip and cancellation normalization.
+- **Identify existing evidence comments using marker line and author identity**:
+  - Look for `<!-- devops-cli:pr-evidence -->` at the start of issue comments.
+  - Verify that the comment author matches the authenticated GitHub user to prevent comment spoofing.
+  - Update matching comments via PATCH; create new comments via POST when none match.
+- **Conditionally include fail-to-pass check run links**:
+  - Inspect the pull request title using `CONST_DEFECT_TITLE_PATTERN`.
+  - Include the fail-to-pass link only when the pull request represents a defect or fix and the check run succeeded.
+- **Escape pipe characters in check run names**:
+  - Sanitize check names using `name.replace("|", r"\|")` to prevent table formatting breakage.
+- **Follow the `request-plan` dry-run contract with zero external requests**:
+  - `devops pr evidence` carries `@dry_run_class("request-plan")`.
+  - Dry run emits planned requests for reading checks, reading comments, and writing comments without dispatching network calls.
+  - Requirement `pr-commands-request-plans` in `command-dry-run-class` is updated to include `pr evidence` as the eighteenth command.
+- **Expose `--attribution` as an optional flag**:
+  - Accept `--attribution` to append caller-provided agent attribution footers, matching `devops pr describe --attribution`.
+- **Exclude `pr evidence` from MCP tools**:
+  - Add exclusion entries to `tests/ai/mcp/test_mcp.py` to satisfy `test_all_cli_commands_are_either_exposed_or_excluded`.
 
-## Rejected alternatives
+## Rejected Alternatives
 
-- **Build the comment inside `src/devops_cli/commands/pr.py`.**: The Service would import a command module, and the comment text would have two callers in two packages with no shared owner.
-- **Match the comment by its author login or by its text.**: Another actor can use the same token or login, and a person can write the same text, so the match is not stable.
-- **Read the checks with a GraphQL status check rollup or by parsing `gh pr checks` text.**: The rollup gives less check-run detail, and the text of `gh pr checks` can change and gives no stable machine-readable fields.
-- **Match the fail-to-pass run by workflow file name or by app.**: The check-run response holds no workflow file path, and the same app runs other checks, so neither match is specific.
+- **Extend `devops pr checks` to post comments**:
+  - Rejected because `devops pr checks` provides terminal tables for interactive console use. Combining comment posting into `pr checks` mixes inspection and mutation concerns.
+- **Perform network calls during dry run**:
+  - Rejected because `command-dry-run-class` strictly requires zero external requests for `request-plan` commands.
+- **Match comments by author login alone**:
+  - Rejected because a maintainer or bot might post multiple conversational comments on the pull request. Combining the marker line with author identity ensures exact targeting.
+- **Automatic agent detection without CLI option**:
+  - Rejected because the environment does not expose reliable, standard agent markers across different runtimes.
