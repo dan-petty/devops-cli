@@ -71,6 +71,7 @@ nothing (#1526).
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import itertools
 import json
@@ -80,7 +81,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Final, Literal
 from urllib.parse import urlsplit
 
@@ -116,8 +117,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
+    CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
+    CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC,
+    CONST_ROADMAP_REFINE_MAX_SPECS,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STATUS_NEW,
@@ -627,6 +631,117 @@ def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
     return results[:20]
 
 
+# The files of a test: under `tests/`, or named like a test (#3012).
+_TEST_DIR: Final[str] = "tests/"
+_TEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
+# The files that name a symbol: Python files, which is where an item's symbols live (#3012).
+_SYMBOL_PATHSPEC: Final[str] = "*.py"
+_SPECS_DIR: Final[str] = "openspec/specs"
+_REQUIREMENT_RE = re.compile(r"^### Requirement:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
+# The root of the modules that a capability name covers, such as `src/devops_cli/roadmap/refine.py`.
+_PACKAGE_ROOT: Final[tuple[str, ...]] = ("src", "devops_cli")
+
+
+def _paths_of(output: str, sha: str) -> list[str]:
+    """The sorted paths in the NUL-ended (or line-ended) output of `git grep -l` at `sha`."""
+    items = output.split("\0") if "\0" in output else output.splitlines()
+    return sorted(item.removeprefix(f"{sha}:") for item in items if item)
+
+
+def _grep_files(
+    source: Path, sha: str, needles: Sequence[str], pathspec: str, *, word: bool = False
+) -> list[str]:
+    """The sorted paths of the files at `sha` under `pathspec` that hold one of `needles`."""
+    flags = ["-l", "-z", "-F", *(["-w"] if word else [])]
+    needle_args = [arg for needle in needles for arg in ("-e", needle)]
+    code, out = _git(source, "grep", *flags, *needle_args, sha, "--", pathspec)
+    return _paths_of(out, sha) if code == 0 and out else []
+
+
+def _is_test_path(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return path.startswith(_TEST_DIR) or any(
+        fnmatch.fnmatchcase(name, pattern) for pattern in _TEST_FILE_PATTERNS
+    )
+
+
+def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
+    """The tests, then the callers, that reference `ident`: at most the bound of paths in all,
+    and the count of those left out."""
+    tests = [p for p in paths if _is_test_path(p)]
+    callers = [p for p in paths if not _is_test_path(p)]
+    shown_tests = tests[:CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL]
+    room = CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL - len(shown_tests)
+    shown_callers = callers[:room]
+    if not shown_tests and not shown_callers:
+        return None
+    lines = [f"### Tests and callers of `{ident}`"]
+    for title, group in (("Tests:", shown_tests), ("Callers:", shown_callers)):
+        if group:
+            lines += [title, *(f"- {p}" for p in group)]
+    left_out = len(paths) - len(shown_tests) - len(shown_callers)
+    if left_out:
+        shown = len(paths) - left_out
+        lines.append(f"({shown} of {len(paths)} paths shown; {left_out} more left out)")
+    return "\n".join(lines)
+
+
+def _collect_symbol_sections(source: Path, sha: str, body: str) -> list[str]:
+    """For each identifier the item cites, the Python test files and caller files that name it."""
+    idents = sorted({m.group(1) for m in _BACKTICK_IDENT_RE.finditer(body)})[:5]
+    sections = (
+        _symbol_section(ident, _grep_files(source, sha, [ident], _SYMBOL_PATHSPEC, word=True))
+        for ident in idents
+    )
+    return [section for section in sections if section]
+
+
+def _module_capability_key(path: str) -> str | None:
+    """The name `<package>-<module>` of a module of the package, such as `roadmap-refine` for
+    `src/devops_cli/roadmap/refine.py`: a capability of that name, or one whose name it begins
+    with, covers the module. None for a file outside the package."""
+    parts = PurePosixPath(path).with_suffix("").parts
+    if parts[:2] != _PACKAGE_ROOT or len(parts) < 3:
+        return None
+    named = [part for part in parts[2:] if part != "__init__"][-2:]
+    return "-".join(part.replace("_", "-") for part in named)
+
+
+def _capabilities_of_files(source: Path, sha: str, cited: Sequence[str]) -> list[str]:
+    """The sorted capabilities of the specs at `sha` that cover a cited file: by the name of its
+    module, or because the spec names its path."""
+    code, out = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, _SPECS_DIR)
+    if code != 0 or not out or not cited:
+        return []
+    listed = out.split("\0") if "\0" in out else out.splitlines()
+    known = {PurePosixPath(p).parent.name for p in listed if p.endswith("/spec.md")}
+    keys = {key for path in cited if (key := _module_capability_key(path))}
+    by_name = {c for c in known if any(k == c or k.startswith(f"{c}-") for k in keys)}
+    by_path = {PurePosixPath(p).parent.name for p in _grep_files(source, sha, cited, _SPECS_DIR)}
+    return sorted(by_name | (by_path & known))
+
+
+def _requirements_section(capability: str, text: str) -> str | None:
+    names = _REQUIREMENT_RE.findall(text)
+    if not names:
+        return None
+    shown = names[:CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC]
+    lines = [f"### Requirements of {capability}", *(f"- {name}" for name in shown)]
+    if len(shown) < len(names):
+        lines.append(f"({len(shown)} of {len(names)} requirements shown)")
+    return "\n".join(lines)
+
+
+def _collect_spec_requirements(source: Path, sha: str, cited: Sequence[str]) -> list[str]:
+    """For each spec that covers a cited file, the names of its requirements."""
+    capabilities = _capabilities_of_files(source, sha, cited)[:CONST_ROADMAP_REFINE_MAX_SPECS]
+    sections = (
+        _requirements_section(c, _read_git_file(source, sha, f"{_SPECS_DIR}/{c}/spec.md") or "")
+        for c in capabilities
+    )
+    return [section for section in sections if section]
+
+
 def _collect_repo_map(source: Path, sha: str, paths: Sequence[str]) -> list[str]:
     dirs = {str(Path(p).parent) for p in paths if "/" in p}
     files: list[str] = []
@@ -663,8 +778,14 @@ def collect_context(
             if adr_content:
                 sections.append(f"### {adr_path}\n{adr_content}")
 
-    # Cited files
+    # Tests and callers of each cited symbol, and the requirements of the specs of the cited
+    # files. They are short and bounded, so they come before the cited code, which the cut of the
+    # budget takes from the end first (#3012).
     cited = _collect_cited_files(source, sha, body)
+    sections.extend(_collect_symbol_sections(source, sha, body))
+    sections.extend(_collect_spec_requirements(source, sha, list(cited.keys())))
+
+    # Cited files
     for p, text in cited.items():
         sections.append(f"### Code: {p}\n{text}")
 
