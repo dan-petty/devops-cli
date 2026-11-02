@@ -15,9 +15,9 @@ from urllib.parse import urlsplit
 from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_ROADMAP_IMPLEMENT_HEAD_POLLS,
-    CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS
+from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.check_verdict import PRCheckItem
@@ -62,7 +62,7 @@ def _judge(result: PRMonitorResult) -> Watch:
         return Watch(WatchKind.STOPPED, texts.implement_stop_merged)
     if result.exit_code == 3 or status.pending_checks:
         reason = texts.implement_stop_checks_timeout.format(
-            seconds=CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS
+            seconds=load_settings().roadmap.implement.monitor_timeout_seconds
         )
         return Watch(WatchKind.STOPPED, reason)
     if status.checks_failed:
@@ -85,16 +85,17 @@ def watch_pull(repo: str, pull: int, head: str) -> Watch:
     Right after a push GitHub can still show the old head, with the checks of the old head. A
     status is a result only when its head is `head`; else the watch reads again,
     `CONST_ROADMAP_IMPLEMENT_HEAD_POLLS` times at most. The monitor itself waits while a check
-    runs, or while a head holds no check yet, up to
-    `CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS`.
+    runs, or while a head holds no check yet, up to the setting
+    `roadmap.implement.monitor_timeout_seconds`.
     """
     owner, name = repo.split("/", 1)
+    timeout = load_settings().roadmap.implement.monitor_timeout_seconds
     for _ in range(CONST_ROADMAP_IMPLEMENT_HEAD_POLLS):
         result = monitor_pr(
             owner,
             name,
             pull,
-            timeout=CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
+            timeout=timeout,
             interval=DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS,
             settle_timeout=0,
             require_reviews=False,

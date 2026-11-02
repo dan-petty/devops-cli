@@ -34,7 +34,8 @@
    "where": "tasks.md",
    "problem": "The plan does not update the existing tests that pin the exact argv. These tests fail after task 1.2 and the plan has no step for them. The archived #990 plan had this step (its task 1.3).",
    "evidence": "tests/commands/k8s/test_k8s_bootstrap.py:68 assert_any_call([\"minikube\",\"start\",\"--driver=docker\",\"--cni=calico\",\"--gpus=all\"], check=False); lines 89 and 103 assert [\"minikube\",\"start\",\"--driver=docker\",\"--cni=calico\"]. Archived 990 tasks.md 1.3: 'Update existing tests ... to match the updated Minikube argv and messages'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",
@@ -50,7 +51,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds no evidence from the real system for the key claim, that the addon gives a StorageClass named local-path in minikube v1.39.0. It only repeats the issue text ('listed in minikube v1.39.0 addons list'), and the issue says it was not run on a live minikube. The last two bullets are verify commands, not feasibility evidence. Rule 2 asks for a check against upstream documents, library source or command output.",
    "evidence": "proposal.md '## Feasibility' bullets 4 and 5 are 'First check the implementation runs...' and 'Second check...'. Issue 2570: 'Not run on a live minikube: the minikube of this devcontainer was stopped.'",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "verify_form",
@@ -58,7 +59,8 @@
    "where": "tasks.md",
    "problem": "Rule 4: this is a type/bug fix, but the failing-first step is only 'verify that ci test ... fails on the base'. It does not use `devops ci fail-to-pass --base <ref>`, which a fix PR must cite. Because the named test file does not exist, 'fails' would also mean a collection error, not a real failing assertion. The Reads line says 'none' although the group must read cluster_runtime.py and test_k8s_bootstrap.py.",
    "evidence": "AGENTS.md rule 4: 'A fix pull request cites its fail-to-pass check run (devops ci fail-to-pass --base <ref>)'. Archived 990 task 1.1 uses 'uv run devops ci fail-to-pass --base origin/main'. tasks.md line: 'Reads: none. Changes: ...'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a missing fail-to-pass citation. A person judges it."
   },
   {
    "type": "other",

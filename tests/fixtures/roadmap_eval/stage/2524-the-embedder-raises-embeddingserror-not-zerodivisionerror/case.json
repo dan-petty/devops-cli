@@ -46,7 +46,7 @@
    "where": "tasks.md",
    "problem": "Part 2 swaps 'devops roadmap intake' for raw 'gh issue create'. This skips intake: no priority, type and status label placement, no duplicate flag, and the project rule that intake sets the priority label. Task 2.2 says 'a label for priority' without naming which label, so a decision is left open and it conflicts with 'Intake sets the priority label of a new issue'. The issue offered a second option (scope the step so it does not run where it cannot work); the design rejects it with a weak reason. The plan does not check whether intake can run without a model credential (for example, a flag to skip embedding), so the Feasibility section holds no evidence on this premise.",
    "evidence": "AGENTS.md: 'Intake sets the priority label of a new issue, so set no milestone or priority on it.' docs/ROADMAP_WORKFLOW.md row 1: 'Row intake places each candidate'. proposal.md Feasibility only says 'The gh CLI is available on GitHub-hosted runners' and that the workflow has issues: write. tasks.md 2.2: 'Pass the title, the body file, and a label for priority.'",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -54,7 +54,7 @@
    "where": "proposal.md",
    "problem": "Feasibility cites the modulo at 'line 988'. On main the code is at line 1033, inside the nested _embed_single_batch of _embed_ollama (line 1021). The line number was copied from the issue and is stale.",
    "evidence": "git show origin/main:src/devops_cli/ai/rag/embeddings.py: line 1021 'def _embed_ollama', line 1033 'start = batch_idx % len(urls)'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",
@@ -78,7 +78,8 @@
    "where": "specs/review-filed-findings/spec.md",
    "problem": "The delta adds the hardening audit requirement to the review-filed-findings capability. That capability covers the review finding marker and 'devops review intake'. The defect PR hardening audit is another subject, so the requirement is in the wrong capability.",
    "evidence": "openspec/specs/review-filed-findings/spec.md Purpose: 'The marker that an issue filed from a review finding carries, the lookup... and which findings the review leaves out of a hand-off to roadmap intake'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The delta is in the wrong capability. No check compares it with the purpose."
   },
   {
    "type": "other",

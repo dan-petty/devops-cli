@@ -31,6 +31,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import dry_run_class
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
+from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.branch_update import (
     build_dispatch_ci_cmd,
@@ -97,8 +98,7 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.roadmap import pull_labels
-from devops_cli.roadmap.commit_title import commit_scope
-from devops_cli.roadmap.github_store import label_args, repository_file_args
+from devops_cli.roadmap.github_store import issue_args, label_args, repository_file_args
 from devops_cli.roadmap.pull_status import set_delivered_status
 from devops_cli.roadmap.title_labels import requested_labels
 
@@ -1038,15 +1038,6 @@ def _labels_recorded(repo: str | None, number: int, title: str, base: str | None
         return True
     try:
         given = pull_labels.read_title_labels(target, title, ref=base)
-        if given.undeclared_scope:
-            print_warning(
-                MESSAGES.pr.labels_scope_undeclared.format(
-                    scope=commit_scope(title),
-                    path=CONST_ROADMAP_LABELS_PATH,
-                    label=given.undeclared_scope,
-                ),
-                to_stderr=True,
-            )
         pull_labels.add_pull_labels(target, number, given.labels)
     except GitHubOperationError as exc:
         print_error(
@@ -1101,6 +1092,103 @@ def _finish_created_pr(repo: str | None, number: int, title: str, base: str | No
         raise typer.Exit(1)
 
 
+def _form_checked(
+    title: str, body: str, repo: str | None, base: str | None, *, offline: bool
+) -> None:
+    """Refuse a pull request whose title or body breaks the form of `pull_form` (#3198): print
+    every problem to stderr and exit 1, before anything is opened. `offline` skips the read of the
+    labels file, so a dry run makes no request and does not check the scope against the labels."""
+    from devops_cli.roadmap.pull_form import body_problems, title_problems
+
+    declared: tuple[str, ...] | None = None
+    target = None if offline else _target_repo(repo)
+    if target and "/" in target:
+        from devops_cli.roadmap.pull_describe import declared_label_set
+        from devops_cli.roadmap.store import get_roadmap_store
+
+        try:
+            declared = declared_label_set(
+                get_roadmap_store(target),
+                ref=base,
+                checkout=_checkout() if repo is None else None,
+            )
+        except (GitHubOperationError, ValidationError) as exc:
+            print_error(str(exc), safe=True, to_stderr=True)
+            raise typer.Exit(1) from exc
+    problems = [*title_problems(title, declared), *body_problems(body)]
+    if problems:
+        listed = "\n".join(f"- {problem}" for problem in problems)
+        print_error(MESSAGES.pr.form_refused.format(problems=listed), safe=True, to_stderr=True)
+        raise typer.Exit(1)
+
+
+def _plan_describe(repo: str, issue: int) -> None:
+    """Print the requests that `devops pr describe` makes: the read of the issue and of the labels
+    file. Nothing is read or sent."""
+    plan = [
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{repo}/issues/{issue}",
+            argv=(CONST_GH_CLI, *issue_args(repo, issue)),
+        ),
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{repo}/contents/{CONST_ROADMAP_LABELS_PATH}",
+            argv=(CONST_GH_CLI, *repository_file_args(repo, CONST_ROADMAP_LABELS_PATH, ref=None)),
+        ),
+    ]
+    render_request_plan(MESSAGES.pr.describe_dry_run_heading, plan)
+
+
+@app.command("describe", help=HELP.pr.describe)
+@dry_run_class("request-plan")
+def describe_pr(
+    issue: Annotated[int, typer.Argument(min=1, help=HELP.pr.describe_issue)],
+    summary: Annotated[str, typer.Option("--summary", "-s", help=HELP.pr.describe_summary)],
+    why: Annotated[str | None, typer.Option("--why", help=HELP.pr.describe_why)] = None,
+    attribution: Annotated[
+        list[str] | None, typer.Option("--attribution", help=HELP.pr.describe_attribution)
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Build the title and the body of the pull request that delivers an issue, with the rules
+    that devops pr create checks. It cuts no text: a summary or a body over its limit is refused."""
+    from datetime import date
+
+    from devops_cli.roadmap.pull_describe import describe_pull
+    from devops_cli.roadmap.store import get_roadmap_store
+
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        print_error(MESSAGES.pr.describe_no_repo, safe=True, to_stderr=True)
+        raise typer.Exit(1)
+    if dry_run or is_dry_run():
+        _plan_describe(target, issue)
+        return
+    today = date.today()
+    try:
+        described = describe_pull(
+            get_roadmap_store(target),
+            repo=target,
+            root=_checkout(),
+            issue=issue,
+            summary=summary,
+            why=why,
+            attribution=attribution or (),
+            today=today,
+            local_labels=repo is None,
+        )
+    except (GitHubOperationError, ValidationError) as exc:
+        print_error(str(exc), safe=True, to_stderr=True)
+        raise typer.Exit(1) from exc
+    if described.dated_today:
+        print_warning(
+            MESSAGES.pr.describe_dated_today.format(date=today.isoformat()), to_stderr=True
+        )
+    write_stdout(f"{described.title}\n\n{described.body}\n")
+
+
 @app.command("create")
 @dry_run_class("request-plan")
 def create_pr(
@@ -1124,9 +1212,15 @@ def create_pr(
     Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
     review. It sets the Status of the roadmap item the pull request closes to In Progress. It also
     adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
-    and scope/ai. A scope that .github/labels.yml does not declare gets no label and a warning.
+    and scope/ai.
+
+    It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
+    Conventional Commit title with a summary of at most 60 characters and a scope that
+    .github/labels.yml declares, and a body of at most 1,000 characters that ends with Closes
+    #<issue> and the Change line. devops pr describe builds a title and a body in that form.
     """
     if dry_run or is_dry_run():
+        _form_checked(title, body, repo, base, offline=True)
         target = _target_repo(repo)
         plan = plan_pr_create(title=title, body=body, base=base, repo=target)
         render_request_plan(
@@ -1136,6 +1230,7 @@ def create_pr(
         )
         return
     _require_gh_cli()
+    _form_checked(title, body, repo, base, offline=False)
     cmd = pr_create_args(title, body, base, repo)
 
     res = run_gh(cmd, check=False)

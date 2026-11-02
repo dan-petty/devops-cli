@@ -13,13 +13,18 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage_change import StageGroup
+from devops_cli.roadmap.stage_verify import Verification
 from devops_cli.roadmap.store import ItemField
 from tests.support.builders import make_stage_proposal
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 STAGE_REPO = "example/roadmap"
 STAGE_NAME = "devops-roadmap[bot]"
@@ -161,3 +166,17 @@ def validation_report(*issues: tuple[str, str], valid: bool = True) -> str:
     """What `openspec validate --json` prints for a change with these (level, message) issues."""
     found = [{"level": level, "path": "cap/spec.md", "message": text} for level, text in issues]
     return json.dumps({"items": [{"id": "x", "valid": valid, "issues": found}]})
+
+
+def no_findings(fake: ModelFake) -> None:
+    """Answer the verification request of the stage job with no finding, apart from the requests
+    of the planner. The request of the pass holds the key `plan`, and a request of the planner
+    never does (#3153)."""
+
+    def is_verification(prompt: str) -> bool:
+        try:
+            return "plan" in json.loads(prompt)
+        except ValueError:
+            return False
+
+    fake.route(is_verification, Verification())

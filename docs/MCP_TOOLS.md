@@ -92,6 +92,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
+| [`pr_describe`](#pr-describe) | `true` | Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body. |
 | [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
 | [`pr_edit`](#pr-edit) | `false` | Edit pull request base branch, title, body, or milestone. |
 | [`pr_list`](#pr-list) | `true` | List pull requests with base targeting and review status. |
@@ -110,8 +111,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | `true` | Review source files directly (no git required). |
 | [`review_pr`](#review-pr) | `false` | Review a GitHub pull request. |
 | [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
-| [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into items: every open issue with no priority/* label. The model compares each with the items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type label and a scope label from the Conventional Commit title, a status/new label, Value and Effort labels and a reason comment, then its priority label last, and goes to the backlog. The model picks the type only for a title with no Conventional Commit type. A label a person set stays. Intake sets no milestone: a person plans the milestones, and a milestone an issue has stays. Close an issue as not planned to keep it off the roadmap: devops gh issues close \<number\> --reason not-planned. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
-| [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code and documentation. When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it with tools that read the code and, for a public repository with a Firecrawl key, search the web. A design question gets the best-practice option with the options it compared, and only a decision that a person must make waits on a person. The plan says when web search is off. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, then the backlog's other New items, each place by priority. Only --limit stops a run. The number of Ready items does not stop it. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. An item that an account other than the owner, a member or a collaborator opened waits on a person, and only --item refines it. An item on which refine wrote 2 comments in the last 24 hours also waits on a person and takes no place under --limit, and only --item refines it until the older comment is 24 hours old. An item refine cannot set to Ready gets one comment with its next step. The step is the questions a person answers, the split a person makes, or the open items it waits on. Refine looks at the item again after a reply, a body edit or the close of those items, or after a commit on the default branch changes a file that the block cites. The report groups every item by its next step. A part of an item that cannot be built or decided now moves to new issues through intake when the rest of the item is Ready. Each new issue starts with 'Split from #\<issue\>.', and refine names the new issues in its Ready comment and records them as refine.deferred. An item that is too big for one pull request still waits for a person to split it. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
+| [`roadmap_intake`](#roadmap-intake) | `false` | Turn each open issue with no priority label into a roadmap item, or file a new candidate: intake sets the labels, adds a reason comment and names a possible duplicate for a person to close. It writes nothing without --confirm. Details: docs/roadmap/intake.md. |
+| [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md. |
 | [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.limit items. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 | [`sandbox_deploy`](#sandbox-deploy) | `false` | Deploy an isolated background container sandbox with security containment. |
 | [`sandbox_exec`](#sandbox-exec) | `false` | Execute a command inside an active sandbox container. |
@@ -148,7 +149,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`valkey_set`](#valkey-set) | `false` | Set string value of key with optional expiration TTL. |
 | [`valkey_stats`](#valkey-stats) | `true` | Display quick diagnostic summary of server health, memory, and keys. |
 | [`vault_get`](#vault-get) | `true` | Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.  The keyring answers only with no usable token, when Vault has no value at the path, or when Vault is unreachable; never after Vault rejects the token. The output names the source. |
-| [`vault_set`](#vault-set) | `false` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 | [`vault_status`](#vault-status) | `true` | Inspect HashiCorp Vault cluster health and initialization status.  The health endpoint needs no token, and none is sent. The Token row names where the token other commands would use comes from, and why a stored token is not used for this address. |
 | [`vault_sync`](#vault-sync) | `false` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.  Reads Vault alone. A path with no secret fails, and a field named like the entry that holds the `devops vault login` token is never written. |
 
@@ -1491,6 +1491,23 @@ Close a pull request.
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
+### `pr_describe`
+
+Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `issue` | `integer` | Yes | - | Number of the issue that the pull request closes. |
+| `summary` | `string` | Yes | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `why` | `string` | No | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
+| `attribution` | `array[string]` | No | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
 ### `pr_diff`
 
 View diff of a pull request.
@@ -1845,7 +1862,7 @@ Compute and display review accuracy statistics across saved sessions.
 
 ### `roadmap_intake`
 
-Turn candidates into items: every open issue with no priority/* label. The model compares each with the items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type label and a scope label from the Conventional Commit title, a status/new label, Value and Effort labels and a reason comment, then its priority label last, and goes to the backlog. The model picks the type only for a title with no Conventional Commit type. A label a person set stays. Intake sets no milestone: a person plans the milestones, and a milestone an issue has stays. Close an issue as not planned to keep it off the roadmap: devops gh issues close \<number\> --reason not-planned. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.
+Turn each open issue with no priority label into a roadmap item, or file a new candidate: intake sets the labels, adds a reason comment and names a possible duplicate for a person to close. It writes nothing without --confirm. Details: docs/roadmap/intake.md.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1867,7 +1884,7 @@ Turn candidates into items: every open issue with no priority/* label. The model
 
 ### `roadmap_refine`
 
-Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code and documentation. When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it with tools that read the code and, for a public repository with a Firecrawl key, search the web. A design question gets the best-practice option with the options it compared, and only a decision that a person must make waits on a person. The plan says when web search is off. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, then the backlog's other New items, each place by priority. Only --limit stops a run. The number of Ready items does not stop it. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. An item that an account other than the owner, a member or a collaborator opened waits on a person, and only --item refines it. An item on which refine wrote 2 comments in the last 24 hours also waits on a person and takes no place under --limit, and only --item refines it until the older comment is 24 hours old. An item refine cannot set to Ready gets one comment with its next step. The step is the questions a person answers, the split a person makes, or the open items it waits on. Refine looks at the item again after a reply, a body edit or the close of those items, or after a commit on the default branch changes a file that the block cites. The report groups every item by its next step. A part of an item that cannot be built or decided now moves to new issues through intake when the rest of the item is Ready. Each new issue starts with 'Split from #\<issue\>.', and refine names the new issues in its Ready comment and records them as refine.deferred. An item that is too big for one pull request still waits for a person to split it. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.
+Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2402,21 +2419,6 @@ Vault is unreachable; never after Vault rejects the token. The output names the 
 |---|---|---|---|---|
 | `path` | `string` | Yes | - | Vault secret path (e.g. secret/data/myapp or vault://secret/data/myapp#token) |
 | `key` | `string` | No | - | Specific secret field key to extract |
-| `show` | `boolean` | No | `False` | Display secret in plain text without masking |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-
-### `vault_set`
-
-Store secret key-value pairs in HashiCorp Vault KV-v2 engine.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `path` | `string` | Yes | - | Vault secret path (e.g. secret/data/myapp) |
-| `key_values` | `array[string]` | Yes | - | Key-value pairs to store (format: KEY=VALUE) |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `vault_status`
