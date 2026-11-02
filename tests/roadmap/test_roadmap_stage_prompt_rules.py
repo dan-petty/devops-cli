@@ -161,12 +161,14 @@ def test_the_summary_limit_of_the_prompt_is_the_limit_of_the_schema_and_fits_the
 
 
 def test_the_prompt_says_that_the_limit_counts_the_summary_as_the_title_shows_it() -> None:
-    """A handle, a link or a comment opener gets more characters in the title, so the model
-    writes none of them in a summary that is near the limit (#3249)."""
+    """A handle or a link gets a code span in the title, and an emoji has two units for the check
+    `Semantic PR title`, so the model writes none of them near the limit (#3249). Each claim is
+    pinned, so a change of the sentence fails here."""
     (bullet,) = re.findall(r"- `summary`:[^\n]*", _PROMPT)
 
-    assert "handle" in bullet
-    assert "link" in bullet
+    assert "The limit counts the summary as the title shows it." in bullet
+    assert "which adds characters, so write no handle or link in the summary." in bullet
+    assert "An emoji counts as two characters." in bullet
 
 
 def test_the_summary_limit_of_the_code_is_the_one_of_the_contributing_guide() -> None:

@@ -1095,7 +1095,8 @@ class PRMessages:
         "label, or declare the label in the same pull request."
     )
     form_summary_long: str = (
-        "The summary has {length} characters. The limit is {limit}. Write a shorter summary."
+        "The summary has {length} characters (an emoji counts as two). The limit is {limit}. "
+        "Write a shorter summary."
     )
     form_summary_cut: str = (
         "The summary ends with `...`. A cut summary reads as broken. Write a shorter summary."
@@ -3044,9 +3045,11 @@ class RoadmapMessages:
         "The title of item {number} would have {length} characters after the colon, and the "
         "limit is {limit}. The summary of the plan does not fit the number of this item."
     )
+    stage_summary_blank: str = "The summary has no text. Write a summary of the plan."
     stage_summary_long: str = (
         "The summary has {length} characters in the title, and the limit is {limit}. "
-        "A handle or a link gets a code span in the title. Write a shorter summary."
+        "A handle or a link gets a code span in the title, and an emoji counts as two. "
+        "Write a shorter summary."
     )
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"

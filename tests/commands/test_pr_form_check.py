@@ -175,6 +175,17 @@ def test_a_dry_run_checks_the_form_without_a_request(
     assert "is not in the form" in result.stderr
 
 
+def test_a_title_with_a_byte_that_is_no_utf8_gets_the_form_report_and_no_traceback(
+    runner: CliRunner,
+) -> None:
+    """argv holds a byte that is no UTF-8 as a lone surrogate, which counts as one unit (#3249)."""
+    result, gh = _create(runner, "fix(pr): " + "\udcff" * 61, BODY)
+
+    assert (result.exit_code, gh.call_count) == (1, 0)
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "The summary has 61 characters" in result.stderr
+
+
 def test_a_dry_run_of_a_pull_request_in_the_form_still_lists_its_requests(
     runner: CliRunner, roadmap_store_repos: list[str]
 ) -> None:
