@@ -3232,6 +3232,7 @@ devops uv sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--frozen` | `boolean` | - | Do not update lockfile. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops uv lock`
 
@@ -3246,6 +3247,7 @@ devops uv lock [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--upgrade` | `boolean` | - | Upgrade dependencies while locking. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops uv python-install`
 
@@ -3260,6 +3262,7 @@ devops uv python-install [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Python version to install (defaults to .python-version). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops uv run`
 
@@ -3270,9 +3273,18 @@ Run an arbitrary command using `uv run`.
 Example:
   devops uv run -- pytest -q
 
+A dry run lists the one `uv run` command and starts nothing. What that command does is
+not a request of devops-cli, so the plan does not list it.
+
 ```bash
-devops uv run
+devops uv run [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -6400,6 +6412,7 @@ devops mcp serve [OPTIONS]
 | `--host`, `-h` | `string` | `127.0.0.1` | Host interface for SSE transport. |
 | `--port`, `-p` | `integer` | `8000` | Port number for SSE transport. |
 | `--allow-remote` | `boolean` | - | Permit binding SSE transport to non-loopback network interfaces. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops mcp tools`
 
@@ -6422,6 +6435,7 @@ devops mcp export-schemas [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Destination directory for tool schema JSON files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -9273,6 +9287,7 @@ devops serve [OPTIONS]
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
 | `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
 | `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and per-repository status, triage and model lanes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

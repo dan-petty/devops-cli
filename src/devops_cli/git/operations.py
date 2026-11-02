@@ -552,13 +552,32 @@ def read_file_at_revision(repo_dir: Path, revision: str, rel_path: str) -> str |
     return proc.stdout if proc.returncode == 0 else None
 
 
+def merge_base_argv(base: str, head: str = "HEAD") -> list[str]:
+    """The command that `resolve_merge_base` runs."""
+    return ["git", "merge-base", "--", base, head]
+
+
+def diff_name_status_argv(
+    base: str, head: str | None = None, *, fallback: bool = False
+) -> list[str]:
+    """The command that `list_changed_files` runs: the three-dot diff of `base...head`, or the
+    two-dot diff of `base head` as its `fallback`, or the working tree's diff without `head`."""
+    if head is None:
+        refs = [base]
+    elif fallback:
+        refs = [base, head]
+    else:
+        refs = [f"{base}...{head}"]
+    return ["git", "diff", "--name-status", "-z", "--find-renames", *refs, "--"]
+
+
 def resolve_merge_base(repo_dir: Path, base: str, head: str = "HEAD") -> str | None:
     """The merge base of `base` and `head`; `base` itself when git finds none, None if refused."""
     if not (_is_safe_revision(base) and _is_safe_revision(head)):
         return None
     try:
         proc = run_subprocess(
-            ["git", "merge-base", "--", base, head], cwd=repo_dir, quiet=True, local_read=True
+            merge_base_argv(base, head), cwd=repo_dir, quiet=True, local_read=True
         )
     except Exception as exc:
         logger.debug("Could not resolve the merge base of %s and %s: %s", base, head, exc)
@@ -577,21 +596,11 @@ def list_changed_files(repo_dir: Path, base: str, head: str | None = None) -> li
         return []
     if head is None and not _is_safe_revision(base):
         return []
-    ref_arg = [f"{base}...{head}"] if head is not None else [base]
-    cmd = ["git", "diff", "--name-status", "-z", "--find-renames", *ref_arg, "--"]
+    cmd = diff_name_status_argv(base, head)
     try:
         proc = run_subprocess(cmd, cwd=repo_dir, quiet=True, local_read=True)
         if proc.returncode != 0 and head is not None:
-            fallback_cmd = [
-                "git",
-                "diff",
-                "--name-status",
-                "-z",
-                "--find-renames",
-                base,
-                head,
-                "--",
-            ]
+            fallback_cmd = diff_name_status_argv(base, head, fallback=True)
             proc = run_subprocess(fallback_cmd, cwd=repo_dir, quiet=True, local_read=True)
     except Exception as exc:
         logger.debug("Could not list the files changed since %s: %s", base, exc)

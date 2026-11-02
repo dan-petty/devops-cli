@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import json
+import re
+import shlex
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,7 +15,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.test_cmd import _changed_paths
 from devops_cli.commands.test_cmd import app as app_cli
 from tests.support.fakes.git import GitFake
-from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 runner = CliRunner()
 
@@ -179,8 +181,14 @@ def _changed_run() -> tuple[list[str], str]:
     """The pytest targets `devops test run --changed --dry-run` names, and what it printed."""
     result = runner.invoke(app_cli, ["run", "--changed", "--dry-run"])
     assert result.exit_code == 0, result.output
-    response = json.loads(result.output.split("Command response:\n")[1])
-    return response["details"]["targets"], result.output
+    (line,) = _plan_lines(result.output)
+    words = shlex.split(line)
+    return words[words.index("pytest") + 1 :], result.output
+
+
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
 
 
 def test_a_changed_nested_test_module_is_selected(
@@ -344,11 +352,33 @@ def test_no_change_runs_the_whole_suite(runner_project: Path) -> None:
     assert _changed_run()[0] == ["tests"]
 
 
-def test_test_run_dry_run() -> None:
-    """devops test run --dry-run prints simulated test execution."""
-    res = runner.invoke(app_cli, ["run", "--dry-run"])
-    assert res.exit_code == 0
-    assert "DRY-RUN" in res.output or "pytest" in res.output
+_UV = "uv --preview-features malware-check,check-command"
+
+
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_test_run_dry_run_lists_the_pytest_command(
+    cli: Any, process_fake: ProcessFake, flag_first: bool
+) -> None:
+    """A dry run starts no process and lists the one `uv run pytest` of the run (#2260)."""
+    argv = ["test", "run", "tests/test_scan.py", "-x", "-v", "-k", "sample", "--cov"]
+    result = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert [call for call in process_fake.calls if not call.local_read] == []
+    assert _plan_lines(result.output) == [
+        f"{_UV} run pytest -vv -x -k sample --cov=src --cov-report=term-missing tests/test_scan.py"
+    ]
+
+
+def test_test_run_runs_the_request_of_its_plan(cli: Any, process_fake: ProcessFake) -> None:
+    """The real run starts the command of the plan."""
+    argv = ["test", "run", "tests/test_scan.py", "-x", "-k", "sample"]
+    planned = _plan_lines(cli([*argv, "--dry-run"]).output)
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert [" ".join(call.argv) for call in process_fake.calls if not call.local_read] == planned
 
 
 def test_test_run_execution() -> None:

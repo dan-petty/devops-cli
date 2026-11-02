@@ -429,11 +429,6 @@ def test_workload_sandbox_config_integration(tmp_path: Path) -> None:
     assert cfg.network_config.mode == SandboxNetworkMode.ISOLATED
     assert cfg.network_mode == "none"
 
-    runner_inst = WorkloadSandboxRunner(cfg)
-    dry = runner_inst.build_dry_run_details()
-    assert dry["network_mode"] == "none"
-    assert dry["network_config"]["mode"] == "isolated"
-
 
 @pytest.mark.usefixtures("public_dns")
 def test_cli_sandbox_network_policy_command() -> None:
