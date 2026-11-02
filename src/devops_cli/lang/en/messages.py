@@ -2824,6 +2824,11 @@ class RoadmapMessages:
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
         "that the plan changes. A new test goes in {expected}. Move it there."
     )
+    stage_problem_path_later: str = (
+        "Group {group} names `{path}` in {place}. The staged commit has no such file, and group "
+        "{later} creates it after group {group}. Move group {later} before group {group}, or "
+        "move the work that needs `{path}` into group {later} or a group after it."
+    )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(
