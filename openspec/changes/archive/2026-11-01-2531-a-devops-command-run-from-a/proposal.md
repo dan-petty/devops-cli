@@ -52,4 +52,4 @@ Every check below ran on `origin/main` (0.37.1) on 2026-11-01, in a worktree of 
 
 ## Existing Tool Considered
 
-The standard library covers the need: `os.getcwd()` raises `FileNotFoundError` for a removed directory, and the change catches it. No external tool or library does more. The written cost is two short guards (about 10 lines), three tests, one paragraph of `ARCHITECTURE.md`, and the upkeep of the check in `OTelTyper.command`. The change deletes no internal code.
+The standard library covers the need: `os.getcwd()` raises `FileNotFoundError` for a removed directory, and the change catches it. No external tool or library does more. The written cost is two short guards (about 10 lines) and one shared check function with two callers (`OTelTyper.command` and the dry-run path and `_delegate` of the entry point), five tests, one paragraph of `ARCHITECTURE.md`, and the upkeep of those calls. The change deletes no internal code.
