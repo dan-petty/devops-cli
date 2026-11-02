@@ -16,7 +16,7 @@ Reads: `tests/invariants/test_architectural_invariants.py` lines 176 to 196 and 
 
 This group changes a test constant and no behavior, so it adds no test. The repeatable check is the probe in 2.1 to 2.4. It shows that a new unused `# noqa: F401` import in `src/` passes the ratchet at 15 and fails it at 0.
 
-- [ ] 2.1 Confirm the count: `git grep -n "noqa: F401" -- src` prints nothing, and `uv run ruff check --select F401 --ignore-noqa src` prints `All checks passed!`
-- [ ] 2.2 Probe the base. Write the line `import os  # noqa: F401` to the new file `src/devops_cli/f401_probe.py`. Run `uv run devops ci test tests/invariants/test_architectural_invariants.py -k suppressions_stay_under_their_ceilings`. It passes, which is the gap. Delete the probe file
-- [ ] 2.3 In `DEFAULT_SUPPRESSION_CEILINGS`, change `"src noqa: F401": 15` to `"src noqa: F401": 0`
-- [ ] 2.4 Repeat the probe of 2.2. The run now fails with `src noqa: F401: 1 > ceiling 0`. Delete the probe file, and verify with `git status --short` that no file under `src/` is changed and with `uv run devops ci test tests/invariants/test_architectural_invariants.py` that the file passes. Put the output of 2.2 and 2.4 in a comment on the pull request
+- [x] 2.1 Confirm the count: `git grep -n "noqa: F401" -- src` prints nothing, and `uv run ruff check --select F401 --ignore-noqa src` prints `All checks passed!`
+- [x] 2.2 Probe the base. Write the line `import os  # noqa: F401` to the new file `src/devops_cli/f401_probe.py`. Run `uv run devops ci test tests/invariants/test_architectural_invariants.py -k suppressions_stay_under_their_ceilings`. It passes, which is the gap. Delete the probe file
+- [x] 2.3 In `DEFAULT_SUPPRESSION_CEILINGS`, change `"src noqa: F401": 15` to `"src noqa: F401": 0`
+- [x] 2.4 Repeat the probe of 2.2. The run now fails with `src noqa: F401: 1 > ceiling 0`. Delete the probe file, and verify with `git status --short` that no file under `src/` is changed and with `uv run devops ci test tests/invariants/test_architectural_invariants.py` that the file passes. Put the output of 2.2 and 2.4 in a comment on the pull request
