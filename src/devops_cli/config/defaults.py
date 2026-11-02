@@ -738,6 +738,15 @@ DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
 # How often the implement row is due on its own, besides its first run (#2667). A round only reads
 # the Jobs and the plan; the Job itself runs for up to two hours.
 DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
+# The deadline of a runner Job follows its progress (#3063). The stall is the time without a new
+# line in the Job log that ends a run. It is above the longest wait in which the runner writes no
+# line (the watch of the checks, 1800 s) by 600 s. The extension is the time the deadline is kept
+# ahead of the last progress, above the stall by the delay of a row (7 minutes) and a tick of the
+# Service (151 s), so the Service sees a stall before the deadline passes. The ceiling is the
+# cap of the admission policy of the Service's Jobs.
+DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS: int = 2400
+DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS: int = 3600
+DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS: int = 14400
 # The labels of the items the stage job takes when no setting and no option names others: every
 # Ready item, of any type, priority, value and effort (#2906).
 DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = ("status=ready",)

@@ -3146,6 +3146,16 @@ CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER: Final[str] = "<!-- devops roadmap implem
 CONST_ROADMAP_IMPLEMENT_JOB_LABEL: Final[str] = "implement-repo"
 CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES: Final[int] = 40
 CONST_ROADMAP_IMPLEMENT_JOB_STEP: Final[str] = "job"
+# The deadline of a runner Job follows its progress (#3063). The most that a deadline may be, the
+# value in the admission policy `roadmap-service-jobs`; the lines of the log whose digest shows
+# progress; and the annotations of the Job that hold the state: the digest of that tail, the time
+# (epoch seconds) of the last progress that the Service saw, and the seconds of silence when it
+# ended a stall. A Job without the second annotation is not a Job of the Service.
+CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS: Final[int] = 14400
+CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES: Final[int] = 20
+CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS: Final[str] = "roadmap.devops-cli/progress"
+CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: Final[str] = "roadmap.devops-cli/progress-at"
+CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED: Final[str] = "roadmap.devops-cli/stalled"
 # The number of the group of a fix step: a change numbers its groups from 1.
 CONST_ROADMAP_IMPLEMENT_FIX_GROUP: Final[int] = 0
 # The headings, in lower case, of the two sections of an issue that a step gives the model: the

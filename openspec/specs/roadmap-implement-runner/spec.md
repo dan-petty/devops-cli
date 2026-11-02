@@ -94,7 +94,7 @@ The Job and its pod of `run-job --template runner` SHALL carry the label `implem
 - **THEN** the command exits 1, names the running Job, and creates no Job
 
 ### Requirement: The Service creates Jobs through a narrow Role
-ServiceAccount `roadmap-service` SHALL be the account of the Service pod. A Role in namespace `devops` SHALL allow `create`, `get` and `list` on `jobs`, `get` on `cronjobs` named `devops-cli-runner`, `list` on `pods` and `get` on `pods/log`, and nothing else. A RoleBinding SHALL bind the Role to the account and to no other subject. The Service pod SHALL mount a projected service-account token with `expirationSeconds` 3600. The pods of Jobs SHALL keep no token.
+ServiceAccount `roadmap-service` SHALL be the account of the Service pod. A Role in namespace `devops` SHALL allow `create`, `get`, `list` and `patch` on `jobs`, `get` on `cronjobs` named `devops-cli-runner`, `list` on `pods` and `get` on `pods/log`, and nothing else. A RoleBinding SHALL bind the Role to the account and to no other subject. The Service pod SHALL mount a projected service-account token with `expirationSeconds` 3600. The pods of Jobs SHALL keep no token.
 
 #### Scenario: The manifests are read
 - **WHEN** a test reads the rendered `k8s/devops` kustomization
@@ -162,15 +162,19 @@ The policy SHALL refuse a Job unless the label `app.kubernetes.io/name` of its p
 - **THEN** the policy admits the Job
 
 ### Requirement: The policy bounds the run of a Job of the Service
-The policy SHALL refuse a Job unless it sets `backoffLimit: 0` and an `activeDeadlineSeconds` that is at most the value of CronJob `devops-cli-runner`. A Job that the Job builder makes from that CronJob SHALL pass the policy.
+The policy SHALL refuse a Job unless it sets `backoffLimit: 0` and an `activeDeadlineSeconds` that is at most 14400, the cap of `CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS`. A Job that the Job builder makes from CronJob `devops-cli-runner` SHALL pass the policy.
 
 #### Scenario: A Job from the runner template
 - **WHEN** a test builds the Job from the rendered CronJob `devops-cli-runner` with `build_job`, the environment value and the labels of the Service, and evaluates the policy for the Service user
 - **THEN** the policy admits the Job, also when the image carries a tag, a digest, or both
 
 #### Scenario: A Job that runs too long or retries
-- **WHEN** the Job from the template sets a `backoffLimit` above 0, an `activeDeadlineSeconds` one above the template's, or no `activeDeadlineSeconds`
+- **WHEN** the Job from the template sets a `backoffLimit` above 0, an `activeDeadlineSeconds` above the cap, or no `activeDeadlineSeconds`
 - **THEN** the policy refuses the Job
+
+#### Scenario: A Job at the cap
+- **WHEN** the Job from the template sets `activeDeadlineSeconds` to the cap
+- **THEN** the policy admits the Job
 
 ### Requirement: The runner Job bounds the workers of the test runner to its CPU limit
 The container of CronJob `devops-cli-runner` SHALL set `PYTEST_XDIST_AUTO_NUM_WORKERS` to the number of its CPU limit. `pytest-xdist` counts the CPUs of the node, not the CPU limit of the pod, so without the variable a test run starts one worker for each CPU of the node.
