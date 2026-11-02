@@ -39,4 +39,4 @@ None.
 
 ## Existing Tool Considered
 
-No open, maintained tool covers this project-specific validation of plan group ordering. The project keeps the check in its own `path_problems` function in `src/devops_cli/roadmap/stage_paths.py`, which #3010 already added. The written cost is one small pure function, two test cases and the maintenance of the message text; the cost is already paid, and this change adds one lookup and one message sentence.
+No open, maintained tool covers this project-specific validation of plan group ordering. The project keeps the check in its own `path_problems` function in `src/devops_cli/roadmap/stage_paths.py`, which #3010 already added. The cost of this change is about 100k tokens and 20 minutes to build and check (the run that built it used about 106k tokens in about 18 minutes). To keep it costs one lookup function and one message text. A correction later costs about 5k tokens (an estimate). The check of #3010 itself is not built again.
