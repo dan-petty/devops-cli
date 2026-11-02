@@ -47,6 +47,17 @@ def test_a_title_in_the_form_has_no_problem(title: str) -> None:
     assert title_problems(title, DECLARED) == []
 
 
+def test_the_summary_limit_counts_utf16_units_like_the_title_check_of_the_workflow() -> None:
+    """`^.{1,60}$` in JavaScript counts UTF-16 units: an emoji is two, so 31 emoji are 62 units
+    and the check `Semantic PR title` refuses a title that has only 31 code points (#3249)."""
+    fits = f"feat(pr): {chr(0x1F600) * (SUMMARY_MAX_CHARS // 2)}"
+    long = f"feat(pr): {chr(0x20000) * (SUMMARY_MAX_CHARS // 2 + 1)}"
+
+    assert title_problems(fits, DECLARED) == []
+    (problem,) = title_problems(long, DECLARED)
+    assert f"The summary has {SUMMARY_MAX_CHARS + 2} characters" in problem
+
+
 @pytest.mark.parametrize(
     ("title", "fragment"),
     [
