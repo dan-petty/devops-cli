@@ -238,6 +238,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS": ("kept", "the secret masking is slower than linear"),
     "CONST_ROADMAP_IMPLEMENT_REASON_PATHS": ("kept", "paths in a stop reason, read by a person"),
+    "CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS": (
+        "kept",
+        "the words of a negative search must fit one process argument list (E2BIG at about 128000)",
+    ),
     "CONST_ROADMAP_IMPLEMENT_REASON_TESTS": ("kept", "tests in a stop reason, read by a person"),
     "CONST_ROADMAP_IMPLEMENT_REASON_CHARS": (
         "kept",

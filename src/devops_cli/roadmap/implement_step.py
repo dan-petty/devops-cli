@@ -81,6 +81,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REASON_TESTS,
+    CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
@@ -102,11 +103,9 @@ from devops_cli.roadmap.agent_run import (
 from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_policy import (
-    IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
-    NEGATIVE_SEARCH_WORD,
     fill_prompt,
-    read_negative_search,
+    read_verification,
 )
 from devops_cli.roadmap.implement_shell_refusal import (
     argument_refusal_hooks,
@@ -816,31 +815,25 @@ def _command_failure(
     )
 
 
+def _command_shown(command: str) -> str:
+    """`command` for a stop reason, cut to `CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS` characters."""
+    limit = CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+    return command if len(command) <= limit else f"{command[:limit]}..."
+
+
 def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
     """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
     that did not stops the run. A command whose program is not on the allowlist does not run. A
     command that starts with `!` runs only as the negative search of `read_negative_search`,
     and passes when it finds nothing (#3263). The step runs the verification commands of a group,
     from the tasks as they were before the run."""
-    texts = MESSAGES.roadmap
     for command in commands:
-        try:
-            argv = shlex.split(command)
-        except ValueError:
-            return texts.implement_stop_command_unparsed.format(command=command)
-        if argv and argv[0] == NEGATIVE_SEARCH_WORD:
-            search = read_negative_search(argv)
-            if isinstance(search, str):
-                return texts.implement_stop_search_refused.format(command=command, reason=search)
-            failure = _command_failure(source, search.argv, command, negative=True)
-        else:
-            if not argv or argv[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
-                return texts.implement_stop_command_denied.format(
-                    command=command,
-                    program=argv[0] if argv else "",
-                    allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS),
-                )
-            failure = _command_failure(source, argv, command)
+        found = read_verification(command)
+        if isinstance(found, str):
+            return MESSAGES.roadmap.implement_stop_command_refused.format(
+                command=_command_shown(command), reason=found
+            )
+        failure = _command_failure(source, found.argv, command, negative=found.negative)
         if failure is not None:
             return failure
     return None
