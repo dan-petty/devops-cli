@@ -432,6 +432,7 @@ class TestK8sLLMGatewayManifests:
                 {"devops-reasoning": ["devops-coder"]},
                 {"devops-coder": ["devops-reasoning", "devops-chat"]},
                 {"devops-review": ["devops-background"]},
+                {"claude-sonnet-5-5": ["deepseek-v4.1-flash-1017"]},
                 {"devops-triage": ["qwen3.8:27b"]},
                 {"devops-background": ["qwen3.8:27b"]},
             ],
@@ -1948,8 +1949,12 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
     router = config["router_settings"]
     chains = [*router.get("fallbacks", []), *router.get("context_window_fallbacks", [])]
     routed = {
-        name for link in chains for key, targets in link.items() for name in (key, *targets)
+        name
+        for link in router.get("context_window_fallbacks", [])
+        for key, targets in link.items()
+        for name in (key, *targets)
     } | {name for group in router.get("routing_groups", []) for name in group["models"]}
+    hosted = set(HOSTED_GROUPS)
     listed = [m["model_name"] for m in entries]
     problems = [
         f"{name} is listed {listed.count(name)} times"
@@ -1958,6 +1963,13 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
     ]
     problems += [
         f"{name} is in a pool or a fallback" for name in sorted(routed & set(HOSTED_GROUPS))
+    ]
+    problems += [
+        f"{source} falls back to the hosted group {target}"
+        for link in chains
+        for source, targets in link.items()
+        for target in targets
+        if target in hosted and source not in hosted
     ]
     for model in entries:
         params, info = model["litellm_params"], model.get("model_info") or {}
@@ -2006,8 +2018,8 @@ def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() 
             lambda config, deployment: config["router_settings"]["fallbacks"].append(
                 {"devops-review": ["claude-haiku-5-5"]}
             ),
-            "claude-haiku-5-5 is in a pool or a fallback",
-            id="fallback-to-a-hosted-group",
+            "devops-review falls back to the hosted group claude-haiku-5-5",
+            id="fallback-from-an-ollama-group-to-a-hosted-group",
         ),
         pytest.param(
             lambda config, deployment: config["router_settings"]["routing_groups"][0][
