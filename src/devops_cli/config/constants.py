@@ -496,6 +496,7 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "docs/VISION.md",
         "docs/agent/README.md",
         "docs/index.md",
+        "docs/roadmap/*.md",
         "k8s/**/README.md",
         "src/devops_cli/ai/knowledge_base/**/*.md",
         "tf/README.md",
