@@ -17,6 +17,7 @@ devops uv sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--frozen` | `boolean` | - | Do not update lockfile. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -33,6 +34,7 @@ devops uv lock [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--upgrade` | `boolean` | - | Upgrade dependencies while locking. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -49,6 +51,7 @@ devops uv python-install [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Python version to install (defaults to .python-version). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -61,8 +64,17 @@ Run an arbitrary command using `uv run`.
 Example:
   devops uv run -- pytest -q
 
+A dry run lists the one `uv run` command and starts nothing. What that command does is
+not a request of devops-cli, so the plan does not list it.
+
 ```bash
-devops uv run
+devops uv run [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

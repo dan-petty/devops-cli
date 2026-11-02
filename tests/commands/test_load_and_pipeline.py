@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,14 +14,50 @@ from typer.testing import CliRunner
 from devops_cli.commands.pipeline import app as pipeline_app
 from devops_cli.commands.pipeline import run_pipeline_cmd
 from devops_cli.commands.test_cmd import app as app_test_cli
+from devops_cli.config.commands import build_dagger_cmd, build_k6_cmd
+from tests.support.fakes.process import ProcessFake
 
 runner = CliRunner()
 
 
-def test_test_load_dry_run() -> None:
-    result = runner.invoke(app_test_cli, ["load", "--dry-run"])
-    assert result.exit_code == 0
-    assert "DRY_RUN" in result.stdout
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_test_load_dry_run_lists_the_k6_command(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake, flag_first: bool
+) -> None:
+    """A dry run starts no process, invents no metric, and lists the one `k6 run` (#2260)."""
+    script = tmp_path / "smoke.js"
+    summary = tmp_path / "summary.json"
+    argv = ["test", "load", str(script), "--vus", "5", "--duration", "5s"]
+    argv += ["--summary-export", str(summary)]
+    with patch("shutil.which", side_effect=AssertionError("no binary lookup")):
+        result = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    assert "simulated_metrics" not in result.output
+    expected = build_k6_cmd(
+        script.resolve(), vus=5, duration="5s", summary_export=summary.resolve()
+    )
+    assert _plan_lines(result.output) == [" ".join(expected)]
+
+
+@patch("shutil.which", return_value="/usr/local/bin/k6")
+def test_test_load_runs_the_request_of_its_plan(
+    _which: MagicMock, tmp_path: Path, cli: Any, process_fake: ProcessFake
+) -> None:
+    """The real run starts the command of the plan."""
+    argv = ["test", "load", str(tmp_path / "smoke.js"), "--vus", "5", "--duration", "5s"]
+    planned = _plan_lines(cli([*argv, "--dry-run"]).output)
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert [" ".join(call.argv) for call in process_fake.calls] == planned
 
 
 @patch("shutil.which", return_value="/usr/local/bin/k6")
@@ -33,10 +71,35 @@ def test_test_load_live(mock_run: MagicMock, mock_which: MagicMock, tmp_path: Pa
     assert mock_run.called
 
 
-def test_pipeline_run_dry_run() -> None:
-    result = runner.invoke(pipeline_app, ["--dry-run"])
-    assert result.exit_code == 0
-    assert "DRY_RUN" in result.stdout
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_pipeline_dry_run_lists_the_dagger_call(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake, flag_first: bool
+) -> None:
+    """A dry run starts no process and lists the one `dagger call` of the run (#2260)."""
+    argv = ["pipeline", str(tmp_path), "--function", "build", "--args", "ref=main"]
+    with patch("shutil.which", side_effect=AssertionError("no binary lookup")):
+        result = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    assert "SIMULATED_SUCCESS" not in result.output
+    assert _plan_lines(result.output) == [
+        " ".join(build_dagger_cmd(tmp_path.resolve(), "build", ["ref=main"]))
+    ]
+
+
+@patch("shutil.which", return_value="/usr/local/bin/dagger")
+def test_pipeline_runs_the_request_of_its_plan(
+    _which: MagicMock, tmp_path: Path, cli: Any, process_fake: ProcessFake
+) -> None:
+    """The real run starts the command of the plan."""
+    argv = ["pipeline", str(tmp_path), "--function", "build"]
+    planned = _plan_lines(cli([*argv, "--dry-run"]).output)
+
+    result = cli(argv)
+
+    assert result.exit_code == 0, result.output
+    assert [" ".join(call.argv) for call in process_fake.calls] == planned
 
 
 @patch("shutil.which", return_value="/usr/local/bin/dagger")

@@ -96,7 +96,7 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **THEN** the title after the colon has at most 60 characters, and the summary is cut at a word
 
 ### Requirement: The job measures each task group
-The job SHALL measure each task group with tiktoken. The measure SHALL be the tokens of the group's instructions, the item, the change folder and the files that the tasks of the group name in code spans, each packed as the implement step packs it: at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 40000, and `--step-tokens` SHALL override it for one run.
+The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 40000, and `--step-tokens` SHALL override it for one run.
 
 #### Scenario: A group is measured
 - **WHEN** the model gives a group whose task names a file of the repository
@@ -109,6 +109,10 @@ The job SHALL measure each task group with tiktoken. The measure SHALL be the to
 #### Scenario: A file that no task names
 - **WHEN** the `Reads:` line of a group lists a file that no task of the group names
 - **THEN** the file adds no token to the measure, as the step does not read it
+
+#### Scenario: The rules count
+- **WHEN** the repository holds an `AGENTS.md` and a group names `tests/test_sample.py`
+- **THEN** the measure of the group holds the tokens of the `AGENTS.md` and of the routed sections of `docs/TESTING.md`
 
 ### Requirement: A group over the budget is split once or stops the item
 A group over the budget SHALL go back to the model once with its measure and the ask to split it. The job SHALL ask for a split once for each item, also when a corrected reply is over the budget again. A group still over the budget SHALL stop the item: the job posts a comment that names the group and its measure, records `stage.needs_split`, and makes no branch.

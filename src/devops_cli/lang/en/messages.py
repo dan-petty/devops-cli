@@ -426,6 +426,8 @@ class BranchMessages:
     invalid_ticket_id: str = "Invalid ticket ID '{ticket_id}'. Expected format: PROJ-123"
     not_a_git_repo: str = "Not a git repository: {repo_path}"
     created_branch: str = "Created and checked out: {branch_name}"
+    jira_dry_run: str = "Would create the branch {branch_name}"
+    sync_dry_run_heading: str = "devops branches sync"
     no_merged_branches: str = "No merged branches to clean."
 
 
@@ -465,6 +467,12 @@ class RepoMessages:
     sync_done: str = "done {name}"
     sync_fail: str = "fail {name}: {exc}"
     table_title_cloned: str = "Cloned repositories — {root}"
+    sync_dry_run_heading: str = "devops repos sync"
+    clone_dry_run_heading: str = "devops repos clone"
+    clone_org_dry_run_heading: str = "devops repos clone-org"
+    workspace_dry_run_note: str = (
+        "Before the reload, the run writes the folders of the workspace to {path}."
+    )
     worktrees_dry_run_confirm: str = (
         "--dry-run makes no change, so it cannot be used with --confirm."
     )
@@ -1299,6 +1307,13 @@ class RAGMessages:
 
 @dataclass(frozen=True)
 class TLSMessages:
+    ca_dry_run: str = "Would write the CA certificate {cert} and its key {key}"
+    cert_dry_run: str = "Would write the certificate {cert} for {common_name}, signed by {signer}, and its key {key}"
+    homelab_dry_run: str = "Would write the homelab bundle (CA, server certificate, key and full chain) to {output_dir}"
+    enable_k8s_dry_run_heading: str = "devops tls enable-k8s"
+    enable_k8s_bundle_note: str = (
+        "Before the requests, the run writes the homelab bundle to {tls_dir}."
+    )
     cert_generated: str = "Generated leaf certificate: {cert}"
     generating_bundle: str = "[bold]Generating homelab TLS bundle...[/bold]"
     deploying_secret: str = (
@@ -1310,6 +1325,16 @@ class TLSMessages:
 @dataclass(frozen=True)
 class SSHMessages:
     key_generated: str = "Generated Ed25519 SSH keypair: {path}"
+    generate_dry_run: str = "Would write the key {key_path} and its public key {key_path}.pub"
+    register_dry_run_heading: str = "devops ssh register"
+    rotate_dry_run_heading: str = "devops ssh rotate"
+    rotate_dry_run_note: str = (
+        "Before the requests, the run writes the new key when it does not exist. When "
+        "GitHub refuses the key, the run deletes the new key."
+    )
+    key_placeholder_note: str = (
+        "The body of each POST holds the public key of the key file in place of <public key>."
+    )
     no_project_key: str = (
         "No managed SSH key with the prefix '{prefix}' exists in {key_dir}. "
         "Run 'devops ssh generate' to make one."
@@ -1375,6 +1400,9 @@ class ToolMessages:
 @dataclass(frozen=True)
 class ArgoMessages:
     url_not_configured: str = "ArgoCD URL not configured. Run: devops config set argocd.url <url>"
+    token_refused_no_password: str = "Argo CD refused the stored token (argocd.token) with HTTP {status}, and no admin password (argocd.password) is stored to get a new token. Run: devops k8s sync-secrets"
+    new_token_refused: str = "Argo CD refused the new token from the admin session with HTTP {status}. Make sure that argocd.password is the admin password of {url}."
+    request_failed: str = "The Argo CD request to {url} failed with HTTP {status}."
     no_apps_found: str = "No ArgoCD applications found."
     app_not_found: str = "Application '{name}' not found."
     sync_triggered: str = "Sync triggered for '{name}'."
@@ -1424,6 +1452,7 @@ class ArgoMessages:
 
 @dataclass(frozen=True)
 class CIMessages:
+    fail_to_pass_dry_run_heading: str = "devops ci fail-to-pass"
     ci_dry_run_heading: str = (
         "Dry run: no request was made. CI would make these requests, in order:"
     )
@@ -1676,6 +1705,12 @@ class GrafanaMessages:
 
 @dataclass(frozen=True)
 class MCPMessages:
+    serve_dry_run_heading: str = "devops mcp serve"
+    serve_dry_run_note: str = (
+        "The server makes no outbound request when it starts. A tool makes its requests only "
+        "when a client calls it."
+    )
+    export_dry_run: str = "Would write {count} tool schema(s) and instructions.md to {directory}"
     starting_sse: str = "Starting FastMCP server (SSE) on http://{host}:{port}..."
     starting_stdio: str = "Starting FastMCP server (stdio) — devops-cli\n"
     table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
@@ -1686,6 +1721,15 @@ class MCPMessages:
 
 @dataclass(frozen=True)
 class ServeMessages:
+    dry_run_heading: str = "devops serve"
+    dry_run_note: str = (
+        "The server makes no outbound request when it starts. A route makes its requests only "
+        "when a client calls it."
+    )
+    service_dry_run_note: str = (
+        "With --service, the start first loads the settings and the credentials and reports "
+        "an error in them. The dry run reads neither."
+    )
     starting_service: str = "Starting DevOps CLI REST & OpenAPI Service v{version}"
     listening_on: str = "  [cyan]•[/cyan] Listening on: [bold]http://{host}:{port}[/bold]"
     swagger_ui: str = "  [cyan]•[/cyan] Swagger UI:  [link=http://{host}:{port}/docs]http://{host}:{port}/docs[/link]"
@@ -1766,6 +1810,11 @@ class ServeMessages:
 
 @dataclass(frozen=True)
 class PipelineMessages:
+    dry_run_heading: str = "devops pipeline"
+    dry_run_note: str = (
+        "The requests that the Dagger pipeline makes come from its own code, so the plan does "
+        "not list them."
+    )
     executing: str = "Executing Dagger pipeline from '{path}'..."
     success: str = "✓ Pipeline execution completed successfully ({name})."
     failed: str = "Pipeline execution failed with exit code {code}."
@@ -1776,6 +1825,20 @@ class PipelineMessages:
 
 @dataclass(frozen=True)
 class TestMessages:
+    run_dry_run_heading: str = "devops test run"
+    sandbox_dry_run_heading: str = "devops test sandbox"
+    profile_memory_dry_run: str = (
+        "Would profile {target} for {iterations} iterations, with a peak limit of {max_peak_mb} MB, "
+        "{leak_rule}, and write the report to {output}"
+    )
+    profile_memory_fail_on_leak: str = "failing on a socket leak"
+    profile_memory_ignore_leak: str = "ignoring a socket leak"
+    profile_memory_no_report: str = "no file (the report goes to the terminal only)"
+    load_dry_run_heading: str = "devops test load"
+    load_dry_run_note: str = (
+        "The requests that k6 sends to the services come from the script, so the plan does not "
+        "list them."
+    )
     starting_load_test: str = (
         "Starting k6 load test with {vus} VUs for {duration} ({script_path})..."
     )
@@ -1888,6 +1951,19 @@ class RoadmapMessages:
         "{marker}\nStatus set to Ready at {sha} (see proposed design in issue body)."
     )
     refine_step_comment: str = "{marker}\n{status}{step}\n\n{details}"
+    # Deferred parts (#2423): the first line of a new issue, the sentence of the Ready comment,
+    # the detail of an item that a part keeps waiting, and the warning of a round that filed
+    # only some parts.
+    refine_deferred_split_from: str = "Split from #{number}."
+    refine_deferred_comment: str = "Moved to new items: {items}."
+    refine_deferred_refused: str = (
+        'Intake cannot file the deferred part "{title}". Decide the part, or take it out of '
+        "the item."
+    )
+    refine_deferred_incomplete: str = (
+        "Refine filed {filed} of the {count} deferred parts of #{number} and left the item as it "
+        "was. The next round files the rest."
+    )
     refine_back_to_new: str = "Status set back to New at {sha}. "
     # The comment that gives an item its next step, by the step's value (#1758).
     refine_step_comments: dict[str, str] = field(
@@ -1999,16 +2075,23 @@ class RoadmapMessages:
     alternatives_skipped_line: str = "- #{number} {title}: skipped, {reason}"
     alternatives_applied: str = "Checked {count} item(s) for open alternatives."
     alternatives_failed: str = (
-        "the check failed for {count} item(s), and the others were written: {items}"
+        "the check failed for each of the {count} item(s) it tried, and no check was written: "
+        "{items}"
     )
     alternatives_failed_item: str = "#{number} ({reason})"
     alternatives_reason_stopped: str = "the model's run stopped ({reason})"
+    alternatives_reason_stopped_message: str = "the model's run stopped ({reason}: {message})"
     alternatives_reason_error: str = "the model call failed ({error})"
     alternatives_reason_url: str = "the reply cites a URL that no tool returned: {url}"
     alternatives_reason_no_facts: str = "the reply names a tool whose facts no tool read: {url}"
     alternatives_reason_no_tool: str = "the reply gives the verdict {verdict} with no tool"
-    alternatives_reason_not_applicable: str = (
-        "the reply gives the verdict not-applicable after a tool ran"
+    alternatives_reason_skip_only: str = (
+        "the reply gives the verdict not-applicable, which the job sets for a skip class only"
+    )
+    alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_retry_search: str = (
+        "Call search_web at least once before you reply. The job refuses a verdict that follows "
+        "no search. Give the verdict none when the search finds no tool."
     )
     alternatives_reason_markers: str = "the body holds a marker of the check with no partner"
     # What the tools of the check answer.
@@ -2035,6 +2118,10 @@ class RoadmapMessages:
     alternatives_comment_heading: str = "## Alternatives check: {verdict}"
     alternatives_comment_tool: str = "Tool: {name} ({url})"
     alternatives_comment_no_tool: str = "Tool: none found"
+    alternatives_comment_skip_class: str = (
+        "Class: {skip_class}. The check makes no search and no model call for an item of this "
+        "class."
+    )
     alternatives_comment_license: str = "- License: {license}"
     alternatives_comment_activity: str = "- Last activity: {date}"
     alternatives_comment_maintained: str = "- Maintained: {answer}"
@@ -2052,6 +2139,7 @@ class RoadmapMessages:
         "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
     )
     alternatives_block_no_tool: str = "Tool: none found."
+    alternatives_block_skip_class: str = "Class: {skip_class}, no search."
     alternatives_maintained: str = "maintained"
     alternatives_not_maintained: str = "not maintained"
     # `devops roadmap implement` (#2664): the refusals of a step, and why a step stops.
@@ -2111,6 +2199,18 @@ class RoadmapMessages:
         "Run one command in each call. Do not chain commands. "
         "Do not use `cd`: every command runs in the checkout."
     )
+    implement_refusal_argument: str = (
+        "Command '{program}' has the argument '{argument}', which the shell does not allow. "
+        "{instead}"
+    )
+    runner_tool_missing: str = "Runner tool '{tool}' is not on PATH."
+    runner_tool_failed: str = "Runner tool '{tool}': `{command}` exited with status {status}."
+    runner_tool_version: str = (
+        "Runner tool '{tool}' does not hold its pin '{wanted}'. Its version command printed: "
+        "{output}"
+    )
+    runner_tool_off_pin: str = "Runner tool '{tool}' is not at its locked version. {output}"
+    runner_tools_ready: str = "All {count} runner tools run at their pins."
     implement_tool_line: str = "Tool call: {tool}, {outcome}."
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tool_started: str = "Tool call: {tool}, started: {command}"
@@ -2162,6 +2262,23 @@ class RoadmapMessages:
         "The agent moved HEAD from {start} to {head}. A step makes the only commit."
     )
     implement_stop_commit_failed: str = "The commit failed.\n{output}"
+    implement_stop_hooks_install: str = (
+        "The hook environments of the project did not install.\n{output}"
+    )
+    implement_stop_hooks_failed: str = (
+        "The hooks of the stage {stage} failed with the exit status {status}.\n{output}"
+    )
+    implement_scoped_names: dict[str, str] = field(
+        default_factory=lambda: {"pre_push": "pre-push", "static": "static", "tests": "tests"}
+    )
+    implement_stop_scoped_failed: str = (
+        "The scoped check {name} still failed after {rounds} fix steps. It is {command}.\n{output}"
+    )
+    implement_hook_turn: str = (
+        "A hook of the project failed on your changes:\n\n{failure}\n\nThe hooks of the project "
+        "check each commit. Fix what the hooks report. Change only the files that you "
+        "changed.{ticks}{removed} Then reply with one short message."
+    )
     implement_title: str = "Implement step: item #{item}, group {group} ({title})"
     implement_labels: dict[str, str] = field(
         default_factory=lambda: {
@@ -2172,6 +2289,7 @@ class RoadmapMessages:
             "tool_calls": "Tool calls",
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
+            "repair_rounds": "Repair rounds",
             "last_message": "Last message of the agent",
             "removed": "Removed stray files",
         }
@@ -2349,6 +2467,8 @@ class RoadmapMessages:
             "docs": "docs",
             "archive": "archive",
             "push": "push",
+            "hooks": "hooks",
+            "scoped": "scoped checks",
             "pull_request": "pull request",
             "checks": "checks",
             "ready": "ready",
@@ -2418,8 +2538,21 @@ class RoadmapMessages:
     )
     implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_line: str = (
-        "- {step} ({title}): {status}, {requests} model requests{commit}"
+        "- {step} ({title}): {status}, {requests} model requests, {rounds} repair rounds{commit}"
     )
+    implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
+    implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
+    implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
+    implement_scoped_tests_narrowed: str = (
+        "the changed files select more than {limit} test modules, so only the changed test "
+        "modules ran. The required checks of CI run the others"
+    )
+    implement_scoped_tests_skipped: str = (
+        "not run, because the changed files select more than {limit} test modules. The required "
+        "checks of CI run them"
+    )
+    implement_scoped_passed: str = "passed"
+    implement_scoped_failed: str = "failed"
     implement_pull_comment_commit: str = ", commit `{commit}`"
     implement_pull_body: str = (
         "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
@@ -2773,6 +2906,7 @@ class RoadmapMessages:
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
             "number": "<number>",
+            "deferred_part": "<deferred part>",
             "milestone": "<milestone>",
             "labels": "<the labels, the field's family replaced>",
             "record": "<the body, its job record block written>",
@@ -2851,6 +2985,7 @@ class RoadmapMessages:
                 "the cap on refine's comments leaves the item alone, and no earlier round "
                 "recorded its newest comment"
             ),
+            "deferred": "the proposal defers a part of the item",
         }
     )
     plan_repeat: dict[str, str] = field(

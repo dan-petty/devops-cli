@@ -62,6 +62,7 @@ class GitErrorMessages:
     )
     github_app_key_unreadable: str = "the private key is not an RSA private key in PEM form"
     github_app_answer_unreadable: str = "GitHub's answer holds no token and expiry time"
+    github_app_jwt_refused: str = "GitHub refused the App's JWT for {request} (HTTP 401): {reason}"
 
 
 @dataclass(frozen=True)
@@ -295,6 +296,10 @@ class RAGErrorMessages:
         "Embedding model {model} has no provider: the embedding task's provider '{provider}' "
         "is not ollama, openai, copilot or gateway, and no Ollama URLs are set. "
         "Set ai.tasks.embedding.provider"
+    )
+    embedding_no_ollama_urls: str = (
+        "Embedding model {model} has no Ollama URL: ai.provider is '{provider}' and "
+        "ai.ollama_urls is empty. Set ai.ollama_urls"
     )
     batch_failed: str = "Failed to embed batch from '{first_file}' to '{last_file}': {error}"
 

@@ -184,7 +184,7 @@ def test_the_unset_command_that_the_error_names_for_the_other_config_file_remove
     )
 
 
-_SIMILAR_TO_AN_API_KEY = "ai.api_key, firecrawl.api_key, qdrant.api_key"
+_SIMILAR_TO_AN_API_KEY = "ai.api_key, firecrawl.api_key, anthropic.api_key"
 
 
 @pytest.mark.parametrize(

@@ -68,9 +68,11 @@ def digest(value: Any) -> str:
 
 
 def file_digest(path: Path) -> str | None:
-    """A short digest of a file's bytes, or None when it cannot be read."""
+    """A short digest of a file's bytes, or None when it cannot be read. It reads the file as a
+    stream, so a large file does not fill the memory."""
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+        with path.open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest()[:16]
     except OSError:
         return None
 

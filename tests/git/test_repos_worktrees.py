@@ -868,3 +868,29 @@ def test_directory_size_ignores_file_deleted_during_walk(
     monkeypatch.setattr(os, "lstat", deleting_lstat)
     size = directory_size(measured)
     assert size == len(b"hello")
+
+
+def test_status_runs_under_the_dry_run_flag(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, git_fake: GitFake
+) -> None:
+    """`repos worktrees status` reads only local git, so `devops --dry-run` runs it (#2258)."""
+    _add_worktree(git, git_repo, "branch-one", tmp_path / "wt_one", commit=True)
+    git_fake.calls.clear()
+
+    result = cli("--dry-run", "repos", "worktrees", "status", "-r", str(git_repo), "--json")
+
+    assert result.exit_code == 0, result.output
+    assert "wt_one" in result.stdout
+    assert [call.argv for call in git_fake.calls if not call.local_read] == []
+
+
+def test_prune_under_the_dry_run_flag_prints_the_request_plan(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """`devops --dry-run repos worktrees prune` gives the plan of `--dry-run` (#2258)."""
+    _add_worktree(git, git_repo, "branch-merged", tmp_path / "wt_merged", commit=True)
+
+    flag = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--dry-run")
+    root = cli("--dry-run", "repos", "worktrees", "prune", "-r", str(git_repo))
+
+    assert (root.exit_code, root.stdout, github_api.requested) == (0, flag.stdout, [])

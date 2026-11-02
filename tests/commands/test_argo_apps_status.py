@@ -115,3 +115,48 @@ def test_status_dry_run_sends_no_request(cli: Callable[..., Any], stub_web: Stub
     assert result.exit_code == 0
     assert "Plan for Argo CD application 'devops' status" in result.output
     assert stub_web.sent == []
+
+
+def _refusing_argocd(stub_web: StubWeb) -> None:
+    """Answer HTTP 401 to the stored token, the token `fresh` to the session request, and the
+    application to a read with `fresh`."""
+    import httpx2
+
+    def server(request: httpx2.Request) -> httpx2.Response | None:
+        if str(request.url) == f"{ARGOCD}/api/v1/session":
+            return httpx2.Response(200, json={"token": "fresh"})
+        if str(request.url) != APPLICATION:
+            return None
+        if request.headers.get("Authorization") == "Bearer fresh":
+            return httpx2.Response(200, json=_application(None))
+        return httpx2.Response(401, json={"error": "invalid session"})
+
+    stub_web.serve(server)
+
+
+def test_status_replaces_a_refused_token_and_shows_the_application(
+    cli: Callable[..., Any], stub_web: StubWeb, keyring_store: Any
+) -> None:
+    """Old vs new (#2576): a 401 with the admin password stored mints a token and reads again."""
+    keyring_store.values["argocd_password"] = "admin-pw"
+    _refusing_argocd(stub_web)
+
+    result = cli("argo", "cd", "apps", "status", "devops")
+
+    assert (result.exit_code, "Healthy" in result.output) == (0, True)
+    assert keyring_store.values["argocd_token"] == "fresh"
+
+
+def test_status_with_a_refused_token_and_no_password_names_the_setting(
+    cli: Callable[..., Any], stub_web: StubWeb
+) -> None:
+    """The panel tells how to set the token, and the status exits 1."""
+    _refusing_argocd(stub_web)
+
+    result = cli("argo", "cd", "apps", "status", "devops")
+
+    assert (
+        result.exit_code,
+        "argocd.token" in result.output,
+        "sync-secrets" in result.output,
+    ) == (1, True, True)

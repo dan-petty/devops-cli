@@ -511,13 +511,10 @@ jobs:
         run: |
           docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          docker run --rm --entrypoint gh "$IMAGE" --version
-          docker run --rm --entrypoint git "$IMAGE" --version
-          docker run --rm --entrypoint openspec "$IMAGE" --version
-          docker run --rm --entrypoint uv "$IMAGE" --version
-          docker run --rm --entrypoint ruff "$IMAGE" --version
-          docker run --rm --entrypoint mypy "$IMAGE" --version
-          docker run --rm --entrypoint pytest "$IMAGE" --version
+          # The build ran the check of every tool in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py), so a missing tool failed it. Here the check runs again on the loaded image, and the size of the image stays under its bound.
+          docker run --rm -e DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          if [ "$size" -gt 3000000000 ]; then echo "The runner image is $size bytes, over the bound of 3000000000."; exit 1; fi
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
           # The job and its steps run `uv run` in a worktree: the checkout's .python-version names a patch release that the base image can lack.

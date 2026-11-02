@@ -20,7 +20,7 @@ import tarfile
 import tempfile
 from collections.abc import Sequence
 from html.parser import HTMLParser
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
 
@@ -36,8 +36,14 @@ from devops_cli.config.constants import (
     CONST_TESTS_ROOT_DIR,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import GitOperationError
-from devops_cli.git.operations import list_changed_files, resolve_merge_base
+from devops_cli.git.operations import (
+    diff_name_status_argv,
+    list_changed_files,
+    merge_base_argv,
+    resolve_merge_base,
+)
 from devops_cli.lang import MESSAGES
 
 _DELETED = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
@@ -154,17 +160,50 @@ def _is_test_file(path: PurePosixPath) -> bool:
     )
 
 
+def verify_commit_argv(revision: str) -> list[str]:
+    """The command that checks that `revision` names a commit."""
+    return ["git", "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}"]
+
+
+def untracked_tests_argv() -> list[str]:
+    """The command that lists the untracked files under `tests/`."""
+    return ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", CONST_TESTS_ROOT_DIR]
+
+
+def worktree_add_argv(dest: PurePath | str, merge_base: str) -> list[str]:
+    """The command that checks out `merge_base` at `dest` as a detached worktree."""
+    return ["git", "worktree", "add", "--quiet", "--detach", str(dest), merge_base]
+
+
+def archive_argv(tar_path: PurePath | str, archive_args: Sequence[str]) -> list[str]:
+    """The command that writes the tar archive of `archive_args` to `tar_path`."""
+    return ["git", "archive", "--format=tar", f"--output={tar_path}", *archive_args]
+
+
+def tests_archive_args(head: str) -> list[str]:
+    """What `git archive` takes for the `tests/` tree of `head`."""
+    return [head, "--", CONST_TESTS_ROOT_DIR]
+
+
+def worktree_remove_argv(dest: PurePath | str) -> list[str]:
+    """The command that removes the worktree at `dest`."""
+    return ["git", "worktree", "remove", "--force", str(dest)]
+
+
+def worktree_prune_argv() -> list[str]:
+    """The command that prunes the records of removed worktrees."""
+    return ["git", "worktree", "prune"]
+
+
 def _verify_commit(root: Path, revision: str) -> None:
     """Verify `revision` resolves to a commit in `root`, raising `GitOperationError` otherwise."""
-    verify = ["git", "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}"]
-    if run_subprocess(verify, cwd=root, quiet=True).returncode != 0:
+    if run_subprocess(verify_commit_argv(revision), cwd=root, quiet=True).returncode != 0:
         raise GitOperationError(MESSAGES.ci.mutate_base_missing.format(base=revision))
 
 
 def _untracked_test_files(root: Path) -> list[str]:
     """Untracked `tests/**/test_*.py` files in the working tree."""
-    cmd = ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", CONST_TESTS_ROOT_DIR]
-    listed = run_subprocess(cmd, cwd=root, quiet=True).stdout
+    listed = run_subprocess(untracked_tests_argv(), cwd=root, quiet=True).stdout
     return [path for path in filter(None, listed.split("\0")) if _is_test_file(PurePosixPath(path))]
 
 
@@ -186,8 +225,7 @@ def changed_test_files(root: Path, base: str, head: str = "HEAD") -> tuple[str, 
 
 def _archive_to_dir(root: Path, archive_args: list[str], tar_path: Path, dest: Path) -> None:
     """Write a git tar archive for `archive_args` and extract it safely into `dest`."""
-    cmd = ["git", "archive", "--format=tar", f"--output={tar_path}", *archive_args]
-    res = run_subprocess(cmd, cwd=root, quiet=True)
+    res = run_subprocess(archive_argv(tar_path, archive_args), cwd=root, quiet=True)
     if res.returncode == 0 and tar_path.is_file():
         with tarfile.open(tar_path) as archive:
             archive.extractall(dest, filter="data")
@@ -199,14 +237,14 @@ def materialise_base_with_head_tests(root: Path, merge_base: str, head: str, des
 
     `remove_materialised_base` removes the worktree.
     """
-    add = ["git", "worktree", "add", "--quiet", "--detach", str(dest), merge_base]
+    add = worktree_add_argv(dest, merge_base)
     if (res := run_subprocess(add, cwd=root, quiet=True)).returncode != 0:
         raise GitOperationError(
             MESSAGES.ci.fail_to_pass_worktree_failed.format(
                 base=merge_base, detail=(res.stderr or "").strip()
             )
         )
-    _archive_to_dir(root, [head, "--", CONST_TESTS_ROOT_DIR], dest.parent / "tests.tar", dest)
+    _archive_to_dir(root, tests_archive_args(head), dest.parent / "tests.tar", dest)
     if head == "HEAD" and (root / CONST_TESTS_ROOT_DIR).is_dir():
         shutil.copytree(
             root / CONST_TESTS_ROOT_DIR, dest / CONST_TESTS_ROOT_DIR, dirs_exist_ok=True
@@ -215,8 +253,8 @@ def materialise_base_with_head_tests(root: Path, merge_base: str, head: str, des
 
 def remove_materialised_base(root: Path, dest: Path) -> None:
     """Remove the worktree `materialise_base_with_head_tests` added at `dest`."""
-    run_subprocess(["git", "worktree", "remove", "--force", str(dest)], cwd=root, quiet=True)
-    run_subprocess(["git", "worktree", "prune"], cwd=root, quiet=True)
+    run_subprocess(worktree_remove_argv(dest), cwd=root, quiet=True)
+    run_subprocess(worktree_prune_argv(), cwd=root, quiet=True)
 
 
 def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]:
@@ -229,6 +267,53 @@ def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]
         f"--junitxml={junit_path}",
         *test_files,
     ]
+
+
+MERGE_BASE_PLACEHOLDER = "<merge-base>"
+TEMP_DIR_PLACEHOLDER = "<temp-dir>"
+CHANGED_TESTS_PLACEHOLDER = "<changed test files>"
+
+
+def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
+    """The processes that `run_fail_to_pass` starts, in order, with no git call made: the
+    merge base, the commits and the changed test files are placeholders. The replay steps run
+    only when a changed test file exists."""
+    diff_head = None if head == "HEAD" else head
+    tmp = PurePosixPath(TEMP_DIR_PLACEHOLDER)
+    tree = tmp / "tree"
+    replay = "a changed test file exists"
+
+    def git(argv: list[str], condition: str = "") -> PlannedRequest:
+        return PlannedRequest(method="git", target=argv[1], argv=tuple(argv), condition=condition)
+
+    requests = [
+        git(merge_base_argv(base, head)),
+        git(verify_commit_argv(base)),
+        git(verify_commit_argv(head)),
+        git(diff_name_status_argv(MERGE_BASE_PLACEHOLDER, diff_head)),
+    ]
+    if diff_head is not None:
+        requests.append(
+            git(
+                diff_name_status_argv(MERGE_BASE_PLACEHOLDER, diff_head, fallback=True),
+                condition="the three-dot diff fails",
+            )
+        )
+    else:
+        requests.append(git(untracked_tests_argv()))
+    requests += [
+        git(worktree_add_argv(tree, MERGE_BASE_PLACEHOLDER), replay),
+        git(archive_argv(tmp / "tests.tar", tests_archive_args(head)), replay),
+        PlannedRequest(
+            method="pytest",
+            target=str(tree),
+            argv=tuple(pytest_replay_argv(Path(tmp / "junit.xml"), [CHANGED_TESTS_PLACEHOLDER])),
+            condition=replay,
+        ),
+        git(worktree_remove_argv(tree), replay),
+        git(worktree_prune_argv(), replay),
+    ]
+    return requests
 
 
 def _output_tail(output: str) -> str:

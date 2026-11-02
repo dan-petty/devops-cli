@@ -8,6 +8,7 @@ The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -96,8 +97,12 @@ def test_a_step_that_changes_only_test_files_runs_no_type_check_and_still_lints_
 
 
 def test_a_new_type_error_in_a_source_file_still_stops_the_step(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     head = git(checkout, "rev-parse", "HEAD")
     work = tool_calls(OLD_TEST, write_call("src/sample.py", NEW_ERROR), TICK)
     script = ModelScript(work, say("Done."), say("I changed nothing."))

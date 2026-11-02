@@ -191,6 +191,63 @@ def test_claude_sampling_parity_when_model_declares_sampling_support(
     assert streamed_payload.get("top_p") == 0.9
 
 
+def _claude_sampling_client(
+    monkeypatch: pytest.MonkeyPatch, *, sampling: bool = True, **config: Any
+) -> tuple[LLMClient, list[dict[str, Any]]]:
+    """A Claude client whose fake model declares `sampling`; it records each Messages body."""
+    model_name = "claude-haiku-4"
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith(f"/v1/models/{model_name}"):
+            return httpx2.Response(
+                200,
+                json=_make_model_info_payload(
+                    model_name, adaptive_thinking=False, sampling=sampling
+                ),
+            )
+        bodies.append(json.loads(request.content))
+        return httpx2.Response(200, json=_make_messages_reply_payload(model_name))
+
+    cfg = AIConfig(
+        provider="claude", model=model_name, temperature=0.7, allow_private_network=True, **config
+    )
+    client = LLMClient(cfg, api_key="sk-ant-test", cache_enabled=False)
+    route_client(client, monkeypatch, handler)
+    return client, bodies
+
+
+def test_claude_request_carries_per_call_sampling_and_no_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, bodies = _claude_sampling_client(monkeypatch)
+    client.chat("sys", "user", temperature=0.9, top_p=0.8, seed=7, enable_thinking=False)
+    assert [(body.get("temperature"), body.get("top_p"), "seed" in body) for body in bodies] == [
+        (0.9, 0.8, False)
+    ]
+
+
+def test_claude_omitted_temperature_keeps_the_configured_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, bodies = _claude_sampling_client(monkeypatch)
+    client.chat("sys", "user", enable_thinking=False)
+    assert [body.get("temperature") for body in bodies] == [0.7]
+
+
+@pytest.mark.parametrize(
+    ("sampling", "config"),
+    [(True, {"use_model_sampling": True}), (False, {})],
+    ids=["use-model-sampling", "model-without-sampling"],
+)
+def test_claude_sampling_gate_wins_over_per_call_sampling(
+    monkeypatch: pytest.MonkeyPatch, sampling: bool, config: dict[str, Any]
+) -> None:
+    client, bodies = _claude_sampling_client(monkeypatch, sampling=sampling, **config)
+    client.chat("sys", "user", temperature=0.9, top_p=0.8, seed=7, enable_thinking=False)
+    assert [sorted({"temperature", "top_p", "seed"} & body.keys()) for body in bodies] == [[]]
+
+
 def test_claude_sdk_client_http_client_is_factory_built() -> None:
     """The SDK client's HTTP client is the factory-built one (an identity check)."""
     cfg = AIConfig(provider="claude", model="claude-sonnet-4", allow_private_network=True)

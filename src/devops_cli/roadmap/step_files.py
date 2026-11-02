@@ -110,6 +110,27 @@ def _headings(tokens: Sequence[Token], tag: str) -> list[tuple[int, int, str]]:
     ]
 
 
+def section_text(body: str, titles: frozenset[str]) -> str:
+    """The text of each section of `body` whose heading is one of `titles`, heading included.
+    A section ends at the next heading of its level or a higher one."""
+    tokens = MARKDOWN.parse(body)
+    lines = body.splitlines()
+    marks = [
+        (token.map[0], int(token.tag[1:]), tokens[index + 1].content)
+        for index, token in enumerate(tokens)
+        if token.type == "heading_open" and token.map is not None
+    ]
+    found: list[str] = []
+    for position, (first, level, title) in enumerate(marks):
+        if title.strip().casefold() not in titles:
+            continue
+        end = next(
+            (start for start, deeper, _ in marks[position + 1 :] if deeper <= level), len(lines)
+        )
+        found.append("\n".join(lines[first:end]).rstrip())
+    return "\n\n".join(found)
+
+
 def file_lines(text: str) -> list[str]:
     """The lines of `text` with their line ends, split as markdown-it splits: at `\\n`, `\\r` and
     `\\r\\n`, and nowhere else. `"".join` of the lines is `text`. The line numbers of the tokens
@@ -173,4 +194,5 @@ __all__ = [
     "named_files",
     "packed_file",
     "parse_task_groups",
+    "section_text",
 ]

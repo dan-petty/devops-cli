@@ -13,10 +13,14 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.commands import IMPLEMENT_SHELL_PROGRAMS, IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_RUN_ERROR_CHARS,
+)
+from devops_cli.roadmap.implement_shell_policy import (
+    IMPLEMENT_SHELL_PROGRAMS,
+    IMPLEMENT_SHELL_REPLACEMENTS,
+    fill_prompt,
 )
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -26,7 +30,11 @@ from tests.support.model_script import ModelScript, say, tool_call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-ALLOWED = "These programs are allowed: `git`, `uv`, `ruff`, `mypy`."
+ALLOWED = (
+    "These programs are allowed: "
+    + ", ".join(f"`{program}`" for program in IMPLEMENT_SHELL_PROGRAMS)
+    + "."
+)
 UV_RUN_PYTHON = "`uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies."
 UV_RUN = (
     "Run the commands of the project with `uv run`, for example `uv run devops ci test <file>`."
@@ -74,16 +82,9 @@ def _refusal(
             "Command 'pytest' is not in the allowed list. Instead of `pytest`: `uv run pytest`.",
         ),
         (
-            "cat README.md",
-            "Command 'cat' is not in the allowed list. Instead of `cat`: the tool `read_file`.",
-        ),
-        (
-            "ls src",
-            "Command 'ls' is not in the allowed list. Instead of `ls`: the tool `list_files`.",
-        ),
-        (
-            "grep -rn shout src",
-            "Command 'grep' is not in the allowed list. Instead of `grep`: the tool `grep`.",
+            "rg shout src",
+            "Command 'rg' is not in the allowed list. "
+            "Instead of `rg`: the tool `grep`, or `grep` in the shell.",
         ),
         (
             "cd src",
@@ -182,22 +183,7 @@ def test_the_model_gets_five_refusals_with_a_hint_and_the_sixth_call_ends_the_ru
 
 
 def _prompt() -> str:
-    return load_task_prompt("roadmap_implement_step.md")
-
-
-def test_the_prompt_lists_the_allowed_programs_of_the_shell() -> None:
-    programs = ", ".join(f"`{program}`" for program in IMPLEMENT_SHELL_PROGRAMS)
-
-    assert f"The shell runs only {programs}." in _prompt()
-
-
-def test_the_prompt_table_has_one_row_for_each_replacement_in_the_order_of_the_table() -> None:
-    rows = [line for line in _prompt().splitlines() if line.startswith("| `")]
-
-    assert rows == [
-        f"| `{program}` | {replacement} |"
-        for program, replacement in IMPLEMENT_SHELL_REPLACEMENTS.items()
-    ]
+    return fill_prompt(load_task_prompt("roadmap_implement_step.md"))
 
 
 def test_each_shell_example_of_the_prompt_passes_the_shell_policy() -> None:

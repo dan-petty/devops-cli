@@ -165,7 +165,9 @@ class ScriptedResolver:
 
     `script[name]` lists, per lookup, the addresses that lookup answers; the last entry repeats.
     Every other host goes to `fallback`, the session's guarded resolver, so numeric hosts and
-    loopback still resolve as they do in production. `lookups` counts the lookups of each name.
+    loopback still resolve as they do in production. A call with `AI_NUMERICHOST` also goes to
+    `fallback` and is not counted: a real resolver reads no name for it (#2152). `lookups` counts
+    the lookups of each name.
     """
 
     def __init__(
@@ -177,7 +179,8 @@ class ScriptedResolver:
 
     def __call__(self, host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
         name = host.decode() if isinstance(host, bytes) else str(host)
-        if name not in self.script:
+        flags = kwargs.get("flags", args[3] if len(args) >= 4 else 0) or 0
+        if name not in self.script or flags & socket.AI_NUMERICHOST:
             return list(self.fallback(host, port, *args, **kwargs))
         answers = self.script[name]
         index = min(self.lookups[name], len(answers) - 1)

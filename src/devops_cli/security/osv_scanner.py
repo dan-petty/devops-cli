@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_OSV_CONFIG_FILE_NAMES,
     CONST_OSV_DB_DIR_ENV,
     CONST_OSV_DB_DIR_NAME,
+    CONST_OSV_DB_FILE_NAME,
     CONST_OSV_OFFLINE_DB_TTL_SECONDS,
     CONST_SEVERITY_ALIASES,
 )
@@ -278,6 +279,15 @@ class OsvScanner(BaseSecurityScanner):
         sandbox binds the database alone, and not the user cache directory that holds it."""
         base = _osv_db_base()
         return (ToolDataDir(CONST_OSV_DB_DIR_ENV, base, base / CONST_OSV_DB_DIR_NAME),)
+
+    def ruleset_files(self, target_path: Any, cwd: Path, **kwargs: Any) -> tuple[Path, ...]:
+        """The database file of each ecosystem in the offline database (#2130). The record
+        digests their content, so its `ruleset_digest` changes when the database changes."""
+        return tuple(
+            path
+            for directory in self.data_dirs()
+            for path in sorted(directory.read.glob(f"*/{CONST_OSV_DB_FILE_NAME}"))
+        )
 
     def build_command(
         self,

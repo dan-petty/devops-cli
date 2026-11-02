@@ -89,6 +89,8 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+    DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -520,7 +522,7 @@ class AITaskOverride(BaseModel):
     supports_reasoning: bool | None = None
     use_model_sampling: bool | None = Field(
         default=None,
-        description="Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p.",
+        description="Leave sampling parameters to the model. When true, requests carry neither temperature, top_p nor seed.",
     )
     temperature: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
@@ -635,7 +637,7 @@ class AIConfig(BaseModel):
     supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING
     use_model_sampling: bool = Field(
         default=False,
-        description="Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p.",
+        description="Leave sampling parameters to the model. When true, requests carry neither temperature, top_p nor seed.",
     )
     temperature: float = Field(default=DEFAULT_AI_TEMPERATURE, ge=0.0, allow_inf_nan=False)
     top_p: float = Field(default=DEFAULT_AI_TOP_P, ge=0.0, le=1.0, allow_inf_nan=False)
@@ -854,7 +856,7 @@ class RoadmapStageConfig(BaseModel):
         ge=1,
     )
     step_tokens: Annotated[int, Variable()] = Field(
-        description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
+        description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
         default=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
         ge=1000,
     )
@@ -873,6 +875,11 @@ class RoadmapImplementConfig(BaseModel):
     in_runner: Annotated[bool, Variable()] = Field(
         description="Whether this process is the pod of a runner Job. Only then does `devops roadmap implement --confirm` run a step. The step's shell is no security boundary: the runner is the sandbox, with a narrow token and no other credential. The Service pod and a workstation keep this false",
         default=False,
+    )
+    repair_rounds: Annotated[int, Variable()] = Field(
+        description="The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project, and one for each time that tasks stay unticked. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn",
+        default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
+        ge=0,
     )
 
 
@@ -950,6 +957,12 @@ class AlternativesConfig(BaseModel):
     recheck_days: int = Field(
         description="Days after which an item's check for an open alternative tool is old and the item is checked again",
         default=DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+        ge=1,
+    )
+
+    retry_days: int = Field(
+        description="Days after a failed check of an item before the alternatives check takes the item again",
+        default=DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
         ge=1,
     )
 

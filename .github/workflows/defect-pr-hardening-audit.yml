@@ -78,4 +78,5 @@ jobs:
           Per project invariants (`AGENTS.md`), defect fixes must codify root-cause guardrails into at least one declared surface to prevent recurrent regressions.
           EOF
           sed -i "s/\${PR_NUMBER}/${PR_NUMBER}/g" "$INTAKE_BODY"
-          uv run devops roadmap intake --title "fix(hardening): defect PR #${PR_NUMBER} missing declared surface hardening" --body-file "$INTAKE_BODY" --confirm
+          # The runner has no model credential, so the model-based intake command cannot run here. The issue has no priority label, so the next intake round of the Service places it.
+          uv run devops gh issues create --repo "$GITHUB_REPOSITORY" --title "fix(hardening): defect PR #${PR_NUMBER} missing declared surface hardening" --body "$(cat "$INTAKE_BODY")" --label source/agent

@@ -177,6 +177,25 @@ def origin_span_attributes(origin: httpx2.Origin | None) -> dict[str, Any]:
     return attributes
 
 
+class CallSampling(NamedTuple):
+    """The sampling that a caller passes to one chat call. A field that is None keeps the
+    configured value; the configuration has no seed, so a None seed sends none."""
+
+    temperature: float | None = None
+    top_p: float | None = None
+    seed: int | None = None
+
+    def over(self, config: Any) -> CallSampling:
+        """This sampling, with the configured `temperature` and `top_p` in each None field."""
+        return CallSampling(
+            self.temperature
+            if self.temperature is not None
+            else getattr(config, "temperature", None),
+            self.top_p if self.top_p is not None else getattr(config, "top_p", None),
+            self.seed,
+        )
+
+
 class ServedByAuthority(NamedTuple):
     """The server that a gateway's served_by value names: its host and its `host[:port]` text."""
 

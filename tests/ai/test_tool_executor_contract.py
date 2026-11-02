@@ -561,6 +561,44 @@ def test_a_file_that_cannot_be_digested_is_refused(
         executor.run(request)
 
 
+def test_a_ruleset_file_below_a_bind_is_digested_at_any_size(
+    executor: ToolExecutor, scenario: Scenario, tmp_path: Path
+) -> None:
+    """A database file in a data directory of the tool is data that devops-cli or the user put
+    there. The record reads it as a stream, so a file over the cap still gets a digest (#2130)."""
+    database = tmp_path / "database"
+    database.mkdir()
+    oversized = _file_over_the_size_cap(database)
+    request = scenario.request().model_copy(
+        update={
+            "ruleset_files": (oversized,),
+            "read_only_binds": (scenario.tools_dir, database),
+        }
+    )
+
+    run = executor.run(request).run
+
+    assert run.ruleset_digest == digest([file_digest(oversized)])
+
+
+def test_a_config_file_below_a_bind_is_refused_when_it_is_too_large(
+    executor: ToolExecutor, scenario: Scenario, tmp_path: Path
+) -> None:
+    """Only a ruleset file below a bind has no cap. A config file over the cap stops the run, also
+    below a bind (#2130)."""
+    database = tmp_path / "database"
+    database.mkdir()
+    request = scenario.request().model_copy(
+        update={
+            "config_files": (_file_over_the_size_cap(database),),
+            "read_only_binds": (scenario.tools_dir, database),
+        }
+    )
+
+    with pytest.raises(SandboxValidationError, match="regular file"):
+        executor.run(request)
+
+
 def test_a_digest_names_the_content_of_its_files_not_their_paths_or_order(
     executor: ToolExecutor, scenario: Scenario, tmp_path: Path
 ) -> None:

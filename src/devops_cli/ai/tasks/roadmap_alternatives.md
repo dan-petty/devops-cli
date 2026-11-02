@@ -10,11 +10,11 @@ Use the tools to answer:
 - `github_repository` takes `owner/name` and gives the license, the last push, whether the repository is archived, the stars and the latest release.
 - `pypi_package` takes a package name and gives the license, the latest version and the date of its latest upload.
 
-The tools are your only sources. Make few calls, and make each call aim at one question. Read the facts of a tool before you name it. Do not name a tool that you did not read the facts of. Do not write a URL that no tool gave you.
+Call `search_web` at least once before you reply. The job refuses a reply that follows no search. The tools are your only sources. Make few calls, and make each call aim at one question. Read the facts of a tool before you name it. Do not name a tool that you did not read the facts of. Do not write a URL that no tool gave you.
 
 Reply with these keys:
 
-- `verdict`: `covers` when one tool covers the whole need, `partly` when one tool covers a part of it, `none` when you searched and found no tool, and `not-applicable` when the issue asks for no tool or library, such as a defect in our own code. For `not-applicable`, make no search.
+- `verdict`: `covers` when one tool covers the whole need, `partly` when one tool covers a part of it, and `none` when you searched and found no tool. Give `none` also when the issue asks for no tool or library. The job sets `not-applicable` itself and refuses it from you.
 - `tool_url`: the URL of the best tool, for the verdicts `covers` and `partly`. It is the URL that the first line of the fact tool's answer gave. Leave it empty for the other verdicts.
 - `covers`: short statements of what the tool covers.
 - `lacks`: short statements of what the tool does not cover, or what the issue needs that it lacks.

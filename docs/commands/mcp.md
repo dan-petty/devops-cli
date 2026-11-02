@@ -20,6 +20,7 @@ devops mcp serve [OPTIONS]
 | `--host`, `-h` | `string` | `127.0.0.1` | Host interface for SSE transport. |
 | `--port`, `-p` | `integer` | `8000` | Port number for SSE transport. |
 | `--allow-remote` | `boolean` | - | Permit binding SSE transport to non-loopback network interfaces. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -46,5 +47,6 @@ devops mcp export-schemas [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Destination directory for tool schema JSON files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

@@ -38,6 +38,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT` | `ai.tasks.metadata.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_ANTHROPIC_API_KEY` | `anthropic.api_key` | 🔒 Yes | Anthropic API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | `argocd.github_app_id` | No | ID of the GitHub App that Argo CD's GitHub notifier acts as |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | `argocd.github_app_installation_id` | No | ID of the installation of Argo CD's notifier App on the managed repositories |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY` | `argocd.github_app_private_key` | 🔒 Yes | PEM private key of the GitHub App that Argo CD's GitHub notifier acts as (stored in OS keyring) |
@@ -70,6 +71,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_DATA_SAMPLES_DIR` | `data.samples_dir` | No | Storage directory for open-source sample repositories fetched at their pinned commits |
 | `DEVOPS_CLI_DATA_TLS_DIR` | `data.tls_dir` | No | Storage directory for generated local CA and TLS certificates |
 | `DEVOPS_CLI_FIRECRAWL_API_KEY` | `firecrawl.api_key` | 🔒 Yes | API key for the Firecrawl web search API Also read from `FIRECRAWL_API_KEY`. |
+| `DEVOPS_CLI_GEMINI_API_KEY` | `gemini.api_key` | 🔒 Yes | Google Gemini API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_GITEA_ADMIN_PASSWORD` | `gitea.admin_password` | 🔒 Yes | Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret gitea/gitea-admin (stored in OS keyring) |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
 | `DEVOPS_CLI_GRAFANA_PASSWORD` | `grafana.password` | 🔒 Yes | Grafana admin password (stored in OS keyring) |
@@ -81,6 +83,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_MATTERMOST_ALERTS_HOOK` | `mattermost.alerts_hook` | 🔒 Yes | Mattermost incoming webhook token for the alerts channel (stored in OS keyring) |
 | `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` | `mattermost.command_token` | 🔒 Yes | Mattermost slash command token for the /roadmap command (stored in OS keyring) |
 | `DEVOPS_CLI_MATTERMOST_DEPLOYS_HOOK` | `mattermost.deploys_hook` | 🔒 Yes | Mattermost incoming webhook token for the deploys channel (stored in OS keyring) |
+| `DEVOPS_CLI_OPENROUTER_API_KEY` | `openrouter.api_key` | 🔒 Yes | OpenRouter API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |
@@ -88,9 +91,10 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_QDRANT_URL` | `qdrant.url` | No | Qdrant vector database server URL |
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
 | `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` | `roadmap.implement.in_runner` | No | Whether this process is the pod of a runner Job. Only then does `devops roadmap implement --confirm` run a step. The step's shell is no security boundary: the runner is the sandbox, with a narrow token and no other credential. The Service pod and a workstation keep this false |
+| `DEVOPS_CLI_ROADMAP_IMPLEMENT_REPAIR_ROUNDS` | `roadmap.implement.repair_rounds` | No | The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project, and one for each time that tasks stay unticked. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn |
 | `DEVOPS_CLI_ROADMAP_STAGE_FILTER` | `roadmap.stage.filter` | No | The labels of the items that the stage job takes, as entries `family=value` over the families status, priority, type, value and effort: the values of one family are alternatives, and the families all apply; the job also takes Ready items only |
 | `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` | `roadmap.stage.limit` | No | The most items that one run of the stage job takes |
-| `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS` | `roadmap.stage.step_tokens` | No | The most tokens that the inputs of one implementation step may hold: the step's instructions, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it |
+| `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS` | `roadmap.stage.step_tokens` | No | The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 | `DEVOPS_CLI_SANDBOX_EXCLUDE_HOME_DIR` | `sandbox.exclude_home_dir` | No | Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*) |

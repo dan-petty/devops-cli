@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 import httpx2
 from pydantic import BaseModel
-from pydantic_ai import Agent, RunContext, Tool, capture_run_messages
+from pydantic_ai import Agent, ModelRetry, RunContext, Tool, capture_run_messages
 from pydantic_ai.capabilities import PrepareTools
 from pydantic_ai.exceptions import (
     ModelAPIError,
@@ -228,15 +228,40 @@ def _within_budget(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> li
     return tool_defs if has_budget and requests_left > 1 else []
 
 
+def _retry_once[T: BaseModel](
+    agent: Agent[None, T], output_check: Callable[[T], str | None]
+) -> None:
+    """Make `agent` send the message of `output_check` back to the model once, for the first
+    whole reply that the check does not accept."""
+    retried = False
+
+    def validate(ctx: RunContext[None], output: T) -> T:
+        nonlocal retried
+        if ctx.partial_output or retried:
+            return output
+        message = output_check(output)
+        if message is None:
+            return output
+        retried = True
+        raise ModelRetry(message)
+
+    agent.output_validator(validate)
+
+
 def investigate[T: BaseModel](
     model: Any,
     instructions: str,
     request: str,
     tools: ToolSet,
     output_type: type[T],
+    output_check: Callable[[T], str | None] | None = None,
 ) -> T | InvestigationStopped:
     """Run one investigation and return its reply, or `InvestigationStopped` when the run ends
     with none.
+
+    `output_check` reads each whole reply and returns a message, or None to accept it. The first
+    time it returns a message, the run sends the message back to the model as a retry and the
+    model gets one more turn; a later reply passes, and the caller decides on it (#2946).
 
     Raises `AICredentialsError` when the model refuses the key, and `AIClientError` for any
     other failed model call.
@@ -252,6 +277,8 @@ def investigate[T: BaseModel](
         },
         capabilities=[PrepareTools(_within_budget)],
     )
+    if output_check is not None:
+        _retry_once(agent, output_check)
     limits = UsageLimits(
         request_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,

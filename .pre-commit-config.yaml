@@ -93,11 +93,25 @@ repos:
       # A push runs only the fast static checks, in check-only mode, so the hook changes no file
       # (#1752). A commit runs no tests (#2086). The required checks of CI run the test suite and
       # the other checks of `devops ci` before a merge, and `uv run devops ci` runs them by hand.
+      # The runner Job of the implement job runs this stage with `pre-commit run` before it pushes
+      # (#3043).
       - id: devops-ci-pre-push
         name: devops ci (fast static checks before a push)
-        entry: uv run devops ci --check --only lint,format,actionlint,zizmor
+        entry: uv run devops ci --check --only lint,format
         language: system
         stages: [pre-push]
         pass_filenames: false
         require_serial: true
         always_run: true
+
+      # The two workflow checks read only the files of the workflows, so they run only when a push
+      # changes one (#3043). The runner image holds no `actionlint`, and a check that does not
+      # apply to a push is not run.
+      - id: devops-ci-workflows-pre-push
+        name: devops ci (workflow checks before a push that changes a workflow)
+        entry: uv run devops ci --check --only actionlint,zizmor
+        language: system
+        stages: [pre-push]
+        files: ^\.github/(workflows|actions)/
+        pass_filenames: false
+        require_serial: true

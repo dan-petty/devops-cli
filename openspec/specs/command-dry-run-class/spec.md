@@ -776,3 +776,217 @@ The `install-tools status` command SHALL carry the `no-external-request` dry-run
 #### Scenario: Dry run on install-tools status
 - **WHEN** user executes `devops --dry-run install-tools status`
 - **THEN** the status check executes locally without external requests
+
+### Requirement: git-workspace-request-plans
+The seven commands `branches sync`, `branches update`, `repos clone`, `repos clone-org`, `repos sync`, `repos update` and `repos worktrees prune` SHALL carry the `request-plan` dry-run class and SHALL expose `--dry-run`, in the forms `devops <command> --dry-run` and `devops --dry-run <command>`. A dry run SHALL make no external request and SHALL print the requests of the real run, numbered, in the order of the real run.
+
+#### Scenario: Dry run on branches sync
+- **WHEN** user executes `devops branches sync --dry-run` for a workspace with one repository whose remote is `origin` and whose current branch tracks `origin`
+- **THEN** no `git fetch` and no `git pull` runs, and the output lists `git -C <repo> fetch --prune origin` and then `git -C <repo> pull origin <branch>`
+
+#### Scenario: A dry run refuses what a run refuses
+- **WHEN** user executes `devops repos clone --dry-run -- -bad` or `devops --dry-run repos clone -- -bad`
+- **THEN** the command exits with status 1, reports `Invalid repository URL: must not start with a hyphen.` and lists no request
+
+#### Scenario: Dry run on repos update through the root flag
+- **WHEN** user executes `devops --dry-run repos update --no-pull`
+- **THEN** no git command that changes state runs, the output lists one `git fetch --prune` for each remote of each repository and no `git pull`, and the last line is the `code --reuse-window` command that reloads the workspace
+
+#### Scenario: Dry run on repos clone
+- **WHEN** user executes `devops repos clone https://github.com/example-org/app.git --dry-run`
+- **THEN** nothing is cloned, `known_hosts` is not changed, and the output lists `git clone -- https://github.com/example-org/app.git <base-dir>/example-org/app` and then the `code --reuse-window` command
+
+#### Scenario: Dry run on repos clone-org
+- **WHEN** user executes `devops repos clone-org example-org --dry-run`
+- **THEN** GitHub receives no request, and the output lists the listing request `GET /orgs/example-org/repos`, the fallback listing for the own account with its condition, and a `git clone` for each listed repository with the repeat `for each listed repository`
+
+#### Scenario: Dry run on repos worktrees prune
+- **WHEN** user executes `devops repos worktrees prune --dry-run`
+- **THEN** GitHub receives no request, and the output lists `GET /repos/<repo>/commits/<sha>/pulls` for each worktree that local state does not decide
+
+#### Scenario: The plan matches the real run
+- **WHEN** a test runs `devops repos sync` on a `git_fake` that answers the local reads, and compares the git commands that are not local reads with the plan of `devops repos sync --dry-run`
+- **THEN** the commands and the plan lines are the same, in the same order
+
+### Requirement: git-workspace-no-external-request
+The five commands `branches clean`, `branches jira`, `branches list`, `repos list` and `repos worktrees status` SHALL carry the `no-external-request` dry-run class. `branches list`, `repos list` and `repos worktrees status` SHALL run normally under `devops --dry-run` and have no `--dry-run` option. `branches clean` and `branches jira` SHALL preview under `--dry-run` and change nothing.
+
+#### Scenario: Dry run on branches list
+- **WHEN** user executes `devops --dry-run branches list --base-dir <dir>`
+- **THEN** the command lists the branches of each repository and starts only git commands that read
+
+#### Scenario: Dry run on repos list
+- **WHEN** user executes `devops --dry-run repos list`
+- **THEN** the command lists the cloned repositories and prints no JSON preview
+
+#### Scenario: repos list has no dry-run option
+- **WHEN** user executes `devops repos list --dry-run`
+- **THEN** the command exits with status 2 and reports `No such option: --dry-run`
+
+#### Scenario: Dry run on repos worktrees status
+- **WHEN** user executes `devops --dry-run repos worktrees status`
+- **THEN** the command lists the worktrees and starts only git commands that read
+
+#### Scenario: Dry run on branches clean
+- **WHEN** user executes `devops --dry-run branches clean --base-dir <dir>` for a repository with a merged branch
+- **THEN** the output says that it would delete the branch and no branch is deleted
+
+#### Scenario: Dry run on branches jira with a bad ticket
+- **WHEN** user executes `devops branches jira bad --dry-run`
+- **THEN** the command exits with status 1, as a run does
+
+#### Scenario: Dry run on branches jira
+- **WHEN** user executes `devops --dry-run branches jira PROJ-1 --repo <repo>`
+- **THEN** the output says that it would create the branch `feature/PROJ-1` and no `git checkout` runs
+
+### Requirement: ssh-request-plans
+The commands `ssh register` and `ssh rotate` SHALL carry the `request-plan` dry-run class and SHALL expose `--dry-run`. A dry run SHALL make no request to GitHub, start no process, and print the requests of the real run in order.
+
+#### Scenario: Dry run on ssh register
+- **WHEN** user executes `devops ssh register --dry-run` and `devops --dry-run ssh register`
+- **THEN** `github_api` receives no request, no process starts, and the output lists `POST /user/keys` and `POST /user/ssh_signing_keys` with the key as a placeholder, the listing of each endpoint with the condition that the `POST` answers HTTP 422, and the `git config` commands that point git signing at the key
+
+#### Scenario: Dry run on ssh rotate
+- **WHEN** user executes `devops ssh rotate --dry-run`
+- **THEN** no key file is written, `github_api` receives no request, and the output lists the same requests with the condition that the key is old enough or `--force` is set
+
+#### Scenario: The plan matches the real run
+- **WHEN** a test runs `devops ssh register` against `github_api` routes that accept both keys, and compares the requests that it received with the plan lines that have no condition
+- **THEN** the methods and the paths are the same, in the same order
+
+### Requirement: ssh-no-external-request
+The commands `ssh audit`, `ssh generate`, `ssh list` and `ssh status` SHALL carry the `no-external-request` dry-run class. `ssh audit`, `ssh list` and `ssh status` SHALL run normally under `devops --dry-run` and SHALL have no `--dry-run` option. `ssh generate` SHALL provide a local preview under `--dry-run` that writes no key.
+
+#### Scenario: Dry run on ssh list
+- **WHEN** user executes `devops --dry-run ssh list --key-dir <dir>` for a directory with one managed key
+- **THEN** the command prints the table of the key, starts no process and sends no request
+
+#### Scenario: ssh status has no dry-run option
+- **WHEN** user executes `devops ssh status --dry-run`
+- **THEN** the command exits with status 2 and reports `No such option: --dry-run`
+
+#### Scenario: Dry run on ssh generate
+- **WHEN** user executes `devops ssh generate --key-dir <dir> --dry-run`
+- **THEN** the output says which key file it would write, and neither the private key nor the public key exists afterwards
+
+### Requirement: tls-request-plans
+The command `tls enable-k8s` SHALL carry the `request-plan` dry-run class and SHALL expose `--dry-run`. A dry run SHALL start no process and print the kubectl requests of the real run, for each namespace in order.
+
+#### Scenario: Dry run on tls enable-k8s
+- **WHEN** user executes `devops tls enable-k8s --namespace web --namespace db --dry-run` and `devops --dry-run tls enable-k8s --namespace web --namespace db`
+- **THEN** `process_fake` records no call, and the output lists, for `web` and then for `db`: `kubectl get namespace`, `kubectl create namespace` with the condition that the namespace does not exist, `kubectl create secret tls ... --dry-run=client -o yaml`, and `kubectl apply -f -` with the rendered secret as a placeholder on standard input
+
+#### Scenario: Dry run with a context
+- **WHEN** user executes `devops tls enable-k8s --context example --namespace web --dry-run`
+- **THEN** each listed kubectl command ends with `--context example`
+
+#### Scenario: The plan matches the real run
+- **WHEN** a test runs `devops tls enable-k8s --namespace web` on a `process_fake` that answers `get namespace` with status 1 and the other calls with status 0, and compares the recorded argv with the plan
+- **THEN** the four recorded commands and the four plan lines are the same, in the same order
+
+### Requirement: tls-no-external-request
+The commands `tls ca`, `tls cert`, `tls homelab`, `tls inspect` and `tls verify` SHALL carry the `no-external-request` dry-run class. `tls inspect` and `tls verify` SHALL run normally under `devops --dry-run`. `tls ca`, `tls cert` and `tls homelab` SHALL provide a local preview under `--dry-run` that writes no key and no certificate.
+
+#### Scenario: Dry run on tls inspect
+- **WHEN** user executes `devops --dry-run tls inspect <certificate>`
+- **THEN** the command prints the table of the certificate
+
+#### Scenario: Dry run on tls ca
+- **WHEN** user executes `devops tls ca --output-dir <dir> --dry-run`
+- **THEN** the output says which files it would write, and `<dir>` holds no `ca.crt` and no `ca.key`
+
+#### Scenario: tls ca and tls cert are not MCP tools
+- **WHEN** a client lists the tools of the MCP server
+- **THEN** the list holds no `tls_ca` and no `tls_cert`, and it holds `tls_inspect`
+
+#### Scenario: Dry run on tls homelab through the root flag
+- **WHEN** user executes `devops --dry-run tls homelab --output-dir <dir>`
+- **THEN** the output says which bundle it would write, and `<dir>` is empty or absent
+
+### Requirement: uv-request-plans
+The four commands `uv lock`, `uv python-install`, `uv run` and `uv sync` SHALL carry the `request-plan` dry-run class and expose `--dry-run`. Under `--dry-run` each command SHALL start no process and SHALL print one request. That request SHALL hold the argument list of the real run, with the uv preview features that the process runner adds.
+
+#### Scenario: Dry run on uv sync
+- **WHEN** a user runs `devops uv sync --frozen --dry-run` or `devops --dry-run uv sync --frozen`
+- **THEN** no process starts and the plan prints one request whose argument list is `uv --preview-features malware-check,check-command sync --frozen`
+
+#### Scenario: Dry run on uv run keeps the tokens after the separator
+- **WHEN** a user runs `devops --dry-run uv run -- pytest --dry-run`
+- **THEN** no process starts and the plan prints one request whose argument list ends with `run pytest --dry-run`
+
+#### Scenario: The plan matches the real run
+- **WHEN** a test runs `devops uv lock --upgrade` against a process fake that records each call
+- **THEN** the recorded argument list equals the argument list of the plan that `devops uv lock --upgrade --dry-run` prints
+
+### Requirement: pipeline-request-plans
+The command `pipeline` SHALL carry the `request-plan` dry-run class. Under `--dry-run` it SHALL start no process, print one `dagger call` request built by `build_dagger_cmd`, and print no simulated result.
+
+#### Scenario: Dry run on pipeline
+- **WHEN** a user runs `devops pipeline <dir> --function build --dry-run` or `devops --dry-run pipeline <dir> --function build`, where `<dir>` is a directory that exists
+- **THEN** no process starts and the plan prints one request that starts with `dagger call -m` and names the function `build`
+
+### Requirement: test-request-plans
+The commands `test load`, `test run` and `test sandbox` SHALL carry the `request-plan` dry-run class. Under `--dry-run` each command SHALL make no request and print the requests of the real run: one `k6 run` request for `test load`, one `uv run pytest` request for `test run`, and the container lifecycle requests of `docker sandbox` for `test sandbox`. `test sandbox` SHALL refuse a forbidden workspace before it prints the plan.
+
+#### Scenario: Dry run on test load
+- **WHEN** a user runs `devops test load smoke.js --vus 5 --duration 5s --dry-run`
+- **THEN** no process starts and the plan prints one request `k6 run` with `--vus 5` and `--duration 5s`, and no simulated metrics
+
+#### Scenario: Dry run on test run
+- **WHEN** a user runs `devops --dry-run test run tests/unit -x -k parse`
+- **THEN** no process starts and the plan prints one request `uv run pytest -x -k parse tests/unit` with the uv preview features
+
+#### Scenario: Dry run on test sandbox
+- **WHEN** a user runs `devops test sandbox --dry-run --workspace <dir> echo hi` with the Docker client patched to fail
+- **THEN** no Docker client is built and the plan prints `DOCKER POST /containers/create` followed by the start, wait, logs and remove requests
+
+#### Scenario: Dry run on test sandbox with a forbidden workspace
+- **WHEN** a user runs `devops test sandbox --dry-run --workspace /` with the Docker client patched to fail
+- **THEN** the command refuses the workspace, exits with the error status, and prints no plan
+
+### Requirement: test-profile-memory-local-preview
+The command `test profile-memory` SHALL carry the `no-external-request` dry-run class and expose `--dry-run`. Under `--dry-run` it SHALL run no profiler, import no module and write no file. It SHALL print the target, the iteration count, the limits and the path of the report that the run would write.
+
+#### Scenario: Dry run on profile-memory with a custom target
+- **WHEN** a user runs `devops test profile-memory example.module:work --output report.json --dry-run` with the module import patched to fail
+- **THEN** the preview names the target and the path `report.json`, no module is imported and no file is written
+
+### Requirement: mcp-local-preview
+The command `mcp export-schemas` SHALL carry the `no-external-request` dry-run class and expose `--dry-run`. Under `--dry-run` it SHALL print the directory and the number of tool schemas that it would export, create no directory and write no file.
+
+#### Scenario: Dry run on mcp export-schemas
+- **WHEN** a user runs `devops mcp export-schemas --output-dir <dir> --dry-run` with directory creation and file writes patched to fail
+- **THEN** the preview prints `<dir>` and the tool count, and nothing is created
+
+### Requirement: mcp-tools-no-external-request
+The command `mcp tools` SHALL carry the `no-external-request` dry-run class and declare no `--dry-run` option, so `devops --dry-run mcp tools` runs it as it is.
+
+#### Scenario: Dry run on mcp tools
+- **WHEN** a user runs `devops --dry-run mcp tools` with the process runner and the HTTP clients patched to fail
+- **THEN** the command prints the table of tools and starts no process
+
+### Requirement: server-request-plans
+The commands `mcp serve` and `serve` SHALL carry the `request-plan` dry-run class and expose `--dry-run`. Under `--dry-run` each command SHALL start no server and open no socket. It SHALL print a bind request and a start request built from the values of the real call. `mcp serve --transport sse` SHALL refuse a host that is not loopback without `--allow-remote`, as the real run does. `serve --service --dry-run` SHALL load no settings and read no credential.
+
+#### Scenario: Dry run on mcp serve over sse
+- **WHEN** a user runs `devops mcp serve --transport sse --host 127.0.0.1 --port 9090 --dry-run` with `run_mcp_server` patched to fail
+- **THEN** the plan prints a bind request for `127.0.0.1:9090` and a start request for the `sse` transport
+
+#### Scenario: Dry run on mcp serve with a remote host
+- **WHEN** a user runs `devops mcp serve --transport sse --host 192.0.2.10 --dry-run`
+- **THEN** the command refuses the host as the real run does and prints no plan
+
+#### Scenario: Dry run on serve
+- **WHEN** a user runs `devops --dry-run serve --host 127.0.0.1 --port 9000 --workers 2` with `uvicorn.run` patched to fail
+- **THEN** the plan prints a bind request for `127.0.0.1:9000` and a start request that names 2 workers
+
+### Requirement: ci-fail-to-pass-request-plans
+The command `ci fail-to-pass`, and the paths `format fail-to-pass` and `lint fail-to-pass` that share its callback, SHALL carry the `request-plan` dry-run class. Under `--dry-run` the command SHALL start no process, git call included. It SHALL print the ordered requests of the replay, built by the argument builders that the replay uses, with the placeholders `<merge-base>`, `<temp-dir>` and `<changed test files>`.
+
+#### Scenario: Dry run on ci fail-to-pass
+- **WHEN** a user runs `devops ci fail-to-pass --base main --dry-run` with the process fake patched to fail on any call
+- **THEN** the plan prints the merge base, the two revision checks, the diff, the untracked-file listing (`git ls-files --others`), the worktree add, the archive, the pytest replay, the worktree remove and the worktree prune requests in that order, and no process starts
+
+#### Scenario: The plan matches the replay
+- **WHEN** a test runs the replay against a process fake that records each call
+- **THEN** each recorded argument list equals the matching request of the plan after the placeholders are replaced

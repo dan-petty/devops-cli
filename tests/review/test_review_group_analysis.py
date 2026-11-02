@@ -1784,7 +1784,13 @@ def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_cal
     _analyze_group(client)
     request = json.loads(sent[0].content)
     system, user = (message["content"] for message in request["messages"])
-    client.chat(system, user)
+    client.chat(
+        system,
+        user,
+        temperature=request.get("temperature"),
+        top_p=request.get("top_p"),
+        seed=request.get("seed"),
+    )
     seeded = [entry["content"] for entry in _cache_entries(tmp_path)]
     calls_before = len(sent)
     replies[:] = [_group_reply(_group_payload())]
@@ -1947,7 +1953,13 @@ def test_a_cached_plan_reply_that_fails_its_checks_is_replaced_by_one_model_call
     _analyze_plan(client)
     request = json.loads(sent[0].content)
     system, user = (message["content"] for message in request["messages"])
-    client.chat(system, user)
+    client.chat(
+        system,
+        user,
+        temperature=request.get("temperature"),
+        top_p=request.get("top_p"),
+        seed=request.get("seed"),
+    )
     seeded = [entry["content"] for entry in _cache_entries(tmp_path)]
     calls_before = len(sent)
     replies[:] = [_group_reply(_plan_payload())]

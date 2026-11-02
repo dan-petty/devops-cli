@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -48,31 +49,6 @@ def test_sandbox_config_defaults(tmp_path: Path) -> None:
     assert cfg.network_mode == "none"
     assert cfg.rootless is True
     assert cfg.read_only is True
-
-
-def test_sandbox_runner_dry_run(tmp_path: Path) -> None:
-    """Test WorkloadSandboxRunner in dry run mode without starting Docker."""
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["echo", "hello"],
-        memory_limit="1g",
-        network_mode="none",
-    )
-    sandbox = WorkloadSandboxRunner(cfg)
-    dry = sandbox.build_dry_run_details()
-
-    assert dry["image"] == "python:3.14-slim"
-    assert dry["command"] == ["echo", "hello"]
-    assert dry["memory_limit"] == "1g"
-    assert dry["network_mode"] == "none"
-
-
-def test_sandbox_runner_dry_run_prints_the_controls_it_declares(tmp_path: Path) -> None:
-    """The dry-run details carry the declared controls, which the run would send the engine."""
-    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["true"], read_only=True)
-    sandbox = WorkloadSandboxRunner(cfg)
-
-    assert sandbox.build_dry_run_details()["declared_controls"] == sandbox.declared_controls()
 
 
 def test_sandbox_runner_docker_execution_success(tmp_path: Path, docker_engine: Any) -> None:
@@ -126,25 +102,66 @@ def test_sandbox_runner_docker_execution_failure(tmp_path: Path, docker_engine: 
         mock_client.api.remove_container.assert_called_once_with("c987654321", force=True)
 
 
-def test_cli_test_sandbox_dry_run(tmp_path: Path) -> None:
-    """Test devops test sandbox CLI subcommand with dry-run."""
-    res = runner.invoke(
-        cli_test_app,
-        [
-            "sandbox",
-            "--dry-run",
-            "--workspace",
-            str(tmp_path),
-            "--image",
-            "alpine:latest",
-            "echo",
-            "test",
-        ],
+def _plan_lines(output: str) -> list[str]:
+    """The numbered lines of a request plan, without their numbers."""
+    import re
+
+    return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
+
+
+@pytest.mark.parametrize("flag_first", [True, False])
+def test_cli_test_sandbox_dry_run_lists_the_docker_requests(
+    tmp_path: Path, cli: Any, flag_first: bool
+) -> None:
+    """A dry run builds no Docker client and lists the five engine requests (#2260)."""
+    argv = ["test", "sandbox", "--workspace", str(tmp_path), "--image", "alpine:latest"]
+    argv = ["--dry-run", *argv] if flag_first else [*argv, "--dry-run"]
+    with (
+        patch("docker.from_env", side_effect=AssertionError("no Docker client")),
+        patch("docker.DockerClient", side_effect=AssertionError("no Docker client")),
+    ):
+        res = cli([*argv, "--", "echo", "test"])
+
+    assert res.exit_code == 0, res.output
+    assert _plan_lines(res.output) == [
+        "DOCKER POST /containers/create",
+        "DOCKER POST /containers/<container-id>/start",
+        "DOCKER POST /containers/<container-id>/wait",
+        "DOCKER GET /containers/<container-id>/logs",
+        "DOCKER DELETE /containers/<container-id>",
+    ]
+    body = json.loads(res.output.split("POST /containers/create\n", 1)[1].splitlines()[0])
+    sandbox = WorkloadSandboxRunner(
+        WorkloadSandboxConfig(workspace_dir=tmp_path, command=["echo", "test"], read_only=False)
     )
-    assert (res.exit_code, "echo" in res.output, "alpine:latest" in res.output) == (
-        0,
-        True,
-        True,
+    assert body["image"] == "alpine:latest"
+    assert body["command"] == ["echo", "test"]
+    assert body["network_mode"] == "none"
+    assert body["declared_controls"] == sandbox.declared_controls()
+
+
+def test_cli_test_sandbox_runs_the_create_of_its_plan(
+    tmp_path: Path, cli: Any, docker_engine: Any
+) -> None:
+    """The real run creates the container with the image, command and network of the plan."""
+    argv = ["test", "sandbox", "--workspace", str(tmp_path), "--image", "alpine:latest"]
+    planned = cli([*argv, "--dry-run", "--", "echo", "test"]).output
+    body = json.loads(planned.split("POST /containers/create\n", 1)[1].splitlines()[0])
+    container = MagicMock(id="c1")
+    container.wait.return_value = {"StatusCode": 0}
+    container.logs.side_effect = [b"test\n", b""]
+    client = MagicMock()
+    client.containers.create.return_value = container
+
+    with docker_engine(client):
+        result = cli([*argv, "--", "echo", "test"])
+
+    assert result.exit_code == 0, result.output
+    kwargs = client.containers.create.call_args.kwargs
+    assert (kwargs["image"], kwargs["command"], kwargs.get("network_mode")) == (
+        body["image"],
+        body["command"],
+        body["network_mode"],
     )
 
 

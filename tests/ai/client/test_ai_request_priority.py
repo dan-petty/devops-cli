@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.client.models import AIClientError, RequestPriority
+from devops_cli.ai.client.models import AIClientError, CallSampling, RequestPriority
 from devops_cli.ai.client.network import (
     acquire_ollama_slot,
     current_request_priority,
@@ -182,6 +182,7 @@ def test_llm_client_chat_defaults_to_high_priority(
         *,
         enable_thinking: bool = True,
         priority: RequestPriority | str | None = None,
+        sampling: CallSampling | None = None,
     ) -> Any:
         from devops_cli.ai.client.models import LLMResponse
 

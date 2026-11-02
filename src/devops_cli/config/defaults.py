@@ -722,12 +722,15 @@ DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
 # check is old. The Service's row is due twice a day, about (#2652).
 DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5
 DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
+DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS: int = 3
 DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 719
 # The PyPI JSON API reads of a package (`{name}` is one URL path segment) and its timeout.
 DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
+# The most extra turns of an implement step (#3043): each fixes a failed check or asks for ticks.
+DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
 # The most items one implement run takes, and the seconds between two reads of a pull request
 # whose checks are not there yet (#2665).
 DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
@@ -745,6 +748,7 @@ DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 37
 # recorded draft sends no request; a draft that waits for its checks costs two requests a round.
 DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
+# `AGENTS.md` of the repository and the sections of the documents it routes the group to, the
 # item, the change folder and the packed files of one task group. It leaves most of a 128k
 # window for tool output and the model's turns (#2654).
 DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = 40000

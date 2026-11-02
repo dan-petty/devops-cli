@@ -340,7 +340,15 @@ def test_a_refused_exchange_raises_the_unauthenticated_error_with_githubs_status
     )
     with pytest.raises(GitHubUnauthenticatedError) as raised:
         github_token()
-    assert (BOT_LOGIN in raised.value.message, "401" in raised.value.message) == (True, True)
+    assert raised.value.to_dict() == {
+        "error_code": "GITHUB_UNAUTHENTICATED",
+        "message": "GitHub App devops-roadmap[bot] has no installation token: GitHub refused the "
+        "App's JWT for POST /app/installations/42/access_tokens (HTTP 401): A JSON web token could "
+        "not be decoded. Check the App ID, the installation ID and the private key in "
+        "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY.",
+        "exit_code": 1,
+        "details": {"operation": "gh_auth_token"},
+    }
 
 
 def test_a_key_that_is_no_rsa_key_fails_before_any_request(

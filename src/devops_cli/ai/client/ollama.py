@@ -13,6 +13,7 @@ import httpx2
 from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.models import (
     AIClientError,
+    CallSampling,
     LLMResponse,
     RequestPriority,
     origin_label,
@@ -210,10 +211,11 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         messages: list[ChatMessage],
         use_thinking: bool,
         max_par: int = 1,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         """Attempt single Ollama request."""
         try:
-            return self._ollama_request(base, system, messages, use_thinking)
+            return self._ollama_request(base, system, messages, use_thinking, sampling=sampling)
         except httpx2.HTTPStatusError as exc:
             if exc.response.status_code == 404 and "not found" in exc.response.text.lower():
                 raise httpx2.RequestError(
@@ -233,6 +235,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         *,
         enable_thinking: bool = True,
         priority: RequestPriority | str | None = None,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
         max_par = self._config.ollama_max_parallel
@@ -247,7 +250,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 ) as leased_url:
                     base = self._validate_base_url(leased_url, purpose="Ollama")
                     return self._try_single_ollama_request(
-                        base, leased_url, system, messages, enable_thinking
+                        base, leased_url, system, messages, enable_thinking, sampling=sampling
                     )
             except (
                 httpx2.ConnectError,
@@ -279,7 +282,13 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             payload["format"] = schema.json_schema
 
     def _build_ollama_payload(
-        self, system: str, messages: list[ChatMessage], *, stream: bool, think: bool
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        stream: bool,
+        think: bool,
+        sampling: CallSampling | None = None,
     ) -> tuple[dict[str, Any], dict[str, str]]:
         payload: dict[str, Any] = {
             "model": self._config.model,
@@ -295,12 +304,13 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 payload["reasoning_effort"] = self._config.reasoning_effort
         ollama_opts: dict[str, Any] = {}
         if not getattr(self._config, "use_model_sampling", False):
-            temp = getattr(self._config, "temperature", None)
-            if temp is not None:
-                ollama_opts["temperature"] = float(temp)
-            top_p = getattr(self._config, "top_p", None)
-            if top_p is not None:
-                ollama_opts["top_p"] = float(top_p)
+            chosen = (sampling or CallSampling()).over(self._config)
+            if chosen.temperature is not None:
+                ollama_opts["temperature"] = float(chosen.temperature)
+            if chosen.top_p is not None:
+                ollama_opts["top_p"] = float(chosen.top_p)
+            if chosen.seed is not None:
+                ollama_opts["seed"] = int(chosen.seed)
         ctx_win = getattr(self._config, "num_ctx", None) or getattr(
             self._config, "context_window", None
         )
@@ -316,10 +326,18 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         return payload, headers
 
     def _ollama_request(
-        self, base: str, system: str, messages: list[ChatMessage], think: bool
+        self,
+        base: str,
+        system: str,
+        messages: list[ChatMessage],
+        think: bool,
+        *,
+        sampling: CallSampling | None = None,
     ) -> LLMResponse:
         start_time = time.monotonic()
-        payload, headers = self._build_ollama_payload(system, messages, stream=False, think=think)
+        payload, headers = self._build_ollama_payload(
+            system, messages, stream=False, think=think, sampling=sampling
+        )
         raw_res, _headers = request_limited_json(
             self._shared_client(),
             "POST",

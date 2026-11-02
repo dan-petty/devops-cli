@@ -108,7 +108,6 @@ devops repos list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos update`
 
@@ -292,7 +291,6 @@ devops ssh list [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh audit`
 
@@ -309,7 +307,6 @@ devops ssh audit [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh status`
 
@@ -325,7 +322,6 @@ devops ssh status [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -346,6 +342,7 @@ devops branches update [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches sync`
 
@@ -360,6 +357,7 @@ devops branches sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches jira`
 
@@ -381,6 +379,7 @@ devops branches jira [OPTIONS] <ticket_id>
 |---|---|---|---|
 | `--slug`, `-s` | `string` | - | Short branch description. |
 | `--repo`, `-r` | `path` | - | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops branches list`
 
@@ -3233,6 +3232,7 @@ devops uv sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--frozen` | `boolean` | - | Do not update lockfile. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops uv lock`
 
@@ -3247,6 +3247,7 @@ devops uv lock [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--upgrade` | `boolean` | - | Upgrade dependencies while locking. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops uv python-install`
 
@@ -3261,6 +3262,7 @@ devops uv python-install [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Python version to install (defaults to .python-version). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops uv run`
 
@@ -3271,9 +3273,18 @@ Run an arbitrary command using `uv run`.
 Example:
   devops uv run -- pytest -q
 
+A dry run lists the one `uv run` command and starts nothing. What that command does is
+not a request of devops-cli, so the plan does not list it.
+
 ```bash
-devops uv run
+devops uv run [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -6401,6 +6412,7 @@ devops mcp serve [OPTIONS]
 | `--host`, `-h` | `string` | `127.0.0.1` | Host interface for SSE transport. |
 | `--port`, `-p` | `integer` | `8000` | Port number for SSE transport. |
 | `--allow-remote` | `boolean` | - | Permit binding SSE transport to non-loopback network interfaces. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops mcp tools`
 
@@ -6423,6 +6435,7 @@ devops mcp export-schemas [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Destination directory for tool schema JSON files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -6523,7 +6536,7 @@ devops roadmap intake-eval [OPTIONS]
 
 ### `devops roadmap refine`
 
-**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code and documentation. When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it with tools that read the code and, for a public repository with a Firecrawl key, search the web. A design question gets the best-practice option with the options it compared, and only a decision that a person must make waits on a person. The plan says when web search is off. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, then the backlog's other New items, each place by priority. Only --limit stops a run. The number of Ready items does not stop it. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. An item that an account other than the owner, a member or a collaborator opened waits on a person, and only --item refines it. An item on which refine wrote 2 comments in the last 24 hours also waits on a person and takes no place under --limit, and only --item refines it until the older comment is 24 hours old. An item refine cannot set to Ready gets one comment with its next step. The step is the questions a person answers, the split a person makes, or the open items it waits on. Refine looks at the item again after a reply, a body edit or the close of those items, or after a commit on the default branch changes a file that the block cites. The report groups every item by its next step. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code and documentation. When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it with tools that read the code and, for a public repository with a Firecrawl key, search the web. A design question gets the best-practice option with the options it compared, and only a decision that a person must make waits on a person. The plan says when web search is off. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, then the backlog's other New items, each place by priority. Only --limit stops a run. The number of Ready items does not stop it. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. An item that an account other than the owner, a member or a collaborator opened waits on a person, and only --item refines it. An item on which refine wrote 2 comments in the last 24 hours also waits on a person and takes no place under --limit, and only --item refines it until the older comment is 24 hours old. An item refine cannot set to Ready gets one comment with its next step. The step is the questions a person answers, the split a person makes, or the open items it waits on. Refine looks at the item again after a reply, a body edit or the close of those items, or after a commit on the default branch changes a file that the block cites. The report groups every item by its next step. A part of an item that cannot be built or decided now moves to new issues through intake when the rest of the item is Ready. Each new issue starts with 'Split from #\<issue\>.', and refine names the new issues in its Ready comment and records them as refine.deferred. An item that is too big for one pull request still waits for a person to split it. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
 
 ```bash
 devops roadmap refine [OPTIONS]
@@ -6542,7 +6555,7 @@ devops roadmap refine [OPTIONS]
 
 ### `devops roadmap alternatives`
 
-**Check open items for an open, maintained tool or library that already covers their need, in whole or in part. For each item, one agent run searches the web with Firecrawl and reads the facts of each candidate from GitHub and PyPI: its license, its last activity and whether it is archived. The verdict is covers, partly, none or not-applicable. With --confirm, a check posts one comment, replaces the block `devops-roadmap-alternatives` in the item's body, and records the check in the job record. It changes no label and closes no issue. A person decides what a tool means for the item. The run takes open New and Ready items that a person with write access opened: first the items with no check, lowest number first, then the items whose check is older than roadmap.alternatives.recheck_days or whose text changed since. The check is off, and the plan says why, for a private repository or with no Firecrawl key. An item whose model call fails or whose reply cites a URL that no tool returned is skipped and reported; the others are written, and the command then exits 1.**
+**Check open items for an open, maintained tool or library that already covers their need, in whole or in part. For each item, one agent run searches the web with Firecrawl and reads the facts of each candidate from GitHub and PyPI: its license, its last activity and whether it is archived. The verdict is covers, partly or none, and every other item must run a search before the check accepts a verdict: a reply with no search gets one more turn to search. An item of the type test, docs, refactor, chore, ci or perf, and a fix with a stack trace, get not-applicable with no model call. With --confirm, a check posts one comment, replaces the block `devops-roadmap-alternatives` in the item's body, and records the check in the job record. It changes no label and closes no issue. A person decides what a tool means for the item. The run takes open New and Ready items that a person with write access opened: first the items with no check, lowest number first, then the items whose check is older than roadmap.alternatives.recheck_days or whose text changed since. The check is off, and the plan says why, for a private repository or with no Firecrawl key. An item whose model call fails, whose run stops or whose reply the job refuses is skipped, reported and recorded in its job record, and the others are written. The run takes that item again after roadmap.alternatives.retry_days. The command exits 1 only when it tried items and checked none.**
 
 ```bash
 devops roadmap alternatives [OPTIONS]
@@ -6600,7 +6613,7 @@ devops roadmap run [OPTIONS]
 
 ### `devops roadmap implement`
 
-**Implement a Staged item, in bounded steps. With --group it runs one task group of the change of an item in the checkout --source: the agent is pydantic-ai's Coder on the model of ai.tasks.implement. Its inputs are the item's title, problem and acceptance criteria, the change's proposal, design and tasks, the group, and the files the group names. The command refuses to start when they do not fit the window of the task, or when the checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and mypy, with a scratch home. When the agent returns, the command runs the verification commands of the group, ruff on the changed Python files, and mypy on the changed files that the type check of devops ci covers (the files under src, with its options), and checks that the agent made no commit, removed or renamed no test that existed at the start of the step, and ticked every task of the group. Before these checks it deletes each new file that git does not ignore, that the group does not name, and that is outside src, tests, docs and openspec, and lists the files in the report. The command writes the tasks file back to its text before the run and keeps only the ticks of the group, so no edit of that file stops the step. An agent that forgets a tick gets one more turn that asks only for the ticks, and that may change only the tasks file. When every check passes, it commits the checkout as '<group title> (#\<item\>)'. Otherwise it resets the checkout to the commit where the step started, reports the step as stopped with the reason and the masked diff of the work it discarded, and exits 1. It writes nothing to GitHub. Without --group it is the job. It takes each Staged or Planned item that a label filter names (default: status=ready, status=planned, effort=low). A Staged item has its staged branch and draft on origin. A Planned item has its change folder on the default branch and no branch: the job makes the branch \<type\>/\<issue\>-\<slug\> there, with the slug of the folder, and opens the draft when the branch first holds a commit. The job rebases the branch, runs a step for each task group that has an unticked task, regenerates the documentation, archives the change, pushes, sets the title and the body of the pull request (the title of the issue, and a body that closes it), watches the checks, runs one fix step for a failed check, and marks the pull request ready. A step that fails stops the item: the job comments why and shows the masked diff of the discarded work, sets the Status to Blocked, and the Service runs the item again only after a comment 'implement: retry' or one time for each new runner image. The job leaves out an item that an agent or a person claimed with a label owner/agent or owner/human. When one claims an item that a running job works on, the job ends it at the next group boundary, with no push and no pull request. The job never merges. --confirm runs steps only when the setting roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell of the agent is no security boundary. On a workstation, --item \<n\> --confirm starts that runner Job for the item, with the code of devops k8s run-job --template runner, and follows its log (--no-wait prints the Job's name). It refuses an item that an agent or a person claimed, an item that is neither Ready nor Planned, and a repository that has a runner Job that has not ended. --dry-run --item \<n\> prints the Job and makes no request.**
+**Implement a Staged item, in bounded steps. With --group it runs one task group of the change of an item in the checkout --source: the agent is pydantic-ai's Coder on the model of ai.tasks.implement. Its inputs are the AGENTS.md of the checkout, the sections of the documents that it routes the group to (a test file brings docs/TESTING.md), the item's title, problem and acceptance criteria, the change's proposal, design and tasks, the group, and the files the group names. The command refuses to start when they do not fit the window of the task, or when the checkout has uncommitted changes. The shell of the agent runs only git, uv, ruff and mypy, with a scratch home. When the agent returns, the command runs the verification commands of the group, ruff on the changed Python files, and mypy on the changed files that the type check of devops ci covers (the files under src, with its options), and checks that the agent made no commit, removed or renamed no test that existed at the start of the step, and ticked every task of the group. Before these checks it deletes each new file that git does not ignore, that the group does not name, and that is outside src, tests, docs and openspec, and lists the files in the report. The command writes the tasks file back to its text before the run and keeps only the ticks of the group, so no edit of that file stops the step. It then runs the pre-commit stage of the hooks of the repository on the staged changes. An agent whose ruff, mypy or hook fails, or that forgets a tick, gets more turns, at most roadmap.implement.repair_rounds of them, that may change only the files it changed. When every check passes, it commits the checkout as '<group title> (#\<item\>)'. Otherwise it resets the checkout to the commit where the step started, reports the step as stopped with the reason and the masked diff of the work it discarded, and exits 1. It writes nothing to GitHub. Without --group it is the job. It takes each Staged or Planned item that a label filter names (default: status=ready, status=planned, effort=low). A Staged item has its staged branch and draft on origin. A Planned item has its change folder on the default branch and no branch: the job makes the branch \<type\>/\<issue\>-\<slug\> there, with the slug of the folder, and opens the draft when the branch first holds a commit. The job rebases the branch, runs a step for each task group that has an unticked task, regenerates the documentation, archives the change, runs the scoped checks (the pre-push stage of the hooks, the ci rows constructs, docs and openspec, and the tests that cover the changed files, with a fix step for a failed check), pushes, sets the title and the body of the pull request (the title of the issue, and a body that closes it), watches the checks, runs a fix step for each failed check, at most roadmap.implement.repair_rounds times, and marks the pull request ready. A step that fails stops the item: the job comments why and shows the masked diff of the discarded work, sets the Status to Blocked, and the Service runs the item again only after a comment 'implement: retry' or one time for each new runner image. The job leaves out an item that an agent or a person claimed with a label owner/agent or owner/human. When one claims an item that a running job works on, the job ends it at the next group boundary, with no push and no pull request. The job never merges. --confirm runs steps only when the setting roadmap.implement.in_runner is true, which only the pod of a runner Job sets: the shell of the agent is no security boundary. On a workstation, --item \<n\> --confirm starts that runner Job for the item, with the code of devops k8s run-job --template runner, and follows its log (--no-wait prints the Job's name). It refuses an item that an agent or a person claimed, an item that is neither Ready nor Planned, and a repository that has a runner Job that has not ended. --dry-run --item \<n\> prints the Job and makes no request.**
 
 ```bash
 devops roadmap implement [OPTIONS]
@@ -9274,6 +9287,7 @@ devops serve [OPTIONS]
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
 | `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
 | `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and per-repository status, triage and model lanes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

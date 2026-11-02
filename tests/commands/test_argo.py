@@ -17,7 +17,7 @@ from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.main import app as main_app
 from tests.support.fakes.kubernetes import FakeCluster
-from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
+from tests.web_fakes import PUBLIC_ADDRESS, StubWeb, record_connects, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -606,3 +606,117 @@ def test_a_k8s_address_in_the_argocd_url_stops_the_command_before_the_token_mint
         resolver.lookups["argocd"],
         recorder.dialled,
     ) == (1, SystemExit, True, 0, [])
+
+
+_ARGOCD = "https://argocd.example.com"
+_SYNC_PATH = "/api/v1/applications/web/sync"
+_SESSION_PATH = "/api/v1/session"
+
+
+def _refusing_argocd(stub_web: StubWeb, status: int = 401) -> list[tuple[str, str]]:
+    """Serve an Argo CD that answers `status` to the stored token `stale` and accepts `fresh`.
+
+    The session request gives the token `fresh`. Return the log of (path, bearer) pairs.
+    """
+    import httpx2
+
+    log: list[tuple[str, str]] = []
+    application = {
+        "metadata": {"name": "web"},
+        "spec": {"project": "default", "source": {"repoURL": "https://example.com/repo.git"}},
+        "status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy"}},
+    }
+
+    def server(request: httpx2.Request) -> httpx2.Response:
+        bearer = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        log.append((request.url.path, bearer))
+        if request.url.path == _SESSION_PATH:
+            return httpx2.Response(200, json={"token": "fresh"})
+        if bearer != "fresh":
+            return httpx2.Response(status, json={"error": "invalid session"})
+        return httpx2.Response(200, json={"items": [application]})
+
+    stub_web.serve(server)
+    return log
+
+
+@pytest.fixture
+def stale_argocd(config: Callable[..., Path], keyring_store: Any) -> Any:
+    """Point devops-cli at a fake Argo CD with the stored token `stale`, and return the keyring."""
+    config(argocd={"url": _ARGOCD})
+    keyring_store.values["argocd_token"] = "stale"
+    return keyring_store
+
+
+def test_sync_replaces_a_refused_token_and_syncs(
+    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+) -> None:
+    """Old vs new (#2576): a 401 with the admin password stored mints a token and syncs."""
+    stale_argocd.values["argocd_password"] = "admin-pw"
+    log = _refusing_argocd(stub_web)
+
+    result = cli("argo", "cd", "apps", "sync", "web")
+
+    assert (result.exit_code, "Sync triggered for 'web'." in result.output) == (0, True)
+    assert (stale_argocd.values["argocd_token"], log) == (
+        "fresh",
+        [(_SYNC_PATH, "stale"), (_SESSION_PATH, ""), (_SYNC_PATH, "fresh")],
+    )
+
+
+def test_sync_with_a_refused_token_and_no_password_tells_how_to_fix_it(
+    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+) -> None:
+    """Old vs new (#2576): before, the 401 left the command as a traceback."""
+    log = _refusing_argocd(stub_web)
+
+    result = cli("argo", "cd", "apps", "sync", "web")
+
+    assert (
+        result.exit_code,
+        "argocd.token" in result.output,
+        "sync-secrets" in result.output,
+        type(result.exception),
+        log,
+    ) == (1, True, True, SystemExit, [(_SYNC_PATH, "stale")])
+
+
+def test_sync_with_another_error_status_ends_with_the_status(
+    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+) -> None:
+    """Old vs new (#2576): an HTTP 500 is one error line with its status, with no traceback."""
+    stale_argocd.values["argocd_password"] = "admin-pw"
+    log = _refusing_argocd(stub_web, status=500)
+
+    result = cli("argo", "cd", "apps", "sync", "web")
+
+    assert (
+        result.exit_code,
+        "HTTP 500" in result.output,
+        type(result.exception),
+        log,
+    ) == (1, True, SystemExit, [(_SYNC_PATH, "stale")])
+
+
+def test_list_replaces_a_refused_token_and_shows_the_applications(
+    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+) -> None:
+    """Old vs new (#2576): before, the list showed the 401 as its error row."""
+    stale_argocd.values["argocd_password"] = "admin-pw"
+    _refusing_argocd(stub_web)
+
+    result = cli("argo", "cd", "apps", "list")
+
+    assert (result.exit_code, "web" in result.output, "Error" in result.output) == (0, True, False)
+    assert stale_argocd.values["argocd_token"] == "fresh"
+
+
+def test_list_with_a_refused_token_and_no_password_names_the_setting(
+    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+) -> None:
+    """The error row of the list tells how to set the token; the list keeps its exit status 0."""
+    _refusing_argocd(stub_web)
+
+    result = cli("argo", "cd", "apps", "list")
+
+    assert (result.exit_code, "argocd.token" in result.output) == (0, True)

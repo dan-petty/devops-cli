@@ -2,6 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.39.1](https://github.com/dan-petty/devops-cli/compare/v0.39.0...v0.39.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **k8s:** set native structured output on Claude groups ([#3141](https://github.com/dan-petty/devops-cli/issues/3141)) ([9ab668e](https://github.com/dan-petty/devops-cli/commit/9ab668ed60c339b8d69e5a215752d921ec4a3d8c)), closes [#3140](https://github.com/dan-petty/devops-cli/issues/3140)
+* **roadmap:** the Job skips a hook whose program is missing ([#3137](https://github.com/dan-petty/devops-cli/issues/3137)) ([6c57c85](https://github.com/dan-petty/devops-cli/commit/6c57c85b853810138b2b83a3306685f8de5b1ff5)), closes [#3136](https://github.com/dan-petty/devops-cli/issues/3136)
+
+## [0.39.0](https://github.com/dan-petty/devops-cli/compare/v0.38.0...v0.39.0) (2026-11-02)
+
+
+### Features
+
+* **ci:** uv, test, serve and mcp dry runs list their requests ([#3135](https://github.com/dan-petty/devops-cli/issues/3135)) ([666e183](https://github.com/dan-petty/devops-cli/commit/666e183a8a82284b122c2bcccb242120f9b0d2ee))
+* **k8s:** serve gemini-3.8-flash and two Claude models ([#3117](https://github.com/dan-petty/devops-cli/issues/3117)) ([1fa3a31](https://github.com/dan-petty/devops-cli/commit/1fa3a319cf60373ed138ad68e4c43e34194875cc)), closes [#3113](https://github.com/dan-petty/devops-cli/issues/3113)
+* **repos:** request plans for repos, branches, ssh and tls ([#3129](https://github.com/dan-petty/devops-cli/issues/3129)) ([174b82c](https://github.com/dan-petty/devops-cli/commit/174b82c2427668d14d4d048de01c6a952e1e8678))
+* **roadmap:** move unworkable scope to new issues during refine ([#3130](https://github.com/dan-petty/devops-cli/issues/3130)) ([a0b2cb5](https://github.com/dan-petty/devops-cli/commit/a0b2cb5cdd72e3da33f232f68d7d6ff4928e0638))
+
+
+### Bug Fixes
+
+* **github:** a refused App JWT names GitHub's reason ([#3116](https://github.com/dan-petty/devops-cli/issues/3116)) ([5ac0bea](https://github.com/dan-petty/devops-cli/commit/5ac0bea4b52073d8f76f20ef6dc98e542c120655))
+* **roadmap:** make the alternatives check search before a verdict ([#3127](https://github.com/dan-petty/devops-cli/issues/3127)) ([099c689](https://github.com/dan-petty/devops-cli/commit/099c68985a58946b5a832c849c24f3e9230c235f))
+
+## [0.38.0](https://github.com/dan-petty/devops-cli/compare/v0.37.4...v0.38.0) (2026-11-01)
+
+
+### Features
+
+* **review:** osv-scanner toolrun records its database digest ([#3120](https://github.com/dan-petty/devops-cli/issues/3120)) ([5731fac](https://github.com/dan-petty/devops-cli/commit/5731fac8c0285c36a81e77a0878237adf275685d))
+* **roadmap:** add gate tools to the runner, one shell policy ([#3111](https://github.com/dan-petty/devops-cli/issues/3111)) ([7735d8b](https://github.com/dan-petty/devops-cli/commit/7735d8b59837f398be9014e73d5a55b8d88d0a70)), closes [#3072](https://github.com/dan-petty/devops-cli/issues/3072)
+* **roadmap:** give the step AGENTS.md and routed rules ([#3107](https://github.com/dan-petty/devops-cli/issues/3107)) ([80a22eb](https://github.com/dan-petty/devops-cli/commit/80a22eb60b42ff99b8d772a06b689bc5d6f07c0e)), closes [#3097](https://github.com/dan-petty/devops-cli/issues/3097)
+* **roadmap:** run the project hooks and scoped CI in the Job ([#3112](https://github.com/dan-petty/devops-cli/issues/3112)) ([b7ab211](https://github.com/dan-petty/devops-cli/commit/b7ab2111b2dc37f9609c131f37e0279ff271a696)), closes [#3043](https://github.com/dan-petty/devops-cli/issues/3043)
+
+
+### Bug Fixes
+
+* **ai:** send the per-call sampling of LLMClient.chat ([#3126](https://github.com/dan-petty/devops-cli/issues/3126)) ([8207bdc](https://github.com/dan-petty/devops-cli/commit/8207bdc6eb7e6c2394620a5f187a5fb31c5f2a7a))
+* **argo:** replace a token that Argo CD refuses ([#3121](https://github.com/dan-petty/devops-cli/issues/3121)) ([b4955b4](https://github.com/dan-petty/devops-cli/commit/b4955b4af133ed63b77b6da2ad1a8d05d9573f0f))
+* **devcontainer:** remove CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ([#3125](https://github.com/dan-petty/devops-cli/issues/3125)) ([295c32c](https://github.com/dan-petty/devops-cli/commit/295c32cf9260c7b081aa8f6b2054e2eaa4be7115))
+* **k8s:** set q8_0 KV cache on every Ollama tier ([#3101](https://github.com/dan-petty/devops-cli/issues/3101)) ([aad0115](https://github.com/dan-petty/devops-cli/commit/aad011515daf937e9f82733057bcfed57a433d19))
+* **rag:** raise EmbeddingsError for an empty Ollama URL list ([#3118](https://github.com/dan-petty/devops-cli/issues/3118)) ([111a031](https://github.com/dan-petty/devops-cli/commit/111a0319ecd6118009d9e9ada6172dd367f89e83))
+* **security:** refuse PYTEST_ADDOPTS and npm_config_logs_dir overrides ([#3119](https://github.com/dan-petty/devops-cli/issues/3119)) ([9fe2af5](https://github.com/dan-petty/devops-cli/commit/9fe2af5a2c5941b7aab950d9c115f63463b803e7))
+
+
+### Code Refactoring
+
+* **security:** read legacy numeric hosts with getaddrinfo ([#3128](https://github.com/dan-petty/devops-cli/issues/3128)) ([41779f9](https://github.com/dan-petty/devops-cli/commit/41779f9a6959b951555d00ffea6e8a749fe8394c))
+
 ## [0.37.4](https://github.com/dan-petty/devops-cli/compare/v0.37.3...v0.37.4) (2026-11-01)
 
 

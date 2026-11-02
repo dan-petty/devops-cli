@@ -28,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_DOCS_CLASS_HAND_WRITTEN,
     CONST_DOCS_INVENTORY,
 )
+from tests.support.markdown_tables import routing_rows, tables, where_to_look
 from tests.support.paths import REPO_ROOT
 
 CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
@@ -188,27 +189,11 @@ def test_agents_md_premise_rule_closes_superseded_issues() -> None:
     )
 
 
-def _inline_hrefs(text: str) -> list[str]:
-    """The target of every link in a fragment of Markdown, such as the text of a table cell."""
-    return [
-        str(token.attrs["href"])
-        for block in _MARKDOWN.parse(text)
-        for token in block.children or ()
-        if token.type == "link_open"
-    ]
-
-
-def _routes(document: Path) -> list[list[str]]:
-    """The body rows of the routing table of an AGENTS.md: the kind of task, then what to read."""
-    [rows] = [rows for header, *rows in _tables(document) if header == ["When you", "Read"]]
-    return rows
-
-
 def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
     """Each row of the routing table of AGENTS.md links a document, and each document it links
     exists, so a moved document fails here rather than in an agent's session (#1961)."""
-    rows = _routes(_AGENTS_MD)
-    links = {task: _inline_hrefs(read) for task, read in rows}
+    rows = routing_rows(_AGENTS_MD)
+    links = where_to_look(_AGENTS_MD)
     assert (
         len(rows) >= 10,
         [task for task, hrefs in links.items() if not hrefs],
@@ -233,9 +218,9 @@ def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Pat
 
     assert (
         _broken_links(full),
-        len(_routes(full)),
+        len(routing_rows(full)),
         _broken_links(bare),
-        [task for task, _read in _routes(bare)],
+        [task for task, _read in routing_rows(bare)],
     ) == ([], len(CONST_AGENTS_MD_ROUTES) + 1, [], ["learn a `devops` command"])
 
 
@@ -484,29 +469,12 @@ _RELEASE_PLEASE_CONFIG = REPO_ROOT / "release-please-config.json"
 _CONTRIBUTING_MD = REPO_ROOT / "CONTRIBUTING.md"
 _RELEASE_CYCLE_MD = REPO_ROOT / "RELEASE_CYCLE.md"
 _CHANGELOG_TABLE_HEADER = ["Title type", "Changelog section"]
-# CommonMark with GitHub's tables, which the contributor guide uses for the changelog types.
-_TABLE_MARKDOWN = MarkdownIt("commonmark").enable("table")
-
-
-def _tables(document: Path) -> list[list[list[str]]]:
-    """Each table of the Markdown document, as rows of the source text of each cell, the header
-    row first."""
-    tables: list[list[list[str]]] = []
-    for token, following in pairwise(_TABLE_MARKDOWN.parse(document.read_text(encoding="utf-8"))):
-        match token.type:
-            case "table_open":
-                tables.append([])
-            case "tr_open":
-                tables[-1].append([])
-            case "th_open" | "td_open":
-                tables[-1][-1].append(following.content)
-    return tables
 
 
 def _changelog_rows(document: Path) -> list[list[list[str]]]:
     """The body rows of each table in the document that lists title types and changelog
     sections."""
-    return [rows for header, *rows in _tables(document) if header == _CHANGELOG_TABLE_HEADER]
+    return [rows for header, *rows in tables(document) if header == _CHANGELOG_TABLE_HEADER]
 
 
 def _visible_changelog_rows() -> list[list[str]]:
@@ -542,7 +510,7 @@ def test_contributing_md_states_the_branch_form_once_and_names_each_check() -> N
     it, or says that none does. The branch row holds the form, and the text after the table names
     each type that release-please reads, so a branch type and a title type are the same list
     (#2292)."""
-    [rows] = [rows for header, *rows in _tables(_CONTRIBUTING_MD) if header == _NAMING_TABLE_HEADER]
+    [rows] = [rows for header, *rows in tables(_CONTRIBUTING_MD) if header == _NAMING_TABLE_HEADER]
     forms = {artifact: form for artifact, form, _check in rows}
     sections = json.loads(_RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))["changelog-sections"]
     section = _naming_section(_CONTRIBUTING_MD)

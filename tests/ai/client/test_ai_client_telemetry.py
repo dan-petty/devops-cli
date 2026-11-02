@@ -15,7 +15,12 @@ from devops_cli.ai import context_budget
 from devops_cli.ai.client import network
 from devops_cli.ai.client import openai as openai_client
 from devops_cli.ai.client import unified as unified_client
-from devops_cli.ai.client.models import LLMResponse, RequestPriority, genai_provider_name
+from devops_cli.ai.client.models import (
+    CallSampling,
+    LLMResponse,
+    RequestPriority,
+    genai_provider_name,
+)
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
@@ -79,6 +84,7 @@ def _reply(
     *,
     enable_thinking: bool = True,
     priority: RequestPriority | str | None = None,
+    sampling: CallSampling | None = None,
 ) -> LLMResponse:
     return LLMResponse(
         "OK",
@@ -97,6 +103,7 @@ def _two_chunks(
     *,
     enable_thinking: bool = True,
     priority: RequestPriority | str | None = None,
+    sampling: CallSampling | None = None,
 ) -> Generator[str]:
     yield "Hello "
     yield "world"
@@ -195,7 +202,12 @@ def test_stream_is_a_client_inference_span(
 
 
 def _claude_reply(
-    _self: object, _system: str, _messages: list[Any], *, enable_thinking: bool = True
+    _self: object,
+    _system: str,
+    _messages: list[Any],
+    *,
+    enable_thinking: bool = True,
+    sampling: CallSampling | None = None,
 ) -> LLMResponse:
     return LLMResponse("OK", backend_info="claude (api.anthropic.com)", model="claude-test")
 

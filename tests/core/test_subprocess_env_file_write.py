@@ -21,6 +21,9 @@ pytestmark = pytest.mark.live("python")
 # NODE_REDIRECT_WARNINGS: Node.js wrote its warning to the file. LD_DEBUG_OUTPUT and
 # LD_PROFILE_OUTPUT: the glibc 2.43 loader wrote its debug text and its profile, but only with the
 # trigger keys LD_DEBUG and LD_PROFILE, so the guard refuses the whole LD_ family (ld.so(8)).
+# PYTEST_ADDOPTS (#2747): pytest 9.1.1 with `--junitxml=<path>` wrote a JUnit file at the path.
+# npm_config_logs_dir and npm_config_logs-dir (#2747): npm 11.19.1 and 10.9.9 wrote a debug log
+# into the directory for `npm ls`.
 REFUSED_FILE_WRITE_KEYS: tuple[str, ...] = (
     "SSLKEYLOGFILE",
     "QLOGDIR",
@@ -32,6 +35,9 @@ REFUSED_FILE_WRITE_KEYS: tuple[str, ...] = (
     "LD_PROFILE_OUTPUT",
     "LD_BIND_NOW",
     "LD_EXAMPLE",
+    "PYTEST_ADDOPTS",
+    "npm_config_logs_dir",
+    "npm_config_logs-dir",
 )
 
 ALL_CASES: tuple[str, ...] = (
@@ -85,6 +91,8 @@ def test_a_key_that_only_contains_a_file_write_name_reaches_the_child(isolate_en
         "NODE_V8_COVERAGE_EXAMPLE": "example",
         "BUILD_ID": "example",
         "OLD_LD_EXAMPLE": "example",
+        "EXAMPLE_PYTEST_ADDOPTS": "example",
+        "npm_config_logs_dirs": "example",
     }
 
     env = build_subprocess_env(env=override, isolate_env=isolate_env)

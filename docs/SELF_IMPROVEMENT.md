@@ -688,14 +688,19 @@ record in full. The two digests cover these files:
 | Trivy | the `trivy.yaml` and the `.trivyignore` that devops-cli hands the tool | the metadata file of the checks bundle for a `config` scan, else the metadata file of the vulnerability database, in the cache of Trivy |
 | kube-linter | the `kube-linter.yaml` that devops-cli hands the tool | none: the checks are in the binary |
 | Pluto | none | none: the deprecated APIs are in the binary |
-| osv-scanner | the `osv-scanner.toml` in the directory of each lockfile | none: the database has no metadata file yet |
+| osv-scanner | the `osv-scanner.toml` in the directory of each lockfile | the `all.zip` file of each ecosystem in the `osv-scalibr` directory of the offline database |
 | Ruff | each file named `.ruff.toml`, `ruff.toml` or `pyproject.toml` in the directory of each checked file and above it, up to the tree. Not a file above the tree, and not the user config file of Ruff | none: the rules are in the binary |
 | mypy | the `pyproject.toml` of the tree, else of the checkout, that `--config-file` names | none: the checks are in the package |
 
 Ruff does not stop its search at the tree. While the direct executor runs, Ruff also applies a
 config file above the tree, and the user config file in `$XDG_CONFIG_HOME/ruff` when no project
 config file exists. The record does not name these two files, so the config digest of Ruff does not
-cover them.
+cover them. The digest also does not cover a base file that a config file names with `extend`, so a
+change of that base file leaves the config digest the same.
+
+The record reads a ruleset file below a data directory of the tool, such as the database of
+osv-scanner, as a stream, whatever its size. Any other config file or ruleset file over 50 MiB
+stops the run.
 
 The record is read before the tool starts. Trivy fetches its checks bundle during a scan when the
 cache is old, so Trivy may use newer rules than the record names.

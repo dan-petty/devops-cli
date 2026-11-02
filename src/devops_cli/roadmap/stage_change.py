@@ -41,6 +41,7 @@ from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
+from devops_cli.roadmap.step_rules import rules_sections
 
 # The most characters of the summary of a pull request title (CONTRIBUTING.md, Naming): the part
 # after `<type>(<scope>): `, which the check `Semantic PR title` measures.
@@ -523,13 +524,14 @@ class MeasuredGroup:
 
 
 def _read_tokens(root: Path, text: str) -> int:
-    """The tokens of the files that the step of the group `text` reads under `root`: the files
-    that its tasks name, each packed as the step packs it (`step_files`). The step ignores a file
-    that only the `Reads:` line lists, and a name that holds no file is a file the step creates."""
+    """The tokens of what the step of the group `text` reads under `root`: the files that its
+    tasks name, each packed as the step packs it (`step_files`), and the rules of the checkout
+    that the step adds (`step_rules`). The step ignores a file that only the `Reads:` line lists,
+    and a name that holds no file is a file the step creates."""
     return sum(
-        count_tokens(packed_file(path))
+        sum(count_tokens(packed_file(path)) for path in named_files(root, group))
+        + sum(count_tokens(section) for section in rules_sections(root, group))
         for group in parse_task_groups(text)
-        for path in named_files(root, group)
     )
 
 
@@ -540,7 +542,8 @@ def measure_groups(
     shared: Sequence[str],
 ) -> list[MeasuredGroup]:
     """The measure of each group: the tokens of `shared` (the item and the files of the change
-    folder), of the group's own text, and of the files that its step reads under `root`."""
+    folder), of the group's own text, and of the files and the rules that its step reads under
+    `root`."""
     shared_tokens = sum(count_tokens(text) for text in shared)
     texts = [group_text(index, group) for index, group in enumerate(groups, start=1)]
     return [

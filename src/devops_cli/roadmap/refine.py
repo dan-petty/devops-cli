@@ -19,6 +19,14 @@ that would answer the item's newest comment. `--item` refines the item it names 
 open, New or Ready, whoever opened it and however many comments refine wrote on it, since a
 person asked for it.
 
+A part of an item that cannot be built as written, or that waits on a question or a block that only
+a person or an outside event settles, moves to new issues (`deferred`, #2423) when the rest of the
+item is Ready. Intake plans each part; `--confirm` files the parts first, each with a body that
+starts with `Split from #<issue>.`, then writes the section and sets Ready. The Ready comment names
+the new issues and the job record holds them (`RefineRecordKey.DEFERRED`). A part that intake
+cannot place keeps the item New and waiting on a person. An item that is too big for one pull
+request still waits for a person to split it.
+
 Every item refine does not set Ready gets a next step (`NextStep`, #1758), recorded in its job
 record and posted as one comment that carries `CONST_ROADMAP_REFINE_COMMENT_MARKER`: the open
 questions go to a person, a split goes to a person with the proposed items, and open dependencies
@@ -123,7 +131,16 @@ from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapRefineError
+from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.intake import (
+    IntakePlan,
+    NewCandidate,
+    Outcome,
+    apply_intake,
+    plan_intake,
+)
+from devops_cli.roadmap.intake_model import IntakeModel, build_intake_model
 from devops_cli.roadmap.refine_investigation import (
     InvestigationStopped,
     InvestigationTools,
@@ -195,6 +212,21 @@ class QuestionAnswer(BaseModel):
     body_question: int | None = None
 
 
+# The most parts that one proposal moves to new issues (#2423): intake makes one embedding call and
+# one proposal call for each part.
+_MAX_DEFERRED_PARTS: Final[int] = 3
+
+
+class DeferredPart(BaseModel):
+    """A part of the item that cannot be built as written, or that waits on a question or a block
+    that only a person or an outside event settles. Refine files it as a new issue so that the
+    rest of the item can reach Ready (#2423)."""
+
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+
+
 class RefinementProposal(BaseModel):
     model_config = ConfigDict(extra="forbid")
     problem_statement: str
@@ -206,6 +238,7 @@ class RefinementProposal(BaseModel):
     suspected_block: str | None = None
     dependencies: list[int] = Field(default_factory=list)
     block_paths: list[str] = Field(default_factory=list)
+    deferred: list[DeferredPart] = Field(default_factory=list, max_length=_MAX_DEFERRED_PARTS)
 
 
 class NextStep(StrEnum):
@@ -229,6 +262,15 @@ class NextStep(StrEnum):
 
 
 @dataclass(frozen=True)
+class PlannedDeferral:
+    """A deferred part as refine files it, its text sanitized, and the intake plan of the new
+    issue (#2423)."""
+
+    part: DeferredPart
+    plan: IntakePlan
+
+
+@dataclass(frozen=True)
 class RefinedItem:
     """An item's refinement. When `skip_reason` is set none of it is written; with `record_only`
     apply still records the hashes of the body refine saw, so the item reads as unchanged until
@@ -238,7 +280,9 @@ class RefinedItem:
     body without the alternatives job's block and refine's section, which the check for an
     unchanged item compares; `read_hash` is the hash of the body without the section alone, which
     the check before a write compares, so a block written since the read is not lost.
-    `alternatives_asked` is the URL of the covering tool that the round put to a person (#2652)."""
+    `alternatives_asked` is the URL of the covering tool that the round put to a person (#2652).
+    `deferred` holds the parts that apply files as new issues before it sets the item Ready
+    (#2423)."""
 
     item: Item
     proposal: RefinementProposal
@@ -257,6 +301,7 @@ class RefinedItem:
     read_hash: str = ""
     skip_reason: str | None = None
     record_only: bool = False
+    deferred: tuple[PlannedDeferral, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1606,9 +1651,11 @@ def refine_one_item(
     web: WebSearch | None = None,
     investigator: Any = None,
     max_context_tokens: int = 8192,
+    intake_model: IntakeModel | None = None,
 ) -> RefinedItem:
     """Refines one item through context collection, proposal, validation and, when a question
-    stays open, the investigation with `web`'s search and the `investigator` model (#2398)."""
+    stays open, the investigation with `web`'s search and the `investigator` model (#2398). A
+    Ready proposal's deferred parts get an intake plan each, with `intake_model` (#2423)."""
     web = web or WebSearch()
     current_body = store.read_issue_body(item.number)
 
@@ -1648,6 +1695,9 @@ def refine_one_item(
             {"number": number, "question": asked}
             for number, asked in enumerate(_asked_questions(current_body, covers), start=1)
         ],
+        "deferred_issues": [
+            {"number": number, "title": title} for number, title in _recorded_deferrals(store, item)
+        ],
     }
     raw_proposal: RefinementProposal = client.chat_structured(
         _prompt("roadmap_refine_proposal.md"),
@@ -1675,6 +1725,13 @@ def refine_one_item(
     step, model_details, blocked_by = next_step_of(
         store, proposal, open_questions, is_ready=is_ready
     )
+    deferred, refused = (
+        _plan_deferrals(store, item, proposal, repo=repo, model=intake_model, urls=allowed_urls)
+        if is_ready
+        else ((), None)
+    )
+    if refused is not None:
+        is_ready, step, model_details = False, NextStep.PERSON, (refused,)
     # The details hold the model's text, which goes into a comment: sanitized like the section,
     # on one line each (#1758). Each goes on its line first, so its code is the code that the
     # comment shows (#2525).
@@ -1732,7 +1789,65 @@ def refine_one_item(
         block_paths=block_paths,
         alternatives_asked=check.tool if check and check.verdict is Verdict.COVERS else None,
         read_hash=hash_text(outside),
+        deferred=deferred,
     )
+
+
+def _recorded_numbers(item: Item) -> list[int]:
+    """The issues that refine filed for the deferred parts of `item` in earlier rounds."""
+    recorded = item.job_record.get(RefineRecordKey.DEFERRED) or ""
+    return [int(number) for number in recorded.split(",") if number.strip().isdigit()]
+
+
+def _recorded_deferrals(store: RoadmapStore, item: Item) -> list[tuple[int, str]]:
+    """The number and title of each issue that refine filed for a deferred part of `item`."""
+    found = ((number, store.item(number)) for number in _recorded_numbers(item))
+    return [(number, filed.title) for number, filed in found if filed is not None]
+
+
+def _joined(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _deferral_candidate(item: Item, part: DeferredPart, urls: set[str]) -> NewCandidate:
+    """The new issue of `part`: its text sanitized like the section, and a body that starts with
+    the link to `item`. It has no `source`, so intake links no sub-issue and `item` stays a plain
+    item that the stage job takes (#2423)."""
+    title = sanitize_text(_joined(part.title), urls)
+    body = sanitize_text(part.body.strip(), urls)
+    split_from = MESSAGES.roadmap.refine_deferred_split_from.format(number=item.number)
+    return NewCandidate(title=title, body=f"{split_from}\n\n{body}")
+
+
+def _plan_deferrals(
+    store: RoadmapStore,
+    item: Item,
+    proposal: RefinementProposal,
+    *,
+    repo: str,
+    model: IntakeModel | None,
+    urls: set[str],
+) -> tuple[tuple[PlannedDeferral, ...], str | None]:
+    """The intake plan of each deferred part of a Ready proposal that no earlier round filed, or
+    the detail that keeps the item waiting on a person: a part that intake cannot place, or
+    whose text looks like a secret (#2423)."""
+    recorded = {_joined(title) for _, title in _recorded_deferrals(store, item)}
+    parts = [part for part in proposal.deferred if _joined(part.title) not in recorded]
+    if not parts:
+        return (), None
+    intake_model = model or build_intake_model()
+    planned: list[PlannedDeferral] = []
+    for part in parts:
+        candidate = _deferral_candidate(item, part, urls)
+        refused = MESSAGES.roadmap.refine_deferred_refused.format(title=candidate.title)
+        try:
+            plan = plan_intake(store, repo=repo, model=intake_model, new=candidate)
+        except SecurityError:
+            return (), refused
+        if any(decision.outcome is not Outcome.PLACE for decision in plan.decisions):
+            return (), refused
+        planned.append(PlannedDeferral(DeferredPart(title=candidate.title, body=part.body), plan))
+    return tuple(planned), None
 
 
 def _prompt(task: str) -> str:
@@ -1814,11 +1929,13 @@ def plan_refine(
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
     model: Any = None,
     investigator: Any = None,
+    intake_model: IntakeModel | None = None,
 ) -> RefinePlan:
     """Plans refinement for eligible candidates without writing anything to GitHub.
 
     `model` is the proposal step's client and `investigator` the investigation's pydantic-ai
-    model; each defaults to the `analysis` task's (#2398)."""
+    model; each defaults to the `analysis` task's (#2398). `intake_model` plans the new issues
+    of deferred parts, and is built only when a part exists (#2423)."""
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
 
@@ -1847,6 +1964,7 @@ def plan_refine(
                 web=web,
                 investigator=investigator,
                 max_context_tokens=max_tokens,
+                intake_model=intake_model,
             )
         except AICredentialsError:
             raise
@@ -2010,6 +2128,42 @@ def _record_cap_stops(store: RoadmapStore, plan: RefinePlan) -> None:
         emit(ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, 1)
 
 
+def _file_deferrals(store: RoadmapStore, refined: RefinedItem) -> tuple[int, ...] | None:
+    """File the deferred parts of `refined` through intake, and return the numbers of every part
+    of the item, the recorded ones first. When a part is not filed, record the numbers that are,
+    log a warning and return None, so the item keeps its body and its Status (#2423)."""
+    numbers = _recorded_numbers(refined.item)
+    for deferral in refined.deferred:
+        applied = apply_intake(store, deferral.plan)
+        (decision,) = deferral.plan.decisions
+        number = applied.filed[0] if applied.filed else decision.subject.number
+        if applied.failed or not applied.placed or number is None:
+            if len(numbers) > len(_recorded_numbers(refined.item)):
+                store.set_marks(refined.item, {RefineRecordKey.DEFERRED: _numbers_text(numbers)})
+            logger.warning(
+                MESSAGES.roadmap.refine_deferred_incomplete.format(
+                    number=refined.item.number,
+                    filed=len(numbers),
+                    count=len(_recorded_numbers(refined.item)) + len(refined.deferred),
+                )
+            )
+            return None
+        numbers.append(number)
+    return tuple(numbers)
+
+
+def _numbers_text(numbers: Sequence[int]) -> str:
+    return ",".join(str(number) for number in numbers)
+
+
+def _with_deferrals(comment: str | None, numbers: Sequence[int]) -> str | None:
+    """The Ready comment with the sentence that names the new issues of the deferred parts."""
+    if comment is None or not numbers:
+        return comment
+    items = ", ".join(f"#{number}" for number in numbers)
+    return f"{comment}\n\n{MESSAGES.roadmap.refine_deferred_comment.format(items=items)}"
+
+
 def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
     """Applies the planned writes to GitHub: updates issue body, marks, status and comments,
     records the body of an item too big to refine or failing on its own text, and records each
@@ -2022,6 +2176,12 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
 
         # Race condition check: ensure body did not change between read and write
         if not _outside_unchanged_since_read(store, r.item.number, r.read_hash):
+            continue
+
+        # The deferred parts are filed first: an item whose parts are not all filed is not set
+        # Ready, and the next round files the rest (#2423)
+        deferred = _file_deferrals(store, r) if r.deferred else ()
+        if deferred is None:
             continue
 
         # Write body
@@ -2039,6 +2199,8 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
             RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,
         }
+        if deferred:
+            marks[RefineRecordKey.DEFERRED] = _numbers_text(deferred)
 
         # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
         if r.is_ready:
@@ -2053,8 +2215,9 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             split_count += 1
 
         # Comment
-        if r.reason_comment:
-            store.comment(r.item.number, r.reason_comment)
+        comment = _with_deferrals(r.reason_comment, deferred)
+        if comment:
+            store.comment(r.item.number, comment)
             comments_posted += 1
 
     _record_unwritten(store, plan)
@@ -2116,8 +2279,10 @@ def render_refine_plan(plan: RefinePlan) -> str:
 
 __all__ = [
     "AcceptanceCriterion",
+    "DeferredPart",
     "DesignOption",
     "NextStep",
+    "PlannedDeferral",
     "QuestionAnswer",
     "RefineApplied",
     "RefineFailure",

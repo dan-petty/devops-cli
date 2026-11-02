@@ -93,7 +93,7 @@ def network_target_address(target: str) -> _IPAddress | None:
     spellings `inet_aton` reads (`2130706433`, `127.1`, `0x7f.0.0.1`) name the address a resolver
     dials, and an IPv4-mapped IPv6 address names the IPv4 address it carries. A target holding
     whitespace names no address, though `inet_aton` reads one before trailing whitespace.
-    Nothing is looked up.
+    No DNS query is made: the C library reads a legacy spelling with `AI_NUMERICHOST`.
     """
     clean = _strip_prose_punctuation(target)
     if not clean or any(char.isspace() for char in clean):
@@ -223,7 +223,7 @@ def classify_network_target(target: str) -> NetworkTargetClass:
 
     It is read without the punctuation prose leaves after it. A target that names an address
     (`network_target_address`) is in that address's class; a URL or `host:port` is otherwise
-    in its host's. Nothing is looked up.
+    in its host's. No DNS query is made.
     """
     clean = _strip_prose_punctuation(target)
     if is_example_phone_number(clean):
