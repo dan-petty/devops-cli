@@ -51,7 +51,8 @@
    "where": "tasks.md",
    "problem": "The failing-test-first order is wrong for a refactor. Task 1.1 says the new octal, three-part, zone-ID and unparsable tests must 'fail on the base', but the current parser already handles all of those forms, so they pass on the base. Task 1.2 then says the same command passes. The two tasks contradict each other. Task 2.1 asks to verify that the existing tests 'fail on the base', which is false. The plan gives no real fail-to-pass check. It should call these pinning tests that pass before and after.",
    "evidence": "_parse_part / _combine_ipv4_parts at validation.py:193-224 already read '0177' as octal and 3-part forms. python3 getaddrinfo output for 0177.0.0.1, 127.0.1 and fe80::1%eth0 matches the old parser's results.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "ignores_existing_code",
@@ -59,7 +60,8 @@
    "where": "tasks.md",
    "problem": "The plan does not mention an existing test that the change breaks. test_a_network_target_names_the_address_a_resolver_would_dial patches socket.getaddrinfo to raise AssertionError('no lookup may be made'). Its cases 2130706433, 127.1 and 0x7f.0.0.1, and the name cases, reach parse_numeric_ip. After the change they call getaddrinfo and raise AssertionError, which is not an OSError. The implementer must change that test's contract (allow the AI_NUMERICHOST call only), and the plan should say so. Task 2.2 would fail its own verify command.",
    "evidence": "tests/security/test_reference_address_classes.py:149-160: monkeypatch.setattr(socket, 'getaddrinfo', _no_lookup) with raise AssertionError('no lookup may be made'); parse_numeric_ip is called from reference_extractor.py:101,103.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",

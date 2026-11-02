@@ -351,6 +351,7 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("pr", "check-readiness"), 60.0, True, False),
     (("pr", "checks"), 60.0, True, False),
     (("pr", "close"), 60.0, False, False),
+    (("pr", "describe"), 60.0, True, False),
     (("pr", "diff"), 60.0, True, False),
     (("pr", "edit"), 60.0, False, False),
     (("pr", "list"), 60.0, True, False),
@@ -3079,10 +3080,10 @@ CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 8000
 CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
 # The job of `devops roadmap implement` (#2665). The longest log of a failed check, in characters
 # from its end, that the fix step reads (20,000 characters are about 5,000 tokens, and the inputs of
-# a fix step are measured against the window like those of any step); the longest "why" in a pull
-# request body, as the squash message takes it; and the longest last message of an agent in a
-# comment. The most time that the checks of a pull request may take to settle is the setting
-# `roadmap.implement.monitor_timeout_seconds`.
+# a fix step are measured against the window like those of any step); the longest pull request body
+# before its trailers, as the squash message takes it (`roadmap/pull_form.py` holds the rule,
+# #3198); and the longest last message of an agent in a comment. The most time that the checks of
+# a pull request may take to settle is the setting `roadmap.implement.monitor_timeout_seconds`.
 CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 20000
 CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS: Final[int] = 1000
 CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500

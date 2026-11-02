@@ -6973,6 +6973,30 @@ devops pr edit [OPTIONS] <number>
 | `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops pr describe`
+
+**Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body.**
+
+```bash
+devops pr describe [OPTIONS] <issue>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<issue>` | `integer` | Yes | Number of the issue that the pull request closes. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `--why` | `string` | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
+| `--attribution` | `string` | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops pr create`
 
 **Open a draft pull request, into the default branch unless --base names another.**
@@ -6982,7 +7006,12 @@ Open a draft pull request, into the default branch unless --base names another.
 Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
 review. It sets the Status of the roadmap item the pull request closes to In Progress. It also
 adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
-and scope/ai. A scope that .github/labels.yml does not declare gets no label and a warning.
+and scope/ai.
+
+It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
+Conventional Commit title with a summary of at most 60 characters and a scope that
+.github/labels.yml declares, and a body of at most 1,000 characters that ends with Closes
+#\<issue\> and the Change line. devops pr describe builds a title and a body in that form.
 
 ```bash
 devops pr create [OPTIONS]
@@ -8199,6 +8228,30 @@ devops gh pr edit [OPTIONS] <number>
 | `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+#### `devops gh pr describe`
+
+**Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body.**
+
+```bash
+devops gh pr describe [OPTIONS] <issue>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<issue>` | `integer` | Yes | Number of the issue that the pull request closes. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `--why` | `string` | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
+| `--attribution` | `string` | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 #### `devops gh pr create`
 
 **Open a draft pull request, into the default branch unless --base names another.**
@@ -8208,7 +8261,12 @@ Open a draft pull request, into the default branch unless --base names another.
 Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
 review. It sets the Status of the roadmap item the pull request closes to In Progress. It also
 adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
-and scope/ai. A scope that .github/labels.yml does not declare gets no label and a warning.
+and scope/ai.
+
+It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
+Conventional Commit title with a summary of at most 60 characters and a scope that
+.github/labels.yml declares, and a body of at most 1,000 characters that ends with Closes
+#\<issue\> and the Change line. devops pr describe builds a title and a body in that form.
 
 ```bash
 devops gh pr create [OPTIONS]

@@ -492,6 +492,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("gh", "pr", "checks"),
             ("gh", "pr", "close"),
             ("gh", "pr", "create"),
+            ("gh", "pr", "describe"),
             ("gh", "pr", "diff"),
             ("gh", "pr", "edit"),
             ("gh", "pr", "hardening-report"),

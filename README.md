@@ -391,6 +391,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops pr wait [OPTIONS] <number>` | Wait until the checks of a PR settle, then name every blocker of its merge. |
 |  | `devops pr monitor [OPTIONS] <number>` | Wait until the checks of a PR settle, then name every blocker of its merge. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, body, or milestone. |
+|  | `devops pr describe [OPTIONS] <issue>` | Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body. |
 |  | `devops pr create [OPTIONS]` | Open a draft pull request, into the default branch unless --base names another. |
 |  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review once its checks pass. |
 |  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |

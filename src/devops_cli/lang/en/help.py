@@ -948,6 +948,16 @@ class PRCommandHelp:
     create_base: str = (
         "Base branch of the pull request; the repository's default branch when omitted."
     )
+    describe: str = (
+        "Print the title and the body of the pull request that delivers an issue. The first line "
+        "is the title, then a blank line, then the body."
+    )
+    describe_issue: str = "Number of the issue that the pull request closes."
+    describe_summary: str = "Summary of the title, at most 60 characters: what the change does. The command never cuts it."
+    describe_why: str = "Text of the body: what the change does, and why. The section Why of the proposal when omitted."
+    describe_attribution: str = (
+        "A paragraph for the end of the body, after the Change line. Repeat the option for more."
+    )
     checks: str = "View status of remote CI checks on a pull request."
     view: str = "View details of a pull request."
     diff: str = "View diff of a pull request."

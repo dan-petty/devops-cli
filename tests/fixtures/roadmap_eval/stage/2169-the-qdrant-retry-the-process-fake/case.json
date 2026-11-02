@@ -55,7 +55,8 @@
    "where": "specs/rag-lookup-pause/spec.md scenario 2 and tasks.md 1.1",
    "problem": "The scenario says that with 'three retry attempts' and the default backoff the waits are 0.5, 1.0 and 1.5. With `DEFAULT_MAX_RETRIES = 3`, `_execute_with_retry` sleeps only after attempts 1 and 2 (`attempt < max_attempts`), so the waits are 0.5 and 1.0. Three waits need `max_attempts=4`. The scenario is wrong for the default, and task 1.1 repeats the error.",
    "evidence": "`src/devops_cli/config/defaults.py:465: DEFAULT_MAX_RETRIES: int = 3`. The `qdrant.py` loop is `for attempt in range(1, max_attempts + 1)` with `if attempt < max_attempts and _is_transient_qdrant_error(exc): _record_retry(...)`. The merged test had to pass `max_attempts=4` to get `[0.5, 1.0, 1.5]`. The merged spec in openspec/specs still states the wrong scenario.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The wait values of a scenario are wrong. Only the code shows this."
   },
   {
    "type": "contrived_test",
@@ -88,7 +89,8 @@
    "where": "proposal.md Capabilities vs specs/rag-lookup-pause/spec.md",
    "problem": "proposal.md lists `rag-lookup-pause` under 'Modified Capabilities', but the delta spec uses only `## ADDED Requirements`. The requirement text also names an implementation detail (tenacity) in a spec.",
    "evidence": "proposal.md '### Modified Capabilities - rag-lookup-pause: qdrant-retry-wait-uses-clock-seam'. spec.md first line: '## ADDED Requirements'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a mismatch with the Capabilities text of proposal.md, which a plan lacks."
   }
  ]
 }

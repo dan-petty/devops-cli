@@ -63,7 +63,8 @@
    "where": "specs/ai-gateway-routing/spec.md",
    "problem": "The requirement says all tiers that serve the embedding model use 'the same value'. The scenario asserts a fixed value, q8_0, on every DaemonSet. The test would fail on a later change of all tiers to another value, so the scenario is stricter than the requirement. The text also says 'every DaemonSet container env block', which the requirement does not scope to the embedding group.",
    "evidence": "spec.md: 'SHALL set OLLAMA_KV_CACHE_TYPE to the same value' vs '**THEN** every OLLAMA_KV_CACHE_TYPE value is q8_0'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "A scenario is stricter than its requirement. A person judges it."
   },
   {
    "type": "other",

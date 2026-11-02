@@ -326,6 +326,25 @@ def test_the_title_check_allows_exactly_the_declared_scopes() -> None:
     )
 
 
+def test_the_title_check_and_the_workflow_hold_the_same_rule() -> None:
+    """`roadmap/pull_form.py` is the one source of the title rule (#3198), and the workflow cannot
+    read it: an action takes static inputs. So the summary pattern of the workflow allows exactly
+    `SUMMARY_MAX_CHARS` characters, and each scope it lists passes `title_problems`."""
+    from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, title_problems
+
+    workflow = _load_workflow(WORKFLOWS_DIR / "pr-title.yml")
+    inputs = workflow["jobs"]["semantic-title"]["steps"][0]["with"]
+    labels = declared_label_names(Path(".github/labels.yml").read_text(encoding="utf-8"))
+    scopes = inputs["scopes"].split()
+    summary = "a" * SUMMARY_MAX_CHARS
+
+    assert (
+        inputs["subjectPattern"],
+        [scope for scope in scopes if title_problems(f"fix({scope}): {summary}", labels)],
+        bool(title_problems(f"fix(pr): {summary}a", labels)),
+    ) == (f"^.{{1,{SUMMARY_MAX_CHARS}}}$", [], True)
+
+
 def test_release_workflow_attest_build_provenance_contract() -> None:
     """Validate that release.yml specifies subject-name when using actions/attest-build-provenance."""
     workflow = _load_workflow(RELEASE_PATH)
