@@ -2977,6 +2977,17 @@ CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
 CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
 CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 120
 CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 4000
+# The plan run of the stage job (#3037): the tool calls, the output tokens and the model requests
+# of one run, the commits `git_log` lists, the files `repo_map` maps, and the characters of the
+# answer of `read_spec`, which a whole requirement can pass the limit of the other tools. 30 calls
+# and 50000 tokens are the budget that the refined design of #3037 gave. The requests are a few
+# more than the calls, for the tool-free turn near the limit and the retries of a reply.
+CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 30
+CONST_ROADMAP_STAGE_MAX_OUTPUT_TOKENS: Final[int] = 50000
+CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 40
+CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 20
+CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 20
+CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 8000
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.

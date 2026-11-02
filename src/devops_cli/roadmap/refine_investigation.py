@@ -60,7 +60,7 @@ _TIMED_OUT = 124
 _GIT_TIMEOUT_SECONDS = 15
 
 
-def _repository_path(text: str) -> str | None:
+def repository_path(text: str) -> str | None:
     """`text` as a path inside the repository, "" for its top, or None for a path outside it."""
     path = PurePosixPath(text.strip() or ".")
     if path.is_absolute() or ".." in path.parts:
@@ -68,10 +68,10 @@ def _repository_path(text: str) -> str | None:
     return "" if str(path) == "." else str(path)
 
 
-def cut(lines: list[str]) -> str:
-    """At most `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and `..._MAX_CHARS` characters."""
+def cut(lines: list[str], *, max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS) -> str:
+    """At most `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and `max_chars` characters."""
     kept = lines[:CONST_ROADMAP_REFINE_TOOL_MAX_LINES]
-    text = "\n".join(kept)[:CONST_ROADMAP_REFINE_TOOL_MAX_CHARS]
+    text = "\n".join(kept)[:max_chars]
     return text if len(kept) == len(lines) else f"{text}\n(more lines are left out)"
 
 
@@ -169,7 +169,7 @@ class InvestigationTools:
         Args:
             directory: The repository path of the directory. An empty text is the top.
         """
-        path = _repository_path(directory)
+        path = repository_path(directory)
         if path is None:
             return f"The path {directory} is outside the repository."
         _, out = self._git("ls-tree", "--name-only", self.sha, *([f"{path}/"] if path else []))
@@ -184,7 +184,7 @@ class InvestigationTools:
             start_line: The first line to read.
             end_line: The last line to read. 0 reads to the end, or to the line limit.
         """
-        clean = _repository_path(path)
+        clean = repository_path(path)
         if not clean:
             return f"The path {path} is outside the repository."
         code, out = self._git("show", f"{self.sha}:{clean}")
@@ -341,4 +341,5 @@ __all__ = [
     "cited_web_search",
     "cut",
     "investigate",
+    "repository_path",
 ]
