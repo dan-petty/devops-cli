@@ -1,12 +1,31 @@
 ## ADDED Requirements
 
-### Requirement: One alert fires for a stuck item
-The alert rules SHALL hold one alert that fires when an item has been in ready with a plan, or in blocked, longer than the configured time, and its message SHALL name the number of the item.
+### Requirement: The item ages have their own alert group
+The rule group `roadmap-service-items` in `k8s/monitoring/prometheus-values.yaml` SHALL hold the warning alert `RoadmapServiceItemStuck`. promtool SHALL accept it. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`, and the description SHALL point to the section "Roadmap service" of `k8s/README.md`, which SHALL say what to do.
 
-#### Scenario: The rule fires on a stuck item
-- **WHEN** promtool test rules runs the group with a sample series over the threshold
-- **THEN** The alert fires with the item number in its annotations
+#### Scenario: The selectors of the group
+- **WHEN** a test reads the selectors of the group
+- **THEN** each `devops_cli_` selector has `job="roadmap-service"` and names a series that the Service sends
 
-#### Scenario: The rule stays quiet on a fresh item
-- **WHEN** promtool test rules runs the group with a sample series under the threshold
-- **THEN** The alert does not fire
+### Requirement: A stuck item warns and is named
+`RoadmapServiceItemStuck` SHALL fire when `devops_cli_roadmap_item_age_seconds` is above 86400 seconds for `state` `blocked`, or for `state` `ready` with `plan` `true`. Its summary SHALL name the repository, the state, the age, and the item number that `devops_cli_roadmap_oldest_item_number` holds for the same `repo`, `state` and `plan`.
+
+#### Scenario: A Blocked item over a day
+- **WHEN** `promtool test rules` evaluates `state` `blocked` with the age 90000 and the number 2919
+- **THEN** the alert fires and its summary names item 2919
+
+#### Scenario: A Ready item with a plan
+- **WHEN** `promtool test rules` evaluates `state` `ready`, `plan` `true` and the age 90000
+- **THEN** the alert fires
+
+#### Scenario: A Ready item with no plan
+- **WHEN** `promtool test rules` evaluates `state` `ready`, `plan` `false` and the age 900000
+- **THEN** the alert stays quiet
+
+#### Scenario: An item under a day
+- **WHEN** `promtool test rules` evaluates `state` `blocked` with the age 80000
+- **THEN** the alert stays quiet
+
+#### Scenario: A series of another job
+- **WHEN** `promtool test rules` evaluates the same series with `job="devops-cli"`
+- **THEN** the alert stays quiet

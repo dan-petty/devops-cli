@@ -4,34 +4,56 @@
 
 Reads: `src/devops_cli/telemetry/instruments.py`, `tests/telemetry/test_telemetry_instruments.py`. Changes: `src/devops_cli/telemetry/instruments.py`, `tests/telemetry/test_telemetry_instruments.py`.
 
-- [ ] 1.1 Add a test in tests/telemetry/test_telemetry_instruments.py that INSTRUMENTS holds the six state age gauges and the claim age gauge, and verify that `uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
-- [ ] 1.2 Add ROADMAP_ITEM_AGE and ROADMAP_CLAIM_AGE instruments as gauges in seconds, add them to INSTRUMENTS and __all__, and make the test pass, and verify that `uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
+- [ ] 1.1 In `tests/telemetry/test_telemetry_instruments.py`, add a test that `INSTRUMENTS` holds `devops_cli_roadmap_item_age_seconds`, `devops_cli_roadmap_oldest_item_number` and `devops_cli_roadmap_claim_age_seconds` as gauges, that the first and the last have the unit `s`, that `ROADMAP_AGE_LABELS` is `("repo", "state", "plan")`, and that the description of each item gauge names those labels. Verify that `uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
+- [ ] 1.2 In `src/devops_cli/telemetry/instruments.py`, add `ROADMAP_ITEM_AGE`, `ROADMAP_OLDEST_ITEM` and `ROADMAP_CLAIM_AGE` as gauges after `ROADMAP_STAGE_TOTAL`, add `ROADMAP_AGE_LABELS`, and add the four names to `INSTRUMENTS` and `__all__`. Verify that `uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
 
-## 2. Compute the age from the label event time
+## 2. Read the label changes of one issue
 
-Reads: `src/devops_cli/roadmap/run.py`, `src/devops_cli/roadmap/github_store.py`, `src/devops_cli/telemetry/instruments.py`. Changes: `src/devops_cli/roadmap/run.py`, `tests/roadmap/test_roadmap_run.py`.
+Reads: `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/github_store.py`, `src/devops_cli/roadmap/memory_store.py`, `tests/roadmap/test_roadmap_github_store.py`, `tests/roadmap/test_roadmap_store_contract.py`, `tests/roadmap_github_fake.py`. Changes: `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/github_store.py`, `src/devops_cli/roadmap/memory_store.py`, `tests/roadmap/test_roadmap_github_store.py`, `tests/roadmap/test_roadmap_store_contract.py`, `tests/roadmap_github_fake.py`.
 
-- [ ] 2.1 Add a test in tests/roadmap/test_roadmap_run.py that a label event at T with a fake clock at T plus 3600 emits 3600 on the state gauge, and verify that `uv run devops ci test tests/roadmap/test_roadmap_run.py` fails on the base
-- [ ] 2.2 Read the label events of each open item, take the time of the event that set the state label, compute the age with an injectable clock, and emit the oldest age for each state and the oldest claim by repository, and verify that `uv run devops ci test tests/roadmap/test_roadmap_run.py` passes
+- [ ] 2.1 Add the tests of `label_changes`. In `tests/roadmap/test_roadmap_github_store.py`, a recorded reply for `/repos/example/roadmap/issues/950/events?per_page=100` with a `labeled` event, a `commented` event and an `unlabeled` event, none with an `issue` key, gives two changes, oldest first, with `number` 950 and the actor, label and time of each. A listing with a `Link` next page reads the second page, and a failed page raises `GitHubOperationError`. In `tests/roadmap/test_roadmap_store_contract.py`, `InMemoryRoadmapStore.label_changes` returns the `labeled` and `unlabeled` changes of one issue only, oldest first, after `set_field` calls that a stepping clock times. In `tests/roadmap_github_fake.py`, make `GitHubFake` answer `issues/<number>/events` with the seeded events of that issue. Verify that `uv run devops ci test tests/roadmap/test_roadmap_github_store.py tests/roadmap/test_roadmap_store_contract.py` fails on the base
+- [ ] 2.2 In `src/devops_cli/roadmap/store.py`, add `label_changes(number)` to `RoadmapStore`. In `src/devops_cli/roadmap/github_store.py`, add `issue_events_endpoint(repo, number)`, a payload class for an event with no `issue` key, and `GitHubRoadmapStore.label_changes`, which reads the listing through `_listing` and keeps the `labeled` and `unlabeled` events. In `src/devops_cli/roadmap/memory_store.py`, return the recorded changes of the issue that are labeled or unlabeled. Verify that `uv run devops ci test tests/roadmap/test_roadmap_github_store.py tests/roadmap/test_roadmap_store_contract.py` passes
 
-## 3. Add the stuck-item alert rule and its unit test
+## 3. Send the age gauges from the metrics report
 
-Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`. Changes: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`.
+Reads: `src/devops_cli/github/metrics.py`, `src/devops_cli/roadmap/store.py`, `src/devops_cli/telemetry/instruments.py`, `tests/github/test_github_metrics.py`, `tests/conftest.py`. Changes: `src/devops_cli/github/metrics.py`, `tests/github/test_github_metrics.py`, `tests/conftest.py`.
 
-- [ ] 3.1 Add one alert rule over the roadmap age gauges for ready with a plan and blocked, with the item number in the message, and add its promtool unit test and the pin in the alerting test, and verify that `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes
+- [ ] 3.1 In `tests/github/test_github_metrics.py`, add tests over the in-memory store with a stepping clock and the `otlp` fixture, one for each scenario of the spec: an event at T and a clock at T plus 3600 sends 3600 and the item number; the oldest of two items; a label removed and added again; the `plan` flag from `stage.pr`; an empty pair sends 0 and 0 for both flags; the oldest claim; two rounds with no change read no events and a changed Status reads one issue; a store whose `label_changes` raises `GitHubOperationError` leaves the item counts sent, sends no age and logs a warning. Add a test over `GitHubFake` that `devops gh metrics --emit-telemetry` sends no age and no request that ends in `/events`. Verify that `uv run devops ci test tests/github/test_github_metrics.py` fails on the base
+- [ ] 3.2 In `src/devops_cli/github/metrics.py`, add `ItemAgeMetric`, the field `item_ages` of `ProjectMetricsReport`, `get_item_age_metrics(store, repo, clock)` with the per-process cache and `reset_item_age_cache`, the parameters `item_ages: bool = False` and `clock` of `collect_project_metrics_report` with the typed catch, and the send of the three gauges in `emit_project_metrics_telemetry`. Add `reset_item_age_cache` to the entry `devops_cli.github.metrics` of the reset map in `tests/conftest.py`. Verify that `uv run devops ci test tests/github/test_github_metrics.py tests/invariants/test_architectural_invariants.py` passes
 
-## 4. Add the age panel to the dashboard
+## 4. Ask for the ages in the metrics row of the Service
 
-Reads: `k8s/monitoring/dashboards/project-metrics.json`, `tests/telemetry/test_telemetry_instruments.py`. Changes: `k8s/monitoring/dashboards/project-metrics.json`.
+Reads: `src/devops_cli/roadmap/run.py`, `tests/roadmap/test_roadmap_run.py`. Changes: `src/devops_cli/roadmap/run.py`, `tests/roadmap/test_roadmap_run.py`.
 
-- [ ] 4.1 Add a timeseries panel that reads the roadmap age gauges by state and repository, beside the inbox panel position, and verify that `uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
+- [ ] 4.1 In `tests/roadmap/test_roadmap_run.py`, add a test that `_run_metrics_adapter` over `InMemoryRoadmapStore` with a Blocked item sends `devops_cli_roadmap_item_age_seconds` for `state` `blocked` with the labels `repo`, `state` and `plan`, and logs no warning. Verify that `uv run devops ci test tests/roadmap/test_roadmap_run.py` fails on the base
+- [ ] 4.2 In `_run_metrics_adapter` of `src/devops_cli/roadmap/run.py`, pass `item_ages=True` to `collect_project_metrics_report`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_run.py` passes
 
-## 5. Document the age metrics
+## 5. Add the stuck-item alert and its promtool unit test
 
-Reads: `docs/TELEMETRY.md`, `src/devops_cli/telemetry/instruments.py`. Changes: `docs/TELEMETRY.md`.
+Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml`, `k8s/README.md`. Changes: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `k8s/README.md`, `tests/fixtures/prometheus_rules/roadmap_service_items_tests.yaml` (new).
 
-- [ ] 5.1 Add the age gauges and the claim gauge to the metric table of docs/TELEMETRY.md, and verify that `uv run devops ci docs` passes
-- [ ] 5.2 docs/TELEMETRY.md, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [ ] 5.1 Create `tests/fixtures/prometheus_rules/roadmap_service_items_tests.yaml` with the five cases of the spec (Blocked over a day with item 2919 in the summary, Ready with a plan over a day, Ready with no plan, Blocked under a day, a series of the job `devops-cli`). In `tests/prometheus/test_k8s_monitoring_alerting.py`, add the group `roadmap-service-items` and the fixture to `ROADMAP_SERVICE_GROUP_TESTS`, the two age series and the number series to `SERVED_SERIES`, and `("RoadmapServiceItemStuck", "warning")` to `test_the_baseline_rule_set`. Verify that `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` fails on the base
+- [ ] 5.2 In `k8s/monitoring/prometheus-values.yaml`, add the group `roadmap-service-items` after the group `roadmap-service-activity`, with `RoadmapServiceItemStuck`: `for: 0m`, severity `warning`, the literal 86400, a comment that names the reason for the literal, and a description that ends with `(k8s/README.md, Roadmap service)`. In `k8s/README.md`, add a paragraph and a table row for the alert to the section "Roadmap service", after the table of the activity group, with the command that clears it: `devops roadmap inbox`. Verify that `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes with promtool 3.15.1 on PATH
+
+## 6. Add the age panel to the project dashboard
+
+Reads: `k8s/monitoring/dashboards/project-metrics.json`, `tests/telemetry/test_telemetry_instruments.py`, `tests/prometheus/test_k8s_monitoring_dashboards.py`. Changes: `k8s/monitoring/dashboards/project-metrics.json`, `tests/telemetry/test_telemetry_instruments.py`.
+
+- [ ] 6.1 In `tests/telemetry/test_telemetry_instruments.py`, add a test that `project-metrics.json` holds the panel "Oldest Item Age by State" with the two queries of the spec and the unit `s`, that its grid position is `x` 0, `y` 34, `w` 12 and `h` 8, and that no panel overlaps another. Verify that `uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
+- [ ] 6.2 In `k8s/monitoring/dashboards/project-metrics.json`, add the panel with a new id and a description that says it shows the latest value of each series in the time range, and add 8 to `gridPos.y` of every panel at or below `y` 34. Verify that `uv run devops ci test tests/telemetry/test_telemetry_instruments.py tests/prometheus/test_k8s_monitoring_dashboards.py` passes
+
+## 7. Regenerate the documents
+
+Reads: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`. Changes: `docs/TELEMETRY.md`.
+
+- [ ] 7.1 Run `uv run devops docs generate --sync-readme`. Only `docs/TELEMETRY.md` changes: it gains three rows from the descriptions of the instruments. Verify that `uv run devops docs check` passes
+
+## Criteria
+
+- The gauges are declared instruments and are sent through `emit`.: group 3
+- The alert rule has a promtool unit test.: group 5
+- A test shows the age is computed from the label event time or the record, with a fake clock.: group 3
+- `uv run devops ci` passes.: group 7
 
 ## Workflow follow-up
 
