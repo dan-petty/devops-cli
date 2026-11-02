@@ -34,7 +34,8 @@
    "where": "specs/command-telemetry/spec.md",
    "problem": "The spec requires that `devops gh api` from a deleted directory completes without a traceback. The plan only guards Path.cwd() in _resolve_git_dir. Other code on the same startup path also calls os.getcwd() and crashes next, so the guard alone cannot satisfy the requirement. No task covers that spot or tests the command-level scenario. This is the issue's main acceptance criterion, and the plan does not deliver it. The plan's Feasibility section checked only the tracer and missed this.",
    "evidence": "I ran `devops gh api rate_limit` from a deleted directory. The first crash is tracer.py:630 in _resolve_git_dir. I then simulated the planned guard by wrapping _resolve_git_dir to return None on OSError and ran the same command. It still fails: `settings.py:1313 in _config_layers -> os.getcwd()` (called from load_settings at settings.py:1396, via run_gh -> get_github_rate_limiter, rate_limiter.py:1898). settings.py:1464 also calls `Path.cwd()` in project-config discovery. The issue's own design note only checks _normalize_code_filepath.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The tasks do not deliver the requirement. Only the code shows this."
   },
   {
    "type": "other",

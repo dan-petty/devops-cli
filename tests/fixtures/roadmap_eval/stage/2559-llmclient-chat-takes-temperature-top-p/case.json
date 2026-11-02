@@ -23,7 +23,8 @@
    "where": "tasks.md",
    "problem": "Group 1 cannot go green alone. Task 1.1 tests that the HTTP request body carries temperature 0.9 and seed 7, and 1.2 must make it pass. But Group 1 changes only unified.py. The code that writes temperature, top_p and seed into the payload (openai.py, ollama.py, claude.py) is Group 2. An implementer of Group 1 must edit the provider files too, or the step fails. The implement job hit this exact trap.",
    "evidence": "tasks.md group 1: 'Changes: src/devops_cli/ai/client/unified.py, tests/ai/client/test_unified_sampling.py' and 1.2 'verify that uv run devops ci test tests/ai/client/test_unified_sampling.py passes'. Group 2 changes openai.py/ollama.py/claude.py. The #2559 implement comment says 'Stopped at group 1 ... UsageLimitExceeded ... request_limit of 80', and its discarded diff shows edits to claude.py and ollama.py made during group 1.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "other",
@@ -39,7 +40,8 @@
    "where": "proposal.md",
    "problem": "The plan ignores the sampling guards, so two outcomes are possible. (a) OpenAI-compatible: _apply_sampling_and_limits returns early for reasoning models and skips temperature and top_p when use_model_sampling is true. (b) Ollama: the same use_model_sampling guard. (c) Claude: _build_anthropic_kwargs sends sampling only if send_sampling (capabilities, not adaptive thinking, not use_model_sampling). The plan says 'per-call value overrides config when not None' with no rule for these cases. The existing spec says use_model_sampling makes requests carry neither temperature nor top_p, so a per-call value either breaks that requirement or must be ignored. The cache_opts also nulls temperature and top_p under the same flags. The implementer must choose, and tests 2.1 and 3.1 will differ by the choice.",
    "evidence": "openai.py lines 156-174: 'if self._supports_reasoning(): ... return' and 'if not getattr(self._config, \"use_model_sampling\", False):'. ollama.py lines 297-303 same guard. claude.py lines 138-148: 'send_sampling = (_capabilities_support_sampling(caps) and not use_adaptive and not getattr(config, \"use_model_sampling\", False))'. unified.py lines 784-798 null temperature/top_p when use_model_sampling or supports_reasoning. openspec/specs/ai-model-sampling/spec.md: 'Model-level sampling option ... requests SHALL omit temperature and top_p'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "ignores_existing_code",
@@ -47,7 +49,8 @@
    "where": "tasks.md",
    "problem": "The Claude steps name the wrong code. Task 2.2 says to change _claude_messages and 'the Claude message body'. The Claude request is built by the module function _build_anthropic_kwargs(config, sdk_client, system, messages, limit, ...), which reads config and sets extra_body. _claude_messages only calls it. The plan never names _build_anthropic_kwargs, never lists a new argument for it, and 2.1 tests 'the request body' for Claude although Claude uses the Anthropic SDK, not a raw httpx2 transport as 1.1 assumes ('fake httpx2 transport').",
    "evidence": "claude.py lines 101-150 (_build_anthropic_kwargs, extra_body['temperature'] = float(config.temperature)) and lines 307-325 (_claude_messages calls _build_anthropic_kwargs(self._config, sdk_client, ...)).",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "task_order",
@@ -55,7 +58,8 @@
    "where": "tasks.md",
    "problem": "Group 3 contradicts Group 1 and its file list is wrong. 1.2 already adds per-call values to cache_opts, so the 'fails on the base' check of 3.1 can only fail before Group 1, and it passes at the start of Group 3. 3.2 then says 'Verify ... already uses the per-call values' and 'If ... generate_key does not include seed, add seed', but cache_opts is in unified.py, which Group 3 does not list under Changes (only the test file). response_cache.py generate_key hashes the options dict, so the real work is only to add a seed key to cache_opts in Group 1. Group 3 is a test-only group with a conditional code step.",
    "evidence": "tasks.md group 3: 'Changes: tests/ai/client/test_cache_key_sampling.py' and 3.2 'If the cache key generation ... does not include seed, add seed to the options dict'. cache_opts at unified.py line 782 has no seed key.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "missing_path",
@@ -72,7 +76,8 @@
    "where": "specs/ai-model-sampling/spec.md",
    "problem": "The delta uses '## ADDED Requirements' on a capability that already exists, and it overlaps existing requirements. 'per-call-sampling-in-cache-key' repeats the meaning of the existing 'Reply cache key includes request sampling'. 'config-default-fallback' (request uses config) conflicts with the existing 'Model-level sampling option' (no temperature or top_p under use_model_sampling). proposal.md lists the capability as Modified but the spec file uses ADDED. A MODIFIED delta for the cache key requirement, and a stated exception for use_model_sampling, are needed so that the archived spec does not contradict itself.",
    "evidence": "openspec/specs/ai-model-sampling/spec.md has '### Requirement: Reply cache key includes request sampling' (line 55) and '### Requirement: Model-level sampling option' (line 41). The plan's spec.md starts '## ADDED Requirements'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The added requirement repeats an existing one under another name. The duplicate rule compares names, and a case holds no requirement names of the base spec."
   },
   {
    "type": "ignores_existing_code",
@@ -80,7 +85,8 @@
    "where": "tasks.md",
    "problem": "Tests go in three new files under tests/ai/client/, but sampling tests already live in tests/ai/test_ai_model_sampling.py, and route_llm_clients in tests/llm_stream_fakes.py is the existing fake for 'a fake model at the HTTP edge'. The plan does not name this helper. 'Reads: none' on every group, although each group edits existing files the implementer must read. Tasks 1.3, 2.3 and 3.3 say 'Change no document, run docs generate --sync-readme' and are a no-op in each group. The streaming path (_dispatch_stream) is not covered or declared out of scope.",
    "evidence": "ls tests/ai shows test_ai_model_sampling.py. tests/llm_stream_fakes.py line 229 defines route_llm_clients(monkeypatch, handler). The existing spec 'Streamed calls preserve sampling and trace headers' covers the stream path.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "criterion_dropped",
@@ -88,7 +94,7 @@
    "where": "tasks.md",
    "problem": "Removing **kwargs from chat and chat_messages could break callers, and the plan has no task to list or check them (a grep of src for other keywords). A grep of src found no .chat( call with max_tokens, stream, timeout or similar keywords, so the risk is probably low, but the plan did not record it. The Feasibility also cites issue text '_run_model_job' as _chat_and_judge, which is correct on main (analysis.py line 1061), so no fix is needed there.",
    "evidence": "grep over src for '.chat(' and '.chat_messages(' with those keywords returned nothing; analysis.py lines 1081-1084 pass temperature, top_p, seed.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "contrived_test",

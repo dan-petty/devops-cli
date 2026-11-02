@@ -10,7 +10,11 @@ from urllib.parse import urlsplit
 
 import httpx2
 
-from devops_cli.config.constants import CONST_URL_CANDIDATE_RE
+from devops_cli.config.constants import (
+    CONST_MCP_SECRET_PARAMETER_WORDS,
+    CONST_REDACTED_LOG_VALUE,
+    CONST_URL_CANDIDATE_RE,
+)
 from devops_cli.core.validation import is_loopback_host
 
 # The keyword patterns below match a word following "secret", "token" or "password". In
@@ -383,6 +387,30 @@ def mask_dict_secrets(data: Any, syntax: Literal["code", "data"] | str = "data")
         return [mask_dict_secrets(item, syntax=syntax) for item in data]
     if isinstance(data, str):
         return mask_secrets(data, syntax=syntax)
+    return data
+
+
+def is_secret_parameter_name(name: str) -> bool:
+    """Whether the name of a tool parameter or an argument suggests a secret value (#3222)."""
+    lowered = name.lower()
+    return any(word in lowered for word in CONST_MCP_SECRET_PARAMETER_WORDS)
+
+
+def mask_secret_named_values(data: Any) -> Any:
+    """Replace each value under a secret-suggesting name, at any depth of dicts and lists.
+
+    `mask_secrets` finds a secret by its form, and a key such as `api_key` hides a value of any
+    form. So the name decides, and `mask_secrets` stays the second guard on the text that remains.
+    """
+    if isinstance(data, dict):
+        return {
+            key: CONST_REDACTED_LOG_VALUE
+            if is_secret_parameter_name(str(key))
+            else mask_secret_named_values(value)
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [mask_secret_named_values(item) for item in data]
     return data
 
 

@@ -16,6 +16,7 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     StructuredOutputValidationError,
 )
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_TOOL_MAX_CALLS
 from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap.stage import StagedChange, plan_item
 from devops_cli.roadmap.stage_change import StageProposal
@@ -26,6 +27,7 @@ from devops_cli.roadmap.stage_eval_cases import (
     StageCase,
     load_cases,
 )
+from devops_cli.roadmap.stage_eval_gates import PENDING_GATES
 from devops_cli.roadmap.stage_eval_run import (
     CaseRun,
     Outcome,
@@ -144,7 +146,7 @@ def test_a_plan_run_that_spends_its_budget_ends_the_case_refused_with_the_limit(
 ) -> None:
     case = _live_case(cases, stage_repo)
     read = ToolCallPart("read_file", {"path": "src/devops_cli/sample.py"})
-    script = Script(ModelResponse(parts=[read] * 31))
+    script = Script(ModelResponse(parts=[read] * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1)))
 
     run = run_case(case, _client(model_fake), stage_repo.clone, toolbox=script.model())
 
@@ -153,6 +155,17 @@ def test_a_plan_run_that_spends_its_budget_ends_the_case_refused_with_the_limit(
         None,
         True,
     )
+
+
+def test_a_reply_that_says_the_premise_is_false_ends_the_case_returned(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    model_fake.answer(StageProposal.model_validate({"premise_failed": "The premise is false."}))
+
+    run = run_case(case, _client(model_fake), stage_repo.clone)
+
+    assert (run.outcome, run.calls) == (Outcome.RETURNED, 1)
 
 
 def test_a_first_reply_that_passes_has_no_problem(
@@ -166,7 +179,7 @@ def test_a_first_reply_that_passes_has_no_problem(
     assert (run.outcome, run.calls, run.first) == (
         Outcome.STAGED,
         1,
-        {GateName.PATHS: [], GateName.KIND: []},
+        {GateName.PATHS: [], GateName.KIND: [], GateName.CRITERIA: []},
     )
 
 
@@ -315,21 +328,26 @@ def test_the_score_counts_avoided_and_caught_defects_for_each_type_that_a_gate_c
         Outcome.STAGED: 3,
         Outcome.REFUSED: 0,
         Outcome.OVER_BUDGET: 0,
+        Outcome.RETURNED: 0,
         Outcome.FAILED: 1,
     }
 
 
-def test_a_type_with_no_gate_has_a_count_and_no_rate(cases: list[StageCase]) -> None:
+def test_a_type_with_no_gate_has_a_count_and_no_rate(
+    cases: list[StageCase], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No type waits for a gate now (#3208), so the test plans a gate for one type."""
+    monkeypatch.setitem(PENDING_GATES, DefectType.IGNORES_EXISTING_CODE, "#9999")
     score = score_runs("model-x", cases, [])
 
     rows = {row.type: row for row in score.rows}
 
-    assert rows[DefectType.FALSE_PREMISE].gate is GateName.PENDING
+    pending = rows[DefectType.IGNORES_EXISTING_CODE]
+    assert pending.gate is GateName.PENDING
+    assert pending.cases > 0
+    assert (pending.avoided, pending.rate) == (None, None)
+    assert rows[DefectType.FALSE_PREMISE].gate is GateName.NONE
     assert rows[DefectType.FALSE_PREMISE].cases > 0
-    assert (rows[DefectType.FALSE_PREMISE].avoided, rows[DefectType.FALSE_PREMISE].rate) == (
-        None,
-        None,
-    )
     assert rows[DefectType.OTHER].gate is GateName.NONE
 
 

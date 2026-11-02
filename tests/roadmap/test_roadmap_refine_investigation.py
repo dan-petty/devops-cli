@@ -38,6 +38,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
     CONST_ROADMAP_RUN_ERROR_CHARS,
 )
+from devops_cli.roadmap import refine
 from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
@@ -125,6 +126,22 @@ def store() -> InMemoryRoadmapStore:
     return s
 
 
+@pytest.fixture
+def window(monkeypatch: pytest.MonkeyPatch) -> Callable[[int], None]:
+    """Set the context window of the `analysis` task that a refine investigation reads."""
+
+    def set_window(tokens: int) -> None:
+        monkeypatch.setattr(refine, "analysis_window", lambda: tokens)
+
+    return set_window
+
+
+@pytest.fixture
+def wide_window(window: Callable[[int], None]) -> None:
+    """A window that the messages of a run never fill, so the counts of requests and calls bind."""
+    window(10**9)
+
+
 class _FirstPhase:
     """The proposal step's client: it answers every proposal request with `proposal`."""
 
@@ -197,6 +214,7 @@ def test_a_proposal_with_nothing_open_runs_no_investigation(
     assert (plan.refined_items[0].next_step, script.seen) == (NextStep.READY, [])
 
 
+@pytest.mark.usefixtures("wide_window")
 def test_the_function_tools_go_when_the_budget_is_nearly_spent(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
@@ -214,6 +232,26 @@ def test_the_function_tools_go_when_the_budget_is_nearly_spent(
     ) == (NextStep.READY, [3] * (CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS - 1) + [0])
 
 
+def test_the_window_of_the_analysis_task_ends_the_tools_before_the_counts_do(
+    git_repo: Path, store: InMemoryRoadmapStore, window: Callable[[int], None]
+) -> None:
+    """A refine investigation reads the context window of the `analysis` task, so a run on a
+    small window ends its tools after a few turns and not after the 30 requests that the counts
+    allow (#3206)."""
+    window(6000)
+    script = Script(call("read_file", path="../outside.py"), without_tools=_SETTLED)
+
+    plan = _round(store, git_repo, _FIRST, script)
+
+    offered = [len(tools) for tools in script.tools_offered]
+    assert (plan.refined_items[0].next_step, offered[-1], len(offered) < 10) == (
+        NextStep.READY,
+        0,
+        True,
+    )
+
+
+@pytest.mark.usefixtures("wide_window")
 def test_a_turn_whose_calls_pass_the_budget_keeps_the_first_proposal(
     git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -487,6 +525,7 @@ def test_a_tool_answers_each_failure_as_text(git_repo: Path) -> None:
     )
 
 
+@pytest.mark.usefixtures("wide_window")
 def test_the_function_tools_go_when_too_few_tool_calls_are_left(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
@@ -499,7 +538,10 @@ def test_the_function_tools_go_when_too_few_tool_calls_are_left(
 
     plan = _round(store, git_repo, _FIRST, script)
 
-    calls_left = [CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS - 6 * turn for turn in range(4)]
+    turns = CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS // 6 + 1
+    calls_left = [
+        CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS - 6 * turn for turn in range(turns)
+    ]
     assert (
         plan.refined_items[0].next_step,
         [len(offered) for offered in script.tools_offered],
