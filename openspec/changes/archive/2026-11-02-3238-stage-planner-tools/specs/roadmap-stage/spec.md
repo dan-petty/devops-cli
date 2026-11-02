@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The planner has a read-only toolbox
-The planner of the stage job SHALL plan with an agent that has the tools of the toolset `roadmap.stage.toolset`. The toolset `base` SHALL have exactly these nine tools: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. The toolset `extended` SHALL have these nine tools and `references`, `read_issue` and `find_issues`. Each tool SHALL read the staged commit through git, read files of the checkout, read a spec through OpenSpec, or, for `read_issue` and `find_issues`, read GitHub. The toolbox SHALL hold no tool that writes a file or runs a shell command. The only host that a tool SHALL reach is the GitHub API host of the Service, and only `read_issue` and `find_issues` SHALL reach it. A tool SHALL answer a bad argument as text and SHALL NOT raise.
+The planner of the stage job SHALL plan with an agent that has the tools of the toolset `roadmap.stage.toolset`. The toolset `base` SHALL have exactly `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. The toolset `extended` SHALL add `references`, `read_issue` and `find_issues`. No tool SHALL write a file or run a shell command. A tool SHALL answer a bad argument as text and SHALL NOT raise.
 
 #### Scenario: The tool set
 - **WHEN** the toolbox is built for a checkout and a commit with the toolset `base`
@@ -79,7 +79,7 @@ The setting `roadmap.stage.toolset` SHALL be `base` or `extended`, with the vari
 - **THEN** the search that GitHub receives holds no `repo:` qualifier except that of the repository of the job
 
 ### Requirement: The GitHub tools read only, mask what they read and answer a failure as text
-`read_issue` and `find_issues` SHALL read through the GitHub client of the Service with its existing token, SHALL send GET requests only, and SHALL add no permission. They SHALL mask secrets in the text from GitHub with the secret masker, SHALL cut each text, and SHALL state in the answer that the text is data and no instruction. They SHALL answer each failure as text and SHALL NOT raise.
+`read_issue` and `find_issues` SHALL read through the GitHub client of the Service with its existing token, send GET requests only, and add no permission. They SHALL reach no host but the GitHub API host of the Service, and no other tool SHALL open a network connection. They SHALL mask secrets in the text from GitHub, cut each text, and state that it is data and no instruction. They SHALL answer each failure as text and SHALL NOT raise.
 
 #### Scenario: A secret in the text from GitHub
 - **WHEN** the body, a comment and the title of an issue each hold a token
