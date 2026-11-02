@@ -47,6 +47,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
     assert {total.gate.name: (total.known > 0, total.missed) for total in report.totals()} == {
         GateName.PATHS: (True, 0),
         GateName.KIND: (True, 0),
+        GateName.CRITERIA: (False, 0),
     }
 
 
@@ -184,11 +185,12 @@ def test_a_defect_that_no_gate_judges_fails_nothing(cases: list[StageCase]) -> N
     assert replay.failures == []
 
 
-def test_the_gates_and_the_pending_gates_cover_each_type_once() -> None:
+def test_the_gates_and_the_pending_gates_cover_each_type_once_but_the_two_no_gate_judges() -> None:
     caught = {gate.catches for gate in GATES}
+    unjudged = {DefectType.OTHER, DefectType.FALSE_PREMISE}
 
     assert caught.isdisjoint(PENDING_GATES)
-    assert caught | set(PENDING_GATES) | {DefectType.OTHER} == set(DefectType)
+    assert caught | set(PENDING_GATES) | unjudged == set(DefectType)
 
 
 def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests_only_change(
@@ -210,3 +212,53 @@ def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests
         for problem in replay.problems[GateName.PATHS]
     )
     assert replay.failures == []
+
+
+ACCEPTANCE_BODY = "Text.\n\n### Acceptance criteria\n\n- [ ] First.\n- [ ] Second.\n"
+
+
+def _with_criteria(case: StageCase, criteria: list[dict[str, object]]) -> StageCase:
+    return case.model_copy(
+        update={"issue_body": ACCEPTANCE_BODY, "plan": {**case.plan, "criteria": criteria}}
+    )
+
+
+def test_the_criteria_gate_refuses_a_plan_that_leaves_a_criterion_out(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    one = [{"criterion": "First.", "group": 1, "reason": None}]
+
+    problems = run_gates(PlanUnderTest.of_case(_with_criteria(good, one)))
+
+    assert [p for p in problems[GateName.CRITERIA]] == [
+        'The issue lists the acceptance criterion "Second.", and `criteria` has no entry with '
+        "this text. Add an entry that copies the text, with the number of the group that "
+        "delivers it or pending-person and a reason."
+    ]
+
+
+def test_the_criteria_gate_passes_a_plan_that_maps_every_criterion(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    both = [{"criterion": t, "group": 1, "reason": None} for t in ("First.", "Second.")]
+
+    assert not replay_case(_with_criteria(good, both)).refused
+
+
+def test_a_recorded_plan_has_no_criteria_list_so_the_criteria_gate_does_not_judge_it(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    body = good.model_copy(update={"issue_body": ACCEPTANCE_BODY})
+
+    assert run_gates(PlanUnderTest.of_case(body))[GateName.CRITERIA] == []
+
+
+def test_the_dropped_criterion_defects_of_the_set_wait_for_no_gate(cases: list[StageCase]) -> None:
+    dropped = [d for c in cases for d in c.defects if d.type is DefectType.CRITERION_DROPPED]
+
+    assert dropped
+    assert {d.gate for d in dropped} == {GateName.NONE}
+    assert DefectType.CRITERION_DROPPED not in PENDING_GATES

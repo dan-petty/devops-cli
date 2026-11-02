@@ -23,7 +23,7 @@
    "where": "proposal.md",
    "problem": "The plan omits the sixth defect PR, #2516 (issue #2426, config audit-keys scans each merged config file). Issue #2526 holds six PRs. A comment of the issue adds #2516, and the refined body lists it with a CONTRIBUTING.md guardrail. The plan, the PR body and the spec say five. The implementer will leave #2516 without a guardrail. The issue then cannot close complete.",
    "evidence": "Issue comment (2026-10-28T20:21:50Z): \"A sixth defect PR has the same finding: #2516 ... This issue holds it with the other five.\" The refine body: \"#2516 goes to CONTRIBUTING.md (config management).\" The PR body: \"Five defect PRs\"; tasks.md has only one CONTRIBUTING.md task group, for the Loki CVE.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "criterion_dropped",
@@ -31,7 +31,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section does not check that the change can meet the acceptance criterion of the issue. The issue requires that `devops pr hardening-report` reports each PR as hardened. The audit counts only lines added by the defect PR itself. A later PR cannot change the report for an old PR. The five old PRs stay unhardened whatever this change adds. The plan names no verification of that criterion and does not say that the criterion cannot be met. Under rule 2 the plan must record this evidence, and either re-scope the criterion or state that the guardrail text is the only deliverable.",
    "evidence": "src/devops_cli/github/defect_classifier.py audit_pr_hardening(pr_number, title, labels, files): it loops over `files` (the files of that PR) and counts `additions` per surface with match_hardening_surface. Issue criterion: \"WHEN devops pr hardening-report runs for each of the six PRs ... THEN each PR is reported as hardened\". The Feasibility section only says the five PRs \"are reported as unhardened\" and shows no command output.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "verify_form",
@@ -71,7 +71,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section makes claims that its own check commands do not support. It says CONTRIBUTING.md section 1 \"holds the process rules\" and the plan has a \"dependency section context\". CONTRIBUTING.md has no dependency section and no mention of CVE or sub-chart. The planned CVE sentence goes into \"Development Philosophy & Core Invariants\", where it does not fit, and it asks for a new rule (\"found and accepted\" with a CVE id in the PR body) that the issue does not request. No real evidence is given for the Loki claim either (for example the CVE reference in #2470).",
    "evidence": "grep -n -i 'known CVE\\|sub-chart\\|CVE' CONTRIBUTING.md returns no line. CONTRIBUTING.md headings: 1 Development Philosophy & Core Invariants, 2 Local Environment Setup, 3 Test-First, 4 Git Hygiene, 5 Naming, 6 Routine Tasks. Issue table: \"Loki runs from the grafana-community chart on Loki 3.7.9 (CVE-2026-21729)\". The refine body names \"CONTRIBUTING.md (dependency management)\".",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

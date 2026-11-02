@@ -49,7 +49,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds no evidence from commands. It says 'The context shows ...' four times. It lists grep commands for the implementer to run later. Rule 2 and openspec/config.yaml need real evidence, checked against the real system. The check would have found the 36 moved paths, the missing k8s_fakes.py and the wrong site counts.",
    "evidence": "proposal.md Feasibility bullets: 'The context shows tests/ai/review/test_runner.py importing ...', 'First checks the implementation runs: (1) grep -rn ...'. No command output is quoted.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -57,7 +57,7 @@
    "where": "tasks.md",
    "problem": "Site counts and file-specific claims are wrong on current main. Task 13.2 says to remove a patch from test_core_repo.py, but the file has none. Task 14.2 says 'Remove the 2 private imports' in tests/commands/test_pr.py, but the file has none; its one site is monkeypatch.setattr('devops_cli.commands.pr.set_delivered_status', ...). Task 12.2 says 3 patch sites in test_ci_repeat and the file has 4 monkeypatch/patch hits. Task 8.2 says 11 patch sites in gpu_placement and the file has 8. Counts came from the audit at df8e2ee5, not from a new check.",
    "evidence": "git show origin/main:tests/core/test_core_repo.py: imports_priv=0 patch=0. git show origin/main:tests/commands/test_pr.py: imports_priv=0, line 137 is the only set_delivered_status patch. tests/commands/k8s/test_k8s_gpu_placement.py: patch hits=8. tests/commands/test_ci_repeat.py: patch hits=4.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",
@@ -82,7 +82,7 @@
    "where": "tasks.md",
    "problem": "Two acceptance criteria of the issue have no task. (a) 'The pull request names each test it deletes and why' and the product-code removal rule (#1307 Q27) have no task or check. (b) The criterion about #1309 ceilings: #1309 is closed, but the plan neither checks whether ceilings exist nor lowers them. The plan also says nothing about the 'Dependencies: #2143', which is now closed.",
    "evidence": "gh api issues/1309 -> state closed, 'ratchets hold internal patches, private imports ...'; issue #2167 acceptance criteria lines 3, 4, 5; grep of tasks.md for '1309', 'ceiling' and 'names each test' -> no match.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",

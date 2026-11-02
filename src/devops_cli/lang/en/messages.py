@@ -2679,6 +2679,24 @@ class RoadmapMessages:
         "when a person runs it with --item {number}.\n\nThe task groups:\n\n{groups}"
     )
     stage_split_record: str = "{title} ({tokens} tokens)"
+    stage_probe_path_present: str = "The path `{path}` is a file of the staging commit."
+    stage_probe_path_missing: str = "The path `{path}` is no file of the staging commit. {removal}"
+    stage_probe_removed: str = "Commit {commit} deleted or renamed it."
+    stage_probe_path_never: str = "No commit in the history deleted or renamed it."
+    stage_probe_defined: str = "`{name}` is defined at {where}"
+    stage_probe_undefined: str = "`{name}` has no definition at the staging commit. {removal}"
+    stage_probe_touched: str = "Commit {commit} last added or removed its text."
+    stage_probe_name_never: str = "No commit in the history added or removed its text."
+    stage_probe_skipped: str = "Not probed, the bound of {bound} commands is reached: {items}"
+    stage_comment_premise_failed: str = (
+        "{marker}\nThe stage job returned the item to New. The premise of the issue does not "
+        "hold at the staging commit, so the job planned no change and opened no pull request.\n\n"
+        "Evidence:\n\n{evidence}"
+    )
+    stage_heading_returned: str = "## Returned: the premise is false"
+    stage_returned_line: str = "- #{number} {title}: {evidence}"
+    stage_premise_plan_missing: str = "A reply needs `{field}` unless it sets `premise_failed`."
+    stage_eval_returned: str = "The reply says that the premise of the issue is false."
     stage_kept_reason: str = (
         "The branch holds {count} commit(s) by another author past the default branch, so the "
         "job keeps the branch and its draft."
@@ -2705,8 +2723,8 @@ class RoadmapMessages:
     stage_removal_gone: str = " is gone, and the job clears the record"
     stage_kept_line: str = "- #{number}: `{branch}`: {reason}"
     stage_applied: str = (
-        "Staged {staged} item(s), stopped {stopped} on the budget, removed {removed} staged "
-        "branch(es)."
+        "Staged {staged} item(s), stopped {stopped} on the budget, returned {returned} on a "
+        "false premise, removed {removed} staged branch(es)."
     )
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
@@ -2822,6 +2840,22 @@ class RoadmapMessages:
         "openspec/specs/{capability}/spec.md already has it. Change it with modified, or give "
         "the new requirement another name."
     )
+    stage_problem_criterion: str = (
+        'The issue lists the acceptance criterion "{criterion}", and `criteria` has no entry with '
+        "this text. Add an entry that copies the text, with the number of the group that "
+        "delivers it or pending-person and a reason."
+    )
+    stage_problem_criterion_group: str = (
+        'The entry of `criteria` for "{criterion}" names group {group}, and the plan has '
+        "{count} groups."
+    )
+    stage_criterion_bad_group: str = "A criterion group is a number from 1, not {group}."
+    stage_criterion_no_reason: str = (
+        'The criterion "{criterion}" is pending-person and has no reason.'
+    )
+    stage_criteria_title: str = "Criteria"
+    stage_criteria_line: str = "{criterion}: group {group}"
+    stage_criteria_pending: str = "{criterion}: pending-person, {reason}"
     stage_problem_path: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
         "group up to group {group} creates it. {hint} Name a file that exists, or make the group "

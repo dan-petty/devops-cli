@@ -23,7 +23,7 @@
    "where": "proposal.md / tasks.md",
    "problem": "The plan skips the measure-first work. The issue says: measure first, split one run, rank the first imports, then apply the change with the largest share. Acceptance needs three-run CPU numbers, a ranked import list, a drop of at least 5% in CPU time, and no rise in the Tests & Coverage median. No task measures anything, and no task checks the 5% target. The proposal uses the issue's numbers (287/151/136 s) as its Feasibility. It makes no new measurement and checks no candidate against the real system. The three checks listed in Feasibility only 'confirm' counts and are not run in any task. Rule 2 says to check the premise against the real system first.",
    "evidence": "Issue 2371: 'Measure first. Report CPU time ... over three runs on an idle host' and 'Acceptance: ... at least 5% lower in CPU time'. tasks.md has one group, 1.1 to 1.3, with no measurement step. Only issue figures appear in proposal.md Why and Feasibility.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -31,7 +31,7 @@
    "where": "proposal.md / design.md",
    "problem": "The chosen fix cannot cut CPU time. A worker imports each heavy module once, in a test body or in a fixture. Moving the import to a session fixture moves the cost. It does not remove it. It adds cost on workers that never use a module. The issue itself says that a test that carries the import cost moves it to the next test. Also, 55 test files import pydantic_ai, anthropic, kubernetes or textual at module top level. Collection loads those modules before any session fixture runs. The fixture is then a no-op for those modules. The design says the fixture 'targets the root cause' and that 'The issue identifies [it] as the largest share'. The issue does not say that: it lists three candidates and asks for numbers.",
    "evidence": "grep -rlE '^\\s*(import|from) (pydantic_ai|anthropic|kubernetes|textual)' tests | wc -l -> 55 (for example tests/roadmap/test_roadmap_implement_submit.py). Issue text: 'A test that carries the import cost of its worker moves that cost to the next test when the test goes.' design.md: 'the session fixture targets the root cause (repeated imports)'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

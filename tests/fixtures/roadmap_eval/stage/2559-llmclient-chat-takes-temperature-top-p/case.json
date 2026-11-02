@@ -88,7 +88,7 @@
    "where": "tasks.md",
    "problem": "Removing **kwargs from chat and chat_messages could break callers, and the plan has no task to list or check them (a grep of src for other keywords). A grep of src found no .chat( call with max_tokens, stream, timeout or similar keywords, so the risk is probably low, but the plan did not record it. The Feasibility also cites issue text '_run_model_job' as _chat_and_judge, which is correct on main (analysis.py line 1061), so no fix is needed there.",
    "evidence": "grep over src for '.chat(' and '.chat_messages(' with those keywords returned nothing; analysis.py lines 1081-1084 pass temperature, top_p, seed.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "contrived_test",

@@ -63,7 +63,7 @@
    "where": "proposal.md",
    "problem": "Feasibility cites 'identifier match at line 90' and gives evidence by reading code only. It does not show command output. The pattern evidence is correct (pinned_charts at k8s_tree.py:60, test at test_k8s_manifests.py:592), so the premise holds. The 'Why' also repeats the issue number ('#2519:') as the first word, which is fine.",
    "evidence": "tests/core/test_k8s_local_path_placement.py:90 `CHART_CLAIMS: dict[`; tests/support/k8s_tree.py:60 `def pinned_charts() -> frozenset[tuple[str, str]]`; check-runs for 247dd3cc: all success or skipped, `openspec check` passed in a worktree at the head sha.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "contrived_test",

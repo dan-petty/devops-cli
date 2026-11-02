@@ -23,7 +23,7 @@
    "where": "tasks.md (1.2), spec.md, design.md",
    "problem": "The plan names the command to run as `devops k8s credentials sync`. That command does not exist. The real command is `devops k8s sync-secrets`. A helper built from task 1.2 would print a wrong fix hint, and a test could assert the wrong text.",
    "evidence": "tasks.md 1.2: 'raises ArgoError naming argocd.token and devops k8s credentials sync'. `git grep -n \"credentials sync\" origin/main -- src README.md docs` finds no match. docs/commands/k8s.md has '## `devops k8s sync-secrets`' (Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring).",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",
@@ -51,7 +51,7 @@
    "where": "proposal.md, design.md, tasks.md",
    "problem": "The plan covers only three commands. Two other Argo CD API callers use the same stored token with a raw `raise_for_status` and have the same traceback: `fleet.py` (used by fleet and sync commands) and `gitops.py`. The plan does not name them as out of scope or as a follow-up. The design says 'duplicating ... across four or more commands', and the issue title says 'each argo API command', yet only three are changed. After the change, `devops argo sync` and the gitops sync still end in a traceback on a refused token.",
    "evidence": "git grep on origin/main: src/devops_cli/argo/fleet.py:69 `resp.raise_for_status()` after `token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)`; src/devops_cli/argo/gitops.py:405 `resp.raise_for_status()` after the same token lookup. tasks.md has no 'Workflow follow-up' bullet for them.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",
@@ -91,7 +91,7 @@
    "where": "design.md",
    "problem": "The rejected alternatives restate the issue's reasons and carry no evidence, which openspec/config.yaml asks for ('Record each rejected alternative with the evidence that rejected it'). Also, 'Helper lives in argo/credentials.py' is listed as a separate decision that repeats the first one.",
    "evidence": "design.md: '- **Per-command try/except in commands/argo.py**: Duplicates the mint-and-retry logic in every command ...' with no code reference; two bullets for the same placement decision.",
-   "gate": "pending"
+   "gate": "none"
   }
  ]
 }
