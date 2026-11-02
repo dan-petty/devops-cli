@@ -38,6 +38,14 @@ def no_label_write(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def form_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`pr create` refuses a title or a body that breaks the form (#3198); tests/commands/
+    test_pr_form_check.py holds that. These cases use short stand-in texts and leave the form
+    alone."""
+    monkeypatch.setattr("devops_cli.commands.pr._form_checked", MagicMock())
+
+
 class TestPrCommands:
     """Tests for devops pr subcommands."""
 

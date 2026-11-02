@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -31,12 +32,23 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.exceptions import RoadmapStageError, ToolExecutionError
 from devops_cli.lang import MESSAGES
+from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.stage import OverBudget, StageClient, capabilities_of, plan_item
+from devops_cli.roadmap.stage import (
+    OverBudget,
+    PremiseFailed,
+    StageClient,
+    StagedChange,
+    analysis_window,
+    openspec_tool,
+    plan_item,
+)
 from devops_cli.roadmap.stage_change import StageProposal, render_change
 from devops_cli.roadmap.stage_eval_cases import GateName, StageCase
 from devops_cli.roadmap.stage_eval_gates import PlanUnderTest, run_gates
 from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage_specs import read_base_specs
+from devops_cli.roadmap.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.store import Item
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -51,6 +63,7 @@ class Outcome(StrEnum):
     STAGED = "staged"
     REFUSED = "refused"
     OVER_BUDGET = "over_budget"
+    RETURNED = "returned"
     FAILED = "failed"
 
 
@@ -116,10 +129,21 @@ def _first_reply_problems(
 ) -> dict[GateName, list[str]]:
     """What each gate finds in the first reply, against the files of the checkout and the change
     folder that the reply would write."""
-    known = capabilities_of(source)
+    specs = read_base_specs(source)
+    known = frozenset(specs)
     files = render_change(case.change, reply, known, created=datetime.now(UTC).date())
     tree = StagedTree.read(source, operation=_OPERATION).with_files(files)
-    return run_gates(PlanUnderTest.of_reply(reply, tree, known))
+    requirements = {name: spec.requirements for name, spec in specs.items()}
+    return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements, case.issue_body))
+
+
+def _planned_as(planned: StagedChange | OverBudget | PremiseFailed) -> tuple[Outcome, str]:
+    """How a case ended when the planner gave an outcome and raised no error."""
+    if isinstance(planned, OverBudget):
+        return Outcome.OVER_BUDGET, MESSAGES.roadmap.stage_eval_over_budget
+    if isinstance(planned, PremiseFailed):
+        return Outcome.RETURNED, MESSAGES.roadmap.stage_eval_returned
+    return Outcome.STAGED, ""
 
 
 def _ended(exc: Exception) -> tuple[Outcome, str]:
@@ -133,12 +157,35 @@ def _ended(exc: Exception) -> tuple[Outcome, str]:
 
 
 def run_case(
-    case: StageCase, client: StageClient, repository: Path, *, step_tokens: int | None = None
+    case: StageCase,
+    client: StageClient,
+    repository: Path,
+    *,
+    step_tokens: int | None = None,
+    toolbox: Any | None = None,
+    openspec: OpenSpecTool | None = None,
 ) -> CaseRun:
     """Plan one case in a checkout of its staging commit. Rejected credentials stop the run; any
-    other error of the planner ends the case as a `refused` or `failed` case."""
-    recorder = RecordingClient(client)
+    other error of the planner ends the case as a `refused` or `failed` case.
+
+    With a `toolbox` model, a plan run reads the checkout with the read-only tools, as the job
+    does (#3037), and `client` answers the call that splits the groups. The recorder wraps the
+    toolbox client, so it keeps the first plan the model gave. `openspec` reads the specs for the
+    tool `read_spec`. Without a toolbox, a plan is one call."""
     with checkout_at(repository, case.base_commit) as source:
+        planner: StageClient = (
+            client
+            if toolbox is None
+            else ToolboxClient(
+                toolbox,
+                client,
+                source,
+                case.base_commit,
+                window=analysis_window(),
+                openspec=openspec,
+            )
+        )
+        recorder = RecordingClient(planner)
         try:
             planned = plan_item(
                 item_of(case),
@@ -147,11 +194,7 @@ def run_case(
                 sha=case.base_commit,
                 step_tokens=step_tokens,
             )
-            outcome, reason = (
-                (Outcome.OVER_BUDGET, MESSAGES.roadmap.stage_eval_over_budget)
-                if isinstance(planned, OverBudget)
-                else (Outcome.STAGED, "")
-            )
+            outcome, reason = _planned_as(planned)
         except AICredentialsError:
             raise
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
@@ -168,6 +211,13 @@ def run_cases(
     repository: Path,
     *,
     step_tokens: int | None = None,
+    toolbox: Any | None = None,
 ) -> list[CaseRun]:
-    """Plan each case, one at a time."""
-    return [run_case(case, client, repository, step_tokens=step_tokens) for case in cases]
+    """Plan each case, one at a time, with the `toolbox` model when one is given."""
+    with openspec_tool() as tool:
+        return [
+            run_case(
+                case, client, repository, step_tokens=step_tokens, toolbox=toolbox, openspec=tool
+            )
+            for case in cases
+        ]

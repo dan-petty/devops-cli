@@ -58,3 +58,19 @@ def test_the_commit_of_the_labels_file_is_read_only_when_the_labels_differ() -> 
     commit = ("gh", *path_commits_args(REPO, CONST_ROADMAP_LABELS_PATH))
     commits = [r for r in reads if r.argv == commit]
     assert [r.condition for r in commits] == [MESSAGES.roadmap.plan_conditions["labels_differ"]]
+
+
+def test_a_run_reads_three_listings_a_file_and_a_commit_that_differing_labels_make() -> None:
+    """The page `docs/roadmap/inbox.md` states these reads: three listings that repeat for each
+    page, one read of the labels file, and one commit read that only differing labels make."""
+    reads, _ = inbox_requests(REPO)
+    page = MESSAGES.roadmap.plan_repeat_page
+    differ = MESSAGES.roadmap.plan_conditions["labels_differ"]
+
+    assert [(r.repeat, r.condition) for r in reads] == [
+        (page, ""),
+        (page, ""),
+        (page, ""),
+        ("", ""),
+        ("", differ),
+    ]
