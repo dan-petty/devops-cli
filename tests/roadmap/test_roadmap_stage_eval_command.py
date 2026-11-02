@@ -82,7 +82,11 @@ def test_the_replay_as_json_holds_the_totals_of_each_gate(cli: Cli) -> None:
 
     report = json.loads(result.output)
     assert result.exit_code == 0
-    assert [(g["gate"], g["missed"]) for g in report["gates"]] == [("paths", 0), ("kind", 0)]
+    assert [(g["gate"], g["missed"]) for g in report["gates"]] == [
+        ("paths", 0),
+        ("kind", 0),
+        ("criteria", 0),
+    ]
     assert report["failures"] == []
 
 

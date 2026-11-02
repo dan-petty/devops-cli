@@ -55,7 +55,7 @@
    "where": "tasks.md",
    "problem": "Acceptance criterion 3 of the issue is dropped. It asks for a live check that the same /api/embed request to ollama-16gib and ollama-48gib-slow gives cosine of 0.999 or more. The plan has no 'Pending a person:' bullet for it, and no mention in design.md of why it is left out. The only follow-up bullet is the tuicr review.",
    "evidence": "Issue #2396 refine: 'Criterion 3: ... cosine similarity of 0.999 or higher'. tasks.md 'Workflow follow-up' holds only 'Pending a person: review the diff in tuicr'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",

@@ -85,6 +85,7 @@ class GateName(StrEnum):
 
     PATHS = "paths"
     KIND = "kind"
+    CRITERIA = "criteria"
     PENDING = "pending"
     NONE = "none"
 

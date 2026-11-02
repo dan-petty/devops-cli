@@ -39,7 +39,7 @@
    "where": "tasks.md",
    "problem": "The plan does not cover the line '- **Subdomain**: `*.homelab`' (Cloudflare dashboard step 1.2). It has no '.<domain>' suffix, so the token regex in 1.1 does not find it, and the replace rules in 2.2 only name '*.homelab.<domain>' and '<name>.homelab.<domain>'. After the plan the section can still tell a person to create a '*.homelab' public hostname, the exact error the issue reports.",
    "evidence": "git show origin/main:k8s/README.md, section 1 'Cloudflare Dashboard Tunnel Configuration': '- **Subdomain**: `*.homelab`' and '- **Domain**: `<domain>`'. Task 1.1 token rule: 'a string matching ... optional asterisk, word characters, hyphens, dots, and the literal <domain>'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",

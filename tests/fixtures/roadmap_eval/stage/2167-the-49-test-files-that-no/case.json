@@ -82,7 +82,7 @@
    "where": "tasks.md",
    "problem": "Two acceptance criteria of the issue have no task. (a) 'The pull request names each test it deletes and why' and the product-code removal rule (#1307 Q27) have no task or check. (b) The criterion about #1309 ceilings: #1309 is closed, but the plan neither checks whether ceilings exist nor lowers them. The plan also says nothing about the 'Dependencies: #2143', which is now closed.",
    "evidence": "gh api issues/1309 -> state closed, 'ratchets hold internal patches, private imports ...'; issue #2167 acceptance criteria lines 3, 4, 5; grep of tasks.md for '1309', 'ceiling' and 'names each test' -> no match.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",

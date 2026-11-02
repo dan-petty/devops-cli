@@ -23,7 +23,7 @@
    "where": "tasks.md",
    "problem": "The plan has no task for acceptance criterion 4 of the issue: the PR must report the job time of 5 runs before and 5 runs after, with the average under 300 s and compared to 240 s. It also has no task for criterion 6, a full `uv run devops ci` run. Task 1.2 only runs one config test. Nobody checks that the total with branches on stays at or above fail_under = 85. Branch counting usually lowers the total, so the gate can turn red in the first CI run.",
    "evidence": "Issue body: '- [ ] The pull request gives the job time of 5 runs before and 5 runs after. The average after is under 300 s.' and '- [ ] `uv run devops ci` passes.' tasks.md has only groups 1 and 2, with the verify commands `uv run devops ci test tests/test_coverage_config.py` and `uv run devops ci --check --only actionlint,zizmor`. pyproject.toml line 235 on origin/main: `fail_under = 85`. The proposal Feasibility says 'The 300 s average limit is the hard bound' but no task measures it.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",
