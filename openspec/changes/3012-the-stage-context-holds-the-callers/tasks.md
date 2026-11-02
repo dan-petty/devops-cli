@@ -25,7 +25,7 @@ Reads: `design.md`. Changes: `design.md`, `proposal.md`.
 This group is `other`. It has no test. The measure is in `design.md`; the repeatable check is the code of "To measure again" there.
 
 - [x] 3.1 Build the context for the body of #3012 before and after, count the added tokens, and write the table in `design.md`. Verify that `design.md` holds the table and the worst case
-- [ ] 3.2 Verify that `uv run ruff check --config pyproject.toml src/devops_cli/roadmap/refine.py src/devops_cli/config/constants.py tests/roadmap/test_roadmap_refine.py`, `uv run mypy src/devops_cli/roadmap/refine.py` and `openspec validate --strict` pass
+- [x] 3.2 Verify that `uv run ruff check --config pyproject.toml src/devops_cli/roadmap/refine.py src/devops_cli/config/constants.py tests/roadmap/test_roadmap_refine.py`, `uv run mypy src/devops_cli/roadmap/refine.py` and `openspec validate --strict` pass
 
 ## Workflow follow-up
 

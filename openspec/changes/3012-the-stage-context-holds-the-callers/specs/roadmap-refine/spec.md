@@ -19,7 +19,7 @@ The context SHALL list at most `CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL` paths
 - **THEN** the section of `hello_world` lists three test files and no caller, and ends with the line "(3 of 6 paths shown; 3 more left out)"
 
 ### Requirement: The context names the requirements of the specs that cover a cited file
-The context SHALL hold, for each base spec of `openspec/specs/` that covers a cited file, up to five specs and up to 40 requirement names for each, the names of its `### Requirement:` headings, in the order of the spec. A spec covers a file when the file is a module of `src/devops_cli` and the name of the spec is the name of the package and the module joined with hyphens, or is the start of that name up to a hyphen, or when the text of the spec names the path of the file. A spec that covers no cited file SHALL add no section.
+The context SHALL hold the names of the `### Requirement:` headings of each base spec in `openspec/specs/` that covers a cited file, in the order of the spec, for up to five specs and up to 40 names each. A spec covers a module of `src/devops_cli` when its name is the package and the module joined with hyphens, or the start of that name up to a hyphen. A spec also covers a file when its text names the path of the file. A spec that covers no cited file SHALL add no section.
 
 #### Scenario: A cited module has a spec of its name
 - **WHEN** an item cites `src/devops_cli/widget/render.py`, and `openspec/specs/widget-render/spec.md` holds two requirements, and `openspec/specs/widget/spec.md` holds one, and `openspec/specs/other/spec.md` holds one
