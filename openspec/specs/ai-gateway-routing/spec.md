@@ -199,11 +199,15 @@ The gateway config SHALL serve the groups `gemini-3.8-flash`, `claude-sonnet-5-5
 - **THEN** it serves every group, and a call to `gemini-3.8-flash` fails with an error that names the missing key
 
 ### Requirement: A Claude group sets its prices and drops refused parameters
-A Claude group SHALL set its input and output prices, because the cost map of the pinned image lacks the model. It SHALL drop `temperature`, `top_p` and `top_k`, which the provider API refuses.
+A Claude group SHALL set its input and output prices, because the cost map of the pinned image lacks the model. It SHALL drop `temperature`, `top_p` and `top_k`, which the provider API refuses. It SHALL set `supports_native_structured_output` and `supports_response_schema`, so that a structured reply uses the native format and not a forced tool call, which the API refuses for Sonnet 5.5.
 
 #### Scenario: A Claude call with sampling parameters
 - **WHEN** a caller sends `temperature` and `top_p` to `claude-sonnet-5-5`
 - **THEN** the request to the provider holds neither
+
+#### Scenario: A structured reply from a Claude group
+- **WHEN** a caller sends a `response_format` with a JSON schema to `claude-sonnet-5-5`
+- **THEN** the gateway answers with JSON that matches the schema, and sends no forced tool call
 
 ### Requirement: The gateway reaches providers on port 443 only
 The gateway NetworkPolicy SHALL admit TCP 443 to public addresses for hosted calls. It SHALL exclude every private, carrier-grade NAT and metadata range, and it SHALL hold no other ipBlock.
