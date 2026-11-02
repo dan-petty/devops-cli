@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.46.0](https://github.com/dan-petty/devops-cli/compare/v0.45.0...v0.46.0) (2026-11-02)
+
+
+### Features
+
+* **pr:** build and check the title and body of a pull request ([#3213](https://github.com/dan-petty/devops-cli/issues/3213)) ([9bd6448](https://github.com/dan-petty/devops-cli/commit/9bd64486745a92f84560df3881e473567552e931))
+
 ## [0.45.0](https://github.com/dan-petty/devops-cli/compare/v0.44.0...v0.45.0) (2026-11-02)
 
 
