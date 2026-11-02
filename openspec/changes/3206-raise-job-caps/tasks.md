@@ -31,22 +31,30 @@ Kind: behavior. Reads: `src/devops_cli/config/constants.py`, `src/devops_cli/con
 - [x] 3.3 Change the tests that held the old numbers to the constants
   - Verification: `uv run devops ci test tests/roadmap`
 
-## 4. Documents
+## 4. Keep the stall of the Job deadline above the new watch
+
+Kind: behavior. Reads: `tests/roadmap/test_roadmap_implement_deadline_settings.py`, `src/devops_cli/config/defaults.py`. Changes: `src/devops_cli/config/defaults.py`, `tests/roadmap/test_roadmap_implement_deadline_settings.py`, `tests/roadmap/test_roadmap_implement_deadline.py`, `k8s/README.md`.
+
+- [x] 4.1 Change the test of the defaults to the new stall and extension, and the test of the silent wait to the defaults of the time limits
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_deadline_settings.py` fails on the base
+- [x] 4.2 Set the default stall to 4200 s and the default extension to 5400 s, and change the line of `k8s/README.md` that names the extension
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_deadline_settings.py tests/roadmap/test_roadmap_implement_deadline.py`
+
+## 5. Documents
 
 Kind: other. Reads: `docs/ENV_VARS.md`, `docs/CONFIGURATION.md`. Changes: `docs/ENV_VARS.md`, `docs/CONFIGURATION.md`.
 
-- [x] 4.1 Generate the documents again
+- [x] 5.1 Generate the documents again
   - Verification: `uv run devops docs check`
 
-## 5. Archive
+## 6. Archive
 
 Kind: other.
 
-- [x] 5.1 Archive the change
+- [x] 6.1 Archive the change
   - Verification: `uv run devops openspec archive 3206-raise-job-caps` and `uv run devops openspec check`
 
 ## Workflow follow-up
 
 - Pending a person: remove `step_tokens: 40000` from `k8s/devops/configmap.example.yaml`, or set 64000, so the Service uses the new budget (the example sits under the Job deadline change).
-- Pending a person: the stall of the progress-based Job deadline must stay above the new watch limit of 3600 s plus its margin.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

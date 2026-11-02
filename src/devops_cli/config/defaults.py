@@ -751,6 +751,15 @@ DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
 DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: int = 1200
 DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: int = 1800
 DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: int = 3600
+# The deadline of a runner Job follows its progress (#3063). The stall is the time without a new
+# line in the Job log that ends a run. It is above the longest wait in which the runner writes no
+# line (the watch of the checks, 3600 s) by 600 s (#3206). The extension is the time the deadline
+# is kept ahead of the last progress, above the stall by the delay of a row (7 minutes) and a tick
+# of the Service (151 s), so the Service sees a stall before the deadline passes. The ceiling is
+# the cap of the admission policy of the Service's Jobs.
+DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS: int = 4200
+DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS: int = 5400
+DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS: int = 14400
 # The labels of the items the stage job takes when no setting and no option names others: every
 # Ready item, of any type, priority, value and effort (#2906).
 DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = ("status=ready",)

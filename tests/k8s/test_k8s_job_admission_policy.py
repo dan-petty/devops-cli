@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from cel_expr_python import cel
 
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job
 from tests.k8s_manifests import applied_documents
 from tests.support.paths import REPO_ROOT
@@ -92,13 +93,6 @@ def _pod(job: dict[str, Any]) -> dict[str, Any]:
 def _container(job: dict[str, Any]) -> dict[str, Any]:
     container: dict[str, Any] = _pod(job)["containers"][0]
     return container
-
-
-def _deadline() -> int:
-    deadline: int = _object("CronJob", "devops-cli-runner")["spec"]["jobTemplate"]["spec"][
-        "activeDeadlineSeconds"
-    ]
-    return deadline
 
 
 def _set_image(image: str) -> Mutation:
@@ -232,9 +226,13 @@ def test_a_job_that_names_the_default_values_passes() -> None:
     assert _refusals(explicit) == []
 
 
-def test_a_job_that_runs_longer_than_the_template_is_refused() -> None:
-    longer = _changed(_set_spec(activeDeadlineSeconds=_deadline() + 1))
-    as_long = _changed(_set_spec(activeDeadlineSeconds=_deadline()))
+def test_a_job_that_runs_longer_than_the_cap_is_refused() -> None:
+    longer = _changed(
+        _set_spec(activeDeadlineSeconds=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS + 1)
+    )
+    as_long = _changed(
+        _set_spec(activeDeadlineSeconds=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS)
+    )
 
     assert (len(_refusals(longer)), _refusals(as_long)) == (1, [])
 

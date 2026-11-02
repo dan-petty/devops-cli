@@ -44,7 +44,8 @@
 | Scoped test modules | 30 | same | kept | Bounds the run time; the required checks of CI run the rest |
 | Repair rounds | 3 | same | setting | Already a setting; each round is a real attempt |
 | Items of a round, intake sizes, schedules | | same | kept, other | A round and a schedule are not a cut of a run |
-| Job deadline, admission policy, Role, memory | | not touched | kept | Owned by the Job deadline issue (#3063) |
+| Stall and extension of the Job deadline | 2400 s, 3600 s | 4200 s, 5400 s | setting | The stall stays above the longest silent wait (the watch) by 600 s |
+| Job deadline code, ceiling, admission policy, Role, memory | | not touched | kept | Owned by the Job deadline issue (#3063) |
 
 ## Rejected alternatives
 

@@ -35,6 +35,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -92,6 +93,9 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
     DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
@@ -899,6 +903,33 @@ class RoadmapImplementConfig(BaseModel):
         default=DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
         ge=1,
     )
+    deadline_stall_seconds: Annotated[int, Variable()] = Field(
+        description="How long the log of a runner Job may stay unchanged before the Service ends the Job by its deadline. It must be above the longest wait in which the runner writes no line, such as the watch of the checks of a pull request (`monitor_timeout_seconds`) or a command (`command_timeout_seconds`), and not above the extension",
+        default=DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
+        ge=1,
+    )
+    deadline_extension_seconds: Annotated[int, Variable()] = Field(
+        description="How far ahead of the last progress the Service keeps the deadline of a runner Job. A Job starts with this deadline, and each change of its log sets the deadline to the seconds since the start plus this step, up to the ceiling. It must not be below the stall, or the deadline would pass before the Service sees the stall",
+        default=DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
+        ge=1,
+    )
+    deadline_ceiling_seconds: Annotated[int, Variable()] = Field(
+        description="The longest deadline of a runner Job, in seconds, however much progress it makes. The admission policy `roadmap-service-jobs` refuses a deadline above 14400, so a value above that is refused here",
+        default=DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
+        ge=1,
+        le=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
+    )
+
+    @model_validator(mode="after")
+    def _deadline_settings_agree(self) -> RoadmapImplementConfig:
+        """The stall is not above the extension, and the extension is not above the ceiling."""
+        if self.deadline_stall_seconds > self.deadline_extension_seconds:
+            raise ValueError("deadline_stall_seconds must not be above deadline_extension_seconds")
+        if self.deadline_extension_seconds > self.deadline_ceiling_seconds:
+            raise ValueError(
+                "deadline_extension_seconds must not be above deadline_ceiling_seconds"
+            )
+        return self
 
 
 class ServiceConfig(BaseModel):

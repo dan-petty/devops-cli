@@ -239,6 +239,26 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS": ("setting", "was 900"),
     "DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS": ("setting", "was 1800"),
+    "DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS": (
+        "setting",
+        "was 2400; above the longest silent wait (the watch of 3600 s) by 600 s",
+    ),
+    "DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS": (
+        "setting",
+        "was 3600; above the stall by a row and a tick",
+    ),
+    "DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS": (
+        "kept",
+        "the cap of the admission policy of the Service's Jobs",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS": (
+        "kept",
+        "the cap of the admission policy of the Service's Jobs",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES": (
+        "kept",
+        "the lines of the log whose digest shows progress",
+    ),
     "DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS": (
         "setting",
         "already a setting; the repair turns of a step",

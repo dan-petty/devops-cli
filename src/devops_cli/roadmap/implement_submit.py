@@ -13,6 +13,10 @@ round sets the item to Blocked and records `implement.stopped` as `job`, or the 
 create the same Job again. A clear rule of the Service takes the item out of Blocked
 (`stop_clear.py`), as it does for the stop of the job.
 
+**Deadline.** A Job that has not ended gets a deadline that follows its progress: the Service
+extends it while the log of the Job changes, and ends a Job whose log stays the same for the stall
+time (`implement_deadline.py`, #3063).
+
 **Wait.** A Job of the repository that has not ended blocks the round, whether or not an item
 records it, and a person's `devops roadmap implement --item` starts such a Job too (#2913). The API
 is the lock, so a restart of the Service loses nothing. The lock is best effort: the round lists
@@ -48,11 +52,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING,
+    CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT,
+    CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_JOB_LABEL,
     CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES,
@@ -65,6 +72,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
@@ -83,6 +91,7 @@ from devops_cli.roadmap.implement import (
     parse_implement_filters,
     plan_implement,
 )
+from devops_cli.roadmap.implement_deadline import manage_deadlines
 from devops_cli.roadmap.planned import read_planned_changes
 from devops_cli.roadmap.stage import StageFailure
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_statuses
@@ -92,6 +101,8 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 _GONE = "gone"
+# The exit status of a Job that the Job controller ended for its active deadline (SIGTERM).
+_DEADLINE_EXIT_STATUS = 143
 
 
 @dataclass(frozen=True)
@@ -151,12 +162,16 @@ def _recorded_failure(item: Item) -> FailureClass | None:
         return None
 
 
-def _failure_of(item: Item, log: str, *, stops: bool) -> FailureClass | None:
+def _failure_of(item: Item, log: str, *, stops: bool, stalled: bool) -> FailureClass | None:
     """The class of the failure that a Job left. A stop that the runner wrote has its class on
     record. A Job that left the item without a result has only its log, so the class comes from
-    that log (#3065). A Job that ended with a result has no failure."""
+    that log (#3065). A Job that the Service ended for a stall went over its deadline, which is
+    the exit status 143 of a Job over its active deadline (#3063). A Job that ended with a result
+    has no failure."""
     if stops:
-        return classify_failure(FailureEvidence(text=log))
+        return classify_failure(
+            FailureEvidence(text=log, exit_status=_DEADLINE_EXIT_STATUS if stalled else None)
+        )
     if _record(item, ImplementRecordKey.STOPPED):
         return _recorded_failure(item)
     return None
@@ -170,6 +185,7 @@ def _comment(
     failure: FailureClass | None,
     stopped: bool,
     digest: str | None,
+    stall: str | None = None,
 ) -> str:
     texts = MESSAGES.roadmap
     shown = texts.implement_job_report_digest.format(digest=digest) if digest else ""
@@ -191,6 +207,8 @@ def _comment(
             digest=shown,
             log=quoted,
         )
+    if stall:
+        body += texts.implement_job_report_stalled.format(seconds=stall)
     if not stopped or failure is None:
         return body
     return body + texts.implement_job_report_stopped.format(failure=failure_lines(failure))
@@ -213,11 +231,12 @@ def _report(
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
     stops = _settles_as_stop(item)
-    failure = _failure_of(item, log, stops=stops)
+    stall = ended.annotations.get(CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED) if ended else None
+    failure = _failure_of(item, log, stops=stops, stalled=stall is not None)
     digest = _record(item, ImplementRecordKey.JOB_DIGEST)
     store.comment(
         item.number,
-        _comment(name, state, log, failure=failure, stopped=stops, digest=digest),
+        _comment(name, state, log, failure=failure, stopped=stops, digest=digest, stall=stall),
     )
     service_release(store, item.number, {ImplementRecordKey.JOB_STATE: state})
     if stops and failure is not None:
@@ -276,6 +295,12 @@ def _create(
             labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
             name=name,
             cronjob=cronjob,
+            deadline=load_settings().roadmap.implement.deadline_extension_seconds,
+            annotations={
+                CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: str(
+                    int(datetime.now(UTC).timestamp())
+                )
+            },
         )
     except ClusterJobError:
         service_release(store, number, {ImplementRecordKey.JOB: None})
@@ -302,6 +327,7 @@ def run_implement_round(
     label = repository_label(repo)
     held = {job.name: job for job in api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})}
     reported = _report_ended(store, api, held)
+    manage_deadlines(api, held.values())
     planned = read_planned_changes(Path(source), operation=GIT_OPERATION)
     swept = sync_statuses(store, repo=repo, planned=planned).failed
     stops = clear_stops(

@@ -30,14 +30,16 @@ The change keeps these limits, with the reason in the table: every size that Git
 - `roadmap-implement-step`: the output cap is a share of the window, and the three time limits are settings.
 - `roadmap-refine`: the investigation reads the context window of the `analysis` task.
 - `roadmap-alternatives`: the check reads the context window, and the budget of the request.
+- `roadmap-implement-job`: the defaults of the stall and the extension of the deadline.
 
 ## Impact
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/roadmap/implement_step.py`, `implement_run.py`, `implement_hooks.py`, `implement_scoped_ci.py`, `implement_pull.py`, `stage_toolbox.py`, `stage.py`, `refine.py`, `refine_investigation.py`, `alternatives.py`.
 - Documents: `docs/ENV_VARS.md` and `docs/CONFIGURATION.md` (generated).
 - Tests: `tests/roadmap/test_roadmap_limit_classes.py` (new), `tests/roadmap/test_roadmap_implement_timeouts.py` (new), and the tests that held the old numbers.
-- Specs: the five capabilities above, by archive.
-- Follow-up outside this change: `k8s/devops/configmap.example.yaml` sets `step_tokens: 40000`, so the Service keeps 40000 until a person removes the line. the progress-based Job deadline (#3063) sets a stall of 2400 s in its open change, which is under a watch of 3600 s plus a margin; its defaults must follow the new `monitor_timeout_seconds`.
+- Specs: the capabilities above, by archive. `roadmap-implement-job` changes the two defaults of the deadline settings.
+- The stall and the extension of the progress-based Job deadline (#3063) follow the new watch: the stall is above the longest silent wait by 600 s (a test of that change holds the rule), so the defaults go from 2400 s and 3600 s to 4200 s and 5400 s. The change touches only those two defaults, their test and their spec text, not the deadline code.
+- Follow-up outside this change: `k8s/devops/configmap.example.yaml` sets `step_tokens: 40000`, so the Service keeps 40000 until a person removes the line.
 
 ## Feasibility
 
@@ -47,7 +49,7 @@ The change keeps these limits, with the reason in the table: every size that Git
 - The verification slot (`ai.tasks.verification`) sets no window, so its default of 32768 tokens is below the 51000 tokens that its caps already allow (6000 for the body and 30 files of 1500). Raising them needs a configured window first, so they stay (see the table).
 - The router of the LLM gateway ends a call at 1500 s (`router_settings.timeout` in `k8s/llm/gateway/config.yaml`). The new deadline of a model call (1200 s) stays under it, and a test holds this. A reply at the new output cap of 32000 tokens at 38 tokens per second takes about 840 s, plus 90 s for a cold read of the window: 930 s, under 1200 s. The model figures come from the measure of the longest call that the design of the output cap recorded.
 - `DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW` is 128000. The step budget 64000 plus the turn reserve 40000 is 104000, inside it; a test holds this.
-- A stall rule in a log-based deadline (#3063) needs the watch of the checks (now up to 3600 s) to be shorter than the stall. The settings of #3063 hold that rule. This change does not edit them.
+- The progress-based deadline (#3063) ends a Job whose log stays the same for the stall. The test `test_the_default_stall_covers_the_longest_wait_in_which_the_runner_writes_no_line` needs the stall to be above the longest of the three time limits by 600 s. With a watch of 3600 s, the stall must be at least 4200 s, and the extension at least the stall plus the delay of a row and a tick (571 s): 5400 s.
 
 ## Existing Tool Considered
 
