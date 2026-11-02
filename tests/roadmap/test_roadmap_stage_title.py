@@ -22,6 +22,8 @@ from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -127,24 +129,26 @@ def test_the_schema_refuses_a_summary_that_the_title_would_cut_after_the_handle_
 
 
 @pytest.mark.parametrize(
-    "padded",
+    "spare",
     [
-        "{} ",
-        "{}\n",
-        "  {}",
-        "{}".format("a" * 20 + " " * 10 + "b" * 17),
-        "a" + "\t" * 5 + "b" * 41,
+        lambda full: full + " ",
+        lambda full: full + "\n",
+        lambda full: "  " + full,
+        lambda full: full[:20] + " " * 10 + full[21:],
+        lambda full: full[:1] + "\t" * 12 + full[2:],
     ],
 )
 def test_the_schema_measures_the_summary_as_the_title_shows_it_so_spare_whitespace_costs_nothing(
-    padded: str,
+    spare: Callable[[str], str],
 ) -> None:
     """The limit counts the one-line text of the title, so a trailing newline or a run of spaces
     that the title collapses does not make the model write the reply again."""
-    summary = padded.format("a" * stage_summary_limit())
+    limit = stage_summary_limit()
+    summary = spare("a" * limit)
 
     proposal = make_stage_proposal(summary=summary)
 
+    assert len(summary) > limit
     assert title_problems(staging_title(1, proposal.summary), DECLARED) == []
 
 
