@@ -64,6 +64,24 @@ def test_a_staging_title_cuts_nothing_and_refuses_a_summary_that_does_not_fit(
     assert raised.value.failed_items == (number,)
 
 
+def test_the_guard_of_the_title_counts_units_so_a_number_with_seven_digits_refuses_emoji() -> None:
+    """24 emoji are 24 characters and 48 units: with the lead of 14 the title has 62 units, and the
+    guard is the only gate here, because the schema blocks the reply first for a smaller number."""
+    with pytest.raises(RoadmapStageError, match="would have 62 characters after the colon"):
+        staging_title(10**6, "\U0001f600" * 24)
+
+
+@pytest.mark.parametrize("invisible", ["\u200b", "\ufeff", "\u2063", "\xad", "\u2800", "\u3164"])
+def test_the_schema_refuses_a_summary_that_shows_nothing_to_a_reader(invisible: str) -> None:
+    with pytest.raises(ValueError, match="The summary has no text"):
+        make_stage_proposal(summary=invisible * 3)
+
+
+def test_the_schema_message_tells_that_an_emoji_counts_as_two() -> None:
+    with pytest.raises(ValueError, match="an emoji counts as two"):
+        make_stage_proposal(summary="\U0001f600" * 24)
+
+
 def test_a_number_with_more_digits_than_the_schema_supports_stops_the_item_and_cuts_nothing() -> (
     None
 ):
