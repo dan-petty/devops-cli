@@ -650,8 +650,9 @@ class _Planner:
             self._toolbox.traces.clear()
         request = self._request(target)
         outcome = self._gated(target, request)
-        if isinstance(outcome, StagedChange) and self._verifier is not None:
-            outcome = self._verified(target, request, outcome)
+        verifier = self._verifier
+        if isinstance(outcome, StagedChange) and verifier is not None:
+            outcome = self._verified(target, request, outcome, verifier)
         if isinstance(outcome, StagedChange) and self._toolbox is not None:
             return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
         return outcome
@@ -674,14 +675,18 @@ class _Planner:
         return outcome
 
     def _verified(
-        self, target: StageTarget, request: Mapping[str, Any], change: StagedChange
+        self,
+        target: StageTarget,
+        request: Mapping[str, Any],
+        change: StagedChange,
+        verifier: StageClient,
     ) -> StagedChange | OverBudget:
         """The change after the model review. A finding of a type that returns the plan, with a
         quote that is in the input, sends the plan back to the planner once: the revised plan
         passes the checks and the review again, and a refused revision stops the item. Every
         other finding, and every finding of the revised plan, stays on the change for the
         comment."""
-        findings, returned = self._review(target, change)
+        findings, returned = self._review(target, change, verifier)
         if returned:
             again = {
                 **request,
@@ -695,14 +700,13 @@ class _Planner:
             if isinstance(outcome, OverBudget):
                 return outcome
             change = outcome
-            findings, _ = self._review(target, change)
+            findings, _ = self._review(target, change, verifier)
         return replace(change, findings=tuple(findings))
 
     def _review(
-        self, target: StageTarget, change: StagedChange
+        self, target: StageTarget, change: StagedChange, verifier: StageClient
     ) -> tuple[list[Finding], list[Finding]]:
         """The findings of the model review of `change`, and those that return the plan."""
-        assert self._verifier is not None
         item = target.item
         given = VerificationInput.of(
             number=item.number,
@@ -711,7 +715,7 @@ class _Planner:
             plan=change.proposal.model_dump(mode="json"),
             source=self._source,
         )
-        findings = verify(self._verifier, given)
+        findings = verify(verifier, given)
         return findings, returning(findings, given)
 
     def _request(self, target: StageTarget) -> dict[str, Any]:

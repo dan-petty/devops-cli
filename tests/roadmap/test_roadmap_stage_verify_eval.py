@@ -186,7 +186,7 @@ def test_rejected_credentials_stop_the_run(
     case = _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),))
     model_fake.route(lambda _: True, AICredentialsError("rejected"))
 
-    with pytest.raises(AICredentialsError):
+    with pytest.raises(AICredentialsError, match="rejected"):
         evaluate_cases("m-1", [case], _client(model_fake), stage_repo.clone)
 
 

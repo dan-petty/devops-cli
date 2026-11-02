@@ -180,14 +180,15 @@ def evaluate_cases(
             raise
         return CaseVerification(findings, len(returning(findings, given)))
 
+    by_name = {case.name: case for case in cases}
+
     class Recall(Evaluator[str, CaseVerification, StageCase]):
         """The defects of the case that the findings found."""
 
         def evaluate(
             self, ctx: EvaluatorContext[str, CaseVerification, StageCase]
         ) -> Mapping[str, int]:
-            assert ctx.metadata is not None
-            return _recall_scores(ctx.metadata, ctx.output)
+            return _recall_scores(by_name[ctx.inputs], ctx.output)
 
     dataset: Dataset[str, CaseVerification, StageCase] = Dataset(
         name=_DATASET_NAME,
