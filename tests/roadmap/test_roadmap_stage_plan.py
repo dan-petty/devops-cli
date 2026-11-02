@@ -23,6 +23,10 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+)
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.openspec.tool import isolated_openspec
@@ -296,14 +300,15 @@ def test_a_large_file_counts_at_most_the_file_cap_of_the_step(
 ) -> None:
     heavy = heavy_group(stage_repo, files=1)
     big = stage_repo.clone / heavy.reads[0]
-    assert count_tokens(big.read_text(encoding="utf-8")) > 6000
+    budget = CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS + 4000
+    assert count_tokens(big.read_text(encoding="utf-8")) > budget
     model_fake.answer(make_stage_proposal(groups=[heavy]))
 
-    plan = _plan(store, stage_repo, step_tokens=6000)
+    plan = _plan(store, stage_repo, step_tokens=budget)
 
     assert (plan.over_budget, model_fake.call_count) == ((), 1)
     (group,) = plan.ready[0].groups
-    assert group.tokens <= 6000
+    assert group.tokens <= budget
 
 
 @pytest.mark.usefixtures("openspec")
@@ -1026,7 +1031,7 @@ def test_a_plan_run_that_spends_its_budget_fails_its_item_and_the_others_are_pla
         assert isinstance(first, ModelRequest)
         text = next(str(p.content) for p in first.parts if isinstance(p, UserPromptPart))
         if json.loads(text)["number"] == item:
-            return ModelResponse(parts=[read] * 31)
+            return ModelResponse(parts=[read] * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1))
         return make_stage_proposal()
 
     plan = _toolbox_plan(store, stage_repo, Script(reply))

@@ -44,7 +44,7 @@ NAME = "devops-cli-runner-20261102-100000-ab12"
 PROGRESS = "roadmap.devops-cli/progress"
 PROGRESS_AT = "roadmap.devops-cli/progress-at"
 STALLED = "roadmap.devops-cli/stalled"
-STALL, EXTENSION, CEILING = 2400, 3600, 14400
+STALL, EXTENSION, CEILING = 4200, 5400, 14400
 TICK = 450  # a round of the row, in seconds: 7 minutes and a tick of the Service, rounded
 
 

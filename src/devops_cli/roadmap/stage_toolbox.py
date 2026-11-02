@@ -3,9 +3,10 @@
 `ToolboxClient` implements `StageClient`, so the planner, the gates and the golden-set run keep
 their code. A call for a `StageProposal` is one agent run with the nine tools of `StageTools`. A
 call for another schema goes to the inner client, with no tool. Each run has a new budget of tool
-calls and output tokens, and keeps a `RunTrace` of what it did. A run that ends with no plan raises
-`RoadmapStageError` and names the limit it hit, or `StructuredOutputValidationError` when the
-model broke the schema of its reply past its retries.
+calls and requests, ends its tools when the messages fill the context window (#3037), and keeps a
+`RunTrace` of what it did. The output tokens have no count of their own (#3206). A run that ends
+with no plan raises `RoadmapStageError` and names the limit it hit, or
+`StructuredOutputValidationError` when the model broke the schema of its reply past its retries.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ from pydantic_ai.usage import UsageLimits
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_ROADMAP_STAGE_MAX_OUTPUT_TOKENS,
     CONST_ROADMAP_STAGE_MAX_REQUESTS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
@@ -95,7 +95,6 @@ class ToolboxClient:
             limits=UsageLimits(
                 request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
                 tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
-                output_tokens_limit=CONST_ROADMAP_STAGE_MAX_OUTPUT_TOKENS,
             ),
             output_retries=max_retries,
             trace=trace,

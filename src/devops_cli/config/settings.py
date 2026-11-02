@@ -91,10 +91,13 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
+    DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -885,8 +888,23 @@ class RoadmapImplementConfig(BaseModel):
         default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
         ge=0,
     )
+    request_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="The seconds that one model call of an implementation step may take, the read of its stream included. A call that runs past it ends the step as stopped. Keep it under the timeout of the LLM gateway router (1500 s in the stack), or the router ends the call first",
+        default=DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+        ge=1,
+    )
+    command_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="The seconds that one command of an implementation step may run: a verification command, a static check, a hook or a scoped check of the project. A command that runs past it stops the step or fails the check",
+        default=DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+        ge=1,
+    )
+    monitor_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="The most seconds that the implement job waits for the checks of a pull request to settle after a push. When it runs out, the item stops",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
+        ge=1,
+    )
     deadline_stall_seconds: Annotated[int, Variable()] = Field(
-        description="How long the log of a runner Job may stay unchanged before the Service ends the Job by its deadline. It must be above the longest wait in which the runner writes no line, such as the watch of the checks of a pull request (1800 s), and not above the extension",
+        description="How long the log of a runner Job may stay unchanged before the Service ends the Job by its deadline. It must be above the longest wait in which the runner writes no line, such as the watch of the checks of a pull request (`monitor_timeout_seconds`) or a command (`command_timeout_seconds`), and not above the extension",
         default=DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
         ge=1,
     )
