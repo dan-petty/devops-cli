@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.3](https://github.com/dan-petty/devops-cli/compare/v0.48.2...v0.48.3) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** keep a text of a staged group on one line ([#3279](https://github.com/dan-petty/devops-cli/issues/3279)) ([c42e981](https://github.com/dan-petty/devops-cli/commit/c42e9818fd4afed112d2705543ff3e6e1252fb06))
+
 ## [0.48.2](https://github.com/dan-petty/devops-cli/compare/v0.48.1...v0.48.2) (2026-11-02)
 
 
