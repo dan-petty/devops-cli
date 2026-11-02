@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import os
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -133,6 +134,8 @@ def _handle_lazy_proxy_dry_run(target: str, cmd_name: str, args: list[str]) -> N
         _delegate(mod_path, cmd_name, args)
         return
 
+    require_working_directory()
+
     import click
     import typer._click.exceptions as click_exc
 
@@ -177,14 +180,15 @@ class OTelTyper(typer.Typer):
             def _lazy_proxy(ctx: typer.Context) -> None:
                 from devops_cli.dry_run import is_dry_run
 
-                if is_dry_run():
-                    _handle_lazy_proxy_dry_run(target, cmd_name, list(ctx.args))
-                    return
+                with _report_devops_error():
+                    if is_dry_run():
+                        _handle_lazy_proxy_dry_run(target, cmd_name, list(ctx.args))
+                        return
 
-                from devops_cli.main import _delegate
+                    from devops_cli.main import _delegate
 
-                mod_path, _, _ = target.partition(":")
-                _delegate(mod_path, cmd_name, list(ctx.args))
+                    mod_path, _, _ = target.partition(":")
+                    _delegate(mod_path, cmd_name, list(ctx.args))
 
             # Interspersed parsing would consume a `--` while collecting the extra arguments,
             # and the delegated command would then parse what followed it as options (#980).
@@ -211,6 +215,7 @@ class OTelTyper(typer.Typer):
             @functools.wraps(f)
             def traced_fn(*f_args: Any, **f_kwargs: Any) -> Any:
                 with _report_devops_error():
+                    require_working_directory()
                     return _execute_traced_cli_command(f, f_args, f_kwargs, cmd_name)
 
             decorator(traced_fn)
@@ -244,6 +249,16 @@ def new_typer(**kwargs: Any) -> OTelTyper:
 def repo_label(repo_dir: Path) -> str:
     """Return the "<group>/<repo>" display label for a cloned repository directory."""
     return f"{repo_dir.parent.name}/{repo_dir.name}"
+
+
+def require_working_directory() -> None:
+    """Raise a `DevOpsCLIError` when the working directory of the process no longer exists (#2531)."""
+    try:
+        os.getcwd()
+    except FileNotFoundError:
+        raise DevOpsCLIError(
+            "The working directory does not exist. Change to a directory that exists and run the command again."
+        ) from None
 
 
 @contextmanager
