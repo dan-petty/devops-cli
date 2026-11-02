@@ -1,4 +1,9 @@
-## ADDED Requirements
+# roadmap-failure-taxonomy Specification
+
+## Purpose
+The failure taxonomy of the implement job: the 12 classes of a failure, the pure classifier that maps the evidence of a stop to one class, and the one table that gives each class its default action. The stop comment, the job record and the metrics of the roadmap use the class.
+
+## Requirements
 
 ### Requirement: The failure classes
 The failure taxonomy SHALL have these 12 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `conflict` and `ci_infra`.
