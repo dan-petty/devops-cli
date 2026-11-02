@@ -1082,10 +1082,81 @@ class PRMessages:
     labels_dry_run_condition: str = "the pull request opens and the labels file declares it"
     labels_unreadable: str = "{path} can't be read as label specs: {error}"
     labels_refused: str = "{labels} could not be added: {error}"
-    labels_scope_undeclared: str = (
-        "The scope `{scope}` of the title has no label: {path} does not declare {label}. "
-        "The pull request gets no scope label."
+    # The form of the title and the body of a pull request (#3198), one text for each problem.
+    form_refused: str = "The pull request breaks the form. Nothing was opened:\n{problems}"
+    form_title_lines: str = "The title is on more than one line."
+    form_title_shape: str = "The title `{title}` is not in the form `<type>(<scope>): <summary>`."
+    form_title_type: str = "The type `{type}` is not a type of the project. The types are: {types}."
+    form_title_breaking: str = (
+        "The title has `!`. Before 1.0.0 nothing is a breaking change, so write no `!`."
     )
+    form_title_scope: str = (
+        "The scope `{scope}` has no label: {path} does not declare `{label}`. Use a scope with a "
+        "label, or declare the label in the same pull request."
+    )
+    form_summary_long: str = (
+        "The summary has {length} characters. The limit is {limit}. Write a shorter summary."
+    )
+    form_summary_cut: str = (
+        "The summary ends with `...`. A cut summary reads as broken. Write a shorter summary."
+    )
+    form_placeholder: str = "The {part} is a placeholder: `{text}`. Write what the change does."
+    form_closes_missing: str = "The body has no line `Closes #<issue>`."
+    form_closes_many: str = (
+        "The body closes {count} issues. A pull request closes one issue, in one line "
+        "`Closes #<issue>`."
+    )
+    form_change_missing: str = (
+        "The body has no line `Change:` in the form of the template: the line holds the folder of "
+        "the change, such as `openspec/changes/archive/<date>-<issue>-<slug>/`, in a code span."
+    )
+    form_issue_differs: str = (
+        "The line `Closes` names issue {closes}, and the line `Change:` names issue {change}."
+    )
+    form_order: str = "The line `Closes` must come before the line `Change:`."
+    form_attribution_first: str = (
+        "The text above `Closes` holds attribution lines. Put them after the line `Change:`."
+    )
+    form_body_short: str = (
+        "The text above `Closes` has {length} characters. Write at least {minimum}: what the "
+        "change does, and why."
+    )
+    form_body_long: str = (
+        "The body has {length} characters before its trailers. The limit is {limit}. Shorten the "
+        "text above `Closes`."
+    )
+    form_trailer_long: str = (
+        "The lines after `Change:` have {length} characters. The limit is {limit}. Keep only the "
+        "attribution lines there."
+    )
+    form_template_text: str = (
+        "The body keeps the comment of the template, `<!-- -->`. Delete it and write the real text."
+    )
+    form_body_breaking: str = (
+        "The body has `BREAKING CHANGE`. Before 1.0.0 nothing is a breaking change."
+    )
+    form_issue_title_type: str = (
+        "The title of the issue, `{title}`, has no Conventional Commit type, so the title of the "
+        "pull request has none."
+    )
+    # `devops pr describe` (#3198).
+    describe_no_repo: str = "The repository is unknown. Give it with --repo OWNER/REPO."
+    describe_no_item: str = "Issue #{issue} is no item of the roadmap in {repo}."
+    describe_no_change: str = (
+        "No change folder for issue #{issue}: {pattern} holds none. Plan the change first."
+    )
+    describe_many_changes: str = "Issue #{issue} has more than one change folder: {names}."
+    describe_no_why: str = (
+        "The proposal {path} has no section `Why`. Write one, or give the text with --why."
+    )
+    describe_why_closes: str = (
+        "The text of the proposal holds a closing keyword for an issue. Give the text with --why."
+    )
+    describe_dated_today: str = (
+        "The change is not archived. The line `Change:` names the archive folder of {date}. "
+        "Run this command again after `devops openspec archive` if the date changes."
+    )
+    describe_dry_run_heading: str = "Would read the issue and the labels file to build the form:"
     gh_cli_required: str = (
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."
@@ -2494,11 +2565,29 @@ class RoadmapMessages:
     implement_stop_error: str = "{error}: {message}"
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
-        "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
+        "{marker}\nStopped at {step}.\n\n{failure}\n\nReason:\n\n{reason}\n\n"
+        "Last message of the agent: "
         "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
         "Then comment `implement: retry`. The Service also clears the stop one time when a new "
         "runner image rolls out.{note}"
     )
+    implement_failure_lines: str = (
+        "Failure class: `{failure_class}`.\nAction taken: {taken}.\nAction left: {left}."
+    )
+    implement_failure_taken_none: str = "none"
+    implement_failure_taken_repair: str = "`repair`, {rounds} fix round(s)"
+    implement_failure_action_text: dict[str, str] = field(
+        default_factory=lambda: {
+            "retry": "`retry`: run the item again",
+            "change_tier": "`change_tier`: run the item with a stronger model tier",
+            "repair": "`repair`: give the failure to a fix step",
+            "amend": "`amend`: change the plan of the item",
+            "return": "`return`: return the item to New with the evidence",
+            "raise_limit": "`raise_limit`: raise the limit that the run went over",
+            "wait": "`wait`: wait for a person",
+        }
+    )
+    implement_failure_trace: str = "Failure class {failure_class}. Action left: {left}."
     implement_comment_last_none: str = "none."
     implement_comment_diff: str = (
         "\n\nThe job discarded this work.{cut} Read it before you retry:\n\n"
@@ -2516,9 +2605,21 @@ class RoadmapMessages:
     implement_job_report_digest: str = "\nImage digest: {digest}"
     implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
-        "\n\nThe Job left this item without a result. The item is Blocked, and the job "
+        "\n\n{failure}\n\nThe Job left this item without a result. The item is Blocked, and the job "
         "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
         "clears the stop one time when a new runner image rolls out."
+    )
+    implement_job_report_stalled: str = (
+        "\n\nThe Job made no progress for {seconds} seconds, so the Service ended it by its "
+        "deadline. Its log did not change in that time."
+    )
+    implement_deadline_extended: str = (
+        "The Service moved the deadline of Job {job} from {previous} to {seconds} seconds: "
+        "{reason}."
+    )
+    implement_deadline_stalled: str = (
+        "The log of Job {job} did not change for {silence} seconds. The Service ended the Job by "
+        "its deadline of {seconds} seconds."
     )
     stop_clear_retry: str = (
         "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: a person commented "
@@ -2644,6 +2745,18 @@ class RoadmapMessages:
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
     stage_comment_no_calls: str = "The model made no tool call."
     stage_comment_call: str = "{index}. `{name}({argument})`"
+    # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
+    # and the section of the comment.
+    stage_finding: str = "- `{type}` at {where}: {problem}{quote}"
+    stage_finding_quote: str = ' Evidence: "{quote}"'
+    stage_verify_return: str = (
+        "A model review of the plan found these defects. Fix each one, or show with a quote "
+        "from the inputs that it is no defect:\n{findings}"
+    )
+    stage_comment_findings: str = (
+        "\n\nA model review of the plan found these points. They stop no draft, and a person "
+        "judges them:\n\n{findings}"
+    )
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."
@@ -2655,6 +2768,24 @@ class RoadmapMessages:
         "when a person runs it with --item {number}.\n\nThe task groups:\n\n{groups}"
     )
     stage_split_record: str = "{title} ({tokens} tokens)"
+    stage_probe_path_present: str = "The path `{path}` is a file of the staging commit."
+    stage_probe_path_missing: str = "The path `{path}` is no file of the staging commit. {removal}"
+    stage_probe_removed: str = "Commit {commit} deleted or renamed it."
+    stage_probe_path_never: str = "No commit in the history deleted or renamed it."
+    stage_probe_defined: str = "`{name}` is defined at {where}"
+    stage_probe_undefined: str = "`{name}` has no definition at the staging commit. {removal}"
+    stage_probe_touched: str = "Commit {commit} last added or removed its text."
+    stage_probe_name_never: str = "No commit in the history added or removed its text."
+    stage_probe_skipped: str = "Not probed, the bound of {bound} commands is reached: {items}"
+    stage_comment_premise_failed: str = (
+        "{marker}\nThe stage job returned the item to New. The premise of the issue does not "
+        "hold at the staging commit, so the job planned no change and opened no pull request.\n\n"
+        "Evidence:\n\n{evidence}"
+    )
+    stage_heading_returned: str = "## Returned: the premise is false"
+    stage_returned_line: str = "- #{number} {title}: {evidence}"
+    stage_premise_plan_missing: str = "A reply needs `{field}` unless it sets `premise_failed`."
+    stage_eval_returned: str = "The reply says that the premise of the issue is false."
     stage_kept_reason: str = (
         "The branch holds {count} commit(s) by another author past the default branch, so the "
         "job keeps the branch and its draft."
@@ -2681,8 +2812,8 @@ class RoadmapMessages:
     stage_removal_gone: str = " is gone, and the job clears the record"
     stage_kept_line: str = "- #{number}: `{branch}`: {reason}"
     stage_applied: str = (
-        "Staged {staged} item(s), stopped {stopped} on the budget, removed {removed} staged "
-        "branch(es)."
+        "Staged {staged} item(s), stopped {stopped} on the budget, returned {returned} on a "
+        "false premise, removed {removed} staged branch(es)."
     )
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
@@ -2789,10 +2920,49 @@ class RoadmapMessages:
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
+    stage_problem_specs_not_needed: str = (
+        "skip_specs is false, and every path in `changes` is under {prefixes}. These paths need "
+        "no spec delta. Set skip_specs to true and give no specs."
+    )
+    stage_problem_duplicate_requirement: str = (
+        "The requirement {requirement} is in the added requirements of {capability}, and "
+        "openspec/specs/{capability}/spec.md already has it. Change it with modified, or give "
+        "the new requirement another name."
+    )
+    stage_problem_criterion: str = (
+        'The issue lists the acceptance criterion "{criterion}", and `criteria` has no entry with '
+        "this text. Add an entry that copies the text, with the number of the group that "
+        "delivers it or pending-person and a reason."
+    )
+    stage_problem_criterion_group: str = (
+        'The entry of `criteria` for "{criterion}" names group {group}, and the plan has '
+        "{count} groups."
+    )
+    stage_criterion_bad_group: str = "A criterion group is a number from 1, not {group}."
+    stage_criterion_no_reason: str = (
+        'The criterion "{criterion}" is pending-person and has no reason.'
+    )
+    stage_criteria_title: str = "Criteria"
+    stage_criteria_line: str = "{criterion}: group {group}"
+    stage_criteria_pending: str = "{criterion}: pending-person, {reason}"
     stage_problem_path: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
         "group up to group {group} creates it. {hint} Name a file that exists, or make the group "
         "that creates it list it in `creates`."
+    )
+    stage_problem_verify: str = (
+        "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
+        "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
+        "`! git grep -n <name>` check that a name is gone. Give a command of one of these forms."
+    )
+    stage_problem_test_path: str = (
+        "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
+        "that the plan changes. A new test goes in {expected}. Move it there."
+    )
+    stage_problem_path_later: str = (
+        "Group {group} names `{path}` in {place}. The staged commit has no such file, and group "
+        "{later} creates it after group {group}. Move group {later} before group {group}, or "
+        "move the work that needs `{path}` into group {later} or a group after it."
     )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
@@ -3149,15 +3319,19 @@ class RoadmapMessages:
     stage_eval_replay_title: str = (
         "# Stage golden set, replay through the gates: {cases} case(s), {good} good"
     )
-    stage_eval_replay_header: str = "Gate   Issue  Defect type               Known  Caught  Missed"
-    stage_eval_replay_row: str = (
-        "{gate:<6} {reference:<6} {type:<24} {known:>5}  {caught:>6}  {missed:>6}"
+    stage_eval_replay_header: str = "Gate     Issue  Known  Caught  Missed"
+    stage_eval_replay_row: str = "{gate:<8} {reference:<6} {known:>5}  {caught:>6}  {missed:>6}"
+    stage_eval_replay_types_header: str = (
+        "Defect type               Caught  Missed  Waiting  No gate  Total"
     )
+    stage_eval_replay_types_row: str = (
+        "{type:<24} {caught:>7}  {missed:>6}  {pending:>7}  {unjudged:>7}  {total:>5}"
+    )
+    stage_eval_replay_share: str = "Defects that a gate judges: {judged} of {total} ({percent})."
     stage_eval_replay_pending: str = (
         "Defects that wait for a gate. They are listed and they fail nothing:"
     )
     stage_eval_replay_pending_row: str = "  {type:<24} {count:>4}  {reference}"
-    stage_eval_replay_unjudged: str = "Defects that no gate judges: {types}."
     stage_eval_replay_good: str = "Good plans that every gate accepts: {good} of {cases}."
     stage_eval_replay_ok: str = "Result: every gate refuses what it must refuse."
     stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"
@@ -3184,6 +3358,31 @@ class RoadmapMessages:
     stage_eval_dry_run_repeat: str = "up to {count} requests for each case"
     stage_eval_stored: str = "Stored the report in {path}."
     stage_eval_failed: str = "{failed} case(s) could not run. The score counts them as not avoided."
+    # `devops roadmap eval verify` (#3153).
+    verify_eval_title: str = (
+        "# Verification pass on the golden set: {cases} case(s), the verification model {model} "
+        "at {gateway}"
+    )
+    verify_eval_header: str = "Defect type               Labeled  Found  Recall"
+    verify_eval_row: str = "{type:<24}  {labeled:>7}  {found:>5}  {rate:>6}"
+    verify_eval_recall: str = "Recall of the labeled defects: {found} of {labeled} ({rate})."
+    verify_eval_serious: str = (
+        "Recall of the blocker and major defects: {found} of {labeled} ({rate})."
+    )
+    verify_eval_good: str = (
+        "Findings on the good plans: {findings} on {cases} plan(s). {returning} of them would "
+        "return a plan to the planner."
+    )
+    verify_eval_ended: str = "Cases by end: {ended}."
+    verify_eval_dry_run: str = (
+        "Dry run: no request was made. A run verifies {cases} case(s) with the verification "
+        "model at {gateway}, one case at a time:"
+    )
+    verify_eval_dry_run_case: str = "verification of the case {name}"
+    verify_eval_dry_run_repeat: str = "one request for each case"
+    verify_eval_failed: str = (
+        "{failed} case(s) could not run. The score counts their defects as not found."
+    )
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "

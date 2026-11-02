@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.config import settings
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
@@ -19,6 +20,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    no_findings,
     seed_stageable,
     validate_args,
 )
@@ -50,10 +52,10 @@ def _stage_settings() -> tuple[list[str], int, int]:
     return loaded.filter, loaded.limit, loaded.step_tokens
 
 
-def test_the_defaults_are_every_ready_item_three_items_and_forty_thousand_tokens(
+def test_the_defaults_are_every_ready_item_three_items_and_half_the_implement_window(
     config_file: Path,
 ) -> None:
-    assert _stage_settings() == (DEFAULT_FILTER, 3, 40000)
+    assert _stage_settings() == (DEFAULT_FILTER, 3, 64000)
 
 
 def test_a_config_file_and_a_variable_set_the_limit_and_the_filter(
@@ -62,7 +64,11 @@ def test_a_config_file_and_a_variable_set_the_limit_and_the_filter(
     config_file.write_text("roadmap:\n  stage:\n    limit: 1\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
 
-    assert _stage_settings() == (["status=ready", "type=feature"], 1, 40000)
+    assert _stage_settings() == (
+        ["status=ready", "type=feature"],
+        1,
+        DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+    )
 
 
 def test_a_config_file_sets_the_filter_as_a_list(config_file: Path) -> None:
@@ -71,7 +77,11 @@ def test_a_config_file_sets_the_filter_as_a_list(config_file: Path) -> None:
         encoding="utf-8",
     )
 
-    assert _stage_settings() == (["status=ready", "effort=small"], 3, 40000)
+    assert _stage_settings() == (
+        ["status=ready", "effort=small"],
+        3,
+        DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+    )
 
 
 @pytest.mark.parametrize("entry", ["color=red", "ready", "type=", "=bug"])
@@ -126,6 +136,7 @@ def test_the_command_takes_the_filter_and_the_limit_of_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
     output = _plan(cli, stage_repo)
@@ -142,6 +153,7 @@ def test_the_options_replace_the_filter_of_the_settings_for_one_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
     output = _plan(cli, stage_repo, "--filter", "status=ready", "--filter", "type=bug")
@@ -159,6 +171,7 @@ def test_the_limit_of_the_settings_caps_the_command_and_the_option_replaces_it(
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "1")
+    no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
     capped = _plan(cli, stage_repo)
 
