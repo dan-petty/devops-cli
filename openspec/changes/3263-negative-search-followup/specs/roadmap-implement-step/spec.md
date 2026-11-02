@@ -3,19 +3,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: A negative search is a verification command in a fixed shape
-The step SHALL run a verification command that starts with `!` only as `! git grep [options] <literal> [--] <path>...`, with at least one path and with the options `-n -I -F -i -w -l -c -q` in words of those letters. The words SHALL hold at most 2000 characters in all. The step SHALL start no process for a command outside the shape, and the reason of the stop SHALL say which rule of the shape the command breaks. A word in the reason SHALL be escaped and cut, so that it holds no raw line break and no NUL byte.
+The step SHALL run a verification command that starts with `!` only as `! git grep [options] <literal> [--] <path>...`, with at least one path and with the options `-n -I -F -i -w -l -c -q` in words of those letters. The step SHALL start no process for a command outside the shape, and the reason of the stop SHALL say which rule of the shape the command breaks.
 
 #### Scenario: A command that is not the fixed shape
 - **WHEN** a Verification line names `! rm -rf src/`, `! git grep -n name src/ | cat`, `! git grep -n name src/ ; ls`, `! git grep -n name src/ && ls`, `! git grep -n name src/ > out.txt`, `! git grep -n '$(id)' src/`, `! git grep -O name src/`, `! git grep --no-index -n name src/`, `! git grep -f patterns.txt src/`, `! git grep --open-files-in-pager=cat name src/`, `! git grep -n name /etc` or `! git grep -n name ../other`
 - **THEN** the step stops with the reason that says which rule of the shape the command breaks, and starts no process
-
-#### Scenario: A search that is too long
-- **WHEN** a Verification line names `! git grep -n` followed by a literal of 300000 characters and `src/`
-- **THEN** the step stops with the reason that the command is longer than 2000 characters, shows the command cut to 2000 characters, and starts no process
-
-#### Scenario: A word with a control character
-- **WHEN** a Verification line names `! git grep -n` followed by a quoted literal that holds a NUL byte or a line break
-- **THEN** the reason shows the word with the escapes `\x00` or `\n`, and holds no NUL byte and no line break
 
 #### Scenario: A letter outside ASCII
 - **WHEN** a Verification line names a literal with a fullwidth `ｆ` or an accented `é`, or a path with one
@@ -46,3 +38,16 @@ The shell of the agent SHALL NOT run a command whose first word is `!`. Only the
 #### Scenario: The shell of the agent
 - **WHEN** the agent runs `! git grep -n x src/` in its shell
 - **THEN** the shell refuses the command as a program that is not in the allowed list, the refusal holds the `git grep` form and the sentence that the step runs the `!` command itself, and no process starts
+
+## ADDED Requirements
+
+### Requirement: A negative search has a limit and a reason that is safe to show
+The words of a negative search SHALL hold at most 2000 characters in all. A word in the reason of a refusal SHALL be escaped and cut, so that the reason holds no raw line break and no NUL byte, and a stop reason SHALL show the command cut to 2000 characters.
+
+#### Scenario: A search that is too long
+- **WHEN** a Verification line names `! git grep -n` followed by a literal of 300000 characters and `src/`
+- **THEN** the step stops with the reason that the command is longer than 2000 characters, shows the command cut to 2000 characters, and starts no process
+
+#### Scenario: A word with a control character
+- **WHEN** a Verification line names `! git grep -n` followed by a quoted literal that holds a NUL byte or a line break
+- **THEN** the reason shows the word with the escapes `\x00` or `\n`, and holds no NUL byte and no line break
