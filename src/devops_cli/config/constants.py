@@ -2945,6 +2945,12 @@ CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end --
 CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
+# The stage and refine context lists, for each symbol that an item cites, at most this many paths
+# of the Python files that name it, the tests first. The context says how many it left out (#3012).
+CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL: Final[int] = 50
+# The context names the requirements of at most this many specs, and at most this many for each (#3012).
+CONST_ROADMAP_REFINE_MAX_SPECS: Final[int] = 5
+CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 40
 # The `result` of `devops_cli_firecrawl_searches_total` for a search that returned its web results,
 # and for one that got no answer or a reply with no web results. A search that Firecrawl refused
 # counts under its HTTP status (#2475).
