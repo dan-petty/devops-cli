@@ -34,7 +34,8 @@
    "where": "tasks.md tasks 1.1 and 1.2; proposal.md Feasibility",
    "problem": "Verify commands use `uv run pytest tests/test_pricing.py -x`. openspec/config.yaml asks for `uv run devops ci test <path>`, and docs/TESTING.md owns that command. The implement job could not run raw test commands: its shell refused cd, python and uv. The job stopped at group 1 after it wrote a scratch tmp_test.py to the repo root. The plan gave it no usable verify command.",
    "evidence": "openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'. Implement comment on #2462: 'Refused commands: cd 3, python 2, uv 1' and 'Stopped at group 1'. Issue labels now include status/blocked.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "A `verify` command starts with `uv run devops`"
   },
   {
    "type": "criterion_dropped",
