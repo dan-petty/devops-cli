@@ -415,6 +415,7 @@ def stage_cmd(
             MESSAGES.roadmap.stage_applied.format(
                 staged=len(applied.staged),
                 stopped=len(applied.stopped),
+                returned=len(applied.returned),
                 removed=len(applied.removed),
             )
         )

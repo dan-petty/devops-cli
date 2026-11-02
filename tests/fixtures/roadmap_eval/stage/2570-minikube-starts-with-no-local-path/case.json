@@ -50,7 +50,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds no evidence from the real system for the key claim, that the addon gives a StorageClass named local-path in minikube v1.39.0. It only repeats the issue text ('listed in minikube v1.39.0 addons list'), and the issue says it was not run on a live minikube. The last two bullets are verify commands, not feasibility evidence. Rule 2 asks for a check against upstream documents, library source or command output.",
    "evidence": "proposal.md '## Feasibility' bullets 4 and 5 are 'First check the implementation runs...' and 'Second check...'. Issue 2570: 'Not run on a live minikube: the minikube of this devcontainer was stopped.'",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "verify_form",

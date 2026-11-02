@@ -34,7 +34,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section does not check the premise for the ERRORS.git location. It says 'the defining file must be located during implementation'. AGENTS.md rule 2 asks for confirmed evidence in the plan. One grep gives the answer. The plan left it open and then named a wrong path.",
    "evidence": "proposal.md Feasibility bullet 4: 'The path of the `ERRORS.git` module is not shown in the inputs ... the defining file must be located during implementation.'",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "ignores_existing_code",
@@ -58,7 +58,7 @@
    "where": "proposal.md",
    "problem": "Some Feasibility line numbers are off by one or are garbled. The 422 override sits at lines 117-118 of app_installation.py, not 116-117. The sentence 'currently uses a substring assertion and will not hold the wrong text after the fix' is unclear. The other cited places are right: classify_http_error at line 115, _unauthenticated_error at line 193, test at line 332.",
    "evidence": "git show origin/main:src/devops_cli/github/app_installation.py: line 116 `reason = failure.message`, 117 `if failure.details.get(\"status\") == HTTPStatus.UNPROCESSABLE_ENTITY:`, 118 `reason = _not_granted(...)`.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

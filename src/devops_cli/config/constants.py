@@ -3001,6 +3001,11 @@ CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 20
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 20
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
 CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 8000
+# The premise probe of the stage job (#3011): the git commands it runs for one item, and the lines
+# of definition it shows for one identifier. The cited examples hold 1 to 4 items of at most 2
+# commands each, so 10 commands cover them and keep the probe short.
+CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS: Final[int] = 10
+CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.
