@@ -1256,6 +1256,17 @@ class RoadmapCommandHelp:
     eval_stage_source: str = (
         "Repository that holds the staging commits of the cases. Default: this checkout."
     )
+    eval_verify: str = (
+        "Score the model verification pass of the stage job on the golden set. For each case "
+        "the pass reads the issue, the recorded plan and the start of each file that the plan "
+        "cites, read from the staging commit, and returns findings of the nine defect types. "
+        "The command prints the recall of the labeled defects (all, and the blocker and major "
+        "ones), the recall for each type, and the findings on the good plans. It matches each "
+        "finding to one labeled defect of the same type. It stores the report as JSON under "
+        "the data directory. It calls the model of the verification task through the gateway, "
+        "one call per case. A change of the model or of the prompt states this score."
+    )
+    eval_verify_model: str = "Model for the verification task. Without it, the configured model."
     run: str = (
         "Run the roadmap jobs that are due, in order: metrics, then intake, refine and "
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at "

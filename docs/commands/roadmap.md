@@ -329,4 +329,24 @@ devops roadmap eval implement [OPTIONS]
 | `--check-only` | `boolean` | - | Make no model call: evaluate the four properties that a diff decides on each recorded result of each fixture, and exit 1 when a result fails other properties than its record says. This is the offline mode. |
 | `--run-commands` | `boolean` | - | With --check-only: clone the base, apply each recorded diff and run the two properties that run commands. |
 
+### `devops roadmap eval verify`
+
+**Score the model verification pass of the stage job on the golden set. For each case the pass reads the issue, the recorded plan and the start of each file that the plan cites, read from the staging commit, and returns findings of the nine defect types. The command prints the recall of the labeled defects (all, and the blocker and major ones), the recall for each type, and the findings on the good plans. It matches each finding to one labeled defect of the same type. It stores the report as JSON under the data directory. It calls the model of the verification task through the gateway, one call per case. A change of the model or of the prompt states this score.**
+
+```bash
+devops roadmap eval verify [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
+| `--model` | `string` | - | Model for the verification task. Without it, the configured model. |
+| `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
+| `--json` | `boolean` | - | Print the report as JSON in place of the table. |
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
+| `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
+| `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
+
 ---

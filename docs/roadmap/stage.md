@@ -24,6 +24,10 @@ The job leaves out an item that is not Ready, and some other items: for example 
 
 A task group over the step budget goes back to the model once. A group that is still over the budget stops the item. `--step-tokens` replaces the setting `roadmap.stage.step_tokens` for one run.
 
+## The verification pass
+
+After the checks, a model of the task `ai.tasks.verification` reviews the plan with the issue and the files that the plan cites. A finding of the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends the plan back once. Every other finding goes into the comment, and the draft still opens. The requirement "A verification pass follows the gates" of [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the rules, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-verification-pass) tells how to score the pass.
+
 ## Failures and clean-up
 
 An item whose model call fails is skipped and reported. The job still stages the other items, and the command then exits 1.
