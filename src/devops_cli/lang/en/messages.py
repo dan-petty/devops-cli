@@ -2494,11 +2494,29 @@ class RoadmapMessages:
     implement_stop_error: str = "{error}: {message}"
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
-        "{marker}\nStopped at {step}.\n\nReason:\n\n{reason}\n\nLast message of the agent: "
+        "{marker}\nStopped at {step}.\n\n{failure}\n\nReason:\n\n{reason}\n\n"
+        "Last message of the agent: "
         "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
         "Then comment `implement: retry`. The Service also clears the stop one time when a new "
         "runner image rolls out.{note}"
     )
+    implement_failure_lines: str = (
+        "Failure class: `{failure_class}`.\nAction taken: {taken}.\nAction left: {left}."
+    )
+    implement_failure_taken_none: str = "none"
+    implement_failure_taken_repair: str = "`repair`, {rounds} fix round(s)"
+    implement_failure_action_text: dict[str, str] = field(
+        default_factory=lambda: {
+            "retry": "`retry`: run the item again",
+            "change_tier": "`change_tier`: run the item with a stronger model tier",
+            "repair": "`repair`: give the failure to a fix step",
+            "amend": "`amend`: change the plan of the item",
+            "return": "`return`: return the item to New with the evidence",
+            "raise_limit": "`raise_limit`: raise the limit that the run went over",
+            "wait": "`wait`: wait for a person",
+        }
+    )
+    implement_failure_trace: str = "Failure class {failure_class}. Action left: {left}."
     implement_comment_last_none: str = "none."
     implement_comment_diff: str = (
         "\n\nThe job discarded this work.{cut} Read it before you retry:\n\n"
@@ -2516,7 +2534,7 @@ class RoadmapMessages:
     implement_job_report_digest: str = "\nImage digest: {digest}"
     implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
-        "\n\nThe Job left this item without a result. The item is Blocked, and the job "
+        "\n\n{failure}\n\nThe Job left this item without a result. The item is Blocked, and the job "
         "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
         "clears the stop one time when a new runner image rolls out."
     )
