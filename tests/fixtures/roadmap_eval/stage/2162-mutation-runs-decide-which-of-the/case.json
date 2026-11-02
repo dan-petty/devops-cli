@@ -71,7 +71,8 @@
    "where": "specs/ci-test-selection/spec.md and .openspec.yaml",
    "problem": "The change deletes test files and alters no observable consumer behavior, so config rules say it has no spec delta and sets skip_specs: true. Instead it adds a requirement to ci-test-selection. That capability is about how `devops ci test` maps paths to tests (its Purpose). The new requirement is an end-state rule for the repo ('suite SHALL contain no test file that kills no unique mutant') that no test under tests/ can assert offline, which breaks the specs rule. It would also be false after the next test is added. .openspec.yaml has no skip_specs.",
    "evidence": "openspec/config.yaml: 'A change that alters no behavior a consumer observes (tests, CI workflows ...) has no spec delta and sets skip_specs: true' and 'Write only scenarios a test under tests/ can assert offline'. openspec/specs/ci-test-selection/spec.md Purpose: 'How `devops ci test` turns its path arguments into the test modules that pytest runs...'. Other test-only changes (1323, 1325, 1327) set skip_specs: true. The change's .openspec.yaml is only 'schema: spec-driven / created: 2026-11-01'.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "These paths need no spec delta"
   },
   {
    "type": "other",

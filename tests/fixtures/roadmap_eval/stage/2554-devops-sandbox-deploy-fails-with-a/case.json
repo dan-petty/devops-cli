@@ -31,7 +31,8 @@
    "where": "tasks.md (groups 1 and 2)",
    "problem": "The group order is wrong. Group 1 tests (1.1, 1.2) need `images.get` and `images.pull` on `DockerEngineFake`, but group 2 adds them. The 'passes' verify of 1.2 cannot pass until group 2 is done. A step-per-group implementer is blocked at group 1.",
    "evidence": "tasks.md 1.1: 'Assert images.get was called first, then images.pull was called' on the fake; 2.2 adds 'images.get and images.pull methods to the fake image collection'. In origin/main tests/support/fakes/docker_engine.py, FakeImages (line 346) has only list, build, push and prune; there is no get or pull.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "other",
@@ -47,7 +48,8 @@
    "where": "tasks.md 1.2",
    "problem": "Wrong Protocol. The task says to add `get` and `pull` to the `EngineImage` protocol in sdk.py. `EngineImage` is a single image (attrs, id, short_id, tags). The collection methods belong on `EngineImages`, which now has list, build, push and prune.",
    "evidence": "git show origin/main:src/devops_cli/docker/sdk.py: `class EngineImage(Protocol)` (line 79) has attrs/id/short_id/tags; `class EngineImages(Protocol)` (line 94) has list/build/push/prune. The plan also says 'if they are not already declared' but checks nothing.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "ignores_existing_code",
@@ -55,7 +57,8 @@
    "where": "tasks.md 2.2",
    "problem": "The task says to add 'a fail method' to the fake. `DockerEngineFake.fail(name, error, times=)` already exists and can make `images.pull` raise. The task asks for duplicate code.",
    "evidence": "origin/main tests/support/fakes/docker_engine.py line 615: `def fail(self, name: str, error: BaseException, *, times: int | None = None)`.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",

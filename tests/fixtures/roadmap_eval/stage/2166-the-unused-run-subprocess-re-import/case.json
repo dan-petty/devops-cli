@@ -47,7 +47,8 @@
    "where": "tasks.md",
    "problem": "Tasks 1.1 and 2.1 ask for pytest tests that run `uv run ruff check` or `rg -n '_prepare_cmd'`. docs/TESTING.md says a check of committed files is a row of `devops ci`, not a pytest test. Tests start no real programs. The plan's own design.md quotes this rule to reject a pytest invariant, then the tasks break it. Task 3.1 also writes a temporary file into src/ from a test. The failed implement attempt left files named test_ruff_unused_import.py and tmp_test_ruff_import.py, and mypy --strict failed on them.",
    "evidence": "docs/TESTING.md line 65: 'A check of committed files or of tool configuration is a row of `devops ci`, not a pytest test.' tasks.md 1.1: 'Write a test that runs uv run ruff check --select F401 ...'. 2.1: 'Write a test that asserts rg -n ... prints nothing'. Issue comment: 'uv run mypy --strict -- test_ruff_unused_import.py tmp_test_ruff_import.py exited with status 1.'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a test that starts a program. The form rule checks only the prefix."
   },
   {
    "type": "contrived_test",
@@ -71,7 +72,8 @@
    "where": "specs/ci-gate-admission/spec.md",
    "problem": "The delta is added to the wrong capability. openspec/specs/ci-gate-admission describes gate slots for heavy checks. A lint row does not belong there. The scenario 'finding count becomes 15' and 'ceiling of 14' are also stale. The messages in Why and tasks 3.1 vs 3.2 do not match (the row 'names the new sites').",
    "evidence": "openspec/specs/ci-gate-admission/spec.md Purpose: 'How `devops ci` limits the CPU-heavy gates that run at the same time on one host'. spec.md in the PR: 'ceiling of 14'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The delta is in the wrong capability. No check compares it with the purpose."
   },
   {
    "type": "other",

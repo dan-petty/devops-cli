@@ -23,7 +23,8 @@
    "where": "tasks.md",
    "problem": "Groups 1 and 2 leave the test failing after the README fix. The test would compare each README host to Ingress hosts read from spec.rules[].host in two files. After the planned rewrite the section still names k8s.<domain>, which is a TCP route with no Ingress, and mattermost.<domain>, which is set in k8s/mattermost/mattermost.yaml (ingress.host in Helm values), not in an Ingress manifest. Only the wildcard has an exemption. The step 2.1 pass check fails, and the implementer must add an ad hoc exemption or widen the manifest scan. The plan decides neither.",
    "evidence": "Simulation on origin/main: after replacing .homelab. with ., the tokens in the section '## Cloudflare Wildcard Tunnel & Ingress Routing' are ['*.<domain>','ai','argocd','chat','git','grafana','k8s','mattermost'].<domain>. Against the host: values of k8s/ingress/ingress-routes.yaml and k8s/devops/roadmap-service/ingress.yaml the unmatched set is ['*.<domain>','k8s.<domain>','mattermost.<domain>']. k8s/mattermost/mattermost.yaml:25 'host: mattermost.example.com' sits under 'ingress:' in Helm values. README line 'devops config set k8s.tunnel_host k8s.<domain>' and k8s/cloudflared/networkpolicy.yaml:43 'the tunnel's k8s.<domain> TCP route'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "false_premise",
@@ -55,7 +56,8 @@
    "where": "tasks.md",
    "problem": "The verify clauses contradict the order of work and read as garbled generator output. 1.2 says the test must pass, but the README is still broken in group 1. 2.1 says to verify the test 'fails on the base' as part of a step that confirms it passes. 1.3 says 'Change no document, run devops docs generate --sync-readme'. 2.3 starts with a bare path 'k8s/README.md, run ...'. The tasks use 'uv run pytest', not the documented 'uv run devops ci test <path>'.",
    "evidence": "tasks.md 1.2: '... and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` passes'; 2.1: 'confirm exit code 0, and verify that `uv run pytest tests/test_k8s_readme_hosts.py -x` fails on the base'; openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'. No fail-to-pass step (`devops ci fail-to-pass`) is named either, though AGENTS.md rule 4 asks for one on a fix.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "verify_form",
@@ -63,7 +65,8 @@
    "where": "design.md",
    "problem": "The plan puts the test in a new flat file, tests/test_k8s_readme_hosts.py, and rejects other places with a false claim. docs/TESTING.md says a new invariant test goes into its subject's file, never a parallel file, and tests/invariants/test_k8s_manifests.py already exists on main. Also tests/k8s/ exists, so 'No existing test directory' and 'the project keeps all tests in tests/' do not hold for tests/k8s/. The two files cited as the naming pattern are not at tests/test_k8s_llm_gateway.py and tests/test_k8s_local_path_placement.py.",
    "evidence": "git ls-tree origin/main: tests/invariants/test_k8s_manifests.py exists; tests/k8s/test_*.py exist; tests/ai/benchmark/test_k8s_llm_gateway.py and tests/core/test_k8s_local_path_placement.py are the real paths; tests/test_k8s_llm_gateway.py is absent. docs/TESTING.md line 86: 'A new invariant test goes into its subject's file, created if absent, never into a parallel file.' design.md: 'No existing test directory under k8s/.'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The plan names the flat test file in the tasks, and no group lists it in `creates`. The test-path rule reads `creates`."
   },
   {
    "type": "false_premise",

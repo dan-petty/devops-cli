@@ -67,7 +67,8 @@
    "where": "specs/ai-spend-pricing/spec.md, scenario 'Valid local backend still detected'",
    "problem": "The THEN clause says 'the backend column shows the resolved value'. That is vague. The test cannot assert a value that is not written. Name the expected label (localhost:11434).",
    "evidence": "spec.md line: '**THEN** The row is classified as local and the backend column shows the resolved value'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a vague THEN clause. A person judges it."
   },
   {
    "type": "other",

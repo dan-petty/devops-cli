@@ -26,7 +26,8 @@
    "where": "tasks.md",
    "problem": "Group 2 (_copy) is a no-op as planned, and its failing-test-first step cannot work. _copy already calls shutil.copystat(source, partial) before os.replace, so the final copy already has the source mode. Task 2.1 says the test must fail on the base. Case (1) (redact path, dest mode 0600) and case (2) (shutil.copy2 path) both pass on the base. Task 2.2 adds os.chmod right before copystat, which sets the same mode as copystat does. It does not close the window the issue names (the tmp file exists with the umask mode after write_bytes and before the mode is set).",
    "evidence": "src/devops_cli/config/write_history.py _copy at the parent of b57b9b3c: `partial.write_bytes(redacted)` / `shutil.copystat(source, partial)` / `os.replace(partial, dest)`. Task 2.2: 'after partial.write_bytes(redacted) and before shutil.copystat(source, partial), add: os.chmod(partial, ...)'. The implement job later reported: 'Verified existing implementation ... All tests in tests/test_config_write_history.py pass' and stopped at group 2.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "false_premise",
