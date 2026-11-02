@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The golden set holds the plans with their defects
-The set SHALL hold one folder under `tests/fixtures/roadmap_eval/stage/` for each case: the issue text, the plan, the facts of the tree that the gates need, and the known defects. It SHALL hold the 37 plans of 2026-11-01 and at least 3 cases with the verdict `good` and no defect. A defect SHALL have a type from the shared enum, the review text with its evidence, and the gate that must refuse it: `paths`, `kind`, `pending` or `none`. A defect with the gate `none` whose type was once planned for a gate SHALL give a `reason` that says why the recorded plan cannot show it to a gate.
+The set SHALL hold one folder under `tests/fixtures/roadmap_eval/stage/` for each case: the issue text, the plan, the facts of the tree, and the known defects. It SHALL hold the 37 plans of 2026-11-01 and at least 3 `good` cases with no defect. A defect SHALL have a type from the shared enum, the review text with its evidence, and the gate that must refuse it: `paths`, `kind`, `pending` or `none`. A defect with the gate `none` and a type that a gate catches SHALL give a `reason`.
 
 #### Scenario: The set loads
 - **WHEN** the set is loaded
@@ -16,7 +16,7 @@ The set SHALL hold one folder under `tests/fixtures/roadmap_eval/stage/` for eac
 - **THEN** each defect of the types `ignores_existing_code`, `spec_delta_wrong`, `verify_form` and `task_order` that has the gate `none` has a `reason`, and each of them that has the gate `paths` holds the `message` of the problem
 
 ### Requirement: The replay fails when a gate stops refusing a known-bad plan
-`devops roadmap eval stage --replay` SHALL run the recorded plan of each case through the gates `paths`, `kind` and `criteria`, with no model call and no read of git. The gate `paths` SHALL be `check_proposal`, with the capabilities of the case: the path rule, the rules of the spec delta and the form rule, so it judges defects of the types `missing_path`, `spec_delta_wrong` and `verify_form`. It SHALL exit 1 when a gate no longer refuses a defect that names it, when a gate does not name a path or give the message that the defect lists, or when a gate refuses a `good` plan. Otherwise it SHALL exit 0.
+`devops roadmap eval stage --replay` SHALL run the recorded plan of each case through the gates `paths`, `kind` and `criteria`, with no model call and no read of git. The gate `paths` SHALL be `check_proposal` with the capabilities of the case, so it judges `missing_path`, `spec_delta_wrong` and `verify_form`. It SHALL exit 1 when a gate no longer refuses a defect that names it, does not give the path or message that the defect lists, or refuses a `good` plan. Otherwise it SHALL exit 0.
 
 #### Scenario: Every gate refuses what it must
 - **WHEN** the replay runs on the set
