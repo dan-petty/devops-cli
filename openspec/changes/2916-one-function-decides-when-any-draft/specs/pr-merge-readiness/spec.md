@@ -1,23 +1,35 @@
 ## ADDED Requirements
 
-### Requirement: One readiness function decides for every kind of draft pull request
-The system SHALL provide one function that takes a pull request, its kind and its recorded item and returns ready, wait, or refuse with a reason, and the stage row and the implement job SHALL call it before marking a pull request ready.
+### Requirement: pr ready asks the readiness function
+`devops pr ready` SHALL ask `draft_readiness` for the pull request, with the word of the author given. It SHALL exit 1 for a refusal and name each unticked task group of an implement pull request, and SHALL exit 8 for a wait. `--force` SHALL skip the question. A read of the item that fails SHALL stop the command with exit 1 and the error.
 
-#### Scenario: An incomplete implement pull request is refused
-- **WHEN** the function reads a pull request of kind implement with one unticked task group
-- **THEN** it returns refuse and the reason names the unticked group
+#### Scenario: A partial implement pull request
+- **WHEN** a person runs `devops pr ready` for a draft whose item holds `implement.pr` of it and whose `tasks.md` has an unticked group 2
+- **THEN** the command exits 1, prints group 2, and marks nothing
 
-#### Scenario: A complete plan pull request is ready
-- **WHEN** the function reads an open stage plan pull request whose checks pass
-- **THEN** it returns ready
+#### Scenario: The exit codes of the checks stay
+- **WHEN** the draft has a running check, a failed check, or unread checks
+- **THEN** the command exits 8, 1 and 1
 
-#### Scenario: An author's pull request waits until the author says so
-- **WHEN** the function reads a draft pull request of kind person whose author has not declared it complete
-- **THEN** it returns wait
+#### Scenario: A branch with no item
+- **WHEN** the head branch names no issue and the checks pass
+- **THEN** the command marks the pull request ready as before
+
+#### Scenario: The record cannot be read
+- **WHEN** GitHub refuses the read of the item that the head branch names
+- **THEN** the command exits 1 with the error, and `--force` marks the pull request ready
 
 ### Requirement: check-readiness names the unticked group
-devops pr check-readiness SHALL report the refusal of the readiness function as one blocker and SHALL exit non-zero naming the unticked group of a refused implement pull request.
+`devops pr check-readiness` SHALL add one blocker and exit non-zero when `draft_readiness` refuses an implement pull request, and the blocker SHALL name each unticked task group. It SHALL add none for a pull request with no recorded item. A read of the item that fails SHALL be a blocker that names the error.
 
 #### Scenario: A partial implement pull request blocks
-- **WHEN** a user runs devops pr check-readiness on an implement pull request with an unticked group
-- **THEN** the command exits non-zero and prints the name of the unticked group
+- **WHEN** a user runs `devops pr check-readiness` for an implement pull request with an unticked group
+- **THEN** the command exits non-zero and prints the name of the group
+
+#### Scenario: A complete implement pull request
+- **WHEN** every group of the archived `tasks.md` is ticked and the other rules pass
+- **THEN** the command adds no readiness blocker
+
+#### Scenario: A pull request with no recorded item
+- **WHEN** the head branch names no issue
+- **THEN** the command adds no readiness blocker and reads no item
