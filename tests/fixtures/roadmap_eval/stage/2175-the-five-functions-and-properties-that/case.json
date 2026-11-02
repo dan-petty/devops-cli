@@ -39,7 +39,8 @@
    "where": "specs/thinking-stream/spec.md",
    "problem": "The delta adds a requirement for the removal of one internal property. The change alters no behaviour a consumer observes, so openspec/config.yaml says it must set skip_specs: true and carry no delta. The delta is also a requirement about old behaviour and covers only one of the five names. The proposal calls the capability 'Modified' while the delta uses ADDED, which is inconsistent. `.openspec.yaml` has no skip_specs.",
    "evidence": "openspec/config.yaml: \"A change that alters no behavior a consumer observes (... a refactor that keeps behavior) has no spec delta and sets skip_specs: true\"; \"Never add a requirement for compatibility with the old behavior.\" spec.md: \"## ADDED Requirements ... The ThinkingStreamProcessor SHALL not expose a unique_thinking property.\" proposal.md: \"Modified Capabilities: thinking-stream: unique-thinking-removed\". .openspec.yaml holds only 'schema' and 'created'. Compare 1323-k8s-commands-edge-fakes/.openspec.yaml, which has skip_specs: true.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The groups change files under src/, so the rule for a delta that is not needed cannot know that no consumer sees the change."
   },
   {
    "type": "other",

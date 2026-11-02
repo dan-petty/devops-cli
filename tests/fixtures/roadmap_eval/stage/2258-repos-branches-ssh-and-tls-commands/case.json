@@ -39,7 +39,8 @@
    "where": "tasks.md Changes lines (groups 1 to 8)",
    "problem": "Existing tests assert the echo-only previews and the --dry-run option that the plan removes. No Changes line lists them, so the implementer will break them unplanned. The files are tests/commands/test_branches.py, test_repos.py, test_tls_cmd.py and tests/crypto/test_ssh.py. The plan only creates new flat test files.",
    "evidence": "tests/commands/test_branches.py:136 `[\"clean\",\"--dry-run\",...]`; tests/commands/test_repos.py:845 test_repos_commands_dry_run and :1135 test_repos_clone_org_dry_run_and_missing_org; tests/commands/test_tls_cmd.py:31,105,174-189 (asserts \"generate_tls_certificate\" and \"generate_homelab_tls_bundle\" in output), :311; tests/crypto/test_ssh.py:258 and :782 (`ssh list --all --prefix alpha --dry-run`).",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "false_premise",
@@ -75,7 +76,8 @@
    "where": "tasks.md group 9 (9.1, 9.2)",
    "problem": "Group 9 is mostly empty. 9.1 asks to verify that the full `uv run devops ci` \"fails on the base\", which is a slow check for no gain. 9.2 leaves a decision open (\"If the ratchet test needs an update ... add the assertion\"). The ratchet already fails when a classified command stays in the gaps file and when a request-plan command lacks --dry-run, so no ratchet change is needed.",
    "evidence": "tests/invariants/test_dry_run_class_ratchet.py audit_dry_run_ratchet: Criterion 2 (class set but still in gaps) and Criterion 4 (request-plan must declare --dry-run).",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a slow check and an open decision. A person judges it."
   },
   {
    "type": "other",

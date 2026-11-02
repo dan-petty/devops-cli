@@ -3319,15 +3319,19 @@ class RoadmapMessages:
     stage_eval_replay_title: str = (
         "# Stage golden set, replay through the gates: {cases} case(s), {good} good"
     )
-    stage_eval_replay_header: str = "Gate   Issue  Defect type               Known  Caught  Missed"
-    stage_eval_replay_row: str = (
-        "{gate:<6} {reference:<6} {type:<24} {known:>5}  {caught:>6}  {missed:>6}"
+    stage_eval_replay_header: str = "Gate     Issue  Known  Caught  Missed"
+    stage_eval_replay_row: str = "{gate:<8} {reference:<6} {known:>5}  {caught:>6}  {missed:>6}"
+    stage_eval_replay_types_header: str = (
+        "Defect type               Caught  Missed  Waiting  No gate  Total"
     )
+    stage_eval_replay_types_row: str = (
+        "{type:<24} {caught:>7}  {missed:>6}  {pending:>7}  {unjudged:>7}  {total:>5}"
+    )
+    stage_eval_replay_share: str = "Defects that a gate judges: {judged} of {total} ({percent})."
     stage_eval_replay_pending: str = (
         "Defects that wait for a gate. They are listed and they fail nothing:"
     )
     stage_eval_replay_pending_row: str = "  {type:<24} {count:>4}  {reference}"
-    stage_eval_replay_unjudged: str = "Defects that no gate judges: {types}."
     stage_eval_replay_good: str = "Good plans that every gate accepts: {good} of {cases}."
     stage_eval_replay_ok: str = "Result: every gate refuses what it must refuse."
     stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"

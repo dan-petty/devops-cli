@@ -45,7 +45,8 @@
    "where": "tasks.md, design.md",
    "problem": "The task order breaks the test, and the design claims the opposite. Group 1 adds the affinity while the three exemptions stay. test_every_exemption_names_a_pod_on_a_claim_that_stays_on_any_node fails for an exempt pod that already has the affinity. So the check in task 1.2 ('verify ... passes') cannot pass. The design reason 'adding affinity first keeps the test green at every step' is false. The affinity and the exemption removal must go in the same step.",
    "evidence": "tests/core/test_k8s_local_path_placement.py lines 292-304: the test asserts that no exemption 'keeps_off_the_control_plane(pods[exempt])'. The docstring says: 'A stale entry, for a pod that has gone or that has the affinity, would hide a later change.'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "contrived_test",

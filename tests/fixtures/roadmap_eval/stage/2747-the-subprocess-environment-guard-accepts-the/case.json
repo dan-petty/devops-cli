@@ -23,7 +23,8 @@
    "where": "tasks.md / design.md / specs/subprocess-environment/spec.md",
    "problem": "The family pattern NPM_CONFIG_* refuses keys that devops install-tools sets on purpose. The plan breaks the npm installer and the existing test test_a_uv_or_npm_key_that_names_no_program_reaches_the_child. The plan has no task to handle this. The npm_config_cache scenario in the spec also conflicts with the production use of npm_config_cache.",
    "evidence": "src/devops_cli/commands/install_tools.py lines 310-316 pass env={\"npm_config_cache\":..., \"npm_config_userconfig\":..., \"npm_config_globalconfig\":..., \"npm_config_update_notifier\":\"false\", \"npm_config_loglevel\":\"error\"} to _run_installer -> run_subprocess -> build_subprocess_env(env=env) (process.py:641), which raises SecurityError on a refused key. fnmatch check: all five keys match NPM_CONFIG_* (True). tests/core/test_subprocess_env_uv_npm.py:153-185 asserts that these same keys reach the child, and lists NPM_CONFIG_GITHUB and npm_config_git_tag_version as accepted too. tests/commands/test_install_tools.py:481-500 also expects npm_config_cache in the child env.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",

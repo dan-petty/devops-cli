@@ -50,7 +50,8 @@
    "where": "design.md",
    "problem": "The plan does not reconcile the new rule with the current refusal. `_refusal` rejects `not-applicable` when any query or fact read ran. The new rule requires a search before any verdict for non-skip items. So a non-skip item can never receive `not-applicable` (no search is rejected by the new rule, a search is rejected by the old one). That may be intended, but the plan does not say so, does not say whether `_refusal` changes, and the prompt tells the model 'For not-applicable, make no search'. The implementer must guess.",
    "evidence": "alternatives.py `_refusal` lines 517-530: `if reply.verdict is Verdict.NOT_APPLICABLE and (tools.queries or tools.fact_reads): return ...`. src/devops_cli/ai/tasks/roadmap_alternatives.md: '`not-applicable` when the issue asks for no tool or library ... For `not-applicable`, make no search.'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",
@@ -66,7 +67,8 @@
    "where": "tasks.md",
    "problem": "Task 3.2 says 'Ensure the search path in the alternatives check increments the Firecrawl counter'. It already does: `firecrawl_search` emits `FIRECRAWL_SEARCHES_TOTAL` on success. Task 3.1 says the test must fail on base. A replay test of an existing counter will pass on base, so the fail-first step cannot hold. The group is a test of existing behavior, not a code change. The spec requirement 'firecrawl-counter-replay' is a test acceptance item, not a system requirement, and it adds nothing to the code.",
    "evidence": "src/devops_cli/ai/common_tools.py line 33 and the body: `emit(FIRECRAWL_SEARCHES_TOTAL, 1, {\"result\": CONST_FIRECRAWL_RESULT_OK})`. alternatives.py `search_web` calls `cited_web_search`, which calls `firecrawl_search`.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",

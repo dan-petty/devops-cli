@@ -56,7 +56,8 @@
    "where": "specs/ci-job-time/spec.md / .openspec.yaml",
    "problem": "The change touches only tests/conftest.py and one test. openspec/config.yaml says a change that alters no consumer-visible behavior (tests, CI) has no spec delta and sets skip_specs: true. This plan adds a delta and does not set skip_specs. The delta is also on the wrong capability. ci-job-time is the spec of the 'devops ci job-time' command, which reads the Actions API. A requirement about xdist worker imports does not belong there. The proposal lists 'test-worker-import-preload' as a Modified Capability, but the delta uses ADDED.",
    "evidence": "openspec/config.yaml: 'A change that alters no behavior a consumer observes (tests, CI workflows, documentation ...) has no spec delta and sets skip_specs: true'. .openspec.yaml holds only 'schema' and 'created'. openspec/specs/ci-job-time/spec.md Purpose: 'How `devops ci job-time` finds out whether a CI job ... still averages less than five minutes'.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "These paths need no spec delta"
   },
   {
    "type": "other",

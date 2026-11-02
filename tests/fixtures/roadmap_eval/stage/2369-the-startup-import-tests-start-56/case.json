@@ -47,7 +47,8 @@
    "where": "specs/ci-job-time/spec.md",
    "problem": "The change is test-only and alters no consumer-visible behavior. openspec/config.yaml says such a change has no spec delta and sets skip_specs: true in .openspec.yaml. This plan adds a delta and does not set skip_specs. The delta is also in the wrong capability: ci-job-time is about the `devops ci job-time` command, not the internals of a test probe. Its scenarios test private test internals, not an offline observable.",
    "evidence": "openspec/config.yaml proposal rule: 'A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.' The merged .openspec.yaml holds only `schema: spec-driven` and `created: 2026-11-01`. openspec/specs/ci-job-time/spec.md Purpose: 'How `devops ci job-time` finds out whether a CI job ... still averages less than five minutes'. The proposal says 'Modified Capabilities: ci-job-time: startup-import-probe-mechanism' but the delta says ADDED.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "These paths need no spec delta"
   },
   {
    "type": "other",

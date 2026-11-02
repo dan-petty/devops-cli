@@ -39,7 +39,8 @@
    "where": "tasks.md",
    "problem": "No task adds a test that is kept in the repository. Tasks 1.1 and 2.1 are one-time `grep` commands in the task text, not tests. The spec scenarios say \"a test reads the declared hardening surfaces\" and \"a test searches all declared surfaces\", but no task writes such a test. The scenarios are not assertable as written. The rule says to write only scenarios that a test under tests/ can assert. The scenario \"the defect class name appears in exactly one surface\" has no defined name list to search. This breaks AGENTS.md rule 4 and the openspec/config.yaml rules for specs and tasks. Rule 11 asks for a check that fails if the problem returns, and this plan has none.",
    "evidence": "tasks.md 1.1: \"`grep -q 'frozen lockfile' SECURITY.md && ... ` fails before the change and passes after\". spec.md: \"WHEN a test reads the declared hardening surfaces for a defect PR's guardrail\". tests/ has no task that names a test file.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The tasks hold one-time grep commands, not a kept test. The form rule refuses them for their prefix, not for this reason."
   },
   {
    "type": "spec_delta_wrong",
@@ -47,7 +48,8 @@
    "where": ".openspec.yaml",
    "problem": "The change edits only documents, but it carries a spec delta and sets no skip_specs. openspec/config.yaml says a change that alters no consumer-observable behavior, including documentation, has no spec delta and sets skip_specs: true. design.md rejects skip_specs with the claim that the guardrails change what the audit reports. That claim is false: the audit reads the diff of each PR, not the text of the surfaces. Archive would create a new capability spec for prose rules, with no test to hold it.",
    "evidence": "openspec/config.yaml: \"A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.\" The plan's .openspec.yaml holds only `schema: spec-driven` and `created: 2026-11-01`. design.md: \"Adding a guardrail changes what the audit reports, which is observable behavior.\" Compare audit_pr_hardening above.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The groups change SECURITY.md and CONTRIBUTING.md. The rule for a delta that is not needed does not list documents at the root."
   },
   {
    "type": "other",

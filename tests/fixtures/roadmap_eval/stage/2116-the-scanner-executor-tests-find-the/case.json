@@ -52,7 +52,8 @@
    "where": "proposal.md, tasks.md (scope)",
    "problem": "The same `scanners_installed` fixture, with the same body, is in a second file. The plan's own spec requirement says a test fixture SHALL NOT patch a shutil name. After the plan is built, `tests/security/test_review_tool_runs.py` would still break that rule. The plan does not mention that file, and it does not file a follow-up. The grep checks in Feasibility cover only one file.",
    "evidence": "`git grep -n scanners_installed origin/main -- tests` gives `tests/security/test_review_tool_runs.py:75:def scanners_installed(...)` and `tests/security/test_scanner_tool_executor.py:77`. In `test_review_tool_runs.py`, lines 76-83 hold `real_which = shutil.which ... monkeypatch.setattr(shutil, \"which\", which)`.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "verify_form",
