@@ -3011,6 +3011,20 @@ CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
 CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 16000
+# The three extra tools of the planner (#3238). `references` names a text of at most 100
+# characters and lists at most 60 files, with the count of matches of each (the count is exact: the
+# search has no cap for a file). `read_issue` shows the first 1500 characters of a body, the last
+# 3 comments cut to 600 characters each, and a title cut to 160. `find_issues` lists at most 10
+# open items. These are the answers of tools; the window of the model bounds a run.
+CONST_ROADMAP_STAGE_REFERENCE_NAME_MAX_CHARS: Final[int] = 100
+CONST_ROADMAP_STAGE_REFERENCE_MAX_FILES: Final[int] = 60
+CONST_ROADMAP_STAGE_REFERENCE_LINES_PER_FILE: Final[int] = 5
+CONST_ROADMAP_STAGE_ISSUE_BODY_CHARS: Final[int] = 1500
+CONST_ROADMAP_STAGE_ISSUE_COMMENTS: Final[int] = 3
+CONST_ROADMAP_STAGE_ISSUE_COMMENT_CHARS: Final[int] = 600
+CONST_ROADMAP_STAGE_ISSUE_TITLE_CHARS: Final[int] = 160
+CONST_ROADMAP_STAGE_FIND_MAX_RESULTS: Final[int] = 10
+CONST_ROADMAP_STAGE_FIND_TERMS_MAX_CHARS: Final[int] = 100
 # The premise probe of the stage job (#3011): the git commands it runs for one item, and the lines
 # of definition it shows for one identifier. The cited examples hold 1 to 4 items of at most 2
 # commands each, so 10 commands cover them and keep the probe short.
