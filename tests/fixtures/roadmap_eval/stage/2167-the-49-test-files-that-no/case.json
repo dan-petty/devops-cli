@@ -82,7 +82,7 @@
    "where": "tasks.md",
    "problem": "Two acceptance criteria of the issue have no task. (a) 'The pull request names each test it deletes and why' and the product-code removal rule (#1307 Q27) have no task or check. (b) The criterion about #1309 ceilings: #1309 is closed, but the plan neither checks whether ceilings exist nor lowers them. The plan also says nothing about the 'Dependencies: #2143', which is now closed.",
    "evidence": "gh api issues/1309 -> state closed, 'ratchets hold internal patches, private imports ...'; issue #2167 acceptance criteria lines 3, 4, 5; grep of tasks.md for '1309', 'ceiling' and 'names each test' -> no match.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",
@@ -90,7 +90,8 @@
    "where": "specs/test-public-interface/spec.md",
    "problem": "The requirement says 'Tests in the 49-file set'. The set is not defined in the spec. After #2830 moved the files, it cannot be found from the spec text. The Purpose block sits in a delta spec. A spec that depends on a set of file names will go stale. A repository-wide ratchet or guard test would be a durable check.",
    "evidence": "spec.md: 'Tests in the 49-file set SHALL exercise product behavior ...'; the file list exists only in proposal.md.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is the wording of the requirement. The rule for a delta that is not needed refuses this delta for another reason."
   },
   {
    "type": "other",

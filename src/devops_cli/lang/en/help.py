@@ -900,10 +900,13 @@ class MCPCommandHelp:
     app: str = "FastMCP server and Model Context Protocol integrations."
     serve: str = "Launch FastMCP server to expose devops-cli tools to MCP clients."
     tools: str = "List all registered FastMCP tools and descriptions."
-    transport: str = "Transport protocol for FastMCP server (stdio | sse)."
-    host: str = "Host interface for SSE transport."
-    port: str = "Port number for SSE transport."
-    allow_remote: str = "Permit binding SSE transport to non-loopback network interfaces."
+    transport: str = (
+        "Transport protocol for FastMCP server (stdio | sse | streamable-http). "
+        "streamable-http serves one endpoint per job role and needs the mcp.token setting."
+    )
+    host: str = "Host interface for the sse and streamable-http transports."
+    port: str = "Port number for the sse and streamable-http transports."
+    allow_remote: str = "Permit binding a network transport to non-loopback network interfaces."
     export_schemas: str = "Export FastMCP tool JSON schemas and instructions for MCP clients."
     output_dir: str = "Destination directory for tool schema JSON files."
 
@@ -947,6 +950,16 @@ class PRCommandHelp:
     create_pr: str = "Create a new pull request."
     create_base: str = (
         "Base branch of the pull request; the repository's default branch when omitted."
+    )
+    describe: str = (
+        "Print the title and the body of the pull request that delivers an issue. The first line "
+        "is the title, then a blank line, then the body."
+    )
+    describe_issue: str = "Number of the issue that the pull request closes."
+    describe_summary: str = "Summary of the title, at most 60 characters: what the change does. The command never cuts it."
+    describe_why: str = "Text of the body: what the change does, and why. The section Why of the proposal when omitted."
+    describe_attribution: str = (
+        "A paragraph for the end of the body, after the Change line. Repeat the option for more."
     )
     checks: str = "View status of remote CI checks on a pull request."
     view: str = "View details of a pull request."

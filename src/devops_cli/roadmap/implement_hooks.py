@@ -34,7 +34,6 @@ from devops_cli.config.constants import (
     CONST_PRE_COMMIT_HOME_DIR,
     CONST_PRE_COMMIT_HOME_ENV,
     CONST_PRE_COMMIT_TRUSTED_CONFIG_FILE,
-    CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS,
 )
 from devops_cli.config.settings import load_settings
@@ -138,17 +137,18 @@ def _pre_commit(source: Path, config: Path, *args: str) -> HookRun:
     """Run `pre-commit <args>` in the checkout. A run that runs out of time is a failure that no
     repair round can fix."""
     command = pre_commit_command(config, *args)
+    limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
         done = run_subprocess(
             command,
             cwd=source,
             env=hook_environment(),
             quiet=True,
-            timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+            timeout=limit,
         )
     except subprocess.TimeoutExpired:
         text = MESSAGES.roadmap.implement_stop_command_timeout.format(
-            command=" ".join(command), seconds=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS
+            command=" ".join(command), seconds=limit
         )
         return HookRun(_TIMED_OUT, text)
     return HookRun(done.returncode, output_text(done.stdout, done.stderr))

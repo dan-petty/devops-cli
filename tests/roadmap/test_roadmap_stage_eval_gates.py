@@ -47,6 +47,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
     assert {total.gate.name: (total.known > 0, total.missed) for total in report.totals()} == {
         GateName.PATHS: (True, 0),
         GateName.KIND: (True, 0),
+        GateName.CRITERIA: (False, 0),
     }
 
 
@@ -57,25 +58,81 @@ def test_each_good_plan_passes_every_gate(cases: list[StageCase]) -> None:
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
 
 
-def test_the_pending_defects_are_counted_and_fail_nothing(cases: list[StageCase]) -> None:
+def test_no_defect_waits_for_a_gate_once_the_gates_of_3012_to_3017_are_built(
+    cases: list[StageCase],
+) -> None:
     report = replay_all(cases)
 
-    pending = report.count(DefectStatus.PENDING)
-
-    assert set(pending) == set(PENDING_GATES)
+    assert PENDING_GATES == {}
+    assert report.count(DefectStatus.PENDING) == {}
+    assert report.count(DefectStatus.STALE) == {}
+    assert not any(d.gate is GateName.PENDING for c in cases for d in c.defects)
     assert report.failures == []
+
+
+_WAITED_FOR_A_GATE = (
+    DefectType.IGNORES_EXISTING_CODE,
+    DefectType.SPEC_DELTA_WRONG,
+    DefectType.VERIFY_FORM,
+    DefectType.TASK_ORDER,
+)
+
+
+def test_a_defect_of_a_type_that_waited_for_a_gate_is_judged_or_says_why_not(
+    cases: list[StageCase],
+) -> None:
+    defects = [d for c in cases for d in c.defects if d.type in _WAITED_FOR_A_GATE]
+
+    judged = [d for d in defects if d.gate is not GateName.NONE]
+    unjudged = [d for d in defects if d.gate is GateName.NONE]
+
+    assert len(defects) == 72
+    assert all(d.gate is GateName.PATHS and d.message for d in judged)
+    assert all(d.reason for d in unjudged)
+    assert not any(d.reason for d in judged)
+
+
+def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
+    cases: list[StageCase],
+) -> None:
+    """The caught and unjudged defects of each type that waited for a gate (#3208). A change that
+    lets a gate judge more defects raises the first number and lowers the second."""
+    report = replay_all(cases)
+
+    counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
+
+    assert counts[DefectType.MISSING_PATH] == (31, 0, 0)
+    assert counts[DefectType.SPEC_DELTA_WRONG] == (5, 0, 20)
+    assert counts[DefectType.VERIFY_FORM] == (4, 0, 12)
+    assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
+    assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
+    assert report.judged() == (64, 299)
+
+
+def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.pull == 2977)
+    healed = case.model_copy(update={"plan": {**case.plan, "skip_specs": True, "specs": []}})
+
+    report = replay_all([case, healed])
+
+    assert [t.missed for t in report.by_type()].count(1) == 1
+    assert report.judged()[0] == sum(t.caught + t.missed for t in report.by_type())
+    assert report.judged()[1] == sum(len(c.defects) for c in (case, healed))
 
 
 def test_a_defect_is_listed_for_the_gate_that_catches_its_type_or_for_a_gate_that_finds_it(
     cases: list[StageCase],
 ) -> None:
-    """A type that waits for a gate (the spec delta, #3013) can have a defect that a gate of
-    another type already refuses: the case then names that gate and holds its message."""
+    """The check of the job (`paths`) refuses a defect of the types `spec_delta_wrong` and
+    `verify_form`, since it runs the rules of the spec delta and of the form with the path rule
+    (#3208): the case then names that gate and holds its message."""
     for case in cases:
         for defect in case.defects:
             by_type = defect.gate in (gate_for(defect.type), GateName.NONE)
-            by_finding = defect.type in PENDING_GATES and defect.gate in {g.name for g in GATES}
-            assert by_type or (by_finding and defect.message), (case.name, defect.type)
+            by_finding = defect.gate in {g.name for g in GATES} and defect.message
+            assert by_type or by_finding, (case.name, defect.type)
 
 
 def test_a_gate_that_stops_refusing_a_plan_fails_the_replay(cases: list[StageCase]) -> None:
@@ -184,9 +241,16 @@ def test_a_defect_that_no_gate_judges_fails_nothing(cases: list[StageCase]) -> N
     assert replay.failures == []
 
 
-def test_the_gates_and_the_pending_gates_cover_each_type_once_but_the_two_no_gate_judges() -> None:
+def test_the_gates_and_the_pending_gates_cover_each_type_once_but_those_no_gate_judges() -> None:
     caught = {gate.catches for gate in GATES}
-    unjudged = {DefectType.OTHER, DefectType.FALSE_PREMISE}
+    unjudged = {
+        DefectType.OTHER,
+        DefectType.FALSE_PREMISE,
+        DefectType.SPEC_DELTA_WRONG,
+        DefectType.VERIFY_FORM,
+        DefectType.TASK_ORDER,
+        DefectType.IGNORES_EXISTING_CODE,
+    }
 
     assert caught.isdisjoint(PENDING_GATES)
     assert caught | set(PENDING_GATES) | unjudged == set(DefectType)
@@ -210,4 +274,106 @@ def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests
         "every path in `changes` is under tests/" in problem
         for problem in replay.problems[GateName.PATHS]
     )
+    assert replay.failures == []
+
+
+ACCEPTANCE_BODY = "Text.\n\n### Acceptance criteria\n\n- [ ] First.\n- [ ] Second.\n"
+
+
+def _with_criteria(case: StageCase, criteria: list[dict[str, object]]) -> StageCase:
+    return case.model_copy(
+        update={"issue_body": ACCEPTANCE_BODY, "plan": {**case.plan, "criteria": criteria}}
+    )
+
+
+def test_the_criteria_gate_refuses_a_plan_that_leaves_a_criterion_out(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    one = [{"criterion": "First.", "group": 1, "reason": None}]
+
+    problems = run_gates(PlanUnderTest.of_case(_with_criteria(good, one)))
+
+    assert [p for p in problems[GateName.CRITERIA]] == [
+        'The issue lists the acceptance criterion "Second.", and `criteria` has no entry with '
+        "this text. Add an entry that copies the text, with the number of the group that "
+        "delivers it or pending-person and a reason."
+    ]
+
+
+def test_the_criteria_gate_passes_a_plan_that_maps_every_criterion(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    both = [{"criterion": t, "group": 1, "reason": None} for t in ("First.", "Second.")]
+
+    assert not replay_case(_with_criteria(good, both)).refused
+
+
+def test_a_recorded_plan_has_no_criteria_list_so_the_criteria_gate_does_not_judge_it(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    body = good.model_copy(update={"issue_body": ACCEPTANCE_BODY})
+
+    assert run_gates(PlanUnderTest.of_case(body))[GateName.CRITERIA] == []
+
+
+def test_the_dropped_criterion_defects_of_the_set_wait_for_no_gate(cases: list[StageCase]) -> None:
+    dropped = [d for c in cases for d in c.defects if d.type is DefectType.CRITERION_DROPPED]
+
+    assert dropped
+    assert {d.gate for d in dropped} == {GateName.NONE}
+    assert DefectType.CRITERION_DROPPED not in PENDING_GATES
+
+
+@pytest.mark.parametrize("pull", [2977, 2975, 2985, 2990], ids=lambda pull: f"pull-{pull}")
+def test_the_replay_of_a_plan_with_a_pytest_verify_command_is_refused_for_its_verify_form(
+    cases: list[StageCase], pull: int
+) -> None:
+    case = next(c for c in cases if c.pull == pull)
+    forms = [d for d in case.defects if d.type is DefectType.VERIFY_FORM]
+    judged = [d for d in forms if d.gate is GateName.PATHS]
+
+    replay = replay_case(case)
+
+    assert any(g["verify"].startswith("uv run pytest") for g in case.groups)
+    assert len(judged) == 1
+    assert next(o.status for o in replay.outcomes if o.defect is judged[0]) is DefectStatus.CAUGHT
+    assert any("`uv run pytest " in problem for problem in replay.problems[GateName.PATHS])
+    assert replay.failures == []
+
+
+@pytest.mark.parametrize(
+    ("rule", "kind"),
+    [
+        ("_needs_no_spec", DefectType.SPEC_DELTA_WRONG),
+        ("form_problems", DefectType.VERIFY_FORM),
+    ],
+)
+def test_a_rule_of_the_check_that_stops_refusing_fails_the_replay_of_its_defects(
+    cases: list[StageCase], monkeypatch: pytest.MonkeyPatch, rule: str, kind: DefectType
+) -> None:
+    caught = {d.gate for c in cases for d in c.defects if d.type is kind}
+    monkeypatch.setattr(stage_change, rule, lambda *_: [] if rule == "form_problems" else False)
+
+    report = replay_all(cases)
+
+    assert GateName.PATHS in caught
+    assert any(f"no longer refuses the {kind} defect" in failure for failure in report.failures)
+    assert next(t.missed for t in report.by_type() if t.type is kind) > 0
+
+
+def test_a_defect_that_the_replay_cannot_show_is_not_a_miss_of_a_gate(
+    cases: list[StageCase],
+) -> None:
+    """A defect in the code that exists, or in the order of the work, has the gate `none`: the
+    check of the job cannot see it in a recorded plan, and the replay does not fail it."""
+    case = next(c for c in cases if DefectType.IGNORES_EXISTING_CODE in c.defect_types())
+    defect = next(d for d in case.defects if d.type is DefectType.IGNORES_EXISTING_CODE)
+
+    replay = replay_case(case.model_copy(update={"defects": (defect,)}))
+
+    assert (defect.gate, bool(defect.reason)) == (GateName.NONE, True)
+    assert replay.outcomes[0].status is DefectStatus.UNJUDGED
     assert replay.failures == []

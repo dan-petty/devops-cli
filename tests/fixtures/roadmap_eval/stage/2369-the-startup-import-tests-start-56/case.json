@@ -31,7 +31,7 @@
    "where": "tasks.md",
    "problem": "No task checks the issue acceptance criterion: at most half the present CPU time over three runs of the file. Task 1 has no baseline step. Group 2 ends without any timing step. The only mention of the 2x goal is in the Feasibility text and the PR body. The plan has no task for the issue's step 1 (split the cost) either.",
    "evidence": "tasks.md groups 1 and 2 hold only 'verify ... pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q passes'. No task runs the file three times or compares CPU time. Issue #2369 'Acceptance: the file takes at most half of its present CPU time, measured over three runs'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -47,7 +47,8 @@
    "where": "specs/ci-job-time/spec.md",
    "problem": "The change is test-only and alters no consumer-visible behavior. openspec/config.yaml says such a change has no spec delta and sets skip_specs: true in .openspec.yaml. This plan adds a delta and does not set skip_specs. The delta is also in the wrong capability: ci-job-time is about the `devops ci job-time` command, not the internals of a test probe. Its scenarios test private test internals, not an offline observable.",
    "evidence": "openspec/config.yaml proposal rule: 'A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.' The merged .openspec.yaml holds only `schema: spec-driven` and `created: 2026-11-01`. openspec/specs/ci-job-time/spec.md Purpose: 'How `devops ci job-time` finds out whether a CI job ... still averages less than five minutes'. The proposal says 'Modified Capabilities: ci-job-time: startup-import-probe-mechanism' but the delta says ADDED.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "These paths need no spec delta"
   },
   {
    "type": "other",
@@ -63,7 +64,8 @@
    "where": "tasks.md",
    "problem": "Verify commands use bare `uv run pytest ... -n 0 -x -q` where config.yaml names `uv run devops ci test <path>`. The new test in 1.1 also adds more subprocess-mocking tests to a file whose cost is the problem.",
    "evidence": "openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`.' tasks.md 1.1, 1.2, 2.1, 2.2 use `uv run pytest tests/commands/test_cli_startup_imports.py -n 0 -x -q`.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "A `verify` command starts with `uv run devops`"
   },
   {
    "type": "false_premise",

@@ -96,7 +96,7 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **THEN** the title after the colon has at most 60 characters, and the summary is cut at a word
 
 ### Requirement: The job measures each task group
-The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 40000, and `--step-tokens` SHALL override it for one run.
+The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 64000, and `--step-tokens` SHALL override it for one run.
 
 #### Scenario: A group is measured
 - **WHEN** the model gives a group whose task names a file of the repository
@@ -233,7 +233,7 @@ The model lane of the Service SHALL hold the row `stage` after the row `refine`.
 - **THEN** its `Due:` line lists `stage` after `refine`, and no request is made
 
 ### Requirement: The settings name the filter, the limit and the step budget
-The settings `roadmap.stage.filter`, `roadmap.stage.limit` and `roadmap.stage.step_tokens` SHALL set what the stage job takes. Each SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_FILTER`, `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` or `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS`. The defaults SHALL be the filter `status=ready`, the limit 3 and the step budget 40000. The example ConfigMap of the Service SHALL hold the default filter.
+The settings `roadmap.stage.filter`, `roadmap.stage.limit` and `roadmap.stage.step_tokens` SHALL set what the stage job takes. Each SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_FILTER`, `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` or `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS`. The defaults SHALL be the filter `status=ready`, the limit 3 and the step budget 64000, half of the default window of the implement task. The example ConfigMap of the Service SHALL hold the default filter.
 
 #### Scenario: The defaults
 - **WHEN** no config file and no variable sets a `roadmap.stage` setting
@@ -582,19 +582,19 @@ The planner of the stage job SHALL plan with an agent that has exactly these too
 - **THEN** it names each tool of the toolbox
 
 ### Requirement: A plan run has a budget
-A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000 output tokens. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
+A plan run of the toolbox SHALL make at most `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls and `CONST_ROADMAP_STAGE_MAX_REQUESTS` model requests. It SHALL set no count of output tokens: the context window ends the tools of a run. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
 
 #### Scenario: The tool call limit
-- **WHEN** one reply of the model in a plan run holds 31 parallel tool calls
+- **WHEN** one reply of the model in a plan run holds one more parallel tool call than `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
 - **THEN** the item fails, and the reason names `tool_calls_limit`
 
 #### Scenario: The tools are gone near the limit
-- **WHEN** the model has made 27 tool calls, one in each turn
+- **WHEN** the model has made `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` minus 3 tool calls, one in each turn
 - **THEN** the next request offers no tool, and a valid plan in the reply stages the item
 
 #### Scenario: The output token limit
-- **WHEN** the replies of the model in one plan run hold more than 50000 output tokens
-- **THEN** the item fails, and the reason names `output_tokens_limit`
+- **WHEN** the replies of the model in one plan run hold more than 50000 output tokens, and the last reply is a valid plan
+- **THEN** the item is staged
 
 #### Scenario: A run inside the budget
 - **WHEN** the model reads two files and then answers with a valid plan
@@ -609,14 +609,14 @@ A plan run SHALL offer no tool to a request when the tokens of its messages, wit
 
 #### Scenario: A model that reads a big file in every turn
 - **WHEN** a plan run has a window of 12000 tokens and the model reads a file of 120 long lines in every turn
-- **THEN** a request offers no tool before the budget of 27 calls, no request passes the window, and the plan stages the item
+- **THEN** a request offers no tool before the budget of tool calls, no request passes the window, and the plan stages the item
 
 #### Scenario: A run with no window
 - **WHEN** a run is given no window
 - **THEN** only the budget of tool calls takes the tools away
 
 ### Requirement: The tools read a checkout that is the staged commit
-The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that has a change that is not committed or a file that git does not track, before any model call. The failure SHALL be a `RoadmapStageError`. A tool SHALL read the size of a file before it reads the file, SHALL refuse a file of more than 2000000 bytes, and SHALL number only the lines that it returns. `search_code` and `callers` SHALL stop at 121 matches in one file.
+The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that has a change that is not committed or a file that git does not track, before any model call. The failure SHALL be a `RoadmapStageError`. A tool SHALL read the size of a file before it reads the file, SHALL refuse a file of more than 2000000 bytes, and SHALL number only the lines that it returns. `search_code` and `callers` SHALL stop at one more than `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` matches in one file.
 
 #### Scenario: A modified file
 - **WHEN** the checkout holds a modified tracked file
@@ -627,15 +627,15 @@ The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that
 - **THEN** it answers that the file is too large to read
 
 #### Scenario: A file with many matches
-- **WHEN** a file holds 360 lines that match `callers`
-- **THEN** the answer holds 120 lines and says that lines are left out
+- **WHEN** a file holds three times `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines that match `callers`
+- **THEN** the answer holds `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and says that lines are left out
 
 ### Requirement: The map and the spec tools give short answers
-`repo_map` SHALL give one line for each of at most 20 files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. It SHALL answer as text when OpenSpec is not installed.
+`repo_map` SHALL give one line for each of at most `CONST_ROADMAP_STAGE_MAP_MAX_FILES` files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. It SHALL answer as text when OpenSpec is not installed.
 
 #### Scenario: A directory with more files than the limit
-- **WHEN** `repo_map` maps a directory of 25 Python files
-- **THEN** the answer has 20 file lines and a last line that says that files are left out
+- **WHEN** `repo_map` maps a directory of `CONST_ROADMAP_STAGE_MAP_MAX_FILES` plus 5 Python files
+- **THEN** the answer has `CONST_ROADMAP_STAGE_MAP_MAX_FILES` file lines and a last line that says that files are left out
 
 #### Scenario: A requirement
 - **WHEN** `read_spec` gets a capability and a requirement name
@@ -645,7 +645,7 @@ The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that
 When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the retry limit, and no budget limit. It holds no tool name, because the name of a tool in an error message is text that the model chose.
 
 #### Scenario: One call after the tools are gone
-- **WHEN** the model has made 27 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
+- **WHEN** the model has made `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` minus 3 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
 - **THEN** the item is staged
 
 #### Scenario: Two calls after the tools are gone
@@ -657,7 +657,7 @@ When a request offers no tool, a call of the model to a function tool SHALL get 
 - **THEN** the item fails, and the reason names the retry limit 2, and no budget limit
 
 ### Requirement: The budget is for each plan run
-A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use 60 tool calls and 100000 output tokens at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
+A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use twice `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
 
 #### Scenario: The budget is for each plan run
 - **WHEN** the first plan run of an item makes 20 tool calls, the checks refuse its plan, and the second plan run makes 20 tool calls
@@ -773,6 +773,98 @@ The stage job SHALL give the model the purpose and the requirement names of ever
 #### Scenario: The input lists a capability
 - **WHEN** The stage job builds the model input for a proposal
 - **THEN** the input holds the purpose and the requirement names of each capability
+
+### Requirement: A verify command has the project form
+`check_proposal` SHALL refuse a group whose `verify` command does not start with `uv run devops` as a whole word, unless it starts with `! git grep `.
+
+#### Scenario: A pytest verify command is refused
+- **WHEN** a group gives the `verify` command `uv run pytest tests/roadmap/test_stage.py`
+- **THEN** `check_proposal` returns a problem that names the command and the accepted forms
+
+#### Scenario: A devops command or a negative search is accepted
+- **WHEN** a group gives the `verify` command `uv run devops ci test tests/roadmap/test_stage.py` or `! git grep -n old_name src/ tests/`
+- **THEN** `check_proposal` returns no problem about the `verify` command
+
+### Requirement: A new test module sits in a mirror directory
+`check_proposal` SHALL refuse a path in `creates` that is a test module under `tests/` unless it is in `tests/invariants/` or in the directory that mirrors the package of a source file that the plan changes.
+
+#### Scenario: A flat test path is refused
+- **WHEN** a group creates `tests/test_stage.py` and the plan changes `src/devops_cli/roadmap/stage.py`
+- **THEN** `check_proposal` returns a problem that names the path and the directory `tests/roadmap`
+
+#### Scenario: A mirrored or an invariant test path is accepted
+- **WHEN** a group creates `tests/roadmap/test_stage.py` or `tests/invariants/test_source_tree.py`
+- **THEN** `check_proposal` returns no problem about the test path
+
+### Requirement: The prompt and the rules give a mirrored test path
+The stage prompt and `openspec/config.yaml` SHALL give only example test paths whose folder under `tests/` mirrors a package of `src/devops_cli/`.
+
+#### Scenario: Every example path is mirrored
+- **WHEN** a test reads the stage prompt and `openspec/config.yaml`
+- **THEN** each example test path has a folder under `tests/` that mirrors a package of `src/devops_cli/`
+
+### Requirement: Criteria mapping in the stage reply
+The stage reply SHALL hold a `criteria` list in which each entry gives the text of one acceptance criterion of the issue and either the number of the group that delivers it or `pending-person` with a reason. An acceptance criterion SHALL be a top-level item of a list under a heading `Acceptance criteria` in the text of the issue body that a person wrote, before the block of the refine job. An issue with no such list SHALL have no criterion.
+
+#### Scenario: Every criterion is mapped
+- **WHEN** The issue has three acceptance criteria and the reply's `criteria` list holds an entry for each, with a group number or `pending-person` and a reason
+- **THEN** `check_proposal` returns no problem for the criteria mapping
+
+#### Scenario: The list of the refine block is not read
+- **WHEN** The issue body holds a list under `Acceptance criteria` in the refine block as well, and the reply maps the items of the list that a person wrote
+- **THEN** `check_proposal` returns no problem for the criteria mapping
+
+#### Scenario: The issue has no acceptance list
+- **WHEN** The issue body has no heading `Acceptance criteria` and the reply's `criteria` list is empty
+- **THEN** `check_proposal` returns no problem for the criteria mapping
+
+#### Scenario: A pending-person entry has no reason
+- **WHEN** An entry of `criteria` gives `pending-person` and a blank reason
+- **THEN** the reply breaks the schema and goes back to the model
+
+### Requirement: An unmapped criterion is refused
+`check_proposal` SHALL refuse a reply that leaves an acceptance criterion of the issue with no entry in `criteria`, and an entry that names a group the plan does not have. The problem SHALL quote the exact text of the criterion. The check SHALL read the whole body of the issue.
+
+#### Scenario: One of three criteria is unmapped
+- **WHEN** The issue has three acceptance criteria and the reply's `criteria` list maps only two
+- **THEN** `check_proposal` returns a problem that quotes the text of the unmapped criterion
+
+#### Scenario: The retry copies the text
+- **WHEN** The first reply leaves a criterion out and the second reply maps it
+- **THEN** the second request to the model holds the problem with the exact text, and the item is staged
+
+#### Scenario: An entry names a group that does not exist
+- **WHEN** An entry of `criteria` names group 3 and the plan has 2 groups
+- **THEN** `check_proposal` returns a problem that names the criterion and the count of groups
+
+### Requirement: Criteria section in tasks.md
+The `tasks.md` of a staged plan SHALL hold a `## Criteria` section before `## Workflow follow-up`. It SHALL list each criterion with the number of the group that delivers it, or `pending-person` with the reason, as bullets with no checkbox.
+
+#### Scenario: Staged plan shows the mapping
+- **WHEN** A plan is rendered with criteria mapped to groups
+- **THEN** `tasks.md` holds a `## Criteria` section with one line for each criterion and its delivering group number or `pending-person` with the reason
+
+#### Scenario: A plan with no criterion has no section
+- **WHEN** A plan is rendered with an empty `criteria` list
+- **THEN** `tasks.md` holds no `## Criteria` section
+
+### Requirement: A split moves the criteria with the groups
+The split request SHALL hold the `criteria` list, the split reply SHALL give it again with the numbers of the new groups, and the job SHALL check it as it checks the first reply.
+
+#### Scenario: A split renumbers the groups
+- **WHEN** The model splits a group and gives the criteria with the new group numbers
+- **THEN** `tasks.md` shows the new numbers
+
+### Requirement: The replay judges the criteria gate on plans with a criteria list
+The golden-set replay SHALL run the `criteria` gate on a plan that has a `criteria` list, and SHALL not judge a recorded plan that has none.
+
+#### Scenario: A plan leaves a criterion out
+- **WHEN** The replay runs a plan with a `criteria` list that leaves one criterion of its issue out
+- **THEN** the `criteria` gate refuses the plan
+
+#### Scenario: A recorded plan has no list
+- **WHEN** The replay runs a recorded plan with no `criteria` key
+- **THEN** the `criteria` gate finds no problem
 
 ### Requirement: The job probes the premise at the staging commit
 Before the model call, the stage job SHALL probe each path and each identifier that the issue cites at the staging commit, and SHALL put the probe text in the model input under the key `probes`. The job SHALL take the cited items from the same extraction as the context of the model. A missing path SHALL be probed for the commit that deleted or renamed it, and an identifier with no definition for the commit that last added or removed its text.

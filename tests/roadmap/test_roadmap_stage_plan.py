@@ -23,6 +23,10 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+)
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.openspec.tool import isolated_openspec
@@ -37,6 +41,7 @@ from devops_cli.roadmap.stage_change import (
     closing_keyword_in,
     render_change,
 )
+from devops_cli.roadmap.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
@@ -295,14 +300,15 @@ def test_a_large_file_counts_at_most_the_file_cap_of_the_step(
 ) -> None:
     heavy = heavy_group(stage_repo, files=1)
     big = stage_repo.clone / heavy.reads[0]
-    assert count_tokens(big.read_text(encoding="utf-8")) > 6000
+    budget = CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS + 4000
+    assert count_tokens(big.read_text(encoding="utf-8")) > budget
     model_fake.answer(make_stage_proposal(groups=[heavy]))
 
-    plan = _plan(store, stage_repo, step_tokens=6000)
+    plan = _plan(store, stage_repo, step_tokens=budget)
 
     assert (plan.over_budget, model_fake.call_count) == ((), 1)
     (group,) = plan.ready[0].groups
-    assert group.tokens <= 6000
+    assert group.tokens <= budget
 
 
 @pytest.mark.usefixtures("openspec")
@@ -729,7 +735,9 @@ def test_a_path_in_a_verify_command_is_checked_and_a_created_path_passes(
     openspec: OpenSpecFake,
 ) -> None:
     model_fake.answer(
-        _naming("src/devops_cli/sample.py", verify="uv run pytest tests/old/test_sample.py"),
+        _naming(
+            "src/devops_cli/sample.py", verify="uv run devops ci test tests/old/test_sample.py"
+        ),
         make_stage_proposal(),
     )
 
@@ -1023,7 +1031,7 @@ def test_a_plan_run_that_spends_its_budget_fails_its_item_and_the_others_are_pla
         assert isinstance(first, ModelRequest)
         text = next(str(p.content) for p in first.parts if isinstance(p, UserPromptPart))
         if json.loads(text)["number"] == item:
-            return ModelResponse(parts=[read] * 31)
+            return ModelResponse(parts=[read] * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1))
         return make_stage_proposal()
 
     plan = _toolbox_plan(store, stage_repo, Script(reply))
@@ -1271,3 +1279,132 @@ def test_a_spec_delta_on_test_paths_goes_back_to_the_model_with_the_problem(
     assert "problem" not in first
     assert second["problem"] == NO_SPEC_PROBLEM
     assert len(plan.ready) == 1
+
+
+# ── The criteria (#3019) ──────────────────────────────────────────────────────
+
+THREE_CRITERIA = (
+    "The job drops a comment.\n\n### Acceptance criteria\n\n"
+    "- [ ] First criterion.\n- [ ] Second criterion.\n- [ ] Third criterion.\n"
+)
+MISSING_THIRD = (
+    'The issue lists the acceptance criterion "Third criterion.", and `criteria` has no entry '
+    "with this text. Add an entry that copies the text, with the number of the group that "
+    "delivers it or pending-person and a reason."
+)
+
+
+def _mapping(*texts: str, group: int | str = 1) -> list[dict[str, object]]:
+    reason = "A person decides." if group == "pending-person" else None
+    return [{"criterion": text, "group": group, "reason": reason} for text in texts]
+
+
+def test_a_reply_that_maps_two_of_three_criteria_is_refused() -> None:
+    proposal = make_stage_proposal(criteria=_mapping("First criterion.", "Second criterion."))
+
+    problems = check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, issue_body=THREE_CRITERIA)
+
+    assert problems == [MISSING_THIRD]
+
+
+def test_a_reply_that_maps_three_criteria_is_accepted() -> None:
+    proposal = make_stage_proposal(
+        criteria=_mapping("First criterion.", "Second criterion.", "Third criterion.")
+    )
+
+    assert (
+        check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, issue_body=THREE_CRITERIA) == []
+    )
+
+
+def test_the_check_reads_no_criterion_when_the_caller_gives_no_body() -> None:
+    assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE) == []
+
+
+def test_tasks_md_lists_each_criterion_with_its_group_before_the_follow_up() -> None:
+    criteria = [
+        *_mapping("First criterion."),
+        *_mapping("Second criterion.", group="pending-person"),
+    ]
+    proposal = make_stage_proposal(criteria=criteria)
+
+    files = render_change("1-x", proposal, ["comment-thread"], created=TODAY.date())
+
+    tasks = files["openspec/changes/1-x/tasks.md"]
+    assert tasks.endswith(
+        "\n## Criteria\n\n- First criterion.: group 1\n"
+        "- Second criterion.: pending-person, A person decides.\n\n"
+        "## Workflow follow-up\n\n- Pending a person: review the diff in tuicr "
+        "(tuicr -r <base>..HEAD).\n"
+    )
+
+
+def test_tasks_md_has_no_criteria_section_for_a_plan_with_no_criterion() -> None:
+    files = render_change("1-x", make_stage_proposal(), ["comment-thread"], created=TODAY.date())
+
+    assert "## Criteria" not in files["openspec/changes/1-x/tasks.md"]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_reply_with_an_unmapped_criterion_goes_back_once_and_the_retry_copies_the_text(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    item = seed_stageable(store, body=THREE_CRITERIA)
+    model_fake.answer(
+        make_stage_proposal(criteria=_mapping("First criterion.", "Second criterion.")),
+        make_stage_proposal(
+            criteria=_mapping("First criterion.", "Second criterion.", "Third criterion.")
+        ),
+    )
+
+    plan = _plan(store, stage_repo, item=item)
+
+    assert _requests(model_fake)[1]["problem"] == MISSING_THIRD
+    assert model_fake.call_count == 2
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_the_check_reads_the_whole_body_not_the_part_the_model_got(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    long_tail = "x " * 20000
+    body = f"{long_tail}\n\n### Acceptance criteria\n\n- [ ] Last criterion.\n"
+    item = seed_stageable(store, body=body)
+    model_fake.answer(make_stage_proposal(), make_stage_proposal())
+
+    _plan(store, stage_repo, item=item)
+
+    assert 'acceptance criterion "Last criterion."' in _requests(model_fake)[1]["problem"]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_split_reply_brings_the_criteria_with_the_new_group_numbers(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    item = seed_stageable(store, body=THREE_CRITERIA)
+    heavy = heavy_group(stage_repo)
+    light = [
+        heavy.model_copy(update={"title": "First half", **NO_FILES}),
+        heavy.model_copy(update={"title": "Second half", **NO_FILES}),
+    ]
+    texts = ("First criterion.", "Second criterion.", "Third criterion.")
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy], criteria=_mapping(*texts)),
+        StageSplit(groups=light, criteria=[StageCriterion(criterion=t, group=2) for t in texts]),
+    )
+
+    plan = _plan(store, stage_repo, item=item, step_tokens=6000)
+
+    assert _requests(model_fake)[1]["criteria"][0]["criterion"] == "First criterion."
+    tasks = plan.ready[0].files[f"openspec/changes/{CHANGE}/tasks.md"]
+    assert "- First criterion.: group 2" in tasks
+
+
+@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
+def test_the_prompts_say_what_the_criteria_list_holds(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert "`criteria`" in prompt
+    assert "`pending-person`" in prompt
+    assert "counted from 1" in prompt

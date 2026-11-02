@@ -51,7 +51,7 @@
    "where": "proposal.md, design.md, tasks.md",
    "problem": "The plan covers only three commands. Two other Argo CD API callers use the same stored token with a raw `raise_for_status` and have the same traceback: `fleet.py` (used by fleet and sync commands) and `gitops.py`. The plan does not name them as out of scope or as a follow-up. The design says 'duplicating ... across four or more commands', and the issue title says 'each argo API command', yet only three are changed. After the change, `devops argo sync` and the gitops sync still end in a traceback on a refused token.",
    "evidence": "git grep on origin/main: src/devops_cli/argo/fleet.py:69 `resp.raise_for_status()` after `token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)`; src/devops_cli/argo/gitops.py:405 `resp.raise_for_status()` after the same token lookup. tasks.md has no 'Workflow follow-up' bullet for them.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",
@@ -59,7 +59,8 @@
    "where": "spec.md, tasks.md 1.2",
    "problem": "The spec and helper treat only HTTP 401 as a refused token. The repo defines a refusal as 401 or 403, and its existing credential sync spec says the same. Argo CD can answer a bad session with 403. The plan neither follows that constant nor says why it differs.",
    "evidence": "src/devops_cli/config/constants.py:3326 `CONST_STACK_TOKEN_REFUSED_HTTP_STATUSES: Final[frozenset[int]] = frozenset({401, 403})`. openspec/specs/stack-credential-sync/spec.md line 8: 'HTTP 401 or 403 SHALL count as a refusal'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a status code that differs from a constant. Only the code shows it."
   },
   {
    "type": "other",
@@ -83,7 +84,8 @@
    "where": "proposal.md (Capabilities) and specs/stack-credential-sync/spec.md",
    "problem": "The proposal lists 'Modified Capabilities: stack-credential-sync', but the delta uses only '## ADDED Requirements'. The capability is the credential sync of `devops k8s sync-secrets` and does not cover the `devops argo cd apps` commands, so the requirements sit in a spec that does not match their subject. The Feasibility section also gives no command output (no reproduction of the 401 path, no check of what list or status do). It restates the issue.",
    "evidence": "openspec/specs/ has argo-image-pin-drift, argo-sync-rollouts-teardown and others, but the new requirements go to stack-credential-sync. proposal.md Feasibility: 'The premise is confirmed: ... cd_apps_sync calls resp.raise_for_status()' with no output; it does not mention the except-Exception in list and status.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The delta is in the wrong capability. No check compares it with the purpose."
   },
   {
    "type": "false_premise",

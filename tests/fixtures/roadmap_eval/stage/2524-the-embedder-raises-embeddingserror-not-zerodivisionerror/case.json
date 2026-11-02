@@ -78,7 +78,8 @@
    "where": "specs/review-filed-findings/spec.md",
    "problem": "The delta adds the hardening audit requirement to the review-filed-findings capability. That capability covers the review finding marker and 'devops review intake'. The defect PR hardening audit is another subject, so the requirement is in the wrong capability.",
    "evidence": "openspec/specs/review-filed-findings/spec.md Purpose: 'The marker that an issue filed from a review finding carries, the lookup... and which findings the review leaves out of a hand-off to roadmap intake'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The delta is in the wrong capability. No check compares it with the purpose."
   },
   {
    "type": "other",

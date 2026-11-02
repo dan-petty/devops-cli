@@ -92,6 +92,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
+| [`pr_describe`](#pr-describe) | `true` | Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body. |
 | [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
 | [`pr_edit`](#pr-edit) | `false` | Edit pull request base branch, title, body, or milestone. |
 | [`pr_list`](#pr-list) | `true` | List pull requests with base targeting and review status. |
@@ -148,7 +149,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`valkey_set`](#valkey-set) | `false` | Set string value of key with optional expiration TTL. |
 | [`valkey_stats`](#valkey-stats) | `true` | Display quick diagnostic summary of server health, memory, and keys. |
 | [`vault_get`](#vault-get) | `true` | Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.  The keyring answers only with no usable token, when Vault has no value at the path, or when Vault is unreachable; never after Vault rejects the token. The output names the source. |
-| [`vault_set`](#vault-set) | `false` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 | [`vault_status`](#vault-status) | `true` | Inspect HashiCorp Vault cluster health and initialization status.  The health endpoint needs no token, and none is sent. The Token row names where the token other commands would use comes from, and why a stored token is not used for this address. |
 | [`vault_sync`](#vault-sync) | `false` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.  Reads Vault alone. A path with no secret fails, and a field named like the entry that holds the `devops vault login` token is never written. |
 
@@ -1491,6 +1491,23 @@ Close a pull request.
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
+### `pr_describe`
+
+Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `issue` | `integer` | Yes | - | Number of the issue that the pull request closes. |
+| `summary` | `string` | Yes | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `why` | `string` | No | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
+| `attribution` | `array[string]` | No | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
 ### `pr_diff`
 
 View diff of a pull request.
@@ -2402,21 +2419,6 @@ Vault is unreachable; never after Vault rejects the token. The output names the 
 |---|---|---|---|---|
 | `path` | `string` | Yes | - | Vault secret path (e.g. secret/data/myapp or vault://secret/data/myapp#token) |
 | `key` | `string` | No | - | Specific secret field key to extract |
-| `show` | `boolean` | No | `False` | Display secret in plain text without masking |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-
-### `vault_set`
-
-Store secret key-value pairs in HashiCorp Vault KV-v2 engine.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `path` | `string` | Yes | - | Vault secret path (e.g. secret/data/myapp) |
-| `key_values` | `array[string]` | Yes | - | Key-value pairs to store (format: KEY=VALUE) |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `vault_status`

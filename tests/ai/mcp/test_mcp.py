@@ -163,12 +163,12 @@ class TestMcpCli:
         out_dir = tmp_path / "mcp_schemas"
         result = runner.invoke(app, ["export-schemas", "--output-dir", str(out_dir)])
         trivy_schema = json.loads((out_dir / "scan_trivy.json").read_text(encoding="utf-8"))
-        vault_schema = json.loads((out_dir / "vault_set.json").read_text(encoding="utf-8"))
+        mutating_schema = json.loads((out_dir / "valkey_set.json").read_text(encoding="utf-8"))
         assert (
             result.exit_code,
             (out_dir / "instructions.md").exists(),
             trivy_schema.get("annotations"),
-            vault_schema.get("annotations"),
+            mutating_schema.get("annotations"),
             "Exported" in result.output and "instructions" in result.output,
         ) == (0, True, {"readOnlyHint": True}, {"readOnlyHint": False}, True)
 
@@ -492,6 +492,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("gh", "pr", "checks"),
             ("gh", "pr", "close"),
             ("gh", "pr", "create"),
+            ("gh", "pr", "describe"),
             ("gh", "pr", "diff"),
             ("gh", "pr", "edit"),
             ("gh", "pr", "hardening-report"),
@@ -647,6 +648,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("vault", "leases"),
             ("vault", "login"),
             ("vault", "logout"),
+            ("vault", "set"),
             ("workspace", "add"),
             ("workspace", "clean"),
             ("workspace", "generate"),

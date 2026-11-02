@@ -59,7 +59,8 @@
    "where": "tasks.md",
    "problem": "Task 3.1 asks to verify a 'no code test' by showing that uv run devops ci test tests/test_telemetry_instruments.py fails on the base. No test is written that checks the TELEMETRY.md table, so that run cannot fail for the reason given. The failing-first rule is not met for the doc group. The proposal also leaves the existing TELEMETRY.md text unfixed: line 38 says 'The roadmap Service sends none' (gauges), which the change makes false. AGENTS.md rule 8 requires fixing that sentence in the same PR.",
    "evidence": "tasks.md 3.1: 'No code test; ... and verify that `uv run devops ci test tests/test_telemetry_instruments.py` fails on the base'. docs/TELEMETRY.md:38-39: 'The roadmap Service sends none, because its token cannot read traffic.'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The command cannot fail for the reason given. A person judges it."
   },
   {
    "type": "other",
@@ -75,7 +76,8 @@
    "where": "design.md",
    "problem": "The design says 'Use the existing emit() ... path' and that the Service context provides attributes. The Service's own metrics (queue depth, job suspended, budget limit and spent) go through GLOBAL_METRICS.set_gauge on the Service /metrics, and service.py/run.py use no emit(). The plan does not weigh these two paths, and the repository has a check against one gauge name on two paths (test_no_gauge_reaches_prometheus_through_two_paths). The rejected-alternatives list names no evidence for the choice.",
    "evidence": "git grep -n 'emit(' origin/main -- src/devops_cli/server/service.py src/devops_cli/roadmap/run.py returns nothing; run.py:998 uses GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, ...); tests/telemetry/test_telemetry_instruments.py:253 test_no_gauge_reaches_prometheus_through_two_paths.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",

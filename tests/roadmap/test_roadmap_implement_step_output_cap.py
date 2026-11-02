@@ -21,15 +21,12 @@ import pytest
 from pydantic_ai.messages import ModelResponse
 
 from devops_cli.ai import pydantic_ai_bridge
-from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS,
-    CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.ai_pydantic import OutputCapReached, UnexpectedModelBehavior
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.roadmap import implement_step
-from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
+from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, output_cap, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
 from tests.support.fakes.process import ProcessFake
@@ -40,9 +37,9 @@ from tests.web_fakes import StubWeb
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 GATEWAY_URL = "http://example.com:4000/v1"
-CAP = CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS
+CAP = output_cap(WINDOW)
 # The cap of the tests that stream a whole reply: the fake server sends one event for each token,
-# so the real cap would take seconds. The tests send the constant of the module, not the number.
+# so the real cap would take seconds. The tests replace `output_cap` of the module, not the number.
 SMALL_CAP = 300
 # Where the fake server cuts a reply when the request names no cap, so a test of a missing cap ends.
 SERVER_DEFAULT_TOKENS = 3 * SMALL_CAP
@@ -70,7 +67,7 @@ def programs(implement_programs: ProcessFake) -> ProcessFake:
 @pytest.fixture
 def small_cap(monkeypatch: pytest.MonkeyPatch) -> int:
     """The step with a cap that a test can stream whole."""
-    monkeypatch.setattr(implement_step, "CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS", SMALL_CAP)
+    monkeypatch.setattr(implement_step, "output_cap", lambda _window: SMALL_CAP)
     return SMALL_CAP
 
 
@@ -209,7 +206,7 @@ def test_the_first_request_holds_the_cap_and_the_deadline(
     settings = script.settings_seen[0]
     assert (settings["max_tokens"], settings["request_timeout"]) == (
         CAP,
-        CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+        DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     )
 
 
@@ -319,7 +316,7 @@ def test_a_call_that_never_answers_ends_at_the_deadline_with_no_second_request(
     programs: ProcessFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(implement_step, "CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(implement_step, "request_timeout_seconds", lambda: 0.2)
     head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(Hang())
     model = script.model()
@@ -344,8 +341,8 @@ def test_a_call_that_keeps_streaming_ends_at_the_deadline_with_no_second_request
     """The `timeout` setting limits only the wait for each chunk, so a model that sends a chunk
     all the time would never trip it. The deadline is one clock over the whole call: it ends this
     call, which the cap cannot end because the cap is out of reach."""
-    monkeypatch.setattr(implement_step, "CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS", 0.2)
-    monkeypatch.setattr(implement_step, "CONST_ROADMAP_IMPLEMENT_MAX_OUTPUT_TOKENS", 10**9)
+    monkeypatch.setattr(implement_step, "request_timeout_seconds", lambda: 0.2)
+    monkeypatch.setattr(implement_step, "output_cap", lambda _window: 10**9)
     head = git(checkout, "rev-parse", "HEAD")
     model, server = served(Reply(text="I will start.", endless=True))
 

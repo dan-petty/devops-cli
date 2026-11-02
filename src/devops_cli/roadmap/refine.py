@@ -148,6 +148,7 @@ from devops_cli.roadmap.intake_model import IntakeModel, build_intake_model
 from devops_cli.roadmap.refine_investigation import (
     InvestigationStopped,
     InvestigationTools,
+    analysis_window,
     investigate,
 )
 from devops_cli.roadmap.store import (
@@ -2028,6 +2029,7 @@ def _investigate(
         json.dumps(document, ensure_ascii=False, indent=1),
         tools,
         RefinementProposal,
+        window=analysis_window(),
     )
     if isinstance(revised, InvestigationStopped):
         logger.warning(

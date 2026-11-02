@@ -26,7 +26,8 @@ Ready.
 **Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
 before it answers (`ai.for_task("analysis")`, prompt `roadmap_stage_change.md`, and the read-only
 tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
-of tool calls and output tokens (`stage_toolbox`); a run that passes it fails the item. Without a
+of tool calls and requests (`stage_toolbox`), and its tools end when its messages fill the context
+window; a run that passes the budget fails the item. Without a
 `ToolboxModel` the planner makes the one call with no tool, as the tests and the option
 `--no-toolbox` of the golden-set run do. The job measures each task group
 (`stage_change.measure_groups`) and asks once for a split of the groups over `--step-tokens`. A group costs what its step reads: the
@@ -113,6 +114,7 @@ from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
+from devops_cli.roadmap.refine_investigation import analysis_window
 from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
@@ -127,6 +129,7 @@ from devops_cli.roadmap.stage_change import (
     staging_title,
     write_change_files,
 )
+from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
@@ -489,7 +492,6 @@ _SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 # The model window is shared by the reply, the body of the item and the repository context.
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
-_DEFAULT_WINDOW: Final[int] = 8192
 # A reply that fails its schema goes back to the model once, with the violations; a second one
 # stops the item.
 _REPLY_RETURNS: Final[int] = 1
@@ -783,6 +785,7 @@ class _Planner:
             self._known,
             self._tree_of(target, proposal),
             requirements=self._requirements,
+            issue_body=target.item.body,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -795,6 +798,7 @@ class _Planner:
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.
             problems = path_problems(asked.groups, self._tree.with_files(files))
+            problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)
         proposal = asked
@@ -850,9 +854,10 @@ class _Planner:
                 {**m.group.model_dump(), "tokens": m.tokens, "over_budget": m.tokens > self._budget}
                 for m in measured
             ],
+            "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
         split = self._ask(StageSplit, _SPLIT_TASK, asked)
-        proposal = proposal.model_copy(update={"groups": split.groups})
+        proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured
 
@@ -1057,11 +1062,6 @@ def plan_stage(
         returned=tuple(returned),
         failed=tuple(failed),
     )
-
-
-def analysis_window() -> int:
-    """The context window of the `analysis` task in tokens, or a default when no setting names it."""
-    return load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
 
 
 def _planner_of(

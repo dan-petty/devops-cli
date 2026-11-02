@@ -55,7 +55,7 @@
    "where": "tasks.md",
    "problem": "Acceptance criterion 3 of the issue is dropped. It asks for a live check that the same /api/embed request to ollama-16gib and ollama-48gib-slow gives cosine of 0.999 or more. The plan has no 'Pending a person:' bullet for it, and no mention in design.md of why it is left out. The only follow-up bullet is the tuicr review.",
    "evidence": "Issue #2396 refine: 'Criterion 3: ... cosine similarity of 0.999 or higher'. tasks.md 'Workflow follow-up' holds only 'Pending a person: review the diff in tuicr'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",
@@ -63,7 +63,8 @@
    "where": "specs/ai-gateway-routing/spec.md",
    "problem": "The requirement says all tiers that serve the embedding model use 'the same value'. The scenario asserts a fixed value, q8_0, on every DaemonSet. The test would fail on a later change of all tiers to another value, so the scenario is stricter than the requirement. The text also says 'every DaemonSet container env block', which the requirement does not scope to the embedding group.",
    "evidence": "spec.md: 'SHALL set OLLAMA_KV_CACHE_TYPE to the same value' vs '**THEN** every OLLAMA_KV_CACHE_TYPE value is q8_0'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "A scenario is stricter than its requirement. A person judges it."
   },
   {
    "type": "other",
