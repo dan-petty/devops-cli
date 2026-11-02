@@ -12,7 +12,7 @@ Issue #3063. The runner Job of the implement job has a fixed `activeDeadlineSeco
   - A changed digest is a progress event. The Service patches the Job: `activeDeadlineSeconds` becomes the smaller of the ceiling and the greater of the deadline in force and the seconds since the Job started plus the extension step. It stores the digest and the time in the annotations.
   - An unchanged digest for `deadline_stall_seconds` is a stall. The Service patches `activeDeadlineSeconds` to the seconds since the Job started, so the Job controller ends the Job at once with the reason `DeadlineExceeded`, and sets the annotation `roadmap.devops-cli/stalled`.
   - Each extension and each stall is a span `implement.deadline` under the span of the round, with the Job, the old and the new deadline and the reason, and one log line.
-- The report comment of a Job that ended names the stall when the annotation `roadmap.devops-cli/stalled` is set.
+- The report comment of a Job that ended names the stall when the annotation `roadmap.devops-cli/stalled` is set, and the failure class of that stop is `timeout` (#3065): the Job went over its deadline.
 - `ClusterJobs` gets `patch_job`, and `ClusterJob` carries the start time, the deadline and the annotations. `build_job` takes a `deadline` and `annotations`.
 - Manifests: the Role `roadmap-service-jobs` adds `patch` on `jobs`; the policy `roadmap-service-jobs` allows at most 14400 seconds. The CronJob template keeps 7200 for `devops k8s run-job`.
 - Docs: `k8s/README.md`, `docs/ROUTINE_TASKS.md`, `docs/ENV_VARS.md` and `docs/CONFIGURATION.md` (generated).

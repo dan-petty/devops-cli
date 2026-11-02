@@ -332,12 +332,12 @@ def test_a_patch_without_a_deadline_leaves_the_spec_alone(kube: FakeCluster) -> 
 
 
 def test_a_refused_patch_is_an_error_that_names_the_action_and_the_status(
-    kube: FakeCluster,
+    kube: FakeCluster, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def refuse(*_: Any, **__: Any) -> Any:
         raise api_exception(403, "Forbidden")
 
-    kube.custom_objects.patch_namespaced_custom_object = refuse  # type: ignore[method-assign]
+    monkeypatch.setattr(kube.custom_objects, "patch_namespaced_custom_object", refuse)
 
     with pytest.raises(ClusterJobError, match="patch Job in namespace devops: HTTP 403 Forbidden"):
         ClusterJobs().patch_job("devops-cli-runner-a", deadline=5400)
