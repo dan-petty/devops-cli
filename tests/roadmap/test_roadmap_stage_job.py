@@ -4,11 +4,12 @@ each item once by its result, and fails for the items that failed (#2659)."""
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from devops_cli.exceptions import GitOperationError, RoadmapStageError
+from devops_cli.roadmap import run
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stage_change import StageSplit
@@ -25,6 +26,7 @@ from tests.support.roadmap_stage import (
     seed_stageable,
     validate_args,
 )
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -114,6 +116,35 @@ def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
     assert outcome == JobOutcome()
     assert _pushed(stage_repo) == ["feat/2-the-job-drops-a-label", "main"]
     assert _counted(otlp) == [("staged", 1.0)]
+
+
+def test_a_round_plans_with_the_model_of_the_analysis_task_as_an_investigator(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    seed_stageable(store)
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+    tasks: list[str] = []
+
+    def task_model(task: str) -> Any:
+        tasks.append(task)
+        return script.model()
+
+    monkeypatch.setattr(run, "get_task_model", task_model)
+
+    outcome = _round(store, stage_repo)
+
+    assert (outcome, tasks, script.tools_offered[0][:2], model_fake.call_count) == (
+        JobOutcome(),
+        ["analysis"],
+        ["list_files", "read_file"],
+        0,
+    )
+    assert _pushed(stage_repo) == ["fix/1-the-job-drops-a-comment", "main"]
 
 
 def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(

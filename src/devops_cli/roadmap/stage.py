@@ -23,8 +23,12 @@ another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
 Ready.
 
-**Plan.** For each item the job asks the model for one `StageProposal` (`ai.for_task("analysis")`,
-prompt `roadmap_stage_change.md`), measures each task group (`stage_change.measure_groups`) and
+**Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
+before it answers (`ai.for_task("analysis")`, prompt `roadmap_stage_change.md`, and the read-only
+tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
+of tool calls and output tokens (`stage_toolbox`); a run that passes it fails the item. Without an
+`investigator` the planner makes the one call with no tool, as the tests and the option
+`--no-toolbox` of the golden-set run do. The job measures each task group (`stage_change.measure_groups`) and
 asks once for a split of the groups over `--step-tokens`. A group costs what its step reads: the
 files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens
 (`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
@@ -37,7 +41,7 @@ the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply 
 that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
 sent back in the same way: the problem lists the files with the same name, and a second reply with
 a missing path stops the item, so no draft opens. The groups of a split are checked in the same
-way. `plan_item` plans one item with a given client and checkout: the golden set of the job runs
+way. `plan_item` plans one item with a given client or investigator and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call that fails skips its item; rejected
 credentials stop the run.
 
@@ -118,6 +122,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
@@ -875,15 +880,20 @@ def plan_stage(
     limit: int | None = None,
     step_tokens: int | None = None,
     model: LLMClient | None = None,
+    investigator: Any | None = None,
     why: bool = False,
 ) -> StagePlan:
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
-    override `roadmap.stage.limit` and `roadmap.stage.step_tokens`; `model` overrides the client
-    of the `analysis` task. With `why`, the plan also lists the open items that the filter does
+    override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. `model` replaces the client
+    of the `analysis` task, and plans with the one call and no tool. `investigator` is the
+    pydantic-ai model of a plan run with the read-only tools (#3037); it takes the place of `model`,
+    so the two together raise `ValueError`. With `why`, the plan also lists the open items that the filter does
     not name (#2911).
     """
+    if model is not None and investigator is not None:
+        raise ValueError("Give a model or an investigator, not both.")
     checkout = Path(source)
     settings = load_settings()
     sha, heads, planned, selection = read_stage_selection(
@@ -911,16 +921,27 @@ def plan_stage(
         return plan
     client = model or get_llm_client(task="analysis", settings=settings)
     with _openspec_tool() as tool:
-        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
+        planner = _planner_of(
+            client, checkout, sha, budget=budget, tool=tool, investigator=investigator
+        )
         ready, stopped, failed = _plan_each(planner, selection.selected)
     return replace(plan, ready=tuple(ready), over_budget=tuple(stopped), failed=tuple(failed))
 
 
 def _planner_of(
-    client: StageClient, checkout: Path, sha: str, *, budget: int, tool: OpenSpecTool | None
+    client: StageClient,
+    checkout: Path,
+    sha: str,
+    *,
+    budget: int,
+    tool: OpenSpecTool | None,
+    investigator: Any | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
-    context window of the `analysis` task once."""
+    context window of the `analysis` task once. With an `investigator`, a plan run calls the
+    read-only tools on the checkout, and `client` answers the other calls."""
+    if investigator is not None:
+        client = ToolboxClient(investigator, client, checkout, sha)
     window = load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
     return _Planner(
         client=client,
@@ -937,7 +958,8 @@ def _planner_of(
 def plan_item(
     item: Item,
     *,
-    client: StageClient,
+    client: StageClient | None = None,
+    investigator: Any | None = None,
     checkout: Path,
     sha: str,
     step_tokens: int | None = None,
@@ -946,11 +968,22 @@ def plan_item(
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
     the model once, as in a run, and a second one raises `RoadmapStageError`. `step_tokens`
-    overrides `roadmap.stage.step_tokens`.
+    overrides `roadmap.stage.step_tokens`. The item is planned with a `client`, which makes the one
+    call, or with an `investigator` model, which plans with the read-only tools; exactly one of
+    the two is given.
     """
+    if (client is None) == (investigator is None):
+        raise ValueError("Give a client or an investigator, and not both.")
     budget = step_tokens or load_settings().roadmap.stage.step_tokens
     with _openspec_tool() as tool:
-        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
+        planner = _planner_of(
+            client or get_llm_client(task="analysis"),
+            checkout,
+            sha,
+            budget=budget,
+            tool=tool,
+            investigator=investigator,
+        )
         return planner.plan(_target_of(item))
 
 

@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
+from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.constants import (
     CONST_GIT_CLI,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
@@ -551,7 +552,13 @@ def _run_stage_adapter(
     each item by its result, and fail, once the other items are written, when an item failed
     (#2659)."""
     source = _job_clone("stage", clone_path)
-    plan = plan_stage(store, repo=repo, source=source, filters=parse_filters(()))
+    plan = plan_stage(
+        store,
+        repo=repo,
+        source=source,
+        filters=parse_filters(()),
+        investigator=get_task_model("analysis"),
+    )
     applied = apply_stage(store, plan, source=source)
     emit_stage_results(plan, applied)
     synced = (
