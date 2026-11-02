@@ -51,6 +51,14 @@ from devops_cli.roadmap.step_rules import rules_sections
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 _STAGING_TYPE: Final[str] = "docs(openspec)"
 _ELLIPSIS: Final[str] = "..."
+# The most digits that the number of an issue has. The title of a plan is `docs(openspec): plan
+# #<number> <summary>` and its summary has at most `SUMMARY_MAX_CHARS` characters (#2714), so the
+# room for the model's summary depends on the digits. The schema cannot know the number, so its
+# limit is the room for the longest number, and a shorter number leaves room over (#3249).
+ISSUE_NUMBER_DIGITS: Final[int] = 6
+STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - len(
+    MESSAGES.roadmap.stage_title_lead.format(number=10**ISSUE_NUMBER_DIGITS - 1)
+)
 # The most characters of the body of a pull request: it is the message of the squash commit.
 BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
@@ -268,7 +276,7 @@ class StageProposal(_Reply):
     `premise_failed` must give every key of the plan."""
 
     premise_failed: str | None = None
-    summary: str = Field("", min_length=1, max_length=SUMMARY_MAX_CHARS)
+    summary: str = Field("", min_length=1, max_length=STAGE_SUMMARY_MAX_CHARS)
     pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
     why: str = ""
     what_changes: list[str] = Field(default_factory=list, min_length=1)
@@ -289,6 +297,20 @@ class StageProposal(_Reply):
         if isinstance(data, dict) and str(data.get("premise_failed") or "").strip():
             return {"premise_failed": data["premise_failed"]}
         return data
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_fits_the_title(cls, summary: str) -> str:
+        """The title shows the summary as `safe_text` writes it, which can be longer: a handle
+        gets a code span. `staging_title` cuts no summary that the schema accepts."""
+        shown = len(safe_text(summary))
+        if shown > STAGE_SUMMARY_MAX_CHARS:
+            raise ValueError(
+                MESSAGES.roadmap.stage_summary_long.format(
+                    length=shown, limit=STAGE_SUMMARY_MAX_CHARS
+                )
+            )
+        return summary
 
     @field_validator("premise_failed")
     @classmethod
@@ -592,9 +614,10 @@ def render_change(
 
 def staging_title(number: int, summary: str) -> str:
     """The title of the draft pull request of item `number`: `docs(openspec): plan #<number>
-    <summary>`. The summary is cut at a word, so that the part after the colon has at most
-    `SUMMARY_MAX_CHARS` characters (#2714). It is on one line, with a handle or a link in a code
-    span, so it pings no one."""
+    <summary>`. It is on one line, with a handle or a link in a code span, so it pings no one. The
+    part after the colon has at most `SUMMARY_MAX_CHARS` characters (#2714). A summary that the
+    schema accepts (`STAGE_SUMMARY_MAX_CHARS`) always fits, for a number of `ISSUE_NUMBER_DIGITS`
+    digits or fewer. A longer text is cut at a word, with `...`, and `title_problems` refuses it."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
     room = SUMMARY_MAX_CHARS - len(lead)
     shortened = textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)
