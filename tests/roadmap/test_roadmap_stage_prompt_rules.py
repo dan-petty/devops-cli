@@ -20,9 +20,7 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS
 from devops_cli.core.command_resolver import resolve_devops_argv
 from devops_cli.roadmap.stage_change import (
     BODY_MAX_CHARS,
-    ISSUE_NUMBER_DIGITS,
     PURPOSE_MIN_CHARS,
-    STAGE_SUMMARY_MAX_CHARS,
     SUMMARY_MAX_CHARS,
     GroupKind,
     StageDecision,
@@ -40,7 +38,7 @@ from devops_cli.roadmap.stage_change import (
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion
 from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_paths import StagedTree
-from tests.support.builders import make_stage_proposal
+from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.paths import REPO_ROOT
 
 _CHANGE_PROMPT = "roadmap_stage_change.md"
@@ -57,7 +55,7 @@ _DOCUMENTS = {
     "openspec/config.yaml": _CONFIG,
 }
 # The largest issue number that the title has to hold with its lead.
-_LARGEST_NUMBER = 10**ISSUE_NUMBER_DIGITS - 1
+_LARGEST_NUMBER = 999999
 _CODE_SPAN = re.compile(r"`([^`]+)`")
 # The keys that a sentence lists: `a`, `b` and `c`.
 _KEY_LIST = re.compile(r"((?:`\w+`(?:, | and |, and )?)+)")
@@ -157,7 +155,7 @@ def test_the_summary_limit_of_the_prompt_is_the_limit_of_the_schema_and_fits_the
     summary = "a" * limit
     lead = staging_title(_LARGEST_NUMBER, "").split(": ", 1)[1]
 
-    assert limit == STAGE_SUMMARY_MAX_CHARS == SUMMARY_MAX_CHARS - len(lead)
+    assert limit == stage_summary_limit() == SUMMARY_MAX_CHARS - len(lead)
     assert staging_title(_LARGEST_NUMBER, summary).endswith(summary)
     assert make_stage_proposal(summary=summary).summary == summary
 

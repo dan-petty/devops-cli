@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal, overload
 
+from annotated_types import MaxLen
 from pydantic import BaseModel
 
 from devops_cli.ai.review.adjudication import Verdict
@@ -154,6 +155,16 @@ def make_stage_proposal(**overrides: Any) -> StageProposal:
     """The model's plan of a change for the stage job: one group that reads and changes
     `src/devops_cli/sample.py` and creates `tests/test_sample.py`, and a spec delta that creates the capability `comment-thread`."""
     return _validated(StageProposal, _STAGE_PROPOSAL, overrides)
+
+
+def stage_summary_limit() -> int:
+    """The most characters that the schema of the stage plan accepts in `summary`."""
+    (limit,) = (
+        m.max_length
+        for m in StageProposal.model_fields["summary"].metadata
+        if isinstance(m, MaxLen)
+    )
+    return limit
 
 
 def _validated[ModelT: BaseModel](
