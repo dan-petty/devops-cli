@@ -254,6 +254,10 @@ class MCPErrorMessages:
         "requests of the benchmark, which only the command line may choose. "
         "Name each model alone; it runs on the configured servers."
     )
+    oidc_token_not_reference: str = (
+        "Invalid value for 'oidc_token': use a reference of the form keyring:<name>. "
+        "A token in an argument passes through the model, so the tool never takes the token itself."
+    )
     conflicting_symbol_and_pattern: str = (
         "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
     )
