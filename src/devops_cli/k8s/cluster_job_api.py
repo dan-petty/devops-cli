@@ -10,7 +10,8 @@ test connects to the fake cluster. The generic `CustomObjectsApi` reaches `batch
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -42,10 +43,31 @@ class JobState(StrEnum):
 
 @dataclass(frozen=True)
 class ClusterJob:
-    """A Job of namespace `devops` as the API lists it."""
+    """A Job of namespace `devops` as the API lists it: its state, the time its pod started (None
+    until the Job controller sets it), the `activeDeadlineSeconds` in force (None when it sets
+    none) and its annotations."""
 
     name: str
     state: JobState
+    started: datetime | None = None
+    deadline: int | None = None
+    annotations: Mapping[str, str] = field(default_factory=dict[str, str])
+
+
+def _started(job: Mapping[str, Any]) -> datetime | None:
+    """The `status.startTime` of a Job as a time, or None when the controller has not set it."""
+    text = (job.get("status") or {}).get("startTime")
+    return datetime.fromisoformat(text) if text else None
+
+
+def _listed(job: Mapping[str, Any]) -> ClusterJob:
+    return ClusterJob(
+        job["metadata"]["name"],
+        job_state(job),
+        started=_started(job),
+        deadline=(job.get("spec") or {}).get("activeDeadlineSeconds"),
+        annotations=dict(job["metadata"].get("annotations") or {}),
+    )
 
 
 def job_state(job: Mapping[str, Any]) -> JobState:
@@ -72,8 +94,12 @@ class ClusterJobs:
         labels: Mapping[str, str] | None = None,
         name: str | None = None,
         cronjob: dict[str, Any] | None = None,
+        deadline: int | None = None,
+        annotations: Mapping[str, str] | None = None,
     ) -> str:
         """Create a Job from the template's CronJob and return its name: `name`, else a new one.
+        `deadline` replaces the `activeDeadlineSeconds` of the template, and `annotations` go on
+        the Job.
         A caller that records the Job before it creates it chooses the name with `job_name`. A
         caller that records the digest of the image passes the `cronjob` that it read with
         `cronjob()`, so the record and the Job come from one read.
@@ -82,7 +108,16 @@ class ClusterJobs:
         """
         cronjob = cronjob or self.cronjob(template)
         name = name or job_name(template=template)
-        job = build_job(cronjob, args, name, template=template, env=env, labels=labels)
+        job = build_job(
+            cronjob,
+            args,
+            name,
+            template=template,
+            env=env,
+            labels=labels,
+            deadline=deadline,
+            annotations=annotations,
+        )
         try:
             self._service.custom_objects_api().create_namespaced_custom_object(
                 *_BATCH, JOB_NAMESPACE, "jobs", job
@@ -109,9 +144,32 @@ class ClusterJobs:
             )
         except api_error_type() as error:
             raise self._refused("list Jobs", error) from error
-        return tuple(
-            ClusterJob(job["metadata"]["name"], job_state(job)) for job in listed.get("items", [])
-        )
+        return tuple(_listed(job) for job in listed.get("items", []))
+
+    def patch_job(
+        self,
+        name: str,
+        *,
+        deadline: int | None = None,
+        annotations: Mapping[str, str] | None = None,
+    ) -> None:
+        """Set `activeDeadlineSeconds` of Job `name` to `deadline` when given, and merge
+        `annotations` into its annotations. The API server accepts a new deadline on a running
+        Job, and the Job controller applies it at once.
+
+        Raises ClusterJobError when the API refuses the patch.
+        """
+        body: dict[str, Any] = {}
+        if annotations:
+            body["metadata"] = {"annotations": dict(annotations)}
+        if deadline is not None:
+            body["spec"] = {"activeDeadlineSeconds": deadline}
+        try:
+            self._service.custom_objects_api().patch_namespaced_custom_object(
+                *_BATCH, JOB_NAMESPACE, "jobs", name, body
+            )
+        except api_error_type() as error:
+            raise self._refused("patch Job", error) from error
 
     def log_tail(self, name: str, lines: int) -> str:
         """The last `lines` lines of the log of Job `name`'s pod as text, or "" when the Job has no

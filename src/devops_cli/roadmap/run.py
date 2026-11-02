@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
+from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.constants import (
     CONST_GIT_CLI,
@@ -559,6 +560,7 @@ def _run_stage_adapter(
         source=source,
         filters=parse_filters(()),
         model=ToolboxModel(get_task_model("analysis")),
+        verifier=get_llm_client(task="verification"),
     )
     applied = apply_stage(store, plan, source=source)
     emit_stage_results(plan, applied)

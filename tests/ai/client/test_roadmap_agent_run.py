@@ -208,6 +208,45 @@ def test_a_trace_masks_and_cuts_the_argument_of_a_call() -> None:
     )
 
 
+def test_a_trace_masks_the_value_of_an_argument_by_its_name() -> None:
+    """A value under a secret-suggesting name never reaches the trace, whatever its form (#3222).
+
+    `mask_secrets` finds a secret by its form, so `opaque-value` would pass. The name masks it.
+    """
+    messages: list[ModelMessage] = [
+        _tool_reply(
+            1,
+            1,
+            ToolCallPart(
+                "call_api",
+                {"path": "/v1/a", "api_key": "opaque-value", "nested": {"password": "hunter2"}},
+            ),
+            ToolCallPart("call_api", '{"bearer": "opaque-value", "path": "/v1/b"}'),
+        ),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"call_api"})
+
+    assert [call.argument for call in trace.tool_calls] == [
+        '{"path":"/v1/a","api_key":"<redacted>","nested":{"password":"<redacted>"}}',
+        '{"bearer":"<redacted>","path":"/v1/b"}',
+    ]
+
+
+def test_a_trace_masks_an_argument_that_is_not_json_by_its_form() -> None:
+    """An argument text that no JSON object holds has no names, so the masking by form applies."""
+    messages: list[ModelMessage] = [
+        _tool_reply(1, 1, ToolCallPart("call_api", f"not json {TOKEN}")),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"call_api"})
+
+    (argument,) = (call.argument for call in trace.tool_calls)
+    assert (TOKEN in argument, "<masked-github-token>" in argument) == (False, True)
+
+
 def test_a_trace_counts_the_violations_of_the_last_retry_prompt_of_the_output_tool() -> None:
     errors: list[Any] = [
         {"type": "missing", "loc": ("a",), "msg": "Field required", "input": {}},

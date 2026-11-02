@@ -59,7 +59,7 @@ The request to the model SHALL hold the item's title, its body without the recor
 
 #### Scenario: A request
 - **WHEN** an item with a body, a job block and two comments after the job's last comment is checked
-- **THEN** the request holds the title, the body without the block, the two comments in `replies`, and the budget of 3 searches and 6 fact reads
+- **THEN** the request holds the title, the body without the block, the two comments in `replies`, and the budget of `CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES` searches and `CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS` fact reads
 
 ### Requirement: The job sets whether a tool is maintained
 The job SHALL set `maintained` from the facts that a tool read, and the model SHALL NOT write it. A tool SHALL be maintained when its repository is not archived and its last push is within 12 months, or, for a PyPI package whose repository no tool read, when its latest upload is within 12 months.
@@ -293,3 +293,10 @@ For an item that is no skip class, the check SHALL refuse a reply that follows n
 #### Scenario: A not-applicable reply from the model
 - **WHEN** the model searches for a `feat` item and then answers with the verdict `not-applicable`
 - **THEN** the item is skipped with the reason that the job sets `not-applicable` for a skip class only, and nothing is written for it
+
+### Requirement: The check reads the context window of the analysis task
+The run of one item SHALL pass the context window of the `analysis` task to the investigation, so that the window ends the tools of the run before the counts do.
+
+#### Scenario: The window reaches the run
+- **WHEN** an item is checked and the window of the `analysis` task is 65536 tokens
+- **THEN** the investigation gets the window 65536

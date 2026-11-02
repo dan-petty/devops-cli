@@ -23,7 +23,8 @@
    "where": "tasks.md / design.md / specs/subprocess-environment/spec.md",
    "problem": "The family pattern NPM_CONFIG_* refuses keys that devops install-tools sets on purpose. The plan breaks the npm installer and the existing test test_a_uv_or_npm_key_that_names_no_program_reaches_the_child. The plan has no task to handle this. The npm_config_cache scenario in the spec also conflicts with the production use of npm_config_cache.",
    "evidence": "src/devops_cli/commands/install_tools.py lines 310-316 pass env={\"npm_config_cache\":..., \"npm_config_userconfig\":..., \"npm_config_globalconfig\":..., \"npm_config_update_notifier\":\"false\", \"npm_config_loglevel\":\"error\"} to _run_installer -> run_subprocess -> build_subprocess_env(env=env) (process.py:641), which raises SecurityError on a refused key. fnmatch check: all five keys match NPM_CONFIG_* (True). tests/core/test_subprocess_env_uv_npm.py:153-185 asserts that these same keys reach the child, and lists NPM_CONFIG_GITHUB and npm_config_git_tag_version as accepted too. tests/commands/test_install_tools.py:481-500 also expects npm_config_cache in the child env.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",
@@ -39,7 +40,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section claims 'The premise is confirmed', but it records no command output. It copies the issue text. It lists the repro command as a 'first check the implementation runs', so the plan did not run it. The issue says 'The fix issue must probe each key it claims', and no probe is recorded. The section does not check who sets npm_config_* or PYTEST_ADDOPTS in the repo. A grep of the callers would have shown the install_tools conflict. Under AGENTS.md rule 2, the item should have gone back to New with this evidence, or the design should have narrowed to the probed keys (npm_config_logs_dir, and only the cache key if the installer is changed).",
    "evidence": "proposal.md Feasibility: 'The issue body states PYTEST_ADDOPTS, npm_config_logs_dir and npm_config_cache are not in that constant... The reproduction command in the issue body confirms the gap'. grep -rniE 'npm_config' src shows install_tools.py:311-315 and devcontainer.json.j2:70.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

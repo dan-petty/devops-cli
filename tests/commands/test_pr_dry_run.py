@@ -1,4 +1,4 @@
-"""Tests for dry-run request plans and classifications across all 17 pr commands.
+"""Tests for dry-run request plans and classifications across the pr commands.
 
 Issue #2234: The dry-run rule (#412) states that a dry run makes no external request and
 returns the requests that the real run would make.
@@ -19,6 +19,7 @@ from devops_cli.commands.pr import (
     check_readiness,
     close_pr,
     create_pr,
+    describe_pr,
     diff_pr,
     edit_pr,
     hardening_report_cmd,
@@ -39,11 +40,25 @@ from tests.support.paths import FIXTURES
 
 runner = CliRunner()
 
+CREATE_BODY = (
+    "The command checks the form of the title and the body before it opens a draft.\n\n"
+    "Closes #42\n\nChange: `openspec/changes/42-check-the-form/`"
+)
+
 PR_COMMAND_CALLBACKS = [
     ("pr check-readiness", check_readiness, ["pr", "check-readiness", "42", "-R", "owner/repo"]),
     ("pr checks", pr_checks, ["pr", "checks", "42", "-R", "owner/repo"]),
     ("pr close", close_pr, ["pr", "close", "42", "-R", "owner/repo"]),
-    ("pr create", create_pr, ["pr", "create", "-t", "feat: new feature", "-R", "owner/repo"]),
+    (
+        "pr create",
+        create_pr,
+        ["pr", "create", "-t", "feat: new feature", "-b", CREATE_BODY, "-R", "owner/repo"],
+    ),
+    (
+        "pr describe",
+        describe_pr,
+        ["pr", "describe", "42", "-s", "check the form", "-R", "owner/repo"],
+    ),
     ("pr diff", diff_pr, ["pr", "diff", "42", "-R", "owner/repo"]),
     ("pr edit", edit_pr, ["pr", "edit", "42", "-t", "new title", "-R", "owner/repo"]),
     (
@@ -85,7 +100,7 @@ def test_commands_declare_request_plan_class(
 
 
 def test_pr_commands_removed_from_gaps_fixture() -> None:
-    """All 17 pr commands are removed from dry_run_gaps.json."""
+    """Every pr command is absent from dry_run_gaps.json."""
     gaps_path = FIXTURES / "dry_run_gaps.json"
     with gaps_path.open(encoding="utf-8") as f:
         gaps = json.load(f)

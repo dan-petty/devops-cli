@@ -16,10 +16,10 @@ devops mcp serve [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--transport`, `-t` | `string` | `stdio` | Transport protocol for FastMCP server (stdio | sse). |
-| `--host`, `-h` | `string` | `127.0.0.1` | Host interface for SSE transport. |
-| `--port`, `-p` | `integer` | `8000` | Port number for SSE transport. |
-| `--allow-remote` | `boolean` | - | Permit binding SSE transport to non-loopback network interfaces. |
+| `--transport`, `-t` | `string` | `stdio` | Transport protocol for FastMCP server (stdio | sse | streamable-http). streamable-http serves one endpoint per job role and needs the mcp.token setting. |
+| `--host`, `-h` | `string` | `127.0.0.1` | Host interface for the sse and streamable-http transports. |
+| `--port`, `-p` | `integer` | `8000` | Port number for the sse and streamable-http transports. |
+| `--allow-remote` | `boolean` | - | Permit binding a network transport to non-loopback network interfaces. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
