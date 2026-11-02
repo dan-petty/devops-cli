@@ -4,7 +4,7 @@
 
 Reads: `tests/invariants/test_k8s_manifests.py` (lines 1 to 50 and 800 to 1010). Changes: `tests/invariants/test_k8s_manifests.py`. This group keeps behavior and has no new test.
 
-- [ ] 1.1 In `tests/invariants/test_k8s_manifests.py`, split `_hosts(rendered)` into `_document_hosts(documents)` and `_hosts(rendered)`. `_document_hosts` holds the loop and skips a document that is not a mapping. `_hosts` calls it with `yaml.safe_load_all(rendered)`. Its result stays the same. And verify that `uv run devops ci test tests/invariants/test_k8s_manifests.py` passes
+- [x] 1.1 In `tests/invariants/test_k8s_manifests.py`, split `_hosts(rendered)` into `_document_hosts(documents)` and `_hosts(rendered)`. `_document_hosts` holds the loop and skips a document that is not a mapping. `_hosts` calls it with `yaml.safe_load_all(rendered)`. Its result stays the same. And verify that `uv run devops ci test tests/invariants/test_k8s_manifests.py` passes
 
 ## 2. Name the hosts that the manifests serve in the tunnel section
 

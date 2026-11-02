@@ -971,18 +971,24 @@ def test_readme_lists_the_table() -> None:
     assert [row for row in rows if row not in readme] == []
 
 
-def _hosts(rendered: str) -> list[str]:
+def _document_hosts(documents: Iterator[dict[str, Any] | None]) -> list[str]:
     hosts = []
-    for doc in yaml.safe_load_all(rendered):
-        if doc and doc.get("kind") == "Ingress":
+    for doc in documents:
+        if not isinstance(doc, dict):
+            continue
+        if doc.get("kind") == "Ingress":
             hosts += [rule["host"] for rule in doc["spec"]["rules"] if "host" in rule]
-        if doc and doc.get("kind") == "IngressRoute":
+        if doc.get("kind") == "IngressRoute":
             hosts += [route["match"] for route in doc["spec"]["routes"]]
-        if doc and doc.get("kind") == "Mattermost":
+        if doc.get("kind") == "Mattermost":
             ingress = doc.get("spec", {}).get("ingress", {})
             if host := ingress.get("host"):
                 hosts.append(host)
     return hosts
+
+
+def _hosts(rendered: str) -> list[str]:
+    return _document_hosts(yaml.safe_load_all(rendered))
 
 
 def _overlay(tmp_path: Path, source: Path, patches: list[dict]) -> Path:
