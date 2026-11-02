@@ -1,6 +1,7 @@
 """Unit tests for OpenTelemetry tracer and metrics emitter."""
 
 import os
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -698,83 +699,42 @@ def test_resource_attributes_standard() -> None:
     assert res_attrs["telemetry.sdk.language"] == "python"
 
 
-def test_span_no_vcs_attributes_when_working_directory_deleted(
-    monkeypatch: pytest.MonkeyPatch, collector: str
+def test_span_starts_without_vcs_attributes_when_working_directory_is_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, collector: str
 ) -> None:
-    """Verify that a span starts without VCS attributes when the working directory is gone."""
-    # Test by directly calling _detect_vcs_metadata to avoid git detection issues
-    from pathlib import Path
-
-    from devops_cli.telemetry.tracer import _detect_vcs_metadata, reset_tracer
-
-    # Reset tracer to clear any cache
+    """A span starts, and holds no `vcs.*` attribute, when the working directory was removed."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
     reset_tracer()
 
-    # Mock Path.cwd() to raise OSError when called (simulating deleted directory)
-    original_cwd = Path.cwd
-    try:
+    with OTelTelemetryClient(endpoint=collector, enabled=True).span("test_gone_span") as handle:
+        vcs_keys = [key for key in handle._attributes if key.startswith("vcs.")]
 
-        def mock_cwd():
-            raise OSError("No such file or directory")
-
-        Path.cwd = mock_cwd
-
-        # Call the function that should handle this gracefully now
-        vcs_attrs = _detect_vcs_metadata()
-
-        # Check that no vcs attributes were returned (should be empty dict)
-        assert isinstance(vcs_attrs, dict)
-        assert len(vcs_attrs) == 0, (
-            f"Found VCS attributes when working directory is deleted: {vcs_attrs}"
-        )
-    finally:
-        # Restore original Path.cwd
-        Path.cwd = original_cwd
+    reset_tracer()
+    assert vcs_keys == []
 
 
-def test_span_vcs_attributes_when_working_directory_exists(
-    monkeypatch: pytest.MonkeyPatch, collector: str
+def test_span_holds_vcs_attributes_when_working_directory_is_in_a_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, collector: str
 ) -> None:
-    """Verify that a span starts with VCS attributes when the working directory contains a git repo."""
-    # Create a temporary git repo structure
-    import tempfile
-    from pathlib import Path
+    """A span holds the branch and the revision of the repository that holds the working directory."""
+    revision = "a1b2c3d4e5f67890123456789012345678901234"
+    repo_meta = tmp_path / ".git"
+    (repo_meta / "refs" / "heads" / "feat").mkdir(parents=True)
+    (repo_meta / "HEAD").write_text("ref: refs/heads/feat/example\n")
+    (repo_meta / "refs" / "heads" / "feat" / "example").write_text(revision + "\n")
+    monkeypatch.chdir(tmp_path)
+    reset_tracer()
 
-    with tempfile.TemporaryDirectory() as tmp_path:
-        git_dir = Path(tmp_path) / ".git"
-        git_dir.mkdir()
+    with OTelTelemetryClient(endpoint=collector, enabled=True).span("test_repo_span") as handle:
+        vcs = {key: value for key, value in handle._attributes.items() if key.startswith("vcs.")}
 
-        # Create HEAD file
-        head_file = git_dir / "HEAD"
-        head_file.write_text("ref: refs/heads/feat/example")
-
-        # Create refs directory and branch file
-        refs_dir = git_dir / "refs" / "heads"
-        refs_dir.mkdir(parents=True)
-        branch_file = refs_dir / "feat/example"
-        branch_file.write_text("a1b2c3d4e5f67890123456789012345678901234")
-
-        # Change into the directory
-        original_cwd = os.getcwd()
-        monkeypatch.chdir(tmp_path)
-
-        try:
-            # Reset tracer to clear any cache
-            reset_tracer()
-
-            # Start a span - this should work normally and detect VCS attributes
-            with trace_span("test_span") as handle:
-                pass  # Just create the span
-
-            # Check that VCS attributes were added
-            vcs_attrs = {k: v for k, v in handle._attributes.items() if k.startswith("vcs.")}
-            assert "vcs.ref.name" in vcs_attrs
-            assert "vcs.branch" in vcs_attrs
-            assert "vcs.revision_id" in vcs_attrs
-            assert "vcs.commit" in vcs_attrs
-            assert vcs_attrs["vcs.ref.name"] == "feat/example"
-            assert vcs_attrs["vcs.branch"] == "feat/example"
-            assert vcs_attrs["vcs.revision_id"] == "a1b2c3d4e5f67890123456789012345678901234"
-            assert vcs_attrs["vcs.commit"] == "a1b2c3d4e5f67890123456789012345678901234"
-        finally:
-            os.chdir(original_cwd)
+    reset_tracer()
+    assert vcs == {
+        "vcs.ref.name": "feat/example",
+        "vcs.branch": "feat/example",
+        "vcs.revision_id": revision,
+        "vcs.commit": revision,
+    }

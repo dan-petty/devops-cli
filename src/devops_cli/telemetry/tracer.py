@@ -630,7 +630,6 @@ def _resolve_git_dir(start_dir: Path | None = None) -> Path | None:
     try:
         current = (start_dir or Path.cwd()).resolve()
     except OSError:
-        # If the working directory no longer exists, return None
         return None
     for candidate in [current, *current.parents]:
         marker = candidate / ".git"
